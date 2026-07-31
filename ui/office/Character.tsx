@@ -549,7 +549,7 @@ export function Character({
         />
         <Beard type={beard} color={hair} headCx={hCx} headCy={hCy} />
         <rect x={7} y={40} width={7} height={4} fill={skin} rx={2} />
-        {/* Raised right arm — arm and hand pivot together at the shoulder */}
+        {/* Raised right arm - arm and hand pivot together at the shoulder */}
         <g>
           <rect x={34} y={20} width={4} height={19} fill={skin} rx={2} />
           <circle cx={36} cy={19} r={4} fill={skin} />

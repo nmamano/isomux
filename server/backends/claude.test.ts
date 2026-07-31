@@ -1,4 +1,4 @@
-// Claude backend — T2 adapter-contract tier.
+// Claude backend - T2 adapter-contract tier.
 //
 // This file is the Claude half of the adapter-contract net (the Codex half is
 // server/backends/codex/adapter.test.ts). It freezes the claude-agent-sdk
@@ -56,7 +56,7 @@ function translate(msg: unknown, sink: ImageSink = noopSink) {
 // translateSDKMessage
 // ---------------------------------------------------------------------------
 
-describe("translateSDKMessage — system", () => {
+describe("translateSDKMessage - system", () => {
   it("init with all fields emits system_init", () => {
     const events = translate({
       type: "system",
@@ -208,7 +208,7 @@ describe("translateSDKMessage — system", () => {
   });
 });
 
-describe("translateSDKMessage — assistant", () => {
+describe("translateSDKMessage - assistant", () => {
   it("text block emits assistant_text", () => {
     const events = translate({
       type: "assistant",
@@ -312,7 +312,7 @@ describe("translateSDKMessage — assistant", () => {
   });
 });
 
-describe("translateSDKMessage — user (tool_result)", () => {
+describe("translateSDKMessage - user (tool_result)", () => {
   it("string content emits tool_result", () => {
     const events = translate({
       type: "user",
@@ -494,7 +494,7 @@ describe("translateSDKMessage — user (tool_result)", () => {
   });
 });
 
-describe("translateSDKMessage — result", () => {
+describe("translateSDKMessage - result", () => {
   it("success with usage and cost emits turn_completed completed", () => {
     const events = translate({
       type: "result",
@@ -562,7 +562,7 @@ describe("translateSDKMessage — result", () => {
     });
   });
 
-  it("error-subtype usage is NOT trusted — coerced to undefined", () => {
+  it("error-subtype usage is NOT trusted - coerced to undefined", () => {
     const events = translate({
       type: "result",
       subtype: "error_max_turns",
@@ -573,7 +573,7 @@ describe("translateSDKMessage — result", () => {
   });
 });
 
-describe("translateSDKMessage — unknown", () => {
+describe("translateSDKMessage - unknown", () => {
   it("ignores unknown message types", () => {
     const events = translate({ type: "tool_progress" });
     expect(events).toEqual([]);
@@ -644,7 +644,7 @@ describe("flattenSessionMessageText", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildClaudeUserMessage — real persistence under unique agent id
+// buildClaudeUserMessage - real persistence under unique agent id
 // ---------------------------------------------------------------------------
 // buildClaudeUserMessage resolves attachments via getFilePath (looks under
 // STATE_ROOT/logs/<agentId>/files/<filename>). We allocate a unique agentId per

@@ -1,4 +1,4 @@
-// Sessions resource handlers — Phase 3a slice 3a.4b. The active-session auth
+// Sessions resource handlers - Phase 3a slice 3a.4b. The active-session auth
 // surface on the unified REST surface (opIds sessions.{list,revoke,logout}).
 //
 // Mirrors the 3a.4a invites slice: leaf REST mappers over a slim SessionsDeps;
@@ -10,14 +10,14 @@
 // (owners); sessions_active_list → rides fireSessionsChangedHook→emitSessionsList
 // (fires from every session mutation); session_expired + socket CLOSE → ride the
 // legacy forceExpireSocketsForSession bridge inside the auth core ops (a
-// cross-cutting eviction mechanism that also fires on expiry/eviction — the same
+// cross-cutting eviction mechanism that also fires on expiry/eviction - the same
 // compatibility-bridge category as 3a's cron_run_log_entry; declared in the route
 // emits as the target contract but not routed through emit() in 4b).
 //
 // LOGOUT: DELETE /api/sessions/current ends the caller's OWN cookie session. The
 // caller's session hash is threaded in via ctx.callerSessionIdHash (from the
-// already-resolved auth result — never re-derived here). A bearer (non-cookie)
-// caller has no current session and FAILS CLOSED (403) — never a 204 no-op. The
+// already-resolved auth result - never re-derived here). A bearer (non-cookie)
+// caller has no current session and FAILS CLOSED (403) - never a 204 no-op. The
 // HTML POST /auth/logout browser flow stays as-is; this route strangles the WS
 // logout arm. Both converge on the shared logoutBySessionHash core.
 //
@@ -42,7 +42,7 @@ type RevokeOutcome =
 
 export interface SessionsDeps {
   // Scoped list for the caller (record role): owner → all; member → own. Direct
-  // reply only — NO fan-out (a pure read must never emit to other users).
+  // reply only - NO fan-out (a pure read must never emit to other users).
   listScoped(identity: Identity): SessionWire[];
   // Revoke a session by prefix (precondition sessionOwnerOrSelf + notLastOwner-
   // Lockout already passed). On ok the seam emits session_revoked (owners) and

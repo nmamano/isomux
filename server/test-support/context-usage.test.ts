@@ -46,7 +46,7 @@ afterEach(async () => {
 });
 
 // Every wait below is an "expect this to happen" poll, so its deadline only
-// bounds a genuine failure — a tight one buys nothing and costs flakes. A 3s
+// bounds a genuine failure - a tight one buys nothing and costs flakes. A 3s
 // wait expired at 3032ms on a loaded GitHub runner (task f51ddb17), so the
 // budget is generous, and the per-test timeout is raised past it (bun's
 // default is 5s, which would otherwise cap the wait first).
@@ -301,7 +301,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
   it("/context slash command serves the committed snapshot after the session is released (no wake, no lifecycle note)", async () => {
     // The typed /context used to answer "No active session." for a vacated
     // (idle-released) session while the battery pill still showed the last
-    // committed reading — task 714d80da. It now serves that same snapshot,
+    // committed reading - task 714d80da. It now serves that same snapshot,
     // rendered IDENTICALLY to the live case: remaining context doesn't change
     // when the session process is released, so no lifecycle note (Nil).
     const srv = await startTestServer({ fakeBackend: backendWith(usage(63)) });
@@ -436,14 +436,14 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     // the Claude resume preflight (claudeSessionFileExists): wire
     // CLAUDE_CONFIG_DIR to a temp dir and seed the existence-only session
     // file, same pattern as agent-idle-eviction.di.test.ts. Behavior is
-    // asserted through the manager's public getAgentContextUsage op — the
+    // asserted through the manager's public getAgentContextUsage op - the
     // REST mapping over it is covered by the harness tests above.
     const claudeHome = join(STATE_ROOT, "claude-home-context-usage");
     const envFile = join(STATE_ROOT, "office-context-usage.env");
     writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome}\n`);
     setOfficeEnvFileProvider(() => envFile);
 
-    // One committed reading, then null forever — so post-edit reads can't
+    // One committed reading, then null forever - so post-edit reads can't
     // silently refill the snapshot through the live path.
     let calls = 0;
     const fake = backendWith(() =>
@@ -502,7 +502,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       expect(r.available).toBe(true);
       if (r.available) expect(r.percentage).toBe(55);
 
-      // New window: the old reading is not actionable — measurement
+      // New window: the old reading is not actionable - measurement
       // invalidated, conversation NOT reset (same session id continues).
       await mgr.editAgent(info.id, { modelFamily: "sonnet" });
       r = await mgr.getAgentContextUsage(info.id);
@@ -601,7 +601,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
   it("failed edit-fork rollback does NOT restore the parent snapshot when the parent session wasn't reinstalled (P1)", async () => {
     // The fork installs (snapshot reset to null), the fork TURN fails (onSend
     // throws on the edited text), and the rollback's createSession(PARENT_SID)
-    // fails because the parent file isn't seeded — so managed.session still
+    // fails because the parent file isn't seeded - so managed.session still
     // points at the (broken) fork. Restoring the parent's committed snapshot
     // there would mislabel the wrong conversation; the fix keeps it null.
     const PARENT_SID = "fake-session-1"; // deterministic: first createSession
@@ -619,7 +619,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
         },
       },
       // The backend transcript records the sent form, which carries the
-      // "[Boss]" sender prefix diRunTurn applies — editMessage matches the log
+      // "[Boss]" sender prefix diRunTurn applies - editMessage matches the log
       // entry against this exact text, so it must include the prefix.
       sessionMessages: [
         { uuid: "u-first", role: "user", text: "[Boss] first" },
@@ -767,7 +767,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
 
   it("a swap during send() does not let the stale old send burn the fresh generation's notice (P1 deferred-send race)", async () => {
     // manualSend parks every send() so we can hold turn 2 in the send window,
-    // /clear the conversation, THEN resolve the OLD session's send — exactly
+    // /clear the conversation, THEN resolve the OLD session's send - exactly
     // the race where an old-session send resolves after replaceSession. The
     // mark-after-send must skip via the generation guard, so the fresh
     // fired-set stays empty and the 60% notice can fire again.
@@ -831,7 +831,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 70 });
 
-    // Turn 4: the 60 notice MUST fire again — proof the stale turn-2 send did
+    // Turn 4: the 60 notice MUST fire again - proof the stale turn-2 send did
     // NOT consume the fresh generation's fired-set. (With the bug, turn 2's
     // late send would have marked 60 on the new gen and this would be absent.)
     send("four");
@@ -925,7 +925,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     );
     expect(cleared).toBeTruthy();
     // The clear must be an EXPLICIT null, not undefined: the WS path runs
-    // events through JSON.stringify, which drops undefined-valued keys — an
+    // events through JSON.stringify, which drops undefined-valued keys - an
     // undefined clear would arrive as changes:{} and the client's spread-merge
     // would keep the previous conversation's stale reading.
     expect(JSON.parse(JSON.stringify(cleared!)).changes).toEqual({
@@ -948,7 +948,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     );
 
     // The typed /clear (also /reset, /new) routes through the command-handlers
-    // `clear` — a replaceSession-based path SEPARATE from newConversation.
+    // `clear` - a replaceSession-based path SEPARATE from newConversation.
     // Missing the reset there left the pill showing the previous
     // conversation's reading after a typed /clear (bug fixed 2026-07-18).
     // Deliver via sendMessage, the UI's live-typing path where the slash
@@ -1010,7 +1010,7 @@ describe("context-fullness: auth (self:affordance + agentParamMustEqualTokenAgen
 
 // The boss-facing ephemeral chat notice (task 0b12423b, design doc §3): the
 // sample-commit path emits ONE ephemeral system line per threshold band per
-// generation ("Context is NN% full. ..."), tracked by firedUiThresholds — a
+// generation ("Context is NN% full. ..."), tracked by firedUiThresholds - a
 // SEPARATE audience from the agent-facing injected notice, so one audience
 // firing never suppresses the other. Server-authoritative: emitted where the
 // sample commits, so reconnects/multiple clients cannot duplicate it.
@@ -1065,7 +1065,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       );
 
       // Same band again: no re-fire. Wait on sampledAtMs ADVANCING so the
-      // assertion is deterministic — it provably runs after the third turn's
+      // assertion is deterministic - it provably runs after the third turn's
       // sample committed, not against the still-cached second sample.
       const prevSampledAt = mgr.getAgent(info.id)!.contextUsage!.sampledAtMs;
       await diRunTurn(mgr, info.id, "three");
@@ -1160,7 +1160,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       const sess = fake.sessionForAgent(info.id)!;
       expect(sess.sent[0].text).not.toContain("context check");
 
-      // Turn 2: the agent-facing notice rides the send — the chat line having
+      // Turn 2: the agent-facing notice rides the send - the chat line having
       // fired first did NOT consume it (separate fired-sets)...
       await diRunTurn(mgr, info.id, "two");
       expect(sess.sent[1].text).toContain("[context check: 68% full");

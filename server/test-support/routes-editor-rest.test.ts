@@ -1,4 +1,4 @@
-// Phase 3d slice 6b — editor REST contract.
+// Phase 3d slice 6b - editor REST contract.
 //
 // HTTP-contract layer for the browser editor (open/save/close) cut over from the
 // WS command bus. Pins status codes + the connection-binding security: open/close
@@ -7,7 +7,7 @@
 // push at another tab's socket. saveFile's 409 stale-conflict carries currentMtime
 // past the error envelope (via the executor's detail spread).
 //
-// Seam: startTestServer() — real auth + the /api executor + a real temp cwd, so
+// Seam: startTestServer() - real auth + the /api executor + a real temp cwd, so
 // openFile reads actual bytes off disk.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -71,7 +71,7 @@ async function req(
 const errCode = (body: unknown): string | undefined =>
   (body as { error?: { code?: string } }).error?.code;
 
-// Connect a WS and read this tab's connectionId off session_context — the value
+// Connect a WS and read this tab's connectionId off session_context - the value
 // the editor's open/close carry in X-Isomux-Connection-Id.
 async function connect(
   srv: TestServer,
@@ -164,7 +164,7 @@ describe("agents.openFile REST (Phase 3d slice 6b)", () => {
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1);
     // The owner clears the agentParam guard (room access), but a connectionId
-    // that names no socket of theirs fails verifyConnection — the SAME exact-
+    // that names no socket of theirs fails verifyConnection - the SAME exact-
     // session check that blocks aiming a watch at another tab's socket.
     const res = await req(
       srv,
@@ -270,7 +270,7 @@ describe("agents.saveFile REST (Phase 3d slice 6b)", () => {
     const x = await spawnAt(srv, "X", r1);
     // JSON.stringify can't carry Infinity (-> null), so hand-craft the body: the
     // server's JSON.parse turns 1e999 into Infinity, and `currentMtime > Infinity`
-    // is false — Number.isFinite at the boundary blocks that stale-guard bypass.
+    // is false - Number.isFinite at the boundary blocks that stale-guard bypass.
     const p = join(srv.stateRoot, "inf.txt");
     const res = await srv.http(`/api/agents/${x.id}/file`, {
       method: "PUT",
@@ -356,7 +356,7 @@ describe("editor revision + deletion contract", () => {
     expect(open.status).toBe(200);
     const opened = open.body as { mtime: number; rev: number };
 
-    // External change whose mtime is OLDER than the open — the legacy
+    // External change whose mtime is OLDER than the open - the legacy
     // `currentMtime > expectedMtime` guard would let this save clobber it.
     writeFileSync(file, "restored older version\n", "utf8");
     const past = new Date(Date.now() - 60_000);

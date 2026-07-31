@@ -115,7 +115,7 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   handler = onMessage;
   if (onConn) connHandler = onConn;
 
-  // In shim mode, don't open a real WebSocket — fire onConnect callback instead
+  // In shim mode, don't open a real WebSocket - fire onConnect callback instead
   if (shimHandler) {
     if (shimOnConnect) setTimeout(shimOnConnect, 0);
     connHandler?.(true);
@@ -142,7 +142,7 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   ws.onopen = () => {
     if (myGen !== socketGen) return;
     startHeartbeat();
-    // We don't flip connected=true here — the store gates that on full_state
+    // We don't flip connected=true here - the store gates that on full_state
     // arrival, so we don't briefly claim "online" before any data hydrates.
   };
   ws.onmessage = (e) => {

@@ -114,7 +114,7 @@ async function runBackup() {
     }
     if (exitCode === 1) {
       console.warn(
-        "[backup] tar exit 1 (file(s) changed during archive — archive still valid)",
+        "[backup] tar exit 1 (file(s) changed during archive - archive still valid)",
       );
     }
     const files = listExistingBackups();

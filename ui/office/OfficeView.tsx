@@ -50,7 +50,7 @@ const GHOST_SIZE = 40;
 const LEFT_DOOR_COORD: DoorCoord = { left: 25, top: 270 };
 const RIGHT_DOOR_COORD: DoorCoord = { left: SCENE_W - 65, top: 270 };
 
-/** HTML drop zone positioned over an SVG door — SVG elements are unreliable drag-and-drop targets */
+/** HTML drop zone positioned over an SVG door - SVG elements are unreliable drag-and-drop targets */
 function DoorDropZone({
   side,
   onDrop,
@@ -203,7 +203,7 @@ export function OfficeView({
   );
 
   // Expose viewport controls to parent for keyboard shortcuts (0, +, -). Skip
-  // in embed mode — the zoom UI is hidden there, and the keyboard parity
+  // in embed mode - the zoom UI is hidden there, and the keyboard parity
   // should match.
   useEffect(() => {
     if (!viewportControlsRef || embed) {
@@ -227,7 +227,7 @@ export function OfficeView({
 
   // Filter agents to current room for rendering
   const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
-  // Final ghost placement list — natural desk / lobby positions, plus
+  // Final ghost placement list - natural desk / lobby positions, plus
   // door-slide overrides for ghosts whose presence just crossed into / out
   // of our current room. The hook owns all per-ghost coordinate state;
   // OfficeView just renders the result.
@@ -488,7 +488,7 @@ export function OfficeView({
           }}
         />
 
-        {/* Viewport layer — zoom/pan transform applies here, wrapping the centered scene */}
+        {/* Viewport layer - zoom/pan transform applies here, wrapping the centered scene */}
         <div
           // viewport.setScene is a stable callback from useViewport.
           // eslint-disable-next-line react-hooks/refs
@@ -499,7 +499,7 @@ export function OfficeView({
             transformOrigin: "0 0",
           }}
         >
-          {/* Centered scene container — static centering transform */}
+          {/* Centered scene container - static centering transform */}
           <div
             // viewport.setContent: same stable-callback pattern as setScene above.
             // eslint-disable-next-line react-hooks/refs
@@ -698,7 +698,7 @@ export function OfficeView({
                 can't shift an existing ghost's tag (or vice versa). Combined
                 with the connectionId-sorted output from useGhostTransitions,
                 no existing ghost's DOM node moves when an unrelated anchor
-                changes — which keeps CSS transitions intact and prevents
+                changes - which keeps CSS transitions intact and prevents
                 browsers from re-attach-restarting any inline animations. */}
             {ghostPlacements.map((p) => (
               <GhostBody
@@ -760,7 +760,7 @@ export function OfficeView({
             default for new members until they create their own room or
             an owner grants them access). The office floor/walls/desks
             underneath still render so the scene still reads as an
-            office — the boss specifically wanted the empty-office vibe
+            office - the boss specifically wanted the empty-office vibe
             as background. Gated on hasReceivedInitialState so it doesn't
             flash during the pre-hydration window when rooms is still []. */}
         {hasReceivedInitialState && rooms.length === 0 && (

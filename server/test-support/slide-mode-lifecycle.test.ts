@@ -3,7 +3,7 @@
 // real turns through createAgentManager:
 //   - BOOT terminal boundary: an agent with a settled tail and NO in-flight turn
 //     (the state a restart restores: pendingTurn=null) treats the tail as
-//     terminal — ensureSlide generates a slide FROM the persisted tail content —
+//     terminal - ensureSlide generates a slide FROM the persisted tail content -
 //     and a subsequent send starts a NEW user_message anchor.
 //   - Universal drain through the real pendingTurn promise: a slide request
 //     parked while the newest turn is IN FLIGHT (non-terminal) is fulfilled when
@@ -12,7 +12,7 @@
 //     drainOnSettle resolve/reject branches are covered in slide-mode.test.ts;
 //     this proves the actual manager settle reaches the drain.
 //   - DIRECT SEND (sendMessage, not the queue): the anchor is logged before the
-//     turn's deferred exists, and the turn must still read in-flight — both once
+//     turn's deferred exists, and the turn must still read in-flight - both once
 //     the deferred holds it and during the window before that, where the deck's
 //     request actually lands. Task e9429ef3: while those two paths went
 //     unanchored, the live turn was recorded as an empty-turn placeholder.
@@ -147,7 +147,7 @@ async function setup(
 }
 
 describe("Slide Mode lifecycle (DI integration)", () => {
-  it("BOOT: a settled tail with no in-flight turn is terminal — generates from the tail; next send is a new anchor", async () => {
+  it("BOOT: a settled tail with no in-flight turn is terminal - generates from the tail; next send is a new anchor", async () => {
     // onSend completes the turn -> user_message + text logged, turn_completed,
     // pendingTurn=null. That is exactly the post-boot / idle shape: no running
     // turn owns the tail.
@@ -180,7 +180,7 @@ describe("Slide Mode lifecycle (DI integration)", () => {
       h.prompts.some((p) => p.includes("The persisted tail answer.")),
     ).toBe(true);
 
-    // A subsequent send opens a NEW turn under a distinct user_message anchor —
+    // A subsequent send opens a NEW turn under a distinct user_message anchor -
     // it does not continue the persisted tail.
     h.mgr.enqueueMessage(h.agentId, {
       sender: { kind: "user", username: "tester" },
@@ -226,7 +226,7 @@ describe("Slide Mode lifecycle (DI integration)", () => {
   it("MODEL SWAP: a conversation-continuing model change keeps the same slide identity", async () => {
     // The case that decided epoch vs root session id (and the one the office
     // just exercised switching to Opus 5). A settings-driven model swap resumes
-    // the SAME session — it doesn't reset the conversation — so the slide
+    // the SAME session - it doesn't reset the conversation - so the slide
     // identity must survive it and in-flight work must not be dropped. The
     // slide_ready event carries the deck's root session id, so comparing it
     // across the swap asserts the identity directly.
@@ -246,7 +246,7 @@ describe("Slide Mode lifecycle (DI integration)", () => {
 
     // Seed the existence-only .jsonl the resume preflight checks, so the swap
     // takes the auto-resume path (continue) instead of falling back to a fresh
-    // session — which is what makes this a CONTINUING swap.
+    // session - which is what makes this a CONTINUING swap.
     const sessionId = h.mgr.getCurrentSessionId(h.agentId)!;
     const dir = claudeProjectDir(h.mgr.getAgent(h.agentId)!.cwd, {
       CLAUDE_CONFIG_DIR: claudeHome,
@@ -307,13 +307,13 @@ describe("Slide Mode lifecycle (DI integration)", () => {
 
   it("DIRECT SEND: the in-flight turn is anchored, so no placeholder is written while it streams", async () => {
     // Regression for task e9429ef3. The DRAIN test above sends through the
-    // QUEUE, which logs its user_message from onSendAccepted — i.e. AFTER
-    // createTurnDeferred — so addLogEntry found a pendingTurn and stamped the
+    // QUEUE, which logs its user_message from onSendAccepted - i.e. AFTER
+    // createTurnDeferred - so addLogEntry found a pendingTurn and stamped the
     // anchor. A direct send is the other order: sendMessage logs the
     // user_message first and only then reaches runAgentTurn, so the anchor has
     // to be claimed BY the deferred. While it wasn't, the newest turn read
     // terminal for its entire duration and the very first request wrote an
-    // empty-turn placeholder over the live turn — which then stuck, since the
+    // empty-turn placeholder over the live turn - which then stuck, since the
     // client skips any record carrying a digest.
     // onSend produces nothing: the turn is in flight and still EMPTY, which is
     // the state that used to be recorded as "this turn produced no text".
@@ -329,7 +329,7 @@ describe("Slide Mode lifecycle (DI integration)", () => {
     await waitUntil(() => !!h.mgr.getCurrentSessionId(h.agentId));
 
     // Empty and in flight: gated, and no placeholder recorded (the reported bug
-    // — the deck showed "No answer to show" the moment the message was sent).
+    // - the deck showed "No answer to show" the moment the message was sent).
     expect(h.mgr.ensureSlide(h.agentId, anchor).status).toBe("pending");
     await settle();
     expect(h.slideReadyFor(anchor)).toBeUndefined();
@@ -356,12 +356,12 @@ describe("Slide Mode lifecycle (DI integration)", () => {
   it("PRE-DEFERRED WINDOW: a turn claimed by the agent but not yet holding its deferred is still in flight", async () => {
     // The window the deck actually lands in (task e9429ef3). A direct send logs
     // the user_message and flips the agent busy in one synchronous block, but
-    // reaches createTurnDeferred only after runAgentTurn's plugin phase — here
+    // reaches createTurnDeferred only after runAgentTurn's plugin phase - here
     // held open by the context sample it waits on. The client sees the message
     // the moment it is logged, so its request arrives INSIDE that gap: with the
     // anchor read from the deferred alone, the live turn read terminal and got a
-    // placeholder written over it. Anchoring alone doesn't cover this — the
-    // deferred doesn't exist yet — which is why the anchor is parked at append
+    // placeholder written over it. Anchoring alone doesn't cover this - the
+    // deferred doesn't exist yet - which is why the anchor is parked at append
     // time and read while the agent is busy.
     let releaseSample!: () => void;
     const h = await setup({
@@ -390,7 +390,7 @@ describe("Slide Mode lifecycle (DI integration)", () => {
 
     // Let the turn proceed and finish; the parked request is fulfilled normally.
     releaseSample();
-    // The SECOND "Words." — one per send, and turn one already logged its own.
+    // The SECOND "Words." - one per send, and turn one already logged its own.
     await waitUntil(
       () =>
         h.events.filter(

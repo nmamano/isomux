@@ -1,10 +1,10 @@
-// Phase 2.3 — Production GuardDeps adapter contract tests.
+// Phase 2.3 - Production GuardDeps adapter contract tests.
 //
-// Unit (T0, fakes): the translation logic — agentId → GLOBAL room id (not a
+// Unit (T0, fakes): the translation logic - agentId → GLOBAL room id (not a
 // dense projection), unknown agent → null, username/cronjob lookups, null-user
 // access. Integration (T1, harness): the adapter built at the isomux-office.ts seam over
 // the LIVE predicates agrees with today's materialized-allowedRooms ACL for an
-// owner-all and a restricted member — the deferred-from-2.2 proof.
+// owner-all and a restricted member - the deferred-from-2.2 proof.
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import {

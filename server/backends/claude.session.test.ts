@@ -18,7 +18,7 @@ import {
 import type { ContextUsage } from "./types";
 
 // ---------------------------------------------------------------------------
-// FakeSdkConversation — test double for SdkConversation
+// FakeSdkConversation - test double for SdkConversation
 // ---------------------------------------------------------------------------
 // Pushable async iterable for messages; tracks sends and close calls; lets
 // the test simulate SDK-side errors mid-stream.
@@ -91,7 +91,7 @@ class FakeSdkConversation implements SdkConversation {
 }
 
 // ---------------------------------------------------------------------------
-// FakeSdkClient — test double for SdkClient
+// FakeSdkClient - test double for SdkClient
 // ---------------------------------------------------------------------------
 
 class FakeSdkClient implements SdkClient {
@@ -213,7 +213,7 @@ function fakeCallOpts(
 }
 
 // ---------------------------------------------------------------------------
-// ClaudeSession — construction
+// ClaudeSession - construction
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession construction", () => {
@@ -237,7 +237,7 @@ describe("ClaudeSession construction", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ClaudeSession — stream pumping
+// ClaudeSession - stream pumping
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession stream", () => {
@@ -304,7 +304,7 @@ describe("ClaudeSession stream", () => {
   // Regression pin for the TaskBreadcrumbTracker wiring in feedSDKMessages
   // (task b4cafa53 option C). The tracker itself is covered in
   // task-breadcrumbs.test.ts; this asserts the SESSION actually feeds it and
-  // interleaves its task_lifecycle events at the right stream positions —
+  // interleaves its task_lifecycle events at the right stream positions -
   // removing/reordering the observe() loop would leave the tracker tests
   // green while the feature silently disappears.
   it("interleaves task_lifecycle breadcrumbs for background tasks, none for foreground subagents", async () => {
@@ -346,7 +346,7 @@ describe("ClaudeSession stream", () => {
       label: "Background task started: Sleep in background",
     });
 
-    // Foreground subagent: same SDK message pair, but no breadcrumbs — the
+    // Foreground subagent: same SDK message pair, but no breadcrumbs - the
     // next observable event must be the settle of the BACKGROUND task.
     conv.emit({
       type: "system",
@@ -404,7 +404,7 @@ describe("ClaudeSession stream", () => {
     const fake = new FakeSdkClient();
     const { session, conv } = makeSession(fake);
     const it = session.stream()[Symbol.asyncIterator]();
-    // close BEFORE the throw — feedSDKMessages sees this.closed=true and
+    // close BEFORE the throw - feedSDKMessages sees this.closed=true and
     // refrains from enqueueing an error event.
     session.close();
     conv.throwNext(new Error("closing race"));
@@ -414,7 +414,7 @@ describe("ClaudeSession stream", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ClaudeSession — send
+// ClaudeSession - send
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession send", () => {
@@ -450,7 +450,7 @@ describe("ClaudeSession send", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ClaudeSession — canUseTool / approve roundtrip
+// ClaudeSession - canUseTool / approve roundtrip
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession approval flow", () => {
@@ -598,7 +598,7 @@ describe("ClaudeSession approval flow", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ClaudeSession — close
+// ClaudeSession - close
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession close", () => {
@@ -616,7 +616,7 @@ describe("ClaudeSession close", () => {
     expect(conv.closeCount).toBe(1);
   });
 
-  it("is idempotent — second close() does not double-call conversation.close", async () => {
+  it("is idempotent - second close() does not double-call conversation.close", async () => {
     const fake = new FakeSdkClient();
     const { session, conv } = makeSession(fake);
     session.close();
@@ -637,7 +637,7 @@ describe("ClaudeSession close", () => {
 
   it("send after close does not throw", async () => {
     // Whether ClaudeSession.send() forwards to the closed conversation or
-    // no-ops at this layer is a layering detail — V1's wrapV1Query.send()
+    // no-ops at this layer is a layering detail - V1's wrapV1Query.send()
     // already no-ops after close (covered by `wrapV1Query > send after
     // close is a no-op`). The behavior locked here is just "no throw / no
     // rejection at the BackendSession boundary".
@@ -649,11 +649,11 @@ describe("ClaudeSession close", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ClaudeSession — abort / canAbortInPlace
+// ClaudeSession - abort / canAbortInPlace
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession abort", () => {
-  it("abort() rejects — Claude has no in-place interrupt RPC", async () => {
+  it("abort() rejects - Claude has no in-place interrupt RPC", async () => {
     const fake = new FakeSdkClient();
     const { session } = makeSession(fake);
     await expectRejection(session.abort(), /unsupported/);
@@ -667,7 +667,7 @@ describe("ClaudeSession abort", () => {
 });
 
 // ---------------------------------------------------------------------------
-// ClaudeSession — context usage
+// ClaudeSession - context usage
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession getContextUsage", () => {
@@ -696,7 +696,7 @@ describe("ClaudeSession getContextUsage", () => {
 });
 
 // ---------------------------------------------------------------------------
-// createClaudeBackend — module-level backend functions
+// createClaudeBackend - module-level backend functions
 // ---------------------------------------------------------------------------
 
 describe("createClaudeBackend.forkSessionBeforeMessage", () => {
@@ -820,11 +820,11 @@ describe("createClaudeBackend.oneShotPrompt", () => {
   });
 });
 
-describe("createClaudeBackend.createSession/resumeSession — SDK option shape", () => {
+describe("createClaudeBackend.createSession/resumeSession - SDK option shape", () => {
   // Regression guard for task e6a0387a: the assembled system prompt must reach
   // the SDK as the typed `systemPrompt` option (preset + append, which travels
   // over the child's stdin), and must NEVER be routed through executableArgs/
-  // extraArgs — both are rendered onto the child's argv, where the full prompt
+  // extraArgs - both are rendered onto the child's argv, where the full prompt
   // leaks to `ps` / `systemctl status` / /proc/<pid>/cmdline.
   const createOpts = {
     agentId: "agent-x",
@@ -845,7 +845,7 @@ describe("createClaudeBackend.createSession/resumeSession — SDK option shape",
     expect(opts).not.toHaveProperty("executableArgs");
     expect(opts).not.toHaveProperty("extraArgs");
     // The prompt may appear nowhere else in the option bag (e.g. a future
-    // argv-shaped field) — only inside the typed systemPrompt option.
+    // argv-shaped field) - only inside the typed systemPrompt option.
     const { systemPrompt, ...rest } = opts;
     void systemPrompt;
     const restJson = JSON.stringify(rest, (_k, v) =>

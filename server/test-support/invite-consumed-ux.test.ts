@@ -1,4 +1,4 @@
-// Invite-consumption UX — regression net for the "Yu" incident (a new member
+// Invite-consumption UX - regression net for the "Yu" incident (a new member
 // accepted an invite successfully, re-opened the one-time link, saw "already
 // been used", and the owner's open tab showed the new session but not the new
 // user). Two fixes frozen here:
@@ -11,11 +11,11 @@
 //
 //   2. A visitor who hits a CONSUMED invite (GET /i/<token> peek OR a
 //      duplicate POST /auth/accept) while holding a valid session is 302'd
-//      into the office instead of dead-ending on the 410 — that visitor is
+//      into the office instead of dead-ending on the 410 - that visitor is
 //      almost always the invitee who just accepted. An unauthenticated
 //      visitor on a consumed link still gets the honest 410.
 //
-// Seam: startTestServer() — the real boot path (registerBootHooks) and the
+// Seam: startTestServer() - the real boot path (registerBootHooks) and the
 // real HTTP auth routes. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -71,7 +71,7 @@ function sessionCookieOf(res: Response): string {
   return m[1];
 }
 
-describe("invite consumption — owner roster fanout", () => {
+describe("invite consumption - owner roster fanout", () => {
   it("HTTP accept pushes users_list/users_admin_list to an already-open owner socket", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
@@ -85,7 +85,7 @@ describe("invite consumption — owner roster fanout", () => {
     const res = await acceptViaHttp(server, rawToken);
     expect(res.status).toBe(302);
 
-    // The open owner tab hears about the NEW USER without reconnecting —
+    // The open owner tab hears about the NEW USER without reconnecting -
     // both the public roster and the owners-only admin roster.
     const listsWithYu = (type: string) => () =>
       sock.messages.slice(before).some((m) => {
@@ -102,7 +102,7 @@ describe("invite consumption — owner roster fanout", () => {
   });
 });
 
-describe("consumed invite — signed-in visitor is redirected, not dead-ended", () => {
+describe("consumed invite - signed-in visitor is redirected, not dead-ended", () => {
   it("GET /i/<token> after a successful accept: with the session cookie -> 302 /; anonymous -> 410", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
@@ -121,7 +121,7 @@ describe("consumed invite — signed-in visitor is redirected, not dead-ended", 
     expect(again.headers.get("location")).toBe("/");
 
     // A visitor WITHOUT a session on the same consumed link still gets the
-    // honest 410 — the redirect must not leak "someone is signed in" into a
+    // honest 410 - the redirect must not leak "someone is signed in" into a
     // free pass past the error page.
     const anon = await server.http(`/i/${rawToken}`, { redirect: "manual" });
     expect(anon.status).toBe(410);

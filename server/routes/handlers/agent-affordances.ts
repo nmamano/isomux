@@ -1,11 +1,11 @@
-// Agent self-affordance handlers — Phase 3a slice 3a.3a. The agent-scope analogue
+// Agent self-affordance handlers - Phase 3a slice 3a.3a. The agent-scope analogue
 // of the cron RUN-affordances: read-file / diff / edit-file / terminal-command on
 // the unified REST surface (opIds agents.readFile/diff/editFile/terminalCommand).
 //
 // AGENT bearer only: the route table gates each with `self:affordance` +
 // `agentParamMustEqualTokenAgent`, so an agent can act ONLY on its OWN chat. A
 // cross-agent or unknown `:id` is a 403 at the guard (the token binds the agent),
-// NOT the legacy 404 — the intended token-auth behavior of the new route.
+// NOT the legacy 404 - the intended token-auth behavior of the new route.
 //
 // Sole affordance surface: the legacy loopback HTTP handlers
 // (/agents/:id/{read-file,diff,edit-file,terminal-command}) were DELETED in the
@@ -15,11 +15,11 @@
 //
 // NO emit bridge (unlike cron): the manager already emits `log_entry` through the
 // event sink, which routes it via routeAgentEvent / room-ACL projection. Handlers
-// NEVER emit directly. Validation stays shallow — require path/command; the
+// NEVER emit directly. Validation stays shallow - require path/command; the
 // manager owns affordance semantics (terminal single-line, bad-path-as-system-log).
 //
 // LEAF over the executor + shared types. AgentAffordanceDeps is deliberately slim:
-// JUST the affordance emit methods — no agent maps, rooms, or emit helpers.
+// JUST the affordance emit methods - no agent maps, rooms, or emit helpers.
 // preview-url (task dcfd5a97) is the one async member: it runs a headless-
 // browser capture (see preview-capture.ts) before emitting its file-view card.
 
@@ -39,7 +39,7 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 
 // The manager's affordance result: ok, or a failure carrying an HTTP-mappable
-// status (only ever 400 bad-input / 404 unknown agent — the latter is unreachable
+// status (only ever 400 bad-input / 404 unknown agent - the latter is unreachable
 // via the new route, where the guard binds `:id` to the token's own agent).
 type AffordanceResult =
   | { ok: true }
@@ -66,7 +66,7 @@ export interface AgentAffordanceDeps {
     agentId: string,
     body: unknown,
   ): Promise<PreviewAffordanceResult>;
-  // Context-fullness self-check. Never throws for "no data" — unavailability
+  // Context-fullness self-check. Never throws for "no data" - unavailability
   // is a structured { available: false, reason } payload, not an error.
   getAgentContextUsage(agentId: string): Promise<AgentContextUsageResp>;
 }

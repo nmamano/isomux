@@ -116,7 +116,7 @@ function GenerateDeviceLinkForm() {
         previous.
       </p>
       <p style={hint}>
-        Anyone with the link can sign in as you until it expires or is used —
+        Anyone with the link can sign in as you until it expires or is used -
         treat it like a one-time password and only open it on your own device.
       </p>
       <button

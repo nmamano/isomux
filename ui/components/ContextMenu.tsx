@@ -42,7 +42,7 @@ export function ContextMenu({
     }
     // pointerdown, not mousedown: the office viewport preventDefaults
     // pointerdown on the pannable background (useViewport), which suppresses
-    // the compatibility mousedown — a mousedown listener never fires there,
+    // the compatibility mousedown - a mousedown listener never fires there,
     // leaving the menu stuck open. pointerdown itself always bubbles.
     // touchstart stays as a fallback: DeskUnit preventDefaults touchstart,
     // which on some browsers suppresses the synthesized pointer events.
@@ -57,7 +57,7 @@ export function ContextMenu({
   // Fetch the sessions list when the menu opens (only if the feature is on).
   // Read-as-data: GET the agent's sessions and seed the store via the same (now
   // CLIENT-LOCAL) sessions_list action the WS push used to feed. .catch swallows
-  // — a closed menu / missing agent simply renders no resume list.
+  // - a closed menu / missing agent simply renders no resume list.
   useEffect(() => {
     if (!features.sessions) return;
     apiFetch<{ sessions: SessionInfo[]; currentSessionId: string | null }>(

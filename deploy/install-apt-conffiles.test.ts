@@ -1,9 +1,9 @@
-// deploy/install.sh — apt_install: an operator's hand-edited package config
+// deploy/install.sh - apt_install: an operator's hand-edited package config
 // files survive a package run, and they are told it happened.
 //
 // The failure this exists for was reproduced on a live box: with a hand-edited
 // /etc/caddy/Caddyfile, dpkg stops to ask which version to keep, finds nothing
-// on stdin, and the run dies with "end of file on stdin at conffile prompt" —
+// on stdin, and the run dies with "end of file on stdin at conffile prompt" -
 // during an update's dependency phase, where the operator least wants it.
 // DEBIAN_FRONTEND=noninteractive does not prevent that; -o
 // Dpkg::Options::=--force-confold does, by keeping what is on the box.
@@ -17,7 +17,7 @@
 //
 // The stub BACKDATES the marker it writes, because real dpkg does. It unpacks
 // the packaged conffile with the timestamp inside the .deb and renames that
-// file into place, so a marker written seconds ago carries the archive's date —
+// file into place, so a marker written seconds ago carries the archive's date -
 // verified against real dpkg, a 2020 archive member produced a 2020-dated
 // .dpkg-dist during a 2026 run. A stub that wrote the marker at "now" would let
 // a detector keyed on "newer than the start of this run" pass here and miss

@@ -1,4 +1,4 @@
-// T1 — the /isomux-storage command's ACCESS BOUNDARY (task 1387a9c7).
+// T1 - the /isomux-storage command's ACCESS BOUNDARY (task 1387a9c7).
 //
 // server/storage-report.test.ts proves the renderer is safe once it is handed
 // the right projection. What it cannot prove is that the handler CHOOSES the
@@ -69,7 +69,7 @@ interface Logged {
 
 // Minimal deps: the handler under test reads only these. Cast through the
 // constructor's parameter type rather than exporting HandlerDeps just for a
-// test — the compiler still checks the fields that ARE supplied.
+// test - the compiler still checks the fields that ARE supplied.
 function harness(opts: { usage?: StorageUsage } = {}) {
   const logged: Logged[] = [];
   let measurements = 0;
@@ -126,7 +126,7 @@ describe("/isomux-storage access boundary", () => {
     expect(h.measurements()).toBe(1);
   });
 
-  it("gives a signed-in member sizes only — no paths, no agent rows", async () => {
+  it("gives a signed-in member sizes only - no paths, no agent rows", async () => {
     claimUser("Member", { role: "member", allowedRooms: [], notifRooms: [] });
     const h = harness();
     await h.run("Member");

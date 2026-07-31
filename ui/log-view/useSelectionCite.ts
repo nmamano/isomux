@@ -13,23 +13,23 @@ export type CiteSelection = {
  * `CiteSelection` whenever it's a non-empty, fully-contained selection.
  *
  * Design rules baked in (see Phase 2 design with Reviewer1):
- *  - rAF-throttled `selectionchange` listener — coalesces iOS bursts and
+ *  - rAF-throttled `selectionchange` listener - coalesces iOS bursts and
  *    avoids per-event synchronous rect reads.
  *  - Both `anchorNode` and `focusNode` must be inside the container, so a
  *    selection that starts in the log and extends out doesn't cite unrelated
  *    UI.
  *  - At selectionchange time, the chosen rect must lie within the
  *    container's visible viewport. (Once cached, the rect is NOT
- *    re-validated against scroll — see ownership note below.)
+ *    re-validated against scroll - see ownership note below.)
  *  - Uses `range.getClientRects()` and takes the LAST non-degenerate rect
- *    (end of selection), not `getBoundingClientRect()` — the bounding box
+ *    (end of selection), not `getBoundingClientRect()` - the bounding box
  *    for a multi-line selection produces a broad rect that positions the
  *    pill oddly.
  *  - Pure listener: never writes scroll, never calls focus(), never mutates
  *    layout. Scroll-finickiness in the chat is preserved.
  *
  * Ownership boundary: this hook is selection-only. The cached rect goes
- * stale on scroll, but scroll-hide is the *caller's* responsibility — the
+ * stale on scroll, but scroll-hide is the *caller's* responsibility - the
  * chat scroll handler already lives in LogView and routes through
  * `clearCite`. The hook does listen to window `resize` (no natural caller
  * path for that) to clear cached state when geometry changes globally.
@@ -127,7 +127,7 @@ export function useSelectionCite(
 
     function hideOnResize() {
       // Window resize moves the selection's viewport coords out from under
-      // our cached rect. Hide rather than reposition — repositioning would
+      // our cached rect. Hide rather than reposition - repositioning would
       // re-enter layout territory. Scroll-hide is the caller's job (it owns
       // the chat scroll handler); the hook handles resize because there's
       // no natural LogView resize hook to piggyback on.

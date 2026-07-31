@@ -2,7 +2,7 @@
 // global on/off switch above the per-agent deck pref: it defaults OFF, and
 // flipping it must never disturb the per-agent prefs, so turning it back on
 // restores whatever decks the viewer had open. localStorage is stubbed on
-// globalThis — the module reads the global directly, like the rest of the
+// globalThis - the module reads the global directly, like the rest of the
 // device-scoped settings.
 
 import { describe, it, expect, beforeEach, afterAll } from "bun:test";
@@ -25,7 +25,7 @@ afterAll(() => {
   if (realLocalStorage) {
     Object.defineProperty(globalThis, "localStorage", realLocalStorage);
   } else {
-    // @ts-expect-error — removing the stub we installed
+    // @ts-expect-error - removing the stub we installed
     delete globalThis.localStorage;
   }
 });

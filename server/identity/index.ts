@@ -1,4 +1,4 @@
-// Identity & capabilities — the stable type / capability / auth-helper surface
+// Identity & capabilities - the stable type / capability / auth-helper surface
 // for the Phase 2 contract-enforcement foundation. See
 // internal-docs/generic-runtime-refactor.md → "Identities and capabilities".
 //
@@ -24,15 +24,15 @@ export type TokenScope = "user" | "agent" | "cron-run";
 // handler runs. The set grows additively (capability-lattice expansion is a
 // follow-up); do not repurpose an existing capability's meaning.
 export type Capability =
-  // USER (browser) capabilities — held by any human identity (owner or member),
+  // USER (browser) capabilities - held by any human identity (owner or member),
   // narrowed further by resource guards (officeOwner, selfOrOwner, …).
   | "office:read"
   | "agent:manage"
   | "agent:converse"
   // Grant/revoke an agent's `privileged` flag. USER-only and deliberately
   // ABSENT from both AGENT and the privileged-agent set, so it is the stage-1
-  // half of the double-gate on agents.setPrivileged: no agent — privileged or
-  // not — can ever flip the flag (stage 2 additionally requires scope==="user").
+  // half of the double-gate on agents.setPrivileged: no agent - privileged or
+  // not - can ever flip the flag (stage 2 additionally requires scope==="user").
   | "agent:privilege"
   | "room:manage"
   | "view:manage"
@@ -46,13 +46,13 @@ export type Capability =
   | "editor:use"
   | "file:upload"
   | "terminal:use"
-  // Shared by USER and AGENT — the global task board.
+  // Shared by USER and AGENT - the global task board.
   | "task:read"
   | "task:write"
-  // Shared by USER and AGENT — isomux-memory (durable shared facts).
+  // Shared by USER and AGENT - isomux-memory (durable shared facts).
   | "memory:read"
   | "memory:write"
-  // AGENT-identity capabilities — deliberately absent from USER scope (a human
+  // AGENT-identity capabilities - deliberately absent from USER scope (a human
   // is not an agent and has no own-chat).
   | "agent:send-as-self"
   | "self:affordance";
@@ -73,13 +73,13 @@ export interface Identity {
   // officeOwner guard on a USER identity). For AGENT and CRON-RUN scope it is
   // an inert least-privilege filler ("member"). Authorization for non-user
   // identities MUST key on scope + capabilities + resource guards, never on
-  // role — a role-only guard must never authorize an agent/run identity.
+  // role - a role-only guard must never authorize an agent/run identity.
   role: UserRole;
   capabilities: readonly Capability[];
 }
 
 // USER (browser) set: every capability except the two agent-identity ones.
-// Owner vs member is NOT expressed here — both humans hold this full set and
+// Owner vs member is NOT expressed here - both humans hold this full set and
 // owner-only routes are blocked for members by the officeOwner guard, not by a
 // missing capability.
 export const USER_CAPABILITIES: readonly Capability[] = [
@@ -108,7 +108,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
 // AGENT set: the loopback surface plus the global task board and isomux-memory.
 // An agent can message as itself, use the task board and shared memory, and use
 // the self-affordances on its own chat. It cannot spawn/kill, touch settings,
-// mint invites, mutate cronjobs, or read cronjob transcripts — those
+// mint invites, mutate cronjobs, or read cronjob transcripts - those
 // capabilities are simply absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
   "agent:send-as-self",
@@ -125,18 +125,18 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // (resume / listSessions / sendNow / newConversation / cancelQueued / lifecycle
 // / editor / uploads), fully manage cron over its OWN jobs (cron:read +
 // cron:manage; the cronjobOwnerOrOfficeOwner guard additionally owner-matches a
-// privileged agent — see guards.ts), and manage rooms it can access (room:manage:
+// privileged agent - see guards.ts), and manage rooms it can access (room:manage:
 // create / rename / settings / close, Nil-approved expansion; create is
 // office-wide, the rest are room-access-scoped on its spawning user's id).
 //
 // This is a CURATED allowlist, NOT union(AGENT, USER): the audit (task 98d63ef7)
-// found the literal union exposes capability-only owner routes — invites.mintSelf
+// found the literal union exposes capability-only owner routes - invites.mintSelf
 // (mints a durable owner LOGIN), sessions.revoke (kills the human's browser
 // session). So invite:manage, session:manage, user:* (user records / access),
 // office:admin (office settings + access), view:manage, terminal:use, and
 // agent:privilege (the toggle itself) are DELIBERATELY excluded. Scope stays
 // "agent" regardless, so every scope==="user" guard (officeOwner/selfUser/the
-// messageSend user-path) still blocks a privileged agent — those exclusions are
+// messageSend user-path) still blocks a privileged agent - those exclusions are
 // defense-in-depth on top of that. Whenever a new capability is added, decide
 // explicitly whether a privileged agent should hold it; do NOT let it ride in by
 // default.

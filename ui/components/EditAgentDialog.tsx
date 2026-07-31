@@ -159,7 +159,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [customInstructions, setCustomInstructions] = useState(
     agent?.customInstructions ?? "",
   );
-  // Agent memory (edit mode only) — edited via the unified /api/memory verbs
+  // Agent memory (edit mode only) - edited via the unified /api/memory verbs
   // (load + version-guarded save), saved separately from the agent PATCH.
   const mem = useMemoryEditor("agent", agent?.id ?? null, !!agent?.id);
   const defaultModel = isCodex
@@ -211,7 +211,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // failed (UI falls back to the hardcoded CODEX_MODELS list). For Codex we
   // hit the server's backends.listModels endpoint which spins up a
   // throwaway codex client and calls model/list against the same env that
-  // a real spawn would see. Claude path doesn't need this — the family
+  // a real spawn would see. Claude path doesn't need this - the family
   // list is static, identical across auth tiers, and rendered from the
   // shared MODEL_FAMILIES constant.
   const [backendModels, setBackendModels] = useState<BackendModelWire[] | null>(
@@ -248,10 +248,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
   // Fetch the auth-appropriate model list for Codex agents. Fires once when
   // the dialog opens (spawn or edit). Re-fetches if `agentType` flips to
-  // codex — though in practice the agentType picker is locked at spawn.
+  // codex - though in practice the agentType picker is locked at spawn.
   // GET backends.listModels: a DOMAIN failure (auth/transport in the executor's
   // model probe) comes back as a 200 carrying { models: [], authError, error },
-  // NOT a thrown ApiError — so read r.error in .then(); only a real HTTP/network
+  // NOT a thrown ApiError - so read r.error in .then(); only a real HTTP/network
   // failure reaches .catch().
   useEffect(() => {
     if (!isCodex) return;
@@ -325,7 +325,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // sandbox so the menus carry valid options for the newly selected engine (no
   // stale cross-engine values). Switching back to the agent's current engine
   // restores its real settings. Skips the initial mount. For codex the model/
-  // effort here are provisional — the model/list effect above refines them once
+  // effort here are provisional - the model/list effect above refines them once
   // the auth-appropriate list loads.
   const didInitEngine = useRef(false);
   useEffect(() => {
@@ -333,7 +333,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       didInitEngine.current = true;
       return;
     }
-    // Synchronous re-seed in response to the engine flip — same intentional
+    // Synchronous re-seed in response to the engine flip - same intentional
     // pattern (and rule suppression) as the model/list effect above.
     /* eslint-disable react-hooks/set-state-in-effect */
     if (targetEngine === agentType) {
@@ -373,7 +373,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // never clears `saving` without surfacing the failure.
       const msg =
         e instanceof ApiError && e.code === "version_conflict"
-          ? "Custom instructions changed since you opened this — reopen the dialog to edit the latest."
+          ? "Custom instructions changed since you opened this - reopen the dialog to edit the latest."
           : e instanceof ApiError
             ? e.message || "Save failed"
             : "Save failed";
@@ -390,10 +390,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       setCwdError(null);
       setNameError(null);
       setSaving(true);
-      // username is server-derived (attributionFor) — not sent. The created
+      // username is server-derived (attributionFor) - not sent. The created
       // agent rides the agent_added broadcast. We read the { agent } body only
       // to get its id for the privileged two-step (privilege is its own
-      // user-gated route, never a spawn field — so no agent can self-confer).
+      // user-gated route, never a spawn field - so no agent can self-confer).
       apiFetch<{ agent: AgentInfo }>("POST", "/api/agents", {
         name: name || `Agent ${props.deskIndex + 1}`,
         cwd,
@@ -466,7 +466,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.agentType
       );
       // Privilege is its OWN user-gated route (PUT /privileged), never part of
-      // the PATCH — it re-mints the token and restarts the session like a model
+      // the PATCH - it re-mints the token and restarts the session like a model
       // change. Toggled independently of the other field edits.
       const privilegedChanged = privileged !== (agent!.privileged ?? false);
       if (!hasChanges && !privilegedChanged && !mem.dirty) {
@@ -491,8 +491,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       const runSeq = () =>
         ops.reduce<Promise<unknown>>((p, op) => p.then(op), Promise.resolve());
       // Block the dialog (await + surface errors) when something restarts the
-      // session — a cwd change (server cwd validation), an engine switch (fresh
-      // conversation), or a privilege toggle (token re-mint + session-swap) —
+      // session - a cwd change (server cwd validation), an engine switch (fresh
+      // conversation), or a privilege toggle (token re-mint + session-swap) -
       // or when the edit can meaningfully FAIL: a custom-instructions change is
       // version-guarded (409 on a concurrent edit), so it must await and
       // surface the conflict, never fire-and-forget past it. Other edits stay
@@ -505,7 +505,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         mem.dirty
       ) {
         // A session-swap (cwd/engine/privilege) or a destructive memory REPLACE
-        // must await + surface its error before closing — never fire-and-forget.
+        // must await + surface its error before closing - never fire-and-forget.
         setSaving(true);
         runSeq()
           .then(async () => {
@@ -663,7 +663,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             </p>
           )}
 
-          {/* Manager — set at spawn, immutable. Rendered as a read-only
+          {/* Manager - set at spawn, immutable. Rendered as a read-only
               badge in both spawn and edit modes so there's no UX
               divergence on which user the agent is bound to. Style
               matches the Engine badge (also locked at spawn). On spawn
@@ -671,7 +671,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               it comes from the agent's persisted user record. */}
           <label style={{ ...labelStyle, marginTop: 12 }}>Manager</label>
           <div
-            title="Set at spawn — manager cannot be changed after the agent is created."
+            title="Set at spawn - manager cannot be changed after the agent is created."
             style={{
               ...inputStyle,
               display: "flex",
@@ -703,11 +703,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           {/* Privileged operator access. Grants this agent its spawning user's
             room-scoped operator powers (drive other agents' sessions: resume,
             new conversation, send-now, lifecycle; plus cron over the user's own
-            jobs). Scope stays the agent — it never posts as the user. Conferred
+            jobs). Scope stays the agent - it never posts as the user. Conferred
             via the dedicated user-gated route, so toggling a running agent
             re-mints its token and restarts its session, like a model change.
             Shown only to a user who may actually set it (owner, or the agent's
-            manager — see canTogglePrivilege). */}
+            manager - see canTogglePrivilege). */}
           {canTogglePrivilege && (
             <>
               <label
@@ -750,7 +750,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
           {/* Engine. Locked at spawn (chosen via the EngineChooserDialog before
             this opens). Editable in edit mode: switching it starts a fresh
-            conversation on the new engine — the current one is preserved in the
+            conversation on the new engine - the current one is preserved in the
             agent's resume history, and the model/effort/approval menus below
             repopulate with the selected engine's options. */}
           <label style={{ ...labelStyle, marginTop: 12 }}>Engine</label>
@@ -967,7 +967,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             >
               {modelsError.authError
                 ? "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then re-open this dialog. (Or set OPENAI_API_KEY in your env.)"
-                : `Could not load model list (${modelsError.message}). Showing fallback list — some options may not work on your account.`}
+                : `Could not load model list (${modelsError.message}). Showing fallback list - some options may not work on your account.`}
             </p>
           )}
 
@@ -997,7 +997,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               } else {
                 // Codex model with no supportedEfforts reported: fall back to
                 // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
-                // across Codex models — e.g. luna lacks ultra; the dynamic
+                // across Codex models - e.g. luna lacks ultra; the dynamic
                 // per-model list is the real source when available).
                 effortLevels = EFFORT_LEVELS.filter(
                   (opt) => opt.level !== "max" && opt.level !== "ultra",
@@ -1344,7 +1344,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             </>
           )}
 
-          {/* Move to Room — only show when multiple rooms exist and editing */}
+          {/* Move to Room - only show when multiple rooms exist and editing */}
           {!isSpawn && roomCount > 1 && (
             <>
               <label style={{ ...labelStyle, marginTop: 14 }}>

@@ -46,7 +46,7 @@ export function EmptySlot({
         overflow="visible"
         style={{ pointerEvents: "none" }}
       >
-        {/* Invisible hit area — only the diamond shape triggers hover/click */}
+        {/* Invisible hit area - only the diamond shape triggers hover/click */}
         <path
           data-no-pan
           d="M40 126 L90 101 L140 126 L90 151 Z"
@@ -83,7 +83,7 @@ export function EmptySlot({
           }}
         />
       </svg>
-      {/* Desk number label — always visible */}
+      {/* Desk number label - always visible */}
       <div
         style={{
           position: "absolute",

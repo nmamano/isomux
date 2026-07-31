@@ -114,7 +114,7 @@ describe("skill-use counters: dispatch increment + GET /api/skill-usage", () => 
       );
     }
 
-    // Built-in COMMANDS count too — the Sk menu ranks across skills and
+    // Built-in COMMANDS count too - the Sk menu ranks across skills and
     // commands (/help dispatches immediately, no turn to await).
     await srv.agentManager.sendMessage(agent.id, "/help", "Boss");
 
@@ -129,7 +129,7 @@ describe("skill-use counters: dispatch increment + GET /api/skill-usage", () => 
     expect(r.counts?.["grill-me"]).toBeUndefined();
 
     // Persistence: a no-wipe restart (cold reboot on the same STATE_ROOT)
-    // resets the module cache and re-reads skill-usage.json — the counts
+    // resets the module cache and re-reads skill-usage.json - the counts
     // survive. (Asserted at the module layer: the harness cookie session does
     // not survive a restart, so the route can't be probed with boss's cookie.)
     const bossUserId = getUserByName(boss.username)!.id;
@@ -196,7 +196,7 @@ describe("skill-usage store module", () => {
     writeFileSync(file, "{}");
 
     // A skill directory can legally be named "constructor" / "toString" /
-    // "__proto__" — none may collide with inherited Object.prototype members
+    // "__proto__" - none may collide with inherited Object.prototype members
     // (which would corrupt the `?? 0` increment read).
     recordSkillUse("user-z", "constructor");
     recordSkillUse("user-z", "constructor");

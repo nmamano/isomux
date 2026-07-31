@@ -1,4 +1,4 @@
-// Phase 1.4a — Queue / coalescing / notification characterization.
+// Phase 1.4a - Queue / coalescing / notification characterization.
 //
 // Freezes the OBSERVABLE behavior of the message queue before Phase 3 moves the
 // orchestrator/transport: how messages addressed to a busy agent are queued,
@@ -6,12 +6,12 @@
 // + the busy note), the dedupe/cap/reject contracts on the agent-to-agent HTTP
 // entry point, cancel/send-now, and the turnHadHumanInput notification gate.
 //
-// Seam: the WS harness (startTestServer). The wire IS the boundary here — queue
+// Seam: the WS harness (startTestServer). The wire IS the boundary here - queue
 // chips reach clients as `agent_updated` { changes: { queue } }, the per-message
 // provenance lands as `log_entry`, and the agent-to-agent POST returns the raw
 // EnqueueResult. The coalesced SDK prompt the backend receives is read off the
 // injected FakeSession (`fakeBackend.sessionForAgent(id).sent`). In-memory state
-// is read via `agentManager` (note: getAgent().queue is always empty by design —
+// is read via `agentManager` (note: getAgent().queue is always empty by design -
 // the live queue is spliced in only by getAllAgents(), which is what full_state
 // uses; turnHadHumanInput IS on info).
 //
@@ -117,7 +117,7 @@ async function spawnAgent(
 interface PostResult {
   status: number;
   // The unified agents.sendMessage route (3d.6a) returns MessageAck { messageId }
-  // on success or the standard error envelope { error: { code, message } } — not
+  // on success or the standard error envelope { error: { code, message } } - not
   // the raw EnqueueResult the legacy endpoint exposed. The queued / deduped /
   // accept-then-flush semantics are now read off the live queue (queueOf) + state,
   // not the HTTP body.
@@ -127,11 +127,11 @@ interface PostResult {
   };
 }
 
-// Agent-to-agent entry point: POST /api/agents/:receiverId/messages (3d.6a — the
+// Agent-to-agent entry point: POST /api/agents/:receiverId/messages (3d.6a - the
 // unified agents.sendMessage route, AGENT branch). Bearer-required: the sender's
 // auto-injected AGENT bearer (ISOMUX_AGENT_TOKEN, resolved here via
 // getAgentTokenRaw) IS the sender, so the body no longer carries senderAgentId on
-// the happy path — it's token-derived. A null senderId (or one with no minted
+// the happy path - it's token-derived. A null senderId (or one with no minted
 // token) sends NO bearer, exercising the no-identity 401 path.
 async function postAgentMessage(
   srv: TestServer,
@@ -157,7 +157,7 @@ async function postAgentMessage(
 }
 
 // Human (USER cookie) chat send: POST /api/agents/:id/messages, the same unified
-// route, USER branch. Replaces the retired WS `send_message` command — the turn
+// route, USER branch. Replaces the retired WS `send_message` command - the turn
 // streams back over the socket; the { messageId:"" } ack is ignored. username is
 // server-derived (attributionFor), so the body carries only the text.
 async function sendHuman(
@@ -177,7 +177,7 @@ async function sendHuman(
 }
 
 // Authenticated USER mutation with no response body (cancelQueued / sendNow /
-// newConversation — the retired WS commands, now 204 REST routes).
+// newConversation - the retired WS commands, now 204 REST routes).
 async function userMut(
   srv: TestServer,
   rawSessionId: string,
@@ -201,7 +201,7 @@ function logEntriesFor(sock: TestSocket, agentId: string): LogEntry[] {
 }
 
 // True if the socket received an agent_updated for this agent whose changes
-// carry turnHadHumanInput === value (the notification-gate WIRE signal — the UI
+// carry turnHadHumanInput === value (the notification-gate WIRE signal - the UI
 // reads this off the wire to gate the turn-end sound, not the manager state).
 function sawTurnFlag(
   sock: TestSocket,
@@ -246,7 +246,7 @@ function sawQueueIds(
 }
 
 describe("queue: entry points (Phase 1.4a)", () => {
-  it("idle human send_message starts an immediate turn — no enqueue, no chip", async () => {
+  it("idle human send_message starts an immediate turn - no enqueue, no chip", async () => {
     server = await startTestServer({
       // Auto-complete so the single turn finishes; we assert no queueing happened.
       fakeBackend: new FakeBackend({
@@ -359,7 +359,7 @@ describe("queue: coalescing (Phase 1.4a)", () => {
     // Build the exact expected coalesced prompt. Two items queued-while-busy ->
     // plural busy note; FIFO order; user prefix then agent prefix; "\n\n" joins.
     const note =
-      "[Note: these messages were queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent them.]";
+      "[Note: these messages were queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent them.]";
     const userPrefix = formatPrefix({ username: owner.username }); // "[Boss] "
     const agentPrefix = `${formatAgentSenderPrefix(sender.id, "Sender", room.name)} `;
     const expected = [
@@ -408,7 +408,7 @@ describe("queue: coalescing (Phase 1.4a)", () => {
     );
     const session = server.fakeBackend.sessionForAgent(recv.id)!;
     // Ensure the kickoff reached the backend (pendingTurn installed) before we
-    // completeTurn it below — beginTurn flips state to "thinking" before send.
+    // completeTurn it below - beginTurn flips state to "thinking" before send.
     await waitUntil(() => session.sent.length === 1, 2000, "kickoff sent");
 
     await postAgentMessage(server, recv.id, sender.id, "only-one");
@@ -418,7 +418,7 @@ describe("queue: coalescing (Phase 1.4a)", () => {
     await waitUntil(() => session.sent.length === 2, 2000, "coalesced send");
 
     const note =
-      "[Note: this message was queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent it.]";
+      "[Note: this message was queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent it.]";
     const agentPrefix = `${formatAgentSenderPrefix(sender.id, "Sender", room.name)} `;
     expect(session.sent[1].text).toBe(
       [note, `${agentPrefix}only-one`].join("\n\n"),
@@ -447,7 +447,7 @@ describe("queue: notifications / turnHadHumanInput (Phase 1.4a)", () => {
     );
     const session = server.fakeBackend.sessionForAgent(recv.id)!;
     // Ensure the kickoff reached the backend (pendingTurn installed) before the
-    // later completeTurn — beginTurn flips state to "thinking" before send.
+    // later completeTurn - beginTurn flips state to "thinking" before send.
     await waitUntil(() => session.sent.length === 1, 2000, "kickoff sent");
     expect(agentOf(server, recv.id).turnHadHumanInput).toBe(false);
 
@@ -788,7 +788,7 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
 //
 // The window: a queued flush's runAgentTurn parks PRE-SEND (awaiting a slow
 // beforeTurn plugin, pendingTurn not yet installed, queue undrained). Send-now
-// calls abort(), which bumps turnCancelToken and — with no pendingTurn — early-
+// calls abort(), which bumps turnCancelToken and - with no pendingTurn - early-
 // returns without ever setting `aborting`. When the plugin finishes,
 // checkCancelled throws SessionSwappedError into flushQueue's catch with the
 // queue still non-empty, which used to log the "will retry" system message
@@ -797,7 +797,7 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
 // user-initiated cancel (stay quiet) from an unexpected swap (still surface).
 //
 // Determinism: a test-injected gated beforeTurn plugin (via _testSetPlugins)
-// holds the flush in the pre-send window until the test has fired Send-now —
+// holds the flush in the pre-send window until the test has fired Send-now -
 // the exact widening that made the bug intermittent in production (mem0).
 describe("queue: flush cancelled pre-send (task d7c879da)", () => {
   // One-shot gate: the FIRST beforeTurn call parks on `gate` (and signals
@@ -871,7 +871,7 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
     _testSetPlugins([]);
   });
 
-  it("send-now during the pre-send window drains silently — no 'will retry' system message", async () => {
+  it("send-now during the pre-send window drains silently - no 'will retry' system message", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Boss");
     const { recv, sock, openGate } = await parkFlushPreSend(
@@ -900,7 +900,7 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
       .some((s) => s.sent.some((m) => m.text.includes("queued-1")));
     expect(reached).toBe(true);
 
-    // Wait for the retry's user_message provenance — it lands strictly AFTER
+    // Wait for the retry's user_message provenance - it lands strictly AFTER
     // the SessionSwappedError catch ran, so absence of the noise message at
     // this point is conclusive, not a did-not-arrive-yet race.
     await waitUntil(
@@ -976,7 +976,7 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
 // expected behavior, not a stall: the settings-driven replace stamps
 // reason "settings" on the SessionSwappedError it rejects the turn with, and
 // flushQueue's catch words the notice accordingly ("Restarting session to
-// apply settings...") instead of the generic stall-sounding line — while the
+// apply settings...") instead of the generic stall-sounding line - while the
 // post-swap kick still delivers the queued item, same as any other swap.
 describe("queue: settings-driven swap mid-flush (task 8ba27b27)", () => {
   it("effort change with a queued message words the notice as expected behavior and still delivers", async () => {
@@ -992,7 +992,7 @@ describe("queue: settings-driven swap mid-flush (task 8ba27b27)", () => {
     await sock.waitFor("full_state");
 
     // Kickoff flush turn parks in-flight (parkingBackend accepts the send but
-    // never completes the turn), with a second message queued behind it —
+    // never completes the turn), with a second message queued behind it -
     // the exact production window from the task report.
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     await waitUntil(
@@ -1041,7 +1041,7 @@ describe("queue: settings-driven swap mid-flush (task 8ba27b27)", () => {
 // sendNow flag on the USER send (Ctrl/Cmd+Enter "deliver now", task 2226d4ce).
 // A thin composition over existing machinery: when the message lands in a busy
 // agent's queue, sendMessage triggers the same abort+flush as POST /send-now.
-// The flag is read ONLY inside the busy-queue branch — idle sends, slash
+// The flag is read ONLY inside the busy-queue branch - idle sends, slash
 // commands, and multi-step flows take their normal paths untouched.
 describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
   it("busy agent: a sendNow send lands in the queue and immediately drains to the backend", async () => {
@@ -1100,7 +1100,7 @@ describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
 
     // Normal-send path: the message goes straight to the backend (never
     // queued) and the turn it starts stays alive (parkingBackend holds it in
-    // "thinking" — an erroneous abort would knock it back to idle).
+    // "thinking" - an erroneous abort would knock it back to idle).
     await waitUntil(
       () =>
         (server!.fakeBackend.sessionForAgent(a.id)?.sent ?? []).some((m) =>
@@ -1160,11 +1160,11 @@ describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
   });
 });
 
-// Unified agents.sendMessage route (3d.6a), AGENT branch — sender authority via
+// Unified agents.sendMessage route (3d.6a), AGENT branch - sender authority via
 // the messageSend guard. A valid AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN)
 // IS the sender; a mismatched body.senderAgentId is a spoof (403); a valid
 // non-agent identity (USER/RUN) is rejected (403); a no/invalid-bearer request is
-// rejected 401 at the /api auth wall — no anonymous-loopback body-trust.
+// rejected 401 at the /api auth wall - no anonymous-loopback body-trust.
 describe("queue: message endpoint sender authority (bearer-required)", () => {
   async function postBearer(
     srv: TestServer,
@@ -1200,7 +1200,7 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
 
     // No Authorization header. The unified /api/agents/:id/messages route is
     // bearer/cookie-required, so the /api auth wall rejects it (401) before the
-    // handler runs — no anonymous-loopback body-trust.
+    // handler runs - no anonymous-loopback body-trust.
     const res = await server.http(`/api/agents/${recv.id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1220,7 +1220,7 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
     const sender = await spawnAgent(server, "Sender", room.id);
     const token = getAgentTokenRaw(sender.id)!;
 
-    // No senderAgentId in the body — a loopback post without it would 400. The
+    // No senderAgentId in the body - a loopback post without it would 400. The
     // 200 + token-derived attribution proves the sender came from the bearer.
     const r = await postBearer(server, recv.id, token, {
       text: "hi from token",
@@ -1277,7 +1277,7 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
-    // RUN scope carries no agent:send-as-self — it is not an agent identity, so
+    // RUN scope carries no agent:send-as-self - it is not an agent identity, so
     // it must not be allowed to body-trust a senderAgentId.
     const runToken = mintRunToken("some-job", "some-run", null);
 

@@ -7,7 +7,7 @@
 // The discipline here is: before ANY file gets rewritten in the new
 // schema, copy every potentially-touched file into
 // ~/.isomux/backups/pre-userid-migration-<ISO-timestamp>/. The directory
-// stays in place forever — operator can roll back by restoring from it.
+// stays in place forever - operator can roll back by restoring from it.
 
 import { join } from "path";
 import { STATE_ROOT } from "./config.ts";
@@ -94,7 +94,7 @@ export function runPreUseridBackupIfNeeded(): void {
   try {
     mkdirSync(targetDir, { recursive: true });
   } catch (err) {
-    // If we can't even create the backup dir, refuse to migrate — bail
+    // If we can't even create the backup dir, refuse to migrate - bail
     // loudly so the operator sees the error and can fix permissions
     // before the next restart attempts the migration.
     throw new Error(

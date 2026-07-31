@@ -1,4 +1,4 @@
-// Phase 3a slice 3a.4a — Invites on the unified REST surface
+// Phase 3a slice 3a.4a - Invites on the unified REST surface
 // (opIds invites.{mint,mintSelf,list,revoke}).
 //
 // TDD'd against the typed route table. What this freezes:
@@ -8,14 +8,14 @@
 //     proves zero cross-user rows leak), and revoke emits invite_revoked
 //     OWNERS-ONLY (members/other users never receive it).
 //   - Non-leak revoke authz (inviteOwnerOrSelf precondition): a member's foreign
-//     AND nonexistent prefix BOTH 403 with an identical body — no existence leak.
+//     AND nonexistent prefix BOTH 403 with an identical body - no existence leak.
 //   - ROLE SOURCE = user RECORD (Reviewer1 Option A): a member promoted in the
 //     record without reconnecting projects/revokes as an owner. invites.mint
-//     alone stays officeOwner (session) — a member POST is 403.
+//     alone stays officeOwner (session) - a member POST is 403.
 //   - Status mapping: mint INVALID→400 / conflict→409 / ok→200; member revoke
 //     uniform 403; owner nonexistent→404.
 //   - AGENT bearer → 403 (no invite:manage); no identity → 401.
-//   - Strangler: the legacy WS arms share the SAME core (covered where it bites —
+//   - Strangler: the legacy WS arms share the SAME core (covered where it bites -
 //     the recipient-scoped emit + record-role revoke run on both transports).
 //
 // Seam: startTestServer(). Zero LLM.
@@ -221,7 +221,7 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
       2000,
       "alice sees her own invite",
     );
-    // bob is emitted his OWN (empty) scoped list — never Alice's rows.
+    // bob is emitted his OWN (empty) scoped list - never Alice's rows.
     await waitUntil(
       () => lastInvitesList(bobSock) !== null,
       2000,
@@ -232,7 +232,7 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
 
   // Reviewer1 P2 (eb3354e6 revision): the owner-mint (invites.mint) and
   // self-mint (invites.mintSelf) seams carry SEPARATE explicit emitInvitesList
-  // calls in server/isomux-office.ts — the self-mint test above no longer exercises
+  // calls in server/isomux-office.ts - the self-mint test above no longer exercises
   // the owner-mint one, so cover it with a genuinely NEW username.
   it("owner mint (new user) fans out a scoped invites_list: owner gets the row, a member gets none", async () => {
     const srv = await startTestServer();
@@ -256,7 +256,7 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
       2000,
       "owner sees the new-user invite",
     );
-    // alice is emitted her OWN (empty) scoped list — never Zed's row.
+    // alice is emitted her OWN (empty) scoped list - never Zed's row.
     await waitUntil(
       () => lastInvitesList(aliceSock) !== null,
       2000,
@@ -267,7 +267,7 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
 });
 
 // invites.mintRecovery (task eb3354e6 final revision): owner-only device link
-// for an EXISTING user — the escape hatch for a user signed out of every
+// for an EXISTING user - the escape hatch for a user signed out of every
 // device (self-service device links require a live session). Targeted by
 // stable userId; name/role derive from the record server-side.
 describe("routes/invites REST: mintRecovery (owner recovery for existing users)", () => {
@@ -310,13 +310,13 @@ describe("routes/invites REST: mintRecovery (owner recovery for existing users)"
     expect(listed.map((i) => i.tokenPrefix)).toEqual([inv2.tokenPrefix]);
 
     // TTL POLICY LOCK (Reviewer1 third-pass P2): recovery links get the
-    // standard 24h owner-issued window — the seam's ttlMsOverride must keep
+    // standard 24h owner-issued window - the seam's ttlMsOverride must keep
     // defeating replacePriorForUsername's implicit 1h self-invite branch.
     expect(inv2.expiresAt - inv2.createdAt).toBe(INVITE_TTL_MS);
     expect(INVITE_TTL_MS).toBe(24 * 60 * 60 * 1000);
 
     // Companion: a SELF-mint stays on the tighter 1h TTL (and replaces the
-    // recovery link — one outstanding link per user across both paths).
+    // recovery link - one outstanding link per user across both paths).
     const selfR = await api(srv, "/api/invites/self", {
       method: "POST",
       rawSessionId: alice.rawSessionId,
@@ -388,7 +388,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
     });
     expect(foreign.status).toBe(403);
     expect(missing.status).toBe(403);
-    // Identical envelope — the foreign case must be indistinguishable from the
+    // Identical envelope - the foreign case must be indistinguishable from the
     // nonexistent case (no exists-but-hidden leak).
     expect(foreign.body).toEqual(missing.body);
 
@@ -482,7 +482,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
     const bob = await srv.seedMember("Bob");
     const pb = await mintFor(srv, bob.rawSessionId);
 
-    // Promote Alice in the record, THEN connect — the socket caches an
+    // Promote Alice in the record, THEN connect - the socket caches an
     // owner-role session.
     expect(setUserRole("Alice", "owner")).toBe(true);
     const aliceSock = await srv.connectWs(alice.rawSessionId);
@@ -544,7 +544,7 @@ describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => 
       ).status,
     ).toBe(409);
     // eb3354e6 revision: invites.mint is NEW-USER only. The retired
-    // allowExisting escape hatch is ignored on the wire — still 409.
+    // allowExisting escape hatch is ignored on the wire - still 409.
     expect(
       (
         await api(srv, "/api/invites", {
@@ -704,7 +704,7 @@ describe("routes/invites REST: room grants (pre-assigned rooms on member invites
 
     // Accept creates the member record seeded with the grants; claimUser
     // seeds notifRooms from allowedRooms, so the invitee lands in the
-    // intended rooms with notifications on — not an empty office.
+    // intended rooms with notifications on - not an empty office.
     const rawToken = body.url.split("/i/")[1];
     const acc = await acceptInvite(rawToken, { userAgent: null });
     if (!acc.ok) throw new Error(`accept failed: ${acc.error}`);
@@ -736,7 +736,7 @@ describe("routes/invites REST: room grants (pre-assigned rooms on member invites
     expect(ownerRole.status).toBe(400);
 
     // eb3354e6 revision: an existing user is rejected up-front (USER_EXISTS
-    // -> 409) regardless of grants — the grants check is unreachable for
+    // -> 409) regardless of grants - the grants check is unreachable for
     // existing names now that invites.mint is new-user only.
     const existing = await api(srv, "/api/invites", {
       method: "POST",

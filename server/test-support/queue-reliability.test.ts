@@ -6,12 +6,12 @@
 //     instead of replacing the record (the lost-wakeup class), plus the
 //     runConsumer clean-stream-end backstop;
 //   - da065287 layer 2: bounded consumer drain in closeAndDrainSession;
-//   - da065287 layer 3: the queue watchdog (sweepStuckFlushes) — gentle
+//   - da065287 layer 3: the queue watchdog (sweepStuckFlushes) - gentle
 //     re-trigger for missed flushes, rate-limited forced recovery for wedged
 //     ones (exercised via the _testWedgeFlush seam: once layers 1–2 exist,
 //     every wire-constructible wedge is already recovered by those layers
 //     themselves, so the forced path is insurance for unknown wedges);
-//   - 9870b472: durable per-agent queues (~/.isomux/message-queues.json) —
+//   - 9870b472: durable per-agent queues (~/.isomux/message-queues.json) -
 //     transactional acceptance, boot replay via harness restart(), dedupe
 //     across restarts, clear/kill/corrupt-file behavior;
 //   - 314ee9fb: wake-vs-swap serialization (the flush wake defers to a
@@ -85,7 +85,7 @@ function sessionsFor(srv: TestServer, id: string): FakeSession[] {
 }
 
 // Count of individual sends (across all of the agent's sessions) whose text
-// contains `needle` — the exactly-once delivery assertion.
+// contains `needle` - the exactly-once delivery assertion.
 function deliveryCount(srv: TestServer, id: string, needle: string): number {
   return sessionsFor(srv, id).reduce(
     (n, s) => n + s.sent.filter((m) => m.text.includes(needle)).length,
@@ -208,7 +208,7 @@ function parkingBackend(extra?: {
 }
 
 // ---------------------------------------------------------------------------
-// da065287 layer 1 — attach semantics + clean-stream-end backstop
+// da065287 layer 1 - attach semantics + clean-stream-end backstop
 // ---------------------------------------------------------------------------
 
 describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 L1)", () => {
@@ -228,7 +228,7 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     await waitUntil(() => s1.sent.length === 1, 3000, "kickoff sent");
     await waitUntil(() => stateOf(server!, a.id) === "thinking", 3000, "busy");
 
-    // The stream ends cleanly, mid-turn, with no error event — the case that
+    // The stream ends cleanly, mid-turn, with no error event - the case that
     // used to strand `await turn` forever and keep a dead session pointer.
     s1.endStream();
 
@@ -264,11 +264,11 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
 
   it("mid-turn stream end with a queued item: no replacement turn races the dying caller; the item delivers after human recovery", async () => {
     // Review-pinned (final code review, blockers 2 + 3): the stream-end
-    // backstop must NOT synchronously flip state when a pendingTurn existed —
+    // backstop must NOT synchronously flip state when a pendingTurn existed -
     // that would fire the queue trigger and could start a replacement turn
     // before the rejected caller's catch runs (which would then stamp
     // state=error over the live replacement). And the recovery wake must
-    // PRESERVE the caller's claimed busy state — flipping to
+    // PRESERVE the caller's claimed busy state - flipping to
     // waiting_for_response with a durable queue present used to race a queue
     // flush into the revive turn's pre-send window (bogus "Superseded by a
     // new turn." flush error, two concurrent sends). The queued item stays
@@ -294,7 +294,7 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
       "error state",
     );
     await sleep(150);
-    // Not delivered anywhere — no replacement turn raced the dying caller.
+    // Not delivered anywhere - no replacement turn raced the dying caller.
     expect(deliveryCount(server, a.id, "queued-later")).toBe(0);
     expect(queueOf(server, a.id).length).toBe(1);
     expect(queueFile(server)[a.id]?.queue?.length).toBe(1); // still durable
@@ -307,7 +307,7 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
       "revive delivered",
     );
     const s2 = server.fakeBackend.sessionForAgent(a.id)!;
-    // The replacement session's FIRST send is the human revive prompt — the
+    // The replacement session's FIRST send is the human revive prompt - the
     // queued item did not jump the line into the pre-send window.
     expect(s2.sent[0].text).toContain("revive");
     expect(s2.sent[0].text).not.toContain("queued-later");
@@ -384,7 +384,7 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     // The parked send now throws (backend died taking the interrupt).
     s1.failSends(new Error("send failed during interrupt"));
 
-    // Prompt delivery — well under the 7s hot-abort timeout that was the only
+    // Prompt delivery - well under the 7s hot-abort timeout that was the only
     // (partial) rescuer pre-fix, and with no permanent wedge.
     await waitUntil(
       () => deliveryCount(server!, recv.id, "queued-2") === 1,
@@ -404,7 +404,7 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
 });
 
 // ---------------------------------------------------------------------------
-// da065287 layer 2 — bounded consumer drain
+// da065287 layer 2 - bounded consumer drain
 // ---------------------------------------------------------------------------
 
 describe("queue reliability: bounded consumer drain (da065287 L2)", () => {
@@ -451,13 +451,13 @@ describe("queue reliability: bounded consumer drain (da065287 L2)", () => {
       3000,
       "drained",
     );
-    // Exactly once — the wedged old session never received it.
+    // Exactly once - the wedged old session never received it.
     expect(s1.sent.some((m) => m.text.includes("queued-2"))).toBe(false);
   });
 });
 
 // ---------------------------------------------------------------------------
-// da065287 layer 3 — queue watchdog
+// da065287 layer 3 - queue watchdog
 // ---------------------------------------------------------------------------
 
 describe("queue reliability: watchdog (da065287 L3)", () => {
@@ -471,7 +471,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await sock.waitFor("full_state");
 
     // Real missed-trigger construction: a message queued during a pending
-    // /model pick, where the pick resolves to "Already using X" — the handler
+    // /model pick, where the pick resolves to "Already using X" - the handler
     // returns with no state transition and no flush kick, stranding the item.
     await sendHuman(server, owner.rawSessionId, recv.id, "/model");
     await waitUntil(
@@ -485,7 +485,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await postAgentMessage(server, recv.id, sender.id, "stranded");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
 
-    // Pick option 1 — the CURRENT model (spawn default = first family).
+    // Pick option 1 - the CURRENT model (spawn default = first family).
     await sendHuman(server, owner.rawSessionId, recv.id, "1");
     await waitUntil(
       () =>
@@ -563,7 +563,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     expect(acted).toBe(1);
     // Recovery ATTEMPTED: chat entry + a replacement session. The synthetic
     // wedge has no real zombie flush to settle, so the flag stays held and the
-    // queue stays put — the documented honest-terminal residue; delivery is
+    // queue stays put - the documented honest-terminal residue; delivery is
     // NOT asserted here on purpose. flushInProgress is never force-cleared.
     await waitUntil(
       () =>
@@ -580,14 +580,14 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     );
     expect(queueOf(server, recv.id).length).toBe(1);
 
-    // Immediate second sweep: cooldown holds — no second replacement, no spam.
+    // Immediate second sweep: cooldown holds - no second replacement, no spam.
     expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
     expect(sessionsFor(server, recv.id).length).toBe(sessionsBefore + 1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 314ee9fb — wake vs. mid-drain swap
+// 314ee9fb - wake vs. mid-drain swap
 // ---------------------------------------------------------------------------
 
 describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
@@ -599,7 +599,7 @@ describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
     const recv = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
 
-    // Agents spawn lazy — give the receiver a LIVE session (kickoff turn,
+    // Agents spawn lazy - give the receiver a LIVE session (kickoff turn,
     // completed) so setPrivileged actually has a session to swap.
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     const s1 = server.fakeBackend.sessionForAgent(recv.id)!;
@@ -611,7 +611,7 @@ describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
       "idle with live session",
     );
 
-    // Out-of-band swap parks on the hung drain (default 15s bound — released
+    // Out-of-band swap parks on the hung drain (default 15s bound - released
     // manually below, well before it).
     const swapDone = server.agentManager.setPrivileged(recv.id, true);
     await waitUntil(
@@ -628,7 +628,7 @@ describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
     expect(sessionsFor(server, recv.id).length).toBe(2); // kickoff + swap replacement only
 
     // Release the drain: the swap installs its replacement and its post-swap
-    // kick delivers the queued item there — exactly once.
+    // kick delivers the queued item there - exactly once.
     s1.endStream();
     await swapDone;
     await waitUntil(
@@ -646,7 +646,7 @@ describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
     expect(s1.sent.some((m) => m.text.includes("mid-drain"))).toBe(false);
   });
 
-  it("a human wake that wins the drain window is kept — the swap discards its own replacement instead of clobbering the live turn", async () => {
+  it("a human wake that wins the drain window is kept - the swap discards its own replacement instead of clobbering the live turn", async () => {
     server = await startTestServer({
       fakeBackend: parkingBackend({ hangOnClose: true }),
     });
@@ -708,7 +708,7 @@ describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 9870b472 — durable queues
+// 9870b472 - durable queues
 // ---------------------------------------------------------------------------
 
 describe("queue reliability: durable queues (9870b472)", () => {
@@ -775,7 +775,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
     server = await server.restart();
 
     // Boot replay: the kick wakes the (dormant) agent and delivers ONE
-    // coalesced prompt — plural busy-note, FIFO order, sender prefixes.
+    // coalesced prompt - plural busy-note, FIFO order, sender prefixes.
     await waitUntil(
       () => deliveryCount(server!, recv.id, "m-two") === 1,
       5000,
@@ -795,7 +795,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
     )!.text;
     const prefix = formatAgentSenderPrefix(sender.id, "Sender", room.name);
     const expected = [
-      "[Note: these messages were queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent them.]",
+      "[Note: these messages were queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent them.]",
       `${prefix} m-one`,
       `${prefix} m-two`,
     ].join("\n\n");
@@ -852,7 +852,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
     expect(queueFile(server)[recv.id]?.queue?.length).toBe(1);
     expect(queueFile(server)[other.id]?.queue?.length).toBe(1);
 
-    // /clear drops the queue — durably.
+    // /clear drops the queue - durably.
     await userMut(
       server,
       owner.rawSessionId,
@@ -947,7 +947,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
     // Review-pinned (final code review, blocker 1): store writes are
     // copy-on-success. Pre-fix, the failed write's mutation stayed in the
     // in-memory cache, and the next successful save (for any agent)
-    // serialized the whole cache — resurrecting a message whose sender was
+    // serialized the whole cache - resurrecting a message whose sender was
     // told 500.
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Boss");

@@ -7,7 +7,7 @@ Updated 2026-03-27 with live testing results.
 
 The Agent SDK works with a Claude Pro/Max subscription despite docs saying it requires an API key. **Tested and confirmed**: both V1 `query()` and V2 `unstable_v2_createSession()` work with subscription auth, including multi-turn. The SDK is our primary integration path.
 
-> **Status note (2026-07-19, task e6a0387a):** the V2 limitations documented below are historical. Production now uses V1 `query()` with typed `Options` — the system prompt is passed as `systemPrompt: { type: 'preset', preset: 'claude_code', append }` and effort as the typed `effort` option (see `buildSdkOpts` in `server/backends/claude.ts`). The old `executableArgs: ["--append-system-prompt", ...]` workaround (and its V1 `extraArgs` translation) is gone: it rendered every agent's full system prompt onto the child's argv, leaking it to `ps` / `systemctl status` / `/proc/<pid>/cmdline`. The typed option travels inside the `initialize` control request over stdin.
+> **Status note (2026-07-19, task e6a0387a):** the V2 limitations documented below are historical. Production now uses V1 `query()` with typed `Options` - the system prompt is passed as `systemPrompt: { type: 'preset', preset: 'claude_code', append }` and effort as the typed `effort` option (see `buildSdkOpts` in `server/backends/claude.ts`). The old `executableArgs: ["--append-system-prompt", ...]` workaround (and its V1 `extraArgs` translation) is gone: it rendered every agent's full system prompt onto the child's argv, leaking it to `ps` / `systemctl status` / `/proc/<pid>/cmdline`. The typed option travels inside the `initialize` control request over stdin.
 
 ---
 
@@ -15,9 +15,9 @@ The Agent SDK works with a Claude Pro/Max subscription despite docs saying it re
 
 **V1 `query()`**: Passed. No `ANTHROPIC_API_KEY` set. Subscription rate limits applied (`rateLimitType: "five_hour"`). Result in 1.7s.
 
-**V2 `unstable_v2_createSession()`**: Passed. Multi-turn works — two `send()`/`stream()` cycles on the same session, context preserved across turns. Same session ID throughout.
+**V2 `unstable_v2_createSession()`**: Passed. Multi-turn works - two `send()`/`stream()` cycles on the same session, context preserved across turns. Same session ID throughout.
 
-**Why it works**: The SDK spawns the Claude Code CLI as a subprocess. The CLI uses whatever auth is configured — including subscription via `claude login`. The docs' API key requirement is a policy for third-party distribution, not a technical enforcement.
+**Why it works**: The SDK spawns the Claude Code CLI as a subprocess. The CLI uses whatever auth is configured - including subscription via `claude login`. The docs' API key requirement is a policy for third-party distribution, not a technical enforcement.
 
 ---
 
@@ -83,12 +83,12 @@ claude -p "Deploy to staging" \
 ```
 
 ### Useful flags
-- `--max-budget-usd 5.00` — per-session cost cap
-- `--max-turns 50` — turn limit
-- `--model claude-opus-4-6` — model selection
-- `--system-prompt "..."` — custom system prompt
-- `--bare` — fast startup, skips config/MCP discovery
-- `--worktree` — isolated git worktree per session
+- `--max-budget-usd 5.00` - per-session cost cap
+- `--max-turns 50` - turn limit
+- `--model claude-opus-4-6` - model selection
+- `--system-prompt "..."` - custom system prompt
+- `--bare` - fast startup, skips config/MCP discovery
+- `--worktree` - isolated git worktree per session
 
 ### Bidirectional streaming (undocumented)
 ```bash
@@ -108,11 +108,11 @@ When streaming, the following event types are emitted:
 
 | Event | Use for |
 |---|---|
-| `system` (subtype `init`) | Session start — model, tools, cwd |
+| `system` (subtype `init`) | Session start - model, tools, cwd |
 | `assistant` | Full assistant message with content blocks (text, tool_use) |
 | `stream_event` | Token-level deltas: `text_delta`, `thinking_delta`, `input_json_delta` |
-| `tool_progress` | Heartbeat during tool execution — includes `elapsed_time_seconds` |
-| `result` | Final message — `total_cost_usd`, `usage`, `session_id` |
+| `tool_progress` | Heartbeat during tool execution - includes `elapsed_time_seconds` |
+| `result` | Final message - `total_cost_usd`, `usage`, `session_id` |
 | `rate_limit_event` | Rate limit status: `allowed`, `allowed_warning`, `rejected` |
 
 ### State derivation from events
@@ -132,14 +132,14 @@ result (error)            → error
 
 **Question**: Can we eliminate the per-agent `.mjs` launcher scripts in `~/.isomux/launchers/` by passing `systemPrompt`/`appendSystemPrompt` and `cwd` directly through `SDKSessionOptions`?
 
-**Answer**: No. Tested against `@anthropic-ai/claude-agent-sdk@0.2.85` — the launcher scripts are required.
+**Answer**: No. Tested against `@anthropic-ai/claude-agent-sdk@0.2.85` - the launcher scripts are required.
 
 ### What the launchers do
 
 Each launcher script (e.g. `agent-xxx.mjs`) does three things before the CLI boots:
-1. `process.chdir(cwd)` — sets the working directory
-2. `process.argv.push("--append-system-prompt", ...)` — injects the agent identity/instructions
-3. `await import(CLI_PATH)` — starts the CLI
+1. `process.chdir(cwd)` - sets the working directory
+2. `process.argv.push("--append-system-prompt", ...)` - injects the agent identity/instructions
+3. `await import(CLI_PATH)` - starts the CLI
 
 These are passed to the SDK via `pathToClaudeCodeExecutable` in `SDKSessionOptions`.
 
@@ -147,26 +147,26 @@ These are passed to the SDK via `pathToClaudeCodeExecutable` in `SDKSessionOptio
 
 | Approach | Result |
 |---|---|
-| `appendSystemPrompt` in `SDKSessionOptions` | **Silently ignored** — agent responded as "Claude", not custom name |
-| `systemPrompt` in `SDKSessionOptions` | **Silently ignored** — same result |
-| `cwd` in `SDKSessionOptions` | **Silently ignored** — cwd remained the process cwd, not `/tmp` |
+| `appendSystemPrompt` in `SDKSessionOptions` | **Silently ignored** - agent responded as "Claude", not custom name |
+| `systemPrompt` in `SDKSessionOptions` | **Silently ignored** - same result |
+| `cwd` in `SDKSessionOptions` | **Silently ignored** - cwd remained the process cwd, not `/tmp` |
 | `executableArgs: ["--append-system-prompt", ...]` | **Process exited with code 1** |
 
 ### Why it doesn't work
 
 - `SDKSessionOptions` only accepts: `model`, `pathToClaudeCodeExecutable`, `executable`, `executableArgs`, `env`, `allowedTools`, `disallowedTools`, `canUseTool`, `hooks`, `permissionMode`. No `cwd` or prompt fields.
-- The SDK has an internal `initConfig` (with `appendSystemPrompt`, `systemPrompt`, `agents`, etc.) that feeds the `SDKControlInitializeRequest`, but it's set internally — `unstable_v2_createSession` takes a single `SDKSessionOptions` argument with no way to pass `initConfig`.
+- The SDK has an internal `initConfig` (with `appendSystemPrompt`, `systemPrompt`, `agents`, etc.) that feeds the `SDKControlInitializeRequest`, but it's set internally - `unstable_v2_createSession` takes a single `SDKSessionOptions` argument with no way to pass `initConfig`.
 - Extra properties on the options object are silently stripped (likely Zod validation).
 
 ### Why the V2 path doesn't wire these through
 
-Source inspection of `sdk.mjs` confirms: the V1 `query()` path constructs an `initConfig` with `systemPrompt`/`appendSystemPrompt` and passes it as the 8th argument to the internal `lX` class. The V2 `unstable_v2_createSession` path skips this entirely — it passes `false` and no `initConfig`. This is a V2 API gap, not a validation issue.
+Source inspection of `sdk.mjs` confirms: the V1 `query()` path constructs an `initConfig` with `systemPrompt`/`appendSystemPrompt` and passes it as the 8th argument to the internal `lX` class. The V2 `unstable_v2_createSession` path skips this entirely - it passes `false` and no `initConfig`. This is a V2 API gap, not a validation issue.
 
 ### Ephemeral launcher alternatives explored (2026-03-29)
 
 Also tested whether launchers could be made ephemeral (write to `/dev/shm`, delete after `system:init` event):
-- **Write to `/dev/shm` + delete after init**: Works for single sessions and multi-turn. But resume spawns a new process and needs the file again, so you're writing just as many files — just to RAM instead of disk.
-- **Delete immediately after spawn**: Fails — subprocess hasn't read the file yet (race condition).
+- **Write to `/dev/shm` + delete after init**: Works for single sessions and multi-turn. But resume spawns a new process and needs the file again, so you're writing just as many files - just to RAM instead of disk.
+- **Delete immediately after spawn**: Fails - subprocess hasn't read the file yet (race condition).
 - **`/dev/shm` is Linux-only**: No macOS support without fallback to `os.tmpdir()`.
 
 **Decision**: Keep persistent launchers in `~/.isomux/launchers/`. Solve stale file accumulation with startup pruning (wipe dir before regenerating) and cleanup on agent destroy. Launchers are fully derived from persisted agent config, so there's zero information loss.

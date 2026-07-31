@@ -1,4 +1,4 @@
-// Agents — browser editor resource handlers — Phase 3d slice 6b. The
+// Agents - browser editor resource handlers - Phase 3d slice 6b. The
 // open/save/close file surface moves off the WS command bus to REST. EXPAND+CUT
 // in one slice (like 6a): the rows were table-declared but never handler-
 // registered.
@@ -11,7 +11,7 @@
 // connectionId (resolved to a socket by the connectionId emit projection). The
 // handler VERIFIES the connection belongs to the caller's exact session before
 // binding/unbinding, so a client cannot aim a watch / external-change push at
-// another tab's socket — this restores the WS-era safety where the socket WAS
+// another tab's socket - this restores the WS-era safety where the socket WAS
 // the identity (see Conventions › Connection binding).
 //
 // Read-as-data: openFile returns { content, mtime, language, size } in the GET
@@ -32,7 +32,7 @@ import type { EditorSaveReq } from "../../../shared/contract-shapes.ts";
 
 // openFile result: the read-as-data payload on success, else a status+code+message
 // the handler surfaces verbatim (the index closure maps the agent-manager
-// OpenFileResult kinds — not_found/not_file/binary/too_large/io_error/bad_path —
+// OpenFileResult kinds - not_found/not_file/binary/too_large/io_error/bad_path -
 // to these).
 export type OpenFileOutcome =
   | {
@@ -51,7 +51,7 @@ export type OpenFileOutcome =
 
 // saveFile result: ok(mtime+rev), the 409 stale-conflict (carries currentMtime +
 // currentRev for the client banner), the 409 deleted-conflict (the file is gone
-// from disk — the client offers save-to-recreate), or an io error.
+// from disk - the client offers save-to-recreate), or an io error.
 export type SaveFileOutcome =
   | { ok: true; mtime: number; rev: number }
   | { ok: false; stale: true; currentMtime: number; currentRev: number }
@@ -60,7 +60,7 @@ export type SaveFileOutcome =
 
 export interface EditorDeps {
   // True ONLY if `connectionId` names a live socket owned by the caller's EXACT
-  // session (sessionIdHash match) — not merely the same user. A bearer caller has
+  // session (sessionIdHash match) - not merely the same user. A bearer caller has
   // no callerSessionIdHash and fails closed (editor:use is USER-only anyway).
   verifyConnection(
     connectionId: string,
@@ -85,7 +85,7 @@ export interface EditorDeps {
     force: boolean,
   ): SaveFileOutcome;
   // Disarm the (connectionId, agentId, path) watch. No-op safe (an already-gone
-  // watch — e.g. the socket closed and the WS-close swept it — is harmless).
+  // watch - e.g. the socket closed and the WS-close swept it - is harmless).
   closeFile(agentId: string, path: string, connectionId: string): void;
 }
 
@@ -160,7 +160,7 @@ export function editorHandlers(deps: EditorDeps): Record<string, RouteHandler> {
       // `1e999` -> Infinity (or NaN), and `currentMtime > Infinity` is false, so a
       // non-finite expectedMtime would slip past the stale-write guard into an
       // overwrite. Likewise a present non-boolean `force` is truthy under `?? false`
-      // and would force the overwrite — reject both at the boundary (422).
+      // and would force the overwrite - reject both at the boundary (422).
       if (
         typeof b.expectedMtime !== "number" ||
         !Number.isFinite(b.expectedMtime)
@@ -197,13 +197,13 @@ export function editorHandlers(deps: EditorDeps): Record<string, RouteHandler> {
       );
       if (r.ok) return ok({ ok: true, mtime: r.mtime, rev: r.rev });
       if ("deleted" in r) {
-        // 409 Conflict — the file was deleted on disk. Distinct code so the
+        // 409 Conflict - the file was deleted on disk. Distinct code so the
         // client shows the deletion banner (save-to-recreate / close), not the
         // "changed on disk" one.
         return fail(409, "deleted", "File was deleted on disk.");
       }
       if ("stale" in r) {
-        // 409 Conflict — the disk changed since the client opened it. currentMtime
+        // 409 Conflict - the disk changed since the client opened it. currentMtime
         // + currentRev ride the error envelope (ApiError.detail) for the client's
         // stale banner.
         return fail(409, "stale", "File changed on disk since you opened it.", {

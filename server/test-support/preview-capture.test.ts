@@ -1,4 +1,4 @@
-// preview-capture unit tests (task dcfd5a97) — the capturePreview seam with
+// preview-capture unit tests (task dcfd5a97) - the capturePreview seam with
 // injected deps. The "browser" is a fake shell script (via deps.findBrowser),
 // so the REAL spawn / group-kill / temp-dir-cleanup paths run deterministically
 // without Chrome; a fetchFn fake keeps the suite network-free. Zero LLM.
@@ -6,11 +6,11 @@
 // What this freezes:
 //   - strict validation (no clamping): url/viewport/wait violations are 400
 //     invalid_request BEFORE any network or process work. Syntax-only: any
-//     http(s) host — loopback, private, or public — is accepted (the
+//     http(s) host - loopback, private, or public - is accepted (the
 //     local/private-only input policy was dropped in task fb02f521).
 //   - engine/no_browser, pre-flight/unreachable, child nonzero + stderr tail,
 //     no/invalid PNG, timeout kill, and busy (429, no queueing) all map to
-//     the distinct codes the design pinned — and the temp dir is gone and the
+//     the distinct codes the design pinned - and the temp dir is gone and the
 //     concurrency slot released on every path.
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
@@ -147,14 +147,14 @@ describe("preview-capture: validation (strict, no clamping)", () => {
 
 describe("preview-capture: any host passes validation (policy dropped, fb02f521)", () => {
   // Syntax-only validation now: loopback, private, AND public hosts are all
-  // accepted. findBrowser:null stops the run cheaply right after validation —
+  // accepted. findBrowser:null stops the run cheaply right after validation -
   // reaching no_browser PROVES the URL was accepted.
   const hosts = [
     "127.0.0.1",
     "192.168.1.1",
     "100.100.7.7", // tailscale CGNAT
     "[::1]",
-    "8.8.8.8", // public IPv4 — rejected under the old policy
+    "8.8.8.8", // public IPv4 - rejected under the old policy
     "[2001:4860:4860::8888]", // public IPv6
     "example.com", // named host, no DNS resolution step anymore
     "auntie", // single-label host

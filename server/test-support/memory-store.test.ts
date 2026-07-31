@@ -1,4 +1,4 @@
-// isomux-memory storage — T0 unit tests. Raw one-fact-per-line markdown + the
+// isomux-memory storage - T0 unit tests. Raw one-fact-per-line markdown + the
 // injectable store against a temp dir with deterministic date/timestamp. No
 // server, no LLM, no network. See server/memory-store.ts.
 

@@ -1,8 +1,8 @@
 // Pure unit tests for roomPaletteIndex. The palette slot cycles by the room's
 // POSITION in the room list (index % len): adjacent rooms always differ and
 // every palette appears before any repeats. This is an explicit product
-// decision (task 5c10494a) — id-hash keying collapsed onto few palettes on
-// real offices — and the accepted tradeoff is that rooms recolour when the
+// decision (task 5c10494a) - id-hash keying collapsed onto few palettes on
+// real offices - and the accepted tradeoff is that rooms recolour when the
 // list order changes. Callers pass `rooms.findIndex(...)`, so the not-found
 // sentinel -1 must fall back to slot 0 rather than index out of bounds.
 

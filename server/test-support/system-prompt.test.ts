@@ -1,13 +1,13 @@
-// buildSystemPrompt — privileged-section rendering.
+// buildSystemPrompt - privileged-section rendering.
 //
 // The privileged flag is threaded through buildSystemPrompt so a resumed /
 // session-swapped privileged agent's prompt actually documents the operator
 // routes its token can reach (the capability existed; the discoverability did
 // not). These pin the contract: privileged=true appends the section,
-// false/default omits it, and the section is purely ADDITIVE — the baseline
+// false/default omits it, and the section is purely ADDITIVE - the baseline
 // prompt is byte-identical with the flag off.
 //
-// Pure T0: no server, no FS, no LLM — the builder is a pure string function.
+// Pure T0: no server, no FS, no LLM - the builder is a pure string function.
 
 import { describe, it, expect } from "bun:test";
 import { buildSystemPrompt, memorySection } from "../system-prompt.ts";
@@ -16,7 +16,7 @@ import { buildSystemPrompt, memorySection } from "../system-prompt.ts";
 const MARKER = "## Privileged Operator Capabilities";
 
 // All conditional sections (owner / office / room / custom) left null so the
-// only difference between the two prompts is the privileged block — that makes
+// only difference between the two prompts is the privileged block - that makes
 // the "purely appended" assertion below exact.
 function build(privileged?: boolean): string {
   return buildSystemPrompt(
@@ -32,7 +32,7 @@ function build(privileged?: boolean): string {
   );
 }
 
-describe("buildSystemPrompt — privileged section", () => {
+describe("buildSystemPrompt - privileged section", () => {
   it("omits the section when privileged is false", () => {
     expect(build(false)).not.toContain(MARKER);
   });
@@ -49,7 +49,7 @@ describe("buildSystemPrompt — privileged section", () => {
     expect(build()).toBe(build(false));
   });
 
-  it("is purely additive — the baseline prompt is otherwise unchanged", () => {
+  it("is purely additive - the baseline prompt is otherwise unchanged", () => {
     const off = build(false);
     const on = build(true);
     // With no owner/office/room/custom sections, the privileged block is the
@@ -62,7 +62,7 @@ describe("buildSystemPrompt — privileged section", () => {
   it("documents the granted operator routes with exact paths", () => {
     const p = build(true);
     // A representative route from each granted category (drive sessions, manage
-    // agents, manage rooms, manage cronjobs) — guards against a path typo.
+    // agents, manage rooms, manage cronjobs) - guards against a path typo.
     expect(p).toContain("/api/agents/<id>/sessions");
     expect(p).toContain("/api/agents/<id>/resume");
     expect(p).toContain("/api/agents/<id>/revive");
@@ -102,7 +102,7 @@ function buildMem(opts: {
   );
 }
 
-describe("buildSystemPrompt — memory affordance", () => {
+describe("buildSystemPrompt - memory affordance", () => {
   it("always documents the memory affordance and the /api/memory calls", () => {
     const p = build();
     expect(p).toContain("How to use memory");
@@ -130,7 +130,7 @@ describe("buildSystemPrompt — memory affordance", () => {
   });
 });
 
-describe("buildSystemPrompt — memory auto-load layer", () => {
+describe("buildSystemPrompt - memory auto-load layer", () => {
   it("omits the layer when no memory is passed (baseline byte-identical)", () => {
     expect(buildMem({})).toBe(build());
     expect(buildMem({})).not.toContain(MEM_MARKER);

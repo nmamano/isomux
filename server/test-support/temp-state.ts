@@ -14,8 +14,8 @@ import { dirname, join, resolve, sep } from "path";
 
 // Canonicalize a path that may not exist yet: realpath the nearest existing
 // ancestor (resolving symlinks), then re-append the missing tail lexically.
-// This makes the guard symlink-safe — a temp path that is itself a symlink into
-// ~/.isomux resolves to its real target and is rejected — without requiring the
+// This makes the guard symlink-safe - a temp path that is itself a symlink into
+// ~/.isomux resolves to its real target and is rejected - without requiring the
 // target to exist (deleting an already-absent path is a no-op but must still
 // validate, so `/tmpx/missing` cannot masquerade as being under `/tmp`).
 export function canonicalize(target: string): string {

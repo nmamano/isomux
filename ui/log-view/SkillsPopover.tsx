@@ -31,7 +31,7 @@ export function SkillsPopover({
   const filterRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState("");
   // The viewing user's per-skill use counters (server-side so they follow the
-  // user across devices — task f1769b1a). Fetched fresh on every open; until
+  // user across devices - task f1769b1a). Fetched fresh on every open; until
   // (or if never) loaded, all counts read 0 and the alphabetical order stands.
   const [counts, setCounts] = useState<Record<string, number>>({});
   useEffect(() => {
@@ -50,7 +50,7 @@ export function SkillsPopover({
 
   // Outside-click / Escape dismissal. Capture phase so a preventDefault
   // somewhere below can't swallow the dismiss (same defensive pattern as
-  // ContextMenu). Events on the "Sk" toggle button are excluded — its own
+  // ContextMenu). Events on the "Sk" toggle button are excluded - its own
   // onClick toggles the popover, and closing here first would make that
   // click reopen it immediately.
   useEffect(() => {

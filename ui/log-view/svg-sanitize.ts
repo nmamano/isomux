@@ -4,7 +4,7 @@
 // trusted-ish content), but SVG needs special handling for a rendering
 // reason: marked's `breaks: true` inserts <br> between the lines of any
 // SVG that ends up inside a paragraph, and <br> is one of the HTML
-// parser's "foreign content breakout" tags — the browser force-closes the
+// parser's "foreign content breakout" tags - the browser force-closes the
 // <svg> when it hits one, so every shape after it parses as an unknown
 // HTML element and renders nothing. The Markdown component therefore
 // captures whole <svg>…</svg> spans with a marked extension and emits
@@ -191,7 +191,7 @@ const SAFE_CSS_FUNCS = new Set(["rgb", "rgba", "hsl", "hsla"]);
 
 // Accepts plain values ("#333", "red", "none"), safe color functions, and
 // same-document url(#id) references (quoted or not). Rejects everything
-// else that looks functional, and any value containing a backslash — CSS
+// else that looks functional, and any value containing a backslash - CSS
 // escape sequences could otherwise disguise "url(" from this check.
 function isSafeCssValue(value: string): boolean {
   if (value.includes("\\")) return false;

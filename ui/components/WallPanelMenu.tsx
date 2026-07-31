@@ -28,7 +28,7 @@ export function WallPanelMenu({ x, y, items, onClose }: Props) {
     }
     // pointerdown, not mousedown: the office viewport preventDefaults
     // pointerdown on the pannable background (useViewport), which suppresses
-    // the compatibility mousedown — see the same listener in ContextMenu.tsx.
+    // the compatibility mousedown - see the same listener in ContextMenu.tsx.
     document.addEventListener("pointerdown", handleDismiss);
     document.addEventListener("touchstart", handleDismiss);
     document.addEventListener("keydown", handleKey);

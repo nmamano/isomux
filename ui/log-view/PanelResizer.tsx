@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef } from "react";
 
 // A 1-px visible divider with a wider invisible hit target sitting on the
 // chat-side edge of a side panel (terminal/editor). Drags resize the panel
-// directly via DOM (no React re-render mid-drag — CodeMirror and xterm both
+// directly via DOM (no React re-render mid-drag - CodeMirror and xterm both
 // re-measure on width change, so 60 dispatches/sec would be janky). The
 // final width is committed to React state via onCommit on mouseup.
 //

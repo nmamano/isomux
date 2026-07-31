@@ -1,4 +1,4 @@
-// Attachment prompt notices — the ONE shared convention for how boss-uploaded
+// Attachment prompt notices - the ONE shared convention for how boss-uploaded
 // attachments reach an agent, identical across every backend (Claude, Codex,
 // future harnesses).
 //
@@ -26,7 +26,7 @@ import { formatSize } from "./format-human.ts";
 import type { AttachmentSpec } from "./backends/types.ts";
 
 // A resolved inbound attachment: upload-time metadata plus the authoritative
-// on-disk path. `size` is recorded at upload, not a fresh stat — attachment
+// on-disk path. `size` is recorded at upload, not a fresh stat - attachment
 // files are immutable once saved, so it doesn't verify current disk bytes.
 export interface AttachmentNotice {
   originalName: string;
@@ -38,7 +38,7 @@ export interface AttachmentNotice {
 /**
  * Resolve attachment specs to notices. Specs whose file is missing on disk
  * are silently skipped (no placeholder); order among resolved attachments is
- * preserved exactly. Never reads file contents — the only filesystem touch is
+ * preserved exactly. Never reads file contents - the only filesystem touch is
  * getFilePath's existence check.
  */
 export function resolveAttachmentNotices(
@@ -68,7 +68,7 @@ export function formatAttachmentLines(notices: AttachmentNotice[]): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// stripAttachmentNotices — inverse of the notice block, for edit matching
+// stripAttachmentNotices - inverse of the notice block, for edit matching
 // ---------------------------------------------------------------------------
 
 // One notice line, anchored on its structure rather than its prose: quoted
@@ -96,7 +96,7 @@ const TRAILING_NOTICE_BLOCK = new RegExp(
  *  `[Nil] here's the screenshot[Attachment: "image.png" (image/png, 527.0 KB)
  *  saved at "/…/image_7.png". …]` while the isomux log entry only carries
  *  `here's the screenshot`. Edit-message matching compares the two by
- *  equality, so the notice block has to come back off first — the same role
+ *  equality, so the notice block has to come back off first - the same role
  *  stripOutboundEnvelope plays for `beforeTurn` prefix blocks.
  *
  *  Returns the input unchanged when the text doesn't end in a notice block.
@@ -105,8 +105,8 @@ const TRAILING_NOTICE_BLOCK = new RegExp(
  *
  *  The ambiguity is accepted, not solved: a user whose message genuinely ends
  *  with a line shaped like a notice gets over-stripped. Nothing in the recorded
- *  text distinguishes the two, and the alternative — reconstructing the
- *  expected block from the log entry's attachment list — is worse, because it
+ *  text distinguishes the two, and the alternative - reconstructing the
+ *  expected block from the log entry's attachment list - is worse, because it
  *  breaks the moment a file is deleted from disk (the resolver skips missing
  *  files) or the notice wording changes. This is internal recovery for edit
  *  matching, never shown to anyone; the cost of a miss is one edit that
@@ -119,7 +119,7 @@ export function stripAttachmentNotices(text: string): string {
 // preserved user input (only the on-disk filename is sanitized), so embedded
 // quotes/backslashes/newlines/control chars must not break the one-line
 // invariant or fake extra structure. JSON.stringify escapes `"`, `\`, and
-// C0 controls but leaves U+2028/U+2029 (Unicode line separators) raw — escape
+// C0 controls but leaves U+2028/U+2029 (Unicode line separators) raw - escape
 // those too so the result is one line under every line-break convention.
 export function quoteOneLine(s: string): string {
   return JSON.stringify(s).replace(/[\u2028\u2029]/g, (c) => {

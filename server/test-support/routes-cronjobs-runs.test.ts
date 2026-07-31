@@ -1,4 +1,4 @@
-// Phase 3a slice 2b — cron run-messages + RUN-bearer run affordances on the
+// Phase 3a slice 2b - cron run-messages + RUN-bearer run affordances on the
 // unified REST surface (opIds cron.runMessage / editRunMessage / runReadFile /
 // runDiff).
 //
@@ -249,14 +249,14 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     expect(replay.status).toBe(200);
 
     // ping/pong barrier: any (erroneous) second broadcast was ws.send'd during
-    // the replay POST, before this ping — ordered delivery means pong implies it
+    // the replay POST, before this ping - ordered delivery means pong implies it
     // already arrived. A replay must NOT re-run the handler, so the count stays 1.
     sock.send({ type: "ping" });
     await sock.waitFor("pong");
     expect(countLog(sock, live.streamId, "file-view")).toBe(1);
   });
 
-  it("legacy loopback affordance path (no /api, no token) is rejected — 401 at the cookie wall, not the transcript", async () => {
+  it("legacy loopback affordance path (no /api, no token) is rejected - 401 at the cookie wall, not the transcript", async () => {
     const live = await startLiveRun();
     writeFileSync(join(live.srv.stateRoot, "legacy.txt"), "y");
     const sock = await live.srv.connectWs(live.ownerSession);
@@ -272,7 +272,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     // /cronjobs prefix is retired, so a no-token POST no longer reaches any
     // handler: it 401s at the cookie wall.
     expect(res.status).toBe(401);
-    // Fail-closed: nothing reached the run transcript. ping/pong barrier — any
+    // Fail-closed: nothing reached the run transcript. ping/pong barrier - any
     // (erroneous) emit would have been ws.send'd before this ping arrives.
     sock.send({ type: "ping" });
     await sock.waitFor("pong");
@@ -280,7 +280,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
   });
 
   // Follow-up #11 bridge: proves the resume-token plumbing actually unblocks the
-  // loopback flip — a RESUMED run's in-flight read-file authenticates to the
+  // loopback flip - a RESUMED run's in-flight read-file authenticates to the
   // token-required /api route using the bearer buildRunSessionOptions injected
   // into the resumed run's env (not just the primary fire() token). Without #11
   // this 401s/403s because the resumed run carries no RUN token.
@@ -481,8 +481,8 @@ describe("routes/cron run-messages: ack idempotency", () => {
     if (!run) throw new Error("runCronjobNow returned null");
     // findRun is satisfied by the persisted run row; resumability is irrelevant
     // to the ack (runMessage is fire-and-forget). A same key + same body must
-    // replay the cached response — the identical messageId, with no 2nd handler
-    // run (so no regenerated id) — which is the direct proof the ack is stable.
+    // replay the cached response - the identical messageId, with no 2nd handler
+    // run (so no regenerated id) - which is the direct proof the ack is stable.
     await waitUntil(
       () => srv.cronjobManager.findRun(job.id, run.id) !== null,
       2000,
@@ -514,7 +514,7 @@ describe("routes/cron run-messages: ack idempotency", () => {
 // the transcript) needs an on-disk Claude/Codex session file that FakeBackend
 // doesn't write, so the happy path is targeted at the handler option-path per
 // Reviewer1's fallback: prove the boundary messageId is generated, threaded into
-// the manager op, AND returned — so the ack is a real correlation id, not a
+// the manager op, AND returned - so the ack is a real correlation id, not a
 // fictional one.
 describe("routes/cron run-messages: messageId threading (handler boundary)", () => {
   const ownerIdentity: Identity = {

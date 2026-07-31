@@ -1,4 +1,4 @@
-// Phase 2.1 — Identity & capabilities: the token store + capability sets.
+// Phase 2.1 - Identity & capabilities: the token store + capability sets.
 //
 // TDD red-green for NEW code (not characterization). Asserts the contract from
 // the API spec (generic-runtime-refactor.md → "Identities and capabilities"):
@@ -109,11 +109,11 @@ describe("identity: capability sets (Phase 2.1)", () => {
     ] as Capability[]) {
       expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
     }
-    // The escalation / owner-admin caps are DELIBERATELY absent — this is the
+    // The escalation / owner-admin caps are DELIBERATELY absent - this is the
     // crux of the audit. invites.* (durable login mint), sessions.* (kill the
     // human's browser session), user/office administration, view prefs, and the
     // privilege-toggle cap itself must never reach a privileged agent. (room:manage
-    // was added by Nil-approved expansion — it is now INCLUDED above.)
+    // was added by Nil-approved expansion - it is now INCLUDED above.)
     for (const c of [
       "invite:manage",
       "session:manage",
@@ -128,7 +128,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     }
   });
 
-  it("agent:privilege is held by USER scope only — not AGENT, not the privileged set", () => {
+  it("agent:privilege is held by USER scope only - not AGENT, not the privileged set", () => {
     // The stage-1 half of the agents.setPrivileged double-gate: only a user can
     // even clear stage 1, so no agent (privileged or not) can flip the flag.
     expect(USER_CAPABILITIES).toContain("agent:privilege" as Capability);

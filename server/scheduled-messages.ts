@@ -4,7 +4,7 @@
 // Shape mirrors cronjob-manager: an instantiable factory with injected
 // persistence, clock, and scheduler seams so schedule firing is
 // deterministically testable, and a tick loop (initial tick shortly after
-// boot + a fixed interval) rather than one timer per entry — restart safety
+// boot + a fixed interval) rather than one timer per entry - restart safety
 // falls out of the persisted entry list instead of timer bookkeeping.
 //
 // DELIVERY SEMANTICS (decisions by Nil, 2026-07-11; see
@@ -14,12 +14,12 @@
 //     entry on restart (rare duplicate). The alternative order would turn the
 //     same crash window into silent loss.
 //   - Scheduled messages ALWAYS deliver, even when the sender agent no longer
-//     exists at fire time — the stored snapshot identifies the schedule-time
+//     exists at fire time - the stored snapshot identifies the schedule-time
 //     sender and the receiver is told the sender is gone (receiver decides
 //     what that means).
 //   - After handoff the message lives in the receiver's queue, which is
 //     itself DURABLE since task 9870b472 (~/.isomux/message-queues.json,
-//     replayed on boot) — the old "crash before the flush loses it" window is
+//     replayed on boot) - the old "crash before the flush loses it" window is
 //     closed; end-to-end delivery is at-least-once.
 
 import type { ScheduledMessageEntry, QueuedMessage } from "../shared/types.ts";
@@ -50,7 +50,7 @@ export const DELIVERY_DEADLINE_MS = 24 * 60 * 60 * 1000; // 24h
 const RFC3339_RE =
   /^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 
-// Parse a deliverAt request field to epoch ms, or null when malformed. Pure —
+// Parse a deliverAt request field to epoch ms, or null when malformed. Pure -
 // "is it in the future / within the horizon" is the manager's job (it owns the
 // clock); this owns only the format contract.
 export function parseDeliverAt(value: string): number | null {
@@ -74,7 +74,7 @@ export interface ScheduledMessagesPersistence {
   // Raw load (unknown[]): per-entry validation happens here in the manager so
   // it also covers injected test persistence. Must never throw.
   load(): unknown[];
-  // Durable write. MUST THROW on failure — schedule/cancel callers translate
+  // Durable write. MUST THROW on failure - schedule/cancel callers translate
   // that into a failed request instead of holding a memory-only entry.
   save(entries: ScheduledMessageEntry[]): void;
 }
@@ -98,7 +98,7 @@ export interface ScheduledMessageManagerDeps {
   // source at schedule time; freshness source at fire time.
   getAgentDisplay(agentId: string): { name: string; roomName: string } | null;
   // Best-effort failure notice into the SENDER's chat (production: a system
-  // log entry — boss-visible, burns no turn). Failures here are swallowed.
+  // log entry - boss-visible, burns no turn). Failures here are swallowed.
   notifySender(senderAgentId: string, text: string): void;
   persistence: ScheduledMessagesPersistence;
   clock: ScheduledMessagesClock;
@@ -218,7 +218,7 @@ export function createScheduledMessageManager(
       };
     }
     // Receiver must exist at schedule time (parity with the immediate send's
-    // recipient-existence contract). Fire time re-checks — deletion between
+    // recipient-existence contract). Fire time re-checks - deletion between
     // the two is the drop-and-notify path, not a schedule-time concern.
     if (!deps.getAgentDisplay(input.receiverAgentId)) {
       return {
@@ -317,7 +317,7 @@ export function createScheduledMessageManager(
       (e) => e.id === scheduledId && e.senderAgentId === senderAgentId,
     );
     // Unknown id, someone else's entry, and already-fired all collapse into
-    // one 404 — the outbox never confirms other senders' entry ids.
+    // one 404 - the outbox never confirms other senders' entry ids.
     if (idx === -1) {
       return {
         ok: false,
@@ -388,7 +388,7 @@ export function createScheduledMessageManager(
       if (due.length === 0) return;
       // Per-receiver ordering: once an entry for a receiver fails retryably
       // (stopped / errored / queue-full), LATER entries for that receiver are
-      // not attempted this tick — no leapfrogging.
+      // not attempted this tick - no leapfrogging.
       const blockedReceivers = new Set<string>();
       for (const entry of due) {
         if (blockedReceivers.has(entry.receiverAgentId)) continue;
@@ -412,7 +412,7 @@ export function createScheduledMessageManager(
         }
         if (result.status === 404) {
           // Receiver deleted since scheduling: deliver-anyway applies to a
-          // GONE SENDER, not a gone receiver — there is no chat to deliver
+          // GONE SENDER, not a gone receiver - there is no chat to deliver
           // into. Drop + best-effort notice.
           removeAndPersistBestEffort(entry);
           notify(
@@ -422,7 +422,7 @@ export function createScheduledMessageManager(
           continue;
         }
         // Retryable (agent_stopped / agent_error 409, queue_full 429): the
-        // rejected enqueue is a cheap no-op — no turn started, nothing queued.
+        // rejected enqueue is a cheap no-op - no turn started, nothing queued.
         // Stay pending and retry next tick until the delivery deadline.
         if (now - entry.deliverAt > DELIVERY_DEADLINE_MS) {
           removeAndPersistBestEffort(entry);
@@ -441,8 +441,8 @@ export function createScheduledMessageManager(
 
   // --- Lifecycle -----------------------------------------------------------------
 
-  // Boot catch-up happens on the first (delayed) tick: anything past-due —
-  // including entries that came due while the server was down — fires there.
+  // Boot catch-up happens on the first (delayed) tick: anything past-due -
+  // including entries that came due while the server was down - fires there.
   function start() {
     if (intervalHandle !== null) return;
     initialTimeoutHandle = scheduler.setTimeout(

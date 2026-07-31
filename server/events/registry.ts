@@ -1,4 +1,4 @@
-// Event registry — Phase 2.3. The single typed registry of every outbound WS
+// Event registry - Phase 2.3. The single typed registry of every outbound WS
 // event. Audience is a FIRST-CLASS attribute of the event TYPE (not of a route),
 // because many sensitive events have no owning HTTP route (backend stream,
 // terminal IO, presence, scheduler-fired cronjobs, auth expiry, subprocess
@@ -6,7 +6,7 @@
 //
 // This is the artifact the Phase-2 Reviewer4 security gate reads for audience
 // leaks, so it is designed gate-ready: `projectionKey` is EXECUTABLE (the emit
-// helper derives the recipient subject from it — server/events/emit.ts), not a
+// helper derives the recipient subject from it - server/events/emit.ts), not a
 // decorative comment. An event whose audience cannot be computed from its
 // declared projectionKey is a bug the registry surfaces.
 //
@@ -18,7 +18,7 @@
 //   - users_list / user_updated carry UserPublicWire, never UserRecord; owners
 //     get full records via users_admin_list / user_admin_updated, and the
 //     subject gets their own full record via user_self_updated (3b.5)
-//   - agent_removed carries `roomId` (LIVE since task 03382535 — the wire now
+//   - agent_removed carries `roomId` (LIVE since task 03382535 - the wire now
 //     matches this registry shape); agent_updated-move carries old/new room ids
 //   - RETIRED (fold into HTTP responses, absent here): the `*_response` family,
 //     sessions_list, cronjob_runs(_complete), invite_minted, the *_blocked
@@ -26,7 +26,7 @@
 //     transport keepalive, not an event.
 //
 // ADDITIVE: declared + contract-tested in isolation. NOT wired into the live
-// dispatchCommand switch / wireEventSinks in 2.3 — the emit helper delegates to
+// dispatchCommand switch / wireEventSinks in 2.3 - the emit helper delegates to
 // today's projection logic, so the live wire stays byte-identical. Migration is
 // Phase 3.
 
@@ -57,7 +57,7 @@ import type {
 // --- Audience strategies ----------------------------------------------------
 // The fan-out lattice. The registry currently assigns from {all, owners,
 // room-ACL, recipient-scoped}; `by-user` and `none` are reserved (no current
-// event uses them) and a contract test pins that — so a future event must
+// event uses them) and a contract test pins that - so a future event must
 // declare its strategy deliberately rather than inherit a default.
 export type AudienceStrategy =
   | "all"
@@ -71,10 +71,10 @@ export type AudienceStrategy =
 // The payload/ctx field(s) from which the emit helper computes recipients. Its
 // presence is what makes an audience AUDITABLE. `path` is a dotted access into
 // the event payload (e.g. ["entry","agentId"]); the emit helper walks it and
-// FAILS CLOSED when the declared input is absent — a delete/move event that
+// FAILS CLOSED when the declared input is absent - a delete/move event that
 // forgot to carry its pre-mutation room id selects NOBODY rather than leaking.
 export type ProjectionKey =
-  // Office-wide / owners / non-observable — no payload-derived subject.
+  // Office-wide / owners / non-observable - no payload-derived subject.
   | { kind: "all" }
   | { kind: "owners" }
   | { kind: "none" }
@@ -91,7 +91,7 @@ export type ProjectionKey =
   // room-ACL: payload at `path` is an AgentInfo; its `.id` resolves to its room.
   | { kind: "agentInfoLookup"; path: readonly string[] }
   // room-ACL move: if changes carries BOTH old+new room ids, audience is their
-  // union (both must be present — fail closed if only one is); otherwise a
+  // union (both must be present - fail closed if only one is); otherwise a
   // non-room update falls back to an agentLookup on `agentPath`.
   | {
       kind: "agentMove";
@@ -107,13 +107,13 @@ export interface RegistryEvent {
 
 // --- Event payload types (TARGET shapes) ------------------------------------
 // Each maps an event id to the payload an emit caller passes (WITHOUT the `type`
-// discriminant — emit stamps that). These are the post-refactor shapes; see the
+// discriminant - emit stamps that). These are the post-refactor shapes; see the
 // deltas note in the file header.
 export interface EventPayloads {
   // Live agent / room stream (room-ACL)
   log_entry: { entry: LogEntry };
   // Slide Mode: a turn's slide finished generating. Room-ACL on the agent, like
-  // log_entry — anyone who can read the chat can receive its slides.
+  // log_entry - anyone who can read the chat can receive its slides.
   slide_ready: {
     agentId: string;
     sessionId: string;
@@ -121,7 +121,7 @@ export interface EventPayloads {
     slide: SlideRecord;
   };
   // Slide Mode: that turn's generation failed terminally. Same audience as
-  // slide_ready — it resolves the same pending state, in the other direction.
+  // slide_ready - it resolves the same pending state, in the other direction.
   slide_failed: {
     agentId: string;
     sessionId: string;
@@ -169,7 +169,7 @@ export interface EventPayloads {
   all_rooms_list: { rooms: RoomWire[] };
   // recipient-scoped per connectionId: each socket gets its OWN dense-remapped
   // payload. Phase 3 emits this once-per-socket in a loop (deliver() shapes per
-  // recipient) — it is NOT a broadcast event, despite reaching many sockets.
+  // recipient) - it is NOT a broadcast event, despite reaching many sockets.
   // onlineUserIds (and its derived count totalOnlineUsers) are the same
   // all-audience aggregate for every recipient; only `entries` is projected.
   presence_list: {
@@ -186,16 +186,16 @@ export interface EventPayloads {
   editor_file_deleted: { agentId: string; path: string };
   session_expired: Record<string, never>;
 
-  // Office-wide (audience `all` — the leak-prone class; reduced projections only)
+  // Office-wide (audience `all` - the leak-prone class; reduced projections only)
   users_list: { users: UserPublicWire[] };
   user_updated: { user: UserPublicWire; prevName?: string };
   // Owners-audience: the FULL admin record (UserAdminWire). SEPARATE ids so the
-  // all-audience users_list/user_updated stay UserPublicWire — no recipient-
+  // all-audience users_list/user_updated stay UserPublicWire - no recipient-
   // dependent payload behind a single id (cleaner registry audit).
   users_admin_list: { users: UserAdminWire[] };
   user_admin_updated: { user: UserAdminWire; prevName?: string };
   // Recipient-scoped (by userId): the subject's OWN full record (UserSelfWire),
-  // delivered to every socket of that user — incl. at connect hydration, since
+  // delivered to every socket of that user - incl. at connect hydration, since
   // the now-public users_list can no longer carry the caller's own grants/view.
   user_self_updated: { user: UserSelfWire; prevName?: string };
   tasks: { tasks: TaskItem[] };
@@ -228,7 +228,7 @@ export type EventId = keyof EventPayloads;
 // Exactly the spec's event ids + audiences. `satisfies` pins the value to
 // Record<EventId, RegistryEvent> so a missing/extra id fails to COMPILE.
 export const EVENT_REGISTRY = {
-  // Live agent / room stream — room-ACL
+  // Live agent / room stream - room-ACL
   log_entry: {
     audience: "room-ACL",
     projectionKey: { kind: "agentLookup", path: ["entry", "agentId"] },
@@ -299,7 +299,7 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "carriedRoomId", path: ["roomId"] },
   },
 
-  // State / projection — recipient-scoped (+ owners for all_rooms_list)
+  // State / projection - recipient-scoped (+ owners for all_rooms_list)
   session_context: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
@@ -329,7 +329,7 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
 
-  // Office-wide — all
+  // Office-wide - all
   users_list: { audience: "all", projectionKey: { kind: "all" } },
   user_updated: { audience: "all", projectionKey: { kind: "all" } },
   users_admin_list: { audience: "owners", projectionKey: { kind: "owners" } },
@@ -341,7 +341,7 @@ export const EVENT_REGISTRY = {
   // Room-scoped board: each socket gets its OWN task list projected to the
   // rooms its user can access (∪ office-global tasks), so this is per-recipient,
   // NOT an all-audience broadcast. Delivered by an explicit per-socket loop
-  // (pushTasksToEachWs → sendTasksTo), same model as presence_list — never a
+  // (pushTasksToEachWs → sendTasksTo), same model as presence_list - never a
   // uniform `all` payload. connectionId is the concrete recipient key.
   tasks: {
     audience: "recipient-scoped",
@@ -373,11 +373,11 @@ export const EVENT_REGISTRY = {
 // --- `all` allowlist (the leak-prone class) ---------------------------------
 // Office-wide events are the easiest leak class, so the set is FROZEN and
 // reviewed explicitly. A contract test asserts the registry's audience:"all"
-// set is exactly this allowlist — adding an `all` event without updating this
+// set is exactly this allowlist - adding an `all` event without updating this
 // list (a deliberate, reviewed act) fails the test. Each is justified as
 // reduced office-wide metadata (no UserRecord/OfficeSettings envFile/access/
 // prompt rides an `all` channel). The task board LEFT this class when it became
-// room-scoped — it is now per-recipient projected (see the `tasks` entry).
+// room-scoped - it is now per-recipient projected (see the `tasks` entry).
 export const ALL_AUDIENCE_ALLOWLIST: ReadonlySet<EventId> = new Set<EventId>([
   "users_list",
   "user_updated",

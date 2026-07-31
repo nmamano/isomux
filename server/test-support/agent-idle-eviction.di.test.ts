@@ -62,7 +62,7 @@ function seedClaudeSession(cwd: string, sessionId: string): void {
 
 // A FakeBackend whose every send auto-completes the turn. Lazy spawn means an
 // agent has no live session until its first message, so these tests WAKE agents
-// to get a live, demotable session — and a wake runs a real turn. Without a
+// to get a live, demotable session - and a wake runs a real turn. Without a
 // turn-completing onSend the woken agent would park in waiting_for_response
 // (canDemote would fail for the WRONG reason, masking real regressions); with
 // it the agent returns to a queue-idle state, i.e. genuinely demotable.
@@ -101,7 +101,7 @@ async function spawnReady(
   );
   if (!info) throw new Error("spawn returned null");
   // Lazy spawn holds NO subprocess. Wake the agent with a message so it installs
-  // a fresh live session and — thanks to makeFake's turn-completing send —
+  // a fresh live session and - thanks to makeFake's turn-completing send -
   // returns to idle (demotable). After this it has createSessionCount === 1 and
   // resumeSessionCount === 0, exactly as eager spawn used to leave it.
   const r = mgr.enqueueMessage(info.id, {
@@ -117,7 +117,7 @@ async function spawnReady(
 }
 
 // A woken agent that finished its turn lands in "waiting_for_response" (it
-// answered, now awaits the next message), NOT "idle" — and BOTH are queue-idle
+// answered, now awaits the next message), NOT "idle" - and BOTH are queue-idle
 // states that canDemote accepts (isQueueIdleState). So "demotable" means: has a
 // live session (not dormant) and is in a queue-idle state.
 const QUEUE_IDLE_STATES = new Set(["idle", "waiting_for_response"]);
@@ -139,7 +139,7 @@ afterEach(() => {
   setOfficeEnvFileProvider(() => null);
 });
 
-describe("idle eviction — demote / dormant / wake", () => {
+describe("idle eviction - demote / dormant / wake", () => {
   it("demotes an idle agent to lazy, then wakes it by resuming the SAME session", async () => {
     wireClaudeConfigDir();
     const fake = makeFake();
@@ -152,14 +152,14 @@ describe("idle eviction — demote / dormant / wake", () => {
     expect(fake.resumeSessionCount).toBe(0);
 
     // Demote: subprocess closed, agent stays on its desk, dormant. State is
-    // unchanged by demote — a woken-then-quiet agent sits in waiting_for_response
+    // unchanged by demote - a woken-then-quiet agent sits in waiting_for_response
     // (a queue-idle state), which is exactly what canDemote accepts.
     expect(await mgr.demoteToLazy(id)).toBe(true);
     expect(mgr.getAgent(id)?.dormant).toBe(true);
     expect(QUEUE_IDLE_STATES.has(mgr.getAgent(id)?.state ?? "")).toBe(true);
     expect(fake.resumeSessionCount).toBe(0); // no new subprocess yet
 
-    // Demote must NOT revoke the bearer token (kill does) — wake reuses it.
+    // Demote must NOT revoke the bearer token (kill does) - wake reuses it.
     expect(getAgentTokenRaw(id)).toBeTruthy();
 
     // Seed the on-disk session file so the resume preflight passes, then wake
@@ -201,7 +201,7 @@ describe("idle eviction — demote / dormant / wake", () => {
     const sid = mgr.getCurrentSessionId(id);
     seedClaudeSession(STATE_ROOT, sid!);
     expect(await mgr.demoteToLazy(id)).toBe(true);
-    // sendMessage is the WS textarea path — the one that showed "ended
+    // sendMessage is the WS textarea path - the one that showed "ended
     // unexpectedly" before the fix. Fire-and-forget: the wake (installSession +
     // the system message) lands early in sendMessage's flow; we don't await the
     // turn itself, which would hang on the no-op FakeBackend when plugin hooks
@@ -250,7 +250,7 @@ describe("idle eviction — demote / dormant / wake", () => {
       "awake after racing demote",
     );
     // Anti-clobber invariants: woke onto the SAME thread, via exactly one resume,
-    // with no extra fresh session — the demote's post-await body never stomped
+    // with no extra fresh session - the demote's post-await body never stomped
     // the concurrent wake.
     expect(mgr.getCurrentSessionId(id)).toBe(sid);
     expect(fake.resumeSessionCount).toBe(1);
@@ -303,7 +303,7 @@ describe("idle eviction — demote / dormant / wake", () => {
       ],
     });
     // This test builds its own manager (custom initialRooms), so wire plugin-
-    // hooks here too — the wake below runs a turn.
+    // hooks here too - the wake below runs a turn.
     mgr.configurePluginHooksDeps();
 
     await mgr.restoreAgents();
@@ -317,7 +317,7 @@ describe("idle eviction — demote / dormant / wake", () => {
     // Restored WITH a resumable session: comes back "waiting_for_response"
     // (finished its last turn, waiting on the human), NOT the sleeping "idle"
     // pose. The pose tracks whether there's a conversation, not whether the
-    // subprocess is loaded — dormant=true above still reflects the no-subprocess
+    // subprocess is loaded - dormant=true above still reflects the no-subprocess
     // reality, independently of the pose.
     expect(info?.state).toBe("waiting_for_response");
     expect(mgr.getCurrentSessionId("agent-test-lazy")).toBe(sid);
@@ -366,7 +366,7 @@ describe("idle eviction — demote / dormant / wake", () => {
     );
     if (!info) throw new Error("spawn returned null");
     // Lazy spawn: wake it so it has a LIVE, idle session. The agent must be idle
-    // so the ONLY reason demote can refuse is the missing durable rollout — not
+    // so the ONLY reason demote can refuse is the missing durable rollout - not
     // a non-idle state, which would mask the durability gate this test pins.
     const wake = mgr.enqueueMessage(info.id, {
       sender: { kind: "user", username: "tester" },
@@ -400,7 +400,7 @@ describe("idle eviction — demote / dormant / wake", () => {
   });
 });
 
-describe("lazy spawn / release-on-clear — blank agents hold no subprocess", () => {
+describe("lazy spawn / release-on-clear - blank agents hold no subprocess", () => {
   it("lazy spawn holds NO subprocess; first message wakes a FRESH session, silently", async () => {
     wireClaudeConfigDir();
     const fake = makeFake();
@@ -436,7 +436,7 @@ describe("lazy spawn / release-on-clear — blank agents hold no subprocess", ()
     expect(fake.resumeSessionCount).toBe(0);
 
     // The wake is SILENT: a brand-new blank conversation announces neither
-    // "Started a fresh session…" nor "Resumed…" (those would be NEW noise — the
+    // "Started a fresh session…" nor "Resumed…" (those would be NEW noise - the
     // old eager path hit an already-live session and logged nothing). The
     // pre-wake "ready" action-feedback line stays.
     const logs = mgr.getAgentLogs(info.id);
@@ -469,7 +469,7 @@ describe("lazy spawn / release-on-clear — blank agents hold no subprocess", ()
     // Lazy spawn defers createSession to first message, but a cheap spawn-time
     // validateCwd still surfaces an obviously-bad cwd immediately rather than
     // deferring the error to the first message. The agent lands in error (NOT
-    // dormant — an errored agent isn't a releasable blank) with no subprocess.
+    // dormant - an errored agent isn't a releasable blank) with no subprocess.
     expect(fake.createSessionCount).toBe(0);
     expect(mgr.getAgent(info.id)?.state).toBe("error");
     expect(mgr.getAgent(info.id)?.dormant ?? false).toBe(false);
@@ -551,7 +551,7 @@ describe("lazy spawn / release-on-clear — blank agents hold no subprocess", ()
     expect(mgr.getAgent(info.id)?.dormant).toBe(true);
     expect(fake.createSessionCount).toBe(0);
 
-    // Wake it, then a zero-threshold sweep NOW demotes it — proving lazy spawn
+    // Wake it, then a zero-threshold sweep NOW demotes it - proving lazy spawn
     // and the sweep compose (spawn skipped, the woken agent later reclaimed).
     const r = mgr.enqueueMessage(info.id, {
       sender: { kind: "user", username: "tester" },

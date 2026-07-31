@@ -1,6 +1,6 @@
 // Self-handoff REST contract (task 8883e45d).
 //
-// HTTP-contract layer for POST /api/agents/:id/handoff — the instant self-handoff
+// HTTP-contract layer for POST /api/agents/:id/handoff - the instant self-handoff
 // that replaces the old deliverAt + separate new-conversation dance. Runs through
 // the REAL auth + /api executor + production persistence (temp STATE_ROOT), and
 // reads the coalesced prompt off the FakeBackend to pin the self-handoff flush
@@ -135,7 +135,7 @@ const agentOf = (srv: TestServer, id: string): AgentInfo =>
 const firstPrompt = (srv: TestServer, id: string): string =>
   srv.fakeBackend.sessionForAgent(id)!.sent[0].text;
 
-describe("agents.handoff REST — delivery + self-handoff flush prefix", () => {
+describe("agents.handoff REST - delivery + self-handoff flush prefix", () => {
   it("delivers the brief into a FRESH session, prefixed as a handoff (no reply-to-self)", async () => {
     const { srv, a } = await setup();
     server = srv;
@@ -162,7 +162,7 @@ describe("agents.handoff REST — delivery + self-handoff flush prefix", () => {
     const prompt = firstPrompt(srv, a.id);
     // Self-handoff prefix renders, and the brief text is carried through.
     expect(prompt).toContain(`[Handoff from your previous session] ${brief}`);
-    // No sender-id preamble — the fresh copy has nobody to reply to.
+    // No sender-id preamble - the fresh copy has nobody to reply to.
     expect(prompt).not.toContain("(agent id:");
   });
 
@@ -194,7 +194,7 @@ describe("agents.handoff REST — delivery + self-handoff flush prefix", () => {
   });
 });
 
-describe("agents.handoff REST — auth split (conversationReset)", () => {
+describe("agents.handoff REST - auth split (conversationReset)", () => {
   it("an ordinary agent may hand off ITSELF", async () => {
     const { srv, a } = await setup();
     server = srv;
@@ -225,7 +225,7 @@ describe("agents.handoff REST — auth split (conversationReset)", () => {
   });
 });
 
-describe("agents.handoff REST — body validation", () => {
+describe("agents.handoff REST - body validation", () => {
   it("empty text -> 422 invalid_text; the agent is untouched", async () => {
     const { srv, a } = await setup();
     server = srv;
@@ -258,11 +258,11 @@ describe("agents.handoff REST — body validation", () => {
 
 // --- Concurrency + failure honesty (review REQUEST-CHANGES follow-up) --------
 
-describe("agents.handoff REST — concurrency and failure honesty", () => {
+describe("agents.handoff REST - concurrency and failure honesty", () => {
   it("rejects a concurrent handoff with 409 handoff_in_progress: the winner delivers, the loser is told (no false success)", async () => {
     // Hold the winner's reset open (wedged drain) so a second handoff genuinely
     // overlaps it. Chaining the second would let its reset clear the winner's
-    // just-enqueued brief — a false 200 for a brief that then vanished; instead
+    // just-enqueued brief - a false 200 for a brief that then vanished; instead
     // the second is rejected 409 and the winner keeps the honest guarantee.
     const { srv, owner, a, b } = await setup(
       parkingBackend({ hangOnClose: true }),
@@ -332,14 +332,14 @@ describe("agents.handoff REST — concurrency and failure honesty", () => {
     expect(firstPrompt(srv, a.id)).toContain(
       `[Handoff from your previous session] ${winnerBrief}`,
     );
-    // The rejected caller's brief was never enqueued — no phantom delivery.
+    // The rejected caller's brief was never enqueued - no phantom delivery.
     expect(deliveryCount(srv, a.id, loserBrief)).toBe(0);
     expect(agentOf(srv, a.id).state).not.toBe("error");
   });
 
   it("an inbound message during a BLOCKED reset drain does not lose the brief", async () => {
     // hangOnClose wedges the old session's close(), so the reset's drain blocks
-    // until we release it — a real window for an inbound message to wake a fresh
+    // until we release it - a real window for an inbound message to wake a fresh
     // session and become its first turn. The brief must still be delivered.
     const { srv, owner, a, b } = await setup(
       parkingBackend({ hangOnClose: true }),
@@ -364,7 +364,7 @@ describe("agents.handoff REST — concurrency and failure honesty", () => {
     oldSession.completeTurn();
 
     const brief = "HANDOFF-BRIEF: keep going from here.";
-    // Fire the handoff but DON'T await — it will block on the wedged drain.
+    // Fire the handoff but DON'T await - it will block on the wedged drain.
     const handoffP = call(
       srv,
       "POST",
@@ -395,7 +395,7 @@ describe("agents.handoff REST — concurrency and failure honesty", () => {
 
     // parkingBackend never auto-completes a turn, so a queued message only
     // flushes once the turn ahead of it finishes. Complete parked turns until
-    // BOTH the racing message and the brief have been delivered — the brief is
+    // BOTH the racing message and the brief have been delivered - the brief is
     // queued behind the racing message if it lost the first slot, but never
     // dropped.
     const deadline = Date.now() + 3000;
@@ -434,7 +434,7 @@ describe("agents.handoff REST — concurrency and failure honesty", () => {
     );
     expect(res.status).toBe(500);
     expect(res.body.error?.code).toBe("persist_failed");
-    // No brief was delivered — the failure was surfaced, not masked.
+    // No brief was delivered - the failure was surfaced, not masked.
     expect(deliveryCount(srv, a.id, "brief that cannot persist")).toBe(0);
 
     // Unblock the disk so teardown's persistence doesn't choke.

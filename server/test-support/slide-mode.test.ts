@@ -63,7 +63,7 @@ function harness(): Harness {
     reject: (e: unknown) => void;
   }> = [];
   const jobs = new Map<string, SlideJobContext | null>();
-  // Per-turn terminal flag (default true — most tests deal with settled turns).
+  // Per-turn terminal flag (default true - most tests deal with settled turns).
   const terminalById = new Map<string, boolean>();
 
   // Mirrors resolveSlideJob: no current conversation root -> nothing to resolve.
@@ -201,7 +201,7 @@ describe("createSlideMode.ensureSlide", () => {
     expect(h.ready).toHaveLength(1);
   });
 
-  it("drops a result whose conversation root moved on — stale guard", async () => {
+  it("drops a result whose conversation root moved on - stale guard", async () => {
     const h = harness();
     h.ensureSlide("a1", "u1");
     await flush();
@@ -295,7 +295,7 @@ describe("createSlideMode.ensureSlide", () => {
     // (a fork keeps the root). It doesn't need to: editMessage replays the
     // entries BEFORE the edited one and appends the new text under a NEW entry
     // id, so the forked turn's own id no longer resolves. The in-flight job's
-    // commit re-resolves, finds nothing, and discards — no slide is written for
+    // commit re-resolves, finds nothing, and discards - no slide is written for
     // a turn that no longer exists, and earlier turns keep matching digests.
     const h = harness();
     h.ensureSlide("a1", "u1");
@@ -415,7 +415,7 @@ describe("createSlideMode.ensureSlide", () => {
     const h = harness();
     h.setTerminal("u1", false);
     h.ensureSlide("a1", "u1", { force: true, feedback: "teal" }); // forced ↻
-    h.ensureSlide("a1", "u1"); // plain neighbor prefetch — must NOT drop force/feedback
+    h.ensureSlide("a1", "u1"); // plain neighbor prefetch - must NOT drop force/feedback
     await flush();
     h.setTerminal("u1", true);
     h.onTurnSettled("a1", "u1");
@@ -439,7 +439,7 @@ describe("createSlideMode.ensureSlide", () => {
   it("commit guard discards a result whose content changed under an UNCHANGED root (linked edit-fork)", async () => {
     // The complement of the identity guard, and the case a linked edit-fork
     // would present: the root session id is preserved across the fork, so the
-    // identity guard passes it through — the content digest is what rejects it.
+    // identity guard passes it through - the content digest is what rejects it.
     // Identity is the cheap early-out; the digest is the guarantee.
     const h = harness();
     h.ensureSlide("a1", "u1"); // generates from the current turn ("It is 4.")
@@ -576,7 +576,7 @@ describe("createSlideMode.ensureSlide", () => {
 });
 
 // The client cannot tell a failed generation from a slow one, so the server has
-// to say so — that is the whole reason this event exists (task 01a7327a).
+// to say so - that is the whole reason this event exists (task 01a7327a).
 describe("createSlideMode failure reporting", () => {
   // The reason crossing the wire is a CLOSED code, never the underlying error:
   // slide_failed reaches every session that can see the room, and backend
@@ -608,7 +608,7 @@ describe("createSlideMode failure reporting", () => {
 
   it("stays SILENT when the result was discarded, not failed", async () => {
     // /clear during generation: the write is dropped by the identity guard, and
-    // the turn's deck position is gone too — so there is nothing to report a
+    // the turn's deck position is gone too - so there is nothing to report a
     // failure about. Announcing one would show a fallback for a turn that no
     // longer exists.
     const h = harness();
@@ -623,7 +623,7 @@ describe("createSlideMode failure reporting", () => {
   it("stays SILENT for a failed pass that has a rerun queued behind it", async () => {
     // The race Reviewer1 flagged: a ↻ arrives mid-generation and coalesces into
     // a rerun; then pass A fails and pass B succeeds. Reporting A would flash the
-    // fallback on a slide already being retried — only the LAST pass's outcome is
+    // fallback on a slide already being retried - only the LAST pass's outcome is
     // terminal. Expect: no failure at all, and exactly one slide_ready.
     const h = harness();
     h.ensureSlide("a1", "u1");
@@ -772,7 +772,7 @@ describe("slide prompt + output helpers", () => {
   });
 
   it("extractSlideHtml accepts code TEXT that merely mentions href/url()/data:", () => {
-    // "copy code verbatim": these are text/code nodes, not real markup — the CSP
+    // "copy code verbatim": these are text/code nodes, not real markup - the CSP
     // is the boundary, so the validator must not reject them.
     const cases = [
       "<div><pre>&lt;a href=&quot;/docs&quot;&gt;</pre></div>",

@@ -1,4 +1,4 @@
-// Phase 3a — executor pipeline contract. Exercises authorize -> preconditions ->
+// Phase 3a - executor pipeline contract. Exercises authorize -> preconditions ->
 // idempotency(handler) -> render in isolation with fake routes/identities/deps
 // (no server boot, no managers). Zero LLM.
 

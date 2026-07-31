@@ -53,7 +53,7 @@ export interface FakeSessionConfig {
   // function form is called per invocation and lets a test control resolution
   // timing/values (context-fullness commit-protocol races and ordering).
   contextUsage?: ContextUsage | null | (() => Promise<ContextUsage | null>);
-  // Optional auto-responder invoked on each send() — lets a test script a
+  // Optional auto-responder invoked on each send() - lets a test script a
   // reply turn without reaching into the session mid-flight.
   onSend?: (
     text: string,
@@ -61,12 +61,12 @@ export interface FakeSessionConfig {
     session: FakeSession,
   ) => void;
   // When true, send() parks on a test-controlled promise instead of resolving
-  // immediately — settle it with releaseSends()/failSends(). Models a backend
+  // immediately - settle it with releaseSends()/failSends(). Models a backend
   // whose send RPC is in flight (queue-reliability tests hold a turn in the
   // send window and inject send failures).
   manualSend?: boolean;
   // When true, close() marks the session closed (pushes ignored, closed
-  // observable) but does NOT end the stream — a parked stream() stays parked
+  // observable) but does NOT end the stream - a parked stream() stays parked
   // until the test calls endStream() explicitly. Models a wedged subprocess
   // whose stream never terminates after close (the bounded-drain scenarios);
   // releasable so swap-race tests can unblock the drain mid-test.

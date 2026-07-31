@@ -1,4 +1,4 @@
-// Phase 3a slice 3a.5 — office.{getSettings,setSettings} on the unified REST
+// Phase 3a slice 3a.5 - office.{getSettings,setSettings} on the unified REST
 // surface. Owner-only (office:admin + officeOwner).
 //
 // What this freezes:
@@ -22,7 +22,7 @@
 // Dropping envFile from this all-event is a deferred, UI-coordinated migration
 // (the owner UI currently reads envFile from this payload), filed as a Follow-up.
 // The test below asserts the bridge STILL carries envFile so a future
-// liveEmit-conversion that drops it is a conscious, reviewed change — not a silent
+// liveEmit-conversion that drops it is a conscious, reviewed change - not a silent
 // regression mistaken for a missed strangler conversion.
 //
 // Seam: startTestServer(). Zero LLM.
@@ -261,7 +261,7 @@ describe("routes/office.setSettings REST", () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    // Writer A reads, then writer B saves — A's version is now stale.
+    // Writer A reads, then writer B saves - A's version is now stale.
     const staleVersion = await officeVersion(srv, owner.rawSessionId);
     expect(
       (

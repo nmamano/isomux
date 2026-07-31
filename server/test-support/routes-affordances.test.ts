@@ -12,7 +12,7 @@
 //
 // Key current behaviors frozen here:
 //   - Legacy agent affordances are gone: a no-bearer loopback POST is rejected
-//     401 at the cookie wall before any handler runs — fail-closed by
+//     401 at the cookie wall before any handler runs - fail-closed by
 //     construction.
 //   - /api/upload and /api/files require a cookie even from loopback (there is
 //     no loopback bypass anywhere). Auth posture itself is frozen in routes-auth;
@@ -93,7 +93,7 @@ describe("routes/affordances: legacy loopback agent affordances removed (loopbac
   // The legacy loopback agent self-affordances (POST /agents/:id/{read-file,
   // edit-file,terminal-command,diff}) were deleted, and there is no loopback
   // bypass, so a no-bearer loopback POST is rejected 401 at the cookie
-  // wall BEFORE any handler runs — which is exactly why the legacy surface now
+  // wall BEFORE any handler runs - which is exactly why the legacy surface now
   // fails closed (no handler, so no transcript write is possible). A VALID
   // bearer clears the cookie wall but hits the /agents/ POST block's JSON-404
   // fallback (not the SPA 200 HTML fall-through that would mask stale callers).

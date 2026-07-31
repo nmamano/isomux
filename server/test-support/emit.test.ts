@@ -1,9 +1,9 @@
-// Phase 2.3 — emit helper contract tests (TDD red→green for NEW code).
+// Phase 2.3 - emit helper contract tests (TDD red→green for NEW code).
 //
 // Proves projectionKey is EXECUTABLE, not decorative: the registry's declared
 // audience + projectionKey drive the actual recipient set, asserted against a
 // fake transport that records who would receive each event. This is the
-// behavioral half of the Reviewer4 audience gate — a mis-declared audience or a
+// behavioral half of the Reviewer4 audience gate - a mis-declared audience or a
 // delete/move event that forgot its carried room id is caught here. FAIL CLOSED
 // is asserted everywhere: a missing subject reaches NOBODY, never a broadcast.
 //
@@ -84,7 +84,7 @@ describe("emit: audience all / owners", () => {
   it("`all` reaches every session", () => {
     const { deps, delivered } = fixture();
     // `users_list` is an `all`-audience event (the task board LEFT this class
-    // when it became room-scoped/recipient-scoped — see the registry).
+    // when it became room-scoped/recipient-scoped - see the registry).
     emit("users_list", { users: [] }, {}, deps);
     expect(delivered).toHaveLength(1);
     expect(new Set(delivered[0].recipients)).toEqual(
@@ -98,7 +98,7 @@ describe("emit: audience all / owners", () => {
   });
 });
 
-describe("emit: room-ACL — projectionKey resolves the right room audience", () => {
+describe("emit: room-ACL - projectionKey resolves the right room audience", () => {
   it("a hidden-room log_entry never reaches a session without access", () => {
     const { deps, delivered } = fixture();
     // a1 lives in r1; memberC (r2-only) must NOT receive it.
@@ -107,7 +107,7 @@ describe("emit: room-ACL — projectionKey resolves the right room audience", ()
       new Set(["ownerA", "memberB", "memberB2"]),
     );
   });
-  it("an unknown agent fails closed — delivered to NOBODY (no broadcast)", () => {
+  it("an unknown agent fails closed - delivered to NOBODY (no broadcast)", () => {
     const { deps, delivered } = fixture();
     emit("log_entry", { entry: { agentId: "aGone" } as never }, {}, deps);
     expect(delivered).toHaveLength(0);
@@ -121,7 +121,7 @@ describe("emit: room-ACL — projectionKey resolves the right room audience", ()
   });
 });
 
-describe("emit: room-ACL move — old ∪ new rooms, both carried", () => {
+describe("emit: room-ACL move - old ∪ new rooms, both carried", () => {
   it("a move projects to the UNION of departing and arriving rooms", () => {
     const { deps, delivered } = fixture();
     emit(
@@ -141,7 +141,7 @@ describe("emit: room-ACL move — old ∪ new rooms, both carried", () => {
       new Set(["ownerA", "memberB", "memberB2"]),
     );
   });
-  it("a HALF-carried move (only oldRoomId) fails closed — nobody", () => {
+  it("a HALF-carried move (only oldRoomId) fails closed - nobody", () => {
     const { deps, delivered } = fixture();
     emit(
       "agent_updated",
@@ -153,7 +153,7 @@ describe("emit: room-ACL move — old ∪ new rooms, both carried", () => {
   });
 });
 
-describe("emit: room-ACL delete — carried room id (computable post-mutation)", () => {
+describe("emit: room-ACL delete - carried room id (computable post-mutation)", () => {
   it("agent_removed projects from its CARRIED roomId, not a live lookup", () => {
     const { deps, delivered } = fixture();
     // The agent is gone from state; roomIdForAgent would return null. The
@@ -165,7 +165,7 @@ describe("emit: room-ACL delete — carried room id (computable post-mutation)",
   });
 });
 
-describe("emit: recipient-scoped — concrete key required, no fanout fallback", () => {
+describe("emit: recipient-scoped - concrete key required, no fanout fallback", () => {
   it("connectionId targets exactly one socket", () => {
     const { deps, delivered } = fixture();
     emit(
@@ -176,7 +176,7 @@ describe("emit: recipient-scoped — concrete key required, no fanout fallback",
     );
     expect(delivered[0].recipients).toEqual(["memberB"]);
   });
-  it("a missing connectionId fails closed — never broadcasts", () => {
+  it("a missing connectionId fails closed - never broadcasts", () => {
     const { deps, delivered } = fixture();
     emit("session_context", { context: {} as never }, {}, deps);
     expect(delivered).toHaveLength(0);
@@ -210,7 +210,7 @@ describe("emit: recipient-scoped — concrete key required, no fanout fallback",
       new Set(["memberB", "memberB2"]),
     );
   });
-  it("a missing userId fails closed — never broadcasts", () => {
+  it("a missing userId fails closed - never broadcasts", () => {
     const { deps, delivered } = fixture();
     emit(
       "full_state",
@@ -229,7 +229,7 @@ describe("emit: recipient-scoped — concrete key required, no fanout fallback",
 });
 
 describe("emit: reserved strategies (resolveRecipients directly)", () => {
-  it("audience 'none' resolves to null — never reaches transport", () => {
+  it("audience 'none' resolves to null - never reaches transport", () => {
     const { deps } = fixture();
     const out = resolveRecipients(
       { audience: "none", projectionKey: { kind: "none" } },

@@ -6,7 +6,7 @@
 //
 // Used by both agent-manager.ts (agent spawn/edit) and the cronjob HTTP
 // handlers (cron add/update). Cron-specific narrowing lives in
-// validateCronjobPermissionMode below — its allowlist is a subset of the
+// validateCronjobPermissionMode below - its allowlist is a subset of the
 // agent allowlist because cron runs unattended.
 
 import {
@@ -65,9 +65,9 @@ export function validateModelFamily(
 
 // Strict counterpart to validateModelFamily for INTERACTIVE spawn/edit input
 // (the REST dep closures in isomux-office.ts). Where validateModelFamily silently
-// coerces a mismatched value to the backend default — right for persisted-state
+// coerces a mismatched value to the backend default - right for persisted-state
 // canonicalization at boot/revive, wrong for a live caller whose typo would
-// vanish — this returns a human-readable error string for a modelFamily that
+// vanish - this returns a human-readable error string for a modelFamily that
 // cannot belong to the agentType, or null when the value is acceptable.
 //
 // Rules:
@@ -75,14 +75,14 @@ export function validateModelFamily(
 // - claude: anything outside the static Claude family set is an error (e.g. a
 //   Codex slug sent without agentType:"codex")
 // - codex: a Claude family name is an error (statically known to not be a Codex
-//   slug — catches agentType:"codex" paired with modelFamily:"opus"); anything
+//   slug - catches agentType:"codex" paired with modelFamily:"opus"); anything
 //   else passes through, because the valid Codex set is dynamic (model/list
 //   RPC) and codex itself rejects unknown slugs at thread/start.
 export function modelFamilyMismatchError(
   agentType: AgentBackendType,
   raw: string | undefined,
 ): string | null {
-  // Absent means EXACTLY undefined or "" — no trimming, matching
+  // Absent means EXACTLY undefined or "" - no trimming, matching
   // validateModelFamily's codex canonicalizer (any length>0 string is a
   // provided value). A whitespace-only string is therefore a PROVIDED value
   // and fails the family checks below rather than sliding to the default.
@@ -139,7 +139,7 @@ export function validateEffort(
 // run because cron has no /resolve responder. Falls back to the safest
 // per-backend default that runs without prompts.
 //
-// Claude "auto" is explicitly excluded — ClaudeSession always installs
+// Claude "auto" is explicitly excluded - ClaudeSession always installs
 // canUseTool, and cron's normalized consumer can't resolve approval_request
 // events. A stale client sending `auto` is migrated to `bypassPermissions`.
 export function validateCronjobPermissionMode(

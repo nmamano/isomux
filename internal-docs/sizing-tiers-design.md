@@ -86,7 +86,7 @@ about the effective one.
 manager at `OOMScoreAdjust=100`
 (`/usr/lib/systemd/system/user@.service`), and services inherit it. The kernel
 only permits *lowering* `oom_score_adj` with `CAP_SYS_RESOURCE`, which a user
-manager does not hold — the office box's has `CapEff=0000000800000000`,
+manager does not hold - the office box's has `CapEff=0000000800000000`,
 `CAP_WAKE_ALARM` alone. The request for `-500` is therefore refused, and the
 service still starts clean, so nothing surfaces. Confirmed from both ends with
 throwaway units: a *system* unit asking for `-500` gets `-500` at runtime and
@@ -96,7 +96,7 @@ also reproduces on an unrelated box, so it is not a quirk of this one.
 
 **Fix shipped 2026-07-31, deliberately conservative.** `isomux-oom-protect`
 already runs as root, and root is not subject to that restriction: it can write
-the score onto the running process directly (verified — `0` to `-500` on a live
+the score onto the running process directly (verified - `0` to `-500` on a live
 unprivileged process). So the tool now finds a user-level office by its cgroup
 and stamps it from root. Two limits are stated in its output rather than papered
 over: the value is lost when the office restarts until the tool runs again, and
@@ -105,8 +105,8 @@ inherited at fork.
 
 Making it survive a restart would mean lowering the whole user manager, which
 puts every process in that operator's login session under the same protection.
-That is a host-policy decision with the wrong failure bias — it would also
-protect the agent and build workloads that are supposed to be sacrificed — so it
+That is a host-policy decision with the wrong failure bias - it would also
+protect the agent and build workloads that are supposed to be sacrificed - so it
 is queued for Nil rather than settled in the patch.
 
 **And every write is now read back.** `stamp_pid` compares
@@ -138,8 +138,8 @@ the descendants still carry the server's own score, so the kernel's own killer
 cannot tell them apart.
 
 One implementation note found while fixing the other two. The Claude SDK owns
-the spawn — `query()` in `server/backends/claude.ts` starts the `claude` binary
-internally — so isomux has no pid to stamp at spawn time. Doing this means
+the spawn - `query()` in `server/backends/claude.ts` starts the `claude` binary
+internally - so isomux has no pid to stamp at spawn time. Doing this means
 either a periodic sweep of the server's descendants in `/proc` or a hook in the
 SDK, neither of which is a one-liner. Size it accordingly.
 

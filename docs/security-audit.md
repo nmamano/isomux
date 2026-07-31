@@ -9,15 +9,15 @@ navTitle: Security audit
 This audit was performed in collaboration by an **Anthropic Claude Opus 4.7 (Max-effort) agent** and an **OpenAI GPT-5.5 (xhigh-thinking) agent**. The Opus agent drove the review: read the auth-relevant modules, framed the threat model, drafted the findings, and authored this document. The GPT-5.5 agent acted as an independent reviewer: scrutinized scope and findings, calibrated severities, fact-checked claims, and signed off on the final wording. Both agents are Large-Language-Model-based and operate as conversational coding agents inside the Isomux office they audited; their interaction was via the office's inter-agent messaging API. The work was directed by Isomux's primary author (Nil Mamano).
 
 **Date:** 2026-05-17.
-**Scope:** External-access risk — can a party who was **not** intentionally given an invite URL gain access to the office? Specifically: forge a session/invite, intercept a legitimate token, exploit a CSRF/CSWSH gap to ride an authenticated user's session, or escalate from same-host non-operator context. What an invited member can do **inside** the office is out of primary scope; several internal authorization gaps are surfaced separately in **Appendix C** for future reference.
+**Scope:** External-access risk - can a party who was **not** intentionally given an invite URL gain access to the office? Specifically: forge a session/invite, intercept a legitimate token, exploit a CSRF/CSWSH gap to ride an authenticated user's session, or escalate from same-host non-operator context. What an invited member can do **inside** the office is out of primary scope; several internal authorization gaps are surfaced separately in **Appendix C** for future reference.
 **Out of scope:** What invited members can do once inside the office; OS-level isolation between members; agent-runtime safety hooks; denial-of-service; supply-chain.
 **Methodology:** Static code review of the auth-related modules (Appendix A). Implementation cross-checked against `docs/access-and-invites.md`. Findings were independently reviewed.
 
 ---
 
-## 1. TL;DR — is Isomux safe?
+## 1. TL;DR - is Isomux safe?
 
-**For the documented threat model — an external attacker who was not given an invite — yes, Isomux's authorization system is sound.** Token forgery is infeasible (256-bit random tokens, SHA-256-hashed on disk, constant-time comparison); cross-origin attacks are closed (strict Origin allowlist built from operator config rather than request headers, `HttpOnly`+`SameSite=Lax`+`Secure`-on-HTTPS cookies, strict cookie+Origin gating on the WebSocket upgrade and on every state-changing HTTP method); and the first-owner claim surface is served on the loopback interface and self-disables once an owner exists, so a remote attacker cannot reach it or re-open it.
+**For the documented threat model - an external attacker who was not given an invite - yes, Isomux's authorization system is sound.** Token forgery is infeasible (256-bit random tokens, SHA-256-hashed on disk, constant-time comparison); cross-origin attacks are closed (strict Origin allowlist built from operator config rather than request headers, `HttpOnly`+`SameSite=Lax`+`Secure`-on-HTTPS cookies, strict cookie+Origin gating on the WebSocket upgrade and on every state-changing HTTP method); and the first-owner claim surface is served on the loopback interface and self-disables once an owner exists, so a remote attacker cannot reach it or re-open it.
 
 The residual external-access risk concentrates around **invite-URL handling**: an invite URL is a bearer token, and it appears in places the original recipient does not fully control (the recipient's browser history, the delivery channel). Invite TTLs are capped at 24 hours for owner-issued invites and 1 hour for self-device invites; `Referrer-Policy: no-referrer` is set on the invite-accept page so the token cannot leak via the Referer header; and the first-owner claim flow is served on the loopback interface.
 
@@ -31,8 +31,8 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 
 | #   | Severity          | Title                                                                                                            | Status                                                                                |
 | --- | ----------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| 1   | **Low**           | Invite URLs are bearer tokens — they live in the recipient's browser history and delivery channel until consumed | **Mitigated** (24h owner / 1h self TTL; `Referrer-Policy: no-referrer`; one-time use) |
-| 2   | **Low**           | Session cookie persists 30d rolling / 365d absolute — a forgotten session on a shared device remains valid       | **Documented; per-device revoke is the mitigation**                                   |
+| 1   | **Low**           | Invite URLs are bearer tokens - they live in the recipient's browser history and delivery channel until consumed | **Mitigated** (24h owner / 1h self TTL; `Referrer-Policy: no-referrer`; one-time use) |
+| 2   | **Low**           | Session cookie persists 30d rolling / 365d absolute - a forgotten session on a shared device remains valid       | **Documented; per-device revoke is the mitigation**                                   |
 | 3   | **Informational** | `GET /i/<token>` distinguishes `not_found` / `consumed` / `expired` in the response                              | **Not actionable** (256-bit entropy)                                                  |
 
 ---
@@ -42,7 +42,7 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 ### 3.1 Attacker capabilities (in scope)
 
 - No valid session cookie.
-- No valid invite URL — the attacker may try to acquire one through leakage.
+- No valid invite URL - the attacker may try to acquire one through leakage.
 - Standard internet-attacker primitives: control of a malicious domain the victim can be lured to; ability to send phishing links; ability to MITM unencrypted traffic on the network path; ability to read any data the victim's browser auto-attaches to a top-level navigation.
 - (Conditional) Access to a device the invited user has used (shared computer, family device, cloud-synced browser history, recovered backup). Relevant for invite-URL retention and for the shared-device cookie persistence.
 
@@ -64,14 +64,14 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 
 ## 4. Detailed findings
 
-### Finding 1 — Invite URLs are bearer tokens — they live in the recipient's browser history and delivery channel until consumed
+### Finding 1 - Invite URLs are bearer tokens - they live in the recipient's browser history and delivery channel until consumed
 
 **Severity:** Low.
 
 **Description.** An invite URL contains a 256-bit token and grants the role/identity the invite was minted for. The token has 256 bits of entropy and is SHA-256-hashed on disk (forgery is infeasible), but the _raw_ URL appears in two recoverable places between minting and acceptance:
 
 1. **Browser history.** Every browser that opens the URL retains the full path including the token. Cloud-synced browsers (Chrome Sync, Edge Sync, Firefox Sync) replicate the URL across signed-in devices.
-2. **The delivery channel** — whatever email, chat, or SMS the operator used to send the link.
+2. **The delivery channel** - whatever email, chat, or SMS the operator used to send the link.
 
 **Mitigations.**
 
@@ -80,29 +80,29 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 - **One-time use.** Once the legitimate recipient clicks accept, the invite is permanently consumed (`server/auth.ts`). Any subsequent leak is inert.
 - **Mutex-serialized acceptance.** Two concurrent clicks on the same URL cannot both succeed (`server/auth.ts`); whichever runs second sees `consumed=true` and is rejected.
 
-**Residual risk.** Anything that obtains the URL before the recipient clicks — primarily someone with access to the recipient's browser history during the 24h (or 1h) window, or anyone who compromises the delivery channel during that same window — can claim the invite first. The legitimate recipient sees a 410 Gone page on their later attempt.
+**Residual risk.** Anything that obtains the URL before the recipient clicks - primarily someone with access to the recipient's browser history during the 24h (or 1h) window, or anyone who compromises the delivery channel during that same window - can claim the invite first. The legitimate recipient sees a 410 Gone page on their later attempt.
 
 **Affected files & lines.**
 
-- `server/auth.ts` — `INVITE_TTL_MS` and `SELF_INVITE_TTL_MS` constants.
-- `server/auth-middleware.ts` — `securityHeaders()` helper, spread into token-bearing auth/invite HTML responses and the SPA shell; first-owner claim responses omit `Referrer-Policy` because their URL contains no bearer token (`securityHeaders({ tokenInUrl: false })`).
-- `server/auth.ts` — one-time consumption.
+- `server/auth.ts` - `INVITE_TTL_MS` and `SELF_INVITE_TTL_MS` constants.
+- `server/auth-middleware.ts` - `securityHeaders()` helper, spread into token-bearing auth/invite HTML responses and the SPA shell; first-owner claim responses omit `Referrer-Policy` because their URL contains no bearer token (`securityHeaders({ tokenInUrl: false })`).
+- `server/auth.ts` - one-time consumption.
 
 **Operator guidance.** Send invites over channels you trust, and ask invitees to click promptly. The TTL is short enough that a leaked link generally expires before a casual leaker (a shared device's next user, a forgotten-to-log-out chat archive) can act on it.
 
 ---
 
-### Finding 2 — Session cookie persists 30d rolling / 365d absolute — a forgotten session on a shared device remains valid
+### Finding 2 - Session cookie persists 30d rolling / 365d absolute - a forgotten session on a shared device remains valid
 
 **Severity:** Low (the lifetime is a deliberate product choice).
 
-**Description.** After acceptance, the session cookie persists for 30 days of rolling activity with a 1-year absolute cap (`server/auth.ts`). There is no client-side idle timeout. A member who opens isomux on a shared device (kiosk, family computer, work laptop they later return to IT, library terminal) and forgets to sign out leaves an authenticated session viable for up to 1 year. The next user of the device — who may not be an intended invitee — has full access in the original user's role and identity without ever needing the invite URL or the cookie value.
+**Description.** After acceptance, the session cookie persists for 30 days of rolling activity with a 1-year absolute cap (`server/auth.ts`). There is no client-side idle timeout. A member who opens isomux on a shared device (kiosk, family computer, work laptop they later return to IT, library terminal) and forgets to sign out leaves an authenticated session viable for up to 1 year. The next user of the device - who may not be an intended invitee - has full access in the original user's role and identity without ever needing the invite URL or the cookie value.
 
 The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attributes (`server/auth.ts`) defend against every cross-site attack; they do not defend against the next user of the same physical browser.
 
 **Affected files & lines.**
 
-- `server/auth.ts` — `rollingTtlMs = 30 days`, `absoluteTtlMs = 365 days`.
+- `server/auth.ts` - `rollingTtlMs = 30 days`, `absoluteTtlMs = 365 days`.
 
 **Mitigation in place.**
 
@@ -113,11 +113,11 @@ The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attrib
 
 ---
 
-### Finding 3 — `GET /i/<token>` distinguishes `not_found` / `consumed` / `expired` in the response
+### Finding 3 - `GET /i/<token>` distinguishes `not_found` / `consumed` / `expired` in the response
 
 **Severity:** Informational.
 
-**Description.** `peekInvite` (`server/auth.ts`) returns one of three distinct errors — `not_found`, `consumed`, `expired` — and the HTTP handler `renderInviteError` renders a different message for each. An attacker who somehow obtained a _partial_ token (e.g. the 8-character display prefix from a log entry) could in principle distinguish "this prefix maps to a real token that's been used" from "this prefix doesn't map to anything." With 256 bits of token entropy this is not an actionable brute-force channel.
+**Description.** `peekInvite` (`server/auth.ts`) returns one of three distinct errors - `not_found`, `consumed`, `expired` - and the HTTP handler `renderInviteError` renders a different message for each. An attacker who somehow obtained a _partial_ token (e.g. the 8-character display prefix from a log entry) could in principle distinguish "this prefix maps to a real token that's been used" from "this prefix doesn't map to anything." With 256 bits of token entropy this is not an actionable brute-force channel.
 
 **Recommendation (optional).** Collapse all three error codes into a single "This invite is no longer valid" response. The legitimate user loses a small UX nicety (they don't learn whether their invite specifically expired vs was already consumed); the response carries no signal about the token's lifecycle state. Not currently implemented.
 
@@ -165,11 +165,11 @@ Invite acceptance persists the invite-consumed flag **before** the session (`acc
 
 ### 5.10 Pre-auth POST Origin gate
 
-`POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost`: Origin must match the resolved public origin, except when the Origin header is absent or the literal string `"null"` — in that case the request is accepted only if `Sec-Fetch-Site: same-origin` is present, a browser-attested Fetch Metadata signal that page JavaScript cannot forge or override. Empty-string Origin fails closed. The `null`-Origin fallback is needed because Chrome sends `Origin: null` on top-level form POSTs originating from a page that carries `Referrer-Policy: no-referrer` (§5.16), which applies to the invite-accept page. A cross-origin attacker submitting a credentialed form to /auth/accept gets `Sec-Fetch-Site: cross-site` or `same-site`, never `same-origin`, so the CSRF defense holds. `POST /auth/claim` is stricter (no null-Origin fallback) because the claim page does not carry `Referrer-Policy: no-referrer` and therefore always produces a concrete Origin header — see §5.11.
+`POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost`: Origin must match the resolved public origin, except when the Origin header is absent or the literal string `"null"` - in that case the request is accepted only if `Sec-Fetch-Site: same-origin` is present, a browser-attested Fetch Metadata signal that page JavaScript cannot forge or override. Empty-string Origin fails closed. The `null`-Origin fallback is needed because Chrome sends `Origin: null` on top-level form POSTs originating from a page that carries `Referrer-Policy: no-referrer` (§5.16), which applies to the invite-accept page. A cross-origin attacker submitting a credentialed form to /auth/accept gets `Sec-Fetch-Site: cross-site` or `same-site`, never `same-origin`, so the CSRF defense holds. `POST /auth/claim` is stricter (no null-Origin fallback) because the claim page does not carry `Referrer-Policy: no-referrer` and therefore always produces a concrete Origin header - see §5.11.
 
 ### 5.11 First-owner claim surface gated by bind and `hasOwner()`
 
-The first-owner claim form (GET /) only renders when `!hasOwner()`. The `POST /auth/claim` handler re-checks `hasOwner()` under the auth mutex via `claimOwnership` — a concurrent successful claim makes the second attempt fail closed with `owner_exists`. The server binds `127.0.0.1` only when `!hasOwner()`, so the form is only reachable from the host or via SSH tunnel. Owner creation invalidates any pre-existing bootstrap invite rows, and `acceptInvite` rejects bootstrap rows whenever an owner exists.
+The first-owner claim form (GET /) only renders when `!hasOwner()`. The `POST /auth/claim` handler re-checks `hasOwner()` under the auth mutex via `claimOwnership` - a concurrent successful claim makes the second attempt fail closed with `owner_exists`. The server binds `127.0.0.1` only when `!hasOwner()`, so the form is only reachable from the host or via SSH tunnel. Owner creation invalidates any pre-existing bootstrap invite rows, and `acceptInvite` rejects bootstrap rows whenever an owner exists.
 
 ### 5.12 Atomic disk writes
 
@@ -189,11 +189,11 @@ The command dispatcher uses `session.username` server-side rather than trusting 
 
 ### 5.16 Security headers on every HTML surface
 
-`Referrer-Policy: no-referrer` on every HTML response that may carry a bearer token in the URL (`server/auth-middleware.ts:securityHeaders()`); explicitly omitted on the first-owner claim form response, whose URL has no token to leak, so Chrome's privacy coupling doesn't downgrade the form-POST Origin to `null`. `Strict-Transport-Security: max-age=31536000` added when the resolved public origin is HTTPS. `includeSubDomains` deliberately not set — the operator may not own siblings of the office origin (Tailscale Funnel, Cloudflare, Caddy under various parent domains); operators wanting subdomain-wide HSTS can layer it at their reverse proxy.
+`Referrer-Policy: no-referrer` on every HTML response that may carry a bearer token in the URL (`server/auth-middleware.ts:securityHeaders()`); explicitly omitted on the first-owner claim form response, whose URL has no token to leak, so Chrome's privacy coupling doesn't downgrade the form-POST Origin to `null`. `Strict-Transport-Security: max-age=31536000` added when the resolved public origin is HTTPS. `includeSubDomains` deliberately not set - the operator may not own siblings of the office origin (Tailscale Funnel, Cloudflare, Caddy under various parent domains); operators wanting subdomain-wide HSTS can layer it at their reverse proxy.
 
 ### 5.17 Owner-login CLI is gated by Unix-socket file permissions
 
-`bun run server/index.ts owner-login --name "<owner>"` mints a 15-minute one-time login URL for an existing owner via a Unix-domain admin socket at `~/.isomux/admin.sock` (mode 0600). Filesystem permissions are the auth boundary — any UID that can already read the auth files in `~/.isomux/` can connect to the socket, so the CLI adds no new authority, just a clean RPC instead of editing JSON by hand. On a multi-user box where `~/.isomux/` is mode 0700 only the Isomux service user can mint recovery URLs. The mintInvite `ttlMsOverride` option is private to the admin socket; the WS wire intentionally doesn't accept it.
+`bun run server/index.ts owner-login --name "<owner>"` mints a 15-minute one-time login URL for an existing owner via a Unix-domain admin socket at `~/.isomux/admin.sock` (mode 0600). Filesystem permissions are the auth boundary - any UID that can already read the auth files in `~/.isomux/` can connect to the socket, so the CLI adds no new authority, just a clean RPC instead of editing JSON by hand. On a multi-user box where `~/.isomux/` is mode 0700 only the Isomux service user can mint recovery URLs. The mintInvite `ttlMsOverride` option is private to the admin socket; the WS wire intentionally doesn't accept it.
 
 ---
 
@@ -209,15 +209,15 @@ Non-safe methods reject mismatched Origin. Missing Origin is accepted (for loopb
 
 ### 6.3 Pre-auth POSTs
 
-`POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost`: Origin must match the resolved public origin, except when the Origin header is absent or the literal string `"null"` — in that case the browser-attested `Sec-Fetch-Site: same-origin` (Fetch Metadata, not forgeable by page JS) is required. Empty-string Origin fails closed. The `null`-Origin fallback exists because Chrome sends `Origin: null` on top-level form POSTs from pages that carry `Referrer-Policy: no-referrer` (§5.10, §5.16). `POST /auth/claim` is stricter: exact-Origin only, no `null` fallback, because the first-owner claim form deliberately omits `Referrer-Policy: no-referrer` so browsers always send concrete Origin (§5.11). **Verdict: safe.**
+`POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost`: Origin must match the resolved public origin, except when the Origin header is absent or the literal string `"null"` - in that case the browser-attested `Sec-Fetch-Site: same-origin` (Fetch Metadata, not forgeable by page JS) is required. Empty-string Origin fails closed. The `null`-Origin fallback exists because Chrome sends `Origin: null` on top-level form POSTs from pages that carry `Referrer-Policy: no-referrer` (§5.10, §5.16). `POST /auth/claim` is stricter: exact-Origin only, no `null` fallback, because the first-owner claim form deliberately omits `Referrer-Policy: no-referrer` so browsers always send concrete Origin (§5.11). **Verdict: safe.**
 
 ### 6.4 CORS wildcard on `/tasks` and `/cronjobs`
 
-Both endpoints returned `Access-Control-Allow-Origin: *`. With `credentials: include` the browser may still attach the cookie to the request, but it will not expose the response body to JavaScript because a wildcard ACAO lacks `Access-Control-Allow-Credentials: true`. For state-changing routes the Origin gate independently rejects mismatched origins before any response is generated. **Verdict: surprising but not a bypass.** **Resolved (2026-07-30):** both endpoints are retired along with their preflight handlers, so neither the wildcard ACAO nor the preflight exists any more. (The 404 wall on the stale `POST /agents/:id/*` path still sends `Access-Control-Allow-Origin: *` on its error envelope — a response with no data in it.)
+Both endpoints returned `Access-Control-Allow-Origin: *`. With `credentials: include` the browser may still attach the cookie to the request, but it will not expose the response body to JavaScript because a wildcard ACAO lacks `Access-Control-Allow-Credentials: true`. For state-changing routes the Origin gate independently rejects mismatched origins before any response is generated. **Verdict: surprising but not a bypass.** **Resolved (2026-07-30):** both endpoints are retired along with their preflight handlers, so neither the wildcard ACAO nor the preflight exists any more. (The 404 wall on the stale `POST /agents/:id/*` path still sends `Access-Control-Allow-Origin: *` on its error envelope - a response with no data in it.)
 
 ### 6.5 DNS rebinding
 
-Cookie is host-only (no `Domain`). Origin allowlist is operator-configured, not header-inferred. An attacker domain that briefly resolves to the office IP still produces an Origin header equal to the attacker's domain — the allowlist check fails. **Verdict: safe.**
+Cookie is host-only (no `Domain`). Origin allowlist is operator-configured, not header-inferred. An attacker domain that briefly resolves to the office IP still produces an Origin header equal to the attacker's domain - the allowlist check fails. **Verdict: safe.**
 
 ### 6.6 HTTP-host-header confusion
 
@@ -235,7 +235,7 @@ Neither endpoint has rate limiting. With 256-bit token entropy this is not an ac
 
 The bind decision is coupled to the boot-frozen external-access state: a process serving the localhost fallback also binds `127.0.0.1`, so plaintext cookies never leave the host. A process that needs a public HTTPS origin binds to all interfaces. There is no configuration that produces an externally-bound listener on the localhost fallback.
 
-If an operator configures `publicOrigin` but disables the _External access_ toggle, the runtime still serves the localhost fallback — the toggle is the gate, and `buildPublicOrigin` returns localhost whenever the bind is loopback so cookie attributes match the actual connection.
+If an operator configures `publicOrigin` but disables the _External access_ toggle, the runtime still serves the localhost fallback - the toggle is the gate, and `buildPublicOrigin` returns localhost whenever the bind is loopback so cookie attributes match the actual connection.
 
 ### 7.3 Log hygiene
 
@@ -247,7 +247,7 @@ A revoked session is force-closed within ~1 second on any active WebSocket (per-
 
 ---
 
-## Appendix A — Files reviewed
+## Appendix A - Files reviewed
 
 Primary auth modules:
 
@@ -263,7 +263,7 @@ Reference document: `docs/access-and-invites.md`.
 
 ---
 
-## Appendix B — Methodology
+## Appendix B - Methodology
 
 - **Static code review.** No dynamic testing, no exploit PoCs executed against a live instance.
 - **Threat model construction.** Built from `docs/access-and-invites.md` and module-level comments in `server/auth.ts`. Scope limited to external (non-invited) access risk per the project's primary use case (small-team self-hosted offices where every invited user is trusted equally).
@@ -272,7 +272,7 @@ Reference document: `docs/access-and-invites.md`.
 
 ---
 
-## Appendix C — Internal authorization gaps (out of primary scope)
+## Appendix C - Internal authorization gaps (out of primary scope)
 
 Known **post-acceptance** authorization gaps fall outside this report's external-access scope: an authenticated member with access to a single room can read resources belonging to members of other rooms (cronjob metadata and run transcripts, file attachments, tasks) and mutate those members' file attachments and tasks (cronjob mutation is creator-or-office-owner gated; see C.1), and uploaded HTML can execute in the office's same-origin context. In the documented trust model (`docs/access-and-invites.md`, "Trust model boundaries"), every invited user is treated as equally privileged inside the office; the items below become findings only if that trust model is tightened.
 
@@ -288,8 +288,8 @@ Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.
 
 ### C.2 File serving and uploads bypass the room/agent ACL
 
-- `server/index.ts` — `POST /api/upload/:agentId` checks the agent exists but does not check `agentVisibleForSession`.
-- `server/index.ts` — `GET /api/files/:agentId/:filename` and `GET /api/images/:agentId/:filename` do not check visibility.
+- `server/index.ts` - `POST /api/upload/:agentId` checks the agent exists but does not check `agentVisibleForSession`.
+- `server/index.ts` - `GET /api/files/:agentId/:filename` and `GET /api/images/:agentId/:filename` do not check visibility.
 - `saveFile` (`server/persistence.ts`) preserves sanitized original filenames with numeric suffixes on collision, so common filenames are guessable.
 - A member who previously had access to a room retains the ability to fetch any files whose URLs they remembered.
 
@@ -298,26 +298,26 @@ Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.
 ### C.3 Uploaded HTML executes as same-origin active content
 
 - `server/mime-types.ts` maps `html`/`css`/`xml`/`json` to their renderable MIME types; the comment at lines 2-5 acknowledges nosniff is absent.
-- `server/index.ts` — `/api/files/...` is served at the office's own origin with the declared MIME type.
+- `server/index.ts` - `/api/files/...` is served at the office's own origin with the declared MIME type.
 - Combined with C.2, any authenticated member can upload `payload.html` into any agent and deliver the URL to a victim; opening it in the victim's browser (top-level navigation under `SameSite=Lax` attaches the cookie) yields stored XSS in the office's origin with full WebSocket-command capability.
 
 **If tightening is desired:** demote active-content extensions (`html`/`htm`/`xml`/`xhtml`/`svg`/`css`/`js`) on `/api/files` to `application/octet-stream` with `Content-Disposition: attachment`; add `X-Content-Type-Options: nosniff`; consider serving attachments from a separate origin.
 
-### C.4 Loopback bypass scope — RESOLVED (2026-07-30)
+### C.4 Loopback bypass scope - RESOLVED (2026-07-30)
 
-- `server/index.ts` — the agent self-affordances (`POST /api/agents/:id/{diff,edit-file,read-file,terminal-command}`) and `POST /agents/:id/message` require a per-agent bearer token: affordances are bound to the calling agent by `agentParamMustEqualTokenAgent`, and the message sender is derived from the agent's injected `ISOMUX_AGENT_TOKEN` (a `senderAgentId` that does not match the token is rejected). A same-host process cannot act as an agent it holds no token for.
+- `server/index.ts` - the agent self-affordances (`POST /api/agents/:id/{diff,edit-file,read-file,terminal-command}`) and `POST /agents/:id/message` require a per-agent bearer token: affordances are bound to the calling agent by `agentParamMustEqualTokenAgent`, and the message sender is derived from the agent's injected `ISOMUX_AGENT_TOKEN` (a `senderAgentId` that does not match the token is rejected). A same-host process cannot act as an agent it holds no token for.
 - The last loopback bypass covered `POST /tasks`, the `GET /cronjobs` read routes, and `GET /backup/status`: a same-host process reached these without a token, so it could list/create tasks, read cronjob metadata/transcripts, and read backup status as if it were local. **Resolved:** those three prefixes are retired in favour of `/api/tasks*`, `/api/cronjobs*` and `/api/backup/status`, which require an identity like every other `/api` route. There is no loopback allowlist left in the code.
 - What motivated finishing it: any web app an agent builds runs on the same box, so an SSRF or open-proxy bug in one of them reached those routes from outside in two hops, and the receiving socket could not tell the original caller apart from a local process. The same reasoning turned off Caddy's admin API (`127.0.0.1:2019`) in the installer's Caddyfile.
 
-### C.5 HTTP `POST /tasks` accepts client-controlled attribution — RESOLVED
+### C.5 HTTP `POST /tasks` accepts client-controlled attribution - RESOLVED
 
-- HTTP `POST /tasks` trusted `body.createdBy` and `body.username`; the WS path used `session.username`. **Resolved:** that route is retired. On `/api/tasks` both fields are derived from the caller's token or cookie and a body value is ignored — an agent's tasks read as the agent, a cron run's as the job.
+- HTTP `POST /tasks` trusted `body.createdBy` and `body.username`; the WS path used `session.username`. **Resolved:** that route is retired. On `/api/tasks` both fields are derived from the caller's token or cookie and a body value is ignored - an agent's tasks read as the agent, a cron run's as the job.
 
 ### C.6 Room creation/close/rename gates use only room-visibility
 
-- `server/index.ts` — `create_room` is unrestricted; `close_room` and `rename_room` gate on `roomAllowedForSession` only.
+- `server/index.ts` - `create_room` is unrestricted; `close_room` and `rename_room` gate on `roomAllowedForSession` only.
 
-**If tightening is desired:** decide ownership semantics for rooms — closing/renaming requires creator-or-owner.
+**If tightening is desired:** decide ownership semantics for rooms - closing/renaming requires creator-or-owner.
 
 ### C.7 Privileged agents (deliberate, owner/manager-gated capability grant)
 

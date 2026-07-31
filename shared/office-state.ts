@@ -20,7 +20,7 @@ import {
   ACCESSORIES,
 } from "./outfit-options.ts";
 
-// Domain events — callers translate these to ServerMessage
+// Domain events - callers translate these to ServerMessage
 export type OfficeEvent =
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the pre-removal roomId so consumers can compute a room-scoped
@@ -63,7 +63,7 @@ export interface OfficeStateData {
   recentCwds: string[];
 }
 
-// Canonical room input — a RoomWire without the derived `canCloseWhenEmpty`
+// Canonical room input - a RoomWire without the derived `canCloseWhenEmpty`
 // capability, which OfficeState stamps from room order at materialization. Boot
 // and persistence supply this shape (they store room identity, not the flag).
 type RoomInput = Omit<RoomWire, "canCloseWhenEmpty">;
@@ -200,8 +200,8 @@ export class OfficeState {
     }
 
     // An OMITTED (undefined) roomId defaults to the canonical first room
-    // (legacy callers, welcome-agent seed). A PROVIDED-but-unknown roomId —
-    // including "" — is rejected: never silently coerced to rooms[0], which
+    // (legacy callers, welcome-agent seed). A PROVIDED-but-unknown roomId -
+    // including "" - is rejected: never silently coerced to rooms[0], which
     // would hide caller mistakes (e.g. passing a display index instead of the
     // real room id), and never stored verbatim, which would dangle. Callers
     // disambiguate the null via a room-existence check, like moveAgent's.
@@ -220,7 +220,7 @@ export class OfficeState {
     // reassigned: it is a caller bug, and before task e87d9c7d it produced an
     // agent that existed everywhere except the office view (DeskUnit's slot
     // lookup threw and took the whole room's render down). A desk of -1 is
-    // doubly invalid — it is also the "no free desk" sentinel below.
+    // doubly invalid - it is also the "no free desk" sentinel below.
     // An explicit desk that is merely TAKEN still falls through to
     // auto-assign, which is the long-standing behavior.
     if (opts.desk !== undefined && !isValidDesk(opts.desk)) return null;
@@ -262,7 +262,7 @@ export class OfficeState {
       ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
       userId: opts.userId ?? null,
       username: opts.username ?? null,
-      // Privilege is never conferred at spawn — it is granted only via the
+      // Privilege is never conferred at spawn - it is granted only via the
       // user-gated agents.setPrivileged route (so no agent can self-confer).
       privileged: false,
       queue: [],
@@ -450,7 +450,7 @@ export class OfficeState {
     this._rooms.splice(room, 1);
     // Phase 3c slice 4: closing a room no longer shifts any wire index. Agents
     // carry a stable roomId and rooms carry a stable id, so a visible close is
-    // just the room's removal and a non-visible close is a client no-op — the
+    // just the room's removal and a non-visible close is a client no-op - the
     // pre-cut per-agent `room--` agent_updated churn is gone. Splicing a non-zero
     // index also can't change which room is index 0, so every remaining room's
     // derived canCloseWhenEmpty stays correct without a re-stamp.
@@ -590,7 +590,7 @@ export class OfficeState {
   ): OfficeEvent[] {
     // Normalize roomId: only a non-empty string scopes the task; anything else
     // (undefined or "") is office-global, represented as an ABSENT field so the
-    // persisted/wire shape has one canonical "global" — no empty-string variant.
+    // persisted/wire shape has one canonical "global" - no empty-string variant.
     const roomId =
       typeof opts?.roomId === "string" && opts.roomId.length > 0
         ? opts.roomId
@@ -628,7 +628,7 @@ export class OfficeState {
     if (!task) return [];
     Object.assign(task, changes);
     // Canonical global shape is an ABSENT roomId (see addTask). A clear arrives
-    // as `roomId: undefined` in `changes` — Object.assign leaves the key present
+    // as `roomId: undefined` in `changes` - Object.assign leaves the key present
     // with an undefined value, so drop it to keep one canonical "global" and
     // match the persisted/wire shape of a task that never had a room.
     if ("roomId" in changes && !task.roomId) delete task.roomId;

@@ -31,7 +31,7 @@ export function normalizePublicOrigin(
   if (!host) return null;
 
   // Plain HTTP is only valid for IPv4 loopback. Any non-localhost host on
-  // http:// is rejected — public origin must be HTTPS. IPv6 loopback (`[::1]`)
+  // http:// is rejected - public origin must be HTTPS. IPv6 loopback (`[::1]`)
   // isn't supported here; localhost dev is overwhelmingly `localhost` or
   // `127.0.0.1` and `URL` exposes `[::1]` bracketed, which complicates the
   // canonicalization without buying real coverage.

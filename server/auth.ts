@@ -87,7 +87,7 @@ interface StoredSession {
   userAgent: string | null;
   // Last-known device label (client-supplied via presence_update, already
   // sanitized there: trimmed, capped, empty→null). LAST NON-NULL WINS: a tab
-  // that hasn't named its device never erases a previously learned label —
+  // that hasn't named its device never erases a previously learned label -
   // one session is one device, so the label is expected to be stable.
   // Optional on disk (absent on legacy rows → null on the wire).
   device?: string | null;
@@ -205,7 +205,7 @@ function loadSessionsFromDisk(): Map<string, StoredSession> {
 
 // Auth state mutations must surface persistence failures to the caller so
 // the caller can roll back in-memory state. Swallowing here would let
-// accept/mint/revoke report success while disk diverges from memory — on
+// accept/mint/revoke report success while disk diverges from memory - on
 // the next restart the user would be locked out (consumed invite + lost
 // session) or able to reuse a "revoked" invite.
 function persistInvites() {
@@ -364,7 +364,7 @@ function forceExpireSocketsForSession(sessionIdHash: string) {
 export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
 // Member self-invite (mint_self_invite) is deliberately tighter than
 // the standard 24h. The use case is "I'm at my laptop, I want to add
-// my phone right now" — both devices are physically with the member
+// my phone right now" - both devices are physically with the member
 // and the link is intended to be clicked within seconds. A 1h window
 // is more than enough for the legitimate flow and shrinks the
 // bearer-URL exposure window by 24x compared to the standard TTL.
@@ -385,7 +385,7 @@ export interface MintOptions {
   // mint so a concurrent caller can't see both the old and new at once.
   replacePriorForUsername?: boolean;
   // Override the default TTL. Two server-side callers: the admin-socket
-  // owner-login handler (15min — shell access + immediate hand-off to a
+  // owner-login handler (15min - shell access + immediate hand-off to a
   // browser) and the REST owner-recovery seam (invites.mintRecovery pins the
   // standard 24h INVITE_TTL_MS, because replacePriorForUsername alone would
   // imply the 1h self-invite TTL and recovery is owner send-and-wait
@@ -394,7 +394,7 @@ export interface MintOptions {
   ttlMsOverride?: number;
   // Room grants to attach to the invite. Only valid for member invites that
   // will CREATE the user (owners reach every room by rule; an existing
-  // user's access lives on their record — see the INVALID_ROOMS checks).
+  // user's access lives on their record - see the INVALID_ROOMS checks).
   // Applied at accept time as the new record's initial allowedRooms.
   allowedRooms?: string[];
 }
@@ -420,7 +420,7 @@ export interface MintErr {
 // via mint_invite) use INVITE_TTL_MS; member self-invite uses the
 // tighter SELF_INVITE_TTL_MS. There is no per-invite knob in either
 // path. Session lifetime (the cookie's rolling/absolute expiry) is
-// governed separately at acceptance time — see acceptInvite — and is
+// governed separately at acceptance time - see acceptInvite - and is
 // intentionally not coupled to invite TTL.
 
 export async function mintInvite(
@@ -429,7 +429,7 @@ export async function mintInvite(
   return mutate(() => {
     ensureLoaded();
     const trimmedName = opts.username?.trim() ?? null;
-    // Room grants: dedupe up-front; validated below (non-bootstrap only —
+    // Room grants: dedupe up-front; validated below (non-bootstrap only -
     // the bootstrap path never passes grants).
     const grantRooms = opts.allowedRooms?.length
       ? [...new Set(opts.allowedRooms)]
@@ -458,7 +458,7 @@ export async function mintInvite(
         };
       // Room grants only make sense on a member invite that will CREATE the
       // user record: owners reach every room by rule (materialized owner
-      // grants are the demotion bomb — see commitBootstrapOwnerUser), and an
+      // grants are the demotion bomb - see commitBootstrapOwnerUser), and an
       // existing user's access is managed on their record, not re-seeded by
       // a later invite. Unknown room ids are refused rather than silently
       // pruned so a stale owner UI can't mint an invite that quietly grants
@@ -525,8 +525,8 @@ export async function mintInvite(
       createdAt: now,
       // TTL selection. ttlMsOverride wins (admin-socket owner-login: 15min;
       // REST owner-recovery: pinned to the standard 24h). Otherwise
-      // replacePriorForUsername — self-invites, which don't pass the
-      // override — picks the tighter 1h TTL; everything else uses the
+      // replacePriorForUsername - self-invites, which don't pass the
+      // override - picks the tighter 1h TTL; everything else uses the
       // standard 24h.
       expiresAt:
         now +
@@ -560,7 +560,7 @@ export async function mintInvite(
 
 // Look up an invite without consuming it. Used by GET /i/<token> so link
 // previewers / chat unfurlers / browser prefetch don't burn the one-time
-// invite — actual consumption happens on the subsequent POST.
+// invite - actual consumption happens on the subsequent POST.
 export interface InvitePeek {
   needsName: boolean; // true for bootstrap or otherwise null-username invites
   username: string | null;
@@ -671,7 +671,7 @@ function commitBootstrapOwnerUser(chosenName: string): {
     const created = claimUser(chosenName, {
       role: "owner",
       // Phase 3b: owners reach every room by RULE, so allowedRooms (member
-      // GRANTS) stays EMPTY for an owner — no room snapshot. Materializing
+      // GRANTS) stays EMPTY for an owner - no room snapshot. Materializing
       // owner grants is the demotion bomb a later owner→member demotion would
       // inherit. notifRooms still seeds from current rooms so a new owner is
       // notified for their office by default (notifRooms ⊆ shown ⊆ accessible
@@ -693,7 +693,7 @@ function commitBootstrapOwnerUser(chosenName: string): {
       },
     };
   }
-  // Existing user — snapshot the prior state and build a single rollback
+  // Existing user - snapshot the prior state and build a single rollback
   // closure BEFORE any mutation. Every post-allowedRooms failure path
   // (setUserRoleById throws, the getUserById sanity check finds the row
   // gone, or the caller hits a downstream persist failure and invokes
@@ -732,7 +732,7 @@ function commitBootstrapOwnerUser(chosenName: string): {
 
   // Phase 3b: CLEAR owner grants (rule covers owner access; an owner carrying
   // materialized grants is the demotion bomb). allowedRooms write first
-  // (idempotent — already [] for a previously-migrated owner), role second; if
+  // (idempotent - already [] for a previously-migrated owner), role second; if
   // the write returns not-ok or throws, the user is unchanged on disk so we
   // propagate without invoking rollback. notifRooms is left untouched (a
   // promoted member keeps their notif prefs; the invariant still holds because
@@ -818,7 +818,7 @@ export async function acceptInvite(
 
     // Idempotent upsert of user record. The role-preservation rule applies
     // to *member* invites: accepting one for an existing user must not flip
-    // their role. Bootstrap is the one exception — it's the first-owner
+    // their role. Bootstrap is the one exception - it's the first-owner
     // recovery / pre-auth-migration path. If no owner exists and a
     // bootstrap invite is being accepted, promote the chosen user (creating
     // them if needed, or promoting an existing pre-auth member record).
@@ -839,9 +839,9 @@ export async function acceptInvite(
       // but notifRooms from current rooms (so the new owner is notified for
       // their office by default). A member invite seeds allowedRooms from the
       // grants the owner attached at mint time (pruned to rooms that still
-      // exist — a room can be deleted between mint and accept); claimUser then
+      // exist - a room can be deleted between mint and accept); claimUser then
       // seeds notifRooms from those grants. A grant-less member invite lands on
-      // the [] defaults — no grants, no notifs — until an owner grants access
+      // the [] defaults - no grants, no notifs - until an owner grants access
       // or they create a room.
       const liveRooms = new Set(snapshotRoomIds());
       const grantRooms = (invite.allowedRooms ?? []).filter((id) =>
@@ -857,7 +857,7 @@ export async function acceptInvite(
     } else if (invite.allowedRooms?.length) {
       // Mint refuses grants for existing users, so reaching here means the
       // record appeared between mint and accept. Grants only seed a NEW
-      // record — the existing record's access wins. Log so an owner who
+      // record - the existing record's access wins. Log so an owner who
       // attached rooms can tell why they didn't land.
       console.warn(
         `[auth] acceptInvite: user "${userRecord.name}" already exists; ignoring the invite's room grants (manage their access in user settings)`,
@@ -895,7 +895,7 @@ export async function acceptInvite(
 
     // Fail-closed ordering: persist the invite-consumed flag BEFORE the
     // session. If we issued a cookie but the invite stayed live, the
-    // bearer URL would still be redeemable for a second session — the
+    // bearer URL would still be redeemable for a second session - the
     // worse failure mode. The downside of this ordering is that on a rare
     // mid-flow disk failure the invite ends up consumed without a session
     // having been created (the user re-clicks and sees 410); we accept
@@ -921,7 +921,7 @@ export async function acceptInvite(
       // Session-persist failure: roll the session out of memory AND roll
       // the invite back to unconsumed so the user can retry. If the
       // invite-revert write also fails we have a permanently-consumed
-      // invite with no usable session — catastrophic but isolated: log
+      // invite with no usable session - catastrophic but isolated: log
       // loudly, propagate to the caller, the user sees 500 and the owner
       // mints a fresh invite.
       sessions!.delete(sessionHash);
@@ -939,7 +939,7 @@ export async function acceptInvite(
         );
       }
       // Bootstrap owner rollback fires regardless of the invite-revert
-      // outcome — the office state on disk must not be left with an
+      // outcome - the office state on disk must not be left with an
       // owner record but no session.
       if (bootstrapRollback) bootstrapRollback();
       throw err;
@@ -948,7 +948,7 @@ export async function acceptInvite(
     // Fire the post-accept hook so the dispatcher in isomux-office.ts can fan an
     // updated invite/session list out to owner WSes. Without this, a
     // browser that minted the invite while a *separate* browser opens
-    // /auth/accept would never see its Access pane refresh — that flow
+    // /auth/accept would never see its Access pane refresh - that flow
     // doesn't touch the WS dispatch path and was the gap in the
     // earlier "real-time invites" fix (which only covered reconnect).
     try {
@@ -1012,7 +1012,7 @@ export async function claimOwnership(
       return { ok: false, error: "invalid_name" };
 
     // Owner-creation via the shared helper. Returns a rollback closure
-    // that's invoked if the session create+persist below throws — without
+    // that's invoked if the session create+persist below throws - without
     // it, a session-persist failure would leave the office with an owner
     // record but no session, and the mutex-held owner_exists guard would
     // block recovery on retry.
@@ -1144,7 +1144,7 @@ export async function logoutBySessionHash(
 // Persist-failure semantics differ from logoutBySessionHash/revokeSessionByPrefix
 // on purpose: those are user-requested mutations on otherwise-valid sessions,
 // so a disk write failure rolls them back and surfaces the error. Here the
-// user record is already gone — leaving the in-memory sessions in place
+// user record is already gone - leaving the in-memory sessions in place
 // would preserve authority for a deleted user until next message-time
 // orphan eviction. Log loudly and continue; the next validateSession on
 // any reused cookie will re-evict the disk row.
@@ -1166,7 +1166,7 @@ export async function evictSessionsForUserId(userId: string): Promise<number> {
       );
     }
     for (const hash of hashes) forceExpireSocketsForSession(hash);
-    // Fire once per batch — the broadcast replaces the whole list, so
+    // Fire once per batch - the broadcast replaces the whole list, so
     // per-hash firing would just be redundant fanout.
     fireSessionsChangedHook();
     return hashes.length;
@@ -1187,7 +1187,7 @@ export interface SessionLookup {
   userId: string;
   // Current display name, resolved from the user record at validation
   // time so a rename propagates without reconnect. Use for message
-  // attribution, log stamping, and UI labels — anything where the value
+  // attribution, log stamping, and UI labels - anything where the value
   // is observed at the moment of the action.
   username: string;
   role: UserRole;
@@ -1281,7 +1281,7 @@ function validateByHash(hash: string): SessionLookup | null {
 // Pure shape helper: StoredInvite → the InviteWire the owner/member UIs render.
 // Exported (3a.4a) so the isomux-office.ts invites seam builds the mint-response wire
 // from ONE source of truth (the same helper listInvites/listInvitesForUsername
-// use) instead of duplicating the field list. Read-only — never widens mutation.
+// use) instead of duplicating the field list. Read-only - never widens mutation.
 export function toInviteWire(v: StoredInvite): InviteWire {
   return {
     tokenPrefix: v.tokenPrefix,
@@ -1450,7 +1450,7 @@ export type ScopedSessionRevokeResult = RevokeResult | "would_strand_office";
 // Same atomic find-check-delete pattern as the scoped invite revoker.
 // Identity is by stable userId (StoredSession.userId), so a rename does
 // not affect the scope check. The lockout-prevention check runs ONLY
-// after the row has been confirmed to belong to the caller — that
+// after the row has been confirmed to belong to the caller - that
 // ordering is load-bearing for confidentiality: running it on any
 // prefix (as a precheck outside the scope test) would let a member
 // probe whether a foreign prefix corresponds to the last owner
@@ -1540,7 +1540,7 @@ export function countActiveOwnerSessions(): number {
 }
 
 // True if revoking the given session hash would leave the office with
-// zero active owner sessions. Used by both revoke_session and logout —
+// zero active owner sessions. Used by both revoke_session and logout -
 // they're the same operation from the lockout-prevention perspective.
 export function wouldRevokeLeaveOfficeUnreachable(
   sessionIdHash: string,
@@ -1590,7 +1590,7 @@ export const COOKIE_NAME = "isomux_session";
 // `publicOrigin` (registered via setPublicOriginFallback at boot) >
 // localhost fallback. Both env and config are operator-authored; we never
 // infer the origin from request headers. Both go through the same
-// validator — a malformed env value falls through to config rather than
+// validator - a malformed env value falls through to config rather than
 // poisoning the Origin allowlist with e.g. `https://host/path`.
 let cachedFallbackOrigin: string | null = null;
 let envEvaluated = false;
@@ -1654,10 +1654,10 @@ function evaluateEnvOrigin(): string | null {
 
 // Captured once at boot via freezeBootState(). Two predicates derive from
 // the captured values:
-//   isProcessPreClaim()     — true if this process started before any owner
+//   isProcessPreClaim()     - true if this process started before any owner
 //                             existed. Drives the SSH -L banner and the
 //                             tokenless name-picker form.
-//   isProcessBoundLoopback() — true if the OS bind is loopback-only (the
+//   isProcessBoundLoopback() - true if the OS bind is loopback-only (the
 //                             pre-claim case OR the post-claim
 //                             external-access-disabled case). Drives the
 //                             public-origin policy: when bound loopback,
@@ -1677,7 +1677,7 @@ export function freezeBootState(opts: { externalAccess: boolean }): void {
 
 // Auto-init safety net: if freezeBootState() wasn't called (e.g. tests
 // importing auth.ts standalone), default to the strictest interpretation
-// — pre-claim, loopback-only — so callers can't accidentally mint a
+// - pre-claim, loopback-only - so callers can't accidentally mint a
 // Secure-flagged cookie over an HTTP connection.
 function ensureBootCaptured(): void {
   if (bootHadOwner === null) bootHadOwner = hasOwner();
@@ -1794,7 +1794,7 @@ export function safePrefix(rawToken: string): string {
 // ---------------------------------------------------------------------------
 // Test helpers (NOT exposed via routes; only callable from in-process tests).
 // Exists because the auth-core task explicitly forbids a runtime no-auth
-// bypass — tests exercise the real path through this helper.
+// bypass - tests exercise the real path through this helper.
 
 export interface TestSeedResult {
   rawToken: string;

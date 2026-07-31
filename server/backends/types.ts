@@ -6,7 +6,7 @@
 // server/backends/index.ts (`getBackend(agentType)`).
 //
 // All session-lifecycle methods (`createSession`, `resumeSession`) are
-// synchronous to mirror the Claude SDK's current shape — backends defer
+// synchronous to mirror the Claude SDK's current shape - backends defer
 // any handshake (Codex `initialize` / first `thread/started`) and surface
 // the assigned id via the first `system_init` NormalizedEvent on the stream.
 
@@ -28,7 +28,7 @@ export type BackendCapabilities = AgentCapabilities;
 // `filename` (relative to the agent's attachments dir) is resolved to an
 // on-disk path via persistence.getFilePath; the shared attachment convention
 // (server/attachment-prompt.ts) turns each spec into a path-notice prompt
-// line — bytes are never read or embedded.
+// line - bytes are never read or embedded.
 
 import type { Attachment } from "../../shared/types.ts";
 export type AttachmentSpec = Attachment;
@@ -37,7 +37,7 @@ export type AttachmentSpec = Attachment;
 // createSession / resumeSession options
 // ---------------------------------------------------------------------------
 // The orchestrator pre-builds the system prompt and resolves env vars before
-// handing off — so backends don't need to know about office/room/user state.
+// handing off - so backends don't need to know about office/room/user state.
 // `modelFamily`, `effort`, and `permissionMode` are deliberately untyped at
 // this layer: each backend's `getModelOptions()` / `getPermissionModes()`
 // defines its own value space (Claude: opus/sonnet/haiku × default/acceptEdits/
@@ -71,7 +71,7 @@ export interface TokenUsage {
 }
 
 // ---------------------------------------------------------------------------
-// NormalizedEvent — what `BackendSession.stream()` yields
+// NormalizedEvent - what `BackendSession.stream()` yields
 // ---------------------------------------------------------------------------
 // This is the single contract that `processNormalizedEvent` (introduced in
 // step 2b) consumes. Per-backend translation happens at the backend boundary:
@@ -120,7 +120,7 @@ export type NormalizedEvent =
       isError?: boolean;
     }
   // Per-tool approval ask. Orchestrator's /resolve UX takes over. `suggestions`
-  // are intentionally NOT exposed here — backends keep them internally and
+  // are intentionally NOT exposed here - backends keep them internally and
   // apply them automatically on `allow_persistent`. Keeps the orchestrator
   // free of backend-specific permission rule shapes.
   | {
@@ -149,7 +149,7 @@ export type NormalizedEvent =
       causedByAuth?: boolean;
     }
   // Running token totals between turns (Codex-only at v1). `tokenUsage` is
-  // the *delta* since the prior usage event — the orchestrator's accumulator
+  // the *delta* since the prior usage event - the orchestrator's accumulator
   // sums these into the session's cumulative total. Backends whose transport
   // reports cumulative totals (e.g. Codex `thread/tokenUsage/updated`) must
   // compute the delta against their last-known cumulative before emitting.
@@ -176,7 +176,7 @@ export type NormalizedEvent =
     }
   // A tool call was auto-denied without an interactive prompt (Claude-only at
   // v1): newer SDKs emit system/permission_denied for the deny short-circuit
-  // in canUseTool — auto-mode classifier, deny rules, dontAsk mode. The
+  // in canUseTool - auto-mode classifier, deny rules, dontAsk mode. The
   // denied tool_result still reaches the model either way; this event just
   // makes the denial visible natively in the transcript. Older SDKs never
   // emit the subtype, so absence is normal. `message` and `decisionReason`
@@ -211,7 +211,7 @@ export type ApprovalDecision =
   | { kind: "deny"; reason?: string };
 
 // ---------------------------------------------------------------------------
-// NormalizedMessage — backend-agnostic view of an on-disk session transcript
+// NormalizedMessage - backend-agnostic view of an on-disk session transcript
 // ---------------------------------------------------------------------------
 // Returned by `Backend.getSessionMessages`. The single consumer at v1 is
 // `editMessage` in agent-manager, which finds the matching user message by
@@ -225,7 +225,7 @@ export interface NormalizedMessage {
 }
 
 // ---------------------------------------------------------------------------
-// BackendSession — per-conversation handle
+// BackendSession - per-conversation handle
 // ---------------------------------------------------------------------------
 
 // Subset of SDKControlGetContextUsageResponse used by the /context UI. Codex
@@ -283,7 +283,7 @@ export interface BackendSession {
 }
 
 // ---------------------------------------------------------------------------
-// Backend — engine-level metadata + session factory
+// Backend - engine-level metadata + session factory
 // ---------------------------------------------------------------------------
 
 export interface ModelOption {
@@ -320,7 +320,7 @@ export interface BackendEffortOption {
   description?: string;
 }
 
-// Backend-reported model entry. Shape is intentionally lean — UI uses
+// Backend-reported model entry. Shape is intentionally lean - UI uses
 // `id` as the wire value (matches CreateSessionOptions.modelFamily) and
 // `label` for display. `supportedEfforts` re-renders the effort picker
 // per model; `defaultEffort` is the model's preferred effort and is used
@@ -338,7 +338,7 @@ export interface BackendModel {
 // Result of forkSessionBeforeMessage. Backends choose between producing a
 // real linked branch (kind: "fork", with the parent sessionId as
 // forkedFromSessionId) and a fresh unrelated session (kind: "fresh", no
-// sessionId yet — the orchestrator creates the session and waits for
+// sessionId yet - the orchestrator creates the session and waits for
 // system_init to fill the id, just like newConversation). agent-manager
 // branches on `kind`: fork → createSession(managed, sessionId) +
 // persistSessionFork; fresh → createSession(managed) + skip fork metadata.
@@ -356,7 +356,7 @@ export interface Backend {
   // Codex this calls `model/list` over the JSON-RPC App Server; for backends
   // without a runtime model API this returns the static getModelOptions()
   // shape promoted to BackendModel. Throws on auth failure or transport
-  // error — caller is responsible for surfacing.
+  // error - caller is responsible for surfacing.
   listModels(opts: ListModelsOptions): Promise<BackendModel[]>;
 
   createSession(opts: CreateSessionOptions): BackendSession;
@@ -364,10 +364,10 @@ export interface Backend {
 
   // Branch a conversation so that `targetMessageId` and everything after it
   // is replaced. The backend resolves predecessor / first-message semantics
-  // internally — agent-manager just passes the edited message's id.
+  // internally - agent-manager just passes the edited message's id.
   //   - Claude: middle → SDK forkSession at predecessor; first → fresh session
   //   - Codex: thread/fork parent + thread/rollback child to before target's
-  //     turn (always linked, including first-message — gives /resume parity)
+  //     turn (always linked, including first-message - gives /resume parity)
   forkSessionBeforeMessage(
     sessionId: string,
     targetMessageId: string,
@@ -388,7 +388,7 @@ export interface Backend {
   // system log entry after an auth-error is detected; each entry in
   // `commands`, when present, is emitted as an adjacent terminal-command card
   // the user can click to copy into the built-in terminal. Multiple commands
-  // render as a stack of cards in the order returned — backends that surface
+  // render as a stack of cards in the order returned - backends that surface
   // alternatives (e.g. Codex browser OAuth vs `--device-auth` for remote
   // hosts) use this to give the user a side-by-side pick.
   //

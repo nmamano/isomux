@@ -1,4 +1,4 @@
-// scripts/update.sh — the customer-box updater, driven end-to-end in a
+// scripts/update.sh - the customer-box updater, driven end-to-end in a
 // sandbox: temp git repos (a bare "origin" and an installed checkout), a
 // PATH-stubbed systemctl (records calls, keeps a fake active/inactive state,
 // and can mutate the state root on start to simulate a migration), a stub
@@ -367,7 +367,7 @@ describe("update.sh validation", () => {
 
   it("a local-only tag in the service checkout is never accepted", async () => {
     // Reviewer regression (finding 2): a CalVer tag planted in the
-    // service-user-writable checkout, absent upstream, must be refused —
+    // service-user-writable checkout, absent upstream, must be refused -
     // the configured upstream is the only tag authority.
     sh(fx.repo, `git tag -a v2026.7.30 -m planted ${fx.oldCommit}`);
     const r = await runUpdate(["v2026.7.30"]);

@@ -1,4 +1,4 @@
-// GET /agents — the agent-discovery manifest endpoint.
+// GET /agents - the agent-discovery manifest endpoint.
 //
 // Agents used to discover each other by reading ~/.isomux/agents-summary.json
 // directly; the endpoint serves the same manifest over HTTP so agent system
@@ -7,13 +7,13 @@
 // full-manifest source; the endpoint always answers with an identity-scoped
 // view.
 //
-// Auth posture (Nil-specced, round 3): identity REQUIRED — bearer token or
+// Auth posture (Nil-specced, round 3): identity REQUIRED - bearer token or
 // login cookie. There is no loopback trust on any path, so an anonymous
 // request 401s even from loopback. Non-GET on the exact path and the
 // /agents/<id> action surface 401 as before.
 //
 // Visibility: the manifest is PROJECTED to the rooms the identity's user can
-// access — owner: every room by rule; member: allowedRooms grants; agent /
+// access - owner: every room by rule; member: allowedRooms grants; agent /
 // cron-run: the manager's/creator's access. Endpoint/file body parity
 // therefore holds exactly on full-access views (any owner identity), which is
 // what the parity test pins; scoped views are same-shape subsets.
@@ -184,7 +184,7 @@ describe("GET /agents (discovery manifest)", () => {
   });
 
   // Task cf666d6d: effort is settable over PATCH /api/agents/<id> but used to
-  // be write-only — no way to read the current value back, so a manager could
+  // be write-only - no way to read the current value back, so a manager could
   // only blind-write. Pinned with a non-default value so a hardcoded constant
   // can't pass.
   it("reports each agent's own effort", async () => {
@@ -228,7 +228,7 @@ describe("GET /agents (discovery manifest)", () => {
     const r1 = srv.agentManager.getRooms()[0].id;
     await spawnAt(srv, "Alpha", r1, 0);
 
-    // No bearer, no cookie — the harness IS a loopback peer, so this pins
+    // No bearer, no cookie - the harness IS a loopback peer, so this pins
     // that no path is loopback-trusted.
     const res = await fetch(`${srv.baseUrl}/agents`, {
       headers: { Accept: "application/json" },
@@ -323,7 +323,7 @@ describe("GET /agents projection (room ACL)", () => {
     await spawnOwnedBy(srv, "OwnerAgent", r1, 0, owner.username);
     await spawnOwnedBy(srv, "MemberAgent", r2, 1, member.username);
 
-    // srv.http attaches the server's own Origin — the same-origin path —
+    // srv.http attaches the server's own Origin - the same-origin path -
     // plus the session cookie. With no loopback trust anywhere, the
     // cookie now resolves to a USER identity and projects.
     const asMember = await srv.http("/agents", {

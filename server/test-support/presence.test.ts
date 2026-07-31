@@ -1,11 +1,11 @@
-// Phase 3c slice 4 — Presence projection, id-keyed wire.
+// Phase 3c slice 4 - Presence projection, id-keyed wire.
 //
 // Presence is its own connectionId-keyed map (server/presence.ts). An inbound
 // presence_update carries the sender's GLOBAL currentRoomId, which the server
 // validates directly against the sender's room access (live room + canAccess,
 // else null) and stores as-is. presence_list re-emits that stable id to every
 // recipient, filtered to the rooms each recipient can see. There is no dense
-// per-recipient remap anymore — the id is identical across recipients; only
+// per-recipient remap anymore - the id is identical across recipients; only
 // membership (is the room visible to this recipient?) is per-recipient.
 //
 // Determinism: a presence_update that changes visible state triggers a
@@ -110,7 +110,7 @@ function presenceUpdate(sock: TestSocket, currentRoomId: string | null): void {
   });
 }
 
-// Count of presence_list messages a socket has received so far — for count-based
+// Count of presence_list messages a socket has received so far - for count-based
 // waits when asserting an omission or an id-stable (value-unchanged) rebroadcast.
 const presenceCount = (sock: TestSocket): number =>
   bag(sock).filter((m) => m.type === "presence_list").length;
@@ -128,7 +128,7 @@ async function waitForPresenceAfter(
   }
 }
 
-describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
+describe("presence - id-keyed wire (Phase 3c slice 4)", () => {
   it("currentRoomId is the stable global id, identical across recipients", async () => {
     server = await startTestServer();
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -142,7 +142,7 @@ describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
 
     presenceUpdate(memberSock, r3);
 
-    // Both the owner (full access) and the member see the SAME stable id — no
+    // Both the owner (full access) and the member see the SAME stable id - no
     // per-recipient remap. R3 is visible to both, so both render the ghost.
     const ownerView = await waitForMessageWhere(
       ownerSock,
@@ -202,7 +202,7 @@ describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
     const memberSock = await connectSettled(server, member.rawSessionId);
     const ownerCid = connectionIdOf(ownerSock);
 
-    // Owner parks their ghost in R1 — a room the member has no access to. The
+    // Owner parks their ghost in R1 - a room the member has no access to. The
     // id is recipient-independent, but VISIBILITY is per-recipient: buildPresence
     // ListFor filters the owner's ghost out of the member's list.
     const before = presenceCount(memberSock);
@@ -260,7 +260,7 @@ describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
   });
 });
 
-describe("presence — onlineUserIds roster aggregate (users-page follow-up 8e882cd4)", () => {
+describe("presence - onlineUserIds roster aggregate (users-page follow-up 8e882cd4)", () => {
   it("every recipient gets the SAME onlineUserIds (with totalOnlineUsers = its size), including users whose ghosts are filtered from their entries", async () => {
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
@@ -278,7 +278,7 @@ describe("presence — onlineUserIds roster aggregate (users-page follow-up 8e88
     const memberId = getUserByName("Mia")!.id;
     const want = [ownerId, memberId].sort();
 
-    // Owner parks in R1 — a room the member can't see, so the owner's ghost is
+    // Owner parks in R1 - a room the member can't see, so the owner's ghost is
     // filtered from the member's `entries`. The member goes off-scene
     // (currentRoomId null), so their ghost appears in NO ONE's entries. Both
     // must still count as online in the roster aggregate.

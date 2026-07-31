@@ -1,10 +1,10 @@
-// Phase 3b slice 3 step E — owner-access migration coverage.
+// Phase 3b slice 3 step E - owner-access migration coverage.
 //
 // Two layers, because the migration's two risks are different:
-//   1. SET ARITHMETIC (the per-owner decision) — covered by direct unit tests
+//   1. SET ARITHMETIC (the per-owner decision) - covered by direct unit tests
 //      of the pure planOwnerAccessMigration(), exhaustive over the case matrix.
 //   2. BOOT WIRING / ORDERING (the migration runs at boot, AFTER rooms load,
-//      and PERSISTS) — covered by a real-boot restart() integration test. A
+//      and PERSISTS) - covered by a real-boot restart() integration test. A
 //      pure test can't catch "migration ran before rooms loaded" (which would
 //      make every owner take the all-stale branch -> hidden=∅); only a cold
 //      reboot against real persisted rooms + owners can.
@@ -140,7 +140,7 @@ afterEach(async () => {
 describe("owner-access migration at boot (real persisted state)", () => {
   it("a persisted owner with legacy materialized grants is migrated on the next boot, and the result is idempotent across restarts", async () => {
     // boot 1: clean office. The boot migration runs against NO users (owner is
-    // seeded after boot), a no-op — exactly today's harness gap this test fills.
+    // seeded after boot), a no-op - exactly today's harness gap this test fills.
     server = await startTestServer();
     const owner = await server.seedOwner("Boss"); // seeded grants=[] (post-3b)
     const r1 = server.agentManager.getRooms()[0].id; // default "Room 1"
@@ -158,7 +158,7 @@ describe("owner-access migration at boot (real persisted state)", () => {
 
     // Cold reboot WITHOUT wiping: boot 2 runs the migration against the real
     // persisted owner + the real persisted rooms (r1,r2,r3). This proves the
-    // call-site placement (after rooms load) — if the migration ran before
+    // call-site placement (after rooms load) - if the migration ran before
     // rooms loaded, the complement would be empty and r3 would not be hidden.
     server = await server.restart();
     expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
@@ -171,7 +171,7 @@ describe("owner-access migration at boot (real persisted state)", () => {
     expect(migrated.allowedRooms).toEqual([]); // grants cleared
     expect(migrated.hidden).toEqual([r3]); // complement of [r1,r2] over live set
 
-    // boot 3: the migration is idempotent — the now-empty grants are the marker,
+    // boot 3: the migration is idempotent - the now-empty grants are the marker,
     // so a second restart neither re-seeds hidden nor clobbers the migrated
     // record. This also proves boot 2's result actually persisted to disk.
     server = await server.restart();

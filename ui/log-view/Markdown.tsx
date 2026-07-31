@@ -128,8 +128,8 @@ marked.use({
 // on their own line (including ones with blank lines inside, which
 // inline tokenization can't cross); the inline one handles SVGs embedded
 // mid-text. The `start` hooks are deliberately narrower than
-// indexOf("<svg") — line-start only for block, not-backtick-preceded for
-// inline — so prose that mentions `<svg>` in inline code keeps being
+// indexOf("<svg") - line-start only for block, not-backtick-preceded for
+// inline - so prose that mentions `<svg>` in inline code keeps being
 // handled by the built-in codespan tokenizer.
 const SVG_SPAN_RE = /^<svg\b[\s\S]*?<\/svg\s*>/i;
 const svgExtension = (
@@ -261,7 +261,7 @@ export function Markdown({ content }: { content: string }) {
   // The mermaid effect below also keys on [html] so it never re-fired to
   // repair the wipe. Driving innerHTML from a layout effect keyed on the
   // memoized html string makes the DOM write a no-op for re-renders that
-  // don't change the markdown source — and a clean reset for ones that do
+  // don't change the markdown source - and a clean reset for ones that do
   // (e.g. streaming chunks).
   useLayoutEffect(() => {
     const root = containerRef.current;
@@ -272,7 +272,7 @@ export function Markdown({ content }: { content: string }) {
   // After every html change, find any unprocessed mermaid blocks and hand
   // them to the lazy-loaded mermaid library one at a time. We use
   // mermaid.render() (not run()) so we pass the source explicitly from each
-  // node's data-mermaid-source attribute — no reliance on textContent, so
+  // node's data-mermaid-source attribute - no reliance on textContent, so
   // we never accidentally feed a "Rendering…" placeholder back to mermaid
   // if this effect ever re-fires while sources are mid-mutation.
   //

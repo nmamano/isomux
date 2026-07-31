@@ -19,7 +19,7 @@ import { dialogLabel, dialogHint } from "./dialog-styles.ts";
 // invites_list / sessions_active_list broadcasts; these GETs only seed the
 // initial (and post-reconnect) snapshot. The server scopes both endpoints to
 // the caller (owners: all rows; members: own rows only), so one hook serves
-// every pane. Called once from UserSettingsView — the sidebar roster needs
+// every pane. Called once from UserSettingsView - the sidebar roster needs
 // sessions even when no account pane is open.
 export function useAccessListsSeed(): void {
   const { invitesLoaded, activeSessionsLoaded } = useAppState();
@@ -41,7 +41,7 @@ export function useAccessListsSeed(): void {
 }
 
 // Render the cached rows whenever any are present, even while a refresh is
-// in flight — avoids a flicker to "Loading…" on every reconnect. Empty+not-
+// in flight - avoids a flicker to "Loading…" on every reconnect. Empty+not-
 // loaded shows "Loading…" (first load only); empty+loaded shows "None.".
 export function renderListSection<T>(
   rows: T[],
@@ -65,7 +65,7 @@ export function MintedUrlBox({ url }: { url: string }) {
   >("idle");
 
   // Clear any in-flight feedback timer if the component unmounts while a
-  // success indicator is still flashing — avoids setState-after-unmount.
+  // success indicator is still flashing - avoids setState-after-unmount.
   useEffect(() => {
     return () => {
       if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
@@ -142,12 +142,12 @@ export function MintedUrlBox({ url }: { url: string }) {
       </button>
       {copyState === "fail" && (
         <p style={{ ...hint, color: "#ff6b6b", marginTop: 4 }}>
-          Clipboard blocked. The URL above is selected — copy it manually.
+          Clipboard blocked. The URL above is selected - copy it manually.
         </p>
       )}
       <p style={hint}>
         Send this URL to the invitee. It's one-time: opening it on their device
-        signs them in. The URL is shown once — copy it now.
+        signs them in. The URL is shown once - copy it now.
       </p>
     </div>
   );
@@ -156,7 +156,7 @@ export function MintedUrlBox({ url }: { url: string }) {
 export function InvitesTable({ invites }: { invites: InviteWire[] }) {
   const { rooms, allRooms } = useAppState();
   // Resolve granted room ids to names for display. Owners have allRooms;
-  // members (My devices pane) fall back to their projected rooms — their
+  // members (My devices pane) fall back to their projected rooms - their
   // self-invites never carry grants, so the fallback rarely matters. A
   // deleted room's id shows as-is rather than vanishing.
   const roomList = allRooms.length > 0 ? allRooms : rooms;
@@ -178,14 +178,14 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
         {invites.map((i) => (
           <tr key={i.tokenPrefix}>
             <td style={td}>
-              {i.username ?? <i>{i.bootstrap ? "(bootstrap)" : "—"}</i>}
+              {i.username ?? <i>{i.bootstrap ? "(bootstrap)" : " - "}</i>}
             </td>
             <td style={td}>{i.role}</td>
             <td style={td}>
               {i.allowedRooms?.length ? (
                 i.allowedRooms.map(roomName).join(", ")
               ) : (
-                <i>—</i>
+                <i> - </i>
               )}
             </td>
             <td style={td}>{formatExpiry(i.expiresAt)}</td>
@@ -239,12 +239,12 @@ export function SessionsTable({
             <tr key={s.sessionPrefix}>
               <td style={td}>{s.username}</td>
               {/* Last-known device label, stamped server-side from the
-                  session's presence stream (task 557dc8ce). "—" until the
+                  session's presence stream (task 557dc8ce). " - " until the
                   device names itself in Device Settings. */}
-              <td style={td}>{s.device ?? "—"}</td>
+              <td style={td}>{s.device ?? " - "}</td>
               <td style={td}>{formatRelative(s.lastSeenAt)}</td>
               <td style={td}>{formatRelative(s.createdAt)}</td>
-              <td style={tdEllipsis}>{s.userAgent ?? "—"}</td>
+              <td style={tdEllipsis}>{s.userAgent ?? " - "}</td>
               <td style={mono}>{s.sessionPrefix}…</td>
               <td style={td}>
                 {isCurrent ? (
@@ -335,7 +335,7 @@ export function BlockedNoteBanner({
 
 // Auto-clear the blocked banner on any successful active-session change: the
 // user fixed whatever the rejection was about (typically by minting an extra
-// invite then retrying the revoke) — keeping the banner up after the list
+// invite then retrying the revoke) - keeping the banner up after the list
 // shrinks is noise.
 export function useAutoClearBlockedNote(
   setBlockedNote: (v: string | null) => void,

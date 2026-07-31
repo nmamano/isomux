@@ -3,7 +3,7 @@
 // it survives LogView remount when the boss switches between agents.
 //
 // The data is intentionally NOT in the App reducer because every keystroke
-// would dispatch a state update — too much churn for a Map of ~5 tabs each
+// would dispatch a state update - too much churn for a Map of ~5 tabs each
 // with a string body. Reading/writing happens directly in EditorPanel.
 
 export interface PersistedTab {

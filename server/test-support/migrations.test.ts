@@ -1,4 +1,4 @@
-// Phase 1.3 — Load-time migration characterization + the pre-userid backup helper.
+// Phase 1.3 - Load-time migration characterization + the pre-userid backup helper.
 //
 // Freezes the migrations that fire when the persistence loaders read a
 // pre-current on-disk shape: the agents.json shape-detection + field backfills,
@@ -21,7 +21,7 @@
 //     when that file is absent.
 //
 // Console capture: the migration paths log intentionally (and the backup path
-// logs when it actually writes a bundle — review asked this be captured, not
+// logs when it actually writes a bundle - review asked this be captured, not
 // surprise suite noise). beforeEach swaps console.log/error for collectors and
 // afterEach restores them; tests that care assert on the captured lines.
 //
@@ -29,7 +29,7 @@
 // (persistence.ts) was deferred from the initial 1.3 net (by review agreement)
 // as a log/attachment-compat concern rather than part of the room-shape /
 // pre-flatten migration story. It is a load-time migration, so it landed back
-// here when the deferral was reconciled — see the final describe below.
+// here when the deferral was reconciled - see the final describe below.
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
@@ -453,7 +453,7 @@ describe("users.json field normalization (Phase 1.3)", () => {
     // NOTE: this is the LOADER fallback. The boot-time expansion of "all" to a
     // concrete room-id snapshot runs in a separate boot migration BEFORE
     // users.ts loads; it is not exercised here. Record carries an id so no
-    // id-minting/disk-rewrite is triggered — this isolates the normalization.
+    // id-minting/disk-rewrite is triggered - this isolates the normalization.
     seed("users.json", {
       u1: {
         id: "u1",
@@ -583,7 +583,7 @@ describe("cronjobs-prompt fold-in from office-config (Phase 1.3)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// migrations.ts — runPreUseridBackupIfNeeded (boot-order safety surface)
+// migrations.ts - runPreUseridBackupIfNeeded (boot-order safety surface)
 // ---------------------------------------------------------------------------
 
 describe("runPreUseridBackupIfNeeded (Phase 1.3)", () => {
@@ -723,7 +723,7 @@ describe("loadLog images -> attachments read-time migration (Phase 1.3, deferred
     // Existing attachments are preserved unchanged...
     expect(entries[0].attachments).toEqual(existing);
     // ...and because the migration block is skipped, the legacy images field is
-    // NOT deleted — a no-op pass-through, frozen as the current behavior.
+    // NOT deleted - a no-op pass-through, frozen as the current behavior.
     expect((entries[0] as { images?: unknown }).images).toEqual([
       "ignored.png",
     ]);

@@ -22,8 +22,8 @@ import { useAppState, useDispatch } from "../store.tsx";
 
 // Slide Mode deck view (design: internal-docs/slide-mode-design.md).
 //
-// Renders the conversation as a deck — one position per assistant turn, 1:1 with
-// the chat (placeholders included) — instead of the message list. Slides are
+// Renders the conversation as a deck - one position per assistant turn, 1:1 with
+// the chat (placeholders included) - instead of the message list. Slides are
 // self-contained inline-styled HTML fragments rendered ONLY inside a sandboxed
 // iframe with a restrictive CSP (shared/slide-frame.ts); the fragment never
 // touches the app DOM. Nav with ←/→ (buttons + arrow keys), a counter, the
@@ -34,7 +34,7 @@ import { useAppState, useDispatch } from "../store.tsx";
 // state, never by elapsed time: the spinner while it is pending, the raw-answer
 // fallback once the server says the generation failed (`slide_failed`, or an
 // `unavailable` ensure response). A timeout can't tell a failure from a slow
-// generation — and generation genuinely takes 17-30s — so any threshold either
+// generation - and generation genuinely takes 17-30s - so any threshold either
 // slanders working slides or hides real failures.
 //
 // The one thing time is still good for: a request the server dropped WITHOUT
@@ -46,16 +46,16 @@ const ORPHAN_RETRY_MS = 120_000;
 
 // Height of the mobile prompt bar, in both its states (frozen prompt and
 // composer). On a phone the bar is the deck's biggest vertical expense after the
-// stage itself, and in landscape — where a 16:9 slide nearly matches the screen
-// — every pixel it takes comes straight off the slide. So mobile gets one lean
+// stage itself, and in landscape - where a 16:9 slide nearly matches the screen
+// - every pixel it takes comes straight off the slide. So mobile gets one lean
 // strip instead of the desktop 92px block. Both states share the constant for
 // the same reason the desktop ones share 92: a bar that changed height between a
 // past slide and the newest one would resize the stage and move the vertically
 // centred nav arrows as you navigate.
 const MOBILE_BAR_H = 44;
 // The composer's textarea at rest, sized so it plus the row's gutters comes to
-// exactly MOBILE_BAR_H (everything is border-box — see the reset in ui/styles.ts
-// — so this is a plain subtraction, not a line-height calculation).
+// exactly MOBILE_BAR_H (everything is border-box - see the reset in ui/styles.ts
+// - so this is a plain subtraction, not a line-height calculation).
 const MOBILE_FIELD_H = MOBILE_BAR_H - 8;
 
 function isAgentActive(agent: AgentInfo): boolean {
@@ -89,7 +89,7 @@ export function DeckView({
   const failedForAgent = slideFailed.get(agent.id);
 
   // Deck positions, in display order (timestamp; stable sort keeps arrival order
-  // on ties) — the same 1:1 mapping the server keys slides on.
+  // on ties) - the same 1:1 mapping the server keys slides on.
   const turns = useMemo<DeckTurn[]>(() => {
     const ordered = [...logs].sort((a, b) => a.timestamp - b.timestamp);
     return buildDeckTurns(ordered);
@@ -102,13 +102,13 @@ export function DeckView({
   // position. Flipped true on the first save-effect run after init.
   const hasRestoredRef = useRef(false);
   // Deck length at the previous render, so "follow newest" can test whether the
-  // viewer was on the last slide BEFORE a new turn grew the deck — see
+  // viewer was on the last slide BEFORE a new turn grew the deck - see
   // settledDeckPos/nextDeckIndex. Recomputing at-end against the already-grown
   // list reads false for the very growth being reacted to and drops the follow.
   const prevLenRef = useRef(0);
   const active = isAgentActive(agent);
 
-  // First load: RESTORE the last-viewed position (per-device-per-agent) — land
+  // First load: RESTORE the last-viewed position (per-device-per-agent) - land
   // back on the saved slide if the viewer had left NOT on the last slide,
   // otherwise on the newest (also the slide they want generated first). Later
   // renders: settle the index as the deck grows/shrinks (clamp, or follow newest
@@ -133,7 +133,7 @@ export function DeckView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turns.length]);
 
-  // Persist navigation (an index change with no length change — arrows, buttons,
+  // Persist navigation (an index change with no length change - arrows, buttons,
   // Home/End/Latest). Length-driven index changes are already persisted above;
   // this re-save of an identical value is harmless. Keyed on index ONLY;
   // turns.length is read (current at run time) but omitted so this never fires on
@@ -198,7 +198,7 @@ export function DeckView({
       // miss or a DIGESTLESS legacy record (a stale placeholder the turn outgrew,
       // or a slide the old code rendered from a half-stream) is (re)validated by
       // the server. The digest is compared only to catch a stored PLACEHOLDER for
-      // a turn that has since gained an answer — the one stale state the deck
+      // a turn that has since gained an answer - the one stale state the deck
       // can't otherwise leave. See shouldRequestSlide.
       const reqAt = requestedRef.current.get(turn.entryId);
       // A request past the orphan window counts as no longer in flight, so one
@@ -237,7 +237,7 @@ export function DeckView({
 
   // While a VISIBLE turn still lacks a VERIFIED slide and hasn't been reported
   // failed, tick so the request effect above can re-ask once the orphan window
-  // lapses. Nothing on screen depends on this clock any more — it only paces
+  // lapses. Nothing on screen depends on this clock any more - it only paces
   // retries.
   //
   // The predicate IS the request effect's own condition minus the in-flight
@@ -249,7 +249,7 @@ export function DeckView({
   //
   // Keyed on the same visible window as the request effect, `index` included:
   // navigating to an unverified turn starts a request without changing `turns`
-  // or `slidesForAgent`, and requestedRef is a ref — so without `index` here the
+  // or `slidesForAgent`, and requestedRef is a ref - so without `index` here the
   // clock would never start for it and an orphaned request would never retry.
   useEffect(() => {
     const anyPending = [index, index + 1, index - 1]
@@ -263,7 +263,7 @@ export function DeckView({
         ),
       );
     if (!anyPending) return;
-    // The interval alone drives the clock — no immediate set, which would be a
+    // The interval alone drives the clock - no immediate set, which would be a
     // render-in-effect. Until the first tick nowTs stays behind the request
     // stamps, which reads as "in flight": the safe direction.
     const h = setInterval(() => setNowTs(Date.now()), 5000);
@@ -298,7 +298,7 @@ export function DeckView({
           });
         } else if (res.status === "unavailable") {
           // Terminal: there is no live turn to render (the conversation is gone,
-          // or this turn isn't in it). Same standing as a reported failure — show
+          // or this turn isn't in it). Same standing as a reported failure - show
           // the raw answer with ↻ rather than spinning forever, and stop asking.
           requestedRef.current.delete(entryId);
           dispatch({
@@ -310,8 +310,8 @@ export function DeckView({
           });
         } else if (res.status === "pending" && prevSlide?.placeholder) {
           // Still in flight (keep the marker): the server is regenerating a stale
-          // placeholder we currently show. Drop it — compare-and-delete, so a
-          // slide_ready that already replaced it wins — so the deck shows the
+          // placeholder we currently show. Drop it - compare-and-delete, so a
+          // slide_ready that already replaced it wins - so the deck shows the
           // Generating spinner meanwhile. The slide arrives via the slide_ready
           // WS push, which clears the marker (see the effect below).
           dispatch({
@@ -340,13 +340,13 @@ export function DeckView({
   const curSlide = cur ? slidesForAgent?.get(cur.entryId) : undefined;
   const isNewest = index === turns.length - 1;
   // The raw-answer fallback is shown for a REPORTED failure and nothing else.
-  // Every other reason a slide isn't here — the turn hasn't settled, the request
-  // is parked server-side, the formatter is still working — is a spinner, for as
+  // Every other reason a slide isn't here - the turn hasn't settled, the request
+  // is parked server-side, the formatter is still working - is a spinner, for as
   // long as it takes.
   const curFailed = !curSlide && !!cur && !!failedForAgent?.has(cur.entryId);
   // A thin activity/attention cue (design § deck view stays thin): the agent is
   // working or blocked on a tool approval (both surface as thinking/
-  // tool_executing — you can't see the stream in deck view), or it errored. A
+  // tool_executing - you can't see the stream in deck view), or it errored. A
   // question the agent asks is the slide's own content, so it isn't hidden; the
   // header toggle is always available to reach chat regardless.
   const needsAttention = agent.state === "error" || active;
@@ -471,7 +471,7 @@ export function DeckView({
                 flexShrink: 0,
               }}
             />
-            {active ? "Working — open chat" : "Error — open chat"}
+            {active ? "Working - open chat" : "Error - open chat"}
           </button>
         )}
       </div>
@@ -573,7 +573,7 @@ function SlideStage({
   } else if (slide && slide.html) {
     body = (
       <>
-        {/* Offscreen sizing pass — reads natural height, renders nothing. */}
+        {/* Offscreen sizing pass - reads natural height, renders nothing. */}
         <MeasureFrame html={slide.html} onMeasured={setMeasuredH} />
         {frame(
           <iframe
@@ -634,7 +634,7 @@ function SlideStage({
 // parent can read contentDocument.scrollHeight. That does NOT weaken the model-
 // HTML boundary:
 //   - No script can run: allow-scripts is absent AND the CSP is script-src
-//     'none' (defense in depth) — even a prompt-injected <script> is inert.
+//     'none' (defense in depth) - even a prompt-injected <script> is inert.
 //   - No network: the CSP's default-src 'none' (img/font/connect/... 'none')
 //     blocks every subresource and fetch, identical to the display frame.
 //   - allow-same-origin only grants the PARENT read access to a script-dead,
@@ -818,7 +818,7 @@ function FallbackInner({ turn }: { turn: DeckTurn }) {
       }}
     >
       <div style={{ fontSize: 22, color: "#9aa3b2" }}>
-        Slide unavailable — showing the raw answer
+        Slide unavailable - showing the raw answer
       </div>
       <div
         style={{
@@ -891,7 +891,7 @@ function NavArrow({
   isMobile?: boolean;
   onClick: () => void;
 }) {
-  // The arrows never reserved layout width — they float over the stage — but at
+  // The arrows never reserved layout width - they float over the stage - but at
   // full bleed they float over the SLIDE, so on mobile they shrink and tuck into
   // the corner-most position that still leaves a comfortable tap target.
   const size = isMobile ? 30 : 40;
@@ -920,7 +920,7 @@ function NavArrow({
         justifyContent: "center",
       }}
     >
-      {/* Plain ASCII chevrons — no auto-emoji risk. */}
+      {/* Plain ASCII chevrons - no auto-emoji risk. */}
       {dir === "prev" ? "<" : ">"}
     </button>
   );
@@ -1046,9 +1046,9 @@ function PromptBar({
       </div>
     );
   }
-  // Compact composer on the newest position — wired to the normal send path
+  // Compact composer on the newest position - wired to the normal send path
   // (LogView.handleSend). It is intentionally minimal (no attachments/queue/
-  // voice — those stay in chat view); it surfaces the disconnected state so a
+  // voice - those stay in chat view); it surfaces the disconnected state so a
   // send that can't reach the server doesn't look like a silent no-op.
   const canSend = !!draft.trim() && connected;
   return (
@@ -1057,8 +1057,8 @@ function PromptBar({
         flexShrink: 0,
         borderTop: "1px solid var(--border-light)",
         background: "var(--bg-surface)",
-        // Match the frozen prompt bar's height at rest so the stage — and the
-        // nav arrows centred in it — don't shift when you reach the newest
+        // Match the frozen prompt bar's height at rest so the stage - and the
+        // nav arrows centred in it - don't shift when you reach the newest
         // slide. It still grows as the draft wraps, which is user-driven.
         minHeight: isMobile ? MOBILE_BAR_H : 92,
         boxSizing: "border-box",
@@ -1076,7 +1076,7 @@ function PromptBar({
             borderBottom: "1px solid var(--border-light)",
           }}
         >
-          Disconnected — reconnecting. Messages can't be sent yet.
+          Disconnected - reconnecting. Messages can't be sent yet.
         </div>
       )}
       <div
@@ -1099,7 +1099,7 @@ function PromptBar({
               if (canSend) onSend();
             }
           }}
-          placeholder="Message — appears as the next slide"
+          placeholder="Message - appears as the next slide"
           rows={1}
           style={{
             flex: 1,

@@ -2,7 +2,7 @@
 //
 // BUG-2 (claude half): ClaudeSession.close() relies on the SDK's AbortController
 // ("abortController" query option) to terminate the `claude` subprocess. That is
-// an SDK guarantee, version-dependent and unobservable by a mock — so unlike the
+// an SDK guarantee, version-dependent and unobservable by a mock - so unlike the
 // codex kill (our own -pgid SIGTERM->SIGKILL logic, covered by client.test.ts),
 // there is nothing in the hermetic suite that can catch an SDK regression where
 // abort() stops the async iteration but LEAVES the subprocess alive (the exact
@@ -100,7 +100,7 @@ async function waitGone(pids: number[], timeoutMs: number): Promise<boolean> {
   }
 }
 
-describe("claude abort() — real OS-level subprocess reap (gated: RUN_REAL_CLAUDE=1)", () => {
+describe("claude abort() - real OS-level subprocess reap (gated: RUN_REAL_CLAUDE=1)", () => {
   realIt(
     "reaps an idle spawned claude child (no API call)",
     async () => {
@@ -186,7 +186,7 @@ describe("claude abort() — real OS-level subprocess reap (gated: RUN_REAL_CLAU
 
       expect(await waitGone(pids, 10000)).toBe(true);
       await Promise.race([consume, sleep(2000)]);
-      // The consumer caught an AbortError (rather than a real error) — the
+      // The consumer caught an AbortError (rather than a real error) - the
       // production feedSDKMessages swallows it because this.closed is already set.
       expect(abortSwallowed).toBe(true);
     },

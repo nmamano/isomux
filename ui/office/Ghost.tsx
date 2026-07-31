@@ -1,5 +1,5 @@
 // Live-avatars ghost rendering, split into two independent components
-// so each contributes ONE DOM child to the scene container — no Fragment.
+// so each contributes ONE DOM child to the scene container - no Fragment.
 // A Fragment of body + tag would shuffle as a unit when the children
 // array reorders (e.g. a ghost arriving / leaving), and Fragment-
 // contributed DOM nodes can get re-attached on reorder, retriggering
@@ -57,7 +57,7 @@ interface SharedGhostProps {
 // moves a DOM node during reorder, which manifested as unrelated
 // ghosts flashing whenever someone else's anchor changed. The
 // opacity transition handles the dim/undim smoothly; new ghosts
-// just appear (acceptable v1 cost — imperative ref.animate() on
+// just appear (acceptable v1 cost - imperative ref.animate() on
 // mount is the planned upgrade if we want the fade back).
 function motionStyle(dimmed: boolean, onClick?: unknown): CSSProperties {
   return {
@@ -77,7 +77,7 @@ function makeClickHandler(
   onClick: ((userId: string) => void) | undefined,
 ) {
   return (e: ReactMouseEvent<HTMLDivElement>) => {
-    // Don't bubble to an underlying desk — a ghost rendered SE of a
+    // Don't bubble to an underlying desk - a ghost rendered SE of a
     // desk overlaps the desk's hit area in some isometric configurations,
     // and the boss expects clicking a ghost to open user settings, not
     // also focus the agent.
@@ -135,7 +135,7 @@ export function GhostTag({
   onClick,
 }: SharedGhostProps) {
   // Tag floats just above the SVG head-top with a small gap. Centered
-  // horizontally on the body's midline via translateX(-50%) — the
+  // horizontally on the body's midline via translateX(-50%) - the
   // ghostFadeIn keyframe intentionally animates opacity only so this
   // centering transform isn't clobbered during the 300ms fade-in.
   const headTopPx = Math.round(size * SVG_HEAD_TOP_RATIO);

@@ -1,4 +1,4 @@
-// TaskBreadcrumbTracker — background-task lifecycle breadcrumbs (b4cafa53 C).
+// TaskBreadcrumbTracker - background-task lifecycle breadcrumbs (b4cafa53 C).
 //
 // Freezes the filter/dedupe/sanitize behavior of the tracker that turns the
 // SDK's system/task_* messages into task_lifecycle NormalizedEvents. Fixtures
@@ -10,7 +10,7 @@ import { describe, expect, it } from "bun:test";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import { TaskBreadcrumbTracker, sanitizeTaskLabel } from "./claude";
 
-// Fixture builders — minimal shapes; the tracker only reads these fields.
+// Fixture builders - minimal shapes; the tracker only reads these fields.
 function taskStarted(over: Record<string, unknown> = {}): SDKMessage {
   return {
     type: "system",
@@ -69,7 +69,7 @@ function assistantToolUse(
   } as unknown as SDKMessage;
 }
 
-describe("TaskBreadcrumbTracker — background Bash", () => {
+describe("TaskBreadcrumbTracker - background Bash", () => {
   it("emits started + settle breadcrumbs for local_bash", () => {
     const t = new TaskBreadcrumbTracker();
     const started = t.observe(taskStarted());
@@ -113,7 +113,7 @@ describe("TaskBreadcrumbTracker — background Bash", () => {
   });
 });
 
-describe("TaskBreadcrumbTracker — foreground-subagent filtering", () => {
+describe("TaskBreadcrumbTracker - foreground-subagent filtering", () => {
   it("stays silent for foreground local_agent start AND settle", () => {
     const t = new TaskBreadcrumbTracker();
     // Foreground Agent call: tool_use WITHOUT run_in_background.
@@ -176,7 +176,7 @@ describe("TaskBreadcrumbTracker — foreground-subagent filtering", () => {
   });
 });
 
-describe("TaskBreadcrumbTracker — mid-run backgrounding", () => {
+describe("TaskBreadcrumbTracker - mid-run backgrounding", () => {
   it("tracks + breadcrumbs task_updated with is_backgrounded", () => {
     const t = new TaskBreadcrumbTracker();
     const moved = t.observe(
@@ -202,7 +202,7 @@ describe("TaskBreadcrumbTracker — mid-run backgrounding", () => {
   });
 });
 
-describe("TaskBreadcrumbTracker — skip_transcript + sanitize", () => {
+describe("TaskBreadcrumbTracker - skip_transcript + sanitize", () => {
   it("mutes both ends when task_started has skip_transcript", () => {
     const t = new TaskBreadcrumbTracker();
     expect(t.observe(taskStarted({ skip_transcript: true }))).toHaveLength(0);

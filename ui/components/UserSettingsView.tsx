@@ -4,16 +4,16 @@
 // browser back button (goHome → popstate).
 //
 // Layout: a sidebar (master) shows the account section (Access / Invites /
-// Sessions for owners, My devices for members) ABOVE the user list — so the
-// entries stay reachable however long the roster grows — with Sign out pinned
+// Sessions for owners, My devices for members) ABOVE the user list - so the
+// entries stay reachable however long the roster grows - with Sign out pinned
 // at the bottom; the detail area shows the selected user's editor,
 // organized into sections (Identity / Rooms / Agent context) with a sticky
-// save footer. On mobile exactly one of the two panes shows at a time — the
+// save footer. On mobile exactly one of the two panes shows at a time - the
 // list first, then the detail with a back row.
 //
 // The user rows double as a roster (task 8e882cd4): a green dot on the
 // avatar for users with a live connection (store.onlineUserIds, an
-// all-audience presence aggregate), plus — for OWNER viewers only — a
+// all-audience presence aggregate), plus - for OWNER viewers only - a
 // session count / last-seen summary derived from the active-sessions list.
 // Non-owner viewers get only the dot and a bare "online".
 
@@ -61,7 +61,7 @@ type ValidationStatus =
 type AccountSection = "access" | "invites" | "sessions" | "devices";
 
 // What the detail pane shows: a user's editor, or one account section.
-// null = nothing selected — on mobile that means the list is showing; on
+// null = nothing selected - on mobile that means the list is showing; on
 // desktop the detail renders a placeholder. User selections are keyed by the
 // STABLE user id (not the lowercased-name map key), so a rename from this or
 // another session never dangles the selection.
@@ -94,14 +94,14 @@ export function UserSettingsView({
   // Roster signals (task 8e882cd4). Seed the invites + sessions lists here
   // (not just in the account panes): the owner sidebar's per-user session
   // count / last-seen needs sessions data even when no account pane is open.
-  // For members the seed only feeds the My devices pane — their roster rows
+  // For members the seed only feeds the My devices pane - their roster rows
   // never render session stats (owner-only signal).
   useAccessListsSeed();
   const onlineSet = useMemo(() => new Set(onlineUserIds), [onlineUserIds]);
   // Per-user aggregate over the active auth sessions, keyed by the STABLE
   // userId (SessionWire.userId) so a rename or casing change can never split
   // one user's sessions across rows. lastSeenAt is the max across the user's
-  // sessions — the "last login/activity" answer for offline users.
+  // sessions - the "last login/activity" answer for offline users.
   const sessionStats = useMemo(() => {
     const stats = new Map<string, { count: number; lastSeenAt: number }>();
     for (const s of activeSessions) {
@@ -126,7 +126,7 @@ export function UserSettingsView({
       }
     }
     // Phones open on the list (master) so the page isn't a wall of fields;
-    // desktop preselects the current user — editing your own settings is the
+    // desktop preselects the current user - editing your own settings is the
     // most common reason to open the page.
     if (isMobile) return null;
     if (sessionContext) {
@@ -140,7 +140,7 @@ export function UserSettingsView({
   // The default selection (initialUserId, or self on desktop) can't resolve
   // if the page mounts before the users roster has hydrated (e.g. a view
   // restore racing the users_list broadcast). Apply it as soon as a roster
-  // containing the target lands — but never after the user has made any
+  // containing the target lands - but never after the user has made any
   // explicit navigation choice (select() and the mobile back-to-list both
   // consume the ref), so it can't override a selection the user has since
   // made or cleared. If a roster snapshot lacks the target (partial or
@@ -154,14 +154,14 @@ export function UserSettingsView({
     const targetId =
       initialUserId ?? (isMobile ? undefined : sessionContext?.userId);
     if (!targetId) {
-      // No default to apply — stop watching.
+      // No default to apply - stop watching.
       defaultAppliedRef.current = true;
       return;
     }
     for (const u of users.values()) {
       if (u.id === targetId) {
         defaultAppliedRef.current = true;
-        // One-shot hydration catch-up — same setState-in-effect pattern as
+        // One-shot hydration catch-up - same setState-in-effect pattern as
         // App's view restore. Safe to bypass the dirty gate: the ref being
         // unconsumed means no explicit selection was ever made, so no
         // editor with unsaved state can be mounted.
@@ -172,8 +172,8 @@ export function UserSettingsView({
     }
   }, [users, initialUserId, isMobile, sessionContext]);
 
-  // Filled by the currently-mounted detail panel — UserEditPanel, or the
-  // External access card inside ExternalAccessPane — whichever holds unsaved
+  // Filled by the currently-mounted detail panel - UserEditPanel, or the
+  // External access card inside ExternalAccessPane - whichever holds unsaved
   // form state. Lets us route every navigation away from it (sidebar click,
   // header back arrow, ESC, mobile back row) through the panel's
   // dirty-check, so we surface the "Discard unsaved changes?" prompt
@@ -201,7 +201,7 @@ export function UserSettingsView({
   }
 
   // Mobile back-to-list. An explicit "show me the list" also consumes the
-  // hydration default — otherwise the roster arriving later would bounce
+  // hydration default - otherwise the roster arriving later would bounce
   // the user straight back into a detail they just left.
   function backToList() {
     defaultAppliedRef.current = true;
@@ -217,7 +217,7 @@ export function UserSettingsView({
   // ESC: mobile detail → back to the list; otherwise leave the page. Both
   // routed through the dirty check. Capture + stopPropagation so App's own
   // Escape handler (goHome, which knows nothing of unsaved edits) never sees
-  // it. No deps — re-registers every render so the closures stay fresh.
+  // it. No deps - re-registers every render so the closures stay fresh.
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
@@ -243,7 +243,7 @@ export function UserSettingsView({
   const accountAvailable = isOwner || !!sessionContext;
   // Owner: the three admin panes the old "Access & invites" section was split
   // into, plus the personal My devices pane (task eb3354e6 revision: device
-  // links are self-service for EVERYONE — admin sections first, the personal
+  // links are self-service for EVERYONE - admin sections first, the personal
   // one last). Member: the single self-scoped devices pane.
   const accountEntries: { section: AccountSection; label: string }[] = isOwner
     ? [
@@ -280,7 +280,7 @@ export function UserSettingsView({
         color: "var(--text-primary)",
       }}
     >
-      {/* Header — same bar as the Tasks/Cronjobs pages. minHeight (not
+      {/* Header - same bar as the Tasks/Cronjobs pages. minHeight (not
           height) so the safe-area-inset-top padding extends the bar below
           the camera notch instead of being squashed into the 44px box. */}
       <div
@@ -690,7 +690,7 @@ function sameRoomSet(a: string[], b: string[]): boolean {
 // were they last?". Kept short enough to never ellipsize at sidebar width.
 // `stats` is non-null only for OWNER viewers (session count / last-seen are
 // owner-only signals); everyone else gets a bare "online" or, when offline,
-// no line at all — same as the old public-view behavior.
+// no line at all - same as the old public-view behavior.
 function summarizeRoster(
   online: boolean,
   stats: { count: number; lastSeenAt: number } | null,
@@ -720,7 +720,7 @@ function UserEditPanel({
   // to navigate away from the currently-edited user (switch selection, close
   // the page, ESC, mobile back). The panel decides whether to gate on a
   // "Discard unsaved changes?" confirmation. The optional `after` runs once
-  // the close is committed — used by the parent to chain "discard then select
+  // the close is committed - used by the parent to chain "discard then select
   // Y" / "discard then close the page". Same pattern as TaskView's closeRef.
   closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
@@ -752,14 +752,14 @@ function UserEditPanel({
     user.allowedRooms,
   );
   // Per-user DISPLAY preference (task 9301d0f4): room ids the user has hidden
-  // from their own view. SELF-only, like notifications — an owner editing a
+  // from their own view. SELF-only, like notifications - an owner editing a
   // member manages access, not their view. Saved as the complement (the
   // "shown" list) via PUT /api/me/view/shown. The three room settings are
   // hierarchical: ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
   const [hiddenSetting, setHiddenSetting] = useState<string[]>(user.hidden);
   // The room ids the TARGET can reach, for rendering their self prefs: an owner
   // reaches every live room by rule; a member SELF-editing reads their LIVE
-  // record (user.allowedRooms — they have no Access column, and the record
+  // record (user.allowedRooms - they have no Access column, and the record
   // refreshes via user_self_updated if an owner grants mid-edit, Reviewer1
   // P1); an owner editing a member uses the editable allowedSetting. Without
   // the owner rule an owner self-editing sees disabled notification toggles
@@ -771,7 +771,7 @@ function UserEditPanel({
       : allowedSetting;
   // A MEMBER's projected `rooms` exclude the rooms they've hidden, so the
   // Displayed column could never offer re-showing one. GET /api/me/rooms
-  // returns id+name for every ACCESSIBLE room (hidden included) — fetched for
+  // returns id+name for every ACCESSIBLE room (hidden included) - fetched for
   // member self-edit and REFETCHED whenever their access set changes (an
   // owner granting/revoking a room while this panel is mounted lands as a
   // user_self_updated refresh of user.allowedRooms), so the rows can't go
@@ -786,7 +786,7 @@ function UserEditPanel({
       .then((r) => setMeRooms(r.rooms))
       .catch(() => {});
   }, [isOwner, isMe, accessKey]);
-  // Rows of the Rooms table — RENDERING only; the destructive shown-complement
+  // Rows of the Rooms table - RENDERING only; the destructive shown-complement
   // written on save is computed from a fresh /api/me/rooms read in handleSave,
   // never from these rows. Owner viewers: the unfiltered global list (they
   // manage access to every room). Member self-edit: the fetched accessible
@@ -820,11 +820,11 @@ function UserEditPanel({
   // the form is dirty; cleared by either commit (Discard) or cancel.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   // Holds the parent-supplied "after" callback while the discard prompt
-  // is visible — e.g. "select user Y" or "close the page". Runs once
+  // is visible - e.g. "select user Y" or "close the page". Runs once
   // the user clicks Discard; cleared on Cancel.
   const pendingDiscardActionRef = useRef<(() => void) | null>(null);
   // Holds the server's lockout-prevention reason if delete_user is refused.
-  // Same shape as the logout_blocked / revoke_blocked surfaces elsewhere —
+  // Same shape as the logout_blocked / revoke_blocked surfaces elsewhere -
   // shown inline next to Delete so the boss sees why the row didn't go.
   const [deleteBlockedReason, setDeleteBlockedReason] = useState<string | null>(
     null,
@@ -862,7 +862,7 @@ function UserEditPanel({
 
   // Env-path validation (task 4733fa30): ONE path-based flow serves both the
   // stored value (validated on open and when the record refreshes) and the
-  // typed-but-unsaved value (validated on input blur — previously a bad path
+  // typed-but-unsaved value (validated on input blur - previously a bad path
   // only surfaced after saving). The seq ref drops out-of-order responses so
   // a slow probe can't overwrite a newer result.
   const validationSeqRef = useRef(0);
@@ -901,7 +901,7 @@ function UserEditPanel({
   // newer run (effect re-run or input blur) bumps the seq, which makes stale
   // responses drop themselves; a post-unmount response is a no-op setState.
   useEffect(() => {
-    // One-shot probe kick-off, not state synchronization — same
+    // One-shot probe kick-off, not state synchronization - same
     // setState-in-effect exemption the old stored-value validation used.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     runEnvValidation(user.envFile ?? "");
@@ -991,7 +991,7 @@ function UserEditPanel({
   }
 
   // Mirror requestClose into the parent's ref every render so the captured
-  // closure always sees fresh form state — same no-deps pattern TaskView
+  // closure always sees fresh form state - same no-deps pattern TaskView
   // uses for its own dirty-check ref.
   useEffect(() => {
     if (closeRef) closeRef.current = requestClose;
@@ -1002,7 +1002,7 @@ function UserEditPanel({
 
   // Tab-close guard while dirty (save-flow friction pass, task 4733fa30):
   // in-app navigation already routes through the discard prompt, but closing
-  // or reloading the tab was the one silent loss path. No deps — the handler
+  // or reloading the tab was the one silent loss path. No deps - the handler
   // must see fresh form state each render.
   useEffect(() => {
     function onBeforeUnload(e: BeforeUnloadEvent) {
@@ -1048,7 +1048,7 @@ function UserEditPanel({
         !sameRoomSet(allowedSetting, user.allowedRooms)
       ) {
         // Owners are rule-based (no materialized grants), so an owner target
-        // never writes allowedRooms — only a member's access is editable here.
+        // never writes allowedRooms - only a member's access is editable here.
         await apiFetch(
           "PUT",
           `/api/users/${encodeURIComponent(origName)}/access`,
@@ -1066,7 +1066,7 @@ function UserEditPanel({
         });
       }
       // (2b) Boss memory is a separate version-guarded REPLACE keyed by the stable
-      // userId (rename-safe). A 409 means it changed under us — surface + keep open.
+      // userId (rename-safe). A 409 means it changed under us - surface + keep open.
       if (memoryChanged) {
         const m = await mem.save();
         if (!m.ok) {
@@ -1078,7 +1078,7 @@ function UserEditPanel({
       // isMe). Shown FIRST: the server clamps notifRooms to the effective
       // shown set on every shown write, so re-showing a room and enabling its
       // notification in one save only works in this order. The shown list is
-      // the complement of hiddenSetting over the accessible set — and because
+      // the complement of hiddenSetting over the accessible set - and because
       // any accessible room OMITTED from it becomes hidden, the complement is
       // computed over a FRESH authoritative accessible list fetched at save
       // time, never a possibly stale client snapshot (Reviewer1 P1: a room
@@ -1113,7 +1113,7 @@ function UserEditPanel({
       if (renamed) onRenamed?.(trimmed);
       // Unlike the old modal (which collapsed the editor on save), the page
       // stays on the saved user. Sync local fields to exactly what was saved
-      // so the form reads clean once the broadcast refreshes the record —
+      // so the form reads clean once the broadcast refreshes the record -
       // including normalizations the server applies (trim, hex color).
       setName(trimmed);
       setEnvFile(envFile.trim());
@@ -1130,7 +1130,7 @@ function UserEditPanel({
 
   // Drives the dirty-aware Save button (save-flow friction pass, task
   // 4733fa30): disabled + "Saved" when the form matches the record, so "did
-  // I save?" is answerable at a glance — the convention the External access
+  // I save?" is answerable at a glance - the convention the External access
   // card already follows.
   const dirty = isDirty();
 
@@ -1207,7 +1207,7 @@ function UserEditPanel({
         />
 
         {/* Rooms (task 9301d0f4): ONE table for the three hierarchical
-            per-room settings — ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
+            per-room settings - ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
             Access is owner-managed on member targets; Displayed and
             Notifications are SELF-only view prefs (Option A), so at most two
             columns ever render at once (owner-editing-member: Access only;
@@ -1387,7 +1387,7 @@ function UserEditPanel({
         <label style={subLabelStyle}>
           Env File Path{" "}
           <span style={hintStyle}>
-            (absolute path; applied at agent spawn time — existing agents keep
+            (absolute path; applied at agent spawn time - existing agents keep
             their current env)
           </span>
         </label>
@@ -1428,7 +1428,7 @@ function UserEditPanel({
           Memory{" "}
           <span style={hintStyle}>
             (durable boss-scoped facts for this user; rewrites the file exactly
-            as shown — one memory per line, keep existing author/date text
+            as shown - one memory per line, keep existing author/date text
             unless you mean to change it)
           </span>
         </label>
@@ -1720,8 +1720,8 @@ function RoleBadge({ role }: { role: "owner" | "member" }) {
       }}
       title={
         isOwner
-          ? "Owner — can invite users, revoke sessions, and set per-user room access"
-          : "Member — can act in rooms the owner allowed; can't invite or revoke"
+          ? "Owner - can invite users, revoke sessions, and set per-user room access"
+          : "Member - can act in rooms the owner allowed; can't invite or revoke"
       }
     >
       {role}

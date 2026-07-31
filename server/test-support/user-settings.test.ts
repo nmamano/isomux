@@ -1,10 +1,10 @@
-// Phase 3d slice 9b — the notifRooms clamp, re-homed onto the REST split
+// Phase 3d slice 9b - the notifRooms clamp, re-homed onto the REST split
 // (Option A, Nil-gated). Setting one's OWN notifRooms goes through the SELF-ONLY
 // view.* routes (clamped to the caller's accessible rooms by the shared
 // applyViewChange core); an owner changing a member's allowedRooms goes through
 // users.setAccess, which PRUNE-clamps the member's existing notifRooms to the new
 // access in ONE write (the clamp deferred from slice 6). The old WS update_user
-// (an owner setting a member's notif in one command) is retired — notifRooms is
+// (an owner setting a member's notif in one command) is retired - notifRooms is
 // self-only now. Asserts the PERSISTED record so it is robust across the slice-5
 // user-wire projection change. (The Default Room setting was later removed, so
 // the former defaultRoom clamp cases are gone.)
@@ -85,7 +85,7 @@ describe("view.setNotifRooms clamps to accessible (3d.9b, self-only)", () => {
 
     // The store migration PUTs the legacy notif pref to its self-only view.*
     // route (replacing claim_user). r2 is inaccessible: notif keeps only r1.
-    // The call still 204s (the clamp is silent — no oracle).
+    // The call still 204s (the clamp is silent - no oracle).
     expect(await selfSetNotif(server, member.rawSessionId, [r1, r2])).toBe(204);
     const u = await waitForUserField(
       memberId,

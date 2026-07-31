@@ -8,7 +8,7 @@
 // generation. Generation is fire-and-forget in the manager; the finished slide
 // arrives on the `slide_ready` WS push, so these handlers never block on the LLM
 // and never emit directly. Unavailability (no live session, or the turn is gone)
-// is a 200 payload the client branches on — the contextUsage precedent — not an
+// is a 200 payload the client branches on - the contextUsage precedent - not an
 // error.
 
 import { ok, type RouteHandler } from "../executor.ts";

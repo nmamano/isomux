@@ -45,7 +45,7 @@ export function DeskUnit({
   onContextMenuRef.current = onContextMenu;
   /* eslint-enable react-hooks/refs */
 
-  // Non-passive touch listeners — React registers touch listeners as passive,
+  // Non-passive touch listeners - React registers touch listeners as passive,
   // which silently ignores preventDefault(). We need preventDefault() to suppress
   // native long-press context menu, text selection, and synthetic mouse events.
   useEffect(() => {
@@ -157,7 +157,7 @@ export function DeskUnit({
           WebkitUserSelect: "none",
         }}
       >
-        {/* Character behind desk — idle agents sit back a bit */}
+        {/* Character behind desk - idle agents sit back a bit */}
         <div
           style={{
             position: "absolute",
@@ -181,7 +181,7 @@ export function DeskUnit({
         </div>
       </div>
 
-      {/* Floating nametag — hoisted out of the DeskUnit container to a
+      {/* Floating nametag - hoisted out of the DeskUnit container to a
           scene-level sibling at high z so it always renders above
           floating ghost avatars (live-avatars feature). Position is
           computed from the desk's pixel coords; the per-desk z bump

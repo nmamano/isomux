@@ -1,9 +1,9 @@
-// Phase 2.3 — Route table contract tests (TDD red→green for NEW code).
+// Phase 2.3 - Route table contract tests (TDD red→green for NEW code).
 //
 // Structural invariants over the typed route table (the skeleton that REPLACES
 // the dispatchCommand switch in Phase 3): unique opIds + method/path, every
 // `emits` resolves to a registry event, every capability route has a valid
-// capability + guard, and — the carried-forward 2.2 caution — a `public` route
+// capability + guard, and - the carried-forward 2.2 caution - a `public` route
 // can NEVER be fed to authorize() (it carries no RouteAuthz by type).
 //
 // Pure T0: no server, no FS, no LLM. The table is data exercised directly.
@@ -105,7 +105,7 @@ describe("route table: any-of capabilities where the spec uses `|`", () => {
 });
 
 describe("route table: public routes are routed AROUND authorize()", () => {
-  it("every API route is authenticated/capability — none public", () => {
+  it("every API route is authenticated/capability - none public", () => {
     for (const r of API_ROUTES) {
       expect(r.auth.kind).not.toBe("public");
     }
@@ -168,7 +168,7 @@ describe("route table: coverage sanity", () => {
 });
 
 // The spec's per-route capability + emits, restated INDEPENDENTLY (like
-// event-registry's SPEC_AUDIENCES). The table must match this exactly — a
+// event-registry's SPEC_AUDIENCES). The table must match this exactly - a
 // wrong-but-VALID emit or capability (a regression neither isEventId nor
 // ALL_CAPS can catch) fails here. `caps: []` marks an `authenticated`-kind
 // route (identity required, no capability).
@@ -176,7 +176,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   string,
   { caps: Capability[]; emits: EventId[] }
 > = {
-  // Agents — lifecycle
+  // Agents - lifecycle
   "agents.spawn": { caps: ["agent:manage"], emits: ["agent_added"] },
   "agents.kill": {
     caps: ["agent:manage"],
@@ -199,14 +199,14 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.setTopic": { caps: ["agent:manage"], emits: ["agent_updated"] },
   "agents.clearTopic": { caps: ["agent:manage"], emits: ["agent_updated"] },
   "rooms.swapDesks": { caps: ["agent:manage"], emits: ["agent_updated"] },
-  // Agents — conversation
+  // Agents - conversation
   "agents.sendMessage": {
     caps: ["agent:converse", "agent:send-as-self"],
     emits: ["log_entry"],
   },
   "agents.editMessage": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.cancelQueued": { caps: ["agent:converse"], emits: [] },
-  // Agents — scheduled messages (task 8ff369b5). Same any-of pair as
+  // Agents - scheduled messages (task 8ff369b5). Same any-of pair as
   // sendMessage: a USER manages via converse rights, an AGENT via
   // send-as-self; the scheduledMessagesOwner guard then scopes the AGENT
   // branch to its OWN outbox. No emits: pending entries have no UI surface
@@ -236,28 +236,28 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.resume": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.listSessions": { caps: ["office:read"], emits: [] },
-  // Agents — self-affordances
+  // Agents - self-affordances
   "agents.readFile": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.diff": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.editFile": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.terminalCommand": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.contextUsage": { caps: ["self:affordance"], emits: [] },
-  // Agents — Slide Mode (boss-session read surface; generation fires
+  // Agents - Slide Mode (boss-session read surface; generation fires
   // slide_ready / slide_failed asynchronously on completion, not inline).
   "agents.getSlides": { caps: ["office:read"], emits: [] },
   "agents.ensureSlide": {
     caps: ["office:read"],
     emits: ["slide_ready", "slide_failed"],
   },
-  // Agents — editor
+  // Agents - editor
   "agents.openFile": {
     caps: ["editor:use"],
     emits: ["editor_external_change"],
   },
   "agents.saveFile": { caps: ["editor:use"], emits: [] },
   "agents.closeFile": { caps: ["editor:use"], emits: [] },
-  // Agents — uploads / files
+  // Agents - uploads / files
   "agents.upload": { caps: ["file:upload"], emits: [] },
   "agents.getFile": { caps: ["office:read"], emits: [] },
   // Rooms
@@ -313,7 +313,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "sessions.logout": { caps: [], emits: ["session_expired"] },
   "office.getAccess": { caps: ["office:admin"], emits: [] },
   "office.setAccess": { caps: ["office:admin"], emits: ["invites_list"] },
-  // In-UI update trigger (release channel): owner-only, no emits — the
+  // In-UI update trigger (release channel): owner-only, no emits - the
   // update_status event is fed by the checker, never by these routes.
   "office.updateInfo": { caps: ["office:admin"], emits: [] },
   "office.triggerUpdate": { caps: ["office:admin"], emits: [] },
@@ -365,7 +365,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "system.backupStatus": { caps: ["office:read"], emits: [] },
   "system.version": { caps: [], emits: [] },
   // Storage (task 2366ccb0). usage reads like backupStatus (office:read, agents
-  // included — it is a size report); prune deletes, so office:admin + owner.
+  // included - it is a size report); prune deletes, so office:admin + owner.
   "storage.usage": { caps: ["office:read"], emits: [] },
   "storage.prune": { caps: ["office:admin"], emits: [] },
   // Memory (isomux-memory)

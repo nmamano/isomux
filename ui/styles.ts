@@ -216,7 +216,7 @@ ${emitThemesCss()}
     transition: color 0.15s, background 0.15s, border-color 0.15s;
   }
 
-  /* diff2html — chat-context tweaks: tighter density, no per-file double-border. */
+  /* diff2html - chat-context tweaks: tighter density, no per-file double-border. */
   .d2h-isomux-host .d2h-file-wrapper {
     border: none; border-radius: 0; margin-bottom: 0;
   }

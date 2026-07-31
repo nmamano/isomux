@@ -1,4 +1,4 @@
-// deploy/install.sh ISOMUX_DEPS_ONLY mode — the behavior scripts/update.sh
+// deploy/install.sh ISOMUX_DEPS_ONLY mode - the behavior scripts/update.sh
 // leans on during an update. snapshot_caddy_state, restore_caddy_state,
 // deps_only and report_failure are extracted from the installer with sed (as in
 // install-resolve-ref.test.ts) and driven against a STATEFUL systemctl stub
@@ -121,7 +121,7 @@ log() { echo "LOG: $*"; }
 step() { CURRENT_STEP=$1; }
 # Non-exiting for the guards (root/apt/service-user never hold in a test
 # process; those are pinned in install-sh.test.ts), but deps_only's own die
-# calls must still stop it — so mark and exit on the ones that matter.
+# calls must still stop it - so mark and exit on the ones that matter.
 die() { echo "DIE: $*"; case "$*" in *caddy*) exit 1 ;; esac; }
 install_packages() { echo "install_packages"; ${apt}; ${opts.packagesFail ? "report_failure; exit 1" : "true"}; }
 install_browser() { echo "install_browser"; }

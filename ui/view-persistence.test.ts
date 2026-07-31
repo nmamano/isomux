@@ -154,7 +154,7 @@ describe("saved view: owner-checked load/save", () => {
 
   it("matches a mixed-case saved owner (both sides normalized)", () => {
     // save* always lowercases, but a hand-edited payload with a mixed-case
-    // owner must still match its own user — and still not match others.
+    // owner must still match its own user - and still not match others.
     const s = fakeStorage({
       "isomux-view": JSON.stringify({
         user: "Nil",

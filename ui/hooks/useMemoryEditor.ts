@@ -1,7 +1,7 @@
 // Shared editor state for one isomux-memory scope file on the settings modals.
 // Loads the raw file + its optimistic-concurrency version via the unified READ
 // (GET /api/memory), tracks dirty, and saves via the version-guarded REPLACE
-// (PUT /api/memory) — surfacing a 409 conflict as a clear, dialog-keeping error
+// (PUT /api/memory) - surfacing a 409 conflict as a clear, dialog-keeping error
 // instead of silently clobbering a concurrent edit. See
 // server/routes/handlers/memory.ts.
 
@@ -20,7 +20,7 @@ export interface MemoryEditor {
   loaded: boolean;
   dirty: boolean;
   // Save the current text if loaded + dirty; a no-op success otherwise. On a 409
-  // the file changed under us — returns { conflict } so the caller keeps the
+  // the file changed under us - returns { conflict } so the caller keeps the
   // dialog open and tells the user to reopen.
   save: () => Promise<MemorySaveResult>;
 }
@@ -89,7 +89,7 @@ export function useMemoryEditor(
           ok: false,
           conflict: true,
           message:
-            "Memory changed since you opened this — reopen the dialog to edit the latest.",
+            "Memory changed since you opened this - reopen the dialog to edit the latest.",
         };
       }
       return {

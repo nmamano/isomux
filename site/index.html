@@ -62,7 +62,7 @@
     />
     <link rel="stylesheet" href="/chatbot.css" />
     <!-- Pre-paint theme resolution: if the user has picked a theme (either
-         here on the landing or inside the embedded /demo iframe — both share
+         here on the landing or inside the embedded /demo iframe - both share
          the same localStorage origin), apply it as a data-theme attr before
          first paint so the page doesn't flash the wrong palette. With no
          saved pick, the @media block below takes over. Mirrors the logic in
@@ -102,7 +102,7 @@
         color-scheme: dark;
       }
 
-      /* Light mode — honored when the OS / browser asks for it.
+      /* Light mode - honored when the OS / browser asks for it.
          Same variable shape as the dark default above; the accent green is
          darkened so links and the primary CTA hit AA contrast on white. */
       @media (prefers-color-scheme: light) {
@@ -120,7 +120,7 @@
       }
 
       /* Explicit user override (toggle button in site/theme-toggle.js or
-         the moon/sun inside the embedded demo iframe — both write the same
+         the moon/sun inside the embedded demo iframe - both write the same
          localStorage key, and site/theme-toggle.js sets data-theme-mode
          based on the saved theme id). The data-theme-mode blocks have
          higher specificity than :root inside @media, so they win regardless
@@ -151,7 +151,7 @@
       }
 
       /* Theme toggle button (mounted by site/theme-toggle.js). Sits in the
-         top-right of the page on the landing — `position: absolute` rather
+         top-right of the page on the landing - `position: absolute` rather
          than `fixed`, so it scrolls out of view as the user moves down the
          page instead of following along. The docs site mounts it inline in
          the topbar (`.theme-toggle--inline` overrides). */

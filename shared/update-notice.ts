@@ -4,7 +4,7 @@
 // signed-off enumeration of every state; change copy there and here together.
 //
 // Shape of the notice (Nil's spec): one compact paragraph giving (a) what the
-// box runs — the exact tag, or the commit; (b) the latest release and whether
+// box runs - the exact tag, or the commit; (b) the latest release and whether
 // it's newer; (c) how many commits ahead the GitHub main tip is, so pulling
 // is an informed choice.
 

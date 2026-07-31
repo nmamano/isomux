@@ -34,9 +34,9 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const mem = useMemoryEditor("office", null, !readOnly);
   // The settings PUT is version-guarded (optimistic concurrency, mirroring the
   // memory editor): GET on open (owner-only GET, so skip for read-only members
-  // — they never save), send the version back on save; a 409 means another
+  // - they never save), send the version back on save; a 409 means another
   // writer saved since. The token must stay coupled to the BYTES read with it,
-  // so ALL guarded fields (prompt/envFile/name — one version over the whole
+  // so ALL guarded fields (prompt/envFile/name - one version over the whole
   // blob) hydrate from the same GET response; never pair store-snapshot fields
   // with the GET's version, or a fresher server blob gets silently blessed
   // over. Until the load resolves the fields are read-only and Save stays
@@ -69,7 +69,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
 
   // Ask the server to re-validate the stored env file on open. Members
   // can't validate office env files (the server gates that command to
-  // owners), so skip the request entirely — the input still shows the
+  // owners), so skip the request entirely - the input still shows the
   // stored path for context.
   useEffect(() => {
     const saved = office.envFile;
@@ -129,7 +129,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
         setStatus({
           kind: "error",
           message:
-            "Office settings changed since you opened this — reopen the dialog to edit the latest.",
+            "Office settings changed since you opened this - reopen the dialog to edit the latest.",
         });
       } else {
         setStatus({

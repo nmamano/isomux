@@ -114,7 +114,7 @@ describe("sanitizeSvg", () => {
   });
 
   it("drops paint values containing CSS escape sequences", () => {
-    // "\\75 rl(" is a CSS-escaped "url(" — any backslash disqualifies.
+    // "\\75 rl(" is a CSS-escaped "url(" - any backslash disqualifies.
     const out = sanitizeSvg(
       `<svg><rect fill="\\75 rl(https://evil.example)" width="5"/></svg>`,
     );

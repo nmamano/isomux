@@ -72,7 +72,7 @@ describe("detectAuthError", () => {
   });
 });
 
-describe("getLoginInstructions — already-authed short-circuit", () => {
+describe("getLoginInstructions - already-authed short-circuit", () => {
   it("claudeBackend: ANTHROPIC_API_KEY in env -> /clear hint, no command cards", () => {
     const r = claudeBackend.getLoginInstructions({
       env: { ANTHROPIC_API_KEY: "sk-ant-test" },

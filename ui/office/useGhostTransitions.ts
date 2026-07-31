@@ -19,7 +19,7 @@ const GHOST_LOBBY_GAP = 52;
 const GHOST_STACK_DX = 18;
 const GHOST_STACK_DY = 4;
 
-// CSS transition duration (ms) for ghost left/top — must match the
+// CSS transition duration (ms) for ghost left/top - must match the
 // `transition: left ... top ...` declaration in Ghost.tsx's motionStyle.
 // Exit phantoms are removed 60ms after this to give the slide time to
 // finish across paint-scheduling jitter.
@@ -51,7 +51,7 @@ function mapsEqual<K, V>(a: Map<K, V>, b: Map<K, V>): boolean {
 }
 
 // Pixel placements for every ghost that should render in the current room
-// (assuming they stay put — i.e., no door-transition override). Output is in
+// (assuming they stay put - i.e., no door-transition override). Output is in
 // INPUT ORDER (which the server sorts by connectionId), NOT grouped by
 // anchor. Stable React child order keyed by connectionId is the invariant
 // that prevents browsers from reorder-induced re-attach + animation restart
@@ -59,7 +59,7 @@ function mapsEqual<K, V>(a: Map<K, V>, b: Map<K, V>): boolean {
 // Anchor membership only determines coordinates and intra-group stack rank,
 // never iteration order.
 //
-// The recipient's own ghost is filtered out entirely — a boss never sees
+// The recipient's own ghost is filtered out entirely - a boss never sees
 // their own avatar (only other devices / other users render). If the boss
 // is the only device connected, no ghost renders; other tabs/devices of
 // the same user appear as their own ghosts via their own connectionId.
@@ -122,7 +122,7 @@ function computeNaturalPlacements(
   return out;
 }
 
-// Owns the full pixel placement of every visible ghost — natural lobby /
+// Owns the full pixel placement of every visible ghost - natural lobby /
 // desk positions, door-slide overrides on room switches, and exit phantoms
 // so departures animate to the door instead of popping out.
 //
@@ -139,7 +139,7 @@ function computeNaturalPlacements(
 // setState pattern: we hold `prevPresences` and `prevOwnRoomId` in state,
 // compare against the current props, and update state during the render
 // that first sees a diff. React discards that render and re-renders with
-// the new state — so the first paint after a presence_list room change
+// the new state - so the first paint after a presence_list room change
 // already has door coords applied (for entry overrides) and exit phantoms
 // inserted, keeping DOM element identity by connectionId across the
 // natural -> phantom transition so the existing left/top CSS transition
@@ -217,7 +217,7 @@ export function useGhostTransitions(
 
     if (ownChanged) {
       // The viewer moved. Their natural appearance/disappearance from our
-      // view is from our movement, not theirs — drop any in-flight
+      // view is from our movement, not theirs - drop any in-flight
       // animations. The exit-timer / rAF cleanup happens in the [entering]
       // and [exiting] sync effects when the maps reduce to empty.
       if (entering.size > 0) setEntering(new Map());
@@ -280,7 +280,7 @@ export function useGhostTransitions(
       // (presence went R -> R+1 -> R-1 -> R fast enough to land while
       // the phantom is still alive), the same DOM element slides across
       // the entire scene instead of remount-popping at the new door.
-      // Requires three room hops within EXIT_PHANTOM_LIFETIME_MS — rare.
+      // Requires three room hops within EXIT_PHANTOM_LIFETIME_MS - rare.
       // Fix would be a per-cid remount-generation key, but that
       // complicates the common same-door rebound. Deferred for v1.
       const enteredCids = Array.from(newEnteringEntries.keys());

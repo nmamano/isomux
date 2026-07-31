@@ -1,7 +1,7 @@
 // Unix-domain admin socket. Bound at ~/.isomux/admin.sock mode 0600. The
 // only client is server/admin-cli.ts, which the operator invokes from a
 // shell on the same host. Filesystem permissions on the socket are the
-// auth boundary — any UID that can connect to the socket can already read
+// auth boundary - any UID that can connect to the socket can already read
 // the auth files in ~/.isomux/, so giving it a clean RPC interface to
 // mint an owner-login URL adds no new authority. On a multi-user box
 // where ~/.isomux/ is mode 0700 (recommended), only the Isomux service
@@ -29,7 +29,7 @@ const OWNER_LOGIN_TTL_MS = 15 * 60 * 1000;
 export function startAdminSocket(): void {
   // Refuse to start if the path is occupied by something other than a
   // stale Unix socket. A regular file there means the operator (or a
-  // misconfigured deployment) put something else at the path — touching
+  // misconfigured deployment) put something else at the path - touching
   // it could destroy data.
   if (existsSync(SOCKET_PATH)) {
     let isSocket = false;
@@ -74,7 +74,7 @@ export function startAdminSocket(): void {
     process.umask(prevUmask);
   }
   // Force mode 0600 explicitly as defense-in-depth even after the umask
-  // tightening above — if Bun's bind path bypasses umask on this platform,
+  // tightening above - if Bun's bind path bypasses umask on this platform,
   // chmod still closes the gap.
   try {
     chmodSync(SOCKET_PATH, 0o600);
@@ -83,7 +83,7 @@ export function startAdminSocket(): void {
       `[admin-socket] chmod 0600 ${SOCKET_PATH} failed: ${(err as Error).message}; admin CLI may be reachable by other local users`,
     );
   }
-  // Happy-path bind is silent — only failures log. The socket is a quiet
+  // Happy-path bind is silent - only failures log. The socket is a quiet
   // affordance for the `owner-login` CLI; users don't need a per-boot
   // confirmation that it's working.
 }

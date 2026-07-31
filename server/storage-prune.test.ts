@@ -1,10 +1,10 @@
-// T0/T1 — the transcript/attachment pruner's safety matrix (task 2366ccb0).
+// T0/T1 - the transcript/attachment pruner's safety matrix (task 2366ccb0).
 //
 // The whole point of this module is what it REFUSES to delete, so most of these
 // tests assert survival, not removal. Every root is injected; the fixtures live
 // under the OS temp dir and cleanup goes through the temp-state guard.
 //
-// Candidate paths are RELATIVE to the logs dir throughout — that is the wire
+// Candidate paths are RELATIVE to the logs dir throughout - that is the wire
 // contract, and it is what makes the apply-time fence structural.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -97,7 +97,7 @@ function logsWithOutsideVictim(): { logs: string; outside: string } {
 }
 
 describe("symlink containment", () => {
-  it("never lists — or deletes — through a symlinked files/ dir", () => {
+  it("never lists - or deletes - through a symlinked files/ dir", () => {
     const { logs, outside } = logsWithOutsideVictim();
     // The attack: agent-a is a real dir, but its files/ points out of the tree.
     // A purely lexical fence accepts "agent-a/files/victim.txt" because the
@@ -253,7 +253,7 @@ describe("planPrune (transcripts)", () => {
 
   it("never proposes a session another session was forked from", () => {
     const logs = fourOldSessions();
-    // "third" is the parent of "newest" — loadLogWithAncestors reads it to
+    // "third" is the parent of "newest" - loadLogWithAncestors reads it to
     // assemble the fork's transcript, so it must survive forever.
     const plan = planPrune(
       "transcripts",
@@ -305,7 +305,7 @@ describe("planPrune (transcripts)", () => {
   it("terminates on a cyclic sessions map instead of looping", () => {
     const logs = fourOldSessions();
     // A corrupt map claiming a cycle: the rule is set-membership, not a walk,
-    // so there is no chain to loop on — every named parent is simply spared.
+    // so there is no chain to loop on - every named parent is simply spared.
     const plan = planPrune(
       "transcripts",
       { olderThanDays: 30, keepPerAgent: 0 },
@@ -462,7 +462,7 @@ describe("planPrune (attachments)", () => {
     const logs = agentWithAttachments();
     // kept.png is referenced by a transcript; orphan.png is referenced ONLY by
     // a message still sitting in the queue for a busy agent. Deleting the
-    // latter would destroy the attachment before it is ever delivered — the
+    // latter would destroy the attachment before it is ever delivered - the
     // queue is durable and a stuck queue is unbounded in time, so crossing the
     // age cutoff proves nothing about whether the file is still owed.
     const withQueue = deps(logs, {
@@ -477,7 +477,7 @@ describe("planPrune (attachments)", () => {
     expect(applyPrune(spared, withQueue).deleted).toBe(0);
     expect(existsSync(join(logs, "agent-a", "files", "orphan.png"))).toBe(true);
 
-    // Once the queue flushes (or the message is cancelled), it is eligible —
+    // Once the queue flushes (or the message is cancelled), it is eligible -
     // and kept.png stays spared on its transcript reference alone.
     const after = planPrune("attachments", POLICY, deps(logs));
     expect(after.candidates.map((c) => c.path)).toEqual([
@@ -498,7 +498,7 @@ describe("planPrune (attachments)", () => {
     );
     expect(plan.candidates).toEqual([]);
     expect(plan.bytes).toBe(0);
-    // Reported under its own reason, not as "referenced" — a dry run has to say
+    // Reported under its own reason, not as "referenced" - a dry run has to say
     // WHICH unknown stopped it.
     expect(skipCount(plan, "queue-state-unknown")).toBe(2);
     expect(skipCount(plan, "referenced")).toBe(0);
@@ -540,7 +540,7 @@ describe("planPrune (attachments)", () => {
       200,
     );
     // A queued reference held by agent-a must not protect agent-b's file of the
-    // same name — attachments are per-agent.
+    // same name - attachments are per-agent.
     const plan = planPrune(
       "attachments",
       POLICY,
@@ -634,7 +634,7 @@ describe("applyPrune", () => {
     );
     expect(existsSync(join(logs, "agent-a", "oldest.jsonl"))).toBe(true);
     // The refusal names WHY the fresh pass excluded it, not a generic
-    // "no-longer-eligible" — this is the audit trail for a delete.
+    // "no-longer-eligible" - this is the audit trail for a delete.
     expect(result.refused).toContainEqual({
       path: "agent-a/oldest.jsonl",
       reason: "became-active-session",

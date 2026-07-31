@@ -1,4 +1,4 @@
-// Phase 3d slice 6a — conversation REST contract.
+// Phase 3d slice 6a - conversation REST contract.
 //
 // HTTP-contract layer for the conversation cluster cut over from the WS command
 // bus (send/edit/cancel/sendNow/newConversation/resume/listSessions). Pins status
@@ -11,7 +11,7 @@
 // This file pins the USER branch happy paths, the 204 mutations, and the
 // 400/422 malformed-body boundaries that those files don't exercise directly.
 //
-// Seam: startTestServer() — real auth + the /api executor. The default FakeBackend
+// Seam: startTestServer() - real auth + the /api executor. The default FakeBackend
 // auto-completes, so a USER send returns its immediate ack without a hung turn.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -70,7 +70,7 @@ async function spawnAt(srv: TestServer, name: string, roomId: string) {
   return a;
 }
 
-describe("agents.sendMessage REST — USER branch (Phase 3d slice 6a)", () => {
+describe("agents.sendMessage REST - USER branch (Phase 3d slice 6a)", () => {
   it("owner send -> 200 with an empty MessageAck (the turn streams over WS)", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -82,7 +82,7 @@ describe("agents.sendMessage REST — USER branch (Phase 3d slice 6a)", () => {
       body: { text: "hello" },
     });
     expect(res.status).toBe(200);
-    // The USER ack carries no queued id — the message echoes/streams over WS.
+    // The USER ack carries no queued id - the message echoes/streams over WS.
     expect((res.body as { messageId?: string }).messageId).toBe("");
   });
 
@@ -118,7 +118,7 @@ describe("agents.sendMessage REST — USER branch (Phase 3d slice 6a)", () => {
     const owner = await srv.seedOwner("Boss");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1);
-    // {attachments:{}} is truthy but non-iterable — flushQueue would later spread
+    // {attachments:{}} is truthy but non-iterable - flushQueue would later spread
     // it and throw. The handler must reject at the boundary before any enqueue.
     const res = await req(srv, "POST", `/api/agents/${x.id}/messages`, {
       rawSessionId: owner.rawSessionId,
@@ -139,7 +139,7 @@ describe("agents.sendMessage REST — USER branch (Phase 3d slice 6a)", () => {
     // The container being an array isn't enough: these fields flow into
     // getFilePath(agentId, filename) (path.join throws on a non-string) and the
     // notice line's size formatter, so a bad element would blow up mid-turn.
-    // One server, many bodies — each must be rejected at the boundary.
+    // One server, many bodies - each must be rejected at the boundary.
     const good = {
       filename: "a1b2c3.png",
       originalName: "photo.png",
@@ -189,7 +189,7 @@ describe("agents.sendMessage REST — USER branch (Phase 3d slice 6a)", () => {
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1);
     // size 0 is legal (an empty upload), and a spec whose file is missing on
-    // disk is a resolve-time skip, not a boundary rejection — the validator
+    // disk is a resolve-time skip, not a boundary rejection - the validator
     // must not tighten either.
     const res = await req(srv, "POST", `/api/agents/${x.id}/messages`, {
       rawSessionId: owner.rawSessionId,

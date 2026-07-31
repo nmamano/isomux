@@ -1,4 +1,4 @@
-// Phase 3b slice 5 — user-wire projection leak closure (the Isomuxer3-gated
+// Phase 3b slice 5 - user-wire projection leak closure (the Isomuxer3-gated
 // leak). Asserted at the WIRE:
 //   - the all-audience user_updated / users_list carry UserPublicWire ONLY (no
 //     grants / env / prompt / view-prefs);
@@ -192,7 +192,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
     await ownerSetAccess(server, owner.rawSessionId, mia.username, [r1]);
 
     // Subject (Mia): self carries the NEW grants. 3d.9b made setAccess a
-    // PRIVATE-only emit (Option A), so there is NO public user_updated for it —
+    // PRIVATE-only emit (Option A), so there is NO public user_updated for it -
     // the timing+target of an access change never broadcasts to `all`.
     const miaSelf = await waitForWhere(
       miaSock,
@@ -212,7 +212,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
     );
     expect((ownerAdmin.user as Msg).allowedRooms).toEqual([r1]);
 
-    // Other member (Bob): NOTHING about Mia — not admin, not self, and NOT a
+    // Other member (Bob): NOTHING about Mia - not admin, not self, and NOT a
     // public user_updated (a pure access change never reaches `all`).
     await pingPong(bobSock);
     const miaId = getUserByName(mia.username)!.id;
@@ -323,7 +323,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
     expect(miaOffice.name).toBe("Acme"); // but does see the public fields
 
     // The all-audience office_settings_updated carries NO envFile (both
-    // recipients). Driven via the manager core directly — the WS handler
+    // recipients). Driven via the manager core directly - the WS handler
     // validates the env path; the WIRE stripping is what's under test here.
     server.agentManager.setOfficeSettings("op2", "/seed/env/path", "Acme2");
     const ev = await waitForWhere(

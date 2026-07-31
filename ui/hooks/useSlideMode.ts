@@ -1,4 +1,4 @@
-// Reads the device-local Slide Mode gate and re-renders when it changes —
+// Reads the device-local Slide Mode gate and re-renders when it changes -
 // including while the component stays mounted (the settings surface that
 // writes it renders over the view, not in place of it).
 

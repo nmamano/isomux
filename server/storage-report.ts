@@ -1,4 +1,4 @@
-// Markdown rendering for /isomux-storage (task 1387a9c7) — the chat-facing
+// Markdown rendering for /isomux-storage (task 1387a9c7) - the chat-facing
 // view of the same measurement GET /api/storage/usage returns.
 //
 // PURE. Takes an already-measured StorageUsage plus a name resolver and returns
@@ -57,12 +57,12 @@ const LABELS: Record<StorageCategoryId, string> = {
 };
 
 // Only the largest handful of agents are worth a table row; the tail is a long
-// list of near-zero directories. The count that was dropped is always stated —
+// list of near-zero directories. The count that was dropped is always stated -
 // a truncated table that looks complete is worse than no table.
 const AGENT_ROWS = 10;
 
 // What the caller knows about an agent behind a stored log directory. The name
-// is RAW — the renderer escapes it to literal text — and `killed` is a flag
+// is RAW - the renderer escapes it to literal text - and `killed` is a flag
 // rather than text the caller appends, so the only live markdown in a table
 // cell is markdown this file wrote. An agent name is user-controlled: it can
 // carry a pipe, a newline, or a convincing forgery of the annotation itself.
@@ -123,7 +123,7 @@ export function renderStorageReport(
     // phantom zero row.
     if (!c) return;
     if (!c.available) {
-      lines.push(`| ${LABELS[id]} | none | — |`);
+      lines.push(`| ${LABELS[id]} | none | - |`);
       return;
     }
     lines.push(
@@ -178,10 +178,10 @@ export function renderStorageReport(
     lines.push(`| --- | ---: | ---: | ---: | --- |`);
     for (const a of shown) {
       const last =
-        a.lastActivityAt === null ? "—" : formatRelativeTime(a.lastActivityAt);
+        a.lastActivityAt === null ? "-" : formatRelativeTime(a.lastActivityAt);
       const label = opts.agentLabel(a.agentId);
       // The name is escaped to literal text FIRST, then the "(killed)"
-      // annotation is appended — so the only live markdown in the cell is this
+      // annotation is appended - so the only live markdown in the cell is this
       // line's own, and a name reading `Gone _(killed)_` renders as those
       // characters rather than as the report's annotation.
       const name =

@@ -1,16 +1,16 @@
-// Storage resource handlers — disk-usage visibility and manual pruning of the
+// Storage resource handlers - disk-usage visibility and manual pruning of the
 // office's on-disk history (task 2366ccb0).
 //
-// GET /api/storage/usage — office:read + authenticated: every human, plus
+// GET /api/storage/usage - office:read + authenticated: every human, plus
 // privileged agents (the same posture as /api/backup/status; a plain agent
 // token lacks office:read and gets 403). Per-AGENT detail is OWNER-only: the
 // breakdown enumerates every agent log directory on disk, including agents in
 // rooms the caller cannot see and agents killed long ago, so a member or a
 // privileged agent gets the category aggregates only.
 //
-// POST /api/storage/prune — office:admin + officeOwner, and DRY RUN BY DEFAULT.
+// POST /api/storage/prune - office:admin + officeOwner, and DRY RUN BY DEFAULT.
 // The response always carries the full plan; files are removed only when the
-// body says `"apply": true`. Nothing in the server ever calls this on a timer —
+// body says `"apply": true`. Nothing in the server ever calls this on a timer -
 // there is no retention scheduler (see server/storage-prune.ts).
 //
 // LEAF over the executor. Only the injected StorageDeps.
@@ -93,7 +93,7 @@ export function storageHandlers(
       }
       // keepPerAgent defaults to 0, which is the sharpest setting there is:
       // "spare nothing on recency". Fine to explore with on a dry run, not fine
-      // to inherit silently on a delete — a real transcript apply must say it.
+      // to inherit silently on a delete - a real transcript apply must say it.
       if (
         b.apply === true &&
         target === "transcripts" &&
@@ -112,7 +112,7 @@ export function storageHandlers(
       };
       const plan = deps.planPrune(target as PruneTarget, policy);
       // Fail closed, loudly. When the durable message queue could not be read,
-      // the planner has already spared everything — so an apply would be a
+      // the planner has already spared everything - so an apply would be a
       // harmless no-op, and that is exactly the problem: it would report
       // "deleted 0" as if there were nothing to prune. Say why instead.
       if (
@@ -126,7 +126,7 @@ export function storageHandlers(
         );
       }
       // Dry run unless the caller explicitly opted in. `applied: null` is the
-      // signal that nothing was touched — never an empty result object, which
+      // signal that nothing was touched - never an empty result object, which
       // would read like a prune that found nothing to do.
       const applied = b.apply === true ? deps.applyPrune(plan) : null;
       return ok({ plan, applied });

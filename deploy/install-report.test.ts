@@ -1,4 +1,4 @@
-// deploy/install.sh — the final report's handling of the owner invite.
+// deploy/install.sh - the final report's handling of the owner invite.
 //
 // The invite is a live credential. Printed to a terminal it is read once and
 // gone; printed into cloud-init's log, a `| tee`, or an agent's transcript it

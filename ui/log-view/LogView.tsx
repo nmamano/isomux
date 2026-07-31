@@ -178,7 +178,7 @@ function escalationColor(elapsedMs: number, baseColor: string): string {
 
 // Debounce abort sends across all sites (textarea Ctrl+C, ActivityIndicator
 // button, mobile Stop). Users tap Ctrl+C twice when the first tap doesn't
-// visibly do anything, and the second frame races with the in-flight abort —
+// visibly do anything, and the second frame races with the in-flight abort -
 // see task 154e2c14 for the full investigation.
 const lastAbortAtPerAgent = new Map<string, number>();
 function sendAbortDebounced(agentId: string) {
@@ -583,7 +583,7 @@ export function LogView({
   const setInput = (text: string) =>
     dispatch({ type: "set_draft", agentId: agent.id, text });
   const [autoScroll, setAutoScroll] = useState(true);
-  // Slide Mode view toggle — per device, per agent. LogView can stay mounted
+  // Slide Mode view toggle - per device, per agent. LogView can stay mounted
   // across an agent switch, so re-read the pref when agent.id changes using the
   // render-time "reset state on prop change" pattern (no effect / cascading
   // render). The per-agent pref only takes effect while the device-local Slide
@@ -607,7 +607,7 @@ export function LogView({
   // Recorded on every scroll rather than on deck ENTRY, because entry isn't
   // always a click: enabling the Slide Mode gate opens the deck for an agent
   // whose pref was already on, and by the time an effect sees that transition
-  // the chat element is gone. Tagged with the agent it belongs to — LogView can
+  // the chat element is gone. Tagged with the agent it belongs to - LogView can
   // outlive an agent switch, and one agent's position must not be applied to
   // another's chat.
   const savedChatScrollRef = useRef<{ agentId: string; top: number } | null>(
@@ -643,7 +643,7 @@ export function LogView({
   // live session, so on a fresh page load (or after a restart) it stays false
   // even when there's a full conversation to re-summarize. Fall back to the
   // logs the UI already holds: gate on at least one *user* message, matching
-  // what generateTopic() actually summarizes — it returns null (clearing the
+  // what generateTopic() actually summarizes - it returns null (clearing the
   // topic) when no user message exists, so enabling on model text alone could
   // wipe an existing topic.
   const hasTopicableHistory = useMemo(
@@ -707,7 +707,7 @@ export function LogView({
     return () => window.removeEventListener("resize", clamp);
   }, []);
   // First-render flag so we can tell "user just toggled the terminal open"
-  // from "agent-switch restored a previously-open terminal" — only the
+  // from "agent-switch restored a previously-open terminal" - only the
   // former should grab keyboard focus from the chat textarea.
   const isFirstRenderRef = useRef(true);
   useEffect(() => {
@@ -756,7 +756,7 @@ export function LogView({
   // PTY-spawn → first-prompt sequence; if the panel is already open it just
   // adds a small lag before the command appears. WS messages are ordered
   // per-connection, so terminal_open (sent on panel mount) lands before
-  // terminal_input only because of this delay — sending synchronously here
+  // terminal_input only because of this delay - sending synchronously here
   // would race ahead of mount and the bytes would hit a non-existent PTY.
   // After sending, focus xterm's helper textarea so Enter goes to the shell
   // instead of re-firing the still-focused button (which would re-copy).
@@ -811,7 +811,7 @@ export function LogView({
     null,
   );
   const [sendError, setSendError] = useState(false);
-  // Don't surface the inline error after a reconnect — `connected` flipping
+  // Don't surface the inline error after a reconnect - `connected` flipping
   // back to true is enough signal to the user that their previous send
   // attempt is stale.
   const showSendError = sendError && !connected;
@@ -846,7 +846,7 @@ export function LogView({
   // On mobile browsers, 100dvh/100vh do NOT shrink when the virtual keyboard
   // opens, so the input bar gets pushed behind it. By tracking the actual
   // visible viewport height and using position:fixed, the container always
-  // matches exactly what's visible — keyboard or not. No scrollIntoView hacks.
+  // matches exactly what's visible - keyboard or not. No scrollIntoView hacks.
   const [vpHeight, setVpHeight] = useState<number | null>(null);
   useEffect(() => {
     if (!isMobile) return;
@@ -937,7 +937,7 @@ export function LogView({
     // Double-rAF ensures content (images, code blocks, etc.) has been measured.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        // Skip if the user has an active selection inside the log — a
+        // Skip if the user has an active selection inside the log - a
         // scrollTop assignment here combined with sibling DOM churn (e.g.
         // the sticky avatar remounting on agent.state change) clears it.
         const sel = window.getSelection();
@@ -959,7 +959,7 @@ export function LogView({
   // Returning from the deck to chat: restore the exact scroll position the
   // viewer left from, whichever way the deck was entered or left (the header
   // toggle, or the Slide Mode gate flipping in Device Settings). Only when NOT
-  // following the bottom — the autoScroll effect above owns the bottom-follow
+  // following the bottom - the autoScroll effect above owns the bottom-follow
   // case. useLayoutEffect so the restored position paints without a scrollTop-0
   // flash. The restore itself fires a scroll event, which just re-records the
   // same position.
@@ -979,7 +979,7 @@ export function LogView({
       const len = textareaRef.current.value.length;
       textareaRef.current.setSelectionRange(len, len);
     }
-    // Mount-only — we read `input` at mount and don't re-apply selection on
+    // Mount-only - we read `input` at mount and don't re-apply selection on
     // every keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -997,7 +997,7 @@ export function LogView({
     return () => window.removeEventListener("keydown", handleTerminalShortcut);
   }, [isMobile, features.terminal, setTerminalOpen]);
 
-  // Ctrl+E to toggle editor panel. Sharing the side slot with the terminal —
+  // Ctrl+E to toggle editor panel. Sharing the side slot with the terminal -
   // opening one closes the other for v1 (40% width × two panels would crush
   // the chat).
   useEffect(() => {
@@ -1009,7 +1009,7 @@ export function LogView({
         !e.shiftKey &&
         !e.altKey
       ) {
-        // Only intercept when no editor input is focused — Ctrl+E is also
+        // Only intercept when no editor input is focused - Ctrl+E is also
         // "go to end of line" in the textarea on some platforms.
         const tag = (document.activeElement?.tagName ?? "").toLowerCase();
         if (tag === "textarea" || tag === "input") return;
@@ -1023,11 +1023,11 @@ export function LogView({
 
   // Cite-from-selection: when the boss highlights text in the chat log, show
   // a floating "Cite" pill that inserts the selection into the draft as a
-  // triple-quoted block. Gated to pointer-fine devices for v1 — Nil flagged
+  // triple-quoted block. Gated to pointer-fine devices for v1 - Nil flagged
   // mobile scroll as already finicky and asked us to never regress it. The
   // hook is a pure observer (no scroll/focus side-effects); the click handler
   // below (handleCite) is the only place we mutate draft / focus / selection.
-  // Scroll-hide lives in handleScroll below — keeping the hook
+  // Scroll-hide lives in handleScroll below - keeping the hook
   // selection-only, with the chat's existing scroll path owning geometry
   // invalidation.
   const citeEnabled = !isTouchPrimary && !editingLogEntryId;
@@ -1039,7 +1039,7 @@ export function LogView({
     savedChatScrollRef.current = { agentId: agent.id, top: scrollTop };
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
     recomputePinned();
-    // Hide cite pill when the chat scrolls — its cached viewport rect goes
+    // Hide cite pill when the chat scrolls - its cached viewport rect goes
     // stale and `selectionchange` won't fire for a pure scroll. The hook
     // could listen at document level, but routing through this existing
     // handler avoids a second DOM listener and keeps the hook focused on
@@ -1053,7 +1053,7 @@ export function LogView({
   // viewport, so the user always has context for what they asked. The pinned
   // one is the most-recent user_message that's scrolled above the viewport.
   // We measure positions from the DOM (rather than relying on IntersectionObserver
-  // history) because IO only fires on isIntersecting flips — when the auto-scroll
+  // history) because IO only fires on isIntersecting flips - when the auto-scroll
   // jumps from top to bottom on initial mount, middle messages go below→above
   // without ever being visible, and IO never fires for them.
   const userMsgNodesRef = useRef<Map<string, HTMLElement>>(new Map());
@@ -1088,7 +1088,7 @@ export function LogView({
       if (!node) continue;
       const r = node.getBoundingClientRect();
       if (r.bottom > rootRect.top && r.top < rootRect.bottom) {
-        // visible — no pin
+        // visible - no pin
         setPinnedMessageId(null);
         return;
       }
@@ -1293,9 +1293,9 @@ export function LogView({
     return acts;
   })();
 
-  // Mobile overflow menu — adds Editor and Terminal entries when their
+  // Mobile overflow menu - adds Editor and Terminal entries when their
   // features are enabled. The flow mirrors desktop (full-screen overlay
-  // instead of a side panel — see the {isMobile && ... overlay blocks below).
+  // instead of a side panel - see the {isMobile && ... overlay blocks below).
   const mobileAgentActions: NavAction[] = (() => {
     let acts = baseAgentActions;
     if (features.editor) {
@@ -1564,7 +1564,7 @@ export function LogView({
     if (ta && document.activeElement === ta) {
       // Insert at the textarea caret, replacing any active selection in the
       // textarea. selectionStart/End are always defined for a focused
-      // textarea — fall back to end-of-draft just to be safe with edge
+      // textarea - fall back to end-of-draft just to be safe with edge
       // browser quirks.
       const start = ta.selectionStart ?? current.length;
       const end = ta.selectionEnd ?? current.length;
@@ -1592,7 +1592,7 @@ export function LogView({
     }
 
     setInput(newDraft);
-    // The textarea is controlled — wait one frame for React to flush the new
+    // The textarea is controlled - wait one frame for React to flush the new
     // value into the DOM, then focus + position caret + resize. preventScroll
     // keeps the chat from jumping when the textarea grabs focus.
     requestAnimationFrame(() => {
@@ -1612,14 +1612,14 @@ export function LogView({
     window.getSelection()?.removeAllRanges();
   }
 
-  // Skills popover pick. A no-arg command (autoRun) EXECUTES immediately —
+  // Skills popover pick. A no-arg command (autoRun) EXECUTES immediately -
   // same fire-and-forget POST as handleSend, with the bare `/name` as the
-  // message — instead of being copied into the draft. Everything else (skills,
+  // message - instead of being copied into the draft. Everything else (skills,
   // and commands that take an argument) inserts `/name ` at the caret so the
   // user can type the rest. The popover only opens on an empty composer, so
   // auto-run never discards typed text.
   function handleSkillPick(name: string, autoRun?: boolean) {
-    // Only a literal true executes — any other value (mixed-version or replay
+    // Only a literal true executes - any other value (mixed-version or replay
     // wire data) falls through to the safe insert path.
     if (autoRun === true) {
       setSkillsOpen(false);
@@ -1675,7 +1675,7 @@ export function LogView({
     if (hasUploading || editingLogEntryId) return;
     if (!text && validAttachments.length === 0) {
       // Ctrl/Cmd+Enter with an empty composer still means "deliver the queue
-      // now" — hit the same endpoint as the Send-now button instead of
+      // now" - hit the same endpoint as the Send-now button instead of
       // silently doing nothing. No-op when nothing is queued.
       if (opts?.sendNow && (agent.queue ?? []).length > 0) {
         apiFetch("POST", `/api/agents/${agent.id}/send-now`).catch(() => {});
@@ -1689,7 +1689,7 @@ export function LogView({
           )
         : undefined;
     if (!connected) {
-      // Socket isn't open — the message route is reachable over HTTP, but the
+      // Socket isn't open - the message route is reachable over HTTP, but the
       // streamed echo won't arrive, so a "sent" message would mislead. Leave the
       // composer state intact so the user can retry once the banner clears
       // (matches the old send()===false path). The top-level ConnectionBanner
@@ -1701,7 +1701,7 @@ export function LogView({
     // ack ({ messageId: "" } for a USER send) is ignored. username is
     // server-derived (attributionFor), not body-sent. sendNow (Ctrl/Cmd+Enter)
     // asks the server to interrupt the current turn and flush the queue right
-    // after this message lands in it — the flag is inert when the agent is
+    // after this message lands in it - the flag is inert when the agent is
     // idle (plain send) or the message takes a non-queue path (slash command,
     // permission/multi-step reply), so it's always safe to set.
     apiFetch("POST", `/api/agents/${agent.id}/messages`, {
@@ -2158,7 +2158,7 @@ export function LogView({
             />
           ) : (
             <>
-              {/* Pinned user message — sits between the header and the messages
+              {/* Pinned user message - sits between the header and the messages
           when no user_message is currently visible in the scroll viewport.
           Click scrolls the conversation back to that message. */}
               {pinnedMessage && (
@@ -2224,7 +2224,7 @@ export function LogView({
                   position: "relative",
                 }}
               >
-                {/* Floating agent portrait — only mount when visible, so the
+                {/* Floating agent portrait - only mount when visible, so the
             sticky+backdrop-filter element doesn't sit in the scroll
             container's layer tree when hidden (suspected to deactivate
             selections on layout commit). */}
@@ -2332,7 +2332,7 @@ export function LogView({
                   transition: "background 0.15s, border-color 0.15s",
                 }}
               >
-                {/* Scroll to bottom — anchored above the composer's top edge so it
+                {/* Scroll to bottom - anchored above the composer's top edge so it
             can never overlap the input controls, no matter how tall the
             composer grows (multiline draft, queue chips, attachments). */}
                 {!autoScroll && (
@@ -2396,7 +2396,7 @@ export function LogView({
                   >
                     <span>⚠</span>
                     <span>
-                      Couldn't send — reconnecting. Your message is still in the
+                      Couldn't send - reconnecting. Your message is still in the
                       box; try again once the banner clears.
                     </span>
                   </div>
@@ -2711,7 +2711,7 @@ export function LogView({
                               selected &&
                               partial === selected.toLowerCase()
                             ) {
-                              // Exact match — fall through to send
+                              // Exact match - fall through to send
                             } else if (selected) {
                               e.preventDefault();
                               setInput(`/${selected} `);
@@ -2755,7 +2755,7 @@ export function LogView({
                           isBusy
                         ) {
                           // Don't intercept Ctrl/Cmd+C while the user has a real
-                          // selection — they're trying to copy. The textarea is no
+                          // selection - they're trying to copy. The textarea is no
                           // longer disabled while busy (typing now queues), so this
                           // path is more reachable than before.
                           const sel = window.getSelection()?.toString() ?? "";
@@ -2771,7 +2771,7 @@ export function LogView({
                           : isBusy
                             ? isMobile
                               ? "Type to queue..."
-                              : `Type to queue — sends when current turn ends · ${(navigator.platform || "").includes("Mac") ? "⌘" : "Ctrl+"}Enter to send now`
+                              : `Type to queue - sends when current turn ends · ${(navigator.platform || "").includes("Mac") ? "⌘" : "Ctrl+"}Enter to send now`
                             : isMobile
                               ? "Type a message..."
                               : "Type a message or / for commands..."
@@ -3114,7 +3114,7 @@ export function LogView({
       {/* Mobile side panel: full-screen overlay above the chat column. The
         outer LogView is position:fixed and sized to vpHeight on mobile, so
         this absolute child inherits the visible viewport via height: 100%
-        — when the soft keyboard opens vpHeight shrinks and we shrink
+        - when the soft keyboard opens vpHeight shrinks and we shrink
         with it. paddingTop honors the safe-area inset so the panel header
         clears the camera notch / Dynamic Island on iOS. */}
       {isMobile && features.terminal && terminalOpen && (
@@ -3139,7 +3139,7 @@ export function LogView({
             autoFocus={terminalAutoFocus}
             mobile
             // On mobile the terminal is a full-screen overlay covering the
-            // composer, so also close it — otherwise the insert would be
+            // composer, so also close it - otherwise the insert would be
             // invisible and the tap would appear to do nothing.
             onSendToChat={(text) => {
               handleTerminalSendToChat(text);

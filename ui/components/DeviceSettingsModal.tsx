@@ -15,7 +15,7 @@ import {
 } from "./dialog-styles.ts";
 
 // Device-scoped settings (one record per browser, stored in localStorage).
-// The device label and the Slide Mode gate — user-level prefs (default room,
+// The device label and the Slide Mode gate - user-level prefs (default room,
 // notifications, env) live on the server and are edited from User Settings.
 export function DeviceSettingsModal({ onClose }: { onClose: () => void }) {
   const { isMobile } = useAppState();

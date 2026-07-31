@@ -1,9 +1,9 @@
-// T3 live smoke — the ONLY tests in the suite that make real provider calls.
+// T3 live smoke - the ONLY tests in the suite that make real provider calls.
 //
 // OFF by default: gated behind `describe.skipIf(!LIVE)`, so plain `bun test`
 // (CI, pre-commit) skips the whole file and stays zero-LLM. Turn it on with the
 // `test:live` script (sets ISOMUX_TEST_LIVE=1). These run as the host user's
-// real environment and cost real tokens — keep them few, cheap, serial, and
+// real environment and cost real tokens - keep them few, cheap, serial, and
 // invariant-only (never assert exact model text).
 //
 // Invariants asserted (per backend): a session starts, a prompt predictably
@@ -151,7 +151,7 @@ async function runHarmlessToolTurn(cfg: ProviderConfig): Promise<{
 }
 
 for (const cfg of PROVIDERS) {
-  describe.skipIf(!LIVE)(`live smoke — ${cfg.name}`, () => {
+  describe.skipIf(!LIVE)(`live smoke - ${cfg.name}`, () => {
     it(
       "starts a session, runs a harmless tool, and completes the turn",
       async () => {

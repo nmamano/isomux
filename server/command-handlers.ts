@@ -91,7 +91,7 @@ function groupByAlias(items: AliasItem[]): AliasGroup[] {
   }
   // Second pass: alias entries attach to their canonical group. An alias
   // pointing at an unknown canonical falls back to standing alone (defensive
-  // — better than dropping the entry silently).
+  // - better than dropping the entry silently).
   for (const it of items) {
     if (!it.aliasFor) continue;
     const target = canonicalIndex.get(it.aliasFor);
@@ -115,11 +115,11 @@ function formatAliasGroup(names: string[], description?: string): string {
   const others = sorted.slice(1).map((n) => `\`/${n}\``);
   const head =
     others.length > 0 ? `${primary} (or ${others.join(", ")})` : primary;
-  return description ? `  ${head} — ${description}` : `  ${head}`;
+  return description ? `  ${head} - ${description}` : `  ${head}`;
 }
 
 interface HandlerDeps {
-  // State accessors (live references — read at call time)
+  // State accessors (live references - read at call time)
   agents: Map<string, ManagedAgent>;
   getRooms: () => RoomWire[];
   // Phase 3c: roomId is the room authority; the global room index / room object
@@ -171,7 +171,7 @@ interface HandlerDeps {
   // Wake a DORMANT agent so a skill's turn has a live session to send on (lazy
   // restore). Returns true if a session is ready; false if starting one failed
   // (an error was already logged and the agent moved to "error"), in which case
-  // the caller must stop. Caller must gate on `managed.info.dormant` — a
+  // the caller must stop. Caller must gate on `managed.info.dormant` - a
   // genuinely-broken (non-dormant) session is left to surface its own error.
   wakeDormantSession: (
     agentId: string,
@@ -187,7 +187,7 @@ interface HandlerDeps {
   // broadcast the explicit-null pill clear, like every other boundary
   // (newConversation, resume-to-different-session, edit-fork).
   resetContextUsage: (managed: ManagedAgent) => void;
-  // The office's disk-usage measurement, FULL (per-agent detail included) —
+  // The office's disk-usage measurement, FULL (per-agent detail included) -
   // the same call GET /api/storage/usage makes, memoized for 30s. Injected
   // rather than imported so the /isomux-storage access-control branches can be
   // pinned without walking a real state root, and so the refusal path can be
@@ -214,7 +214,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       // Build the new session BEFORE destroying pending control state and
       // the message queue. If createSession throws (bad cwd, broken env,
       // etc.) the user sees a visible error and the prior pending/queue
-      // state stays intact — they can retry or pick another recovery path.
+      // state stays intact - they can retry or pick another recovery path.
       // Once createSession returns, the swap commits: pending/queue clear,
       // topic persists, replaceSession installs. Queue must clear BEFORE
       // replaceSession or the post-swap idle trigger flushes prior-context
@@ -243,7 +243,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       managed.sessionId = null;
       // Conversation boundary: reset context-fullness state and broadcast the
       // pill clear. Runs AFTER the swap resolves (unlike newConversation's
-      // pre-await reset) — safe here because replaceSession already installed
+      // pre-await reset) - safe here because replaceSession already installed
       // the new session, so every old-session in-flight sample is orphaned by
       // the session-identity check regardless of gen. Missing this reset left
       // the pill showing the PREVIOUS conversation's reading after a typed
@@ -289,12 +289,12 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
         const bar = "█".repeat(filled) + "░".repeat(barLen - filled);
         return [
-          `**${u.model}** — ${u.totalTokens.toLocaleString()} / ${u.maxTokens.toLocaleString()} tokens (${pct}%)`,
+          `**${u.model}** - ${u.totalTokens.toLocaleString()} / ${u.maxTokens.toLocaleString()} tokens (${pct}%)`,
           `\`${bar}\``,
         ];
       };
       // No live session (released while idle, or never started), or the live
-      // read fails: fall back to the last committed snapshot — the same
+      // read fails: fall back to the last committed snapshot - the same
       // reading the battery pill shows (task 714d80da). Reading the snapshot
       // does NOT wake a dormant session.
       const snapshotFallback = (note?: (age: string) => string): boolean => {
@@ -317,7 +317,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       };
       if (!managed.session) {
         // Released-while-idle renders IDENTICALLY to the live case (no
-        // lifecycle note — remaining context doesn't change when the session
+        // lifecycle note - remaining context doesn't change when the session
         // process is released; Nil's call, task 714d80da).
         if (snapshotFallback()) return true;
         deps.addLogEntry(agentId, "system", "No active session.");
@@ -406,7 +406,7 @@ export function createCommandHandling(deps: HandlerDeps) {
 
       lines.push("**Docs:** https://isomux.com/docs");
 
-      // Tips — surfaced first so a new user reading top-down hits the
+      // Tips - surfaced first so a new user reading top-down hits the
       // actionable stuff before the command/skill inventory.
       lines.push("\n**Tips:**");
       lines.push(
@@ -428,14 +428,14 @@ export function createCommandHandling(deps: HandlerDeps) {
           "  • Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
         );
         lines.push(
-          "  • Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel — see https://isomux.com/docs/access-and-invites), the owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
+          "  • Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel - see https://isomux.com/docs/access-and-invites), the owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
         );
       } else {
         lines.push(
           `  • Isomux works on your phone: open ${publicOrigin.origin}.`,
         );
         lines.push(
-          "  • The owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
+          "  • The owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in - no accounts, no passwords.",
         );
       }
       lines.push(
@@ -445,10 +445,10 @@ export function createCommandHandling(deps: HandlerDeps) {
         "  • Isomux ships safety pre-tool-call hooks for Claude agents to prevent destructive commands. Codex agents don't have equivalent hooks.",
       );
 
-      // Commands — collapse aliased entries (e.g. `/diff` aliasFor
+      // Commands - collapse aliased entries (e.g. `/diff` aliasFor
       // `/isomux-diff`) into a single line so the user doesn't see two
       // lines for the same handler. Display order: shortest name first,
-      // others in parens (per boss preference — friendlier-looking
+      // others in parens (per boss preference - friendlier-looking
       // shorthand reads first).
       const cmdGroups = groupByAlias(
         managed.slashCommands.map((c) => ({
@@ -526,7 +526,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         const rawLabel = s.topic || s.sessionId.slice(0, 8) + "...";
         const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
         const suffix = s.branched ? "  (branched)" : "";
-        // cwd is a property of the session — surface it so the user sees which
+        // cwd is a property of the session - surface it so the user sees which
         // directory each session will resume into (it can differ per session).
         // Abbreviate the home prefix to `~` to save horizontal space.
         const cwdStr = s.cwd ? `  ${tildifyCwd(s.cwd)}` : "";
@@ -637,7 +637,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           const modelLabel = familyDisplayLabel(a.info.modelFamily);
           const topic = a.info.topic;
           const hasTopic = topic && topic !== "...";
-          const header = `**${a.info.name}** (desk ${a.info.desk + 1})${selfTag} — ${modelLabel} — \`${a.info.cwd}\``;
+          const header = `**${a.info.name}** (desk ${a.info.desk + 1})${selfTag} - ${modelLabel} - \`${a.info.cwd}\``;
           if (hasTopic) {
             lines.push(header);
             lines.push(`  Topic: ${topic}`);
@@ -775,7 +775,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       }
 
       // The cronjob receives the system prompt + the configured prompt as its
-      // first user message, so display both — that's the full initial input.
+      // first user message, so display both - that's the full initial input.
       const systemPrompt = buildCronjobSystemPrompt(target);
       const combined = `${systemPrompt}\n\n----\nFirst user message:\n\n${target.prompt}`;
       const longestRun = (combined.match(/`+/g) ?? []).reduce(
@@ -830,13 +830,13 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.addLogEntry(
           agentId,
           "system",
-          `\`${resolved.path}\` is a binary file — the editor panel only supports text.`,
+          `\`${resolved.path}\` is a binary file - the editor panel only supports text.`,
         );
       } else if (probe.kind === "too_large") {
         deps.addLogEntry(
           agentId,
           "system",
-          `\`${resolved.path}\` is ${(probe.size / 1024).toFixed(1)} KB — too large for the editor panel (1 MB limit).`,
+          `\`${resolved.path}\` is ${(probe.size / 1024).toFixed(1)} KB - too large for the editor panel (1 MB limit).`,
         );
       } else if (probe.kind === "io_error") {
         deps.addLogEntry(
@@ -894,7 +894,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           deps.addLogEntry(
             agentId,
             "system",
-            `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`,
+            `Working tree clean in \`${result.cwd}\` - no uncommitted changes.`,
           );
           break;
         case "ok":
@@ -916,7 +916,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       // Reuses the same backend-dispatched text + cards an auth-error
-      // would surface — single source of truth for "how does this agent
+      // would surface - single source of truth for "how does this agent
       // authenticate." Codex emits the two-card pick (browser + device-auth)
       // and the auto-clear short text when already authed; Claude emits its
       // /login walkthrough with a `claude` terminal card.
@@ -951,7 +951,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       // user who hits /usage before any Codex auth-error path won't have
       // `~/.isomux/bin/codex` on disk and the card will fail with "command
       // not found". If materialization throws (e.g. @openai/codex missing),
-      // skip the card entirely and surface a one-line system note — a dead
+      // skip the card entirely and surface a one-line system note - a dead
       // card is worse than no card.
       let codexWrapperReady = false;
       try {
@@ -1003,7 +1003,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       // Same gate as GET /api/storage/usage: office:read, which every human
       // has and a plain agent token does not. An invocation that did not come
       // from a signed-in person gets nothing rather than office-wide disk
-      // totals — the command's equivalent of the route's 403.
+      // totals - the command's equivalent of the route's 403.
       const user = username ? getUserByName(username) : undefined;
       if (!user) {
         deps.addLogEntry(
@@ -1021,7 +1021,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       const usage = deps.getStorageUsage();
       // Stored history outlives the agents that wrote it, so a name comes from
       // the live agent when there is one and from agent history when the agent
-      // has been killed. The raw directory name is the last resort — a row with
+      // has been killed. The raw directory name is the last resort - a row with
       // no label would hide real bytes. The "killed" flag follows agent
       // history's own killedAt rather than mere absence from the live map, so a
       // name is never annotated on a guess. Names go out RAW; the renderer
@@ -1077,7 +1077,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     // calling session.send now. Otherwise createTurnDeferred below would
     // supersede the in-flight turn and reject it with "Superseded by a new
     // turn". sendMessage's own queueing gate (`!isSlash`) lets all slash
-    // commands skip the queue — which is right for immediate handlers like
+    // commands skip the queue - which is right for immediate handlers like
     // /clear or /isomux-diff, but wrong for skills that actually run the
     // model. Multi-step pending flows still take the immediate path: the
     // user's reply during /resume etc. is a pick, not a skill.
@@ -1101,7 +1101,7 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     // A dormant agent (lazy-spawned, idle-evicted, or released by /clear) holds
     // no live session, so the runAgentTurn below would throw "agent has no
-    // session". Wake it first — this is the skill-dispatch site, reached only
+    // session". Wake it first - this is the skill-dispatch site, reached only
     // for an actual skill (control commands like /clear never get here), so the
     // no-auto-wake escape hatch on broken sessions stays intact. A genuinely-
     // broken (non-dormant) session is left to surface its own error.
@@ -1127,7 +1127,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         managed,
         visibleText: rawText,
         // For skills, the expanded skill prompt (with user args spliced in)
-        // is the semantic user request — what the user effectively asked
+        // is the semantic user request - what the user effectively asked
         // the model to do. The raw `/grill` invocation is captured in
         // visibleText for display. Sender prefix is applied as sdkText.
         originalText: fullPrompt,
@@ -1146,7 +1146,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     return true;
   }
 
-  // Slash command resolution — 5-step priority order (each step commented below;
+  // Slash command resolution - 5-step priority order (each step commented below;
   // the command/skill registry itself is server/commands.ts)
   async function handleSlashCommand(
     agentId: string,
@@ -1160,12 +1160,12 @@ export function createCommandHandling(deps: HandlerDeps) {
     const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];
 
-    // Count the dispatched use under the invoking user — Sk-menu ranking
+    // Count the dispatched use under the invoking user - Sk-menu ranking
     // rides these counts (task f1769b1a). COMMANDS and skills both count (the
     // menu ranks across both), under the name as typed/picked; only actual
     // dispatches count (unknown/unsupported echoes don't), and senders with
     // no user record (agents/system) are skipped. Hidden command spellings
-    // (autocomplete:false — /new, /reset) are skipped too: they can never
+    // (autocomplete:false - /new, /reset) are skipped too: they can never
     // surface in the menu, so their counts would be dead data.
     const countUse = () => {
       if (!username) return;
@@ -1186,7 +1186,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           device,
         );
       }
-      // Unsupported non-overridable command — show message
+      // Unsupported non-overridable command - show message
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
       return true;
@@ -1226,7 +1226,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     }
 
-    // Step 4: SDK-reported commands — pass through to the agent via session.send()
+    // Step 4: SDK-reported commands - pass through to the agent via session.send()
     if (managed.sdkReportedCommands.includes(cmd)) {
       return false; // let sendMessage() pass it through
     }

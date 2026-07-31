@@ -1,6 +1,6 @@
 // Scheduled-messages unit tests (task 8ff369b5). Proves the manager is an
 // instantiable unit: enqueue/display/notify/persistence/clock/scheduler are all
-// injected, so schedule firing is fully deterministic — no timers, no server,
+// injected, so schedule firing is fully deterministic - no timers, no server,
 // no disk (except the quarantine section, which targets the REAL persistence
 // helpers against the preload's temp STATE_ROOT on purpose).
 //
@@ -564,7 +564,7 @@ describe("firing (tick)", () => {
     // In-memory removal held: no duplicate while THIS process lives.
     tick();
     expect(w.enqueueCalls).toHaveLength(1);
-    // But the store still holds the entry — a restart re-fires it.
+    // But the store still holds the entry - a restart re-fires it.
     expect(w.store.saved).toHaveLength(1);
     const w2sched = fakeScheduler();
     const m2 = createScheduledMessageManager({

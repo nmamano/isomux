@@ -2,7 +2,7 @@
 // agents.json, users.json, sessions, logs, cronjobs, backups, the codex-home /
 // bin runtime dirs, and the rest of isomux's persisted footprint.
 //
-// Production resolves to ~/.isomux exactly as before — byte-for-byte. Tests
+// Production resolves to ~/.isomux exactly as before - byte-for-byte. Tests
 // redirect the entire tree by setting ISOMUX_HOME to a temp dir BEFORE importing
 // any server module, so a test run never touches real user state.
 //
@@ -11,7 +11,7 @@
 //     tests to assert resolution logic without mutating process.env.
 //   - STATE_ROOT is resolved ONCE at module import and is intentionally
 //     process-scoped. Do NOT mutate process.env.ISOMUX_HOME after importing
-//     this module and expect STATE_ROOT to change — it won't. Per-test root
+//     this module and expect STATE_ROOT to change - it won't. Per-test root
 //     isolation is achieved by setting ISOMUX_HOME before the server is
 //     imported (one root per test process), not by re-resolving at runtime.
 
@@ -30,7 +30,7 @@ export function resolveStateRoot(env: NodeJS.ProcessEnv = process.env): string {
 export const STATE_ROOT = resolveStateRoot();
 
 // True when the active root is the production default (~/.isomux). Lets callers
-// preserve byte-for-byte production output — the user-facing `~/.isomux/...`
-// literals in terminal cards and the generated codex wrapper — while still
+// preserve byte-for-byte production output - the user-facing `~/.isomux/...`
+// literals in terminal cards and the generated codex wrapper - while still
 // targeting the active root under an ISOMUX_HOME override.
 export const IS_DEFAULT_STATE_ROOT = STATE_ROOT === join(homedir(), ".isomux");

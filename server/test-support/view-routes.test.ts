@@ -1,4 +1,4 @@
-// Phase 3b slice 4 — view.* REST routes + the per-user view core (applyViewChange),
+// Phase 3b slice 4 - view.* REST routes + the per-user view core (applyViewChange),
 // exercised through the real REST surface. Covers the NO-ORACLE write rules
 // (Isomuxer3 Q2: malformed SHAPES rejected, unknown/inaccessible/hidden ROOM IDS
 // silently filtered/clamped) and the clamp invariants (order deduped + accessible;
@@ -7,7 +7,7 @@
 // Phase 4 close-out removed view.get + view.setShown (callerless); the Default
 // Room setting (view.setDefaultRoom) was later removed too. Task 9301d0f4
 // restored view.setShown (the hide-rooms UI landed) and added the self-scoped
-// accessible-rooms read view.listRooms (GET /api/me/rooms) — both covered in
+// accessible-rooms read view.listRooms (GET /api/me/rooms) - both covered in
 // the second describe block below. view.get stays retired; writes are read
 // back from the stored record. The hide() helper (direct persisted-state
 // setup) is kept for the tests that predate the restored route.
@@ -57,7 +57,7 @@ function grant(username: string, roomIds: string[]): void {
 }
 
 // Hide accessible rooms directly (test setup; predates the restored
-// view.setShown route — kept so these tests exercise the clamp on records
+// view.setShown route - kept so these tests exercise the clamp on records
 // seeded outside the route, e.g. by the owner-access migration).
 function hide(username: string, roomIds: string[]): void {
   const id = getUserByName(username)!.id;
@@ -90,7 +90,7 @@ async function waitForFullState(
   }
 }
 
-describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
+describe("view.* routes - no-oracle writes + clamp invariants (3b.4)", () => {
   it("setOrder dedupes (first occurrence wins), filters inaccessible, keeps hidden-but-accessible", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
@@ -112,7 +112,7 @@ describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
   it("a directly-hidden room is excluded from effective notifRooms on the next view write", async () => {
     // view.setShown is gone (Phase 4); a hidden room now arrives via the
     // migration seed (here: direct setup). The clamp still fires on the next
-    // view write — the same clampViewFields path the retired setShown used, and
+    // view write - the same clampViewFields path the retired setShown used, and
     // the same one users.setAccess uses on revoke (covered in user-settings.test).
     server = await startTestServer();
     await server.seedOwner("Boss");
@@ -141,7 +141,7 @@ describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
     expect(
       await putView(server, member.rawSessionId, "order", { order: "nope" }),
     ).toBe(422);
-    // Unknown id is NOT rejected (rejecting would be an existence oracle) — it's
+    // Unknown id is NOT rejected (rejecting would be an existence oracle) - it's
     // silently filtered, so the write still succeeds (204) and stores only r1.
     expect(
       await putView(server, member.rawSessionId, "order", {
@@ -182,7 +182,7 @@ describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
   });
 });
 
-// Task 9301d0f4 — the restored view.setShown + the new view.listRooms, i.e.
+// Task 9301d0f4 - the restored view.setShown + the new view.listRooms, i.e.
 // the DISPLAY level of the hierarchical room settings (ACCESS ⊇ DISPLAYED ⊇
 // NOTIFICATIONS) as exercised by the Users-page hide-rooms UI.
 describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
@@ -252,7 +252,7 @@ describe("view.setShown + view.listRooms (task 9301d0f4)", () => {
     }
   });
 
-  it("listRooms returns id+name for every ACCESSIBLE room — hidden included, inaccessible excluded", async () => {
+  it("listRooms returns id+name for every ACCESSIBLE room - hidden included, inaccessible excluded", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");

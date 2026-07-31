@@ -1,4 +1,4 @@
-// server/version.ts — git-derived version identity. Exercises the uncached
+// server/version.ts - git-derived version identity. Exercises the uncached
 // resolveVersionInfo seam against throwaway git repos in the OS temp dir;
 // getVersionInfo (the cached production entry) is just resolveVersionInfo over
 // the real checkout, so only the null-on-no-git contract is pinned for it via

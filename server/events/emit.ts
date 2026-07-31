@@ -1,4 +1,4 @@
-// The single emit helper — Phase 2.3. The ONLY path to the wire in the new
+// The single emit helper - Phase 2.3. The ONLY path to the wire in the new
 // transport layer. See internal-docs/generic-runtime-refactor.md → "One wire
 // stream, plural audiences" + "Event registry".
 //
@@ -31,7 +31,7 @@ import {
   type RegistryEvent,
 } from "./registry.ts";
 
-// The routing subject for recipient-scoped events — supplied by the emit call
+// The routing subject for recipient-scoped events - supplied by the emit call
 // site (NOT carried in the payload). connectionId targets a single socket
 // (session_context / presence_list / editor_external_change /
 // editor_file_deleted / session_expired);
@@ -42,7 +42,7 @@ export interface EmitContext {
   userId?: string;
 }
 
-// The injected transport seam. `S` is an opaque session handle — emit NEVER
+// The injected transport seam. `S` is an opaque session handle - emit NEVER
 // inspects it; it only asks deps for recipient sets and hands them back to
 // deliver(). Tests use a fake session record; Phase-3 production uses the live
 // ServerWebSocket. This keeps emit pure and the audience logic unit-testable.
@@ -109,7 +109,7 @@ function deriveRoomIds<S>(
       const hasOld = nonEmptyString(oldId);
       const hasNew = nonEmptyString(newId);
       if (hasOld || hasNew) {
-        // A move: BOTH ids must be carried, else fail closed — a half-carried
+        // A move: BOTH ids must be carried, else fail closed - a half-carried
         // move would silently drop the departing or arriving room's audience.
         if (!(hasOld && hasNew)) return null;
         return [oldId, newId];
@@ -174,7 +174,7 @@ export function resolveRecipients<S>(
     }
     default:
       // The AudienceStrategy type makes this unreachable; the explicit arm makes
-      // fail-closed TOTAL — a malformed runtime audience selects NOBODY rather
+      // fail-closed TOTAL - a malformed runtime audience selects NOBODY rather
       // than falling through to an undefined recipient set (a fail-open).
       return null;
   }

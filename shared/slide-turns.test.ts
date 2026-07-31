@@ -148,7 +148,7 @@ describe("shouldRequestSlide (client request gating)", () => {
     expect(shouldRequestSlide(digested, false)).toBe(false);
   });
 
-  // A REPORTED failure is terminal — the one outcome that stops the watchdog
+  // A REPORTED failure is terminal - the one outcome that stops the watchdog
   // (task 01a7327a). Without this, the 120s orphan retry would spend a model
   // call every two minutes on a turn the formatter just choked on.
   it("never re-requests a turn whose generation was reported failed", () => {
@@ -169,7 +169,7 @@ describe("shouldRequestSlide (client request gating)", () => {
   });
 
   // Task e9429ef3: a placeholder recorded for a turn that has since produced an
-  // answer is provably stale, and the deck has no other way back from it — a
+  // answer is provably stale, and the deck has no other way back from it - a
   // digest-bearing record was skipped unconditionally, so the "No answer to
   // show" card stuck until the viewer hit regenerate by hand.
   describe("stale placeholder", () => {
@@ -208,7 +208,7 @@ describe("shouldRequestSlide (client request gating)", () => {
       // digests disagree: were the client's log ever to differ from the
       // server's for a settled turn, a blanket mismatch rule would re-ask every
       // watchdog window forever. Restricted to placeholders, the re-ask happens
-      // at most once — the regenerated record is no longer a placeholder.
+      // at most once - the regenerated record is no longer a placeholder.
       expect(
         shouldRequestSlide(
           { contentDigest: slideContentDigest(emptyTurn), placeholder: false },
@@ -355,7 +355,7 @@ describe("settledDeckPos (what gets persisted on a length change)", () => {
   it("marks atEnd when a SHRINK makes the unchanged cursor the new last slide", () => {
     // The P2 case: viewer at index 1 of a 5-deck (not at end). An edit/fork
     // shrinks the deck to 2; index stays 1 but 1 is now the last slide, so the
-    // persisted atEnd must flip to true — otherwise re-entry treats them as
+    // persisted atEnd must flip to true - otherwise re-entry treats them as
     // intentionally behind and won't follow newest.
     expect(settledDeckPos(1, 5, 2)).toEqual({ index: 1, atEnd: true });
   });
@@ -393,7 +393,7 @@ describe("restoredDeckPos (what gets shown + persisted on first open)", () => {
   });
 
   it("saved-behind index that clamps onto the (now shorter) last slide becomes atEnd", () => {
-    // The first-load P2: {index:0, atEnd:false} but the deck is now one slide —
+    // The first-load P2: {index:0, atEnd:false} but the deck is now one slide -
     // index 0 is at-end, so the persisted position must record atEnd:true, or
     // re-entry keeps treating the viewer as intentionally behind.
     expect(restoredDeckPos({ index: 0, atEnd: false }, 1)).toEqual({

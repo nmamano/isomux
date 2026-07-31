@@ -1,6 +1,6 @@
 # Self-hosted setup
 
-Isomux is at its best when you run it on an always-on box — a Mac mini, a spare Linux machine, anything — and have it reachable from all your devices and from anyone you've invited. Same office for laptop, phone, friends, collaborators. Agents keep running even after you close the browser.
+Isomux is at its best when you run it on an always-on box - a Mac mini, a spare Linux machine, anything - and have it reachable from all your devices and from anyone you've invited. Same office for laptop, phone, friends, collaborators. Agents keep running even after you close the browser.
 
 There are three pieces to set up: keep the server **running** when nobody is logged in, make it **reachable** from the devices and people who need it, and **authorize** who can use it.
 
@@ -21,7 +21,7 @@ Discord: https://discord.gg/FrjEYyNvYs
 
 The agent will install the unit, enable lingering, and verify the service is up.
 
-The prompt is Linux/systemd-centric. The macOS equivalent is launchd, the Windows equivalent is Task Scheduler — adjust accordingly or ask in [Discord](https://discord.gg/FrjEYyNvYs).
+The prompt is Linux/systemd-centric. The macOS equivalent is launchd, the Windows equivalent is Task Scheduler - adjust accordingly or ask in [Discord](https://discord.gg/FrjEYyNvYs).
 
 The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 20+, which the embedded terminal runs on.
 
@@ -31,7 +31,7 @@ Optional: install a Chrome-family browser on the host to enable browser preview 
 
 The server runs on `localhost:4000`. To use it from another device or share it with another user, you need to expose it. Two paths, depending on who needs access.
 
-> **Before any of this works from another device, claim the office locally first.** Pre-claim, the server binds 127.0.0.1 only — so `http://my-mac-mini:4000` will return connection refused until you (a) claim ownership from the host (or via `ssh -L`, see section 3), and (b) enable _External access_ in User Settings → Access and restart the service. The [access-and-invites doc](access-and-invites.md) has the full sequence.
+> **Before any of this works from another device, claim the office locally first.** Pre-claim, the server binds 127.0.0.1 only - so `http://my-mac-mini:4000` will return connection refused until you (a) claim ownership from the host (or via `ssh -L`, see section 3), and (b) enable _External access_ in User Settings → Access and restart the service. The [access-and-invites doc](access-and-invites.md) has the full sequence.
 
 ### Your devices (and anyone willing to install Tailscale)
 
@@ -44,27 +44,27 @@ sudo tailscale up
 
 Rename your machine in the [Tailscale admin console](https://login.tailscale.com/admin/machines) to something friendly (e.g. `my-mac-mini`). Once the office is claimed and External access is on, open from any tailnet device at `http://my-mac-mini:4000`.
 
-This works fine for _your_ devices and for collaborators you trust enough to invite onto your tailnet. Most people, though, will not want to install Tailscale just to drop into your office — for them you need a public URL.
+This works fine for _your_ devices and for collaborators you trust enough to invite onto your tailnet. Most people, though, will not want to install Tailscale just to drop into your office - for them you need a public URL.
 
 ### Other users (public URL)
 
 The recommended path is **Tailscale Funnel**: it exposes your existing tailnet hostname (`*.ts.net`) to the public internet without buying a domain or opening router ports. TLS terminates on your box, not at the Tailscale relay.
 
-The [access-and-invites doc](access-and-invites.md#recommended-tailscale-funnel) has the full agent prompt that walks you through Funnel setup — including the safety checks for existing port-443 services and the hand-off to the Access pane to enable external access. A Caddy alternative is documented in the same file.
+The [access-and-invites doc](access-and-invites.md#recommended-tailscale-funnel) has the full agent prompt that walks you through Funnel setup - including the safety checks for existing port-443 services and the hand-off to the Access pane to enable external access. A Caddy alternative is documented in the same file.
 
 ### Install on mobile (PWA)
 
 Once the office is reachable from your phone (over your VPN or a public URL), install it as a PWA for a native-app feel:
 
 - **iPhone:** Safari → Share → "Add to Home Screen".
-- **Android:** Chrome prompts you to install on first visit. Requires HTTPS — see the next subsection.
+- **Android:** Chrome prompts you to install on first visit. Requires HTTPS - see the next subsection.
 
 ### Enable HTTPS (for voice input and Android PWA install)
 
 Some features require a **secure context** (HTTPS or localhost):
 
-- **Voice input** — browser microphone access requires HTTPS.
-- **PWA install on Android** — Chrome's install prompt requires HTTPS.
+- **Voice input** - browser microphone access requires HTTPS.
+- **PWA install on Android** - Chrome's install prompt requires HTTPS.
 
 These work on `localhost` without setup. A public URL via Tailscale Funnel already provides HTTPS. For HTTPS over a private tailnet (no Funnel), enable Tailscale's built-in cert:
 
@@ -75,7 +75,7 @@ sudo tailscale set --operator=$USER
 tailscale serve --bg http://localhost:4000
 ```
 
-Visit the HTTPS URL it prints (e.g. `https://my-mac-mini.<tailnet>.ts.net`) — voice and Android PWA install will now work from any tailnet device.
+Visit the HTTPS URL it prints (e.g. `https://my-mac-mini.<tailnet>.ts.net`) - voice and Android PWA install will now work from any tailnet device.
 
 ## 3. Authorize users
 
@@ -85,12 +85,12 @@ To grant someone access, mint a single-use invite link in `User Settings → Inv
 
 Two roles exist:
 
-- **Owner** — can mint invites, revoke sessions, and set per-user room access.
-- **Member** — can use the office in the rooms the owner permits, can't invite or revoke.
+- **Owner** - can mint invites, revoke sessions, and set per-user room access.
+- **Member** - can use the office in the rooms the owner permits, can't invite or revoke.
 
 To claim the office as the first owner, open `http://localhost:4000` on the host machine and submit a display name. From a different machine, tunnel in first with `ssh -L 4000:localhost:4000 <user>@<host>` and then open `http://localhost:4000` in your local browser.
 
-For the full flow — invite TTLs, multi-device users, sign-out, owner recovery, threat model — see [access and invites](access-and-invites.md).
+For the full flow - invite TTLs, multi-device users, sign-out, owner recovery, threat model - see [access and invites](access-and-invites.md).
 
 > **Note:** Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
 

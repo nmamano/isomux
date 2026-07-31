@@ -271,21 +271,21 @@ interface UserRecord {
 
 The per-user envFile is the mechanism for letting each co-tenant bill Claude/Codex against their own account, instead of sharing whatever account the host Linux user logged into. Two supported recipes per user, both as env vars in the user envFile:
 
-**Flavor A — API-key billing** (requires an Anthropic / OpenAI API account):
+**Flavor A - API-key billing** (requires an Anthropic / OpenAI API account):
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
 
-**Flavor B — OAuth subscription billing** (Claude Pro/Max, ChatGPT Plus/Pro):
+**Flavor B - OAuth subscription billing** (Claude Pro/Max, ChatGPT Plus/Pro):
 
 ```
 CLAUDE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/.claude
 CODEX_HOME=/home/<linux-user>/.isomux-users/<user>/.codex
 ```
 
-Values must be absolute paths — isomux's dotenv parser does not expand `~` or `$VAR`. The shell login commands below can use `~` because the shell expands those before the CLI runs.
+Values must be absolute paths - isomux's dotenv parser does not expand `~` or `$VAR`. The shell login commands below can use `~` because the shell expands those before the CLI runs.
 
 Each tool reads credentials from the directory the env var points at. The Claude SDK honors `CLAUDE_CONFIG_DIR`; Codex honors `CODEX_HOME`. Both are documented provider env vars, not isomux-specific.
 
@@ -298,12 +298,12 @@ mkdir -p ~/.isomux-users/marc/.claude && chmod 700 ~/.isomux-users/marc/.claude
 CLAUDE_CONFIG_DIR=~/.isomux-users/marc/.claude claude auth login
 
 mkdir -p ~/.isomux-users/marc/.codex && chmod 700 ~/.isomux-users/marc/.codex
-# Codex now ships bundled with isomux — invoke the bundled launcher from the
+# Codex now ships bundled with isomux - invoke the bundled launcher from the
 # isomux checkout (cd into it first if your terminal panel is elsewhere).
 CODEX_HOME=~/.isomux-users/marc/.codex bun node_modules/@openai/codex/bin/codex.js login
 ```
 
-The CLI prints an OAuth URL; the user opens it in their own browser, signs in with their own Anthropic / OpenAI account, the token lands in the per-user dir. The user then appends the env-var lines above to their envFile, using **absolute paths** — isomux's dotenv parser does not expand `~` or `$VAR`.
+The CLI prints an OAuth URL; the user opens it in their own browser, signs in with their own Anthropic / OpenAI account, the token lands in the per-user dir. The user then appends the env-var lines above to their envFile, using **absolute paths** - isomux's dotenv parser does not expand `~` or `$VAR`.
 
 Direct SSH as the host user is an alternative path for users with their pubkey authorized; users without shell access can have the operator run the login command on the host while they complete OAuth in their own browser.
 

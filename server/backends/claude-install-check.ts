@@ -5,7 +5,7 @@
 // `claude` CLI to be installed. That CLI is only needed for the human auth
 // flow: `claude` then `/login` writes credentials the SDK then reads. So
 // `isClaudeCodeInstalled() === false` only matters when we're surfacing
-// login instructions — it lets us swap "open terminal, run claude, /login"
+// login instructions - it lets us swap "open terminal, run claude, /login"
 // (no-op if the binary isn't there) for an install hint first.
 //
 // Codex doesn't have an equivalent presence check: codex now ships bundled as
@@ -38,11 +38,11 @@ export function isClaudeCodeInstalled(): boolean {
 // walkthrough at someone who's already done their part.
 //
 // Two positive signals, either is enough:
-//   1. ANTHROPIC_API_KEY in the agent's effective env — env-var auth
+//   1. ANTHROPIC_API_KEY in the agent's effective env - env-var auth
 //      bypasses the credentials file entirely. Caller passes the agent's
 //      resolved env (process.env + office envFile + user envFile, in
 //      override order); defaults to process.env if no env supplied.
-//   2. `~/.claude/.credentials.json` exists — the file `claude /login`
+//   2. `~/.claude/.credentials.json` exists - the file `claude /login`
 //      writes, and what the SDK reads to authenticate.
 //
 // Symmetric with `isCodexAuthenticated` in codex/native-bin.ts. The CLI

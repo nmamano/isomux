@@ -21,12 +21,12 @@ const results: TestResult[] = [];
 
 function pass(name: string, detail = "") {
   results.push({ name, ok: true, detail });
-  console.log(`✓ ${name}${detail ? ` — ${detail}` : ""}`);
+  console.log(`✓ ${name}${detail ? ` - ${detail}` : ""}`);
 }
 
 function fail(name: string, detail: string) {
   results.push({ name, ok: false, detail });
-  console.log(`✗ ${name} — ${detail}`);
+  console.log(`✗ ${name} - ${detail}`);
 }
 
 function baseOpts() {
@@ -218,7 +218,7 @@ async function test4_closeDuringActive() {
     "close() mid-conversation: close() is sync-safe, iterator terminates";
   // Two invariants:
   //   1. close() itself must not throw synchronously
-  //   2. The iterator must terminate (done OR throw — production swallows the
+  //   2. The iterator must terminate (done OR throw - production swallows the
   //      throw via `if (!this.closed)` in feedSDKMessages). Hang would be bad.
   try {
     const conv = realV1SdkClient.createSession(baseOpts());

@@ -44,7 +44,7 @@ function EditIcon() {
 /**
  * True when this tool_result is paired with a tool_call in the same turn and
  * has nothing the user needs to see in its own row (no attachments). Folded
- * results are hidden — the tool_call's expand panel renders their text, and
+ * results are hidden - the tool_call's expand panel renders their text, and
  * errored results additionally show a compact preview inside their (red)
  * tool_call card. Errors fold too: with parallel tool calls the results
  * arrive after ALL the calls, so a standalone error row would sit under an
@@ -468,7 +468,7 @@ export const LogEntryCard = memo(function LogEntryCard({
       if (!entry.attachments || entry.attachments.length === 0)
         return <SystemMessage content={entry.content} isMobile={isMobile} />;
       // preview-url marks its entries with metadata.preview and sets content
-      // to the captured page's sanitized URL — show it as a caption. Other
+      // to the captured page's sanitized URL - show it as a caption. Other
       // file-view producers (read-file) carry no marker and stay caption-free;
       // explicit contract rather than inferring from content/filename drift.
       const caption =
@@ -924,7 +924,7 @@ function ToolCall({
   // Isomux API cards get an accent tint so they read differently from
   // ordinary (green) tool calls; errors stay red either way. The tint uses
   // dedicated --isomux-card-* vars (not raw --accent-bg / --border) so light
-  // themes can strengthen it — on white the plain accent tint was too faint
+  // themes can strengthen it - on white the plain accent tint was too faint
   // to distinguish from the green tool-call background.
   const borderColor = resultIsError
     ? "var(--red)"
@@ -1115,7 +1115,7 @@ function ToolResult({
   const isLong = content.length > 200;
   const preview = isLong ? content.slice(0, 150) + "..." : content;
   const isError = entry.metadata?.isError === true;
-  // We only reach this branch when isFoldedToolResult returned false — i.e.
+  // We only reach this branch when isFoldedToolResult returned false - i.e.
   // the row has attachments, has no matching call, or is an error. In the
   // attachments-only-paired-success case the text is already in the tool_call
   // expander, so don't duplicate it here.
@@ -1131,7 +1131,7 @@ function ToolResult({
   // Attachment echo: when the agent Reads an image out of its OWN attachment
   // directory, that file arrived through this very chat (attachments are
   // path-notices since task 353e2e66) and is already rendered above as the
-  // user's upload — a full re-render just mirrors it back. Collapse to a
+  // user's upload - a full re-render just mirrors it back. Collapse to a
   // click-to-expand chip instead. Images read from anywhere else (agent
   // screenshots, repo files) keep the full render: there the boss can't
   // otherwise know what the agent is looking at.
@@ -1291,7 +1291,7 @@ function SystemMessage({
 
 // One-line background-task lifecycle breadcrumb (metadata.taskEvent on a
 // system entry). Same unobtrusive centered style as single-line SystemMessage,
-// plus a CSS status dot — a plain <span>, deliberately not a Unicode glyph
+// plus a CSS status dot - a plain <span>, deliberately not a Unicode glyph
 // (iOS Safari emoji-renders glyphs like ▶/●, overriding CSS color).
 function TaskBreadcrumb({
   content,
@@ -1336,7 +1336,7 @@ function TaskBreadcrumb({
 }
 
 // Compact card for a tool call auto-denied without an interactive prompt
-// (metadata.permissionDenied on a system entry — auto-mode classifier, deny
+// (metadata.permissionDenied on a system entry - auto-mode classifier, deny
 // rule, dontAsk). Styled distinctly from both SystemMessage and the error
 // block: a red-edged card, since the denial is a policy outcome the boss
 // should notice, not an agent failure. No Unicode glyph for the marker (iOS
@@ -1397,7 +1397,7 @@ function extractToolSummary(toolName: string, input: unknown): string {
   switch (toolName) {
     case "Bash":
       // Isomux curl cards are bounded against this budget so a card never
-      // conceals more of a command than this row would — see MAX_TAIL_DISPLAY
+      // conceals more of a command than this row would - see MAX_TAIL_DISPLAY
       // in isomux-curl.ts before changing it.
       return typeof obj.command === "string"
         ? obj.command.slice(0, BASH_RAW_SUMMARY_CHARS)

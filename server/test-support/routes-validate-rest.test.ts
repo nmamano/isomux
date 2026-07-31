@@ -1,4 +1,4 @@
-// Phase 3a slice 3a.5 — validate.{cwd,env} on the unified REST surface.
+// Phase 3a slice 3a.5 - validate.{cwd,env} on the unified REST surface.
 //
 // The validate.env block is the slice's must-have regression net: the route's
 // object-level policy lives ENTIRELY in the validateEnvBodySelfSubject
@@ -6,7 +6,7 @@
 // body.username, not a :username path param. An earlier table had the guard as
 // or(officeOwner, selfUser); since selfUser only reads params.username and this
 // route has none, that guard collapsed to officeOwner and DENIED a member
-// validating their own env at the guard — before the precondition could run,
+// validating their own env at the guard - before the precondition could run,
 // making the precondition dead code. These tests pin that a member validating
 // their OWN env is ALLOWED (precondition reached + passed) while office scope /
 // another user's env are denied, so the precondition can never silently become
@@ -206,7 +206,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
     const owner = await srv.seedOwner("Boss");
     const member = await srv.seedMember("Alice");
 
-    // Member targeting a user that does not exist: SAME 403 as a foreign user —
+    // Member targeting a user that does not exist: SAME 403 as a foreign user -
     // no exists-but-hidden distinction.
     expect(
       (
@@ -219,7 +219,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
     ).toBe(403);
 
     // Owner targeting a nonexistent user resolves to no env -> {ok:true}, the
-    // SAME response as a real user with no env file (Alice) — owners cannot
+    // SAME response as a real user with no env file (Alice) - owners cannot
     // distinguish "no such user" from "user has no env".
     const ghost = await api(srv, "/api/validate/env", {
       method: "POST",
@@ -314,7 +314,7 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
     await srv.agentManager.setPrivileged(agent.id, true);
     const token = getAgentTokenRaw(agent.id)!;
     // Fails closed for non-user scope: office, another user, AND its own owner's
-    // env are all 403 — a privileged agent never validates env files.
+    // env are all 403 - a privileged agent never validates env files.
     for (const body of [
       { scope: "office" },
       { scope: "user", username: "Boss" },
@@ -368,7 +368,7 @@ describe("routes/validate.env REST: resolution core (keyCount + error)", () => {
     // only their OWN env path; office/other-user paths reach only owners, who can
     // read them via office.getSettings anyway). What is dropped by design is the
     // structured `envFile` field on SUCCESS (asserted above), not error-message
-    // scrubbing — so no not.toContain assertion here.
+    // scrubbing - so no not.toContain assertion here.
   });
 
   it("member omitted username resolves to OWN env: {scope:'user'} validates self like {scope:'user',username:self}", async () => {
@@ -442,7 +442,7 @@ describe("routes/validate.env REST: explicit typed path (users-page follow-up 47
     expect(typed.body).toEqual({ ok: true, keyCount: 2 });
 
     // A typed path that doesn't resolve surfaces the error even though the
-    // STORED env is fine — this is the whole point (validate before save).
+    // STORED env is fine - this is the whole point (validate before save).
     const missing = await api(srv, "/api/validate/env", {
       method: "POST",
       rawSessionId: member.rawSessionId,
@@ -455,7 +455,7 @@ describe("routes/validate.env REST: explicit typed path (users-page follow-up 47
     expect(missing.status).toBe(200);
     expect((missing.body as { ok: boolean }).ok).toBe(false);
 
-    // A PROVIDED blank/whitespace path is a boundary error — it must not
+    // A PROVIDED blank/whitespace path is a boundary error - it must not
     // silently fall back to the stored env and report a misleading ok.
     // (Omitted path -> stored resolution is pinned by the earlier tests.)
     const blank = await api(srv, "/api/validate/env", {

@@ -3,7 +3,7 @@
 // These three prefixes used to be loopback-trusted aliases of routes that now
 // live on the bearer-gated /api surface. They are GONE, and this file is the
 // end-state pin, replacing the two characterization suites that froze their
-// behavior (routes-tasks.test.ts, routes-cronjobs.test.ts — deleted with the
+// behavior (routes-tasks.test.ts, routes-cronjobs.test.ts - deleted with the
 // routes). The live surface is covered in routes-tasks-rest.test.ts,
 // routes-cronjobs-rest.test.ts and routes-cronjobs-runs.test.ts.
 //
@@ -11,7 +11,7 @@
 //   1. Anonymous (the SSRF / open-proxy shape the retirement is for): 401 at the
 //      cookie wall. The harness fetches 127.0.0.1, so a returning loopback
 //      bypass would show up here as a 200.
-//   2. Authenticated (owner cookie, and an agent bearer): JSON 404 — never a
+//   2. Authenticated (owner cookie, and an agent bearer): JSON 404 - never a
 //      200 text/html SPA shell, which would mask the caller.
 //   3. No wildcard CORS: no Access-Control-Allow-Origin on any response, and no
 //      OPTIONS preflight advertising the old method list.
@@ -129,7 +129,7 @@ describe("routes/legacy-retired: authenticated callers get a JSON 404", () => {
 });
 
 // URL leaves %2f encoded, so a raw-pathname match would let these through to the
-// SPA shell — a 200 text/html answer to a caller still using a retired route.
+// SPA shell - a 200 text/html answer to a caller still using a retired route.
 describe("routes/legacy-retired: path shapes that skirt a naive match", () => {
   const SKIRTING = [
     "/tasks%2fabc",
@@ -162,7 +162,7 @@ describe("routes/legacy-retired: path shapes that skirt a naive match", () => {
   });
 
   // Only ONE decode pass: %252f is the literal text "%2f", not a separator, so
-  // it is a plain unknown path — no handler is behind it either way.
+  // it is a plain unknown path - no handler is behind it either way.
   it("a double-encoded separator is not treated as a retired path", async () => {
     const srv = await startTestServer();
     server = srv;

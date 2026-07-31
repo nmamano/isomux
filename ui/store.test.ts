@@ -4,8 +4,8 @@
 // the correctness core: a fetched historical batch and the live entries that
 // arrive during an active run share ONE stream (keyed by `entry.agentId =
 // cronjobRunStreamId(runId)`) and ONE id-dedupe map (`logEntryIds`). The batch
-// must be equivalent to replaying each entry as a `log_entry` — append unseen
-// ids, skip already-seen ones — so overlapping live entries are neither dropped
+// must be equivalent to replaying each entry as a `log_entry` - append unseen
+// ids, skip already-seen ones - so overlapping live entries are neither dropped
 // nor duplicated. (cron.getRun's REST shape + 404 are covered server-side.)
 
 import { describe, it, expect } from "bun:test";
@@ -29,7 +29,7 @@ describe("reducer: log_entries_batch", () => {
       type: "log_entries_batch",
       entries: [
         entry("hist-1", S, 50),
-        live, // same id as the live entry — must be deduped, not duplicated
+        live, // same id as the live entry - must be deduped, not duplicated
         entry("hist-2", S, 75),
       ],
     });
@@ -54,7 +54,7 @@ describe("reducer: log_entries_batch", () => {
       type: "log_entries_batch",
       entries: [live],
     });
-    // Referential equality — a duplicate-only batch must not clone state.
+    // Referential equality - a duplicate-only batch must not clone state.
     expect(after).toBe(seeded);
   });
 
@@ -81,7 +81,7 @@ describe("reducer: clear_logs", () => {
   it("clears the agent's unread (needsAttention) dot along with its logs", () => {
     // The dot is per-client state; the server-broadcast clear_logs (fired by
     // new-conversation and every other conversation boundary) is what makes
-    // ALL clients drop it — task 8d763325. Seed dots for two agents; the
+    // ALL clients drop it - task 8d763325. Seed dots for two agents; the
     // cleared one loses its dot, the other keeps it.
     const seeded = {
       ...reducer(initialState, {
@@ -189,7 +189,7 @@ describe("reducer: slide failure marks", () => {
     createdAt: 1,
     contentDigest: "abcd",
   });
-  // A stale record being reconciled — the invalidate path deletes these.
+  // A stale record being reconciled - the invalidate path deletes these.
   const placeholderRec: SlideRecord = {
     html: null,
     placeholder: true,

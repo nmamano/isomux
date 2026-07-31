@@ -1,4 +1,4 @@
-// server/update-checker.ts — the pure pieces of both modes: CalVer ordering,
+// server/update-checker.ts - the pure pieces of both modes: CalVer ordering,
 // the releases/latest response mapping, the availability decisions, the
 // commit-mode compare-base/lineage/status derivations, and the REPO_URL →
 // owner/repo derivation. The fetch/timer plumbing is deliberately untested;
@@ -119,7 +119,7 @@ describe("pickCompareBase (commit-mode drift reference)", () => {
     expect(pickCompareBase(null, null, sha)).toBe(sha);
   });
 
-  it("behind box counts from the RELEASE, not its own stale tag — 'main has N commits beyond that' (matrix row 4) stays truthful", () => {
+  it("behind box counts from the RELEASE, not its own stale tag - 'main has N commits beyond that' (matrix row 4) stays truthful", () => {
     // A future "simplify to always-HEAD" change must fail here: the drift
     // number would silently change meaning from beyond-the-release to
     // beyond-the-box.
@@ -223,7 +223,7 @@ describe("computeCommitStatus (the source-checkout decision)", () => {
     ).toBe(true);
   });
 
-  it("ahead of main stays quiet, absolutely — even with a newer release out", () => {
+  it("ahead of main stays quiet, absolutely - even with a newer release out", () => {
     // Diverged / box has commits main lacks.
     const diverged = status(null, "v2026.7.20", rel("v2026.7.22"), cmp(2, 3));
     expect(diverged.updateAvailable).toBe(false);

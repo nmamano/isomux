@@ -10,10 +10,10 @@
 // caller-supplied handler (Isomux pipes it to the agent log).
 //
 // Wire shapes (post-handshake):
-//   request:        { id, method, params }            — client → server
-//   notification:   { method, params }                — either direction (no id)
-//   response:       { id, result } or { id, error }   — either direction
-//   server-request: { id, method, params }            — server → client; client
+//   request:        { id, method, params }            - client → server
+//   notification:   { method, params }                - either direction (no id)
+//   response:       { id, result } or { id, error }   - either direction
+//   server-request: { id, method, params }            - server → client; client
 //                                                       must respond with same id
 //
 // Discrimination at parse time:
@@ -150,7 +150,7 @@ export class JsonRpcLiteClient {
   // Lifecycle
   // -------------------------------------------------------------------------
 
-  // Spawn the subprocess. Idempotent — calling start() twice throws.
+  // Spawn the subprocess. Idempotent - calling start() twice throws.
   start(): void {
     if (this.child) {
       throw new Error("JsonRpcLiteClient.start() called twice");
@@ -166,7 +166,7 @@ export class JsonRpcLiteClient {
       spawnArgs = codexArgs;
     } else {
       // Default: bundled launcher under process.execPath (Bun runs the JS
-      // launcher fine — we don't depend on `node` being on PATH). Resolution
+      // launcher fine - we don't depend on `node` being on PATH). Resolution
       // throws here are translated to a chat-actionable hint via the catch
       // in CodexSession.bootstrap.
       const launcher = resolveCodexLauncherPath();
@@ -184,7 +184,7 @@ export class JsonRpcLiteClient {
       stdio: ["pipe", "pipe", "pipe"],
       // Make the launcher its own process-group leader so close() can signal
       // the whole group (`process.kill(-pid)`) and reap the native codex
-      // grandchild too — the launcher does not forward signals, so without this
+      // grandchild too - the launcher does not forward signals, so without this
       // a SIGTERM/SIGKILL to the launcher alone leaks the native child. The
       // native does not setsid away, so it stays in this group. Safe because
       // the group is the launcher's own, never isomux's. Note: detached only
@@ -278,7 +278,7 @@ export class JsonRpcLiteClient {
         } catch {}
         // The launcher is its own group leader (spawned detached), so its pid
         // is also its process-group id. Signal the negative pid to hit the
-        // whole group — launcher AND the native codex grandchild — without
+        // whole group - launcher AND the native codex grandchild - without
         // depending on the launcher forwarding signals. SIGTERM first, then
         // escalate to SIGKILL if the group hasn't exited within the grace
         // window (the fallback the old comment promised but never implemented).
@@ -337,7 +337,7 @@ export class JsonRpcLiteClient {
     // fires async with ENOENT and failAllPending() rejects this promise; on
     // Bun the rejection has shown up as "unhandled" and crashed the process
     // even though bootstrap() / listModels() are awaiting it. The await chain
-    // still receives the rejection normally — catching here only suppresses
+    // still receives the rejection normally - catching here only suppresses
     // the unhandled-rejection report, not the value seen by awaiters.
     promise.catch(() => {});
     try {
@@ -345,7 +345,7 @@ export class JsonRpcLiteClient {
     } catch (err) {
       // write() can throw if stdin is dead (subprocess never started, e.g.
       // posix_spawn ENOENT). Drop the pending so a later child.on('error')
-      // doesn't reject an orphaned promise — that rejection has no awaiter
+      // doesn't reject an orphaned promise - that rejection has no awaiter
       // (request()'s own catch already surfaced the write error) and would
       // crash the process as an unhandled rejection.
       this.pending.delete(id);
@@ -368,7 +368,7 @@ export class JsonRpcLiteClient {
   }
 
   // Send a response to a server-initiated request. Most callers won't use
-  // this directly — handler return values from onServerRequest are auto-
+  // this directly - handler return values from onServerRequest are auto-
   // packaged into responses. Provided for handlers that need to deferred-
   // respond after the handler returns.
   respond(id: JsonRpcId, result: unknown): void {
@@ -483,7 +483,7 @@ export class JsonRpcLiteClient {
     try {
       frame = JSON.parse(line);
     } catch (err) {
-      // Malformed frame — surface via stderr handlers for visibility.
+      // Malformed frame - surface via stderr handlers for visibility.
       for (const h of this.stderrHandlers) {
         try {
           h(
@@ -505,7 +505,7 @@ export class JsonRpcLiteClient {
     const hasMethod = "method" in f && typeof f.method === "string";
 
     if (hasMethod && hasId) {
-      // Server-initiated request — must respond with same id.
+      // Server-initiated request - must respond with same id.
       void this.handleServerRequest(f as JsonRpcRequest);
       return;
     }
@@ -555,7 +555,7 @@ export class JsonRpcLiteClient {
       }
       return;
     }
-    // Frame with neither method nor id — surface for visibility.
+    // Frame with neither method nor id - surface for visibility.
     for (const h of this.stderrHandlers) {
       try {
         h(`[codex client] unrecognized frame: ${line.slice(0, 200)}\n`);

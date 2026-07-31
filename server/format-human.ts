@@ -2,8 +2,8 @@
 // escaping. Shared by every surface that renders a report.
 //
 // A LEAF on purpose (imports nothing). formatSize and formatRelativeTime used
-// to live in the modules that first needed them — attachment-prompt.ts and
-// usage-report.ts — which meant the /isomux-storage report could not reuse them
+// to live in the modules that first needed them - attachment-prompt.ts and
+// usage-report.ts - which meant the /isomux-storage report could not reuse them
 // without dragging in the persistence layer and the agent SDK behind them.
 // Formatting is not the property of any one report.
 
@@ -19,7 +19,7 @@ export function formatSize(bytes: number): string {
 }
 
 // Coarse "how long ago" for report tables. Anything older than a week becomes
-// an absolute date — "23d ago" is harder to place than "Jul 8".
+// an absolute date - "23d ago" is harder to place than "Jul 8".
 export function formatRelativeTime(timestamp: number): string {
   const now = Date.now();
   const diffMs = now - timestamp;
@@ -38,7 +38,7 @@ export function formatRelativeTime(timestamp: number): string {
 
 // Every ASCII punctuation character CommonMark lets a backslash escape. The
 // whole class is escapable and each one renders as itself, so escaping all of
-// them is both exhaustive and visually lossless — no need to reason about
+// them is both exhaustive and visually lossless - no need to reason about
 // which subset the chat renderer happens to treat as markup.
 const MARKDOWN_PUNCTUATION = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 
@@ -48,7 +48,7 @@ const MARKDOWN_PUNCTUATION = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
 // cell and a newline ends the row, so a name could forge extra columns or push
 // text out of the table entirely. Semantically, `_`, `*`, backticks, brackets
 // and angle brackets are inline markup, so a name could render as italics, a
-// link, or raw HTML — including a convincing copy of an annotation the report
+// link, or raw HTML - including a convincing copy of an annotation the report
 // adds itself. Escaping the full punctuation class covers both, and control
 // characters (CR and LF among them) collapse to spaces since no backslash can
 // tame those.

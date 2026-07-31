@@ -772,13 +772,13 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
       )!.bodyFields,
     ).toEqual([{ key: "text", value: "plain prose body" }]);
     // $, backtick, or backslash in an unquoted heredoc would be expanded by
-    // the shell — the card would show pre-expansion text. Stays raw.
+    // the shell - the card would show pre-expansion text. Stays raw.
     expect(
       parseIsomuxCurl(
         `jq -Rs '{text: .}' <<EOF | ${CURL_TAIL}\ncosts $HOME dollars\nEOF`,
       ),
     ).toBeNull();
-    // Quoted delimiter takes the same body literally — accepted.
+    // Quoted delimiter takes the same body literally - accepted.
     expect(
       parseIsomuxCurl(
         `jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\ncosts $HOME dollars\nEOF`,
@@ -793,7 +793,7 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
     expect(req!.bodyFields).toEqual([{ key: "text", value: "" }]);
   });
 
-  test("heredoc with an unresolvable program stays raw — the body is never concealed", () => {
+  test("heredoc with an unresolvable program stays raw - the body is never concealed", () => {
     // A "body built with jq" note here would hide the payload text, unlike
     // the file-fed case where naming the path is full disclosure.
     expect(
@@ -822,11 +822,11 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
   });
 
   test("input-shaping flags without a modeled input source", () => {
-    // -Rs reading (empty) stdin: accepted, unresolved — note only.
+    // -Rs reading (empty) stdin: accepted, unresolved - note only.
     expect(parseIsomuxCurl(`jq -Rs '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toBe(
       "body built with jq",
     );
-    // `.` under -n has no input to show — never resolves to a field.
+    // `.` under -n has no input to show - never resolves to a field.
     expect(parseIsomuxCurl(`jq -n '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toBe(
       "body built with jq",
     );
@@ -841,7 +841,7 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
     expect(
       parseIsomuxCurl(`jq -s '{text: .}' <<'EOF' | ${CURL_TAIL}\nx\nEOF`),
     ).toBeNull();
-    // -n ignores the heredoc entirely — a card would misattribute it.
+    // -n ignores the heredoc entirely - a card would misattribute it.
     expect(
       parseIsomuxCurl(`jq -nRs '{a: 1}' <<'EOF' | ${CURL_TAIL}\nx\nEOF`),
     ).toBeNull();
@@ -876,7 +876,7 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
     expect(
       parseIsomuxCurl(`jq -n '{a: 1}' | ${CURL_TAIL} <<'EOF'\nbody\nEOF`),
     ).toBeNull();
-    // (A heredoc feeding curl directly IS now carded — see the "curl-fed
+    // (A heredoc feeding curl directly IS now carded - see the "curl-fed
     // heredoc body" suite below.)
     // A second heredoc on the same line.
     expect(
@@ -1397,7 +1397,7 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
     expect(
       parseIsomuxCurl(`env bash -c 'curl -s localhost:4000/api/tasks'`),
     ).toBeNull();
-    // extra positional args after the script ($0/$1) — bail
+    // extra positional args after the script ($0/$1) - bail
     expect(
       parseIsomuxCurl(`bash -c 'curl -s localhost:4000/api/tasks' name arg1`),
     ).toBeNull();
@@ -1424,7 +1424,7 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
   test("a heredoc-fed curl inside the wrapper is unwrapped and carded", () => {
     // The wrapper is unwrapped and the inner `curl -d @- <<EOF` re-parsed, the
     // same recursion that already handles a wrapped `jq ... <<EOF | curl -d @-`
-    // producer. (A single-quoted wrapper here — no outer-shell expansion — so
+    // producer. (A single-quoted wrapper here - no outer-shell expansion - so
     // the extracted body is exactly what curl sends.)
     const req = parseIsomuxCurl(
       `/bin/bash -lc 'curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{"text":"hi"}\nEOF'`,
@@ -1455,7 +1455,7 @@ describe("parseIsomuxCurl wrapped-heredoc outer-shell expansion", () => {
   });
 
   test("outer double-quoted wrapper with special/positional params ($?, $$) -> note", () => {
-    // The outer shell expands $? and $$ too — a narrower "$ followed by a
+    // The outer shell expands $? and $$ too - a narrower "$ followed by a
     // letter" match would wrongly present these as exact fields.
     const req = parseIsomuxCurl(
       `/bin/bash -lc "curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{\\"text\\":\\"status $?, pid $$\\"}\nEOF"`,
@@ -1509,7 +1509,7 @@ describe("parseIsomuxCurl wrapped-heredoc outer-shell expansion", () => {
   });
 });
 
-// Agents constantly chain a small inspection command onto a curl — save the
+// Agents constantly chain a small inspection command onto a curl - save the
 // response and check its size, POST and `echo` a confirmation. The whole
 // command used to fall back to raw rendering because the tokenizer bails on
 // `;`. These shapes are carded, with the trailing statements shown verbatim.
@@ -1599,7 +1599,7 @@ describe("parseIsomuxCurl trailing ;/&& statements", () => {
     expect(double!.trailingCommand).toBeNull();
     // An ESCAPED separator is an argument to curl, not a statement boundary:
     // it must not split (the command then bails on the junk positional args,
-    // which is the honest reading — bash passes them to curl).
+    // which is the honest reading - bash passes them to curl).
     expect(
       parseIsomuxCurl(String.raw`curl -s localhost:4000/api/tasks \; echo hi`),
     ).toBeNull();
@@ -1676,7 +1676,7 @@ describe("parseIsomuxCurl trailing ;/&& statements", () => {
   test("displayed trailing statement never shows less than the raw row would", () => {
     const longTrailing = `; jq '${"x".repeat(300)}' /tmp/t.json`;
     // No space before the `;`, so the raw slice reaches one character further
-    // into the segment than it does for a pipe tail — still inside the bound.
+    // into the segment than it does for a pipe tail - still inside the bound.
     const rawShowsAfter = (prefix: string) =>
       Math.max(0, BASH_RAW_SUMMARY_CHARS - prefix.length);
     for (const prefix of [
@@ -1692,7 +1692,7 @@ describe("parseIsomuxCurl trailing ;/&& statements", () => {
 
     // Both segments at once, in the order the header renders them. The bounds
     // are independent, which is sound because the raw row's window is
-    // contiguous and each segment's shown prefix already outruns it — but the
+    // contiguous and each segment's shown prefix already outruns it - but the
     // combined case is what the renderer actually wires up, so pin it.
     const command = `curl -s localhost:4000/api/tasks | head -c 100; echo ${"y".repeat(300)}`;
     const both = parseIsomuxCurl(command);

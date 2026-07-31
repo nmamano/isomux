@@ -1,4 +1,4 @@
-// Cronjob resource handlers — Phase 3a slice 2. Cronjob metadata + runs on the
+// Cronjob resource handlers - Phase 3a slice 2. Cronjob metadata + runs on the
 // unified REST surface (opIds cron.list/get/create/update/delete/runNow/setPrompt
 // /listRuns/listAllRuns/getRun). The run-message + RUN-bearer affordance handlers
 // live alongside these once 3a.2b lands.
@@ -63,7 +63,7 @@ export interface CronDeps {
     jobId: string,
     runId: string,
   ): { run: CronjobRun | null; entries: LogEntry[] };
-  // 3a.2b — run-message + RUN-affordance core ops (run-message WS arms retired in
+  // 3a.2b - run-message + RUN-affordance core ops (run-message WS arms retired in
   // 3d.3; the RUN-bearer affordance handlers remain). Run-messages are fire-and-forget
   // (the turn streams in the background); the REST handler threads a boundary
   // `messageId` so the persisted/broadcast user_message entry id === the ack.
@@ -215,7 +215,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       return run ? ok({ run, entries }) : fail(404, "not_found");
     },
 
-    // 3a.2b — run-messages (fire-and-forget; the manager threads our messageId
+    // 3a.2b - run-messages (fire-and-forget; the manager threads our messageId
     // into the persisted user_message so the ack === the eventual transcript
     // entry id). Resumability / cwd / provider errors stay transcript-level (not
     // HTTP) to preserve the original fire-and-forget contract; only an unknown run is a cheap

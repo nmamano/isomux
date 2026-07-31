@@ -143,19 +143,19 @@ export interface AppState {
   // whose currentRoomId matches state.currentRoomId (rooms render
   // independently). Self entry (matching state.sessionContext.
   // connectionId, per-WS not per-cookie) is hidden client-side
-  // unconditionally — the boss never sees their own avatar. The
+  // unconditionally - the boss never sees their own avatar. The
   // server still sends it so OTHER tabs/devices of the same user
   // remain visible as their own ghosts (each with its own
   // connectionId).
   presences: PresenceInfo[];
   // Distinct online userIds across the WHOLE office (server counts ALL
   // presence entries including off-scene sessions). Same value for
-  // every recipient — answers "who is online anywhere", not "who is in
+  // every recipient - answers "who is online anywhere", not "who is in
   // a room I can see". Renders as the total chip in RoomTabBar.
   totalOnlineUsers: number;
   // The id set behind totalOnlineUsers (same all-audience aggregate, same
   // broadcast cadence). Backs the per-user online dot on the Users page
-  // roster — `presences` can't answer it (room-filtered per recipient,
+  // roster - `presences` can't answer it (room-filtered per recipient,
   // off-scene sessions omitted).
   onlineUserIds: string[];
   // ACL-filtered list of currently-killed agents available to revive
@@ -185,7 +185,7 @@ type Action =
   // REST cron.getRun fetch to merge the historical run transcript into the same
   // logs stream that live `log_entry` events feed during an active run. Reuses
   // the per-stream id dedupe (logEntryIds), so it is equivalent to replaying
-  // each entry as a `log_entry` — just one reducer pass instead of N.
+  // each entry as a `log_entry` - just one reducer pass instead of N.
   | { type: "log_entries_batch"; entries: LogEntry[] }
   // Slide Mode: a single slide finished generating (WS push).
   | {
@@ -196,7 +196,7 @@ type Action =
       slide: SlideRecord;
     }
   // Slide Mode: a slide generation failed terminally (WS push). The deck stops
-  // waiting on it — this is the signal that a pending slide is never coming.
+  // waiting on it - this is the signal that a pending slide is never coming.
   | {
       type: "slide_failed";
       agentId: string;
@@ -335,7 +335,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case "full_state": {
       // Keep whichever room the user was viewing if it still exists (e.g.
       // across a server reconnect); otherwise fall back to the first visible
-      // room. The Default Room preference was removed — reload view-restore
+      // room. The Default Room preference was removed - reload view-restore
       // (App.tsx / loadSavedView) reopens the last room on a page reload, and
       // this first-visible fallback covers a genuinely fresh session.
       const currentRoomId = resolveSelectedRoomId(
@@ -428,14 +428,14 @@ export function reducer(state: AppState, action: Action): AppState {
         if (wasWorking) {
           // Sound: only fire when the turn that's ending originated from a
           // human message. Pure agent-to-agent traffic (one agent pings
-          // another, the receiver answers and idles) stays silent — see
+          // another, the receiver answers and idles) stays silent - see
           // turnHadHumanInput on the server side.
           if (prevAgent.turnHadHumanInput) {
             const roomId = prevAgent.roomId;
             soundTrigger = { seq: state.soundTrigger.seq + 1, roomId };
           }
           // Badge: only when not viewing this agent. Set regardless of input
-          // source — the dot is a "this agent stopped, you might want to
+          // source - the dot is a "this agent stopped, you might want to
           // look" cue, distinct from the audible nudge.
           if (state.focusedAgentId !== action.agentId) {
             needsAttention.add(action.agentId);
@@ -453,7 +453,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "log_entry": {
       // Per-stream id Set for dedupe. Cloned (not mutated) so the reducer
-      // stays pure — future consumers comparing Set identity won't see
+      // stays pure - future consumers comparing Set identity won't see
       // stale references. Set.add returns the Set, so the chained form
       // works for the new-Set case.
       const streamId = action.entry.agentId;
@@ -522,7 +522,7 @@ export function reducer(state: AppState, action: Action): AppState {
       // that failed, and the standing slide is a better answer than the raw text.
       //
       // A PLACEHOLDER record is not that. It is a stale record being reconciled,
-      // and the pending ensure response deletes it (slide_invalidate) — so
+      // and the pending ensure response deletes it (slide_invalidate) - so
       // dropping the failure here would lose it: WS can beat HTTP, and then the
       // invalidate leaves the turn with neither a slide nor a mark, spinning and
       // re-failing every watchdog window. Record it; the placeholder still wins
@@ -560,7 +560,7 @@ export function reducer(state: AppState, action: Action): AppState {
       const forAgent = state.slides.get(action.agentId);
       // Compare-and-delete by reference: only drop the exact record the client
       // saw at request time. If a fresher slide_ready already replaced it, keep
-      // the new one — never delete a record we didn't request the drop of.
+      // the new one - never delete a record we didn't request the drop of.
       if (forAgent?.get(action.entryId) !== action.prevSlide) return state;
       const slides = new Map(state.slides);
       const next = new Map(forAgent);
@@ -621,10 +621,10 @@ export function reducer(state: AppState, action: Action): AppState {
       // A conversation boundary (new-conversation/clear, resume, edit-fork)
       // retires the unread dot everywhere: the dot points at a turn that just
       // got wiped/replaced. Server-broadcast, so ALL connected clients clear
-      // in lockstep — previously only the clearing client's dot went away
+      // in lockstep - previously only the clearing client's dot went away
       // (via its own focus), and everyone else kept a stale dot. A rollback
       // clear (failed edit-fork restoring the PRIOR timeline) is not a
-      // boundary — the old unseen result comes back, so the dot stays.
+      // boundary - the old unseen result comes back, so the dot stays.
       if (action.rollback) return { ...state, logs, logEntryIds };
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
@@ -830,7 +830,7 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     // Client-local seed for the all-runs fetch (cron.listAllRuns REST). Per-job
     // set (NOT a wholesale replace), so a job absent from the payload keeps its
-    // existing entry — preserving the old per-job cronjob_runs stream behavior.
+    // existing entry - preserving the old per-job cronjob_runs stream behavior.
     case "cronjob_runs_loaded": {
       const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
       for (const { cronjobId, runs } of action.jobs) {
@@ -907,7 +907,7 @@ export const initialState: AppState = {
 const StateCtx = createContext<AppState>(initialState);
 const DispatchCtx = createContext<Dispatch<Action>>(() => {});
 
-// Notification sound — AudioContext initialized on first user interaction
+// Notification sound - AudioContext initialized on first user interaction
 let audioCtx: AudioContext | null = null;
 
 function ensureAudioContext() {
@@ -951,11 +951,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         dispatch(msg as Action);
         if (msg.type === "full_state") dispatch({ type: "connected" });
         // Once both session_context and users_list have arrived, mirror any
-        // legacy localStorage notifRooms pref into the user record — but only
+        // legacy localStorage notifRooms pref into the user record - but only
         // if the server hasn't recorded a value yet. The session cookie is
         // authoritative for the username; we don't try to coerce the device's
         // old localStorage name onto the session. (Legacy defaultRoom prefs are
-        // no longer migrated — the Default Room setting was removed.)
+        // no longer migrated - the Default Room setting was removed.)
         if (msg.type === "session_context" && !legacyMigrated) {
           const legacy = readLegacyUserPrefs();
           // One-shot localStorage->server migration of legacy view prefs (the
@@ -1045,7 +1045,7 @@ export function useDispatch() {
   return useContext(DispatchCtx);
 }
 
-// Theme management — persisted to localStorage, applied via data-theme +
+// Theme management - persisted to localStorage, applied via data-theme +
 // data-theme-mode attributes on <html>. `theme` is the registered id;
 // `mode` is the resolved 'dark'|'light' from the THEMES table and drives
 // the handful of mode-dependent CSS rules (lamp glow, neon, diff2html).
@@ -1090,7 +1090,7 @@ function getInitialThemeId(): string {
     if (saved) {
       const resolved = getThemeById(saved);
       // If the stored id isn't a known theme, getThemeById falls back to
-      // the default — return the canonical id so we don't keep round-
+      // the default - return the canonical id so we don't keep round-
       // tripping the stale value.
       return resolved.id;
     }
@@ -1159,7 +1159,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [userPicked]);
 
   // Cross-window sync. Fires when another window on the same origin writes
-  // to our localStorage key — covers the landing's theme toggle updating
+  // to our localStorage key - covers the landing's theme toggle updating
   // the embedded /demo iframe (this is where isomux.com/demo renders), and
   // the reverse (clicking the wall moon inside the demo updates the
   // landing's palette).
@@ -1171,7 +1171,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setUserPicked(true);
         setThemeId(getThemeById(e.newValue).id);
       } else {
-        // Key was cleared in another window — go back to following the OS.
+        // Key was cleared in another window - go back to following the OS.
         setUserPicked(false);
         setThemeId(getSystemThemeId());
       }
@@ -1211,7 +1211,7 @@ export function useTheme() {
   return useContext(ThemeCtx);
 }
 
-// Feature flags context — production defaults, demo overrides
+// Feature flags context - production defaults, demo overrides
 const FeaturesCtx = createContext<Features>(PRODUCTION_FEATURES);
 
 export function FeaturesProvider({

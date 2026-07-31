@@ -1,18 +1,18 @@
-// Typed route table (skeleton) — Phase 2.3. The single source of truth that, in
+// Typed route table (skeleton) - Phase 2.3. The single source of truth that, in
 // Phase 3, REPLACES the ~1,940-line dispatchCommand switch + the ad-hoc HTTP
 // handlers. Each route declares { opId, method, path, auth, emits } plus its
-// request/response TYPES (type-level only in 2.3 — no runtime validation lib;
+// request/response TYPES (type-level only in 2.3 - no runtime validation lib;
 // that lands with handler migration in Phase 3). See
 // internal-docs/generic-runtime-refactor.md → "Server API Spec" → REST route table.
 //
 // ADDITIVE: this is data + types, contract-tested for structural invariants
 // (unique opId, unique method+path, every emit resolves to a registry event, a
-// valid capability + guard on every capability route, and — the carried-forward
-// 2.2 caution — NO public route is ever fed to authorize()). It is NOT wired
+// valid capability + guard on every capability route, and - the carried-forward
+// 2.2 caution - NO public route is ever fed to authorize()). It is NOT wired
 // into the live HTTP server in 2.3.
 //
 // Boundaries deliberately kept OUT of the resourceGuard (the core op enforces
-// them against LIVE state in Phase 3, not pure authz — same posture as
+// them against LIVE state in Phase 3, not pure authz - same posture as
 // messageSend's recipient-existence in 2.2) are declared as the TYPED
 // `preconditions` field (see RoutePrecondition) and pinned by a contract test,
 // NOT left as prose: agents.revive's lastRoomId access; invites.revoke /
@@ -133,10 +133,10 @@ export type RouteAuth =
 
 // Route-contract PRECONDITIONS: semantic checks the Phase-3 core op MUST enforce
 // against LIVE state, deliberately kept OUT of the pure resourceGuard (a guard
-// has no live-state dependency — the same boundary 2.2 drew for messageSend's
+// has no live-state dependency - the same boundary 2.2 drew for messageSend's
 // recipient-existence). Encoded as TYPED DATA, not prose, so the audit surface
 // (Reviewer4) and Phase 3 can ENUMERATE them and a contract test can pin each
-// route's set — comments alone are too easy to forget.
+// route's set - comments alone are too easy to forget.
 export type RoutePrecondition =
   // agents.revive: caller must also have access to the killed agent's lastRoomId.
   // The resourceGuard covers only the TARGET room (body.roomId); lastRoomId is
@@ -153,11 +153,11 @@ export type RoutePrecondition =
   // validate.env: the self subject is body.username (not a path param), so the
   // self/office-owner branch maps off the body, not selfUser's params.username.
   | "validateEnvBodySelfSubject"
-  // agents.sendMessage (AGENT scope): the recipient agent must exist — a cross-
+  // agents.sendMessage (AGENT scope): the recipient agent must exist - a cross-
   // room delivery check that must NEVER become an ACL existence leak.
   | "messageRecipientExists"
   // agents.sendMessage: while a pendingPermission is set for :id, the next
-  // message to THAT agent is its allow/deny — interpretation binds to :id.
+  // message to THAT agent is its allow/deny - interpretation binds to :id.
   | "messagePendingPermissionBindsParam"
   // users.delete: an owner may not delete their OWN record (would brick in-browser
   // recovery; sign out / transfer ownership instead). Runs after selfOrOwner.
@@ -185,7 +185,7 @@ export interface RouteDef<Req = unknown, Res = unknown> {
 }
 
 // Attach request/response types to a route without a runtime field. The explicit
-// <Req,Res> at each call site IS the type-level schema — a typo'd type name
+// <Req,Res> at each call site IS the type-level schema - a typo'd type name
 // fails to compile, the `satisfies`-equivalent the design calls for.
 export function defineRoute<Req = void, Res = void>(
   def: Omit<RouteDef<Req, Res>, "__req" | "__res">,
@@ -217,13 +217,13 @@ const bodyRoom = (name: string): Guard =>
 type NoContent = void;
 type MessageAck = { messageId: string };
 // Schedule-branch ack (agents.sendMessage with deliverAt): the scheduled-entry
-// handle plus the normalized (UTC RFC3339) delivery time — never a fake empty
+// handle plus the normalized (UTC RFC3339) delivery time - never a fake empty
 // messageId.
 type ScheduledAck = { scheduledId: string; deliverAt: string };
 type ScheduledMessagesListRes = { scheduled: ScheduledMessageEntry[] };
 type AgentEnvelope = { agent: AgentInfo };
 // agents.readInstructions (task 68891fa1): the customInstructions blob + its
-// concurrency token — the read half of the read-then-PATCH flow that
+// concurrency token - the read half of the read-then-PATCH flow that
 // agents.update's version guard (44a2c98d) expects. Field names match
 // EditAgentReq exactly so a caller reads, edits, and echoes the version back.
 type AgentInstructionsRes = {
@@ -236,7 +236,7 @@ type OkTrue = { ok: true };
 // The /api route table
 // ---------------------------------------------------------------------------
 export const API_ROUTES: readonly RouteDef[] = [
-  // --- Agents — lifecycle ---------------------------------------------------
+  // --- Agents - lifecycle ---------------------------------------------------
   defineRoute<SpawnReq, AgentEnvelope>({
     opId: "agents.spawn",
     method: "POST",
@@ -277,7 +277,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Read an agent's customInstructions blob + version token (task 68891fa1).
   // `authenticated` (no capability), Nil-ruled: EVERY agent may read any agent
-  // it can see — privilege gates the WRITE (agents.update), and the version
+  // it can see - privilege gates the WRITE (agents.update), and the version
   // token is a lost-update/race guard, NOT an authorization mechanism. The
   // agentParam guard matches the roster's room-access VISIBILITY (who you can
   // read; the payload is deliberately narrower than the roster's): an
@@ -293,12 +293,12 @@ export const API_ROUTES: readonly RouteDef[] = [
   // agents.update), mirroring users.setAccess vs users.update: editing normal
   // props is agent:manage, but conferring privilege needs higher authority and a
   // heavy side effect (token re-mint + session-swap) that earns its own handler.
-  // DOUBLE-GATED so no agent — privileged or not — can ever flip the flag:
+  // DOUBLE-GATED so no agent - privileged or not - can ever flip the flag:
   // stage-1 cap `agent:privilege` is absent from both the AGENT and the
   // privileged-agent capability sets (only USER scope holds it), and stage-2
   // `userScope` blocks any non-user scope. CONFERRAL SCOPE is (i-b), Nil-ruled:
   // an office owner toggles any agent; a member toggles ONLY agents they manage
-  // (manager-match on AgentInfo.userId) — NOT mere room co-membership, which
+  // (manager-match on AgentInfo.userId) - NOT mere room co-membership, which
   // would let a member elevate another member's agent (cross-user confused
   // deputy). `userScope` stays OUTERMOST so an agent whose userId coincides with
   // the target's manager still can't pass the manager-match branch.
@@ -341,7 +341,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["agent_updated"], // ×2 at runtime; one registry id
   }),
 
-  // --- Agents — conversation ------------------------------------------------
+  // --- Agents - conversation ------------------------------------------------
   defineRoute<SendMessageReq, MessageAck | ScheduledAck>({
     opId: "agents.sendMessage",
     method: "POST",
@@ -350,7 +350,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // and reach messageSend's scope-specific stage-2 branch.
     // With body.deliverAt (AGENT branch only) the send becomes a SCHEDULED
     // message: stored durably, fired later by scheduled-messages.ts; the ack is
-    // ScheduledAck instead of MessageAck. Same route on purpose — one send
+    // ScheduledAck instead of MessageAck. Same route on purpose - one send
     // surface, one new field (design-pinned, task 8ff369b5).
     auth: cap(["agent:converse", "agent:send-as-self"], messageSend),
     emits: ["log_entry"],
@@ -359,8 +359,8 @@ export const API_ROUTES: readonly RouteDef[] = [
       "messagePendingPermissionBindsParam",
     ],
   }),
-  // --- Agents — scheduled messages (task 8ff369b5) ---------------------------
-  // `:id` is the SENDER here (the outbox being managed) — the deliberate
+  // --- Agents - scheduled messages (task 8ff369b5) ---------------------------
+  // `:id` is the SENDER here (the outbox being managed) - the deliberate
   // asymmetry with the send route above, where `:id` is the recipient. See
   // scheduledMessagesOwner for the scope-switched authority rules.
   defineRoute<void, ScheduledMessagesListRes>({
@@ -412,7 +412,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Instant self-handoff (task 8883e45d): reset the session (like
   // new-conversation) AND deliver {text} into the fresh session as the agent's
-  // own brief, in one call — the fast path the /handoff skill uses instead of the
+  // own brief, in one call - the fast path the /handoff skill uses instead of the
   // up-to-30s deliverAt + separate reset detour. One handoff at a time per agent
   // (a concurrent second gets 409 handoff_in_progress, so the running one can't
   // be clobbered into a false success); the enqueue is transactional, so a
@@ -445,7 +445,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Agents — self-affordances (AGENT scope, own chat) --------------------
+  // --- Agents - self-affordances (AGENT scope, own chat) --------------------
   defineRoute<AffordanceReadFileReq, OkTrue>({
     opId: "agents.readFile",
     method: "POST",
@@ -483,7 +483,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Context-window fullness self-check (internal-docs/
   // context-fullness-visibility.md): the agent's own latest fullness sample.
-  // Read-only — nothing lands in chat, so no log_entry emit.
+  // Read-only - nothing lands in chat, so no log_entry emit.
   defineRoute<void, AgentContextUsageResp>({
     opId: "agents.contextUsage",
     method: "GET",
@@ -492,7 +492,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Agents — Slide Mode (browser; design: internal-docs/slide-mode-design.md)
+  // --- Agents - Slide Mode (browser; design: internal-docs/slide-mode-design.md)
   // Boss-session read surface: anyone who can see the chat (office:read + room
   // access) can fetch its slides and drive on-demand generation. The ensure
   // route's generation is fire-and-forget server-side; the slide arrives on the
@@ -509,12 +509,12 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/slides/:entryId",
     auth: cap("office:read", agentParam("id")),
-    // async: fired when generation resolves, not inline — ready on success,
+    // async: fired when generation resolves, not inline - ready on success,
     // failed when the formatter errors or breaks the slide contract.
     emits: ["slide_ready", "slide_failed"],
   }),
 
-  // --- Agents — editor (browser) --------------------------------------------
+  // --- Agents - editor (browser) --------------------------------------------
   defineRoute<
     void,
     // `path` is the RESOLVED absolute path (the client opens by a possibly-relative
@@ -549,7 +549,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Agents — uploads / file serving --------------------------------------
+  // --- Agents - uploads / file serving --------------------------------------
   defineRoute<unknown, { attachments: Attachment[] }>({
     opId: "agents.upload",
     method: "POST",
@@ -593,7 +593,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Read side of the settings pair: same ACL as the PUT below, so anyone who
   // can rewrite a room prompt can first read what they'd be overwriting
-  // (agents previously had no sanctioned read — the prompt only rode the WS
+  // (agents previously had no sanctioned read - the prompt only rode the WS
   // office state). Returns the prompt + its version; the PUT requires that
   // version back (optimistic concurrency, mirroring memory READ→REPLACE).
   defineRoute<void, RoomSettingsRes>({
@@ -636,7 +636,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["user_updated"],
   }),
   // Self-scoped accessible-rooms read (task 9301d0f4): id+name for every room
-  // the caller can ACCESS, hidden included — the read that makes re-show
+  // the caller can ACCESS, hidden included - the read that makes re-show
   // possible for members (projected full_state excludes hidden rooms and
   // all_rooms_list is owner-only). Pure read, no emits.
   defineRoute<void, MeRoomsRes>({
@@ -648,7 +648,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- Users ----------------------------------------------------------------
-  // Response is UserSelfWire (self) or UserAdminWire (owner) — same UserRecord
+  // Response is UserSelfWire (self) or UserAdminWire (owner) - same UserRecord
   // shape; the audience distinction is enforced by the handler, not the type.
   defineRoute<UserUpdateReq, { user: UserSelfWire }>({
     opId: "users.update",
@@ -656,7 +656,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/users/:username",
     auth: cap(["user:self", "user:admin"], selfOrOwner),
     // Option A (Nil-gated): record fields only (name/env/prompt/avatar).
-    // emitUserUpdated + emitUsersList; NO full_state — access/view prefs are not
+    // emitUserUpdated + emitUsersList; NO full_state - access/view prefs are not
     // editable here, so nothing re-projects the subject's rooms.
     emits: ["user_updated", "users_list"],
   }),
@@ -665,7 +665,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/users/:username/access",
     auth: cap("user:admin", officeOwner),
-    // allowedRooms + the atomic notif/default prune-clamp — a PRIVATE-only change,
+    // allowedRooms + the atomic notif/default prune-clamp - a PRIVATE-only change,
     // so SCOPED events only (no public user_updated/users_list): owners see the
     // new grants via user_admin_updated, the target re-projects via full_state +
     // its own user_self_updated. (Option A boundary.)
@@ -697,7 +697,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // Owner recovery for an EXISTING user locked out of every device (task
   // eb3354e6 final revision): a device link minted by the owner, targeted by
-  // stable userId. Kept as its OWN op — invites.mint stays new-user only, so
+  // stable userId. Kept as its OWN op - invites.mint stays new-user only, so
   // the wire semantics read "invites create users; recovery links restore
   // access". Ungated on current sessions (an owner may pre-empt a lockout).
   defineRoute<RecoveryMintReq, { url: string; invite: InviteWire }>({
@@ -770,7 +770,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // In-UI update trigger (release channel). Owner-only like the rest of the
   // office-admin surface: an update restarts the server and interrupts every
   // agent. The POST launches the installed updater DETACHED (systemd unit, not
-  // a child process); progress is out-of-band (the restart itself). No emits —
+  // a child process); progress is out-of-band (the restart itself). No emits -
   // the update_status WS event is fed by the checker, not by these routes.
   defineRoute<
     void,
@@ -834,7 +834,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // match it. The guard is therefore just `authenticated`; stage-1 office:read
     // already excludes AGENT scope. (A prior or(officeOwner, selfUser) collapsed
     // to officeOwner and wrongly denied a member validating their OWN env before
-    // the precondition could run — do not reinstate it.)
+    // the precondition could run - do not reinstate it.)
     auth: cap("office:read", authenticated),
     emits: [],
     preconditions: ["validateEnvBodySelfSubject"],
@@ -906,7 +906,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // --- Memory (isomux-memory; durable shared facts) -------------------------
   // Three verbs: READ (whole file + version), APPEND (one server-stamped line),
   // REPLACE (whole-file overwrite, version-guarded). All scopes; authenticated +
-  // target-existence gated (permissive on every verb, no per-scope access gate —
+  // target-existence gated (permissive on every verb, no per-scope access gate -
   // Nil's product decision; restraint lives in the system-prompt affordance).
   defineRoute<void, MemoryReadRes>({
     opId: "memory.read",
@@ -932,7 +932,7 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   // --- Skill usage (per-user Sk-menu sort counts; task f1769b1a) ------------
   // The CALLER's own skill-use counters (keyed off the token/cookie userId,
-  // never a param — one user cannot read another's counts through this route).
+  // never a param - one user cannot read another's counts through this route).
   // office:read keeps plain agent tokens out (they lack it); the Sk popover is
   // the intended consumer.
   defineRoute<void, SkillUsageCountsRes>({
@@ -991,7 +991,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/cron-prompt",
     // off the :id namespace to avoid shadowing /api/cronjobs/:id. Tightened to
-    // owner ([behavior-change]; today has no role check) — enforced in Phase 3.
+    // owner ([behavior-change]; today has no role check) - enforced in Phase 3.
     auth: cap("cron:manage", officeOwner),
     emits: ["cronjobs_prompt_updated"],
   }),
@@ -1078,7 +1078,7 @@ export const API_ROUTES: readonly RouteDef[] = [
 
   // --- Storage (task 2366ccb0) ----------------------------------------------
   // Disk-usage breakdown of the office footprint. Same posture as
-  // backupStatus — office:read + authenticated: every human, plus PRIVILEGED
+  // backupStatus - office:read + authenticated: every human, plus PRIVILEGED
   // agents (a plain agent token lacks office:read and gets 403). The handler
   // strips the per-agent detail AND every filesystem path for non-owners, since
   // the detail enumerates log dirs for agents in rooms the caller may not see.
@@ -1150,7 +1150,7 @@ export const PUBLIC_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
   // Unauthenticated readiness probe (release-channel slice C1). Answered 200
-  // once the listener is up — which the boot sequence only reaches after the
+  // once the listener is up - which the boot sequence only reaches after the
   // startup migrations (startServer: bootPrelude + migrateOwnersToRuleBased-
   // Access run before buildServer binds). Minimal body, no deployment state;
   // rate-limited for non-loopback callers (server/ready-limiter.ts).

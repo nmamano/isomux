@@ -4,7 +4,7 @@ import { PRODUCTION_FEATURES } from "../shared/features.ts";
 import { App } from "./App.tsx";
 import { initFocusDebug } from "./focus-debug.ts";
 
-// Diagnostic tracer for the editor input-capture bug — inert unless the
+// Diagnostic tracer for the editor input-capture bug - inert unless the
 // localStorage flag is set (see focus-debug.ts).
 initFocusDebug();
 

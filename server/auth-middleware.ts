@@ -28,7 +28,7 @@ import { resolveToken } from "./identity/tokens.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-// Fires after the office gets its first owner — either through the tokenless
+// Fires after the office gets its first owner - either through the tokenless
 // claim form (handleClaim → claimOwnership) or the legacy bootstrap-invite
 // accept path (handleAccept where isBootstrap is true). Awaited best-effort
 // after the session has persisted but before the redirect response is
@@ -43,7 +43,7 @@ export function setOnOwnerCreated(cb: OwnerCreatedCb | null): void {
 
 // ---------------------------------------------------------------------------
 // Loopback detection. Localhost calls (agent-to-server curl, in-process tests)
-// bypass cookie auth — the host already trusts its own processes. The cookie
+// bypass cookie auth - the host already trusts its own processes. The cookie
 // path exists to gate browser/remote access, not local IPC.
 
 function isLoopback(addr: string | null): boolean {
@@ -93,7 +93,7 @@ export function checkOrigin(req: Request): boolean {
 //     could leak the token via the Referer header. Setting this also
 //     covers back-button-to-bookmark navigations from a still-live
 //     token. Suppressed for tokenless pages (claim form, etc) via the
-//     `tokenInUrl: false` option — Chrome couples `Referrer-Policy:
+//     `tokenInUrl: false` option - Chrome couples `Referrer-Policy:
 //     no-referrer` to a privacy mode where top-level form POSTs send
 //     `Origin: null` instead of the page origin, which breaks strict
 //     same-origin checks on the form's POST handler. Tokenless URLs
@@ -104,7 +104,7 @@ export function checkOrigin(req: Request): boolean {
 //     HSTS protects later requests that start over HTTP (stale
 //     bookmark, scheme-less hostname, HTTP redirect chain) by pinning
 //     the origin to HTTPS for max-age. A direct HTTPS request is
-//     protected by TLS validation independently — HSTS does not
+//     protected by TLS validation independently - HSTS does not
 //     improve that first HTTPS visit unless the domain is preloaded.
 //     `includeSubDomains` is NOT set: an office origin on a shared
 //     parent domain (e.g. `office.example.com` where the operator
@@ -138,7 +138,7 @@ export interface AuthOk {
   session?: SessionLookup;
   // The resolved caller identity (Phase 2.1). Always set on an "ok" result:
   // a bearer token resolves to an agent/run identity, a cookie to a user
-  // identity. Nothing enforces against it yet — the guard catalog (2.2) and
+  // identity. Nothing enforces against it yet - the guard catalog (2.2) and
   // dispatcher (2.3) will.
   identity: Identity;
 }
@@ -178,15 +178,15 @@ function unauthorized(req: Request, officeName: string | null): Response {
 // title stays consistent across authenticated and pre-auth surfaces.
 function authPageTitle(officeName: string | null, suffix: string): string {
   return officeName
-    ? `${officeName} | Isomux — ${suffix}`
-    : `Isomux — ${suffix}`;
+    ? `${officeName} | Isomux - ${suffix}`
+    : `Isomux - ${suffix}`;
 }
 
 // ---------------------------------------------------------------------------
 // Gating function. Called at the top of every fetch handler.
 //
 // Every caller needs an identity: a bearer token (agent / cron-run) or a
-// session cookie. There is no loopback bypass — the last three
+// session cookie. There is no loopback bypass - the last three
 // loopback-trusted prefixes (/tasks, the /cronjobs reads, /backup/status) were
 // retired in favour of their bearer-gated /api equivalents, so a same-box agent
 // presents its ISOMUX_AGENT_TOKEN and a same-box browser claims a cookie via
@@ -257,17 +257,17 @@ export function resolveIdentityForRequest(
 
 // Single source of bearer-identity resolution, shared by authenticate() and
 // resolveIdentityForRequest() so the bearer precedence has exactly ONE
-// implementation — no drift between the live gate and the unit-tested helper.
+// implementation - no drift between the live gate and the unit-tested helper.
 function resolveBearerIdentity(req: Request): Identity | null {
   const bearer = readBearerToken(req);
   return bearer ? resolveToken(bearer) : null;
 }
 
 // ---------------------------------------------------------------------------
-// /auth/* route handlers. These run BEFORE the gating function — they're how
+// /auth/* route handlers. These run BEFORE the gating function - they're how
 // unauthenticated visitors transition to authenticated.
 
-// GET /i/<token> — peek (do NOT consume). Renders an HTML page with a
+// GET /i/<token> - peek (do NOT consume). Renders an HTML page with a
 // submit button (and a name field for bootstrap invites). The actual
 // consumption happens on POST /auth/accept. The two-step shape protects
 // against link previewers / chat unfurlers / scanners burning the one-time
@@ -297,7 +297,7 @@ export function handleInvitePeek(
   );
 }
 
-// POST /auth/accept — actually consume the invite, create the session,
+// POST /auth/accept - actually consume the invite, create the session,
 // set the cookie. `name` is only required for null-username invites
 // (bootstrap, etc.). Origin must match ISOMUX_PUBLIC_ORIGIN.
 export async function handleAccept(
@@ -360,7 +360,7 @@ export async function handleAccept(
   });
 }
 
-// POST /auth/logout — clear the cookie and revoke the session server-side.
+// POST /auth/logout - clear the cookie and revoke the session server-side.
 // Origin must match: a malicious site can otherwise sign the user out via
 // a credentialed form POST (annoying, not a data breach, but still CSRF).
 // Same lockout-prevention rule as the WS logout: refuse if this is the
@@ -386,7 +386,7 @@ export async function handleLogout(
         status: 409,
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          // Lockout-blocked page is tokenless — same rationale as the
+          // Lockout-blocked page is tokenless - same rationale as the
           // login page above.
           ...securityHeaders({ tokenInUrl: false }),
         },
@@ -420,7 +420,7 @@ function renderLockoutBlocked(
 
 // /auth/* POSTs are exclusively browser-driven. Unlike the agent-API
 // endpoints (which accept missing Origin from local curl), these require
-// an explicit Origin match — except for the absent/`null` Origin case,
+// an explicit Origin match - except for the absent/`null` Origin case,
 // where we fall back to the Fetch Metadata `Sec-Fetch-Site: same-origin`
 // signal (browser-attested, not forgeable by page JS). The literal-`null`
 // case happens on Chrome for top-level form POSTs from a page that sets
@@ -456,20 +456,20 @@ export async function tryHandleAuthRoute<T>(
   if (req.method === "POST" && url.pathname === "/auth/claim") {
     return handleClaim(req, server, officeName);
   }
-  // GET /i/<token> — peek + render accept page (NEVER consumes).
+  // GET /i/<token> - peek + render accept page (NEVER consumes).
   if (req.method === "GET" && url.pathname.startsWith("/i/")) {
     const token = url.pathname.slice(3);
     if (!token) return renderInviteError("not_found", officeName);
     return handleInvitePeek(req, token, officeName);
   }
-  // POST /auth/accept — actually consumes the invite. Origin-checked.
+  // POST /auth/accept - actually consumes the invite. Origin-checked.
   if (url.pathname === "/auth/accept" && req.method === "POST") {
     return handleAccept(req, officeName);
   }
   if (url.pathname === "/auth/logout" && req.method === "POST") {
     return handleLogout(req, officeName);
   }
-  // GET /auth/login-bg.png — pre-auth static asset (the login page's
+  // GET /auth/login-bg.png - pre-auth static asset (the login page's
   // backdrop screenshot). Same image as the marketing site so an unauth
   // visitor sees nothing about this specific deployment. Long-cached
   // because the asset is build-time-baked and treated as immutable.
@@ -499,7 +499,7 @@ function handleClaimForm(officeName: string | null): Response {
   });
 }
 
-// POST /auth/claim — consume the tokenless form, create the owner record,
+// POST /auth/claim - consume the tokenless form, create the owner record,
 // set the cookie. Locality is enforced at multiple layers:
 //   1. The server bind (127.0.0.1 pre-claim) keeps off-box clients off the
 //      TCP socket entirely;
@@ -509,12 +509,12 @@ function handleClaimForm(officeName: string | null): Response {
 //      pages on other origins (CSRF defense).
 //
 // The strict-Origin check does NOT close the "non-browser client forges
-// Origin over a same-host proxy" case — curl can set Origin to anything,
+// Origin over a same-host proxy" case - curl can set Origin to anything,
 // including the exact loopback value. A reverse proxy or tunnel running
 // on the same box that forwards external traffic to localhost:4000 is
 // indistinguishable from a real local browser at the peer-IP level. This
 // is an inherent topology limit; the documented mitigation is operator
-// discipline (claim first, expose later — see docs/access-and-invites.md
+// discipline (claim first, expose later - see docs/access-and-invites.md
 // "Bootstrap-window exposure").
 async function handleClaim<T>(
   req: Request,
@@ -572,7 +572,7 @@ async function handleClaim<T>(
 
 async function handleLoginBackdrop(): Promise<Response> {
   // Read from ui/dist (build.sh copies the screenshot there). If the file
-  // is missing — e.g. a dev install that didn't run build:ui — fall back
+  // is missing - e.g. a dev install that didn't run build:ui - fall back
   // to a transparent 1x1 so the login page still renders.
   const path = new URL("../ui/dist/login-bg.png", import.meta.url).pathname;
   const file = Bun.file(path);
@@ -604,7 +604,7 @@ const EMPTY_PNG = Buffer.from(
 // up a renderer.
 
 function renderLoginPage(officeName: string | null): string {
-  // The visible page body remains generic — the backdrop is a baked
+  // The visible page body remains generic - the backdrop is a baked
   // screenshot of the office UI served from /auth/login-bg.png (the same
   // asset isomux.com uses on its marketing page) so it reveals nothing
   // about this specific deployment. Once an owner exists, the office name is
@@ -645,7 +645,7 @@ function renderClaimPage(
   // Match the open-graph treatment from renderAcceptPage; no image, generic
   // copy that reveals nothing about the deployment.
   const og = {
-    title: "Isomux — first-time setup",
+    title: "Isomux - first-time setup",
     description: "Claim ownership of a new Isomux office.",
   };
   return baseHtml(
@@ -753,10 +753,10 @@ function renderAcceptPage(
   // instead of just the opaque token URL. No image (intentional: any image
   // route would still be fetched by third-party preview services who see
   // the bearer URL anyway; keep the cost matched to the gain). The office
-  // name is intentionally NOT plumbed into OG fields — those are scraped
+  // name is intentionally NOT plumbed into OG fields - those are scraped
   // by external preview services we shouldn't leak the office name to.
   const og = {
-    title: needsName ? "Isomux — first-time setup" : "Isomux — accept invite",
+    title: needsName ? "Isomux - first-time setup" : "Isomux - accept invite",
     description: needsName
       ? "Open this link to claim ownership of an Isomux office."
       : "Open this link to sign in to an Isomux office on this device.",
@@ -771,7 +771,7 @@ function renderAcceptPage(
       <div class="login-bg" aria-hidden="true"></div>
       <main class="card">
         <h1>Welcome to your new Isomux office</h1>
-        <p>You're the first person to claim this office. Pick a display name — it'll appear next to anything you say.</p>
+        <p>You're the first person to claim this office. Pick a display name - it'll appear next to anything you say.</p>
         <form method="POST" action="/auth/accept">
           <input type="hidden" name="token" value="${safeToken}" />
           <label>Display name <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
@@ -785,7 +785,7 @@ function renderAcceptPage(
     );
   }
   // Pre-named invite: a single-click accept gesture. Same anti-preview
-  // property — the GET only renders the form; consumption is on POST. When
+  // property - the GET only renders the form; consumption is on POST. When
   // the office has a display name we surface it in the heading so the
   // invitee can confirm they're joining the right office before clicking.
   const heading = officeName
@@ -814,7 +814,7 @@ function renderAcceptPage(
 // always the invitee who just accepted and then re-opened the one-time
 // link (second click from chat, browser history, another tab's stale
 // accept form re-POSTing). Dead-ending them on the 410 reads as "signup
-// failed" even though they're signed in — send them into the office
+// failed" even though they're signed in - send them into the office
 // instead. Only the `consumed` error takes this path: an expired or
 // unknown invite says nothing about the visitor's own session, and an
 // unauthenticated visitor on a consumed link still gets the honest 410.
@@ -848,7 +848,7 @@ function renderInviteError(kind: string, officeName: string | null): Response {
     `<h1>Invite unavailable</h1><p>${escapeHtml(msg)}</p>`,
   );
   return new Response(body, {
-    status: 410, // Gone — invite was once valid (or never)
+    status: 410, // Gone - invite was once valid (or never)
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       ...securityHeaders(),

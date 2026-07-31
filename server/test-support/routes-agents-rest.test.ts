@@ -1,4 +1,4 @@
-// Phase 3d slice 7 — agent-lifecycle REST contract.
+// Phase 3d slice 7 - agent-lifecycle REST contract.
 //
 // HTTP-contract layer for the agent-lifecycle mutations cut over from WS in
 // slice 7. Pins status codes + guard behavior for the cores built in
@@ -7,13 +7,13 @@
 //   7a (this file's first blocks): the FIRE-AND-FORGET mutations
 //   (kill/abort/move/swapDesks/setTopic/clearTopic). agentParam(:id) resolves an
 //   agent to its room and checks access, so a NON-EXISTENT or INACCESSIBLE agent
-//   both collapse to a uniform 403 (no existence oracle) — even for an owner,
+//   both collapse to a uniform 403 (no existence oracle) - even for an owner,
 //   since roomIdForAgent(missing) is null before the owner rule is consulted.
 //   move requires BOTH source-agent and target-room access; swapDesks requires
 //   room access. The per-recipient projection of the move (and the two-guard
 //   cross-room ACL) is frozen in projection.test.ts.
 //
-// Seam: startTestServer() — real auth + the /api executor. Zero LLM (the
+// Seam: startTestServer() - real auth + the /api executor. Zero LLM (the
 // FakeBackend auto-completes), so spawn/kill/move are deterministic.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -517,7 +517,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     });
     expect(res.status).toBe(404);
     expect(errCode(res.body)).toBe("room_not_found");
-    // Nothing landed anywhere — especially not in rooms[0].
+    // Nothing landed anywhere - especially not in rooms[0].
     expect(srv.agentManager.getAllAgents().length).toBe(0);
   });
 
@@ -672,7 +672,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   // --- customInstructions version guard (task 44a2c98d) ----------------------
   // Blob-bearing PATCHes must echo AgentInfo.customInstructionsVersion (read
   // surfaces: the wire object for the UI, GET /api/agents/:id/instructions for
-  // agents — pinned in the "agents.readInstructions REST" block below).
+  // agents - pinned in the "agents.readInstructions REST" block below).
   // Scalar-only edits stay version-free (pinned by "owner edits" above, which
   // PATCHes name without a version and gets 200).
 
@@ -733,7 +733,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const owner = await srv.seedOwner("Boss");
     const r1 = srv.agentManager.getRooms()[0].id;
     const x = await spawnAt(srv, "X", r1, 0);
-    // Writer A reads, then writer B saves — A's token is now stale.
+    // Writer A reads, then writer B saves - A's token is now stale.
     const staleVersion = srv.agentManager.getAgent(
       x.id,
     )!.customInstructionsVersion;
@@ -767,11 +767,11 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     );
   });
 
-  it("failed cwd+instructions edit rolls back blob AND version in LOCKSTEP — the client's old token still works (no false 409)", async () => {
+  it("failed cwd+instructions edit rolls back blob AND version in LOCKSTEP - the client's old token still works (no false 409)", async () => {
     // Reviewer2 finding (task 44a2c98d): the editAgent rollback snapshot must
     // restore customInstructionsVersion together with customInstructions. If it
     // didn't, a failed combined edit would leave the stored token derived from
-    // the REJECTED blob while every client (which never saw an agent_updated —
+    // the REJECTED blob while every client (which never saw an agent_updated -
     // the broadcast is held until the session side effect succeeds) still holds
     // the old token, so their next valid edit would false-409.
     const srv = await startTestServer();
@@ -781,7 +781,7 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const x = await spawnAt(srv, "X", r1, 0);
     // Wake the agent so it holds a live session with a sessionId: a cwd change
     // on a session-bearing Claude agent must relocate the session's .jsonl, and
-    // no such file exists anywhere for the fake session id — the move preflight
+    // no such file exists anywhere for the fake session id - the move preflight
     // fails and the whole edit rolls back (the path under test). All Claude-dir
     // consults on this path are read-only, so no host state is touched.
     const enq = srv.agentManager.enqueueMessage(x.id, {
@@ -966,7 +966,7 @@ describe("agents.revive REST (Phase 3d slice 7b)", () => {
   });
 
   // Task e87d9c7d: revive shape-checks the desk range like spawn. The core
-  // rejected an off-grid desk too, but as "That desk is no longer free." —
+  // rejected an off-grid desk too, but as "That desk is no longer free." -
   // telling the boss a desk was occupied when it doesn't exist at all.
   it("out-of-range desk -> 422 invalid_desk, and the agent stays dead", async () => {
     const srv = await startTestServer({
@@ -1004,7 +1004,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
   // The sanctioned read half of the read-then-PATCH flow: GET
   // /api/agents/:id/instructions -> { customInstructions,
   // customInstructionsVersion }. Nil-decided policy pinned here: the read is
-  // `authenticated` + room access — EVERY agent (privileged or not) may read
+  // `authenticated` + room access - EVERY agent (privileged or not) may read
   // any agent it can see; privilege gates only the WRITE (agents.update), and
   // the version token is a lost-update guard, not an authorization mechanism.
 
@@ -1127,7 +1127,7 @@ describe("agents.readInstructions REST (task 68891fa1)", () => {
     expect(errCode(stale.body)).toBe("version_conflict");
   });
 
-  it("an agent bearer without room access to the target -> uniform 403 (same for a nonexistent id — no existence oracle)", async () => {
+  it("an agent bearer without room access to the target -> uniform 403 (same for a nonexistent id - no existence oracle)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");

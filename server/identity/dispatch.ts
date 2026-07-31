@@ -1,4 +1,4 @@
-// Two-stage authorization dispatcher — Phase 2.2. The central authz semantics
+// Two-stage authorization dispatcher - Phase 2.2. The central authz semantics
 // the route table (Phase 2.3) and the strangler (Phase 3) call: stage 1 checks
 // a route's coarse `requiredCapability` against the identity's capability set;
 // stage 2 runs the route's `resourceGuard`. No authorization logic lives in
@@ -34,7 +34,7 @@ import {
 // that drives authorization.
 export interface RouteAuthz {
   // The capability/capabilities required to clear stage 1. A single capability
-  // for almost every route; a set (any-of — the caller needs at least one) for
+  // for almost every route; a set (any-of - the caller needs at least one) for
   // the composite agents.sendMessage route, whose
   // `agent:converse | agent:send-as-self` lets both a USER (converse) and an
   // AGENT (send-as-self) through stage 1 so messageSend's scope-specific stage-2
@@ -61,9 +61,9 @@ export function authorize(
   const { identity } = input;
   // Authn stage: no identity at all is the ONLY 401.
   if (identity === null) return UNAUTHENTICATED;
-  // Stage 1: coarse capability (any-of — the caller needs at least one of the
+  // Stage 1: coarse capability (any-of - the caller needs at least one of the
   // declared capabilities). A missing capability is 403, and we MUST NOT run the
-  // resourceGuard — stage 2 never observes a caller that failed stage 1.
+  // resourceGuard - stage 2 never observes a caller that failed stage 1.
   const required: readonly Capability[] =
     typeof route.requiredCapability === "string"
       ? [route.requiredCapability]

@@ -67,7 +67,7 @@ export function RoomProps() {
       viewBox={`${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`}
       overflow="visible"
     >
-      {/* Potted plant — west corner of office */}
+      {/* Potted plant - west corner of office */}
       <g transform="translate(-245, 212) scale(1.5)">
         <rect x="-8" y="0" width="16" height="20" rx="3" fill="#5a4a35" />
         <ellipse cx="0" cy="0" rx="10" ry="4" fill="#6a5a45" />
@@ -94,7 +94,7 @@ export function RoomProps() {
         <ellipse cx="2" cy="-22" rx="4" ry="3.5" fill="#3a7a3a" opacity="0.6" />
       </g>
 
-      {/* Water cooler — near right wall, only in last room (no right door) */}
+      {/* Water cooler - near right wall, only in last room (no right door) */}
       {isLastRoom && (
         <g transform="translate(540, 225) scale(1.5)">
           {/* Water jug (behind body) */}
@@ -139,9 +139,9 @@ export function RoomProps() {
           />
         </g>
       )}
-      {/* Sleepy cat — south corner of office */}
+      {/* Sleepy cat - south corner of office */}
       <g transform="translate(120, 460)">
-        {/* Cat bed — isometric oval cushion */}
+        {/* Cat bed - isometric oval cushion */}
         {/* Bed base */}
         <ellipse cx="0" cy="10" rx="26" ry="14" fill="#8B6B4A" />
         {/* Bed inner cushion */}
@@ -180,7 +180,7 @@ export function RoomProps() {
           strokeWidth="1"
           fill="none"
         />
-        {/* Tail curling around — gentle sway */}
+        {/* Tail curling around - gentle sway */}
         <path
           d="M14 2 Q22 -2 20 -10 Q18 -16 12 -14"
           stroke={cat.body}
@@ -217,7 +217,7 @@ export function RoomProps() {
         {/* Inner ears */}
         <path d="M-17 -7 L-15.5 -12 L-13 -8 Z" fill={cat.ear} />
         <path d="M-11 -8 L-8.5 -12 L-7 -7 Z" fill={cat.ear} />
-        {/* Closed eyes — happy sleeping curves */}
+        {/* Closed eyes - happy sleeping curves */}
         <path
           d="M-16 -2 Q-14.5 -4 -13 -2"
           stroke={cat.face}

@@ -1,8 +1,8 @@
 // The desk grid every room is laid out on: 8 slots, 2 columns x 4 rows.
 //
 // The row/col pairs only mean something to the UI renderer, but the LENGTH of
-// this list is a domain invariant — OfficeState assigns and validates desk
-// indices against it — so the list lives in shared/ and the UI imports it from
+// this list is a domain invariant - OfficeState assigns and validates desk
+// indices against it - so the list lives in shared/ and the UI imports it from
 // here. Never the reverse: shared/ must not import UI.
 
 export const DESK_SLOTS = [

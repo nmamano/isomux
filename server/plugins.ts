@@ -4,16 +4,16 @@
  * Two ways an operator can enable a plugin in office-config.json's
  * `enabledPlugins` array:
  *
- *   1. Bare string id: `"safety-hooks"` — a bundled, first-party plugin.
+ *   1. Bare string id: `"safety-hooks"` - a bundled, first-party plugin.
  *      Resolved under `<isomuxRoot>/plugins/<id>/index.ts`. No path needed
  *      because the location is part of the isomux distribution.
  *
  *   2. {id, path} object: `{ "id": "mem0", "path": "/home/nil/nil/isomux-mem0" }`
- *      — an external plugin at an operator-controlled location. The path
+ *      - an external plugin at an operator-controlled location. The path
  *      must be absolute or `~/...` prefixed; basename(path) does NOT have
  *      to match `id` (the plugin's repo may be named differently than its
  *      logical id). The plugin's exported `id` MUST match the configured
- *      one — that's the explicit handshake.
+ *      one - that's the explicit handshake.
  *
  * No directory scanning. The config is the authoritative trust boundary:
  * if it isn't listed, it isn't loaded. Reviewer1's framing: "configuration
@@ -50,7 +50,7 @@ export interface LoadedPlugin {
 let loadedPlugins: LoadedPlugin[] = [];
 
 /** Returns the list of plugins loaded at boot, sorted alphabetically by id.
- *  Stable for the server's lifetime — no hot reload in v0. */
+ *  Stable for the server's lifetime - no hot reload in v0. */
 export function getEnabledPlugins(): LoadedPlugin[] {
   return loadedPlugins;
 }
@@ -59,7 +59,7 @@ export function getEnabledPlugins(): LoadedPlugin[] {
  *  plugins directly, bypassing the disk loader. Lets a harness test drive
  *  runAgentTurn's plugin hooks (e.g. park a turn in the pre-send window via
  *  a gated beforeTurn) with deterministic closures instead of a temp plugin
- *  dir + dynamic import. Call with [] in the test's cleanup — loadPlugins at
+ *  dir + dynamic import. Call with [] in the test's cleanup - loadPlugins at
  *  the next boot also resets the list, but only if another harness boots. */
 export function _testSetPlugins(plugins: IsomuxPlugin[]): void {
   loadedPlugins = plugins
@@ -144,7 +144,7 @@ export async function loadPlugins(opts: {
         pluginId: id,
         hook: "load",
         durationMs: 0,
-        error: `Plugin "${id}" (${realpath}) exports id="${plugin.id}" but enabledPlugins entry says id="${id}". The exported id MUST match the configured id — they're the trust handshake.`,
+        error: `Plugin "${id}" (${realpath}) exports id="${plugin.id}" but enabledPlugins entry says id="${id}". The exported id MUST match the configured id - they're the trust handshake.`,
       });
       continue;
     }
@@ -154,7 +154,7 @@ export async function loadPlugins(opts: {
         pluginId: id,
         hook: "load",
         durationMs: 0,
-        error: `Plugin "${id}" (${realpath}) has neither beforeTurn nor afterTurn — at least one required.`,
+        error: `Plugin "${id}" (${realpath}) has neither beforeTurn nor afterTurn - at least one required.`,
       });
       continue;
     }
@@ -234,7 +234,7 @@ function materializePlugin(
 }
 
 // ---------------------------------------------------------------------------
-// Failure logging — JSONL stream at ~/.isomux/logs/plugins.jsonl
+// Failure logging - JSONL stream at ~/.isomux/logs/plugins.jsonl
 // ---------------------------------------------------------------------------
 //
 // Hook failures and load errors are cross-agent and sometimes pre-agent
@@ -242,7 +242,7 @@ function materializePlugin(
 // (a noisy memory plugin would otherwise degrade core chat) while still
 // being grep-able for forensics. Records include enough routing fields
 // (agentId, roomId, origin) for operators to scope down. Full message text
-// is NOT logged — plugin prefixes and user turns can contain secrets.
+// is NOT logged - plugin prefixes and user turns can contain secrets.
 
 export interface PluginFailureRecord {
   pluginId: string;
@@ -275,7 +275,7 @@ export function logPluginFailure(rec: PluginFailureRecord): void {
     mkdirSync(dirname(PLUGIN_LOG_PATH), { recursive: true });
     appendFileSync(PLUGIN_LOG_PATH, line + "\n");
   } catch (err) {
-    // Fallback to stderr — operator needs to know failures aren't being
+    // Fallback to stderr - operator needs to know failures aren't being
     // captured to disk. Don't swallow silently.
     console.error(
       "[plugins] failed to write failure log:",

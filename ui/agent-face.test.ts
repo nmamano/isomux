@@ -1,5 +1,5 @@
 // Tab-title faces (task 4a8eff79). The mapping is user-facing copy Nil signed
-// off on, so it's frozen here verbatim — a change to any face should be a
+// off on, so it's frozen here verbatim - a change to any face should be a
 // deliberate edit to this file, not a silent drift.
 import { describe, expect, it } from "bun:test";
 import { agentTabLabel, faceForState } from "./agent-face.ts";
@@ -49,7 +49,7 @@ describe("faceForState", () => {
     }
   });
 
-  it("has no combining marks — they clip unpredictably in tab strips", () => {
+  it("has no combining marks - they clip unpredictably in tab strips", () => {
     for (const state of ALL_STATES) {
       expect(faceForState(state)).not.toMatch(/\p{M}/u);
     }

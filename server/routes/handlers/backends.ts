@@ -1,4 +1,4 @@
-// Backends resource handler — Phase 3a slice 3a.5. The model picker on the
+// Backends resource handler - Phase 3a slice 3a.5. The model picker on the
 // unified REST surface (opId backends.listModels). agent:manage + authenticated:
 // any caller who can spawn may enumerate a backend's models; AGENT scope lacks
 // agent:manage and is rejected at stage 1.

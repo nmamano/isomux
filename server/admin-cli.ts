@@ -3,7 +3,7 @@
 // The early branch at the top of server/isomux-office.ts dynamically imports this
 // module only on a CLI invocation, so the rest of the server's heavy
 // boot machinery doesn't load. We deliberately keep imports here minimal
-// — node:http with socketPath is the simplest portable way to do
+// - node:http with socketPath is the simplest portable way to do
 // HTTP-over-unix-socket from a one-shot client.
 
 import { request } from "http";
@@ -122,8 +122,8 @@ function sendOwnerLogin(name: string): Promise<OwnerLoginOk | OwnerLoginErr> {
       },
     );
     req.on("error", (err: NodeJS.ErrnoException) => {
-      // Any failure to reach the socket — file missing, no listener, perms
-      // mismatch — most likely means the isomux server isn't running for
+      // Any failure to reach the socket - file missing, no listener, perms
+      // mismatch - most likely means the isomux server isn't running for
       // the calling user. Surface a single clear hint plus the raw error
       // so unusual cases (EACCES from a foreign UID, etc.) stay debuggable.
       resolve({

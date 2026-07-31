@@ -32,7 +32,7 @@ const STATUS_COLOR: Record<CronjobRunStatus, string> = {
 };
 
 function timeAgo(ts: number | null): string {
-  if (!ts) return "—";
+  if (!ts) return " - ";
   const diff = Date.now() - ts;
   const mins = Math.floor(diff / 60000);
   if (mins < 1) return "just now";
@@ -99,7 +99,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
   // Request runs from every cronjob dir on disk (including deleted ones), so
   // historical runs from deleted cronjobs still appear in the Runs tab.
   // Fires on first mount and whenever the live cronjob list changes (e.g. a
-  // new cronjob was just created — its runs.json will appear on disk on first
+  // new cronjob was just created - its runs.json will appear on disk on first
   // fire and we'd want to pick it up on the next refresh). The fetch SEEDS the
   // store (per-job merge, so a job absent from disk keeps its stale entry, as
   // before); live cronjob_run_updated events keep cronjobRunsByJob fresh after.
@@ -111,7 +111,7 @@ export function CronjobsView({ onClose }: { onClose: () => void }) {
       .then(({ jobs }) => dispatch({ type: "cronjob_runs_loaded", jobs }))
       .catch(() => {
         // Transport error: leave the table as-is (matches the old no-reply
-        // behavior — a dropped runs stream never cleared the table).
+        // behavior - a dropped runs stream never cleared the table).
       });
   }, [cronjobs.length, dispatch]);
 
@@ -758,7 +758,7 @@ function RunsTable({
                   maxWidth: 0,
                 }}
               >
-                {r.errorReason || r.previewText || "—"}
+                {r.errorReason || r.previewText || " - "}
               </td>
               {!isMobile && (
                 <td

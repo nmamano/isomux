@@ -4,7 +4,7 @@
 // install.sh is fetched on its own (curl | bash), so it cannot read repo files:
 // anything it installs on the box has to be inside it. The helper scripts are
 // still real files in the repo so they can be read, linted, and run straight
-// from a checkout. This script is what keeps the two in step — edit the helper,
+// from a checkout. This script is what keeps the two in step - edit the helper,
 // run this, commit both. deploy/install-sh.test.ts fails if they drift.
 //
 //   bun run scripts/embed-deploy-scripts.ts          # rewrite install.sh

@@ -39,7 +39,7 @@ describe("shared/blob-version versionOf", () => {
       "x".repeat(65),
       "x".repeat(1000),
       "prompt with newlines\nand\ttabs\n",
-      "unicode: héllo wörld — ünïcode ✓ 你好 🦊",
+      "unicode: héllo wörld - ünïcode ✓ 你好 🦊",
     ];
     for (const s of samples) {
       expect(versionOf(s)).toBe(nodeVersionOf(s));

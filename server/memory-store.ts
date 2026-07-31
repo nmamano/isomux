@@ -1,4 +1,4 @@
-// isomux-memory storage — the leaf module. Raw, unstructured, one-fact-per-line
+// isomux-memory storage - the leaf module. Raw, unstructured, one-fact-per-line
 // markdown under STATE_ROOT/memory/. See internal-docs/isomux-memory-design.md.
 //
 // The directory tree IS the schema:
@@ -11,16 +11,16 @@
 // Each fact is one bullet line:
 //   - {Creator}, {YYYY-MM-DD}: {the self-contained fact}
 // There are NO ids and NO supersede/tombstone grammar. There are three verbs:
-//   APPEND  — add one server-stamped line (the safe default).
-//   READ    — return the whole raw file plus an optimistic-concurrency version.
-//   REPLACE — overwrite the whole file, guarded by the version you READ (409 on
+//   APPEND  - add one server-stamped line (the safe default).
+//   READ    - return the whole raw file plus an optimistic-concurrency version.
+//   REPLACE - overwrite the whole file, guarded by the version you READ (409 on
 //             mismatch). This is how edits and retractions happen.
 // Every mutating op is recorded to the op-log so a bad write can be restored by
 // re-REPLACEing an earlier `content` snapshot.
 //
 // Provenance: APPEND stamps the Creator + date from the authenticated caller. A
 // REPLACE writes the file bytes verbatim (free-form), so in-file creators are
-// DISPLAY ONLY after a rewrite — the op-log `actor` is the authoritative record
+// DISPLAY ONLY after a rewrite - the op-log `actor` is the authoritative record
 // of who changed what.
 //
 // Pure helpers (format/parse/version) + an INJECTABLE store so unit tests can pin
@@ -40,7 +40,7 @@ import { versionOf } from "../shared/blob-version.ts";
 import type { MemoryItem, MemoryScope } from "../shared/types.ts";
 
 // A scopeId (roomId / agentId / userId) is interpolated into a filesystem path,
-// so it MUST be a strict identifier — the only thing between a caller-supplied
+// so it MUST be a strict identifier - the only thing between a caller-supplied
 // scopeId and path traversal. Reject slashes, dots, anything else.
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 export function isSafeScopeId(id: string): boolean {
@@ -71,7 +71,7 @@ export function formatMemoryLine(input: {
 // guard and provenance display. The date (YYYY-MM-DD) is the anchor, so an author
 // containing a comma still parses (the author capture is lazy). A free-form line
 // written by a human REPLACE that doesn't match simply yields null and doesn't
-// participate in dedup — raw memory is allowed to be unstructured.
+// participate in dedup - raw memory is allowed to be unstructured.
 const LINE_RE = /^- (.+?), (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
 
 export function parseMemoryLine(
@@ -151,7 +151,7 @@ export function renderCapped(lines: readonly string[], cap: number): string {
 // --- optimistic-concurrency version -----------------------------------------
 
 // Short sha256 of the exact file bytes. A missing/empty file hashes "" to a fixed
-// value (sha256("")[:12]), which serves as the missing-file sentinel — so a
+// value (sha256("")[:12]), which serves as the missing-file sentinel - so a
 // READ -> REPLACE round-trip works on a never-written scope. 12 hex chars keeps
 // collision anxiety out of reviews while staying compact.
 //
@@ -220,7 +220,7 @@ export interface MemoryStore {
   // Overwrite the whole file. If expectedVersion is given and no longer matches
   // the current file, returns a conflict (with the current version) and writes
   // nothing. Omit expectedVersion to force (human/owner curation save). `author`
-  // is the op-log actor only — the file bytes are written verbatim.
+  // is the op-log actor only - the file bytes are written verbatim.
   replace(input: {
     scope: MemoryScope;
     scopeId: string | null;

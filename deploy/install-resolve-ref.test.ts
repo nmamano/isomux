@@ -1,4 +1,4 @@
-// deploy/install.sh resolve_default_ref — the pinned-release default and its
+// deploy/install.sh resolve_default_ref - the pinned-release default and its
 // fail-closed policy. The function (plus is_official_repo) is extracted from
 // the installer with sed and driven with a PATH-stubbed curl, so the
 // transport outcomes (200/404/500/curl-fail) are exercised without a network

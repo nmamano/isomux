@@ -1,4 +1,4 @@
-// Phase 3a slice 3a.3b — uploads + file-serving on the unified REST surface
+// Phase 3a slice 3a.3b - uploads + file-serving on the unified REST surface
 // (opIds agents.upload / agents.getFile).
 //
 // What this freezes:
@@ -11,7 +11,7 @@
 //   - getFilePath stays the only resolver: path traversal -> 404.
 //   - Both are USER/browser surfaces: an AGENT token is 403 (lacks the caps).
 //   - The legacy /api/upload + /api/files + /api/images keep their old paths and
-//     old auth posture — no collision, no accidental tightening.
+//     old auth posture - no collision, no accidental tightening.
 //
 // Seam: startTestServer(). Zero LLM.
 

@@ -1,4 +1,4 @@
-// The commit-mode (source checkout) copy matrix, asserted VERBATIM — this
+// The commit-mode (source checkout) copy matrix, asserted VERBATIM - this
 // file IS the signed-off enumeration of every notice state. Statuses are
 // produced by the real server decision (computeCommitStatus) so the matrix
 // can't drift from what the checker actually publishes.
@@ -30,7 +30,7 @@ function notice(
   return buildCommitNotice(s);
 }
 
-describe("commit-mode copy matrix — release exists (latest v2026.7.22)", () => {
+describe("commit-mode copy matrix - release exists (latest v2026.7.22)", () => {
   it("1. on latest release, main tip == release: quiet", () => {
     expect(notice(onTag("v2026.7.22"), rel("v2026.7.22"), cmp(0))).toBeNull();
   });
@@ -126,7 +126,7 @@ describe("commit-mode copy matrix — release exists (latest v2026.7.22)", () =>
   });
 });
 
-describe("commit-mode copy matrix — no releases yet", () => {
+describe("commit-mode copy matrix - no releases yet", () => {
   it("12. untagged at main tip: quiet", () => {
     expect(notice(onCommit(null), null, cmp(0))).toBeNull();
   });
@@ -157,7 +157,7 @@ describe("commit-mode copy matrix — no releases yet", () => {
   });
 });
 
-describe("commit-mode copy — singular drift", () => {
+describe("commit-mode copy - singular drift", () => {
   it("uses 'commit', not 'commits', at +1", () => {
     expect(notice(onTag("v2026.7.22"), rel("v2026.7.22"), cmp(1))?.notice).toBe(
       "You're on v2026.7.22 (latest release). main has 1 newer commit if you want the bleeding edge.",

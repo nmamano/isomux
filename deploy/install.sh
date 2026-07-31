@@ -5,14 +5,14 @@
 # bun + isomux (systemd service) + Caddy with automatic Let's Encrypt +
 # a headless browser for the agents' page-preview cards +
 # firewall/SSH hardening + out-of-memory protection + unattended security
-# updates (a standard Ubuntu feature — it patches system packages, never
+# updates (a standard Ubuntu feature - it patches system packages, never
 # isomux itself). Ends by claiming the office owner, minting a single-use
 # owner invite link, saving it to /var/lib/isomux-install/invite-url,
 # printing it if a terminal is watching (naming that file instead if not),
 # and optionally POSTing it to a callback URL.
 #
-# Two checks can stop the install outright. Both ask the same question — can
-# the isomux service account become root on this box? — and both answer it by
+# Two checks can stop the install outright. Both ask the same question - can
+# the isomux service account become root on this box? - and both answer it by
 # trying, as that account. An install that cannot answer it stops too: a box
 # is not hardened just because the check could not run. See harden_ssh below
 # and deploy/harden-ssh.sh.
@@ -71,7 +71,7 @@ ISOMUX_DEPS_ONLY="${ISOMUX_DEPS_ONLY:-}"
 # Protocol marker for scripts/update.sh: the exact assignment below is what the
 # updater greps for before it runs this file as root with ISOMUX_DEPS_ONLY=1.
 # A release that lacks it gets its dependency sync skipped, which is the safe
-# outcome — running an older installer that ignores the flag would run a FULL
+# outcome - running an older installer that ignores the flag would run a FULL
 # install on a live box. Bump only if the mode's contract changes.
 # shellcheck disable=SC2034 # declared for scripts/update.sh to find, not used here
 ISOMUX_INSTALL_DEPS_MODE_VERSION=1
@@ -116,7 +116,7 @@ SSH_HARDENING_SKIPPED=""
 
 log() { printf '[isomux-install] %s\n' "$*"; }
 
-# True when stdout is a terminal — the closest this script can get to asking
+# True when stdout is a terminal - the closest this script can get to asking
 # whether anyone is reading the run as it goes, rather than a file, a pipe or
 # an agent's transcript collecting it. The owner invite is a credential, so the
 # final report prints the link itself only then and names the file it was saved
@@ -227,7 +227,7 @@ report_failure() {
   fi
   # A full install continues into configure_caddy on the next run, which puts
   # the proxy back. A dependency sync has no such step, so it restores the
-  # proxy itself — on this path too, or a failed apt would take an office off
+  # proxy itself - on this path too, or a failed apt would take an office off
   # its public URL. Best effort here: this path is already reporting a failure.
   restore_caddy_state ||
     log "warning: caddy could not be restored to its previous state; the office's public URL may be down. Check: systemctl status caddy"
@@ -289,8 +289,8 @@ apt_install() {
 
 # Every .dpkg-dist marker under $root, with the identity fields that change when
 # dpkg writes a fresh one: inode, mtime, size. dpkg's marker is its own record
-# of the decision — when it keeps the operator's file it parks the package's
-# version next to it as <file>.dpkg-dist — which makes this independent of apt's
+# of the decision - when it keeps the operator's file it parks the package's
+# version next to it as <file>.dpkg-dist - which makes this independent of apt's
 # wording and of the locale it prints in.
 #
 # What it deliberately does NOT do is ask whether a marker is newer than the
@@ -309,7 +309,7 @@ conffile_markers() {
 # the marker snapshot $before. A marker this run wrote is a different file from
 # the one that was there (dpkg renames a freshly unpacked file into place, so
 # the inode is new), which also catches a package overwriting a marker an
-# earlier run had left behind — path existence alone could not tell those apart.
+# earlier run had left behind - path existence alone could not tell those apart.
 report_kept_conffiles() {
   local before=$1 root=${2:-$CONFFILE_ROOT} line path
   local -a kept=()
@@ -375,7 +375,7 @@ valid_domain() {
 # The callback carries the invite credential, so plain http is allowed only
 # to genuinely local hosts. The host must be exactly "localhost" or a valid
 # 127/8 address (first octet exactly 127, the rest 0-255) and end at an
-# authority boundary (port, path, query, fragment, or end of string) — a
+# authority boundary (port, path, query, fragment, or end of string) - a
 # prefix match would accept http://localhost.evil.example. Userinfo forms
 # (http://x@localhost/) fail the anchored host match.
 callback_is_local_http() {
@@ -411,7 +411,7 @@ preflight() {
     die "INSTALL_CALLBACK_URL must be https:// (plain http is allowed only for localhost testing)"
   fi
   # ISOMUX_REPO lands in /etc/isomux/update.conf, which the updater parses
-  # as literal key=value (never sourced) — but keep the value to a plain
+  # as literal key=value (never sourced) - but keep the value to a plain
   # git-URL charset anyway so it can never smuggle options or shell syntax
   # into anything that consumes it.
   [[ $ISOMUX_REPO =~ ^[A-Za-z0-9@:/._+~][A-Za-z0-9@:/._+~-]*$ ]] ||
@@ -439,7 +439,7 @@ install_packages() {
   # loopback-only claim endpoint to the internet. Only a box that is both
   # configured by this installer AND claimed keeps its proxy running across
   # the re-run; everything else gets caddy stopped AND masked before apt
-  # runs — the mask is what closes the window, because the package postinst
+  # runs - the mask is what closes the window, because the package postinst
   # respects it and cannot start the service mid-install. Unmasked (but
   # still stopped + disabled) right after, and on any failure in between by
   # report_failure; caddy stays down until configure_caddy.
@@ -521,7 +521,7 @@ configure_firewall() {
 # The SSH hardening and the check that says whether it holds both live in
 # deploy/harden-ssh.sh, installed here as a command the operator can re-run.
 # One implementation, three callers: this step, the two gates below, and the
-# operator afterwards — the last one is the point. Hardening is skipped on a
+# operator afterwards - the last one is the point. Hardening is skipped on a
 # box with no SSH key yet (see the script), and the person who then adds a key
 # is not going to remember to re-run a whole installer.
 #
@@ -533,13 +533,13 @@ harden_ssh() {
   step harden-ssh
   write_file "$HARDEN_TOOL" 755 <<'ISOMUX_HARDEN_SSH_SH'
 #!/usr/bin/env bash
-# isomux-harden-ssh — SSH hardening for an isomux box, and the check that says
+# isomux-harden-ssh - SSH hardening for an isomux box, and the check that says
 # whether it holds.
 #
 # Two jobs:
-#   apply — key-only SSH auth. Skipped, loudly, on a box that has no SSH key
+#   apply - key-only SSH auth. Skipped, loudly, on a box that has no SSH key
 #           yet: turning off password logins there would lock the operator out.
-#   check — can the isomux service account log in as root on this box? Answered
+#   check - can the isomux service account log in as root on this box? Answered
 #           by TRYING, as that account, and reading the authentication
 #           transcript. Also checks passwordless sudo.
 #
@@ -551,7 +551,7 @@ harden_ssh() {
 #
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
 # which is fetched on its own by curl | bash and so cannot read repo files. The
-# two copies are pinned equal by deploy/install-sh.test.ts — edit here, then
+# two copies are pinned equal by deploy/install-sh.test.ts - edit here, then
 # paste into the heredoc there.
 #
 # Usage (as root):
@@ -704,7 +704,7 @@ apply_hardening() {
   fi
   # Refuse to turn off password logins when no key can get back in. Assumption:
   # any non-empty authorized_keys under /root or /home belongs to an account
-  # the operator can log in with — true on a freshly provisioned VPS, where
+  # the operator can log in with - true on a freshly provisioned VPS, where
   # those are the provider-created login accounts.
   local f has_keys=""
   for f in "${AUTHORIZED_KEYS_FILES[@]}"; do
@@ -1489,8 +1489,8 @@ check_root_reachability() {
   esac
 }
 
-# Second gate, on the finished box: everything since the first one — package
-# installs, the service, the update trigger — could in principle have opened
+# Second gate, on the finished box: everything since the first one - package
+# installs, the service, the update trigger - could in principle have opened
 # the door again. Deliberately BEFORE the owner is claimed, so a box that fails
 # here has no owner, no invite link and no success callback: nothing usable
 # leaves an install that did not pass.
@@ -1519,7 +1519,7 @@ configure_oom_protection() {
   step configure-oom-protection
   write_file "$OOM_TOOL" 755 <<'ISOMUX_OOM_PROTECT_SH'
 #!/usr/bin/env bash
-# isomux-oom-protect — keep a memory spike from taking the whole box down.
+# isomux-oom-protect - keep a memory spike from taking the whole box down.
 #
 # When an isomux box runs out of memory, the kernel's own last-resort killer
 # arrives too late: by then the machine is already swapping so hard that
@@ -1549,7 +1549,7 @@ configure_oom_protection() {
 #
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
 # which is fetched on its own by curl | bash and so cannot read repo files. The
-# two copies are pinned equal by deploy/install-sh.test.ts — edit here, then
+# two copies are pinned equal by deploy/install-sh.test.ts - edit here, then
 # run `bun run scripts/embed-deploy-scripts.ts` to update the copy there.
 #
 # Usage (as root):
@@ -1638,7 +1638,7 @@ install_earlyoom() {
 # --prefer     agent processes: the memory hogs, and the cheapest to lose
 #
 # Both lists match a process NAME, which is why the office server is shielded as
-# `isomux` and not as `bun`. It runs under bun, so its name used to be `bun` —
+# `isomux` and not as `bun`. It runs under bun, so its name used to be `bun` - 
 # and so is every `bun install` and `bun run build` an agent starts. Shielding
 # that name shielded the multi-GB build spike this whole setup exists to kill,
 # while the server gained nothing its own workload did not also get. The server
@@ -1647,7 +1647,7 @@ install_earlyoom() {
 #
 # An office older than that rename is still called `bun` and so is not matched
 # here. What it falls back on is the OOMScoreAdjust tier, the stronger of the
-# two shields — either the one its system unit already carries, or the one this
+# two shields - either the one its system unit already carries, or the one this
 # tool stamps onto it below. Note that an old USER-level office that this tool
 # has never been run against has neither, since its configured tier is the
 # ineffective one. Keeping `bun` in the list to cover that case is what caused
@@ -1743,13 +1743,13 @@ EOF
 #
 # The tier above writes a drop-in for a SYSTEM unit. An office installed the
 # self-hosted way (docs/self-hosted.md) has no isomux.service on the system bus,
-# so that drop-in is inert — and the obvious repair, a matching drop-in under
+# so that drop-in is inert - and the obvious repair, a matching drop-in under
 # the user's own systemd, does not work either.
 #
 # Measured on a live office box, 2026-07-31. Ubuntu starts every user manager at
 # OOMScoreAdjust=100 (/usr/lib/systemd/system/user@.service) and its services
 # inherit that. Lowering a score needs CAP_SYS_RESOURCE, which a user manager
-# does not have, so its request for -500 is refused by the kernel — while
+# does not have, so its request for -500 is refused by the kernel - while
 # `systemctl --user show` still cheerfully reports -500 and the service starts
 # clean. The server reads 100.
 #
@@ -1762,7 +1762,7 @@ EOF
 #
 # Making the value survive a restart would mean lowering the whole user manager,
 # putting every process in that operator's login session under the same
-# protection — a policy decision this script does not get to make on its own.
+# protection - a policy decision this script does not get to make on its own.
 
 # Print the pid of a running user-level isomux service, if there is one.
 #
@@ -1820,7 +1820,7 @@ EOF
 
 # A small swap file is a useful cushion for pages nothing has touched in days.
 # A large one is a trap: it lets the box keep allocating long past the point
-# where it can still respond. Existing swap is left alone — resizing it out
+# where it can still respond. Existing swap is left alone - resizing it out
 # from under a running system is not this script's business.
 configure_swap() {
   local total_kib
@@ -2010,7 +2010,7 @@ install_browser() {
 
 # Prove the installed browser can actually produce a screenshot, as the service
 # user and with the flags that decide the outcome on a headless server (the
-# keyring/D-Bus pair, a private profile dir) — not a replica of every flag the
+# keyring/D-Bus pair, a private profile dir) - not a replica of every flag the
 # server passes. A present binary is not the same as a working one (snap
 # chromium is the standing counter-example), and without this check the failure
 # surfaces much later, to an agent. Non-empty PNG rather than the server's
@@ -2049,7 +2049,7 @@ verify_browser() {
 # fresh box lands on a pinned, tested version. The main fallback exists for
 # exactly one case per repo class: the OFFICIAL repo falls back only on a
 # genuine has-no-releases 404 (pre-first-release bootstrap) and FAILS CLOSED
-# on transport/parse errors — a GitHub hiccup must not silently install
+# on transport/parse errors - a GitHub hiccup must not silently install
 # un-gated main; forks and non-GitHub repos stay lenient (their release
 # discipline is not ours to enforce).
 # Any canonical form of the official repo (https with or without .git, ssh)
@@ -2126,7 +2126,7 @@ fetch_isomux() {
   # Resolve the ref strictly against freshly fetched origin data: remote
   # branch, then the (pruned) tag namespace, then a direct fetch of the ref
   # (covers raw commits; GitHub allows fetching by SHA). Never generic local
-  # resolution — after a repo switch, stale local branches and old-repo
+  # resolution - after a repo switch, stale local branches and old-repo
   # objects still resolve locally and would silently install the wrong code.
   if as_service_user git -C "$INSTALL_DIR" rev-parse --verify --quiet "refs/remotes/origin/$ISOMUX_REF" >/dev/null; then
     as_service_user git -C "$INSTALL_DIR" checkout --detach "origin/$ISOMUX_REF"
@@ -2159,7 +2159,7 @@ build_isomux() {
 }
 
 # Root-of-trust config for the updater plus an installed copy of it. The
-# copy's bytes come from a ROOT-OWNED fetch of $ISOMUX_REPO — never from
+# copy's bytes come from a ROOT-OWNED fetch of $ISOMUX_REPO - never from
 # $INSTALL_DIR: that checkout is writable by the service user (which agents
 # run shell as), and on a re-run an already-running service could have
 # replaced scripts/update.sh there; root promoting it to $UPDATER_PATH would
@@ -2205,7 +2205,7 @@ EOF
   # In-UI update trigger escalation (release-design.md → "Update trigger"): the
   # server runs unprivileged, so the owner's update button asks systemd to
   # start this ROOT-owned template unit; the polkit rule grants the service
-  # user exactly that — verb start on isomux-update@<calver-tag>.service, no
+  # user exactly that - verb start on isomux-update@<calver-tag>.service, no
   # other unit, no other verb. This IS a new root-mediated capability for the
   # service user (which agents shell as); its safety rests on the tightly
   # constrained target, not on the HTTP layer's owner-only gate: everything
@@ -2305,8 +2305,8 @@ have_valid_session() {
 # can read the service user's state). The records win over OWNER_NAME: the
 # owner may have been renamed since the claim, or OWNER_NAME may differ
 # between runs. Precedence: the stable userId this installer saved after its
-# last successful mint (rename-proof), then — for state from older runs that
-# only saved a name — the saved name, then OWNER_NAME; with a single owner
+# last successful mint (rename-proof), then - for state from older runs that
+# only saved a name - the saved name, then OWNER_NAME; with a single owner
 # the record itself decides.
 resolve_owner_name() {
   local users_file=$SERVICE_HOME/.isomux/users.json
@@ -2454,8 +2454,8 @@ configure_caddy() {
   # 127.0.0.1:2019 and can rewrite the whole proxy config with no credential.
   # Loopback is not a trust boundary on this box: agents run here as a local
   # user, and any web app they build is one SSRF or open-proxy bug away from
-  # reaching it from outside. Nothing in isomux drives Caddy through the API —
-  # this installer restarts the service instead — so the only thing lost is
+  # reaching it from outside. Nothing in isomux drives Caddy through the API - 
+  # this installer restarts the service instead - so the only thing lost is
   # `caddy reload` / `systemctl reload caddy` on this box; a restart still
   # applies a changed Caddyfile.
   write_file /etc/caddy/Caddyfile 644 <<EOF
@@ -2522,7 +2522,7 @@ report() {
 
 # System dependencies only (ISOMUX_DEPS_ONLY=1). This is what scripts/update.sh
 # runs from the TARGET release, so an update delivers the system dependencies
-# that release needs — the checkout-only updater cannot (a box installed before
+# that release needs - the checkout-only updater cannot (a box installed before
 # the Node.js step, for example, keeps a dead terminal panel through every
 # update until someone re-runs the whole installer).
 #
@@ -2533,7 +2533,7 @@ report() {
 #     policy the operator may have adjusted since the install, and an update
 #     must not silently reimpose ours.
 #   - NOT install_bun: a release never switches the runtime under a running
-#     box (release-design.md, "Bun invariant" — the updater warns about a pin
+#     box (release-design.md, "Bun invariant" - the updater warns about a pin
 #     change instead, and its rollback has to run on the installed bun).
 #   - NOT the service, Caddy, the owner claim, or the invite: nothing about
 #     this box's identity changes during an update.

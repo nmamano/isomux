@@ -2,7 +2,7 @@
 // protection can tell it apart from the agents it spawns.
 //
 // earlyoom picks what to kill by process NAME, and the office server's name is
-// `bun` — the same name as every `bun install` and `bun run build` an agent
+// `bun` - the same name as every `bun install` and `bun run build` an agent
 // starts. Shielding the name `bun` therefore shielded the multi-GB build spike
 // that most needs killing, and the server gained nothing it did not already
 // share with its own workload. Renaming the server breaks the tie:
@@ -26,7 +26,7 @@ export const OFFICE_PROCESS_NAME = "isomux";
  *
  * Returns whether the name took. Callers are not expected to care: this is
  * protection metadata, not part of serving the office, so a box where it fails
- * runs exactly as well — it just falls back to being named `bun` and loses the
+ * runs exactly as well - it just falls back to being named `bun` and loses the
  * distinction that out-of-memory protection relies on.
  */
 export function setProcessName(name: string = OFFICE_PROCESS_NAME): boolean {

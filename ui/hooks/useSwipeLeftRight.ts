@@ -109,7 +109,7 @@ export function useSwipeLeftRight(
     }
 
     // iOS can cancel a touch sequence without a matching touchend (e.g. system
-    // gesture, notification, palm rejection). Reset unconditionally — even a
+    // gesture, notification, palm rejection). Reset unconditionally - even a
     // partial cancel (one finger of a pinch) must clear the multi-touch guard
     // so the remaining finger isn't silently dropped for the rest of its life.
     function onTouchCancel() {

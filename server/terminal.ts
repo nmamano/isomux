@@ -12,11 +12,11 @@ const MAX_PTY_BUFFER = 100_000;
 // on PATH (cron, systemd-user, non-login SSH on macOS), Bun falls back to
 // running ITSELF in node-compat mode under the name "node". The sidecar then
 // loads node-pty's native binding under Bun's runtime, which doesn't drive
-// the PTY correctly — terminal panel comes up blank/dead. Probe order:
+// the PTY correctly - terminal panel comes up blank/dead. Probe order:
 //   1. ISOMUX_NODE_PATH override
 //   2. Known absolute installs (Homebrew arm64, Homebrew/Linux x64,
 //      distro Linux, MacPorts)
-//   3. Bare "node" via PATH (still validated — Bun's node-compat answers
+//   3. Bare "node" via PATH (still validated - Bun's node-compat answers
 //      `process.versions.bun`, which we reject)
 // Validation is `accessSync(X_OK)` + a one-shot `--exit-on-Bun` probe.
 // Cached after the first probe; restart the server to re-resolve.
@@ -33,7 +33,7 @@ function probeRealNode(candidate: string): boolean {
   // X_OK check is path-form-aware: absolute paths get a direct executable
   // check; bare "node" would throw ENOENT here, so we skip and let spawnSync
   // do its own PATH lookup. Either way the version probe below is the final
-  // arbiter — accessSync just rejects obviously-broken absolute paths fast.
+  // arbiter - accessSync just rejects obviously-broken absolute paths fast.
   if (candidate.startsWith("/")) {
     try {
       accessSync(candidate, fsConstants.X_OK);
@@ -103,7 +103,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   const managed = deps.getAgent(agentId);
   if (!managed) return false;
 
-  // Already running — just replay buffered output
+  // Already running - just replay buffered output
   if (managed.ptySidecar) return true;
 
   const shell = process.env.SHELL || "/bin/bash";

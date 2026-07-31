@@ -1,4 +1,4 @@
-// Phase 3a slice 2 — Cronjobs on the unified REST surface (opIds cron.*).
+// Phase 3a slice 2 - Cronjobs on the unified REST surface (opIds cron.*).
 //
 // TDD'd against the typed route table: cronjob metadata + runs reads/CRUD on the
 // /api surface, with the [behavior-change] authz tightenings ENFORCED by the

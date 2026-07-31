@@ -1,4 +1,4 @@
-// Phase 1.2 — Projection / ACL characterization.
+// Phase 1.2 - Projection / ACL characterization.
 //
 // Per-recipient projection / ACL net. Began as a Phase 1.2 characterization of
 // the implicit per-WebSocket fanout in server/isomux-office.ts (sendProjectedFullState +
@@ -31,15 +31,15 @@
 //
 // Determinism (no arbitrary sleeps): routeAgentEvent fans out to every socket
 // SYNCHRONOUSLY, so "a full-access owner socket received event X" implies every
-// restricted socket's decision on X already ran — that is the barrier for
+// restricted socket's decision on X already ran - that is the barrier for
 // negative assertions. The connect handshake sends presence_list LAST, so
 // awaiting it guarantees the whole handshake (incl. per-agent log_entry +
 // slash_commands replay) arrived. The mutation cores (room create/close/rename,
-// update_user, reorder) fan out fully synchronously incl. their pushes — for the
+// update_user, reorder) fan out fully synchronously incl. their pushes - for the
 // REST mutations the broadcast fires inside the handler before the HTTP response
-// resolves — so awaiting one recipient's resulting full_state settles all of them.
+// resolves - so awaiting one recipient's resulting full_state settles all of them.
 //
-// Scope note — terminal: routeAgentEventToWs gates terminal_output/terminal_exit
+// Scope note - terminal: routeAgentEventToWs gates terminal_output/terminal_exit
 // in the SAME agentVisibleForSession switch arm as log_entry/slash_commands. The
 // terminal_open buffered REPLAY is now characterized below (task 39ce6225): it
 // seeds the agent's buffered output to ONLY the requesting socket, so a member
@@ -79,8 +79,8 @@ const bag = (sock: TestSocket): Msg[] => sock.messages as Msg[];
 
 // A FakeBackend that completes every turn (so the agent lands back at
 // waiting_for_response). Assertions anchor on the RAW human `user_message` log
-// entry — logged verbatim before the orchestrator wraps the text with sender
-// attribution for the backend — so the assistant text content is unused.
+// entry - logged verbatim before the orchestrator wraps the text with sender
+// attribution for the backend - so the assistant text content is unused.
 function completingBackend(): FakeBackend {
   return new FakeBackend({
     session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
@@ -175,7 +175,7 @@ async function waitForTypeCount(
 }
 
 // Assert (by position) that a log_entry for `agentId` matching `pred` arrives
-// AFTER `sinceIndex` in the socket's append-only buffer — i.e. it was REPLAYED
+// AFTER `sinceIndex` in the socket's append-only buffer - i.e. it was REPLAYED
 // by a shift's projected full_state, not merely left over from the connect-time
 // replay. The real client clears logs on each full_state and depends on this
 // replay; our test buffer never clears, so position is how we actually
@@ -261,7 +261,7 @@ async function spawnIn(
 }
 
 // Drive one turn from a full-access owner socket and block until the raw human
-// `user_message` log entry (the unique marker) is observed on that socket — the
+// `user_message` log entry (the unique marker) is observed on that socket - the
 // synchronous-fanout barrier, and the specific entry whose replay the
 // transcript-preservation cases assert.
 async function driveTurn(
@@ -298,7 +298,7 @@ async function pingPong(sock: TestSocket): Promise<void> {
 // reorder cut over from WS to /api in slice 6, so the projection net drives them
 // over authenticated HTTP now. The downstream broadcasts (room_*/full_state/
 // all_rooms_list) are emitted by the SAME cores, so the per-recipient ACL
-// assertions are unchanged — only the command entry transport moved. Awaiting
+// assertions are unchanged - only the command entry transport moved. Awaiting
 // the response also closes the old event-before-ack race (the broadcast fired
 // synchronously inside the handler, before this resolves).
 async function httpMut(
@@ -325,7 +325,7 @@ function makeRoomsBeforeOwner(srv: TestServer, names: string[]): string[] {
   return names.map((n) => srv.agentManager.createRoom(n));
 }
 
-describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
+describe("full_state projection - connect-time ACL (Phase 1.2)", () => {
   it("two users with overlapping non-identical access: rooms filtered per recipient, agents carry stable roomIds", async () => {
     // Post-cut: full_state.rooms is filtered to each recipient's visible set, and
     // agents carry a stable global roomId (no per-recipient dense index). An
@@ -361,7 +361,7 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     expect(agentInFullState(mfs, a2.id)).toBeUndefined();
   });
 
-  it("agent.roomId is the stable global id — identical across recipients and present in each recipient's filtered rooms", async () => {
+  it("agent.roomId is the stable global id - identical across recipients and present in each recipient's filtered rooms", async () => {
     // Post-cut invariant: every agent's roomId names a room that IS in that
     // recipient's own filtered rooms list (we never ship an agent whose room the
     // recipient can't see), and the id is recipient-independent.
@@ -389,7 +389,7 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
       }
     }
 
-    // roomId is the STABLE GLOBAL id — identical across recipients (A3 is r3 for
+    // roomId is the STABLE GLOBAL id - identical across recipients (A3 is r3 for
     // both the owner and Mia, who can't even see R2).
     const ownerA3 = agentInFullState(latestFullState(ownerSock)!, a3.id)!;
     const memberA3 = agentInFullState(latestFullState(memberSock)!, a3.id)!;
@@ -404,7 +404,7 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     // 3b FLIP of the old "owner self-hides via allowedRooms" characterization.
     // Under rule-based access an owner reaches every room by RULE, so writing
     // their allowedRooms (now a member-only GRANT store) no longer restricts
-    // their own view — they keep seeing all rooms. Owner self-hide moves to the
+    // their own view - they keep seeing all rooms. Owner self-hide moves to the
     // `hidden` VIEW preference (seeded by the owner-access migration; the
     // view.setShown route was removed as callerless in Phase 4). The two
     // invariants that survive UNCHANGED: the owner-only all_rooms_list stays
@@ -458,7 +458,7 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
   });
 });
 
-describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
+describe("per-recipient event ACL - mid-session (Phase 1.2)", () => {
   it("a hidden-room agent's log_entry is suppressed for the restricted member and delivered to the owner", async () => {
     // Checklist: "A hidden-room agent emits log_entry/... ; the restricted user
     // never receives it." Barrier = owner receives the same log_entry (same
@@ -555,7 +555,7 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
     // now a guarded GET (office:read ∧ requiresRoomAccess(:id)) that returns ONLY
     // to the caller, so the ACL is enforced at the request, not the fan-out: a
     // restricted member may read a VISIBLE agent's sessions but is denied a HIDDEN
-    // one — no ids/topics/timestamps cross to them.
+    // one - no ids/topics/timestamps cross to them.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
@@ -588,7 +588,7 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
 });
 
 describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
-  it("seeds the buffered output to ONLY the requesting socket — restricted and other-visible sockets receive none", async () => {
+  it("seeds the buffered output to ONLY the requesting socket - restricted and other-visible sockets receive none", async () => {
     // The terminal_open handler ACL-gates the requester, then replays the
     // agent's buffered PTY output. The bug: it replayed via broadcast() to EVERY
     // socket, leaking a hidden-room agent's terminal backlog to members without
@@ -601,8 +601,8 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
     const owner = await server.seedOwner("Boss"); // full access = the requester
-    const restricted = await server.seedMember("Mia"); // r1 only — can't see Hid
-    const visible = await server.seedMember("Val"); // r1 + r2 — CAN see Hid
+    const restricted = await server.seedMember("Mia"); // r1 only - can't see Hid
+    const visible = await server.seedMember("Val"); // r1 + r2 - CAN see Hid
 
     const hid = await spawnIn(server, "Hid", r2); // hidden from Mia, visible to Val
 
@@ -658,7 +658,7 @@ describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
 
     // Security: the restricted member never receives the hidden agent's buffer.
     expect(terminalOutFor(restrictedSock)).toHaveLength(0);
-    // Scope: a DIFFERENT visible user is not re-seeded — the replay is for the
+    // Scope: a DIFFERENT visible user is not re-seeded - the replay is for the
     // requester only, not an ACL-scoped broadcast to everyone who can see Hid.
     expect(terminalOutFor(visibleSock)).toHaveLength(0);
   });
@@ -701,7 +701,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     const mfs = latestFullState(memberSock)!;
     expect(agentInFullState(mfs, x.id)!.roomId).toBe(r1); // now in member's only room
     // Transcript-preservation: the SPECIFIC prior entry is REPLAYED by the
-    // move's projected full_state (asserted by position — after the move).
+    // move's projected full_state (asserted by position - after the move).
     await waitForLogSince(
       memberSock,
       x.id,
@@ -838,7 +838,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     expect(agentInFullState(before, y.id)!.roomId).toBe(r3);
 
     // Close R2 (empty; not index 0). Post-cut there are no dense indices to
-    // shift, so the close is a BARE room_closed delta — no projected full_state
+    // shift, so the close is a BARE room_closed delta - no projected full_state
     // and no log replay. The member still holds R2 access at emit time, so the
     // delta reaches them; the handler strips R2 from allowedRooms afterward.
     const fullStatesBefore = bag(memberSock).filter(
@@ -859,7 +859,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
         !((m.user as UserRecord).allowedRooms ?? []).includes(r2),
     );
     expect((selfUpd.user as UserRecord).allowedRooms).not.toContain(r2);
-    // No new full_state was sent on the close — the only refresh would have been
+    // No new full_state was sent on the close - the only refresh would have been
     // the now-deleted dense-shift path.
     expect(bag(memberSock).filter((m) => m.type === "full_state").length).toBe(
       fullStatesBefore,
@@ -887,7 +887,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r1, r2]);
 
-    // Member reorders their OWN visible slice (R2 before R1) — always allowed,
+    // Member reorders their OWN visible slice (R2 before R1) - always allowed,
     // no owner gate. They get a projected full_state in their new order; an
     // inaccessible id in the request (none here) would be silently filtered.
     await httpMut(server, member.rawSessionId, "PUT", "/api/me/view/order", {
@@ -900,7 +900,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
         fullStateRoomIds(m).join() === [r2, r1].join(),
     );
     expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r2, r1]);
-    // The GLOBAL room order is UNCHANGED — reorder no longer mutates _rooms.
+    // The GLOBAL room order is UNCHANGED - reorder no longer mutates _rooms.
     expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
       r1,
       r2,
@@ -941,7 +941,7 @@ describe("create_room under rule-based access (Phase 3b flip of the owner fan-ou
     //   - OWNERS reach the new room by RULE, so they receive room_created LIVE
     //     (no allowedRooms fan-out, no full_state push);
     //   - other members get nothing until granted;
-    //   - the old KNOWN LEAK is GONE: no user_updated carries the new room id —
+    //   - the old KNOWN LEAK is GONE: no user_updated carries the new room id -
     //     a grant change reaches only its own subject (full_state), never the
     //     all-audience broadcast.
     server = await boot();
@@ -958,7 +958,7 @@ describe("create_room under rule-based access (Phase 3b flip of the owner fan-ou
     });
 
     // Member creator catches up via a projected full_state that includes the new
-    // room (the grant path — NOT a fan-out).
+    // room (the grant path - NOT a fan-out).
     const creatorFs = await waitForMessageWhere(
       creatorSock,
       (m) => m.type === "full_state" && fullStateRoomIds(m).length >= 1,
@@ -1087,7 +1087,7 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
   });
 });
 
-describe("agent_removed room-ACL (task 03382535 — 3b.3 flip of the broadcast-all bridge)", () => {
+describe("agent_removed room-ACL (task 03382535 - 3b.3 flip of the broadcast-all bridge)", () => {
   it("agent_removed reaches only sessions that can see the removed agent's room", async () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
@@ -1243,7 +1243,7 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
 describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2)", () => {
   it("permits cross-room enqueue (existence-only gate), regardless of either agent's room visibility", async () => {
     // The AGENT branch of /api/agents/:id/messages takes the senderMustEqualToken
-    // guard (NO room ACL — cross-room delivery is allowed) plus the
+    // guard (NO room ACL - cross-room delivery is allowed) plus the
     // messageRecipientExists precondition (existence-only). The sender's identity
     // (incl. its roomName) is derived from the AGENT bearer server-side, so a
     // hidden-room sender still reaches a receiver in another room.
@@ -1270,7 +1270,7 @@ describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2
       "string",
     );
 
-    // Existence is the ONLY gate (no exists-but-hidden distinction — no room ACL
+    // Existence is the ONLY gate (no exists-but-hidden distinction - no room ACL
     // on the AGENT branch): an unknown RECEIVER is a generic 404 from the
     // messageRecipientExists precondition, never a leak of whether a hidden agent
     // exists.

@@ -11,18 +11,18 @@ Currently all agents get the same set of integrations. We want per-agent control
 1. User authorizes an integration (e.g. Gmail) in claude.ai account settings via OAuth.
 2. Anthropic hosts first-party MCP servers that use the stored OAuth token.
 3. When Claude Code authenticates with the user's account, the SDK pulls in these integrations as available tools.
-4. No local configuration exists for these — they come from the account.
+4. No local configuration exists for these - they come from the account.
 
 ## SDK Primitives Available
 
 The Claude Agent SDK session object exposes:
 
-- **`session.mcpServerStatus(): Promise<McpServerStatus[]>`** — Returns all connected MCP servers with name, status, and `scope` (e.g. `"claudeai"` for account-level integrations).
-- **`session.toggleMcpServer(serverName: string, enabled: boolean): Promise<void>`** — Enable/disable a specific MCP server on a live session. Disabled servers have their tools removed from the model's context.
-- **`session.setMcpServers(servers): Promise<McpSetServersResult>`** — Replace dynamic MCP server set.
-- **`disallowedTools` option on session creation** — Alternative approach: block specific tool names at session creation time. Less granular (tool-level, not server-level).
+- **`session.mcpServerStatus(): Promise<McpServerStatus[]>`** - Returns all connected MCP servers with name, status, and `scope` (e.g. `"claudeai"` for account-level integrations).
+- **`session.toggleMcpServer(serverName: string, enabled: boolean): Promise<void>`** - Enable/disable a specific MCP server on a live session. Disabled servers have their tools removed from the model's context.
+- **`session.setMcpServers(servers): Promise<McpSetServersResult>`** - Replace dynamic MCP server set.
+- **`disallowedTools` option on session creation** - Alternative approach: block specific tool names at session creation time. Less granular (tool-level, not server-level).
 
-`toggleMcpServer` is the cleanest lever — it operates at the server level and works on live sessions.
+`toggleMcpServer` is the cleanest lever - it operates at the server level and works on live sessions.
 
 ## Proposed Design
 
@@ -44,9 +44,9 @@ The Claude Agent SDK session object exposes:
 Timing constraint: the available integrations can only be discovered after a session exists, so the spawn dialog can't show them before the first agent is created.
 
 Options considered:
-- **Agent settings panel** — toggles per integration, per agent (if such a panel exists or is added).
-- **Context menu on agent nametag** — quick "Integrations" submenu.
-- **Global office-level defaults with per-agent overrides** — "These MCPs are on by default; agent X has Gmail off."
+- **Agent settings panel** - toggles per integration, per agent (if such a panel exists or is added).
+- **Context menu on agent nametag** - quick "Integrations" submenu.
+- **Global office-level defaults with per-agent overrides** - "These MCPs are on by default; agent X has Gmail off."
 
 ### Implementation in `createSession()`
 
@@ -74,4 +74,4 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
 }
 ```
 
-Note: `toggleMcpServer` is async — may need to await it or fire-and-forget depending on whether the session is ready immediately.
+Note: `toggleMcpServer` is async - may need to await it or fire-and-forget depending on whether the session is ready immediately.

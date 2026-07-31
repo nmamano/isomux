@@ -1,4 +1,4 @@
-// server/ready-limiter.ts — fixed-window per-IP limit for /readyz. Pure T0:
+// server/ready-limiter.ts - fixed-window per-IP limit for /readyz. Pure T0:
 // injected clock, no server. Zero LLM.
 
 import { describe, it, expect, beforeEach } from "bun:test";

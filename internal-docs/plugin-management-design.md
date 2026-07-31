@@ -1,4 +1,4 @@
-# Plugin Management UI — Design Doc
+# Plugin Management UI - Design Doc
 
 ## Status: Planned (not yet started)
 
@@ -6,7 +6,7 @@
 
 Claude Code plugins are bundles of skills, commands, hooks, MCP servers, and
 subagent definitions installed via `/plugin add`. The `/plugin` command is a
-local-JSX (Ink/React) UI rendered entirely client-side in the CLI — no SDK
+local-JSX (Ink/React) UI rendered entirely client-side in the CLI - no SDK
 events are emitted, so Isomux cannot forward or intercept it.
 
 **Current state:** Isomux already discovers plugin skills from
@@ -65,7 +65,7 @@ for browsing and status display. Don't reimplement the Ink component tree.
 
 ### Data Sources
 
-**Installed plugins** — read directly from
+**Installed plugins** - read directly from
 `~/.claude/plugins/installed_plugins.json` (V2 format):
 
 ```json
@@ -83,13 +83,13 @@ for browsing and status display. Don't reimplement the Ink component tree.
 }
 ```
 
-**Plugin metadata** — read `.claude-plugin/plugin.json` from each
+**Plugin metadata** - read `.claude-plugin/plugin.json` from each
 `installPath` for name, description, version, author, components.
 
-**Enabled state** — read from `~/.claude/settings.json` →
+**Enabled state** - read from `~/.claude/settings.json` →
 `enabledPlugins` map.
 
-**Marketplace catalog** — TBD. May need to fetch from marketplace repos
+**Marketplace catalog** - TBD. May need to fetch from marketplace repos
 or rely on `claude plugin search` CLI output.
 
 ### Server Endpoints
@@ -112,13 +112,13 @@ success/failure. After mutations, the server re-reads
 
 A modal or sidebar panel accessible from the office toolbar. Three tabs:
 
-**Installed** — table of installed plugins showing name, version, scope,
+**Installed** - table of installed plugins showing name, version, scope,
 enabled state, and action buttons (enable/disable/remove).
 
-**Discover** — search and browse available plugins from configured
+**Discover** - search and browse available plugins from configured
 marketplaces. Install button per plugin with scope picker.
 
-**Marketplaces** — list configured marketplace repos. Add/remove buttons.
+**Marketplaces** - list configured marketplace repos. Add/remove buttons.
 
 ### Post-Install Agent Refresh
 
@@ -136,9 +136,9 @@ agent's `sdkReportedCommands` and auto-send it.
 ### Scope
 
 Plugins can be installed at multiple scopes:
-- **user** — global, applies to all projects
-- **project** — per-project, shared with team via `.claude/settings.json`
-- **local** — per-project, personal override
+- **user** - global, applies to all projects
+- **project** - per-project, shared with team via `.claude/settings.json`
+- **local** - per-project, personal override
 
 The UI should default to `user` scope and allow override.
 
@@ -147,7 +147,7 @@ The UI should default to `user` scope and allow override.
 - Plugin install runs arbitrary CLI code (git clone, npm install). The
   headless CLI handles this safely already.
 - Marketplace trust: only official + user-added marketplaces.
-- No process-level sandboxing exists in CC — same applies here.
+- No process-level sandboxing exists in CC - same applies here.
 
 ### What This Doesn't Cover
 

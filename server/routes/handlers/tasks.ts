@@ -1,22 +1,22 @@
-// Tasks resource handlers — Phase 3a slice 1. The global shared board on the
+// Tasks resource handlers - Phase 3a slice 1. The global shared board on the
 // unified REST surface (opIds tasks.{list,get,create,update,claim,done,delete}).
 //
-// Strangler: complete. These handlers are the ONLY task surface — the legacy
+// Strangler: complete. These handlers are the ONLY task surface - the legacy
 // loopback /tasks HTTP routes that shared these core ops (the AgentManager task
 // methods, injected via TasksDeps) are retired, as are the WS
 // add_task/update_task/delete_task arms. The office UI drives create/update/delete
 // through these REST routes. The manager
 // emits the domain tasks_changed event, which the wireEventSinks sink routes
-// through the emit() helper as the `all`-audience `tasks` event — so the handler
+// through the emit() helper as the `all`-audience `tasks` event - so the handler
 // never emits directly. The HTTP response here is the caller's own outcome
 // (double-signal).
 //
 // [behavior-change] tasks.create: createdBy + username come from the TOKEN
-// identity (deps.attributionFor), NEVER the request body — so the boss cannot be
+// identity (deps.attributionFor), NEVER the request body - so the boss cannot be
 // spoofed. For a USER caller both equal the user's own name (today's posture);
 // for an AGENT caller createdBy is the agent name and username the owning user.
 //
-// LEAF over the executor + shared types. No manager/auth imports — only the
+// LEAF over the executor + shared types. No manager/auth imports - only the
 // injected TasksDeps surface.
 
 import {
@@ -64,7 +64,7 @@ export interface TasksDeps {
   };
   // The set of room ids this caller can ACCESS (owner → every live room by rule;
   // member → their granted rooms; agent → its spawning user's accessible set).
-  // Room ACCESS, not view — a hidden room stays accessible. Global tasks (no
+  // Room ACCESS, not view - a hidden room stays accessible. Global tasks (no
   // roomId) are visible to everyone and are NOT represented here.
   accessibleRoomIds(identity: Identity): Set<string>;
   // The room a create with NO roomId in the body defaults to: an AGENT caller's
@@ -180,7 +180,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
         );
       }
       // `priority: null` CLEARS the priority (task dc642af2); anything else
-      // non-null must name a real level. An empty string is not a clear — it is
+      // non-null must name a real level. An empty string is not a clear - it is
       // a malformed level, same as "P9".
       if (
         body.priority !== undefined &&

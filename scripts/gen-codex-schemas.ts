@@ -4,7 +4,7 @@
 //
 // Runs the launcher's `app-server generate-ts --experimental` and writes to
 // the _generated directory. Schema regen does NOT need auth, so we don't set
-// CODEX_HOME — just the binary path. Pinning runtime to the bundled package
+// CODEX_HOME - just the binary path. Pinning runtime to the bundled package
 // would be defeated if codegen still shelled out to a global codex, so this
 // script must stay in sync with the runtime spawn path.
 

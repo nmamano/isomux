@@ -42,7 +42,7 @@ describe("styleForModel", () => {
       "x",
       "é你好-unicode-model", // non-ASCII char codes
       // Object.prototype member names must NOT leak inherited values out of
-      // the MODEL_STYLES record — they are unknown models like any other.
+      // the MODEL_STYLES record - they are unknown models like any other.
       "constructor",
       "toString",
       "__proto__",

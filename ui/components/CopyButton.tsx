@@ -35,7 +35,7 @@ export const CHECK_ICON = (
 // for older / insecure contexts, and a transient "copied" flag. Shared by the
 // icon-only CopyButton and any labeled copy control (e.g. the task-id header),
 // so both get the same proven behavior. The write is ATTEMPTED before `copied`
-// flips — an unavailable modern API throws into the fallback rather than
+// flips - an unavailable modern API throws into the fallback rather than
 // reporting a false success.
 export function useClipboardCopy(resetMs = 1500) {
   const [copied, setCopied] = useState(false);

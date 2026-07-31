@@ -1,4 +1,4 @@
-// server/update-conf.ts — the server-side reader for the updater root-of-trust
+// server/update-conf.ts - the server-side reader for the updater root-of-trust
 // config. Pure file parsing over temp fixtures; the strict consumer contract
 // lives with scripts/update.sh (scripts/update-sh.test.ts). The load-bearing
 // distinction here is absent vs. invalid: presence alone makes a box
@@ -47,7 +47,7 @@ describe("readUpdateConf", () => {
     expect(conf.values.UPDATER_PATH).toBe("/usr/local/sbin/isomux-update");
   });
 
-  it("keeps values literal — '=' in the value, shell metachars stay data", () => {
+  it("keeps values literal - '=' in the value, shell metachars stay data", () => {
     const conf = readUpdateConf(write("REPO_URL=x=y;$(reboot)\n"));
     expect(conf.state).toBe("parsed");
     if (conf.state === "parsed") {

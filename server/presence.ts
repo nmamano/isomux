@@ -1,5 +1,5 @@
 // In-memory presence map for the live-avatars feature. One PresenceState
-// per active WS CONNECTION whose ghost is renderable — not per auth
+// per active WS CONNECTION whose ghost is renderable - not per auth
 // session: a single auth session (cookie) can back many concurrent tabs
 // and each tab is its own ghost, so the key is the per-WS connectionId
 // generated in server/isomux-office.ts at upgrade time. Off-scene sessions
@@ -8,7 +8,7 @@
 // in server/isomux-office.ts.
 //
 // Lifecycle:
-//   - WS open: nothing yet — wait for the client to send presence_update.
+//   - WS open: nothing yet - wait for the client to send presence_update.
 //     The client emits one immediately after session_context arrives.
 //   - presence_update: the client sends a global currentRoomId; the server
 //     validates it against the sender's room access (live room + canAccess,
@@ -30,7 +30,7 @@ export interface PresenceState {
   device: string | null;
   avatarColor: string;
   avatarVariant: GhostVariant;
-  // GLOBAL room id — the SOLE presence room reference. Per-recipient broadcast
+  // GLOBAL room id - the SOLE presence room reference. Per-recipient broadcast
   // filters by each recipient's visible rooms but emits this SAME id (no dense
   // remap post-cut). null when the session hasn't sent its first presence_update
   // yet or when the sender's claimed room was rejected by the access sanitizer.
@@ -50,7 +50,7 @@ export function _testClearPresence(): void {
 
 // Upsert. Returns true if the visible-to-clients state actually changed
 // (so callers can avoid a no-op broadcast on a repeated identical
-// update — e.g. focus-change handlers that fire from multiple effect
+// update - e.g. focus-change handlers that fire from multiple effect
 // dependencies on the same dispatch).
 export function setPresence(state: PresenceState): boolean {
   const existing = presences.get(state.connectionId);
@@ -79,8 +79,8 @@ export function getPresence(connectionId: string): PresenceState | undefined {
 }
 
 // Snapshot of all current presence rows. Per-recipient VISIBILITY filtering
-// happens in the broadcast helper (server/isomux-office.ts) — entries carry the stable
-// currentRoomId unchanged (no remap) — so this module stays free of
+// happens in the broadcast helper (server/isomux-office.ts) - entries carry the stable
+// currentRoomId unchanged (no remap) - so this module stays free of
 // room-projection dependencies.
 export function listAllPresence(): PresenceState[] {
   return Array.from(presences.values());

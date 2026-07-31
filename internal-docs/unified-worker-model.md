@@ -1,4 +1,4 @@
-# Unified Worker Model — Migration Design
+# Unified Worker Model - Migration Design
 
 > Status: exploratory migration design, not an accepted implementation plan. This doc explores what it would mean to apply the "harness is the backend" architectural philosophy (Mike Piccolo / iii, 2026) inside isomux, without adopting iii itself as a runtime dependency. The intent is to make a sharper choice about where the architecture is heading; nothing here is committed to ship.
 
@@ -244,7 +244,7 @@ Without explicit failure semantics, "trigger" is too hand-wavy to build on. Defa
 | Handler timeout | Per-function `timeoutMs` (default 30s). Router aborts `ctx.signal`. Timeout fires a failure-stream entry; the trigger source decides what to do with the result (HTTP returns 504, cron records a failed run, agent-call surfaces the timeout to the caller). |
 | Handler throw | Caught at router boundary. Failure-stream entry. Trigger source maps it: HTTP → 500 with sanitized error, cron → failed run, agent-call → typed error to caller, agent-turn hook → no prefix from that plugin (matches v0 plugin behavior). |
 | Retry | None by default. Opt-in via `retry`. Router enforces; handler sees `ctx.attempt` / `ctx.maxAttempts` on every invocation, so retries can be debugged and idempotency cross-checked without consulting the registry. |
-| Idempotency | Opt-in via `idempotencyKey`. Router maintains a TTL keyed cache of in-flight + recently-completed keys. Within window, repeat invocations short-circuit with the cached result. Inter-agent messages should derive their key from `(senderAgentId, clientMessageId)` — see open questions. |
+| Idempotency | Opt-in via `idempotencyKey`. Router maintains a TTL keyed cache of in-flight + recently-completed keys. Within window, repeat invocations short-circuit with the cached result. Inter-agent messages should derive their key from `(senderAgentId, clientMessageId)` - see open questions. |
 | Cancellation | `ctx.signal: AbortSignal` is required on every invocation; long-running handlers must observe it. The router does not preempt. Aborts originate from the trigger source (HTTP request abort, cron driver shutdown, agent-call cancellation) or the router itself (timeout, shutdown). |
 | Backpressure / concurrency | Functions are concurrent by default. A global router-level cap (default ~256 in-flight invocations across all functions) prevents a trigger storm from starving agent turns; on cap-hit, new invocations queue with a deadline and the failure stream records cap-induced timeouts separately. Single-flight per-function or per-key is a possible later add behind a config field; not v1. |
 | Authorization | Trigger router invokes a policy check before dispatch. HTTP adapter alone is not enough once `agent-call` and `direct` triggers exist: an agent worker calling `tasks::delete` needs the same authorization treatment as an HTTP DELETE would. v1 ships a coarse "who can call which function id" allowlist tied to attribution; finer-grained policy is a later add. Plugin-registered functions go through the same check. |
@@ -290,8 +290,8 @@ The runtime categories from the motivation table map into the new model as follo
 | Cronjob | A `cron` trigger driver fires cron-bound functions. The current cronjob scheduler shrinks to the trigger driver; the per-job state lives on the function side. |
 | Plugin hook | Plugins register as workers exporting one or more functions. The v0 hook contract becomes a special case: a plugin that registers two `agent-turn-hook`-triggered functions. |
 | Inter-agent message | `agent::message` function on each agent worker, invoked via `agent-call` trigger. Replaces the bespoke `POST /agents/:id/message` route handler. |
-| Card emit | **One function per card kind** — `ui::card::diff`, `ui::card::read-file`, `ui::card::edit-file`, `ui::card::terminal-command`, `ui::card::artifact`. Each with an `http` trigger that mirrors today's URLs (compatibility). Internally they share a `cardBroadcast(...)` helper for persistence and WS dispatch, but the helper is not the boundary exposed to workers. Per-card functions make permissioning, audit, and per-card-kind evolution clean; a single discriminated `ui::card::set` would collapse them prematurely. |
-| MCP tools | MCP bridge worker that exposes MCP tool calls as functions. Deprioritized — see phasing. |
+| Card emit | **One function per card kind** - `ui::card::diff`, `ui::card::read-file`, `ui::card::edit-file`, `ui::card::terminal-command`, `ui::card::artifact`. Each with an `http` trigger that mirrors today's URLs (compatibility). Internally they share a `cardBroadcast(...)` helper for persistence and WS dispatch, but the helper is not the boundary exposed to workers. Per-card functions make permissioning, audit, and per-card-kind evolution clean; a single discriminated `ui::card::set` would collapse them prematurely. |
+| MCP tools | MCP bridge worker that exposes MCP tool calls as functions. Deprioritized - see phasing. |
 
 ## What does NOT collapse
 
@@ -331,7 +331,7 @@ Scope:
 - Idempotency cache (TTL'd) with the `idempotencyKey` opt-in.
 - Timeout policy enforcement via the central abort path (`ctx.signal` becomes real, not just present).
 - Failure stream wiring (`triggers.jsonl`) with the structured fields listed in the failure model.
-- Authorization policy check at dispatch — coarse allowlist sufficient for v1.
+- Authorization policy check at dispatch - coarse allowlist sufficient for v1.
 - Backpressure cap (default ~256 concurrent invocations) with deadline queueing.
 
 Acceptance: the primitive's failure model (above) actually works end-to-end. The P1a artifact functions continue to work unchanged; the hardening is additive infrastructure they happen to benefit from.
@@ -435,10 +435,10 @@ LOC estimates are deliberately omitted in favor of risk classification, because 
 
 ## Relation to other docs
 
-- **`isomux-plugin-system.md`** — the v0 plugin contract. Preserved as the in-process worker case. P4 widens it; v0 hooks continue to work.
-- **`per-agent-mcp-access.md`** — MCP bridge worker is a P5+ topic; this doc does not mandate any change to per-agent MCP access in earlier phases.
-- **`plugin-management-design.md`** — orthogonal. That doc covers UI for managing upstream Claude Code's plugin ecosystem; this doc covers isomux's internal worker model.
-- **`per-user-isolation-design.md`** — orthogonal. Isolation lives in the platform service layer (auth, persistence) which is explicitly out of scope here.
+- **`isomux-plugin-system.md`** - the v0 plugin contract. Preserved as the in-process worker case. P4 widens it; v0 hooks continue to work.
+- **`per-agent-mcp-access.md`** - MCP bridge worker is a P5+ topic; this doc does not mandate any change to per-agent MCP access in earlier phases.
+- **`plugin-management-design.md`** - orthogonal. That doc covers UI for managing upstream Claude Code's plugin ecosystem; this doc covers isomux's internal worker model.
+- **`per-user-isolation-design.md`** - orthogonal. Isolation lives in the platform service layer (auth, persistence) which is explicitly out of scope here.
 
 ## Acknowledgments
 

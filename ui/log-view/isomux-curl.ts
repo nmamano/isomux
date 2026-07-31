@@ -14,23 +14,23 @@
 // - side-effect-free redirections (`2>/dev/null`, `>/dev/null`, `2>&1`) are
 //   accepted and omitted from the card (see tokenize);
 // - saving output to a file (`> file`, `>> file`, `-o file`) is accepted for
-//   plain paths, and the path is ALWAYS surfaced on the card (outputFile) —
+//   plain paths, and the path is ALWAYS surfaced on the card (outputFile) -
 //   a file write is a side effect the card must not conceal;
 // - a leading `jq ... |` producer stage feeding `curl -d @-` is understood,
 //   resolving the body when the jq program is a simple literal template (see
 //   parseJqInvocation). The producer's input may be a heredoc
-//   (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-` — the standard multiline
+//   (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-` - the standard multiline
 //   message shape; quoted delimiters always, unquoted ones for
 //   expansion-free bodies) or a single positional file
 //   (`jq -Rs '{text: .}' file`); see extractHeredoc and the -Rs handling in
 //   parseJqInvocation.
-// - a heredoc feeding curl's stdin directly (`curl -d @- <<'EOF' ... EOF` — the
+// - a heredoc feeding curl's stdin directly (`curl -d @- <<'EOF' ... EOF` - the
 //   standard Codex message-POST shape) supplies the body: literal JSON becomes
 //   card fields, anything else a "body from heredoc" note (see
 //   resolveHeredocBody).
 // - trailing `;`/`&&`-chained inspection commands (`curl ... > f; wc -c f`,
 //   `curl ... >/dev/null && echo posted`) are accepted for a small allowlist of
-//   display/inspection commands, and — like a pipe tail — are ALWAYS shown on
+//   display/inspection commands, and - like a pipe tail - are ALWAYS shown on
 //   the card verbatim (trailingCommand); see splitStatements and
 //   TRAILING_COMMANDS.
 
@@ -57,11 +57,11 @@ export type IsomuxCurlRequest = {
    * Trailing pipeline, verbatim, e.g. "| jq '.tasks'". Null if none.
    *
    * Accepted tails are shell-checked (each stage must tokenize under the same
-   * conservative rules as the curl itself — no compound commands, no file
+   * conservative rules as the curl itself - no compound commands, no file
    * redirections or substitutions; safe stream redirections like
    * `2>/dev/null` are tolerated) and command-gated (see FILTER_COMMANDS).
-   * They are NOT semantically validated — a `sed w` script can still write a
-   * file — so the collapsed card must never show less of the tail than the raw
+   * They are NOT semantically validated - a `sed w` script can still write a
+   * file - so the collapsed card must never show less of the tail than the raw
    * collapsed rendering would; run it through pipeTailForDisplay(), which is
    * what guarantees that. Length does not gate the parse (task c9f35c77):
    * dropping the card over a long jq program left the reader with the raw
@@ -93,7 +93,7 @@ export type IsomuxCurlRequest = {
    * Same contract as pipeTail: the statements are command-gated (see
    * TRAILING_COMMANDS) and shell-checked, but NOT semantically validated, so
    * the collapsed card must show them at least as fully as the raw collapsed
-   * row would — run them through pipeTailForDisplay().
+   * row would - run them through pipeTailForDisplay().
    */
   trailingCommand: string | null;
 };
@@ -110,7 +110,7 @@ type Tokenized = {
 
 // Conservative allowlist for a redirect target path: plain path characters
 // only. Anything outside (quotes, spaces, globs, braces, parens) bails to raw
-// rendering. `$` is allowed — an unexpanded `$VAR` in the card is shown
+// rendering. `$` is allowed - an unexpanded `$VAR` in the card is shown
 // verbatim, which is honest; `$(` is unreachable because `(` is not in the
 // set, so the word fails to end cleanly and the parse bails.
 const REDIRECT_PATH_RE = /^[A-Za-z0-9_\-./~+%:,$]+$/;
@@ -120,7 +120,7 @@ const REDIRECT_PATH_RE = /^[A-Za-z0-9_\-./~+%:,$]+$/;
  * backslash escapes, and backslash-newline continuations. Returns null on any
  * shell construct beyond a simple command optionally piped into something
  * (compound commands, redirections, subshells, command substitution).
- * `$VAR` references are kept literally — they read well in a summary
+ * `$VAR` references are kept literally - they read well in a summary
  * (e.g. a path containing $AGENT_ID).
  */
 function tokenize(
@@ -134,7 +134,7 @@ function tokenize(
   let hasCur = false;
   // True when any part of the current token came from quotes or a backslash
   // escape. Needed at `>`: a bare `2` before `>` is an fd number in shell,
-  // but a quoted/escaped one (`'2'>f`) is an argument — we bail on those.
+  // but a quoted/escaped one (`'2'>f`) is an argument - we bail on those.
   let curQuoted = false;
   let i = 0;
   const n = src.length;
@@ -200,7 +200,7 @@ function tokenize(
       i++;
       continue;
     }
-    // An unescaped newline separates commands — too complex, bail.
+    // An unescaped newline separates commands - too complex, bail.
     if (c === "\n") return null;
     if (c === "|") {
       if (src[i + 1] === "|") return null; // `||` is control flow, not a pipe
@@ -211,7 +211,7 @@ function tokenize(
       // Tolerate the side-effect-free redirections that transcripts use
       // constantly: `2>/dev/null`, `>/dev/null`, `1>/dev/null` (with or
       // without a space before the target) and `2>&1`. They discard or merge
-      // streams — no file is written, no request semantics change — so
+      // streams - no file is written, no request semantics change - so
       // silently dropping them from the card conceals nothing that matters.
       // With allowFileRedirect (the curl stage of a card-eligible command),
       // additionally accept a stdout redirection to a plain file path
@@ -223,7 +223,7 @@ function tokenize(
       let fd = "";
       if (hasCur) {
         // In shell an fd number before `>` must be a bare unquoted digit
-        // word; anything else (`foo2>`, `'2'>`) is ambiguous — bail.
+        // word; anything else (`foo2>`, `'2'>`) is ambiguous - bail.
         if (curQuoted || (cur !== "1" && cur !== "2")) return null;
         fd = cur;
       }
@@ -284,7 +284,7 @@ type Statement = { sep: string; text: string };
  * verbatim.
  *
  * Returns null when there is nothing to split, or on a separator we don't
- * model: `;;` (case), a lone `&` (backgrounding). `||` needs no special case —
+ * model: `;;` (case), a lone `&` (backgrounding). `||` needs no special case -
  * it stays inside a statement, where tokenize() rejects it. Every null path is
  * safe because the caller then hands the UN-split command to tokenize(), which
  * bails on the `;`/`&` it kept: a rejected shape degrades to raw rendering, not
@@ -292,7 +292,7 @@ type Statement = { sep: string; text: string };
  *
  * Quoting is tracked so a `;` inside an argument (`-d '{"a":"x; y"}'`) is not a
  * separator. A `;` inside `$(...)`/backticks IS treated as one, which cuts the
- * command mid-substitution — harmless, because the resulting head still carries
+ * command mid-substitution - harmless, because the resulting head still carries
  * the `$(`/backtick that makes tokenize() bail.
  */
 function splitStatements(command: string): Statement[] | null {
@@ -365,7 +365,7 @@ type Heredoc = { line: string; body: string; literal: boolean };
 const HEREDOC_DELIM_RE = /^[A-Za-z0-9_]+/;
 
 /**
- * Recognize the two heredoc shapes transcripts actually use — a heredoc read
+ * Recognize the two heredoc shapes transcripts actually use - a heredoc read
  * by the FIRST stage of the command (a `jq` producer that pipes into curl, or
  * curl itself reading its stdin body), with the body immediately after the
  * command line and nothing after the terminator:
@@ -376,7 +376,7 @@ const HEREDOC_DELIM_RE = /^[A-Za-z0-9_]+/;
  *
  * Returns the command line with the `<<DELIM` operator removed, the body text,
  * and whether the body is literal (see the Heredoc type). Returns null for
- * anything else — no heredoc, herestrings (`<<<`), tab-stripping heredocs
+ * anything else - no heredoc, herestrings (`<<<`), tab-stripping heredocs
  * (`<<-`), two heredocs, a heredoc attached past the first `|`, an unterminated
  * body, or trailing commands after the terminator. Callers then tokenize the
  * untouched command, whose stray `<` / newline makes tokenize() bail, so every
@@ -470,7 +470,7 @@ function extractHeredoc(command: string): Heredoc | null {
   const lines = command.slice(nl + 1).split("\n");
   const di = lines.indexOf(delim);
   if (di === -1) return null;
-  // The terminator must end the command — a trailing command after the
+  // The terminator must end the command - a trailing command after the
   // heredoc is a compound shape the card can't summarize.
   for (let k = di + 1; k < lines.length; k++) {
     if (lines[k].trim() !== "") return null;
@@ -479,7 +479,7 @@ function extractHeredoc(command: string): Heredoc | null {
   // A quoted delimiter takes the body verbatim; an unquoted one expands
   // $VAR/$(...)/backticks and processes backslashes, so the shown text would
   // differ from the bytes actually sent. Mark such a body non-literal rather
-  // than rejecting it — the curl-fed path can still note it (the jq-producer
+  // than rejecting it - the curl-fed path can still note it (the jq-producer
   // path, where the body would seed a field value, rejects non-literal).
   const literal = quoted || !/[$`\\]/.test(body);
   return {
@@ -516,14 +516,14 @@ const FILTER_COMMANDS = new Set([
 
 // Commands accepted as a trailing `;`/`&&` statement after the curl. A superset
 // of FILTER_COMMANDS: a trailing statement reads a file or prints a word rather
-// than a stdin stream, so the three additions here (`echo` — by far the most
-// common shape in transcripts, `curl ... >/dev/null && echo posted` — plus the
+// than a stdin stream, so the three additions here (`echo` - by far the most
+// common shape in transcripts, `curl ... >/dev/null && echo posted` - plus the
 // two file-inspection commands that pair with saving output) would be nonsense
 // as pipe stages, which is why FILTER_COMMANDS stays as it is.
 //
 // The gate is coarse in exactly the same way (see FILTER_COMMANDS): it does not
 // prove that an accepted command is read-only, and the card's safety property
-// remains display, not validation — a trailing statement is always shown
+// remains display, not validation - a trailing statement is always shown
 // verbatim, bounded so the card can never conceal what the raw collapsed row
 // would have revealed.
 const TRAILING_COMMANDS = new Set([...FILTER_COMMANDS, "echo", "ls", "stat"]);
@@ -531,15 +531,15 @@ const TRAILING_COMMANDS = new Set([...FILTER_COMMANDS, "echo", "ls", "stat"]);
 // Characters of the raw command an UNCARDED Bash row shows in its collapsed
 // summary (extractToolSummary in LogEntryCard.tsx, which imports this).
 // It lives here, not there, because MAX_TAIL_DISPLAY below is derived from it
-// and the dependency only points this way — LogEntryCard already imports this
+// and the dependency only points this way - LogEntryCard already imports this
 // module, so the reverse would be a cycle.
 export const BASH_RAW_SUMMARY_CHARS = 80;
 
 // Characters of pipe tail the collapsed card shows before eliding the rest.
 //
 // The floor is set by what the card replaces. Everything before the tail eats
-// into BASH_RAW_SUMMARY_CHARS, and the shortest curl that parses at all —
-// "curl localhost:4000" plus the space before the "|" — spends 20 of it, so
+// into BASH_RAW_SUMMARY_CHARS, and the shortest curl that parses at all -
+// "curl localhost:4000" plus the space before the "|" - spends 20 of it, so
 // raw rendering can never reveal more than 60 characters of tail. A card that
 // shows 64 therefore always shows more, for every parseable command: the same
 // non-concealment property the parse-time length cap used to provide, which is
@@ -550,8 +550,8 @@ export const BASH_RAW_SUMMARY_CHARS = 80;
 const MAX_TAIL_DISPLAY = 64;
 
 /**
- * A pipe tail — or a trailing `;`/`&&` statement, which carries the same
- * show-it-verbatim obligation — as the collapsed card renders it. Each such
+ * A pipe tail - or a trailing `;`/`&&` statement, which carries the same
+ * show-it-verbatim obligation - as the collapsed card renders it. Each such
  * segment is bounded independently, which preserves the property above: the raw
  * row's 80-character window starts at least 20 characters into the command, so
  * it can reveal at most 60 characters of any one segment, always as a prefix.
@@ -567,7 +567,7 @@ export function pipeTailForDisplay(tail: string): string {
  * Validate a captured pipe tail (starting with "|"). Every stage must
  * tokenize under the same conservative rules as the curl itself (so `; rm x`,
  * file redirections, and substitutions in the tail bail out; the safe stream
- * redirections tokenize() tolerates — `2>/dev/null` and friends — are fine
+ * redirections tokenize() tolerates - `2>/dev/null` and friends - are fine
  * and stay visible in the verbatim tail) and must invoke an allowed filter
  * command. `python -m json.tool` is allowed as a special case.
  * See FILTER_COMMANDS for what this does and does not guarantee.
@@ -650,7 +650,7 @@ type ArgKind =
 //
 // The "ignore" kind is reserved for options that are transport/presentation
 // neutral: they may not name a filesystem path, carry credentials, add
-// request headers, or change the request's method/target/body — because the
+// request headers, or change the request's method/target/body - because the
 // card silently omits them, an ignored option must not hide anything the raw
 // rendering would reveal. Options with concealed semantics (-T/--upload-file
 // changes method and body, -u/--user and -b/--cookie carry credentials,
@@ -659,9 +659,9 @@ type ArgKind =
 //
 // Three options are admitted only under a value restriction (checked in
 // applyArg):
-// - "output" (-o/--output): only `/dev/null` — discarding the response
+// - "output" (-o/--output): only `/dev/null` - discarding the response
 //   writes no file; any real path still rejects.
-// - "dumpHeader" (-D/--dump-header): only `-` (stdout) — a file path rejects.
+// - "dumpHeader" (-D/--dump-header): only `-` (stdout) - a file path rejects.
 // - "writeOut" (-w/--write-out): rejected when the format reads a file
 //   (@file) or writes one (%output{file}, curl >= 8.3.0); plain status
 //   formats like '%{http_code}' are output-text-only and pass.
@@ -702,7 +702,7 @@ const ARG_LONG: Record<string, ArgKind> = {
 
 // Header names the card may silently omit. Anything else (Cookie carries
 // credentials, User-Agent/Referer/arbitrary headers add request semantics the
-// card doesn't show) rejects the parse — otherwise generic -H would bypass
+// card doesn't show) rejects the parse - otherwise generic -H would bypass
 // the rejection of the dedicated credential/header flags above. Authorization
 // is admitted but only surfaced as a boolean (hasAuth); its value is never
 // displayed.
@@ -986,7 +986,7 @@ function displayValue(v: unknown): string {
 
 // --- jq producer stage -------------------------------------------------------
 
-// A request body resolved from something other than an inline `-d` flag —
+// A request body resolved from something other than an inline `-d` flag -
 // either a leading `jq ... |` producer stage or a heredoc feeding curl's
 // stdin. Either concrete body fields (the source resolved to a literal object)
 // or a short note for the card ("body built with jq", "body from heredoc").
@@ -1012,7 +1012,7 @@ function readJsonString(
     }
     if (s[i] === '"') {
       const raw = s.slice(start, i + 1);
-      // jq string interpolation executes a jq expression — not a literal.
+      // jq string interpolation executes a jq expression - not a literal.
       if (raw.includes("\\(")) return null;
       try {
         const v: unknown = JSON.parse(raw);
@@ -1030,10 +1030,10 @@ function readJsonString(
  * Evaluate a jq program of the restricted shape `{key: value, ...}` where
  * each key is a bare identifier or string literal and each value is a $var
  * reference (looked up in `vars`), a string/number/true/false/null literal,
- * or a bare `.` (the whole input) when `dotValue` supplies what `.` holds —
+ * or a bare `.` (the whole input) when `dotValue` supplies what `.` holds -
  * the heredoc body or an `@file` marker for the `-Rs` slurp shapes.
- * Anything else — nesting, pipes, functions, interpolation, undefined vars,
- * `.` without a known input, `.foo` field access — returns null and the
+ * Anything else - nesting, pipes, functions, interpolation, undefined vars,
+ * `.` without a known input, `.foo` field access - returns null and the
  * caller falls back to the "body built with jq" note (or raw rendering).
  */
 function resolveJqTemplate(
@@ -1126,11 +1126,11 @@ const JQ_NEUTRAL_SHORT = "crjSa";
  * --rawfile name path, exactly one program argument, and (in the -Rs slurp
  * shape only) one positional input file. Returns the body as concrete fields
  * when the program is a literal template and the input is known: with -n
- * there is no input, and with -Rs (raw slurp) `.` is the whole input —
+ * there is no input, and with -Rs (raw slurp) `.` is the whole input -
  * either the heredoc body passed in `heredocBody` or an `@file` marker for a
  * positional file. Otherwise a "body built with jq" note; the note names any
  * files read (--rawfile, positional input) so a file read is never
- * concealed. A heredoc whose body can't be shown as fields returns null —
+ * concealed. A heredoc whose body can't be shown as fields returns null -
  * the body IS the payload, and a note would conceal it. Unknown flags (e.g.
  * -f reads a program file, --slurpfile) reject the whole parse.
  */
@@ -1175,7 +1175,7 @@ function parseJqInvocation(
       // --argjson values are JSON, and jq validates them EAGERLY: one invalid
       // value fails the whole jq invocation (even if the program never
       // references it), so curl would send an empty body. A card here would
-      // misrepresent the request either way — reject to raw rendering.
+      // misrepresent the request either way - reject to raw rendering.
       let parsed: unknown;
       try {
         parsed = JSON.parse(value);
@@ -1216,7 +1216,7 @@ function parseJqInvocation(
   if (program === null) return null;
 
   // -Rs (and no -n): the whole raw input becomes one JSON string bound to
-  // `.` — the manager-brief producer shape. Any other combination that
+  // `.` - the manager-brief producer shape. Any other combination that
   // involves real input (positional files, a heredoc) models input semantics
   // we don't understand, and rejects.
   const rawSlurp = rawInput && slurp && !nullInput;
@@ -1253,8 +1253,8 @@ function parseJqInvocation(
  * Resolve a heredoc attached to curl's stdin (`curl -d @- <<'EOF' ... EOF`)
  * into a displayable body. A literal body (see the Heredoc type) is parsed as
  * JSON: a JSON object becomes card fields, mirroring the inline `-d '{...}'`
- * path. Anything else — non-object JSON, non-JSON text, or a non-literal body
- * whose shell expansions the card can't resolve — collapses to the note "body
+ * path. Anything else - non-object JSON, non-JSON text, or a non-literal body
+ * whose shell expansions the card can't resolve - collapses to the note "body
  * from heredoc", which discloses that a body is present without claiming to
  * show its exact bytes. (A note is honest here because the whole heredoc IS the
  * body; contrast the jq-producer path, where the body seeds a field value and a
@@ -1296,7 +1296,7 @@ function resolveHeredocBody(heredoc: Heredoc): ResolvedBody {
  * Unwrapping never widens what we card: the inner command must still fully
  * parse as an isomux curl, so anything we don't understand still bails to null.
  *
- * Conservative on purpose — returns null (no unwrap) unless:
+ * Conservative on purpose - returns null (no unwrap) unless:
  * - the wrapper itself carries no top-level heredoc (a `<<EOF` at the OUTER
  *   level, not one tucked inside the `-c` script string; those DO survive the
  *   quoting and are re-parsed by the recursion, exactly as before);
@@ -1306,8 +1306,8 @@ function resolveHeredocBody(heredoc: Heredoc): ResolvedBody {
  *   ($0/$1/... would let the script interpolate values we can't see).
  *
  * A heredoc INSIDE the script (`bash -lc "curl -d @- <<'EOF' ... EOF"`) is left
- * to the recursion. The outer-shell expansion hazard — a double-quoted wrapper
- * expanding a bare `$VAR` in the body before curl reads it — is handled by
+ * to the recursion. The outer-shell expansion hazard - a double-quoted wrapper
+ * expanding a bare `$VAR` in the body before curl reads it - is handled by
  * parseIsomuxCurl via outerExpandsBody, which marks such a body non-literal
  * (tokenize already bails on `$(...)`/backticks inside double quotes).
  */
@@ -1320,7 +1320,7 @@ function unwrapShellWrapper(command: string): string | null {
   const base = toks[0].split("/").pop() ?? "";
   if (base !== "bash" && base !== "sh") return null;
   // Walk option tokens up to the one bearing `-c`; the script is the next
-  // token. ONLY `-l` (login) and `-c` (command) are allowed in a cluster —
+  // token. ONLY `-l` (login) and `-c` (command) are allowed in a cluster -
   // any other flag bails rather than being assumed harmless. `-n` in
   // particular means "syntax-check, do NOT execute" (`bash -nc '<curl>'`
   // never runs the curl), so carding it would be a lie; value-taking and
@@ -1351,15 +1351,15 @@ function unwrapShellWrapper(command: string): string | null {
 /**
  * Does the OUTER shell of a wrapped command expand a `$VAR`/`${...}`/backtick
  * inside the heredoc body before the inner curl/jq ever reads it? When it does,
- * the body tokenize extracts is the PRE-expansion spelling — the card would
- * show `$LEAKED` where curl actually sends its value — so the caller must treat
+ * the body tokenize extracts is the PRE-expansion spelling - the card would
+ * show `$LEAKED` where curl actually sends its value - so the caller must treat
  * the body as non-literal.
  *
  * The heredoc header is a single line, so the body is everything after the
  * command's first newline. We scan the raw command's Level-0 quote state
  * (single quotes protect verbatim; double-quoted and unquoted regions expand)
  * and report ANY unescaped, expansion-active `$` or backtick in that body
- * region. "Any `$`" is deliberate — shell expands not just `$VAR`/`${...}` but
+ * region. "Any `$`" is deliberate - shell expands not just `$VAR`/`${...}` but
  * positional/special parameters (`$1`, `$?`, `$$`, `$@`, ...), so a narrower
  * match would let those through as exact fields. A bare literal `$` (e.g. a
  * price) also trips it; downgrading that to a note is a sound over-
@@ -1394,8 +1394,8 @@ function outerExpandsBody(command: string): boolean {
  * Parse a Bash command string; return a structured request if it is a single
  * curl invocation against the isomux server (optionally piped into a filter),
  * a `jq ... | curl ... -d @-` producer pipeline where jq builds the request
- * body — from --arg templates, a positional input file, or a heredoc
- * (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-`) — or a heredoc feeding curl
+ * body - from --arg templates, a positional input file, or a heredoc
+ * (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-`) - or a heredoc feeding curl
  * directly as its body (`curl ... -d @- <<'EOF'`). The curl may be followed by
  * `;`/`&&`-chained inspection commands (`> /tmp/out.json; wc -c /tmp/out.json`),
  * which are shown verbatim on the card. A single-statement
@@ -1450,8 +1450,8 @@ function parseIsomuxCurlInner(
         if (!isSafeStage(st.text, TRAILING_COMMANDS)) return null;
       }
       statement = statements[0].text;
-      // The statements are contiguous slices, so the remainder — separator
-      // included — is exactly what the user typed.
+      // The statements are contiguous slices, so the remainder - separator
+      // included - is exactly what the user typed.
       trailingCommand = command.slice(statement.length).trim();
     }
   }
@@ -1491,9 +1491,9 @@ function parseIsomuxCurlInner(
   if (tokens[0] === "jq") {
     // Producer pipeline: jq builds the JSON body, curl reads it from stdin.
     // A redirect on the jq stage itself (`jq ... > f | curl`) would starve
-    // the pipe — nonsense, bail.
+    // the pipe - nonsense, bail.
     if (pipeTail === null || tokenized.outputRedirect !== null) return null;
-    // A non-literal heredoc would seed jq's `.` with pre-expansion text — the
+    // A non-literal heredoc would seed jq's `.` with pre-expansion text - the
     // card would misrender the field value. The producer path takes only
     // literal bodies; anything else stays raw.
     if (heredoc && !heredoc.literal) return null;
@@ -1526,7 +1526,7 @@ function withTrailing(
 
 /**
  * Parse one tokenized curl invocation (plus its optional display pipe tail).
- * `stdinBody` is a body resolved from curl's stdin — a leading jq producer
+ * `stdinBody` is a body resolved from curl's stdin - a leading jq producer
  * stage or an attached heredoc; when present, the curl must read its body from
  * stdin via an @-interpreting data flag (`-d @-`) and `stdinBody` supplies
  * bodyFields/bodyNote.
@@ -1578,8 +1578,8 @@ function parseCurlStage(
       case "ignore":
         return true;
       case "output":
-        // `/dev/null` discards silently. A real path is a file write — a
-        // side effect — so it is accepted only when displayable verbatim
+        // `/dev/null` discards silently. A real path is a file write - a
+        // side effect - so it is accepted only when displayable verbatim
         // (REDIRECT_PATH_RE) and is surfaced on the card via outputFile.
         // One output target per command.
         if (value === "/dev/null") return true;
@@ -1702,7 +1702,7 @@ function parseCurlStage(
   if (outputRedirect !== null && outputFromFlag !== null) return null;
   const outputFile = outputRedirect?.path ?? outputFromFlag;
   // Output to a file AND a display pipe is shell-legal but nonsense for the
-  // patterns we card (the pipe would receive nothing) — bail to raw.
+  // patterns we card (the pipe would receive nothing) - bail to raw.
   if (outputFile !== null && pipeTail !== null) return null;
 
   return {

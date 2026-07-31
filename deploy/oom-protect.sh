@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# isomux-oom-protect — keep a memory spike from taking the whole box down.
+# isomux-oom-protect - keep a memory spike from taking the whole box down.
 #
 # When an isomux box runs out of memory, the kernel's own last-resort killer
 # arrives too late: by then the machine is already swapping so hard that
@@ -29,7 +29,7 @@
 #
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
 # which is fetched on its own by curl | bash and so cannot read repo files. The
-# two copies are pinned equal by deploy/install-sh.test.ts — edit here, then
+# two copies are pinned equal by deploy/install-sh.test.ts - edit here, then
 # run `bun run scripts/embed-deploy-scripts.ts` to update the copy there.
 #
 # Usage (as root):
@@ -118,7 +118,7 @@ install_earlyoom() {
 # --prefer     agent processes: the memory hogs, and the cheapest to lose
 #
 # Both lists match a process NAME, which is why the office server is shielded as
-# `isomux` and not as `bun`. It runs under bun, so its name used to be `bun` —
+# `isomux` and not as `bun`. It runs under bun, so its name used to be `bun` - 
 # and so is every `bun install` and `bun run build` an agent starts. Shielding
 # that name shielded the multi-GB build spike this whole setup exists to kill,
 # while the server gained nothing its own workload did not also get. The server
@@ -127,7 +127,7 @@ install_earlyoom() {
 #
 # An office older than that rename is still called `bun` and so is not matched
 # here. What it falls back on is the OOMScoreAdjust tier, the stronger of the
-# two shields — either the one its system unit already carries, or the one this
+# two shields - either the one its system unit already carries, or the one this
 # tool stamps onto it below. Note that an old USER-level office that this tool
 # has never been run against has neither, since its configured tier is the
 # ineffective one. Keeping `bun` in the list to cover that case is what caused
@@ -223,13 +223,13 @@ EOF
 #
 # The tier above writes a drop-in for a SYSTEM unit. An office installed the
 # self-hosted way (docs/self-hosted.md) has no isomux.service on the system bus,
-# so that drop-in is inert — and the obvious repair, a matching drop-in under
+# so that drop-in is inert - and the obvious repair, a matching drop-in under
 # the user's own systemd, does not work either.
 #
 # Measured on a live office box, 2026-07-31. Ubuntu starts every user manager at
 # OOMScoreAdjust=100 (/usr/lib/systemd/system/user@.service) and its services
 # inherit that. Lowering a score needs CAP_SYS_RESOURCE, which a user manager
-# does not have, so its request for -500 is refused by the kernel — while
+# does not have, so its request for -500 is refused by the kernel - while
 # `systemctl --user show` still cheerfully reports -500 and the service starts
 # clean. The server reads 100.
 #
@@ -242,7 +242,7 @@ EOF
 #
 # Making the value survive a restart would mean lowering the whole user manager,
 # putting every process in that operator's login session under the same
-# protection — a policy decision this script does not get to make on its own.
+# protection - a policy decision this script does not get to make on its own.
 
 # Print the pid of a running user-level isomux service, if there is one.
 #
@@ -300,7 +300,7 @@ EOF
 
 # A small swap file is a useful cushion for pages nothing has touched in days.
 # A large one is a trap: it lets the box keep allocating long past the point
-# where it can still respond. Existing swap is left alone — resizing it out
+# where it can still respond. Existing swap is left alone - resizing it out
 # from under a running system is not this script's business.
 configure_swap() {
   local total_kib

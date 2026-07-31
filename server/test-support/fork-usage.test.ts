@@ -1,15 +1,15 @@
-// Phase 1.4a — Conversation branching: fork-chain assembly + usage accounting.
+// Phase 1.4a - Conversation branching: fork-chain assembly + usage accounting.
 //
 // Freezes the OBSERVABLE behavior of fork-chain log assembly and per-session
 // usage accounting before Phase 3 touches the orchestrator/transport.
 //
 // Two seams, documented per block:
-//   B1 (pure helpers) — direct-call against the preload's temp STATE_ROOT
+//   B1 (pure helpers) - direct-call against the preload's temp STATE_ROOT
 //      (persistence.test.ts idiom: beforeEach wipes STATE_ROOT, seed sessions.json
 //      + .jsonl via the real persist/append API, call, assert). Covers
 //      loadLogWithAncestors, accumulate/roll/snapshot, findUsageAtFork, and the
 //      usage-report lifetime/session math (readAgentUsage).
-//   B2 (orchestrated wiring) — the DI manager seam (createAgentManager +
+//   B2 (orchestrated wiring) - the DI manager seam (createAgentManager +
 //      FakeBackend + event sink, per agent-manager.di.test.ts). Drives ONE
 //      orchestrator event and reads sessions.json + the captured events. No WS
 //      boundary needed here, so this is lighter and more deterministic than the
@@ -92,7 +92,7 @@ function usage(
 }
 
 // Write sessions.json directly (bypassing persistSessionFork) to seed shapes the
-// public persist API can't produce — e.g. a fork link with NO forkMessageId.
+// public persist API can't produce - e.g. a fork link with NO forkMessageId.
 function seedSessionsMapRaw(
   agentId: string,
   map: Record<string, unknown>,
@@ -103,7 +103,7 @@ function seedSessionsMapRaw(
 }
 
 // ===========================================================================
-// B1 — fork-chain assembly (loadLogWithAncestors), direct-call seam
+// B1 - fork-chain assembly (loadLogWithAncestors), direct-call seam
 // ===========================================================================
 
 describe("B1 loadLogWithAncestors (Phase 1.4a)", () => {
@@ -183,7 +183,7 @@ describe("B1 loadLogWithAncestors (Phase 1.4a)", () => {
 });
 
 // ===========================================================================
-// B1 — usage accounting math, direct-call seam
+// B1 - usage accounting math, direct-call seam
 // ===========================================================================
 
 describe("B1 accumulateSessionUsage (Phase 1.4a)", () => {
@@ -357,7 +357,7 @@ describe("B1 findUsageAtFork (Phase 1.4a)", () => {
 });
 
 // ===========================================================================
-// B1 — usage-report lifetime/session math (readAgentUsage), direct-call seam
+// B1 - usage-report lifetime/session math (readAgentUsage), direct-call seam
 // ===========================================================================
 
 describe("B1 readAgentUsage (Phase 1.4a)", () => {
@@ -435,7 +435,7 @@ describe("B1 readAgentUsage (Phase 1.4a)", () => {
 });
 
 // ===========================================================================
-// B2 — orchestrated wiring (DI manager seam: createAgentManager + FakeBackend
+// B2 - orchestrated wiring (DI manager seam: createAgentManager + FakeBackend
 //       + event sink). Drive one orchestrator event, read sessions.json + the
 //       captured events. No WS boundary needed, so this is lighter/more
 //       deterministic than the harness for usage/fork wiring.
@@ -557,7 +557,7 @@ describe("B2 turn_completed -> accumulate + snapshot (Phase 1.4a)", () => {
     expect(m.usage).toEqual(usage(12, 7, 0, 0, 0.9));
 
     // The snapshot anchor is the id of the LAST log entry written before the
-    // turn boundary (the assistant text), not merely "a snapshot exists" — this
+    // turn boundary (the assistant text), not merely "a snapshot exists" - this
     // is what keeps fork accounting exact.
     const log = loadLog(info.id, sid);
     expect(log.at(-1)!.kind).toBe("text");
@@ -585,7 +585,7 @@ describe("B2 resume -> roll usage + replay ancestors (Phase 1.4a)", () => {
       undefined,
       "room-a",
     ))!;
-    // Lazy spawn: first message creates the session — capture its id after.
+    // Lazy spawn: first message creates the session - capture its id after.
     await mgr.sendMessage(info.id, "hi");
     const sid = fake.sessionForAgent(info.id)!.sessionId;
     await waitUntil(

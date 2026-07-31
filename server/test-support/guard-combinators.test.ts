@@ -1,4 +1,4 @@
-// Phase 2.3 — Guard combinator contract tests (TDD red→green for NEW code).
+// Phase 2.3 - Guard combinator contract tests (TDD red→green for NEW code).
 //
 // and()/or() let the route table compose compound guards (agents.move/revive,
 // the validate.env owner/self branch) as machine-checkable values rather than
@@ -46,7 +46,7 @@ describe("and(): all must allow (first-deny-wins)", () => {
       code: "not_found",
     });
   });
-  it("short-circuits — guards after the first deny are not evaluated", () => {
+  it("short-circuits - guards after the first deny are not evaluated", () => {
     expect(() => and(deny403, boom)(ctx)).not.toThrow();
     expect(and(deny403, boom)(ctx)).toEqual(FORBIDDEN);
   });
@@ -66,7 +66,7 @@ describe("or(): any may allow (first-allow-wins)", () => {
       code: "not_found",
     });
   });
-  it("short-circuits — guards after the first allow are not evaluated", () => {
+  it("short-circuits - guards after the first allow are not evaluated", () => {
     expect(() => or(allow, boom)(ctx)).not.toThrow();
     expect(or(allow, boom)(ctx)).toEqual({ ok: true });
   });

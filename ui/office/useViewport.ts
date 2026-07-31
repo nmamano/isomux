@@ -33,17 +33,17 @@ const DEFAULT_STATE: ViewportState = { x: 0, y: 0, scale: 1 };
 
 // Module-scoped so the user's zoom/pan survives OfficeView unmounts (entering
 // a chat, tasks, cronjobs, mobile list). The hook's design treats viewport as
-// global across rooms — module scope extends that to "global across views"
+// global across rooms - module scope extends that to "global across views"
 // without round-tripping through React state. Mutated in place via state.current.
 const persistedState: ViewportState = { ...DEFAULT_STATE };
 
 // Pan should start from any non-interactive surface in the scene. Every clickable
-// target in the scene — including native HTML5 drag sources like DeskUnit — opts
+// target in the scene - including native HTML5 drag sources like DeskUnit - opts
 // out via `data-no-pan`, so we don't need a separate [draggable] rule here.
 const PAN_BLOCKER_SELECTOR =
   "[data-no-pan], button, a, input, textarea, select";
 // Touch-only blocker: excludes [data-no-pan]. The big 180×160 desk/slot
-// hit-rects blanket the visible floor — treating them as pan blockers would make
+// hit-rects blanket the visible floor - treating them as pan blockers would make
 // one-finger pan fail almost everywhere when zoomed in. Tap-vs-drag stays safe
 // because: (a) DeskUnit preventDefaults touchstart and dispatches its own
 // clicks from touchend, so browser-synthesized clicks on a desk aren't the
@@ -69,11 +69,11 @@ function clampScale(scale: number) {
  * `source` distinguishes pan drivers: "pointer" pans are authoritatively owned
  * by a specific pointerId and use pointer capture; "touch" pans are driven by
  * TouchEvents (iOS Safari's pointer-event path is unreliable for sustained
- * single-finger drag — pointercancel fires even with touch-action: none, and
+ * single-finger drag - pointercancel fires even with touch-action: none, and
  * setPointerCapture on a touch pointer can drop pointermove deliveries).
  *
  * `panning.committed` distinguishes a pending tap (within the click threshold)
- * from an actual drag — uncommitted panning never mutates the viewport.
+ * from an actual drag - uncommitted panning never mutates the viewport.
  */
 type Gesture =
   | { kind: "idle" }
@@ -102,7 +102,7 @@ type Gesture =
  *
  * View state is global (one viewport for all rooms). Rooms share an
  * identical isometric layout, so a zoom/pan set in one is the right one in
- * any other — preserving it across room switches matches user intent more
+ * any other - preserving it across room switches matches user intent more
  * often than resetting would.
  *
  * `layoutKey` should change whenever the centered scene's static transform
@@ -111,16 +111,16 @@ type Gesture =
  * notice transform-only updates.
  *
  * When `enabled` is false, gesture listeners are not attached (wheel, pointer,
- * touch, pinch all become no-ops) — used to disable zoom in embed mode where
+ * touch, pinch all become no-ops) - used to disable zoom in embed mode where
  * the UI chrome and keyboard shortcuts are already hidden.
  *
  * Returns callback refs (`setContainer`, `setScene`, `setContent`) instead of
- * RefObjects — attach them via `ref={...}` on the corresponding elements.
+ * RefObjects - attach them via `ref={...}` on the corresponding elements.
  */
 export function useViewport(layoutKey: string, enabled: boolean) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<HTMLDivElement | null>(null);
-  /** The scene-content element inside the zoom/pan layer — measured for pan-clamp bounds. */
+  /** The scene-content element inside the zoom/pan layer - measured for pan-clamp bounds. */
   const contentRef = useRef<HTMLDivElement | null>(null);
   // State mirror of containerRef so the listener-attachment effect re-runs when
   // the container node is (re)attached. Scene/content are only read from
@@ -147,7 +147,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     top: number;
     bottom: number;
   } | null>(null);
-  /** True if the most recent pointer gesture became a pan — used to suppress click-to-focus */
+  /** True if the most recent pointer gesture became a pan - used to suppress click-to-focus */
   const didPan = useRef(false);
   const resetClearTimer = useRef<number | null>(null);
   const restoreUserSelect = useRef<string | null>(null);
@@ -191,7 +191,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       return;
     }
     const { x, y, scale } = state.current;
-    // Only touch scene.style.transition if one is currently set — otherwise
+    // Only touch scene.style.transition if one is currently set - otherwise
     // every pointermove would write a no-op. Reading the live style is the
     // source of truth; the reset timer is its companion (set together, cleared
     // together).
@@ -209,7 +209,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   /**
    * Measure the scene content's bounding box in viewport-layer-local coords
    * (pre-zoom), by inverting the currently-rendered transform. Caller must
-   * ensure state.current matches the last rendered transform — i.e. call
+   * ensure state.current matches the last rendered transform - i.e. call
    * after applyTransform, not between a state mutation and its apply.
    */
   function measureSceneBounds() {
@@ -271,13 +271,13 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   }
 
   // The callbacks below are `useCallback(..., [])` because every value they
-  // reach — state, gesture, refs, and the in-body helpers (applyTransform,
-  // zoomAt, measureSceneBounds, clampPan) — is stored in a ref or
+  // reach - state, gesture, refs, and the in-body helpers (applyTransform,
+  // zoomAt, measureSceneBounds, clampPan) - is stored in a ref or
   // reads through one. No render-scoped variable is closed over. If you add
   // a line here that captures component state or props, switch to refs or
   // add the dep; otherwise the callback will silently use stale values.
   // sceneBounds are layer-local (measureSceneBounds inverts the live transform),
-  // so they're invariant under state changes — no need to re-measure after
+  // so they're invariant under state changes - no need to re-measure after
   // resetting. At DEFAULT_STATE, clampPan is a no-op by construction.
   const resetView = useCallback((animate = true) => {
     // Mutate in place so the module-scoped persistedState stays the single
@@ -318,7 +318,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** True when the user has zoomed in past the rest scale — used to route one-finger drags
+  /** True when the user has zoomed in past the rest scale - used to route one-finger drags
    *  to pan instead of swipe on touch (iOS-gallery pattern). */
   const isZoomedIn = useCallback(
     () => state.current.scale > VIEWPORT.ZOOM_EPSILON,
@@ -341,7 +341,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   // changes (embed/isMobile/mobileScale). ResizeObserver only catches
   // container size changes, not transform-only updates to inner content.
   // useLayoutEffect (not useEffect) so a remount with persisted non-default
-  // state paints once at the saved transform — avoids the default→saved
+  // state paints once at the saved transform - avoids the default→saved
   // flash when going back to office view from chat/tasks/list.
   useLayoutEffect(() => {
     measureSceneBounds();
@@ -354,7 +354,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   // below close over in-body helpers (applyTransform, zoomAt, clampPan, save,
   // measureSceneBounds). Those helpers are recreated on every render, but the
   // handlers captured here reference the version from the render when the
-  // effect last ran — which is fine ONLY because every helper reaches state
+  // effect last ran - which is fine ONLY because every helper reaches state
   // through refs and closes over no render-scoped values. If you add a line
   // to any helper that captures props or useState values, either add the dep
   // here (and accept listener churn) or route the new value through a ref.
@@ -409,7 +409,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       ) {
         // Release the primary pointer's capture so lifting back to a single
         // touch after the pinch doesn't reactivate the old pan anchor.
-        // Touch-driven pans don't use pointer capture — nothing to release.
+        // Touch-driven pans don't use pointer capture - nothing to release.
         releasePan(gesture.current.pointerId);
       }
       const rect = container!.getBoundingClientRect();
@@ -438,7 +438,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     function handlePointerDown(e: PointerEvent) {
       // Touch-driven pan is handled in handleTouchStart (TouchEvents are more
       // reliable than pointer events on iOS for sustained single-finger pan).
-      // Reset didPan only for non-touch pointers here — touch resets happen in
+      // Reset didPan only for non-touch pointers here - touch resets happen in
       // handleTouchStart on a fresh single-finger tap.
       if (e.pointerType === "touch") {
         return;
@@ -548,7 +548,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
         return;
       }
       // DeskUnit's touch handler preventDefaults, which suppresses the
-      // synthesized pointerdown — reset didPan on a fresh tap so a post-pan
+      // synthesized pointerdown - reset didPan on a fresh tap so a post-pan
       // tap on a desk isn't swallowed by the pan's lingering flag.
       didPan.current = false;
       // One-finger touches at rest scale belong to the swipe-to-change-room
@@ -613,7 +613,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
         }
         // Only preventDefault once the pan has committed. On iOS, a
         // preventDefault on any touchmove suppresses the browser-synthesized
-        // click — we want that suppression for a real drag, but not for a
+        // click - we want that suppression for a real drag, but not for a
         // tap whose finger trembled a few pixels inside PAN_THRESHOLD (e.g.
         // tapping an EmptySlot to spawn while zoomed in).
         if (e.cancelable) {
@@ -633,7 +633,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
           resetGesture();
         } else {
           // A finger lifted from a 3+ finger pinch, leaving two on-screen.
-          // Re-anchor so startDist/initialMid match the remaining pair —
+          // Re-anchor so startDist/initialMid match the remaining pair -
           // otherwise the next touchmove snaps scale/position using stale
           // anchors from the prior finger configuration.
           enterPinch(e.touches[0], e.touches[1]);
@@ -645,7 +645,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
         g.source === "touch" &&
         e.touches.length === 0
       ) {
-        // didPan is intentionally NOT cleared here — it must survive past the
+        // didPan is intentionally NOT cleared here - it must survive past the
         // iOS-synthesized click window so wrapClick can suppress the tap that
         // follows a drag-pan. The next fresh single-finger tap clears it in
         // handleTouchStart. Do not "unify" this with handlePointerUp's reset.
@@ -707,7 +707,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       container.removeEventListener("touchend", handleTouchEnd);
       container.removeEventListener("touchcancel", handleTouchCancel);
       // Must come AFTER removeEventListener calls: abortAllGestures releases
-      // pointer capture, which can synthesize a pointercancel — we don't want
+      // pointer capture, which can synthesize a pointercancel - we don't want
       // that dispatching into the handler we're about to remove.
       abortAllGestures();
     };

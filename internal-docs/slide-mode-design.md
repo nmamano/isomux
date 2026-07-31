@@ -12,7 +12,7 @@
 > (opIds agents.getSlides / agents.ensureSlide, office:read) with the
 > `slide_ready` room-ACL WS event; deck UI in `ui/log-view/DeckView.tsx` behind a
 > header toggle (per-device-per-agent in `ui/device-settings.ts`). The staleness
-> guard keys on the conversation's root session id — see the terminal-gate note
+> guard keys on the conversation's root session id - see the terminal-gate note
 > below; it originally reused `topicGenToken`, which was wrong because a benign
 > `setTopic` also bumps that.
 
@@ -25,7 +25,7 @@
 
 > Polish v2 (2026-07-24): (1) the deck↔chat toggle now persists the last-viewed
 > slide index per-device-per-agent (`getSlidePos`/`setSlidePos` in
-> `device-settings.ts`) and restores it on re-entry — following the newest only
+> `device-settings.ts`) and restores it on re-entry - following the newest only
 > when the viewer was already on the last slide; returning to chat restores the
 > prior chat scroll position (or re-pins to the bottom when the viewer was
 > following it) instead of jumping to the top. (2) An overfull slide (model
@@ -33,11 +33,11 @@
 > measures the HTML's natural height in an offscreen `sandbox="allow-same-origin"`
 > iframe carrying the same `SLIDE_CSP` (so scripts and network stay blocked; the
 > display iframe stays `sandbox=""`), then the whole card is laid out at that
-> height and scaled to fit — never clipped, never scrolled.
+> height and scaled to fit - never clipped, never scrolled.
 
 > Terminal-gate + reconciliation (2026-07-24): a slide is generated for a turn
 > ONLY after that turn is terminal, and a stored slide is served only while its
-> content digest matches the live turn — otherwise it is regenerated. This
+> content digest matches the live turn - otherwise it is regenerated. This
 > replaced a client-side "is the turn settled?" guess that recorded a stale
 > placeholder when a message was sent from slide view (the newest turn existed
 > before the agent went active). The turn's authoritative terminal fact
@@ -56,30 +56,30 @@
 >   the turn with the anchor unset. `resolveSlideJob` reads the parked anchor too
 >   (`liveTurnAnchor`), gated on the agent being busy: the deferred is installed
 >   only after `runAgentTurn`'s plugin phase, and the deck asks for the new turn's
->   slide well inside that gap — but a `user_message` that never starts a turn (a
+>   slide well inside that gap - but a `user_message` that never starts a turn (a
 >   control command's echo) parks an anchor too, and only the busy state tells the
 >   two apart.
 > - `ensureSlide` on a non-terminal turn parks a waiter (keeping the latest
->   feedback) and returns `pending` — never formats a half-streamed answer, never
+>   feedback) and returns `pending` - never formats a half-streamed answer, never
 >   writes a placeholder. `onTurnSettled` runs off the `pendingTurn` promise's
 >   settle, so EVERY terminal path (turn_completed, error, stream end/catch,
 >   session swap, kill, supersession) drains the waiter: it generates the settled
 >   slide and pushes `slide_ready`, so a parked request never orphans (a turn that
->   a `/clear` removed is simply dropped — its deck position is gone too).
+>   a `/clear` removed is simply dropped - its deck position is gone too).
 > - `SlideRecord.contentDigest` (`slideContentDigest`, a 64-bit hash
 >   length-prefixed over prompt + answer + error) is the cache-validity key: a
 >   stored slide is served only while its digest equals the live turn's, so a
 >   stale placeholder whose turn later gained text no longer matches and is
 >   regenerated. `commit` re-checks token AND digest before writing, so a mutation
 >   mid-generation is discarded, not broadcast (a terminal turn's content is in
->   fact immutable within its token — every edit forks and bumps the token — so
+>   fact immutable within its token - every edit forks and bumps the token - so
 >   this is defence in depth over the token guard). A record with NO digest
 >   predates the field and is unverifiable, so it is regenerated once (a
 >   placeholder re-commits with no LLM call; a rendered slide regenerates and
 >   gains a digest, then validates from cache). The client mirrors this: it skips
 >   a cached record only when it carries a digest, and requests missing/digestless
 >   ones. The one exception is a stored PLACEHOLDER whose digest disagrees with
->   the live turn — it claims the turn produced no answer when it has one, and
+>   the live turn - it claims the turn produced no answer when it has one, and
 >   nothing else brings the deck back from that card. Kept to placeholders rather
 >   than any mismatch on purpose: the regenerated record is no longer a
 >   placeholder, so a client log that disagrees with the server's re-asks once
@@ -94,14 +94,14 @@
 > the queued-flush path. A direct send logs its `user_message` BEFORE the deferred
 > exists, so `anchorEntryId` stayed null, every turn read terminal while it
 > streamed, and the first request wrote an empty-turn placeholder over the live
-> turn — which then stuck, since the client skipped any digest-bearing record.
+> turn - which then stuck, since the client skipped any digest-bearing record.
 > Fixed by the parked anchor (claimed by the deferred, read busy-gated until then)
 > and the stale-placeholder exception described above. The lifecycle suite now
 > drives `sendMessage` as well as `enqueueMessage`; every test previously used the
 > queue, which is why the hole was invisible.
 
 Per-agent "Slide view": a toggle in the agent header that replaces the chat
-view with a slide deck — one slide per assistant turn, ←/→ navigation, the
+view with a slide deck - one slide per assistant turn, ←/→ navigation, the
 turn's prompt frozen beneath each slide, and the real input box on the newest
 slide. Successor to the external `isomux-slide` plugin
 (`~/nil/isomux-slide/`), which proved the pipeline but lives on a separate
@@ -115,7 +115,7 @@ slides. What the plugin proved (keep all of it):
 - A second, tool-less model pass ("format this response as ONE slide")
   produces good slides from arbitrary chat responses; the system prompt
   matters more than the model tier.
-- One-shot generation on subscription auth — isomux already has the exact
+- One-shot generation on subscription auth - isomux already has the exact
   primitive (`backend.oneShotPrompt`) and the exact usage precedent
   (topic generation, `server/agent-manager.ts` ~line 2044).
 - Slides as self-contained inline-styled HTML fragments in a sandboxed
@@ -137,7 +137,7 @@ Consequences, all deliberate:
   `device-settings`). The server just answers slide requests.
 - **Cost is proportional to viewing.** Turns nobody ever views in slide
   view are never formatted. While a client has slide view open, new turns
-  generate automatically (exactly like live chat appearing — including
+  generate automatically (exactly like live chat appearing - including
   turns initiated by other agents); the saving is only for turns never
   viewed.
 - **Decks persist per conversation, forever.** Old conversations keep their
@@ -149,16 +149,16 @@ Consequences, all deliberate:
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Which turns get slides? | All of them — the deck mirrors the conversation 1:1 (see #8). Origin/sender filtering rejected. |
+| 1 | Which turns get slides? | All of them - the deck mirrors the conversation 1:1 (see #8). Origin/sender filtering rejected. |
 | 2 | Formatter input for long agentic turns | Full `assistantText` (it already contains only text spans, no tool calls/results). No truncation except a pathological guardrail (~200k chars). The formatter selects what matters. |
 | 3 | Agent needs attention while in deck view | Deck view stays thin: activity indicator + badge; one tap flips to chat view. Deck never re-implements chat machinery. |
 | 4 | Generation trigger | On-demand, view-driven (the core model above). Proactive per-turn generation rejected. |
-| 5 | Storage | Server-side per-conversation sidecar, keyed by turn anchor (see Data model). "Slides are log entries" rejected — on-demand backfill arrives out of order. |
-| 6 | Scrollback eagerness | Generate the focused turn + prefetch its two neighbors; max 2 concurrent generations per agent; dedupe in-flight. No batch "generate whole deck" in v0. Raising the cap to the window's width was considered and rejected (Reviewer1, 2026-07-25): the server gets no focus/prefetch priority metadata, so a wider cap does not actually keep a prefetch from queueing ahead of the focused slide — it just spends another process per viewed agent. If queue latency proves material, the fix is explicit priority or a narrower prefetch window, backed by queue-wait measurements. |
+| 5 | Storage | Server-side per-conversation sidecar, keyed by turn anchor (see Data model). "Slides are log entries" rejected - on-demand backfill arrives out of order. |
+| 6 | Scrollback eagerness | Generate the focused turn + prefetch its two neighbors; max 2 concurrent generations per agent; dedupe in-flight. No batch "generate whole deck" in v0. Raising the cap to the window's width was considered and rejected (Reviewer1, 2026-07-25): the server gets no focus/prefetch priority metadata, so a wider cap does not actually keep a prefetch from queueing ahead of the focused slide - it just spends another process per viewed agent. If queue latency proves material, the fix is explicit priority or a narrower prefetch window, backed by queue-wait measurements. |
 | 7 | Toggle scope | Per-device per-agent in `device-settings`. Header-bar button next to the context-fullness battery (27096236). Prerequisite: task efdabed3 frees the header space (Nil does that task first). |
 | 8 | Empty turns (interrupted / failed / tool-only) | 1:1 mapping preserved: they get a **placeholder slide** (showing the error text when the turn failed), with the frozen prompt below. The deck preserves the whole conversation chain. Skipping rejected. |
 | 9 | Past conversations | Work via `/resume` in v0; data model supports future read-only browsing. |
-| 10 | Style continuity | The formatter receives the **previous turn's cached slide HTML** (when available) + the current turn's content, so it can match the established slide style. If the previous slide isn't cached (user jumped mid-deck), no style reference is passed — we do not force-generate a chain. **Known accepted quirk (Nil, 2026-07-19):** viewing a deck back-to-front (start at the end, scroll backward) yields no coherent style across the deck, since each slide generates without its predecessor. Noted, not acted on unless it becomes an issue in practice. |
+| 10 | Style continuity | The formatter receives the **previous turn's cached slide HTML** (when available) + the current turn's content, so it can match the established slide style. If the previous slide isn't cached (user jumped mid-deck), no style reference is passed - we do not force-generate a chain. **Known accepted quirk (Nil, 2026-07-19):** viewing a deck back-to-front (start at the end, scroll backward) yields no coherent style across the deck, since each slide generates without its predecessor. Noted, not acted on unless it becomes an issue in practice. |
 | 11 | Bad slides | Per-slide ↻ regenerate button in deck view, with an **optional feedback text field** ("what to change") passed to the formatter as an extra instruction. Overwrites the cached slide. Feedback is one-shot, not persisted. |
 | 12 | Mobile | Should ideally work on phone, but **not top priority** (Nil, 2026-07-19). Plugin experience: a fixed 1280×720 slide scaled to fit reads fine in phone landscape (~0.65×) but poorly in portrait (~0.3×, body text ≈6px physical). v0 ships the scaled approach; cheap lever now = formatter prompt enforcing larger minimum text. **Settled 2026-07-26** (Nil, from phone dogfooding): the whole mobile treatment is rendering **edge-to-edge**. Stage padding goes to 0, the slide iframe drops its rounding and shadow, and the prompt bar goes 92px → 44px in both states (frozen prompt collapses to one tappable line), so nothing but the viewport limits the slide's scale. Portrait-variant slide generation and reflowing slide HTML at native width were both **declined**: the fixed 1280×720 scaled model stays. Measured at 390×780 / 844×390: portrait 342×192 → 390×219, landscape 366×206 → 537×302. Swipe navigation is still open. |
 
@@ -194,7 +194,7 @@ Notes:
   branch; slide records keyed by discarded entry ids become unreachable
   (harmless orphans; a cleanup sweep can prune keys absent from the log).
 - Stale-append guard: generation is fire-and-forget, so a result can land after
-  the conversation moved on. Conversation identity is the ROOT SESSION ID —
+  the conversation moved on. Conversation identity is the ROOT SESSION ID - 
   captured in `SlideJobContext.rootSessionId` before generating and re-checked
   via `SlideModeDeps.isCurrent` before writing/broadcasting, and part of the
   in-flight key so a re-request after a reset starts a fresh job. `/clear` leaves
@@ -204,7 +204,7 @@ Notes:
 
   Deliberately NOT a separate counter. The root id already exists as the deck's
   storage key, is derived from the sessions map rather than hand-maintained at
-  every reset call site, and never recycles — a per-agent counter resets to 0
+  every reset call site, and never recycles - a per-agent counter resets to 0
   when `ManagedAgent` is rebuilt (boot, kill/revive) while the in-flight map
   lives on in the `createSlideMode` closure, so counter values could collide
   across a revive.
@@ -213,16 +213,16 @@ Notes:
   entries BEFORE the edited one and appends the new text under a NEW entry id,
   so the forked turn's own id stops resolving and its in-flight commit discards;
   earlier turns are replayed unchanged and keep matching digests. Identity is
-  only the cheap early-out here — the content digest is what guarantees a stored
+  only the cheap early-out here - the content digest is what guarantees a stored
   slide is never served for content it wasn't generated from.
 
 ## Server
 
 ### API
 
-- `GET /api/agents/:id/slides?sessionId=...` — the conversation's slide map
+- `GET /api/agents/:id/slides?sessionId=...` - the conversation's slide map
   (for initial deck render).
-- `POST /api/agents/:id/slides/:entryId` — "ensure slide": returns cached
+- `POST /api/agents/:id/slides/:entryId` - "ensure slide": returns cached
   immediately, else starts generation and returns `{status:"pending"}`.
   Body options: `{force: true, feedback: "..."}` for regeneration.
 - WS push: `{type:"slide_ready", agentId, sessionId, entryId, slide}` on
@@ -240,7 +240,7 @@ read the chat can request its slides.
 Follow the topic-gen precedent, not a hardcoded Claude call:
 
 - `backend.oneShotPrompt(prompt, {modelFamily, systemPrompt, cwd})` on the
-  **agent's own backend** — Claude agents use family `"sonnet"`, Codex
+  **agent's own backend** - Claude agents use family `"sonnet"`, Codex
   agents their own family (same rule as topic generation).
 - System prompt: port from `isomux-slide/formatter.ts` (tuned: single root
   `<div>`, inline styles only, 1280×720 dark, no scripts, compression
@@ -251,13 +251,13 @@ Follow the topic-gen precedent, not a hardcoded Claude call:
 - Concurrency: per-agent queue, max 2 in flight, in-flight dedupe by
   (sessionId, entryId).
 - Failure: journal log (`[slide-mode]`), record stays null, and `slide_failed`
-  goes out — the client shows its fallback (the response text on a plain
+  goes out - the client shows its fallback (the response text on a plain
   template) with regenerate available. Reported only when the turn we generated
   from is still the live one and no rerun is queued behind the failed pass: a
   result discarded because the conversation reset or the content forked is not a
   failure, and a request already being retried isn't terminal yet.
   The wire `reason` is a closed set of codes (`generation_failed`,
-  `invalid_output`) — the underlying error is backend/provider exception text or
+  `invalid_output`) - the underlying error is backend/provider exception text or
   raw model output, which is neither a stable contract nor something to
   broadcast to every session in the room. Full detail stays in the journal.
 - Timing (measured 2026-07-25, real turns): 17-30s end to end, ~1s of it process
@@ -280,11 +280,11 @@ either way.
 - Entering the view / navigating: for each visible position, call "ensure
   slide" (focused + 2 neighbors). Pending positions show a spinner;
   `slide_ready` fills them live. The server gates the still-running newest turn
-  (returns `pending` until it is terminal — see the terminal-gate note above).
+  (returns `pending` until it is terminal - see the terminal-gate note above).
 - What a position shows is decided by reported state, never by elapsed time: a
   spinner until the server resolves the request, the raw-answer fallback once it
   reports `slide_failed` (or `unavailable`). The deck keeps one timer, and it
-  only re-asks for a request the server dropped without reporting anything — it
+  only re-asks for a request the server dropped without reporting anything - it
   never changes what is on screen (task 01a7327a).
 - New turn while viewing: new position appears (spinner → slide when the turn
   completes). Auto-advance only if the user was already on the last slide.
@@ -294,7 +294,7 @@ either way.
 - Rendering: exclusively `<iframe sandbox="" srcdoc="...">`. Never inject
   slide HTML into the app DOM.
 
-No inline slide cards in the chat view in v0 (dropped in the interview —
+No inline slide cards in the chat view in v0 (dropped in the interview - 
 deck view is the feature).
 
 ## Relationship to the external plugin
@@ -302,7 +302,7 @@ deck view is the feature).
 The plugin (proactive, separate port/viewer, config-file filtering) keeps
 working and remains the plugin-system demo. Once native slide view ships,
 remove agents from the plugin's `config.json` to avoid paying for proactive
-generation you'll no longer look at. No runtime interlock needed — they
+generation you'll no longer look at. No runtime interlock needed - they
 don't share storage.
 
 ## Implementation sketch (footprint)
@@ -344,20 +344,20 @@ Three findings worth not re-deriving:
 
 - **The `<style>`-block idea is REFUTED, don't re-propose it.** Compliance was
   total (6/6) but the win was only 6% on Sonnet and negative on Haiku, because
-  styling does not shrink, it RELOCATES — these slides carry ~40 individually
+  styling does not shrink, it RELOCATES - these slides carry ~40 individually
   styled elements, so there is nothing to factor out. It also introduced a new
   failure mode: on 2/6 Sonnet slides the model declared a `.root` class and then
   emitted the root `<div>` without it, silently losing the dark background, the
   edge padding and the font. Inline styling makes that class of bug impossible.
 - **Model tier is the only real lever** (23.1s -> 9.6s): Haiku decodes ~20%
-  faster AND writes half as many tokens. The quality cost is compositional —
+  faster AND writes half as many tokens. The quality cost is compositional - 
   Haiku fills the 1280x720 canvas less deliberately (empty bottom thirds; one
   genuinely bad layout in 6) and overflows harder when it does overflow. Note
   the prompt was written against Sonnet, so Haiku's ceiling here is untested.
 - **The floor is ~7-8s** for this architecture: ~2.1s fixed overhead (process
   spawn + round trip + teardown) plus ~600 output tokens minimum for a real
   slide. A hard brevity cap bought only 1.6s and cost visible richness. Under
-  5s is NOT reachable by model or prompt tuning — it needs an architecture
+  5s is NOT reachable by model or prompt tuning - it needs an architecture
   change (stream the slide as it is written, or generate speculatively while
   the agent's turn is still running instead of after it settles).
 

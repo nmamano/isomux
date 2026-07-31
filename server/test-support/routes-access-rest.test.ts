@@ -1,4 +1,4 @@
-// Phase 3a slice 3a.4c — Access settings on the unified REST surface
+// Phase 3a slice 3a.4c - Access settings on the unified REST surface
 // (opIds office.{getAccess,setAccess}). Owner-only; closes 3a.4.
 //
 // What this freezes:
@@ -10,8 +10,8 @@
 //   - Status mapping: invalid origin 400, enable-without-origin 400, env mismatch
 //     409 (config NOT changed), owner-only 403/401.
 //   - WS parity: the legacy update_access_settings arm goes through the SAME
-//     shared core (applyAccessSettings) — returns the richer access_settings_updated
-//     and emits invites_list — so the REST extraction can't drift from the WS path.
+//     shared core (applyAccessSettings) - returns the richer access_settings_updated
+//     and emits invites_list - so the REST extraction can't drift from the WS path.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -262,7 +262,7 @@ describe("routes/office access REST: setAccess", () => {
       expect((r.body as { error?: { code?: string } }).error?.code).toBe(
         "set_access_failed",
       );
-      // The save is gated BEFORE persistence — config is untouched.
+      // The save is gated BEFORE persistence - config is untouched.
       const after = loadServerConfig();
       expect(after.externalAccess).toBe(before.externalAccess);
       expect(after.publicOrigin).toBe(before.publicOrigin);

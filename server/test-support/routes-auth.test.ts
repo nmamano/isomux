@@ -157,7 +157,7 @@ describe("routes/auth: 401 shape by Accept (Phase 1.4b)", () => {
     server = srv;
     // Use a cookie-walled path so the unauthorized() branch is exercised
     // independent of office-claim state (a fresh, unclaimed office serves an
-    // open bootstrap page at "/" — that is an onboarding concern, not auth).
+    // open bootstrap page at "/" - that is an onboarding concern, not auth).
     const res = await srv.http("/api/files/ghost/x.txt", {
       headers: { Accept: "text/html" },
     });
@@ -166,11 +166,11 @@ describe("routes/auth: 401 shape by Accept (Phase 1.4b)", () => {
   });
 });
 
-// Phase 2.1 (ADDITIVE) — Bearer lands ALONGSIDE the cookie path. These assert
+// Phase 2.1 (ADDITIVE) - Bearer lands ALONGSIDE the cookie path. These assert
 // the NEW acceptance (a valid bearer authenticates), NOT any new rejection: a
 // garbage bearer behaves exactly like no Authorization. NOTE the deliberate
 // broad-acceptance window: until the guard catalog (2.2) lands, a valid AGENT
-// bearer clears the cookie wall anywhere authenticate() gates — acceptable only
+// bearer clears the cookie wall anywhere authenticate() gates - acceptable only
 // because the token is a bearer secret injected into local subprocess env.
 describe("routes/auth: bearer alongside cookie (Phase 2.1, additive)", () => {
   it("a valid AGENT bearer token clears the cookie wall (GET /api/files -> 404, not 401)", async () => {

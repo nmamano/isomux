@@ -5,13 +5,13 @@
 // next `user_message`. This is the SINGLE source of that mapping, shared by:
 //   - the server (server/slide-mode.ts) to build the content it formats, and
 //   - the client (ui/log-view/DeckView.tsx) to lay out the deck positions.
-// Sharing it keeps the two exactly in step — the anchor entry id the client
+// Sharing it keeps the two exactly in step - the anchor entry id the client
 // requests is the same one the server keys the stored slide on.
 
 import type { LogEntry } from "./types.ts";
 
 export interface DeckTurn {
-  // The `user_message` entry id that started the turn — the stable slide key.
+  // The `user_message` entry id that started the turn - the stable slide key.
   entryId: string;
   // The prompt that started the turn (frozen beneath the slide).
   promptText: string;
@@ -22,12 +22,12 @@ export interface DeckTurn {
   // The turn's error text, if it failed. Null otherwise.
   errorText: string | null;
   // True when the turn produced no assistant text (interrupted, failed, or
-  // tool-only) — it still gets a placeholder position so the deck stays 1:1.
+  // tool-only) - it still gets a placeholder position so the deck stays 1:1.
   placeholder: boolean;
 }
 
 // Split an ordered log into deck turns. Entries before the first user_message
-// (a system_init banner, say) belong to no turn and are dropped — they are not
+// (a system_init banner, say) belong to no turn and are dropped - they are not
 // assistant turns. Ephemeral UI markers ("Conversation cleared.") never count.
 // The caller passes the log in display order (the client sorts by timestamp
 // first; the server's cache is already append-ordered).
@@ -98,7 +98,7 @@ export function nextDeckIndex(
 
 // The SETTLED deck position after a length change: the index to show (via
 // nextDeckIndex) paired with whether that index is now the last slide.
-// Persisting THIS — rather than the pre-advance render's stale index/atEnd — is
+// Persisting THIS - rather than the pre-advance render's stale index/atEnd - is
 // what keeps "follow newest" correct across the chat<->deck toggle. Note it
 // captures the case a plain index-change save misses: a shrink (edit/fork,
 // /clear) that leaves the cursor numerically unchanged but makes it the new last
@@ -114,12 +114,12 @@ export function settledDeckPos(
 
 // The position to show on FIRST opening a deck, given the saved position (or
 // null) and the current deck length. Restores the saved slide when the viewer
-// had deliberately left NOT on the last slide (clamped into range); otherwise —
-// no saved position, or they were following the newest — lands on the newest.
+// had deliberately left NOT on the last slide (clamped into range); otherwise -
+// no saved position, or they were following the newest - lands on the newest.
 // Returns the settled {index, atEnd} so first-load can persist it DIRECTLY: a
 // saved "behind" index that clamps onto the (now shorter) last slide, or that
 // equals 0 and can't trigger a state-change save, must still be recorded as
-// atEnd — otherwise re-entry wrongly treats the viewer as intentionally behind.
+// atEnd - otherwise re-entry wrongly treats the viewer as intentionally behind.
 export function restoredDeckPos(
   saved: { index: number; atEnd: boolean } | null,
   len: number,
@@ -130,13 +130,13 @@ export function restoredDeckPos(
   return { index, atEnd: index >= len - 1 };
 }
 
-// Digest fingerprinting EVERY input a slide is generated from — the frozen
+// Digest fingerprinting EVERY input a slide is generated from - the frozen
 // prompt, the answer text, and any error. Two turns with identical content hash
 // equal; a placeholder (empty text) and the eventual answer differ, which is the
 // signal Slide Mode reconciles on: a stored slide is valid only while its digest
 // matches the live turn's. Fields are length-prefixed so no field boundary is
 // ambiguous (a delimiter inside a field can't forge a different framing).
-// FNV-1a/32 — not cryptographic, just a stable content fingerprint.
+// FNV-1a/32 - not cryptographic, just a stable content fingerprint.
 export function slideContentDigest(turn: {
   promptText: string;
   assistantText: string;
@@ -161,8 +161,8 @@ export function slideContentDigest(turn: {
 
 // Is a turn TERMINAL (settled), so its slide may be generated? A turn is
 // in-flight only while it is the anchor of the currently-running turn; every
-// other turn — including the whole transcript after a restart, when there is no
-// running turn at all — is terminal. `runningAnchorId` is the in-flight turn's
+// other turn - including the whole transcript after a restart, when there is no
+// running turn at all - is terminal. `runningAnchorId` is the in-flight turn's
 // anchor entry id, or null when nothing is running (which is exactly the state a
 // fresh boot restores: pendingTurn=null, so a persisted partial tail reads
 // terminal and its slide reflects the persisted transcript). This is the whole
@@ -179,7 +179,7 @@ export function turnIsTerminal(
 // testable without a browser). Skip a turn whose generation the server already
 // reported as FAILED: that outcome is terminal, and re-asking would spend a
 // model call every watchdog window on a turn the formatter just choked on. Skip
-// a turn whose cached slide is VERIFIED — it carries a content digest, so it was
+// a turn whose cached slide is VERIFIED - it carries a content digest, so it was
 // written by the terminal gate for content that is immutable within the
 // conversation. Otherwise request it (a miss, or a digestless legacy record that
 // must be reconciled) unless a request is already in flight. `inFlight` is the
@@ -195,8 +195,8 @@ export function turnIsTerminal(
 // The ONE exception to "verified means skip": a stored PLACEHOLDER whose digest
 // disagrees with the live turn's. That record says "this turn produced no
 // answer" about a turn that now has one, so it is provably stale and the client
-// must re-ask — nothing else brings the deck back from it (task e9429ef3). It
-// stays narrow — placeholder only, not any digest mismatch — so it cannot loop:
+// must re-ask - nothing else brings the deck back from it (task e9429ef3). It
+// stays narrow - placeholder only, not any digest mismatch - so it cannot loop:
 // the regenerated record is no longer a placeholder, so even if a client's log
 // disagreed with the server's for that turn, the re-ask happens once rather than
 // every watchdog window. `liveDigest` omitted (the caller hasn't computed one)

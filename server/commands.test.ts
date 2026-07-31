@@ -3,7 +3,7 @@ import { commands, unsupportedMessage } from "./commands.ts";
 
 describe("unsupportedMessage", () => {
   it("returns the Nil-dictated copy for /loop", () => {
-    // Exact copy decided in task c4717359 — /loop is deliberately not
+    // Exact copy decided in task c4717359 - /loop is deliberately not
     // supported natively; the message redirects to isomux's own
     // recurring-work primitives. Do not reword without boss sign-off.
     expect(unsupportedMessage("loop")).toBe(
@@ -24,7 +24,7 @@ describe("unsupportedMessage", () => {
     // Pins the registry fields that resolution step 2 relies on (see
     // command-handlers.ts handleSlashCommand): while overridable stays true,
     // a user skill named `loop` can still shadow this entry. Registry-level
-    // guard only — does not exercise the resolution flow end to end.
+    // guard only - does not exercise the resolution flow end to end.
     expect(commands.loop.type).toBe("bundled-skill");
     expect(commands.loop.supported).toBe(false);
     expect(commands.loop.overridable).toBe(true);

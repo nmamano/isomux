@@ -14,7 +14,7 @@
 #   each release ships updater fixes that take effect on the NEXT update.
 # - Configuration comes only from the root-of-trust config file the
 #   installer wrote (default /etc/isomux/update.conf; ISOMUX_UPDATE_CONF
-#   overrides it for sandbox testing) — never from the caller beyond the
+#   overrides it for sandbox testing) - never from the caller beyond the
 #   target tag and flags. The file is parsed as literal key=value lines,
 #   never sourced: a hostile value is data, not code.
 # - TRUST BOUNDARY (system deployments): the service checkout ($REPO_DIR)
@@ -36,7 +36,7 @@
 #   deps               -> nothing of isomux's to undo; installed system
 #                         packages stay (see sync_system_deps)
 #   checkout+install+build     [fail: check out the old commit, reinstall its
-#                               deps, rebuild its UI — node_modules and the
+#                               deps, rebuild its UI - node_modules and the
 #                               live-served ui/dist are already dirty]
 #   stop service, wait inactive
 #   snapshot state root, verify tarball
@@ -54,7 +54,7 @@
 #   REPO_URL       upstream repo the trust fetches pull from (the tag
 #                  authority; never the service checkout's own remote config)
 #   SERVICE_NAME   systemd unit name (isomux)
-#   SERVICE_KIND   system | user — which systemctl manages the unit
+#   SERVICE_KIND   system | user - which systemctl manages the unit
 #   SERVICE_USER   system kind only: run git/bun as this user
 #   STATE_ROOT     the office state dir the service reads (~/.isomux shape)
 #   SNAPSHOT_DIR   where pre-update state tarballs go (outside STATE_ROOT)
@@ -114,7 +114,7 @@ die() {
 
 load_config() {
   [[ -r $CONF ]] || die "config not readable: $CONF (is isomux installed with the updater?)"
-  # Literal key=value parser — the file is NEVER sourced. In system mode this
+  # Literal key=value parser - the file is NEVER sourced. In system mode this
   # runs as root and the config carries installer-parameter-derived values
   # (REPO_URL), so a value must stay data under all circumstances: shell
   # metacharacters are inert here, an embedded newline turns into an
@@ -194,12 +194,12 @@ wait_inactive() {
 # new dependency landed stays broken through every update.
 #
 # Trust: the bytes come from the ROOT-OWNED trust repo at the resolved commit,
-# exactly like the installed-updater refresh — never from $REPO_DIR, which the
+# exactly like the installed-updater refresh - never from $REPO_DIR, which the
 # service user (the one agents run shell as) can write.
 #
 # Runs BEFORE the checkout, so a failure leaves nothing of isomux's to undo:
 # the service is still up on the old code, and node_modules and ui/dist are
-# untouched. (Host packages are a different matter — a failed apt run can leave
+# untouched. (Host packages are a different matter - a failed apt run can leave
 # them partly changed, and that is not rolled back.) It also means the
 # dependencies node-gyp needs are in place before `bun install`.
 #
@@ -233,7 +233,7 @@ sync_system_deps() {
     log "note: $TARGET_TAG carries no deploy/install.sh; skipping the system-dependency sync"
     return 0
   fi
-  # Capability probe. The exact protocol assignment, anchored — not a mention
+  # Capability probe. The exact protocol assignment, anchored - not a mention
   # of the flag: header docs mention it, and running an installer that only
   # TALKS about the mode would run a FULL install, as root, on a live box.
   if ! grep -qx 'ISOMUX_INSTALL_DEPS_MODE_VERSION=1' "$installer"; then
@@ -244,7 +244,7 @@ sync_system_deps() {
   log "installing $TARGET_TAG's system dependencies"
   # Fixed environment, deliberately: this script's contract is that
   # configuration comes from the root-of-trust conf and nothing else, and the
-  # installer reads env vars that would quietly change what it does — an
+  # installer reads env vars that would quietly change what it does - an
   # inherited DRY_RUN would turn the sync into a no-op that reports success,
   # and an inherited INSTALL_CALLBACK_URL would post about an install nobody
   # ran. Constants rather than "$PATH"/"$HOME": this runs as root, so nothing
@@ -400,7 +400,7 @@ main() {
   phase validate
   [[ -d $REPO_DIR/.git ]] || die "not a git checkout: $REPO_DIR"
   [[ -z $(as_repo_user git -C "$REPO_DIR" status --porcelain) ]] ||
-    die "checkout is dirty: $REPO_DIR — refusing to update over local changes"
+    die "checkout is dirty: $REPO_DIR - refusing to update over local changes"
   OLD_COMMIT=$(as_repo_user git -C "$REPO_DIR" rev-parse HEAD)
   OLD_DESC=$(as_repo_user git -C "$REPO_DIR" describe --tags --always --match 'v*')
 
@@ -431,7 +431,7 @@ main() {
     die "the service checkout fetched a different commit for $TARGET_TAG ($fetched) than the trusted upstream resolution ($target_commit)"
   # Record the tag in the checkout too. A bare `git fetch <url> refs/tags/<tag>`
   # only moves FETCH_HEAD, and server/version.ts identifies the running release
-  # with `git tag --points-at HEAD` — so without this the box reports a bare
+  # with `git tag --points-at HEAD` - so without this the box reports a bare
   # sha with release: null after every update, and the release banner keeps
   # offering the release it is already running. Written from the TRUST-resolved
   # commit verified just above, never from whatever the fetch left behind. Ahead

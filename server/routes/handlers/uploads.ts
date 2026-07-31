@@ -1,8 +1,8 @@
-// Upload + file-serving handlers — Phase 3a slice 3a.3b. The two browser-facing
+// Upload + file-serving handlers - Phase 3a slice 3a.3b. The two browser-facing
 // file routes on the unified REST surface (opIds agents.upload / agents.getFile).
 //
-// agents.upload  POST /api/agents/:id/uploads  — `file:upload` + requiresRoomAccess(:id)
-// agents.getFile GET  /api/agents/:id/files/:filename — `office:read` + requiresRoomAccess(:id)
+// agents.upload  POST /api/agents/:id/uploads  - `file:upload` + requiresRoomAccess(:id)
+// agents.getFile GET  /api/agents/:id/files/:filename - `office:read` + requiresRoomAccess(:id)
 //
 // Both are USER surfaces (the agent-identity capabilities omit file:upload /
 // office:read), gated by room access. agents.getFile is a [behavior-change]: it is
@@ -12,7 +12,7 @@
 // (distinct path shapes) and delegate to the SAME persistence helpers.
 //
 // Limits (Nil-confirmed, behavior-preserving): 5 files / 200MB each / 400MB total
-// — matching the legacy route + the saveFile MAX_FILE_BYTES storage backstop.
+// - matching the legacy route + the saveFile MAX_FILE_BYTES storage backstop.
 //
 // Multipart: the executor skips JSON body-parse for multipart/form-data and passes
 // `req`, so the upload handler reads `ctx.req.formData()` directly (the edge the
@@ -50,7 +50,7 @@ export function uploadsHandlers(
     "agents.upload": async (ctx) => {
       // Agent existence is covered by requiresRoomAccess(:id): an unknown agent
       // resolves to a null room and denies as a generic 403, so the handler needs
-      // no agent lookup — it only enforces limits + persists.
+      // no agent lookup - it only enforces limits + persists.
       let formData: FormData;
       try {
         formData = await ctx.req.formData();

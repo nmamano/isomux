@@ -1,9 +1,9 @@
-// Agent-lifecycle resource handlers — Phase 3d slice 7. The agent
+// Agent-lifecycle resource handlers - Phase 3d slice 7. The agent
 // spawn/kill/revive/abort/edit + move/swap-desks/topic mutation surface on the
 // unified REST surface (every op caps `agent:manage`).
 //
 // Strangler EXPAND+CUT in one slice (like rooms slice 6): 3a/3b declared these
-// rows in table.ts but NEVER built a handler — the agent lifecycle stayed
+// rows in table.ts but NEVER built a handler - the agent lifecycle stayed
 // WS-only. This slice builds the handlers AND deletes the WS cases.
 //   - 7a: the FIRE-AND-FORGET mutations
 //     (kill/abort/move/swapDesks/setTopic/clearTopic).
@@ -11,18 +11,18 @@
 //     reviveLastRoomAccess precondition (enforced in the index seam).
 //
 // TOKEN LIFECYCLE IS CORE-OWNED: agent-manager mints on spawn/revive and revokes
-// on kill / revive-rollback, so these handlers NEVER touch tokens — they
+// on kill / revive-rollback, so these handlers NEVER touch tokens - they
 // delegate to the same cores the deleted WS cases called. The agent wire shape
 // (AgentInfo) carries no token, so an { agent } response cannot leak it.
 //
 // COMPOUND effects (validateCwd / saveRecentCwd / spawn null-disambiguation)
-// live in the injected AgentsDeps closures (the index seam), not here — the
+// live in the injected AgentsDeps closures (the index seam), not here - the
 // access/invites/rooms EMIT-IN-DEP pattern. These handlers stay contract-shaped:
 // parse the body, call the dep, map the outcome to an envelope.
 //
 // ACL is the declared guards (table.ts): agentParam(:id) resolves an agent to
 // its room and checks access, so a NON-EXISTENT or INACCESSIBLE agent both
-// collapse to the guard's uniform 403 (no existence oracle) — matching the WS
+// collapse to the guard's uniform 403 (no existence oracle) - matching the WS
 // cases' silent agentVisibleForSession break. move requires BOTH source-agent
 // and target-room access; swapDesks requires room access.
 //
@@ -94,7 +94,7 @@ export interface AgentsDeps {
   // Aborts the agent's in-flight turn. No-op safe.
   abort(agentId: string): Promise<void>;
   // Moves an agent to targetRoomId. Returns the moved AgentInfo (or, for a
-  // same-room request, the unchanged agent — an idempotent no-op). A failure is
+  // same-room request, the unchanged agent - an idempotent no-op). A failure is
   // DISCRIMINATED so the handler maps it to the right status, never a false
   // not-found: the guards already proved the source agent and target room are
   // accessible, so a bare "did not apply" means a FULL target room (-> 409), an
@@ -216,7 +216,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     // Sanctioned read of the customInstructions blob + version token (task
     // 68891fa1): the read half of the read-then-PATCH flow agents.update's
     // version guard expects. Authorization is the route's `authenticated` +
-    // agentParam guard (every agent with room access may read — see table.ts);
+    // agentParam guard (every agent with room access may read - see table.ts);
     // this just projects the two fields off the live agent.
     "agents.readInstructions": (ctx) => {
       const agent = deps.getAgent(ctx.params.id);
@@ -360,9 +360,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       }
       // Blob-bearing writes are version-guarded (task 44a2c98d): a PATCH that
       // carries customInstructions must echo the agent's
-      // customInstructionsVersion — read off full_state / agent_updated (UI)
+      // customInstructionsVersion - read off full_state / agent_updated (UI)
       // or GET /api/agents/:id/instructions (agents.readInstructions, the
-      // agent-facing read). Scalar-only edits skip this entirely — no version,
+      // agent-facing read). Scalar-only edits skip this entirely - no version,
       // no friction.
       if (
         b.customInstructions !== undefined &&

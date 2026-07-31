@@ -2,7 +2,7 @@
 // `expect(promise).rejects.toThrow(...)` is typed as returning `void`
 // (bun-types gap), so `await`-ing it trips @typescript-eslint/await-thenable
 // even though the runtime returns a thenable. This helper awaits the promise,
-// fails if it resolved, and matches the rejection's message against a pattern —
+// fails if it resolved, and matches the rejection's message against a pattern -
 // portable and lint-clean. Only imported by test files (runs under `bun test`).
 import { expect } from "bun:test";
 

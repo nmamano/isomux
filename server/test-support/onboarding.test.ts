@@ -1,4 +1,4 @@
-// Phase 1.1 — Flagship onboarding / fresh-install characterization.
+// Phase 1.1 - Flagship onboarding / fresh-install characterization.
 //
 // Freezes the observable contract of the welcome-agent seed across the three
 // backend-availability states a brand-new office can be in. This is the first
@@ -98,7 +98,7 @@ function logEntriesFor(sock: TestSocket, agentId: string): LogEntry[] {
 
 // Poll the socket's buffered log_entry events until one matches. Order-tolerant
 // on purpose (per review: assert the observable shape, not a brittle total order
-// — topic generation interleaves its own events on the first message).
+// - topic generation interleaves its own events on the first message).
 async function waitForLog(
   sock: TestSocket,
   agentId: string,
@@ -198,7 +198,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(codex!.modelFamily).toBe("gpt-5.6-sol");
     expect(codex!.permissionMode).toBe("on-request");
 
-    // Lazy spawn: the welcome agents are seeded DORMANT — zero subprocesses
+    // Lazy spawn: the welcome agents are seeded DORMANT - zero subprocesses
     // until someone messages them (a fresh-install office shouldn't burn ~330MB
     // on two agents nobody has talked to yet). The `agents.length === 2` check
     // above already guards the accidental double-seed regression the
@@ -291,7 +291,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     const HINT = "Codex CLI not found. Install it to use this agent.";
     const INSTALL_CMD = "npm i -g @openai/codex";
     // The throw MUST originate from send(), not createSession(). A createSession
-    // throw hits spawn's generic catch ("Failed to start", state "error") — a
+    // throw hits spawn's generic catch ("Failed to start", state "error") - a
     // DIFFERENT contract. The onboarding contract is the first-message
     // not-configured presentation: a system hint + terminal-command card, with
     // the agent parked at waiting_for_response. Modeling it at onSend mirrors the

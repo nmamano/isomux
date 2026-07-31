@@ -86,7 +86,7 @@ describe("process-kill guard", () => {
     ] as const;
 
     for (const [command, why] of denied) {
-      it(`${command} — ${why}`, async () => {
+      it(`${command} - ${why}`, async () => {
         const { denied: isDenied } = await bash(command);
         expect(isDenied).toBe(true);
       });
@@ -161,7 +161,7 @@ describe("process-kill guard", () => {
     ] as const;
 
     for (const [command, why] of denied) {
-      it(`${command} — ${why}`, async () => {
+      it(`${command} - ${why}`, async () => {
         expect((await bash(command)).denied).toBe(true);
       });
     }
@@ -192,7 +192,7 @@ describe("process-kill guard", () => {
       ["kill $$", "the shell's own PID"],
       ["pgrep -af bun; kill 12345", "a lookup then a literal-PID kill"],
       // The pattern argument lives inside quotes, so the guard has to key off
-      // the command word rather than the text — and must not fire on prose.
+      // the command word rather than the text - and must not fire on prose.
       [
         'git commit -m "pkill the stray dev server"',
         "the word inside a message",
@@ -201,7 +201,7 @@ describe("process-kill guard", () => {
     ] as const;
 
     for (const [command, why] of allowed) {
-      it(`${command} — ${why}`, async () => {
+      it(`${command} - ${why}`, async () => {
         const { denied, reason } = await bash(command);
         expect({ command, denied, reason }).toEqual({
           command,
@@ -225,7 +225,7 @@ describe("process-kill guard", () => {
       'grep -rn "killall" server/',
       'sed -i "s/pkill/x/" f.ts',
       // An ordinary command's arguments are never candidates, even behind a
-      // wrapper — the extra-candidate rule only fires right after an unknown
+      // wrapper - the extra-candidate rule only fires right after an unknown
       // flag, so this must not read `killall` as a command.
       "find . -name '*.ts' | xargs grep -l killall",
       "sudo -D /tmp grep -rn killall src/",
@@ -276,7 +276,7 @@ describe("process-kill guard", () => {
 describe("heredoc bodies are data, not commands", () => {
   // The shape that regressed in practice: an agent posting a report through
   // `jq -Rs … <<'EOF' | curl …`. The body starts on the NEXT line, so the
-  // operator is followed by the rest of the pipeline — and the report's prose
+  // operator is followed by the rest of the pipeline - and the report's prose
   // was being read as commands and blocked.
   const report = [
     "jq -Rs '{text: .}' <<'EOF' | curl -s -X POST localhost:4000/api/agents/a1/messages -d @-",
@@ -335,7 +335,7 @@ describe("heredoc bodies are data, not commands", () => {
 
   it("reads an unterminated body as data, the way bash does", async () => {
     // Verified against bash: it warns, ends the heredoc at end of input, and
-    // runs the command — the last line is cat's input, not a command.
+    // runs the command - the last line is cat's input, not a command.
     const command = ["cat <<'EOF'", "some prose", "pkill -f bun"].join("\n");
     expect((await bash(command)).denied).toBe(false);
   });
@@ -383,7 +383,7 @@ describe("heredoc bodies are data, not commands", () => {
   });
 
   it("does not let a quoted delimiter launder a substitution", async () => {
-    // `<<'EOF'` really is literal — the substitution below does not run, so
+    // `<<'EOF'` really is literal - the substitution below does not run, so
     // there is nothing to deny.
     const command = ["cat <<'EOF'", "now: $(pkill -f bun)", "EOF"].join("\n");
     expect((await bash(command)).denied).toBe(false);

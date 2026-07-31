@@ -70,7 +70,7 @@ describe("isFullUserView", () => {
   });
 });
 
-describe("upsertUserView — full-wins-over-public (order-independent)", () => {
+describe("upsertUserView - full-wins-over-public (order-independent)", () => {
   it("a public update after a full self record does NOT clobber sensitive fields", () => {
     const m0 = mapOf(
       full("Alice", { allowedRooms: ["r1"], notifRooms: ["r1"] }),
@@ -115,7 +115,7 @@ describe("upsertUserView — full-wins-over-public (order-independent)", () => {
   });
 });
 
-describe("upsertUserView — rename carries sensitive fields across the key", () => {
+describe("upsertUserView - rename carries sensitive fields across the key", () => {
   it("a PUBLIC-only rename carries grants/notif to the new key", () => {
     const m0 = mapOf(
       full("Alice", {
@@ -142,7 +142,7 @@ describe("upsertUserView — rename carries sensitive fields across the key", ()
   });
 });
 
-describe("rebuildUserViews — authoritative membership, preserve survivors", () => {
+describe("rebuildUserViews - authoritative membership, preserve survivors", () => {
   it("drops users absent from the list", () => {
     const prev = mapOf(full("Alice"), full("Bob"));
     const next = rebuildUserViews(prev, [pub("Alice")]);

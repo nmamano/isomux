@@ -1,8 +1,8 @@
-// isomux-memory on the unified REST surface — three verbs: READ (GET), APPEND
+// isomux-memory on the unified REST surface - three verbs: READ (GET), APPEND
 // (POST), REPLACE (PUT) /api/memory.
 //
 // All scopes (agent/room/office/boss) are permissive on EVERY verb: any
-// authenticated caller may read/append/replace any EXISTING target — no access
+// authenticated caller may read/append/replace any EXISTING target - no access
 // gate (Nil's product decision; restraint lives in the system-prompt affordance,
 // recovery in the op-log). On APPEND author + date are server-stamped (never
 // body). APPEND has an exact-duplicate guard. REPLACE is whole-file, guarded by

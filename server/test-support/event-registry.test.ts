@@ -1,4 +1,4 @@
-// Phase 2.3 — Event registry contract tests (TDD red→green for NEW code).
+// Phase 2.3 - Event registry contract tests (TDD red→green for NEW code).
 //
 // The registry is what the Phase-2 Reviewer4 security gate reads for audience
 // leaks, so these assertions ARE the gate's machine-checkable surface: the
@@ -23,9 +23,9 @@ import {
 import type { ServerMessage } from "../../shared/types.ts";
 
 // The spec's event id → audience map (Server API Spec → Event registry). The
-// registry must match this EXACTLY — a drift in either direction fails here.
+// registry must match this EXACTLY - a drift in either direction fails here.
 const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
-  // Live agent / room stream — room-ACL
+  // Live agent / room stream - room-ACL
   log_entry: "room-ACL",
   slide_ready: "room-ACL",
   slide_failed: "room-ACL",
@@ -52,7 +52,7 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // push, same single-socket scoping as editor_external_change.
   editor_file_deleted: "recipient-scoped",
   session_expired: "recipient-scoped",
-  // Office-wide — all
+  // Office-wide - all
   users_list: "all",
   user_updated: "all",
   // Owners-audience full admin records + recipient-scoped self record (3b.5).
@@ -60,7 +60,7 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   user_admin_updated: "owners",
   user_self_updated: "recipient-scoped",
   // Room-scoped board: per-recipient projected (accessible rooms ∪ globals),
-  // delivered by a per-socket loop like presence_list — NOT an `all` broadcast.
+  // delivered by a per-socket loop like presence_list - NOT an `all` broadcast.
   tasks: "recipient-scoped",
   cronjobs_state: "all",
   cronjob_added: "all",
@@ -132,7 +132,7 @@ describe("event registry: audience ↔ projectionKey consistency (executable key
           expect(ROOM_ACL_KINDS.has(kind)).toBe(true);
           break;
         case "recipient-scoped":
-          // Must carry a CONCRETE recipient key — the anti-fanout-fallback rail.
+          // Must carry a CONCRETE recipient key - the anti-fanout-fallback rail.
           expect(["connectionId", "userId"]).toContain(kind);
           break;
         case "by-user":
@@ -144,7 +144,7 @@ describe("event registry: audience ↔ projectionKey consistency (executable key
 });
 
 describe("event registry: reserved strategies are unused", () => {
-  // by-user and none are in the lattice but no current event uses them — a
+  // by-user and none are in the lattice but no current event uses them - a
   // future event must opt in deliberately, never inherit a default.
   it("no event declares audience 'by-user' or 'none'", () => {
     for (const id of eventIds) {
@@ -173,7 +173,7 @@ describe("event registry: intentional delta vs today's live wire", () => {
 
 // Registry ↔ wire shape sync (users-page follow-up 8e882cd4). presence_list is
 // sent through a direct per-socket ws.send (not the typed emit path), so tsc
-// never forces its EventPayloads entry to match the ServerMessage variant —
+// never forces its EventPayloads entry to match the ServerMessage variant -
 // the two silently diverged when onlineUserIds was first added. These
 // COMPILE-TIME mutual-assignability checks (enforced by `tsc --noEmit`, which
 // covers test files) fail if either side gains or loses a field the other

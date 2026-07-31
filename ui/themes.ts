@@ -61,7 +61,7 @@ const DARK_VARS = {
   "--tool-result-bg": "rgba(0,0,0,0.15)",
   "--tool-call-bg": "rgba(80,184,108,0.04)",
   // Isomux API tool-call cards (see LogEntryCard). Dedicated so light themes
-  // can tint them distinctly from ordinary (green) tool calls — on white the
+  // can tint them distinctly from ordinary (green) tool calls - on white the
   // plain --accent-bg tint is too faint to tell apart. Dark themes keep the
   // accent tint + neutral border (matches --accent-bg / --border here).
   "--isomux-card-bg": "rgba(126,184,255,0.08)",
@@ -209,7 +209,7 @@ const LIGHT_VARS: ThemeVars = {
   "--hljs-deletion": "#e45649",
 };
 
-// Nord — Polar Night background, Frost accents.
+// Nord - Polar Night background, Frost accents.
 // Palette ref: https://www.nordtheme.com/
 const NORD_VARS: ThemeVars = {
   "--bg-base": "#2e3440",
@@ -305,7 +305,7 @@ const NORD_VARS: ThemeVars = {
   "--hljs-deletion": "#bf616a",
 };
 
-// Dracula — purple/pink accents on a near-black background.
+// Dracula - purple/pink accents on a near-black background.
 // Palette ref: https://draculatheme.com/contribute
 const DRACULA_VARS: ThemeVars = {
   "--bg-base": "#282a36",
@@ -401,7 +401,7 @@ const DRACULA_VARS: ThemeVars = {
   "--hljs-deletion": "#ff5555",
 };
 
-// Solarized Dark — Ethan Schoonover's palette.
+// Solarized Dark - Ethan Schoonover's palette.
 // Palette ref: https://ethanschoonover.com/solarized/
 const SOLARIZED_DARK_VARS: ThemeVars = {
   "--bg-base": "#002b36",
@@ -497,7 +497,7 @@ const SOLARIZED_DARK_VARS: ThemeVars = {
   "--hljs-deletion": "#dc322f",
 };
 
-// Solarized Light — same accent palette as Solarized Dark, light base.
+// Solarized Light - same accent palette as Solarized Dark, light base.
 const SOLARIZED_LIGHT_VARS: ThemeVars = {
   "--bg-base": "#fdf6e3",
   "--bg-surface": "rgba(238,232,213,0.92)",

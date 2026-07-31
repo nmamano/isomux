@@ -1,4 +1,4 @@
-// deploy/install.sh — content pins for the in-UI update-trigger escalation.
+// deploy/install.sh - content pins for the in-UI update-trigger escalation.
 // install.sh has no unprivileged execution harness (preflight requires root),
 // so these tests pin the SOURCE of the security-load-bearing pieces instead:
 // the polkit rule (extracted and exercised as a real RegExp), the root-owned
@@ -69,7 +69,7 @@ describe("install.sh escalation: polkit rule", () => {
     // One channel, one grammar: the polkit pattern must accept exactly the
     // tags scripts/update.sh (CALVER_RE) and server/version.ts
     // (CALVER_RELEASE_RE) accept, or an update could be startable but
-    // refused — or worse, refusable but startable.
+    // refused - or worse, refusable but startable.
     expect(SRC).toContain(
       "isomux-update@v[0-9]{4}\\.[0-9]{1,2}\\.[0-9]{1,2}(\\.[0-9]+)?\\.service",
     );

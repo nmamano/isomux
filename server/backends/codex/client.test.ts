@@ -1,7 +1,7 @@
 // Real-process lifecycle tests for JsonRpcLiteClient.close().
 //
 // These spawn ACTUAL OS processes (not a FakeBackend / JS stub) on purpose: the
-// bug they guard against is a leaked subprocess — a `close()` that drops the
+// bug they guard against is a leaked subprocess - a `close()` that drops the
 // session object server-side but leaves the codex child (and its native
 // grandchild) hung in the kernel, never reclaiming ~165MB. A JS no-op stub
 // cannot observe that; only a real pid can. We point `codexBin` at a tiny bash
@@ -105,7 +105,7 @@ async function readGrandchildPid(pidFile: string): Promise<number> {
   return Number(readFileSync(pidFile, "utf8").trim());
 }
 
-describe("JsonRpcLiteClient.close — real process reaping", () => {
+describe("JsonRpcLiteClient.close - real process reaping", () => {
   it("SIGKILL-escalates a SIGTERM-ignoring child AND reaps the native grandchild", async () => {
     const { client, pidFile } = makeClient(["ignore"]);
     client.start();
@@ -139,7 +139,7 @@ describe("JsonRpcLiteClient.close — real process reaping", () => {
     await client.close();
 
     // SIGTERM (default disposition) takes the group down well under the 2s
-    // SIGKILL grace — assert it's gone fast so a regression that relies only
+    // SIGKILL grace - assert it's gone fast so a regression that relies only
     // on the slow escalation would still be caught here.
     const gone = await waitFor(
       () => !isAlive(launcherPid!) && !isAlive(grandchildPid),

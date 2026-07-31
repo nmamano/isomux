@@ -3,7 +3,7 @@
 // Implements the Backend / BackendSession contracts (server/backends/types.ts)
 // against the Codex App Server's JSON-RPC lite protocol via the
 // JsonRpcLiteClient in ./client.ts. One CodexSession owns one threadId and
-// one subprocess for v1 — symmetric with Claude. The client layer is built so
+// one subprocess for v1 - symmetric with Claude. The client layer is built so
 // a future shared-subprocess deployment can swap in without touching this
 // adapter (subscribers filter by threadId from day one).
 //
@@ -85,7 +85,7 @@ import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/Thread
 
 // Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
 // by default), separate from the user's interactive `~/.codex/`. That means
-// the user needs a one-time `codex login` against isomux's CODEX_HOME — the
+// the user needs a one-time `codex login` against isomux's CODEX_HOME - the
 // [Copy to terminal] card alongside this message has the exact command.
 //
 // Two [Copy to terminal] cards follow: browser OAuth (default) and
@@ -93,10 +93,10 @@ import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/Thread
 // `~/.isomux/codex-home/`. Users with a per-user envFile `CODEX_HOME`
 // (e.g. `~/.isomux-users/<name>/.codex` for billing isolation, see
 // internal-docs/isolation-design.md) need to prefix the pasted command
-// with their own `CODEX_HOME=<path>` before pressing Enter — the wrapper's
+// with their own `CODEX_HOME=<path>` before pressing Enter - the wrapper's
 // default only kicks in when CODEX_HOME is unset.
 // Same wrapper command the [Copy to terminal] cards use, so the prose and the
-// cards never disagree — `~/.isomux/bin/codex` at the default root (byte-for-
+// cards never disagree - `~/.isomux/bin/codex` at the default root (byte-for-
 // byte prod), the active wrapper path under an ISOMUX_HOME override.
 const codexLoginCmd = codexWrapperCommandForShell();
 const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on one of the cards below:
@@ -118,9 +118,9 @@ const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|403|401/i;
 
 // Capability flags for the Codex backend. Match the spec's parity table.
-// hooks: false — Codex emits hook/* notifications but provides no
+// hooks: false - Codex emits hook/* notifications but provides no
 // programmatic register-from-client surface at 0.130 (v1).
-// edit: true — implemented via fork-then-rollback: thread/fork the parent
+// edit: true - implemented via fork-then-rollback: thread/fork the parent
 // (preserves it), then thread/rollback the child by the number of turns to
 // drop. Matches Claude's preserved-parent UX without per-message fork
 // support upstream. See forkSessionBeforeMessage below.
@@ -135,7 +135,7 @@ const CAPABILITIES: BackendCapabilities = {
   mcp: true,
 };
 
-// Static model options — FALLBACK only. The live set comes from
+// Static model options - FALLBACK only. The live set comes from
 // codexBackend.listModels() (model/list RPC), which returns the
 // auth-appropriate subset (ChatGPT-login vs API-key users see different
 // sets) with per-model supportedReasoningEfforts. This list backs
@@ -160,8 +160,8 @@ function modelDisplayLabel(slug: string): string {
 // granular variant is gated behind experimentalApi but deferred to v1.x per
 // the spec.
 const PERMISSION_MODES: PermissionModeOption[] = [
-  { value: "untrusted", label: "Untrusted — ask on every tool" },
-  { value: "on-request", label: "On request — ask when model asks" },
+  { value: "untrusted", label: "Untrusted - ask on every tool" },
+  { value: "on-request", label: "On request - ask when model asks" },
   { value: "never", label: "Never ask (use with sandbox)" },
 ];
 
@@ -284,7 +284,7 @@ function findTurnIndexContainingItemId(
 //      CLOSED  ◄──────── close() ────────────────────────── │
 //
 // While INITIALIZING, send/approve/abort calls queue or reject (we just
-// reject — orchestrator-level state prevents calls until system_init lands).
+// reject - orchestrator-level state prevents calls until system_init lands).
 //
 // Stream output is buffered exactly like ClaudeSession: enqueue + wake the
 // stream's parked promise; stream() yields from buffer.
@@ -306,14 +306,14 @@ interface PendingApproval {
   reject: (err: unknown) => void;
 }
 
-// The narrow transport surface CodexSession depends on — exactly the subset of
+// The narrow transport surface CodexSession depends on - exactly the subset of
 // JsonRpcLiteClient it calls (lifecycle, request, pending-approval error
 // response, and the four handler registrations). Extracted so the T2
 // adapter-contract tests can drive the *real* translation logic with curated
 // JSON-RPC provider events through a fake transport, without spawning a codex
 // subprocess. JsonRpcLiteClient satisfies this structurally; production wiring
 // is unchanged (the constructor still builds a real client when none is
-// injected). Keep this session-scoped and free of test-only helpers — fixture
+// injected). Keep this session-scoped and free of test-only helpers - fixture
 // driving lives on the fake in codex/adapter.test.ts, not here.
 export interface CodexTransport {
   start(): void;
@@ -366,7 +366,7 @@ export class CodexSession implements BackendSession {
   // OpenAI websocket 5+ times on 401 with exponential backoff, emitting one
   // `ERROR ... 401 Unauthorized` stderr line per retry. Forwarding each one
   // as system_text triggers the auth-detect path in agent-manager on every
-  // line and pastes the sign-in card repeatedly — what task 5811bae6
+  // line and pastes the sign-in card repeatedly - what task 5811bae6
   // described as the "infinite loop" UX. Symmetric with the Claude SDK,
   // which emits at most one auth signal per send: gate auth-shaped stderr
   // to one signal per user-initiated turn (`authSignalsAllowedThisTurn`
@@ -395,8 +395,8 @@ export class CodexSession implements BackendSession {
   };
   // Latest snapshot for /context. We use the `last` (most recent turn) field
   // of the tokenUsage notification, not `total` (cumulative-since-thread-
-  // start). `last.inputTokens` is the prompt size of the last turn — i.e.
-  // what was in context when the model spoke — and `last.outputTokens` is
+  // start). `last.inputTokens` is the prompt size of the last turn - i.e.
+  // what was in context when the model spoke - and `last.outputTokens` is
   // what was appended after. Together they approximate the context fullness
   // heading into the next turn. Using `total.*` here would mis-report cache
   // re-reads (which sum across turns) as live context usage. Null until the
@@ -408,7 +408,7 @@ export class CodexSession implements BackendSession {
     outputTokens: number;
     reasoningOutputTokens: number;
   } | null = null;
-  // Resolves when bootstrap (initialize + thread/start) completes — success
+  // Resolves when bootstrap (initialize + thread/start) completes - success
   // or failure. send() / approve() / abort() await this so they don't race
   // the async setup. On failure threadId stays null; callers see a clear
   // "bootstrap failed" error instead of "not initialized yet."
@@ -416,7 +416,7 @@ export class CodexSession implements BackendSession {
   // Captured at bootstrap-failure time, re-thrown by send() on the
   // first user message attempt so the actionable error (install hint,
   // auth failure, etc.) lands in chat AND transitions the agent to
-  // error state THEN — matches Claude's lazy-auth UX where the agent
+  // error state THEN - matches Claude's lazy-auth UX where the agent
   // looks idle from spawn until the user actually messages it.
   private bootstrapError: Error | null = null;
 
@@ -468,7 +468,7 @@ export class CodexSession implements BackendSession {
         // Resume an existing thread. Pass current settings as overrides so
         // a UI-side change to permissionMode/sandbox/model/systemPrompt
         // propagates instead of being stuck on whatever the thread was born
-        // with — editAgent replaceSession → resumeSession is the path that
+        // with - editAgent replaceSession → resumeSession is the path that
         // exercises this, and without the overrides the resumed thread
         // silently keeps the original policy.
         const resumeResp = await this.client.request<{
@@ -520,7 +520,7 @@ export class CodexSession implements BackendSession {
   private buildThreadStartParams(): Record<string, unknown> {
     // sandbox is a SandboxMode enum string; approvalPolicy is the
     // AskForApproval enum string. We deliberately keep this as a plain
-    // Record so the codegen union strictness doesn't fight us — the wire
+    // Record so the codegen union strictness doesn't fight us - the wire
     // schema is what we're targeting.
     const params: Record<string, unknown> = {
       cwd: this.opts.cwd,
@@ -562,18 +562,18 @@ export class CodexSession implements BackendSession {
     // Wait for bootstrap (initialize + thread/start) to finish so callers
     // who fire send() immediately after a session swap don't race. After
     // bootstrap, threadId is either set (success) or still null (bootstrap
-    // failed — the orchestrator already saw the `error` event from
+    // failed - the orchestrator already saw the `error` event from
     // bootstrap and routed it; raising here surfaces the same condition to
     // the awaiting sendMessage / flushQueue caller).
     await this.bootstrapPromise;
     if (this.closed) throw new Error("CodexSession.send: session is closed");
     if (!this.threadId) {
-      // Bootstrap failed — wrap the captured error in BackendNotConfiguredError
+      // Bootstrap failed - wrap the captured error in BackendNotConfiguredError
       // so sendMessage / flushQueue / editMessage know to surface this calmly
       // (system log entry, agent stays idle) rather than as a real turn error
       // that flips the agent to error state. The actionable text (auth prompt,
       // bundled-binary missing hint, etc.) is already in bootstrapError.message
-      // and gets surfaced verbatim — no "Error:" wrapping.
+      // and gets surfaced verbatim - no "Error:" wrapping.
       throw new BackendNotConfiguredError(
         this.bootstrapError?.message ?? "Codex bootstrap failed; cannot send",
       );
@@ -589,7 +589,7 @@ export class CodexSession implements BackendSession {
     // Only flip turnInFlight after turn/start succeeds. If the request throws
     // (e.g. wire error) we don't want handleSubprocessExit to later synthesize
     // a phantom failed turn_completed for a turn that never actually started
-    // — the orchestrator would surface a bogus mid-turn failure.
+    // - the orchestrator would surface a bogus mid-turn failure.
     try {
       await this.client.request("turn/start", {
         threadId: this.threadId,
@@ -629,7 +629,7 @@ export class CodexSession implements BackendSession {
     // await; the client auto-responds with this payload. (Previously we
     // called client.respond() directly while leaving the promise pending,
     // which leaked one parked handler frame per approval.) The enum variant
-    // set differs per method — see mapApprovalDecision for the routing.
+    // set differs per method - see mapApprovalDecision for the routing.
     pending.resolve({ decision: decisionWire });
   }
 
@@ -637,7 +637,7 @@ export class CodexSession implements BackendSession {
     await this.bootstrapPromise;
     if (this.closed) return;
     if (!this.threadId || !this.activeTurnId) {
-      // Nothing to interrupt — no in-flight turn (either bootstrap failed
+      // Nothing to interrupt - no in-flight turn (either bootstrap failed
       // or no send happened yet).
       return;
     }
@@ -655,7 +655,7 @@ export class CodexSession implements BackendSession {
     // Release any in-flight server-initiated approval requests so the parked
     // JsonRpcLiteClient handler frames don't leak across to the next turn.
     // close() can use respondWithError because client.close() runs synchronously
-    // right after and short-circuits the deferred-rejection's auto-respond — the
+    // right after and short-circuits the deferred-rejection's auto-respond - the
     // hot-abort path doesn't close the client, so we must resolve cleanly to
     // avoid double-responding on the wire (one -32000, then a -32603 from the
     // catch in JsonRpcLiteClient.handleServerRequest). Routing through
@@ -682,7 +682,7 @@ export class CodexSession implements BackendSession {
     // Tell codex about in-flight approvals before tearing down. Respond on
     // the wire FIRST: the deferred rejection below would also trigger an
     // auto-respond, but by the time that fires we've called client.close()
-    // and the response is dropped — so the explicit respondWithError is what
+    // and the response is dropped - so the explicit respondWithError is what
     // codex actually sees. Then reject the deferred so the parked handler
     // frame unwinds and the promise frees.
     for (const [, pending] of this.pendingApprovals) {
@@ -749,8 +749,8 @@ export class CodexSession implements BackendSession {
 
   // Funnel for system_text emissions whose payload may carry codex-sourced
   // text (stderr, advisory notifications, error messages). Applies the
-  // per-turn auth-coalescing gate so any auth-shaped string — regardless of
-  // which codex path produced it — counts as the one allowed signal per
+  // per-turn auth-coalescing gate so any auth-shaped string - regardless of
+  // which codex path produced it - counts as the one allowed signal per
   // user-initiated turn. Hardcoded system_text (image notices, model-not-
   // supported, auto-declined cards, etc.) bypasses this helper because we
   // know its content is safe.
@@ -761,7 +761,7 @@ export class CodexSession implements BackendSession {
       this.authSignalEmittedThisTurn = true;
       // Short-circuit codex's websocket retry budget. The retries are doomed,
       // and without an interrupt the agent sits in "thinking" for ~12s
-      // before turn/completed lands — misleading UX (the model never ran).
+      // before turn/completed lands - misleading UX (the model never ran).
       this.requestSelfInterruptForAuth();
     }
     this.enqueue({ kind: "system_text", text });
@@ -849,7 +849,7 @@ export class CodexSession implements BackendSession {
         this.activeTurnId = null;
         this.turnInFlight = false;
         // "Model not supported" safety net. The spawn / edit dialog now
-        // fetches model/list per-auth, so this branch should be rare —
+        // fetches model/list per-auth, so this branch should be rare -
         // most commonly it'll fire when the user's auth tier changed since
         // the agent was created. Re-opening settings reloads the list.
         if (
@@ -863,7 +863,7 @@ export class CodexSession implements BackendSession {
         }
         // If we self-interrupted to short-circuit a doomed-by-auth turn,
         // remap status="interrupted" → "failed" so the user sees a clear
-        // failure (not a misleading "interrupted" — which the UI treats as
+        // failure (not a misleading "interrupted" - which the UI treats as
         // a user-initiated stop). Substitute the error to the same auth
         // summary used for the stderr-driven path; the codex-emitted error
         // on a client-interrupt is usually empty or unhelpful.
@@ -920,7 +920,7 @@ export class CodexSession implements BackendSession {
       //   ours outputTokens = outputTokens (reasoning already included)
       case "thread/tokenUsage/updated": {
         // Typed against the generated v2 schema so tsc catches future wire
-        // drift — this handler was previously broken by exactly that kind of
+        // drift - this handler was previously broken by exactly that kind of
         // schema mismatch (was reading `params.usage`, never existed in v2).
         const notif = params as
           | ThreadTokenUsageUpdatedNotification
@@ -987,7 +987,7 @@ export class CodexSession implements BackendSession {
       // Streaming deltas (item/agentMessage/delta, item/reasoning/textDelta,
       // item/reasoning/summaryTextDelta) are intentionally ignored. Codex
       // emits them at sub-word granularity (one entry per token), and
-      // Isomux's log-view treats each text entry as its own row — surfacing
+      // Isomux's log-view treats each text entry as its own row - surfacing
       // every delta produces a wall of one-word lines followed by the same
       // text repeated whole on item/completed. Single-entry-per-message
       // matches Claude's behavior and is much more readable. Streaming UX
@@ -1000,7 +1000,7 @@ export class CodexSession implements BackendSession {
 
       // ---- Mid-conversation compaction ----
       case "thread/compacted": {
-        // ContextCompactedNotification is { threadId, turnId } — no `summary`
+        // ContextCompactedNotification is { threadId, turnId } - no `summary`
         // on the wire, so the old params.summary read was always undefined.
         // Emit the bare marker (matches the contextCompaction item path in
         // translateCompletedItem).
@@ -1029,7 +1029,7 @@ export class CodexSession implements BackendSession {
       }
       // ModelReroutedNotification has NO `message` (the old read silently
       // dropped it, 5acf4941); build the notice from { fromModel, toModel,
-      // reason }. PLAIN enqueue, not the auth-aware funnel — a safety reroute is
+      // reason }. PLAIN enqueue, not the auth-aware funnel - a safety reroute is
       // not an auth signal and must not coalesce with or trip the auth interrupt.
       case "model/rerouted": {
         const from = params?.fromModel as string | undefined;
@@ -1045,7 +1045,7 @@ export class CodexSession implements BackendSession {
         break;
       }
       // Deprecation/ConfigWarningNotification carry { summary, details? }, NOT
-      // `message` — also silently dropped before (same bug class as
+      // `message` - also silently dropped before (same bug class as
       // model/rerouted; an unfiled extension of 5acf4941). PLAIN enqueue, not
       // the auth-aware funnel: a configWarning text can legitimately contain an
       // auth-shaped token (a malformed `openai_api_key` config key, a 401/403),
@@ -1271,7 +1271,7 @@ export class CodexSession implements BackendSession {
       // ---- Approvals routed through orchestrator (binary allow/deny UX) ----
       // item/permissions/requestApproval has a richer response shape
       // (GrantedPermissionProfile + scope + strictAutoReview) that doesn't
-      // map cleanly to our 3-option /resolve UX — auto-decline at v1.
+      // map cleanly to our 3-option /resolve UX - auto-decline at v1.
       case "applyPatchApproval":
       case "execCommandApproval":
       case "item/commandExecution/requestApproval":
@@ -1307,7 +1307,7 @@ export class CodexSession implements BackendSession {
       case "item/permissions/requestApproval":
         this.enqueue({
           kind: "system_text",
-          text: `Auto-declined permissions request from codex (v1 doesn't expose permission-profile changes — use the spawn dialog to pick a different sandbox/approval policy).`,
+          text: `Auto-declined permissions request from codex (v1 doesn't expose permission-profile changes - use the spawn dialog to pick a different sandbox/approval policy).`,
         });
         throw new Error(
           "Permissions profile changes are not supported in Isomux v1.",
@@ -1364,7 +1364,7 @@ export class CodexSession implements BackendSession {
       // wire a real handler here. Subprocess-death synthesis covers the
       // worst-case (hung turn) regardless.
       default:
-        // Unknown server request — let the client respond method-not-found.
+        // Unknown server request - let the client respond method-not-found.
         return PASS;
     }
   }
@@ -1382,7 +1382,7 @@ export class CodexSession implements BackendSession {
     // Drop known-benign startup notices. Codex logs these at ERROR level
     // but they're informational: the bubblewrap line is a "here's how our
     // Linux sandbox works" note, and the trusted-project line tells the
-    // user how to opt into project-local config — neither is actionable
+    // user how to opt into project-local config - neither is actionable
     // for Isomux users in the chat.
     if (
       /bubblewrap.*needs access to create user namespaces/i.test(text) ||
@@ -1482,7 +1482,7 @@ function mapApprovalDecision(
         return "denied";
     }
   }
-  // v2 command-execution + file-change approvals — same enum variant names.
+  // v2 command-execution + file-change approvals - same enum variant names.
   switch (decision.kind) {
     case "allow_persistent":
       return "acceptForSession";
@@ -1589,7 +1589,7 @@ function extractApprovalInput(
 }
 
 // Build the UserInput[] for turn/start from plain text + Isomux attachments.
-// Attachments are NEVER inlined (no localImage, no text-file contents) — each
+// Attachments are NEVER inlined (no localImage, no text-file contents) - each
 // becomes one path-notice line from the shared attachment convention
 // (server/attachment-prompt.ts), identical across backends; the agent opens
 // files on demand (view_image for images, shell tools otherwise). This
@@ -1655,7 +1655,7 @@ export const codexBackend: Backend = {
 
   async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
     // Spin up a one-shot JsonRpcLiteClient just for model/list. The pattern
-    // mirrors oneShotPrompt but skips thread/start — model/list is a
+    // mirrors oneShotPrompt but skips thread/start - model/list is a
     // server-level RPC, not thread-scoped. Pagination loops until
     // nextCursor === null. ~1-2s end-to-end including subprocess spawn.
     const client = new JsonRpcLiteClient({ cwd: opts.cwd, env: opts.env });
@@ -1744,7 +1744,7 @@ export const codexBackend: Backend = {
     // model. So if target is in turn K (0-indexed), the turns to preserve
     // are [0..K-1] and the turns to drop are [K..totalTurns-1]. That gives
     // numTurns = totalTurns - K, which equals totalTurns when K=0 (first-
-    // message edit drops everything and starts the child from scratch — but
+    // message edit drops everything and starts the child from scratch - but
     // still as a fork, so /resume shows the parent as the original branch).
     const client = new JsonRpcLiteClient();
     try {

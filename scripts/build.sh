@@ -6,7 +6,7 @@ set -euo pipefail
 # block) are pulled into separate chunks instead of being inlined into the
 # main bundle.
 #
-# Bun's bundler lists every produced chunk by default — useful for size
+# Bun's bundler lists every produced chunk by default - useful for size
 # debugging, noise the rest of the time. Filter out the per-chunk lines
 # (`  name.js   12.34 KB  (chunk)`) so a clean build shows just the
 # "Bundled N modules" summary and the entry-point line. Anything that
@@ -31,6 +31,6 @@ cp ui/icon.svg ui/dist/icons/icon.svg
 
 # Login-page backdrop: a static screenshot of the office UI, served pre-auth
 # at /auth/login-bg.png. Same asset as the marketing screenshot so an
-# unauth visitor sees the same thing as someone browsing isomux.com — no
+# unauth visitor sees the same thing as someone browsing isomux.com - no
 # state from this specific deployment leaks.
 cp site/screenshot.png ui/dist/login-bg.png

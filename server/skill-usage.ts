@@ -1,7 +1,7 @@
 // Per-user skill/command-use counters (task f1769b1a). Server-side so counts
 // follow the user across devices (localStorage would not sync). A "use" is one
 // skill OR built-in command invocation dispatched through the slash-command
-// resolver (typed `/name` or picked from the Sk menu — both arrive as the same
+// resolver (typed `/name` or picked from the Sk menu - both arrive as the same
 // slash message), counted under the invoking USER's id at the dispatch site in
 // command-handlers.ts. The menu ranks across skills and commands, so both
 // count. Agent- or system-originated invocations resolve no user record and
@@ -11,13 +11,13 @@
 // Persistence: STATE_ROOT/skill-usage.json, { [userId]: { [skillName]: count } }.
 // Loaded lazily once, written through on every increment (skill uses are
 // low-frequency; no debounce needed). A missing or corrupted file starts an
-// empty store — counts are a convenience, never worth failing a message over.
+// empty store - counts are a convenience, never worth failing a message over.
 //
 // Skill names come from the FILESYSTEM (skill directory names), so the maps
 // here are null-prototype throughout: a skill named "constructor" /
 // "__proto__" / "toString" must be an ordinary key, never an inherited
 // Object.prototype member (which would corrupt the increment's `?? 0` read).
-// JSON round-trips are safe — JSON.parse creates "__proto__" as a plain own
+// JSON round-trips are safe - JSON.parse creates "__proto__" as a plain own
 // property, and the entries are copied key-by-key onto null-prototype maps.
 
 import { join } from "path";

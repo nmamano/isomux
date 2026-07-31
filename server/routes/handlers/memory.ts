@@ -1,4 +1,4 @@
-// Memory resource handlers — isomux-memory on the unified REST surface. Three
+// Memory resource handlers - isomux-memory on the unified REST surface. Three
 // verbs: READ (memory.read), APPEND (memory.append), REPLACE (memory.replace).
 // See internal-docs/isomux-memory-design.md.
 //
@@ -6,15 +6,15 @@
 // stamped from the token identity, NEVER the body; scopeId is a TARGET selector,
 // not an authority claim. Authority is intentionally permissive (Nil's product
 // decision): any authenticated caller (agent token OR user cookie) may read,
-// append, or REPLACE ANY scope and ANY existing target — there is deliberately NO
+// append, or REPLACE ANY scope and ANY existing target - there is deliberately NO
 // per-scope access gate on any verb, only target-EXISTENCE validation. Restraint
 // (especially "don't make big changes to office-wide memory") lives in the
-// system-prompt affordance, and the op-log is the recovery net — not an
+// system-prompt affordance, and the op-log is the recovery net - not an
 // authorization boundary.
 //
 // The one structural privacy property is in AUTO-LOAD (agent-manager), not here:
 // a boss's notes auto-load only into that boss's own agents' prompts. REST reads
-// of any scope are open to any authenticated caller — boss memory is
+// of any scope are open to any authenticated caller - boss memory is
 // context-scoped for auto-load, not REST-private.
 //
 // LEAF over the executor + injected MemoryDeps. No manager/auth/store imports.
@@ -57,11 +57,11 @@ export interface MemoryDeps {
     text: string,
   ): MemoryItem | null;
   // The caller's display author (agent name / user name), or null if the caller's
-  // record can't be resolved — so a write is never stamped "unknown".
+  // record can't be resolved - so a write is never stamped "unknown".
   authorFor(identity: Identity): string | null;
   // Strict identifier guard (rejects path traversal in a caller-supplied scopeId).
   isSafeScopeId(id: string): boolean;
-  // Target-EXISTENCE checks. Existence only — there is deliberately NO access
+  // Target-EXISTENCE checks. Existence only - there is deliberately NO access
   // gate (the model is permissive per Nil); never reuse requiresRoomAccess.
   roomExists(roomId: string): boolean;
   agentExists(agentId: string): boolean;
@@ -75,14 +75,14 @@ type Target =
 export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
   // Resolve the (scope, target file) for this caller, or a deliberate error.
   // Shared by READ (query) and APPEND/REPLACE (body).
-  //   agent  — omitted scopeId defaults to the caller's own agent (agent token);
+  //   agent  - omitted scopeId defaults to the caller's own agent (agent token);
   //            a user cookie must pass an explicit agent id. Any existing agent
   //            may be targeted by any authenticated caller.
-  //   room   — scopeId required + must EXIST.
-  //   office — never takes a scopeId (always office.md).
-  //   boss   — omitted scopeId defaults to the caller's own/manager userId; any
+  //   room   - scopeId required + must EXIST.
+  //   office - never takes a scopeId (always office.md).
+  //   boss   - omitted scopeId defaults to the caller's own/manager userId; any
   //            existing boss may be targeted by any authenticated caller.
-  //   other  — unsupported.
+  //   other  - unsupported.
   function resolveTarget(
     identity: Identity,
     scope: unknown,
@@ -173,7 +173,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
   }
 
   return {
-    // READ — the whole raw file text + version (uncapped). For the read-modify-
+    // READ - the whole raw file text + version (uncapped). For the read-modify-
     // replace edit flow and for human curation.
     "memory.read": (ctx) => {
       const scope = ctx.query.get("scope") ?? "agent";
@@ -183,13 +183,13 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       return ok(deps.read(target.scope, target.scopeId));
     },
 
-    // APPEND — one server-stamped line (the safe default). One fact per line.
+    // APPEND - one server-stamped line (the safe default). One fact per line.
     "memory.append": (ctx) => {
       const body = (ctx.body ?? {}) as Partial<MemoryCreateReq>;
       if (typeof body.text !== "string") {
         return fail(400, "invalid_text", "text is required");
       }
-      // Reject newlines on the RAW body BEFORE trimming — otherwise a trailing
+      // Reject newlines on the RAW body BEFORE trimming - otherwise a trailing
       // "\n"/"\r" would normalize into a valid single line, smuggling a multi-line
       // payload past the one-fact-per-line rail.
       if (/[\r\n]/.test(body.text)) {
@@ -229,7 +229,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       return created(res);
     },
 
-    // REPLACE — overwrite the whole file, guarded by the version from READ. This
+    // REPLACE - overwrite the whole file, guarded by the version from READ. This
     // is how edits and retractions happen; raw text is written verbatim (no
     // grammar). A version mismatch is a 409 with the current version.
     "memory.replace": (ctx) => {

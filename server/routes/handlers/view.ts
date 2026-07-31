@@ -1,33 +1,33 @@
-// View-preference resource handlers — Phase 3b slice 4. The per-user visibility
+// View-preference resource handlers - Phase 3b slice 4. The per-user visibility
 // surface (opIds view.{setOrder,setShown,setNotifRooms,listRooms}) on the
 // unified REST surface. SELF-scoped: the route table gates every op with
 // view:manage + authenticated, and each handler acts on the CALLER's own userId.
 //
 // Phase 4 close-out removed view.get and view.setShown as callerless (the UI is
 // echo-authoritative and reads view prefs from full_state). Task 9301d0f4
-// restored view.setShown when the hide-rooms UI landed on the Users page — the
+// restored view.setShown when the hide-rooms UI landed on the Users page - the
 // shown/hidden RECORD machinery (clampViewFields, projection filtering, the
 // change.shown clamp branch) had been kept intact for exactly that. view.get
 // stays retired. The Default Room setting (view.setDefaultRoom) was likewise
-// removed — superseded by reload view-restore, which reopens the last room on
+// removed - superseded by reload view-restore, which reopens the last room on
 // reload; the initial room now falls back to the first visible one.
 //
 // view.listRooms (task 9301d0f4) is the read that makes re-SHOW possible for
 // members: the projected full_state rooms exclude hidden rooms, and members
 // don't receive the owner-only all_rooms_list, so without this a member who
 // hid a room could never see its name again to un-hide it. It returns id+name
-// for every room the CALLER can access (no leak — access is the gate the
+// for every room the CALLER can access (no leak - access is the gate the
 // projection itself uses; hidden is a view preference, not a restriction).
 //
 // The write ops delegate to the SAME core (applyViewChange in the index seam),
-// so the view invariants — order deduped + filtered to accessible; hidden =
-// accessible minus shown; notifRooms within effective shown — live in exactly
+// so the view invariants - order deduped + filtered to accessible; hidden =
+// accessible minus shown; notifRooms within effective shown - live in exactly
 // one place. The handler NEVER emits; the core fans out (projected full_state
 // for order/shown, user_updated for notifRooms).
 //
 // NO-ORACLE (Isomuxer3 Q2): handlers reject malformed body SHAPES (a non-array
 // where room ids are expected), but NEVER an unknown / inaccessible /
-// accessible-but-hidden room id — the core silently filters/clamps those, so a
+// accessible-but-hidden room id - the core silently filters/clamps those, so a
 // write is not an existence oracle.
 //
 // LEAF over the executor + the injected ViewDeps.

@@ -28,7 +28,7 @@ import type {
   StorageUsageWire,
 } from "../shared/contract-shapes.ts";
 
-// The wire contract IS the domain type here — no projection layer, so the route
+// The wire contract IS the domain type here - no projection layer, so the route
 // response and the measurement cannot drift. Local aliases keep the call sites
 // readable.
 export type StorageCategory = StorageCategoryWire;
@@ -43,7 +43,7 @@ export interface DirUsage {
 
 const ZERO: DirUsage = { bytes: 0, files: 0 };
 
-// "Exists and could be read", proven by reading it — the contract `available`
+// "Exists and could be read", proven by reading it - the contract `available`
 // promises. existsSync would report a directory we cannot open as available.
 function isReadableDir(path: string): boolean {
   try {
@@ -56,9 +56,9 @@ function isReadableDir(path: string): boolean {
 
 export interface StorageRoots {
   stateRoot: string;
-  // server/backup.ts's destination — outside the state root by design.
+  // server/backup.ts's destination - outside the state root by design.
   backupDir: string | null;
-  // scripts/update.sh's SNAPSHOT_DIR — outside the state root because a
+  // scripts/update.sh's SNAPSHOT_DIR - outside the state root because a
   // rollback replaces the state root wholesale. null when the box is not
   // updater-managed or the conf did not parse.
   snapshotDir: string | null;
@@ -66,7 +66,7 @@ export interface StorageRoots {
 
 // Recursive size of a directory tree. Missing paths measure as zero rather than
 // throwing: every root here is optional on some deployment shape. Unreadable
-// entries are skipped — a usage report must never fail closed on one bad file.
+// entries are skipped - a usage report must never fail closed on one bad file.
 export function measureTree(path: string): DirUsage {
   let bytes = 0;
   let files = 0;
@@ -107,7 +107,7 @@ interface LogsBreakdown {
 
 // One pass over <stateRoot>/logs producing both the category split and the
 // per-agent detail. The layout is logs/<agentId>/{<sessionId>.jsonl,
-// sessions.json, files/**} — see server/persistence.ts.
+// sessions.json, files/**} - see server/persistence.ts.
 function measureLogs(logsDir: string): LogsBreakdown {
   const transcripts: DirUsage = { bytes: 0, files: 0 };
   const attachments: DirUsage = { bytes: 0, files: 0 };
@@ -143,7 +143,7 @@ function measureLogs(logsDir: string): LogsBreakdown {
         // other-state via the subtraction, so the category name stays exact
         // rather than absorbing whatever else appears here.
         //
-        // Only `files/` is prunable — `images/` is legacy and left alone — so
+        // Only `files/` is prunable - `images/` is legacy and left alone - so
         // reported attachment bytes can slightly exceed prunable ones. That is
         // the safe direction for a number an operator reads before deleting.
         if (entry.name !== "files" && entry.name !== "images") continue;
@@ -268,7 +268,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
 
 // The projection for anyone who is not the office owner: sizes only. The
 // per-agent breakdown enumerates log dirs for agents in rooms the caller may
-// not be able to see, and the paths describe the server's filesystem layout —
+// not be able to see, and the paths describe the server's filesystem layout -
 // neither is needed to answer "what is filling the disk?".
 export function aggregateOnly(usage: StorageUsage): StorageUsage {
   return {

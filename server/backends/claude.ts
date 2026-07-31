@@ -19,7 +19,7 @@
 // yields an approval_request event, and approve() looks the resolve up by
 // approvalId and feeds it the corresponding PermissionResult.
 //
-// cronjob-manager.ts still imports the SDK directly — cronjobs are Claude-
+// cronjob-manager.ts still imports the SDK directly - cronjobs are Claude-
 // only at v1 (per Round 3 decisions).
 
 import {
@@ -40,7 +40,7 @@ import {
   type PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
 
-// Internal session-options shape — the boundary between the orchestrator-
+// Internal session-options shape - the boundary between the orchestrator-
 // facing `buildSdkOpts` and the SDK adapters. Defined here (not aliased to an
 // SDK type) so adapter changes don't ripple into every caller. Every field is
 // a valid SDK `Options` field, so `sessionOptsToV1` can spread it verbatim.
@@ -48,7 +48,7 @@ import {
 // `systemPrompt` uses the SDK's typed option (preset + append) rather than a
 // raw `--append-system-prompt` CLI flag: the typed option travels inside the
 // `initialize` control request over the child's stdin, so the multi-KB prompt
-// never appears in the process argv (task e6a0387a — argv is world-readable
+// never appears in the process argv (task e6a0387a - argv is world-readable
 // via /proc/<pid>/cmdline and dumped wholesale by `systemctl status`).
 export interface SdkSessionOptions {
   model: string;
@@ -155,10 +155,10 @@ const CAPABILITIES: BackendCapabilities = {
 };
 
 const PERMISSION_MODES: PermissionModeOption[] = [
-  { value: "default", label: "Default — prompt for each tool" },
+  { value: "default", label: "Default - prompt for each tool" },
   { value: "acceptEdits", label: "Accept edits automatically" },
   { value: "bypassPermissions", label: "Bypass all permissions" },
-  { value: "auto", label: "Auto — Isomux decides via /resolve" },
+  { value: "auto", label: "Auto - Isomux decides via /resolve" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -204,7 +204,7 @@ export interface SdkClient {
 }
 
 // ---------------------------------------------------------------------------
-// V1 SDK adapter — production
+// V1 SDK adapter - production
 // ---------------------------------------------------------------------------
 // V1's `query()` consumes an AsyncIterable<SDKUserMessage> as its prompt and
 // returns a single `Query` generator that spans all turns. `send()` pushes
@@ -316,7 +316,7 @@ export function wrapV1Query(
       closed = true;
       // End the input iterable first so `query()` sees no-more-input via the
       // normal exit path; then best-effort interrupt to abort any in-flight
-      // tool execution. Both must be swallowed — `SdkConversation.close` is
+      // tool execution. Both must be swallowed - `SdkConversation.close` is
       // documented "never throws", and feedSDKMessages relies on that. The
       // outer try guards a sync throw from `interrupt()` (SDK types say it
       // returns Promise<void>, but the contract here is stronger than the SDK
@@ -330,7 +330,7 @@ export function wrapV1Query(
       // Force the SDK subprocess to actually terminate. input.end() + interrupt()
       // unwind a healthy or idle turn cleanly, but a session closed mid-turn
       // (e.g. /clear during an active turn) can leave the `claude` child hung in
-      // its read loop, never exiting — leaking ~165MB per agent. abortController
+      // its read loop, never exiting - leaking ~165MB per agent. abortController
       // is the SDK's documented cancel lever ("when aborted, the query will stop
       // and clean up resources"), which tears the subprocess down. Best-effort
       // and swallowed: close() is documented "never throws".
@@ -421,7 +421,7 @@ export const realV1SdkClient: SdkClient = {
 };
 
 // ---------------------------------------------------------------------------
-// ClaudeSession — BackendSession implementation
+// ClaudeSession - BackendSession implementation
 // ---------------------------------------------------------------------------
 // Concurrency notes:
 //   - feedSDKMessages runs as a background task in the constructor. It pumps
@@ -478,8 +478,8 @@ export class ClaudeSession implements BackendSession {
       // The conversation iterable is a single stream across all turns; the
       // SDK adapter (V2 or V1) handles turn boundaries internally. We just
       // translate each message into NormalizedEvents and enqueue them. On
-      // throw — typically subprocess exit, mid-stream abort, or transport
-      // failure — if we initiated the close, exit quietly; otherwise emit a
+      // throw - typically subprocess exit, mid-stream abort, or transport
+      // failure - if we initiated the close, exit quietly; otherwise emit a
       // normalized `error` event so the orchestrator can log + update state.
       // We MUST swallow here: feedSDKMessages runs as
       // `void this.feedSDKMessages()`, so an uncaught rejection becomes
@@ -529,7 +529,7 @@ export class ClaudeSession implements BackendSession {
     return new Promise<PermissionResult>((resolve) => {
       const approvalId = callOpts.toolUseID;
       // If a prior pending request with the same approvalId exists (shouldn't
-      // happen — SDK tool calls are serialized — but defensive), deny it.
+      // happen - SDK tool calls are serialized - but defensive), deny it.
       const existing = this.pendingApprovals.get(approvalId);
       if (existing) {
         try {
@@ -627,7 +627,7 @@ export class ClaudeSession implements BackendSession {
     // surfaces accidental direct calls instead of silently closing the session
     // (which would leave callers without a replacement).
     throw new Error(
-      "ClaudeSession.abort() is unsupported — use close() + a replacement session, or check canAbortInPlace() before calling.",
+      "ClaudeSession.abort() is unsupported - use close() + a replacement session, or check canAbortInPlace() before calling.",
     );
   }
 
@@ -645,7 +645,7 @@ export class ClaudeSession implements BackendSession {
     if (this.closed) return;
     this.closed = true;
     // Resolve pending approvals with deny FIRST so any in-flight canUseTool
-    // callback unblocks the SDK side — denying after close() would race the
+    // callback unblocks the SDK side - denying after close() would race the
     // already-tearing-down query and the resolves may become no-ops. Then
     // close the conversation so the message stream terminates cleanly.
     for (const [, pending] of this.pendingApprovals) {
@@ -695,7 +695,7 @@ export function* translateSDKMessage(
         if (content) yield { kind: "system_text", text: content };
       } else if (subtype === "permission_denied") {
         // Auto-denied tool call (SDK >= 0.3.x): the deny short-circuit in
-        // canUseTool — auto-mode classifier, deny rule, dontAsk — emits this
+        // canUseTool - auto-mode classifier, deny rule, dontAsk - emits this
         // alongside the is_error tool_result the model sees. Surface it so
         // the transcript shows the denial natively; older SDKs simply never
         // emit the subtype. Free-text fields are sanitized to one line here
@@ -709,7 +709,7 @@ export function* translateSDKMessage(
             ? { decisionReason: sanitizeTaskLabel(msg.decision_reason) }
             : {}),
           // Subagent origin, preserved for the transcript even though the
-          // card doesn't display it yet — dropped here, it's unrecoverable.
+          // card doesn't display it yet - dropped here, it's unrecoverable.
           ...(msg.agent_id ? { agentId: msg.agent_id } : {}),
         };
       }
@@ -775,7 +775,7 @@ export function* translateSDKMessage(
         // orchestration) and the SDK's wire shape is the only place we
         // have the base64 bytes.
         //
-        // Not the canonical "show a file to the boss" path — that's POST
+        // Not the canonical "show a file to the boss" path - that's POST
         // /api/agents/:id/read-file (or /api/cronjobs/:id/runs/:runId/read-file
         // for cronjobs); the system prompt teaches those endpoints. This
         // branch stays because it's a useful side effect: when an agent
@@ -864,30 +864,30 @@ export function* translateSDKMessage(
 // Background-task lifecycle breadcrumbs (TaskBreadcrumbTracker)
 // ---------------------------------------------------------------------------
 // The SDK emits system/task_started, task_updated, and task_notification for
-// EVERY task-shaped thing — including ordinary foreground subagents, which
+// EVERY task-shaped thing - including ordinary foreground subagents, which
 // already render as Agent tool calls. Breadcrumbing all of them would double-
 // render every subagent, so this tracker only surfaces genuinely-background
 // work (verified against SDK 0.3.170 / binary 2.1.170 via a live probe):
 //
-//   task_type "local_bash"      — run_in_background Bash (born background)
-//   task_type "local_workflow"  — Workflow tool runs (return immediately,
+//   task_type "local_bash"      - run_in_background Bash (born background)
+//   task_type "local_workflow"  - Workflow tool runs (return immediately,
 //                                 settle via task_notification)
-//   any tool_use launched with input.run_in_background === true — covers
+//   any tool_use launched with input.run_in_background === true - covers
 //                                 background Agent-tool subagents, whose
 //                                 task_started is otherwise indistinguishable
 //                                 from a foreground subagent's
-//   task_updated is_backgrounded — a foreground task backgrounded mid-run
+//   task_updated is_backgrounded - a foreground task backgrounded mid-run
 //                                 (Ctrl+B / auto-background on timeout)
 //
 // Settle breadcrumbs (task_notification) are emitted only for tasks tracked
 // at start, which both filters foreground-subagent noise and dedupes repeated
 // notifications for the same task. skip_transcript (ambient/housekeeping
 // tasks) mutes both ends. State is per-ClaudeSession, so it dies with the
-// session — no cross-session staleness (see feedSDKMessages wiring).
+// session - no cross-session staleness (see feedSDKMessages wiring).
 //
 // Rationale (task b4cafa53 diagnosis): a background-task settle wakes an idle
 // agent with a fresh turn, but the triggering notification was invisible in
-// the isomux transcript — the agent appeared to start talking spontaneously.
+// the isomux transcript - the agent appeared to start talking spontaneously.
 // These breadcrumbs give the boss the visible trigger.
 
 const TASK_LABEL_MAX = 200;
@@ -906,7 +906,7 @@ export function sanitizeTaskLabel(text: string): string {
 
 interface TrackedTask {
   desc: string;
-  // skip_transcript on task_started mutes the settle breadcrumb too — the
+  // skip_transcript on task_started mutes the settle breadcrumb too - the
   // task is still tracked so its notification stays filtered/deduped.
   silent: boolean;
 }
@@ -943,7 +943,7 @@ export class TaskBreadcrumbTracker {
         (msg.tool_use_id !== undefined &&
           this.bgToolUseIds.has(msg.tool_use_id));
       if (!isBackground || this.tracked.has(msg.task_id)) return [];
-      // The correlated tool_use id is consumed — drop it so the bounded set
+      // The correlated tool_use id is consumed - drop it so the bounded set
       // holds only ids still awaiting their task_started.
       if (msg.tool_use_id !== undefined)
         this.bgToolUseIds.delete(msg.tool_use_id);
@@ -1015,7 +1015,7 @@ export class TaskBreadcrumbTracker {
 }
 
 // Drop oldest entries past `max`. Map and Set iterate in insertion order, so
-// deleting the first key evicts the oldest — a cheap bound against unbounded
+// deleting the first key evicts the oldest - a cheap bound against unbounded
 // growth in very long sessions (leaked ids just age out).
 function trimInsertionOrdered(
   coll: Map<string, unknown> | Set<string>,
@@ -1031,7 +1031,7 @@ function trimInsertionOrdered(
 // ---------------------------------------------------------------------------
 // User-message construction (text + attachments → SDKUserMessage)
 // ---------------------------------------------------------------------------
-// Attachments are NEVER inlined — each becomes one path-notice text line via
+// Attachments are NEVER inlined - each becomes one path-notice text line via
 // the shared attachment convention (server/attachment-prompt.ts); the agent
 // opens files on demand (Read renders images and PDFs). This wrapper only
 // puts the shared lines into the SDK's ContentBlockParam shape.
@@ -1083,7 +1083,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
     // "Default with additions": keep the claude_code base prompt and append
     // isomux's assembled prompt. The typed option travels over stdin (the
-    // SDK's `initialize` control request), NOT argv — do not route the prompt
+    // SDK's `initialize` control request), NOT argv - do not route the prompt
     // through extraArgs/CLI flags, that leaks it to `ps`/`systemctl status`
     // (task e6a0387a).
     systemPrompt: {
@@ -1100,7 +1100,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     hooks: createSafetyHooks(),
     // AskUserQuestion has no usable UI in isomux: the canUseTool approval
     // shows only "Allow/Deny" without rendering the question text, and the
-    // headless tool execution returns empty answers — which the agent then
+    // headless tool execution returns empty answers - which the agent then
     // rationalizes as "you accepted the defaults". Agents should ask
     // clarifying questions in plain chat instead.
     disallowedTools: ["AskUserQuestion"],
@@ -1189,7 +1189,7 @@ export function createClaudeBackend(
         );
       }
       if (targetIdx === firstUserIdx) {
-        // First user message: no predecessor to fork at. Return fresh — the
+        // First user message: no predecessor to fork at. Return fresh - the
         // orchestrator will create a brand-new session, semantically unrelated
         // to the old one.
         return { kind: "fresh" };
@@ -1250,7 +1250,7 @@ export function createClaudeBackend(
     }): { text: string; commands?: string[] } {
       // Short-circuit: if the office is already signed in (credentials.json
       // present, or ANTHROPIC_API_KEY in env), the user just needs to /clear
-      // a dead session — no walkthrough needed. Symmetric with Codex's
+      // a dead session - no walkthrough needed. Symmetric with Codex's
       // ALREADY_AUTHED hint. The check honors the agent's merged env so
       // envFile-set ANTHROPIC_API_KEY counts as authed.
       if (isClaudeCodeAuthenticated(opts?.env)) {

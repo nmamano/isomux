@@ -1,4 +1,4 @@
-// Identity & capabilities — the secret token store (implementation).
+// Identity & capabilities - the secret token store (implementation).
 //
 // In-memory ONLY (Phase 2.1, reviewed): raw tokens are never persisted, and a
 // server restart kills the subprocess consumers (agents + cron runs) and
@@ -11,7 +11,7 @@
 // Lifecycle (wired by the managers): agent tokens are minted on spawn and on
 // restore/revive (rotation), revoked on kill; cron-run tokens are minted at run
 // start and revoked on every terminal run path. Delivery is via env injection
-// (ISOMUX_AGENT_TOKEN), used for BOTH agent and cron-run scopes — scope is
+// (ISOMUX_AGENT_TOKEN), used for BOTH agent and cron-run scopes - scope is
 // resolved server-side, so the documented curl snippets don't branch.
 //
 // Imports only the stable identity surface (./index.ts) + the standard library,
@@ -24,7 +24,7 @@ const TOKEN_BYTES = 32; // 256 bits of entropy, matching auth.ts session/invite 
 
 interface StoredToken {
   scope: "agent" | "cron-run";
-  hash: string; // sha256(raw) hex — the value compared at resolve time
+  hash: string; // sha256(raw) hex - the value compared at resolve time
   raw: string; // in-memory only; injected into subprocess env, NEVER persisted/logged
   userId: string | null;
   agentId?: string;
@@ -84,7 +84,7 @@ function remove(key: string): void {
 // Mint (or rotate) the agent's token. Re-minting for the same agentId revokes
 // the prior token in the same call, so spawn/restore/revive all funnel here and
 // "rotated on revive" falls out for free. `privileged` stamps the capability
-// set the token resolves to — toggling the setting re-mints (revoking the old
+// set the token resolves to - toggling the setting re-mints (revoking the old
 // token), so a live agent MUST be session-swapped onto the new token or its
 // in-flight one goes dead. Returns the raw secret to inject into the agent's
 // session env.
@@ -172,7 +172,7 @@ export function resolveToken(raw: string): Identity | null {
     role: "member", // inert filler for non-user scope (see Identity.role)
     // AGENT scope resolves to the baseline or privileged set by the token's
     // stamped flag; cron-run is always the run set. Scope itself never changes
-    // (privilege only ADDS capabilities — no impersonation).
+    // (privilege only ADDS capabilities - no impersonation).
     capabilities:
       token.scope === "agent"
         ? agentCapabilities(token.privileged)
@@ -186,7 +186,7 @@ export function resolveToken(raw: string): Identity | null {
 // guarantee is structural (the token only ever enters subprocess env, never a
 // log/prompt/WS/diff path); this is a belt-and-suspenders helper for any
 // diagnostic surface that might otherwise echo an env value. Only active tokens
-// are scrubbed — a revoked token is no longer a live secret.
+// are scrubbed - a revoked token is no longer a live secret.
 export function redactTokens(text: string): string {
   let out = text;
   for (const token of byKey.values()) {

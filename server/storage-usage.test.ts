@@ -1,4 +1,4 @@
-// T0/T1 — the disk-usage breakdown (task 2366ccb0).
+// T0/T1 - the disk-usage breakdown (task 2366ccb0).
 //
 // Every root is injected, so these build a fixture state root under the OS temp
 // dir and never stat the real ~/.isomux. Cleanup goes through the temp-state
@@ -212,7 +212,7 @@ describe("aggregateOnly", () => {
     expect(stripped.agents).toEqual([]);
     expect(stripped.stateRoot).toBeNull();
     expect(stripped.categories.every((c) => c.path === null)).toBe(true);
-    // Sizes, ids, and availability survive — a member can still see what is
+    // Sizes, ids, and availability survive - a member can still see what is
     // filling the disk, just not where it lives or which agents own it.
     expect(
       stripped.categories.map((c) => [c.id, c.bytes, c.available]),

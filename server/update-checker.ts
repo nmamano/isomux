@@ -2,24 +2,24 @@
 // Two modes, decided once at startup (release-channel slice C1,
 // internal-docs/release-design.md):
 //
-// - "commit" (no /etc/isomux/update.conf — source checkouts like dev boxes):
-//   full context across both dimensions, so pulling is an informed choice —
+// - "commit" (no /etc/isomux/update.conf - source checkouts like dev boxes):
+//   full context across both dimensions, so pulling is an informed choice -
 //   what HEAD runs (exact tag or commit), the repo's latest release and
 //   whether it's newer, and how many commits the GitHub main tip has beyond
 //   that. Boxes ahead of main (local-only commits) stay QUIET, absolutely:
 //   the compare API answering 404 for an unpushed HEAD, or reporting the box
 //   has commits main lacks, is the ahead/diverged signal. Copy lives in
 //   shared/update-notice.ts.
-// - "release" (update.conf present — updater-managed boxes, written by
+// - "release" (update.conf present - updater-managed boxes, written by
 //   deploy/install.sh): the running release (server/version.ts) vs. the
 //   configured repo's latest GitHub release. The banner means "a new release
 //   exists; the in-UI trigger / isomux-update applies it". The conf file is
 //   the mode signal because it exists exactly on boxes where isomux-update is
-//   the sanctioned update path — a VPS bootstrapped from main pre-first-release
+//   the sanctioned update path - a VPS bootstrapped from main pre-first-release
 //   is still release mode (and stays QUIET, not nagged about commit drift).
 //
 // Zero-release sanity: releases/latest answering 404 is the legitimate
-// "no releases yet" case — quiet status, no error, no retry spam. Only
+// "no releases yet" case - quiet status, no error, no retry spam. Only
 // transport/HTTP errors keep the previous status (both modes). Commit mode
 // budgets 2 unauthenticated GitHub calls per hourly cycle (releases/latest,
 // then compare). A non-github REPO_URL disables release checks entirely (we
@@ -52,7 +52,7 @@ let onChange: ((s: UpdateStatusWire) => void) | null = null;
 // --- Commit mode ------------------------------------------------------------
 
 // What the compare API said about base...main. "unknown" is a 404: the base
-// ref doesn't exist on GitHub — for a HEAD-sha base that means local-only
+// ref doesn't exist on GitHub - for a HEAD-sha base that means local-only
 // commits, the definitive ahead-of-main signal.
 type CompareResult = { aheadBy: number; behindBy: number } | "unknown";
 
@@ -70,7 +70,7 @@ export function pickCompareBase(
 }
 
 // The commit-mode decision, pure for tests. `reachable` is the newest CalVer
-// release reachable from HEAD (server/version.ts resolveReachableRelease) —
+// release reachable from HEAD (server/version.ts resolveReachableRelease) -
 // the lineage anchor that tells an untagged box whether the latest release
 // is ahead of it (reachable < latest) or already behind it (reachable ==
 // latest means the box is PAST the tag). See the matrix in
@@ -108,7 +108,7 @@ export function computeCommitStatus(
 
 // Map a compare response body to counts. Null on anything but nonnegative
 // integers: a malformed 200 is a transient failure (keep the previous
-// status), NOT a fresh "no drift" — it must never clear a visible notice.
+// status), NOT a fresh "no drift" - it must never clear a visible notice.
 // Exported for tests.
 export function parseCompare(
   data: unknown,
@@ -246,7 +246,7 @@ async function fetchLatestRelease(
         signal: AbortSignal.timeout(10000),
       },
     );
-    if (res.status === 404) return "none"; // no releases yet — the quiet case
+    if (res.status === 404) return "none"; // no releases yet - the quiet case
     if (!res.ok) return null;
     return pickRelease(await res.json());
   } catch {
@@ -269,7 +269,7 @@ async function checkRelease(ownerRepo: string) {
 // --- Shared plumbing --------------------------------------------------------
 
 // Pure change test, exported for tests: notify on any material difference in
-// the wire payload — an availability flip, but also a new latest release
+// the wire payload - an availability flip, but also a new latest release
 // arriving under an already-up banner (true→true with a different tag must
 // re-broadcast or clicking "Update now" would target the stale release), and
 // available→equal after the box updated. Suppress only an identical payload.

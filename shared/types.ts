@@ -42,7 +42,7 @@ export type ClaudePermissionMode =
   | "bypassPermissions"
   | "auto";
 
-// Codex's AskForApproval enum (the four string variants — the experimental
+// Codex's AskForApproval enum (the four string variants - the experimental
 // `granular` object variant is deferred per the spec).
 export type CodexApprovalPolicy =
   | "untrusted"
@@ -61,7 +61,7 @@ export type CodexSandboxMode =
 export type AgentPermissionMode = ClaudePermissionMode | CodexApprovalPolicy;
 
 // Static per-backend capability flags. Embedded in AgentInfo so the UI can
-// hide affordances without knowing about specific backends — e.g. greying
+// hide affordances without knowing about specific backends - e.g. greying
 // out the "branch" button when capabilities.fork is false. Same shape used
 // internally by the Backend interface (server/backends/types.ts re-exports
 // it as BackendCapabilities for symmetry).
@@ -91,7 +91,7 @@ export const DEFAULT_AGENT_CAPABILITIES: AgentCapabilities = {
   mcp: true,
 };
 
-// Model families — what users pick ("I want Opus"). Exact versions are an
+// Model families - what users pick ("I want Opus"). Exact versions are an
 // implementation detail that the system bumps centrally in FAMILY_TO_MODEL.
 export type ModelFamily = "opus" | "fable" | "sonnet" | "haiku";
 
@@ -213,7 +213,7 @@ export function claudeFamilySupportsMaxEffort(family: string): boolean {
 
 // Static effort options for an agent, filtered by backend + model family.
 // Claude: family-level rules ("minimal"/"ultra" are Codex-only; "max" is
-// top-tier families only) — single source for claude.ts listModels and the
+// top-tier families only) - single source for claude.ts listModels and the
 // /effort slash-command picker. Codex: the full static list; the real
 // allow-list is the dynamic per-model supportedReasoningEfforts from
 // model/list, and codex rejects unsupported values at thread/start,
@@ -242,7 +242,7 @@ export function claudeFamilySupportsAutoPermission(family: string): boolean {
 // when the agent next transitions to an idle state. Durable (task 9870b472):
 // the per-agent queue is mirrored to ~/.isomux/message-queues.json and
 // replayed on boot, so a restart no longer drops queued messages (delivery is
-// at-least-once — a crash between backend accept and the durable removal can
+// at-least-once - a crash between backend accept and the durable removal can
 // replay an already-delivered message).
 export interface QueuedMessage {
   id: string; // 8-char hex; UI uses this to cancel
@@ -260,12 +260,12 @@ export interface QueuedMessage {
   queuedDuringBusyTurn?: boolean;
   // Set when this message was created by the scheduled-message scheduler (a
   // sender agent's earlier POST with deliverAt): the epoch-ms time it was
-  // scheduled to fire. Used at flush time to mark the message as scheduled —
-  // and, for a self-addressed one, as coming from the agent's own past self —
+  // scheduled to fire. Used at flush time to mark the message as scheduled -
+  // and, for a self-addressed one, as coming from the agent's own past self -
   // so the receiver doesn't read it as a live conversational turn.
   scheduledFor?: number;
   // Set alongside scheduledFor when the sender agent no longer existed at fire
-  // time (scheduled messages always deliver — Nil's decision, task 8ff369b5).
+  // time (scheduled messages always deliver - Nil's decision, task 8ff369b5).
   // Surfaced in the flush prefix so the receiver knows a reply cannot land.
   scheduledSenderGone?: boolean;
   // Set when this is a self-handoff brief injected by POST /api/agents/:id/handoff
@@ -301,7 +301,7 @@ export interface ScheduledMessageEntry {
 // Context-window fullness snapshot pushed to the UI over agent_updated
 // (internal-docs/context-fullness-visibility.md). Same shape as the server's
 // internal ContextUsageSnapshot minus `source`. `percentage` is the backend's
-// raw float (0..100) — round only for display so the icon's color band and the
+// raw float (0..100) - round only for display so the icon's color band and the
 // injected [context check] notices key off the same value. Absent/undefined =>
 // the indicator is hidden (no committed measurement: fresh/blank conversation,
 // Codex before its first turn, right after a server restart).
@@ -318,7 +318,7 @@ export interface AgentInfo {
   id: string;
   name: string;
   desk: number; // 0-7
-  // Stable global room id (matches RoomWire.id) — the SOLE room reference on the
+  // Stable global room id (matches RoomWire.id) - the SOLE room reference on the
   // wire and the authority for all room logic. Phase 3c slice 4 removed the
   // legacy dense per-recipient `room` index; clients match agents to rooms by id.
   roomId: string;
@@ -327,7 +327,7 @@ export interface AgentInfo {
   // Backend-specific permission/approval mode. For Claude this is the
   // canonical 4-mode enum; for Codex this is the AskForApproval enum
   // (untrusted/on-request/on-failure/never). Kept as a typed union that
-  // covers both backends — the spawn UX picks one backend at a time so
+  // covers both backends - the spawn UX picks one backend at a time so
   // we never need to combine them.
   permissionMode: AgentPermissionMode;
   // Backend-specific model identifier. For Claude this is a ModelFamily
@@ -349,7 +349,7 @@ export interface AgentInfo {
   // (name/cwd/model/...) don't require it. READ surfaces: the UI edit dialog
   // reads the agent off full_state / agent_updated; agents read blob + version
   // via GET /api/agents/:id/instructions (agents.readInstructions, task
-  // 68891fa1 — open to every authenticated identity with room access to the
+  // 68891fa1 - open to every authenticated identity with room access to the
   // agent; the version is a concurrency token, not an authorization gate).
   customInstructionsVersion: string;
   // Which engine this agent runs on. Fixed at spawn time. Existing agents
@@ -365,7 +365,7 @@ export interface AgentInfo {
   codexSandbox?: CodexSandboxMode;
   // The user who spawned this agent. `userId` is the stable identity
   // reference used for per-user env lookup (drives buildEnvFor at spawn /
-  // resume / cronjob-fire time) and identifies the agent's manager — the
+  // resume / cronjob-fire time) and identifies the agent's manager - the
   // user shown in the system prompt user section and whose envFile loads
   // on session recreate. Set at spawn and immutable: reassignment is not
   // exposed; the spawning user remains the manager for the agent's
@@ -377,20 +377,20 @@ export interface AgentInfo {
   // Privileged agents carry their spawning user's room-scoped operator
   // capabilities in their bearer token (drive other agents' sessions: resume,
   // listSessions, sendNow, newConversation, lifecycle, cron over their own
-  // jobs). Scope STAYS "agent" — privilege only adds capabilities, never
+  // jobs). Scope STAYS "agent" - privilege only adds capabilities, never
   // impersonates the user. Bound to the token (re-minted on toggle), mirrored
   // here for the UI toggle state. Settable only by a user via the dedicated
   // agents.setPrivileged route; never by an agent. Absent/false on normal
   // agents.
   privileged?: boolean;
   // Mirrored to ~/.isomux/message-queues.json and replayed on boot (task
-  // 9870b472) — a restart no longer empties it. Live source of truth is the
+  // 9870b472) - a restart no longer empties it. Live source of truth is the
   // manager's in-memory queue; this wire copy is spliced in by getAllAgents.
   queue: QueuedMessage[];
   // True while server is closing the old SDK session and installing a new one
   // (~3s drain). UI shows a "restarting session" hint while this is true.
   sessionSwapping: boolean;
-  // True when the agent has no live backend subprocess — it was idle-evicted
+  // True when the agent has no live backend subprocess - it was idle-evicted
   // (the inactivity sweep demoted it) or lazy-restored on boot. It keeps its
   // session on disk and resumes transparently on the next message. Tracks
   // `ManagedAgent.session === null` as the single source of truth (set in
@@ -405,7 +405,7 @@ export interface AgentInfo {
   // Live context-window fullness of the CURRENT conversation, pushed over
   // agent_updated (internal-docs/context-fullness-visibility.md). Absent or
   // null while there's no committed measurement (fresh conversation, Codex
-  // pre-first-turn, right after a server restart) — the UI battery indicator
+  // pre-first-turn, right after a server restart) - the UI battery indicator
   // shows its unknown state ("?", always visible; per Nil 2026-07-18).
   // Clears go over the wire as EXPLICIT null, never undefined:
   // JSON.stringify drops undefined-valued keys, so an undefined clear would
@@ -509,9 +509,9 @@ export interface LogEntry {
 // underlying errors are backend/provider exception text and raw model output,
 // which are neither a stable contract nor something to broadcast to every
 // session that can see the room. Full detail stays in the server journal.
-//   generation_failed — the formatter call itself failed.
-//   invalid_output    — it answered, but broke the slide contract.
-//   unavailable       — client-local: there is no live turn to render.
+//   generation_failed - the formatter call itself failed.
+//   invalid_output    - it answered, but broke the slide contract.
+//   unavailable       - client-local: there is no live turn to render.
 export type SlideFailureReason =
   | "generation_failed"
   | "invalid_output"
@@ -525,7 +525,7 @@ export interface SlideRecord {
   // no text to format). Rendered ONLY inside a sandboxed iframe, never injected
   // into the app DOM.
   html: string | null;
-  // True when the turn produced no assistant text — the deck still shows a
+  // True when the turn produced no assistant text - the deck still shows a
   // placeholder so it mirrors the conversation 1:1.
   placeholder: boolean;
   // The turn's error text (when it failed), shown on the placeholder. Null
@@ -538,7 +538,7 @@ export interface SlideRecord {
   createdAt: number;
   // Digest of the turn CONTENT this slide was generated from (prompt + answer +
   // error, via slideContentDigest). The cache-validity signal: a stored slide is
-  // served only while this equals the live turn's digest — a turn that gained
+  // served only while this equals the live turn's digest - a turn that gained
   // text after a placeholder was recorded no longer matches and is regenerated.
   // Optional so slide files written before this field (self-hosters) still load;
   // a record with no digest is unverifiable and is regenerated once on next view.
@@ -562,12 +562,12 @@ export interface TaskItem {
   // Room this task belongs to. ABSENT/empty === office-global (visible to
   // everyone). A non-empty id scopes the task to that room: it is visible only
   // to callers who can access the room, UNION every global task. Existing tasks
-  // (persisted before room-scoping) have no roomId and so are global — no
+  // (persisted before room-scoping) have no roomId and so are global - no
   // migration.
   roomId?: string;
 }
 
-// isomux-memory — one durable, attributed fact line. Persisted as a single raw
+// isomux-memory - one durable, attributed fact line. Persisted as a single raw
 // markdown line ("- {Creator}, {date}: {text}") under STATE_ROOT/memory/. See
 // internal-docs/isomux-memory-design.md.
 export type MemoryScope = "office" | "room" | "agent" | "boss";
@@ -613,7 +613,7 @@ export function generateUserId(existing?: string[]): string {
 // ---------------------------------------------------------------------------
 // Cronjobs
 // ---------------------------------------------------------------------------
-// Cronjobs are scheduled SDK sessions. They are NOT agents — no desk, no room,
+// Cronjobs are scheduled SDK sessions. They are NOT agents - no desk, no room,
 // no persistent identity. Each scheduled fire creates a fresh session whose
 // transcript becomes a "run" row.
 
@@ -635,13 +635,13 @@ export type Schedule =
 //
 // Note: Claude's "auto" mode IS NOT supported for cron. With the Backend
 // abstraction in place, ClaudeSession always installs `canUseTool`, which
-// routes approval decisions through the agent /resolve mechanism — cron
+// routes approval decisions through the agent /resolve mechanism - cron
 // has no resolver, so an "auto" classifier mismatch would hang the run
 // until the 30-minute hard timeout. Legacy cronjobs persisted with
 // `permissionMode: "auto"` get coerced to `bypassPermissions` on load.
 export type CronjobPermissionMode = "bypassPermissions" | "never";
 
-// modelFamily is typed as `string` to span both backends — Claude uses
+// modelFamily is typed as `string` to span both backends - Claude uses
 // ModelFamily slugs ("opus" / "sonnet" / "haiku") while Codex uses the
 // app-server-reported model ids ("gpt-5.5" etc, fetched via model/list).
 // Validation happens server-side per agentType.
@@ -696,13 +696,13 @@ export interface CronjobRun {
   permissionModeSnapshot: CronjobPermissionMode;
   codexSandboxSnapshot?: CodexSandboxMode;
   rootSessionId: string; // first session id created at fire time
-  // Leaf of the fork chain — equals rootSessionId for un-forked runs. Tracked
+  // Leaf of the fork chain - equals rootSessionId for un-forked runs. Tracked
   // separately from rootSessionId so loadRunLogWithAncestors can walk back from
   // the leaf when the user has edited a message and forked. Optional for
   // backwards compatibility with runs persisted before resume support landed.
   currentSessionId?: string;
   previewText: string; // last assistant text block, truncated ~120 chars
-  // Set on manual fires only (run_cronjob_now) — captures the user that
+  // Set on manual fires only (run_cronjob_now) - captures the user that
   // triggered the run so the UI can show "Manually triggered by Nil".
   // Scheduled fires leave this undefined.
   triggeredBy?: string;
@@ -752,11 +752,11 @@ export interface SessionInfo {
   // The cwd this session runs in. Source of truth is per-session metadata
   // (sessions.json); the agent's own cwd is just a denormalized mirror of the
   // active session's cwd. Optional/null for legacy sessions persisted before
-  // per-session cwd existed — callers fall back to the agent cwd then.
+  // per-session cwd existed - callers fall back to the agent cwd then.
   cwd?: string | null;
   // The engine + model this session runs under. Source of truth is per-session
   // metadata (sessions.json). null for legacy sessions persisted before
-  // per-session engine existed — the resume picker omits the badge then.
+  // per-session engine existed - the resume picker omits the badge then.
   // Selecting a session whose engine differs from the agent's current one flips
   // the agent to that engine; agentType is thus a projection of the live session.
   agentType?: AgentBackendType | null;
@@ -799,7 +799,7 @@ export interface OfficeWire {
 
 // Maximum number of revive chips offered in the spawn menu. Applied
 // server-side after ACL filtering and on the client when merging diff
-// events into state — shared so the two never drift.
+// events into state - shared so the two never drift.
 export const KILLED_AGENT_CHIP_CAP = 12;
 
 // Summary of a killed agent shown as a "revive" chip in the spawn menu.
@@ -818,7 +818,7 @@ export interface KilledAgentSummary {
 }
 
 // A room with stable ID, display name, and per-room config.
-// Access control lives entirely in `UserRecord.allowedRooms` — the
+// Access control lives entirely in `UserRecord.allowedRooms` - the
 // create-room handler adds the new roomId to the creator's list and
 // to every current owner's list, regardless of the creator's role.
 // There is no per-room "private" flag; "private to creator + owners"
@@ -832,7 +832,7 @@ export interface RoomWire {
   prompt: string | null;
   // Phase 3c slice 4: derived close-affordance capability. false ONLY for the
   // protected canonical first room (room-order index 0); true for every other
-  // room. NOT an occupancy signal — the client ANDs it with its own reactive
+  // room. NOT an occupancy signal - the client ANDs it with its own reactive
   // emptiness check, and the server stays authoritative on close (closeRoom
   // rejects index 0 and non-empty rooms). Derived from canonical room order by
   // OfficeState whenever rooms are materialized; never persisted (re-derived on
@@ -845,7 +845,7 @@ export interface RoomWire {
 // in the `name` field and can be renamed without breaking sessions/agents/
 // cronjobs that reference the user via id.
 //
-// Both notifRooms and allowedRooms are strict string[] — no "all"
+// Both notifRooms and allowedRooms are strict string[] - no "all"
 // sentinel. New users get an explicit snapshot of the rooms they're
 // allowed to see at creation time; the create_room handler appends
 // new room ids to the right users' lists as the office evolves.
@@ -868,16 +868,16 @@ export interface UserRecord {
   // through update_user.
   avatarColor: string;
   avatarVariant: GhostVariant;
-  // Member room-access GRANTS (Phase 3b) — strict string[] of roomIds a member
+  // Member room-access GRANTS (Phase 3b) - strict string[] of roomIds a member
   // may access. ACCESS is rule-based: OWNERS reach every room by rule and IGNORE
   // this field (it is [] for an owner post-migration); members access exactly
   // the rooms granted here. No "all" sentinel. New members default to `[]` until
   // an owner grants access (users.setAccess, owner-only) or they create their
   // own room (the creator gets a grant). There is NO create_room owner fan-out.
   // WHICH accessible rooms a user shows, and in what order, is the separate view
-  // preference (`hidden`/`order` below) — never this field.
+  // preference (`hidden`/`order` below) - never this field.
   allowedRooms: string[];
-  // View preference (per-user, non-security) — Phase 3b. These split the
+  // View preference (per-user, non-security) - Phase 3b. These split the
   // VIEW (which accessible rooms a user shows, and in what order) out of
   // ACCESS (allowedRooms / owner rule). They never gate security; the
   // projection applies them ON TOP of the access set.
@@ -939,7 +939,7 @@ export interface SessionContext {
 }
 
 // Wire shape for an outstanding invite (owner UI). Raw token never crosses
-// the wire — only the 8-char display prefix.
+// the wire - only the 8-char display prefix.
 export interface InviteWire {
   tokenPrefix: string;
   username: string | null; // null for unconsumed bootstrap invites
@@ -960,7 +960,7 @@ export interface InviteWire {
 // off-scene sessions (viewMode "away" with no currentRoomId) are omitted
 // from the broadcast entirely. Display fields (username, avatarColor,
 // avatarVariant) are baked into the wire so clients don't need to join
-// against the users map at render time — avoids races where a fresh
+// against the users map at render time - avoids races where a fresh
 // presence_list arrives before users_list catches up.
 export interface PresenceInfo {
   // Per-connection id matching SessionContext.connectionId on the
@@ -977,12 +977,12 @@ export interface PresenceInfo {
   // Per-device label set in DeviceSettings (e.g. "Phone", "Laptop").
   // Surfaced on the name-tag chip so other bosses can tell which of
   // a user's devices the ghost belongs to. null when the device hasn't
-  // picked a label — the chip falls back to just the username.
+  // picked a label - the chip falls back to just the username.
   device: string | null;
   avatarColor: string;
   avatarVariant: GhostVariant;
   // Global stable room id (matches RoomWire.id) where this session's ghost
-  // appears — the SOLE presence room reference, ALWAYS a global id. Recipients
+  // appears - the SOLE presence room reference, ALWAYS a global id. Recipients
   // render the ghost only when it matches their OWN selected room id. null when
   // the session has not yet sent its first presence_update or is off-scene.
   // Phase 3c slice 4 removed the dense per-recipient `currentRoom` index.
@@ -1004,7 +1004,7 @@ export interface SessionWire {
   expiresAt: number;
   absoluteExpiresAt: number;
   userAgent: string | null;
-  // Last-known device label for this session — the same client-supplied label
+  // Last-known device label for this session - the same client-supplied label
   // (DeviceSettings localStorage) that presence name-tags show, e.g. "Phone".
   // Stamped server-side from the session's own presence_update stream; null
   // until the device names itself. Read-only exposure (task 557dc8ce): there
@@ -1033,10 +1033,10 @@ export interface BackendModelWire {
 
 // Update-available status feeding the header banner (server/update-checker.ts).
 // Mode is decided by the box shape: "commit" on source checkouts (what HEAD
-// runs vs. the repo's latest release and the GitHub main tip — the notice
+// runs vs. the repo's latest release and the GitHub main tip - the notice
 // gives full context across both dimensions so pulling is an informed choice),
 // "release" on updater-managed boxes with an /etc/isomux/update.conf (running
-// release vs. the repo's latest GitHub release — the banner means "a new
+// release vs. the repo's latest GitHub release - the banner means "a new
 // release exists", applied via the owner-only update trigger). See
 // internal-docs/release-design.md. Commit-mode copy is composed from this
 // shape in shared/update-notice.ts.
@@ -1106,7 +1106,7 @@ export type ServerMessage =
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   | { type: "log_entry"; entry: LogEntry }
   // Slide Mode: a slide finished generating (or regenerating) for one turn.
-  // Room-ACL scoped like log_entry — anyone who can see the chat gets it. The
+  // Room-ACL scoped like log_entry - anyone who can see the chat gets it. The
   // client matches it into the open deck by agentId + entryId; sessionId is the
   // conversation the slide belongs to (informational for a future multi-
   // conversation browser).
@@ -1143,7 +1143,7 @@ export type ServerMessage =
       skills: SkillInfo[];
     }
   // rollback: this clear restores a prior timeline (failed edit-fork rollback),
-  // not a conversation boundary — clients keep the unread dot.
+  // not a conversation boundary - clients keep the unread dot.
   | { type: "clear_logs"; agentId: string; rollback?: boolean }
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
@@ -1171,7 +1171,7 @@ export type ServerMessage =
   | { type: "users_list"; users: UserPublicWire[] }
   | { type: "user_updated"; user: UserPublicWire; prevName?: string }
   // Owners-audience FULL records (UserAdminWire === UserRecord). SEPARATE event
-  // ids so the all-audience users_list/user_updated above stay public-only — no
+  // ids so the all-audience users_list/user_updated above stay public-only - no
   // recipient-dependent payload behind one id (Phase 3b slice 5).
   | { type: "users_admin_list"; users: UserRecord[] }
   | { type: "user_admin_updated"; user: UserRecord; prevName?: string }
@@ -1182,7 +1182,7 @@ export type ServerMessage =
   // totalOnlineUsers counts distinct userIds across ALL live presence
   // entries (including off-scene viewMode="away" sessions whose
   // entries are otherwise filtered from `entries` for the in-scene
-  // ghost wire). Same value for every recipient — it answers "who is
+  // ghost wire). Same value for every recipient - it answers "who is
   // online anywhere in the office", not "who is in rooms I can see".
   // onlineUserIds is the id set behind that count (same all-audience
   // aggregate, same cadence); the Users page reads it for the per-user
@@ -1228,7 +1228,7 @@ export type ClientCommand =
       // should appear. Sent on initial WS open (after session_context
       // arrives), on focus change, on room change, and on view-mode
       // transitions (TaskView/Cronjobs/Settings open or close).
-      // The server sanitizes currentRoomId against the sender's room access —
+      // The server sanitizes currentRoomId against the sender's room access -
       // a stale or inaccessible id (e.g. from a race with an access revoke) is
       // clamped to null rather than rejected.
       type: "presence_update";

@@ -1,4 +1,4 @@
-// T0 — the /isomux-storage markdown report (task 1387a9c7).
+// T0 - the /isomux-storage markdown report (task 1387a9c7).
 //
 // The renderer is pure: it takes an already-measured StorageUsage, so these
 // build the measurement by hand and never touch a disk. What matters here is
@@ -115,7 +115,7 @@ describe("renderStorageReport", () => {
       usageFixture({ transcripts: 1 * MB }, { snapshotsAvailable: false }),
       labels,
     );
-    expect(out).toContain("| Update snapshots | none | — |");
+    expect(out).toContain("| Update snapshots | none | - |");
     expect(out).toContain("update snapshots (not set up)");
   });
 
@@ -134,7 +134,7 @@ describe("renderStorageReport", () => {
     expect(ghostRow).toBeGreaterThan(-1);
     expect(ghostRow).toBeLessThan(liveRow);
     // No transcript mtime at all reads as an em dash, not "just now".
-    expect(out).toContain("| 3 | — |");
+    expect(out).toContain("| 3 | - |");
   });
 
   it("withholds paths and per-agent detail from the aggregate projection", () => {
@@ -145,7 +145,7 @@ describe("renderStorageReport", () => {
     expect(out).not.toContain("Biggest agents");
     expect(out).not.toContain("name:agent-live");
     expect(out).toContain("owner-only");
-    // The sizes themselves still come through — that is the whole point of the
+    // The sizes themselves still come through - that is the whole point of the
     // projection.
     expect(out).toContain("**3.0 MB total:**");
   });
@@ -178,7 +178,7 @@ describe("renderStorageReport", () => {
     // One row, pipes escaped, newline flattened, trailing backslash doubled so
     // it cannot escape the cell delimiter that follows it.
     expect(row).toBe(
-      "| Ev\\|il row \\| 9 TB \\| 9 \\| now\\\\ | 7.0 MB | 0 B | 1 | — |",
+      "| Ev\\|il row \\| 9 TB \\| 9 \\| now\\\\ | 7.0 MB | 0 B | 1 | - |",
     );
   });
 
@@ -196,19 +196,19 @@ describe("renderStorageReport", () => {
   it("keeps the killed annotation renderer-owned, not forgeable by a name", () => {
     // The trusted form: the renderer's own italics, from the flag.
     const trusted = rowFor("Gone", true);
-    expect(trusted).toBe("| Gone _(killed)_ | 7.0 MB | 0 B | 1 | — |");
+    expect(trusted).toBe("| Gone _(killed)_ | 7.0 MB | 0 B | 1 | - |");
 
     // A LIVE agent whose name is itself the annotation must not be able to
     // produce that form. The underscores are escaped, so it renders as the
     // literal characters a person typed, not as the report's verdict.
     const forged = rowFor("Gone _(killed)_");
     expect(forged).not.toBe(trusted);
-    expect(forged).toBe("| Gone \\_\\(killed\\)\\_ | 7.0 MB | 0 B | 1 | — |");
+    expect(forged).toBe("| Gone \\_\\(killed\\)\\_ | 7.0 MB | 0 B | 1 | - |");
     // No unescaped copy of the annotation anywhere in the forged row.
     expect(forged.includes(" _(killed)_")).toBe(false);
 
     // And an ordinary alive name stays clean.
-    expect(rowFor("Gone")).toBe("| Gone | 7.0 MB | 0 B | 1 | — |");
+    expect(rowFor("Gone")).toBe("| Gone | 7.0 MB | 0 B | 1 | - |");
   });
 
   it("states how many agents the table left out", () => {

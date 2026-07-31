@@ -43,7 +43,7 @@ describe("slide iframe framing", () => {
     const doc = buildSlideSrcDoc("<div>tall</div>", 1400);
     expect(doc).toContain(`height:1400px`);
     expect(doc).not.toContain(`height:${SLIDE_H}px`);
-    // overflow stays hidden — nothing ever scrolls inside the frame.
+    // overflow stays hidden - nothing ever scrolls inside the frame.
     expect(doc).toContain("overflow:hidden");
   });
 
@@ -55,7 +55,7 @@ describe("slide iframe framing", () => {
     );
     expect(doc).toContain(`width:${SLIDE_W}px`);
     // Content must be free to flow to its natural height so scrollHeight is
-    // meaningful — so NO height clamp and NO overflow:hidden here.
+    // meaningful - so NO height clamp and NO overflow:hidden here.
     expect(doc).not.toContain("height:");
     expect(doc).not.toContain("overflow:hidden");
     expect(doc).toContain("<body><div>hi</div></body>");

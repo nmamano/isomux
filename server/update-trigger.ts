@@ -1,6 +1,6 @@
 // In-UI update trigger (release-channel, internal-docs/release-design.md →
 // "Update trigger", recommendation B). Turns an owner's button click into a
-// DETACHED launch of the installed updater — detached because scripts/update.sh
+// DETACHED launch of the installed updater - detached because scripts/update.sh
 // restarts the isomux service, so a child of this server process would be
 // killed mid-update by its own stop step.
 //
@@ -11,18 +11,18 @@
 //   pid1 to start the ROOT-OWNED template unit deploy/install.sh installed
 //   (ExecStart=<UPDATER_PATH> %i); a polkit rule grants the service user
 //   exactly that unit-name pattern with verb=start and nothing else. --no-block
-//   because systemctl otherwise waits for oneshot units to finish — the whole
+//   because systemctl otherwise waits for oneshot units to finish - the whole
 //   point is to return before the restart hits us. CONCURRENCY: template
 //   instances for different tags are DIFFERENT units, so two triggers can
-//   both be accepted (202) — update.sh's flock is the real guard, and the
+//   both be accepted (202) - update.sh's flock is the real guard, and the
 //   loser fails fast into the updater's status file, not into this response.
 // - user (dev-style box that still has an update.conf): same user, no
-//   escalation — `systemd-run --user` runs the installed updater as a
+//   escalation - `systemd-run --user` runs the installed updater as a
 //   transient unit under the user manager, which survives the service restart.
 //   The fixed unit name makes a second trigger collide at systemd while one
 //   is running (--collect garbage-collects the unit when it finishes);
 //   update.sh's flock is the backstop.
-// - no update.conf at all (e.g. Nil's office — the installer never ran):
+// - no update.conf at all (e.g. Nil's office - the installer never ran):
 //   not updater-managed; the trigger refuses and the UI never offers the
 //   button (the checker isn't in release mode without the conf).
 //
@@ -119,7 +119,7 @@ export function buildTriggerPlan(
 // Launch seam. The command itself only ENQUEUES the update (both shapes return
 // once systemd has accepted the job), so a short timeout is generous; progress
 // and outcome live in the updater's own status file / the restart the client
-// experiences. Non-zero exit surfaces stderr — that's where "polkit denied"
+// experiences. Non-zero exit surfaces stderr - that's where "polkit denied"
 // or "unit already running" land.
 export async function runTrigger(
   argv: string[],

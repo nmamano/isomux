@@ -1,4 +1,4 @@
-// scripts/release.sh — tagging gates and CalVer computation, driven against a
+// scripts/release.sh - tagging gates and CalVer computation, driven against a
 // local bare origin. Sandbox modes: RELEASE_SKIP_CI=1 bypasses the CI gate
 // entirely; the CI-gate tests instead use RELEASE_GH_REPO plus a PATH-stubbed
 // gh that emits canned /actions/runs JSON and applies the --jq expression
@@ -35,7 +35,7 @@ function runRelease(
   return { code: r.status ?? -1, out: `${r.stdout}\n${r.stderr}` };
 }
 
-// Today's base tag from the SAME date invocation release.sh uses — JS
+// Today's base tag from the SAME date invocation release.sh uses - JS
 // new Date() can disagree with bash date on timezone (bun defaults to UTC).
 function todayTag(): string {
   return `v${sh(base, "date +%Y.%-m.%-d")}`;
@@ -54,7 +54,7 @@ beforeEach(() => {
   sh(repo, "git fetch -q origin");
 
   // gh stub for the CI-gate tests: canned /actions/runs bodies per
-  // GH_STUB_MODE, with the caller's --jq expression applied by real jq —
+  // GH_STUB_MODE, with the caller's --jq expression applied by real jq -
   // the same filtering gh would do.
   const bin = join(base, "bin");
   mkdirSync(bin);

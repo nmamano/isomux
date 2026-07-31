@@ -1,4 +1,4 @@
-// Phase 3a — route matcher contract. Pins longest-static-wins and param
+// Phase 3a - route matcher contract. Pins longest-static-wins and param
 // extraction over the REAL typed table (server/routes/table.ts), including the
 // collisions Reviewer1 called out. Zero LLM, no server boot.
 

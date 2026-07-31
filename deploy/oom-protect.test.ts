@@ -1,10 +1,10 @@
-// deploy/oom-protect.sh — the kill-order logic, exercised against a fake /proc.
+// deploy/oom-protect.sh - the kill-order logic, exercised against a fake /proc.
 //
 // This task (c5b4e89e) exists because the original verification trusted
 // `systemctl show`, which reports the value that was ASKED for. The kernel held
 // something else for a week and nobody noticed. So the behaviour that has to be
 // pinned here is not "the tool writes a number" but "the tool reads the number
-// back and says so when it did not take" — a later refactor that quietly drops
+// back and says so when it did not take" - a later refactor that quietly drops
 // the readback would recreate the July bug exactly.
 //
 // Real pids cannot be used: the interesting cases are a refused write and a pid
@@ -155,7 +155,7 @@ describe("stamp_pid: the readback that this task exists for", () => {
 
   it("authenticates the READBACK, not just the write", async () => {
     // Pins the ordering, which the case above cannot: there, the two start
-    // times differ, so any ordering warns. The real hole was narrower — a
+    // times differ, so any ordering warns. The real hole was narrower - a
     // process that exits AFTER the identity check and before the value is read.
     // Both start times then come from the original while the value comes from
     // whatever inherited the pid, and a stranger holding the asked-for value by

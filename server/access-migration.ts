@@ -1,4 +1,4 @@
-// Phase 3b slice 3 — owner-access migration decision (PURE).
+// Phase 3b slice 3 - owner-access migration decision (PURE).
 //
 // Moves owners from the OLD materialized-grants model (allowedRooms snapshots
 // every room id; owner access == coverage) to RULE-BASED access (owners reach
@@ -27,12 +27,12 @@ export interface OwnerAccessMigration {
 // For each owner with non-empty allowedRooms, in order:
 //   1. EFFECTIVE-COVERAGE GUARD: if the grants cover NO live room (empty after
 //      the load guard, or all-stale ids pointing at deleted rooms) seed
-//      hidden = ∅ — the owner sees every room by rule, never a blank office.
+//      hidden = ∅ - the owner sees every room by rule, never a blank office.
 //      Otherwise seed hidden = liveRooms \ grants, so a self-hiding owner's
 //      CURRENT view survives the flip (the rooms they could not reach before
 //      stay hidden as a VIEW preference, not a security restriction).
 //   2. Union the seeded hidden with the owner's pre-existing `hidden`, then
-//      INTERSECT with the live rooms — stale hidden ids are inert in the
+//      INTERSECT with the live rooms - stale hidden ids are inert in the
 //      projection (they never match a live room) and must not accumulate on
 //      disk across migrations. Dedupe, stable order (existing-hidden first,
 //      then seeded in live-room order).

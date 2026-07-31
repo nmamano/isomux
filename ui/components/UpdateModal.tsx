@@ -84,7 +84,7 @@ const quietButtonStyle: React.CSSProperties = {
 };
 
 // Commit-mode body: the source-checkout notice (running version, latest
-// release, main drift — copy composed in shared/update-notice.ts) with manual
+// release, main drift - copy composed in shared/update-notice.ts) with manual
 // update instructions.
 function CommitBody({
   status,
@@ -176,7 +176,7 @@ function ReleaseBody({
   // Office-wide mid-turn count, computed by the server: the local agent store
   // is projected to this viewer's visible rooms and would undercount for a
   // room-restricted owner, while the restart interrupts everyone. Null while
-  // loading or after a failed fetch — the copy then says the count is
+  // loading or after a failed fetch - the copy then says the count is
   // unavailable rather than silently substituting the projected local count.
   const [busy, setBusy] = useState<number | null>(null);
   const [busyUnavailable, setBusyUnavailable] = useState(false);
@@ -365,7 +365,7 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
 
   const release = updateInfo?.mode === "release" ? updateInfo : null;
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
-  // Null while quiet — the pill is hidden then, so the modal normally can't
+  // Null while quiet - the pill is hidden then, so the modal normally can't
   // open; the guard below just keeps a stale-open modal from rendering blank.
   const notice = commit ? buildCommitNotice(commit) : null;
 

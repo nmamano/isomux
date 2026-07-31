@@ -42,7 +42,7 @@ interface Tab {
   content: string;
   mtime: number;
   // Server-issued revision this buffer is based on. Compared against the
-  // rev on external-change pushes and reconnect re-opens — unlike mtime, it
+  // rev on external-change pushes and reconnect re-opens - unlike mtime, it
   // catches rollbacks and same-millisecond replaces (server-side signature
   // includes the inode).
   rev: number;
@@ -52,7 +52,7 @@ interface Tab {
   // Save banner state. "stale": disk changed since we opened; user must
   // pick Overwrite or Reload. "external": file changed under us while we
   // hold a clean buffer (auto-reloaded already → null) or a dirty buffer
-  // (banner: "Reload? lose edits"). "deleted": file is gone from disk —
+  // (banner: "Reload? lose edits"). "deleted": file is gone from disk -
   // nothing to reload; user picks Save-to-recreate or Close.
   banner:
     | null
@@ -87,7 +87,7 @@ function writeTabs(agentId: string, paths: string[]) {
 // Most-recently-opened file paths, per agent, newest first. Distinct from
 // TABS_KEY (currently-open tabs): recents survive a full close of every tab
 // so the empty editor offers a one-click reopen. A fuller always-visible file
-// browser is the separate, more ambitious file-nav sidebar (task 4c8740f5) —
+// browser is the separate, more ambitious file-nav sidebar (task 4c8740f5) -
 // deliberately NOT built here; this is the lightweight quick-reopen affordance.
 const RECENT_KEY = (agentId: string) => `isomux:editor:recent:${agentId}`;
 const MAX_RECENT = 12;
@@ -172,7 +172,7 @@ export function EditorPanel({
   // This tab's connectionId binds the editor file-watch to THIS socket: the GET
   // (open) and DELETE (close) carry it as X-Isomux-Connection-Id and
   // editor_external_change pushes back over it. Empty only before the first
-  // session_context arrives — the editor isn't reachable that early.
+  // session_context arrives - the editor isn't reachable that early.
   const connectionId = sessionContext?.connectionId ?? "";
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -182,7 +182,7 @@ export function EditorPanel({
 
   // Restore from the module-level store on mount so tabs and dirty buffers
   // survive LogView remount on agent switch. (LogView is keyed by agent id
-  // in App.tsx, which fully unmounts the column on each switch — local
+  // in App.tsx, which fully unmounts the column on each switch - local
   // useState would lose the buffer.) Banner state is volatile, never
   // restored, so the user doesn't see a stale "stale-save" prompt that was
   // resolved before they navigated away.
@@ -258,7 +258,7 @@ export function EditorPanel({
   }, [agentId, tabs, activePath]);
 
   // Push a resolved path to the front of the recents MRU (deduped, capped).
-  // Callers OPT IN via openPath's `recordRecent` flag — only genuine
+  // Callers OPT IN via openPath's `recordRecent` flag - only genuine
   // user/agent opens (an edit request / initial requested open, a Recent
   // click) record. Hydration (tab restore), reconnect watch re-arm, and silent
   // external-change reloads call openPath too but must NOT record; the openPath
@@ -278,7 +278,7 @@ export function EditorPanel({
   );
 
   // Open (or reload) a file: GET its content, (re)arm the watch on the resolved
-  // path, and merge it into the tab list — keyed by the RESOLVED path the server
+  // path, and merge it into the tab list - keyed by the RESOLVED path the server
   // returns (so it matches editor_external_change). Replaces the editor_open WS
   // command + the editor_content / editor_open_error events (now .then / .catch).
   // By default a dirty buffer is preserved (agent-switch remounts re-fetch just
@@ -310,19 +310,19 @@ export function EditorPanel({
               const existing = prev[idx];
               const next = prev.slice();
               if (existing.dirty && !opts?.discardDirty) {
-                // Preserve the dirty buffer — this happens after agent-switch
+                // Preserve the dirty buffer - this happens after agent-switch
                 // re-mounts and after WS-reconnect re-arms, when we re-fetch to
                 // reinstall the watch. Refresh only language/size; NOT
                 // mtime/rev, or a later save would pass the staleness check
                 // and silently clobber the disk changes. If disk moved from
-                // what we opened (an external change we missed — e.g. it
+                // what we opened (an external change we missed - e.g. it
                 // happened while disconnected), raise the same banner the live
                 // watch shows. The comparison is rev-only: the server-side
                 // signature behind it catches rollbacks and same-ms replaces
                 // that mtime can't, mtime is part of that signature (so a rev
                 // match implies an mtime match within one server process), and
                 // revs never collide across a server restart (each process
-                // reserves a persisted generation for its rev space) — a
+                // reserves a persisted generation for its rev space) - a
                 // restart shows up as a mismatch, i.e. a benign false
                 // conflict, never a missed one.
                 next[idx] = {
@@ -366,14 +366,14 @@ export function EditorPanel({
           // Only record for genuinely user/agent-initiated opens (an edit
           // request or a recents click). NOT for hydration (module-store /
           // localStorage tab restore), reconnect watch re-arming, or silent
-          // external-change reloads — those call openPath too but the user
+          // external-change reloads - those call openPath too but the user
           // opened nothing, and their async completions would reorder the MRU
           // arbitrarily. Records the server-RESOLVED path, not the input.
           if (opts?.recordRecent) recordRecent(m.path);
         })
         .catch((err) => {
           // A 404 on a path we already hold a tab for means the file was
-          // deleted on disk (e.g. while we were disconnected — the live watch
+          // deleted on disk (e.g. while we were disconnected - the live watch
           // couldn't tell us). Surface the deletion banner on that tab instead
           // of a dead-end "not found" error line.
           if (err instanceof ApiError && err.code === "not_found") {
@@ -397,7 +397,7 @@ export function EditorPanel({
     [agentId, connectionId, setTabsAndPersist, recordRecent],
   );
 
-  // Disarm a file watch (DELETE) — used on tab close + panel unmount. The
+  // Disarm a file watch (DELETE) - used on tab close + panel unmount. The
   // connection header binds the unwatch to THIS socket. Fire-and-forget.
   const closeWatch = useCallback(
     (path: string) => {
@@ -465,7 +465,7 @@ export function EditorPanel({
               }
               if (err instanceof ApiError && err.code === "deleted") {
                 // The file vanished from disk before this save. NOT a content
-                // conflict — offer save-to-recreate, not overwrite/reload.
+                // conflict - offer save-to-recreate, not overwrite/reload.
                 return { ...t, banner: { kind: "deleted" } };
               }
               return {
@@ -487,7 +487,7 @@ export function EditorPanel({
   // First mount: figure out where to load from.
   //   1. Module store (set by a previous mount of this agent's editor) wins
   //      because it preserves dirty buffers. We still re-open each restored path
-  //      (the GET) so the server reinstalls the watch — openPath is careful to
+  //      (the GET) so the server reinstalls the watch - openPath is careful to
   //      keep the dirty buffer.
   //   2. Else, if the parent passed an initialPath, the [initialPath] effect
   //      below handles it.
@@ -509,7 +509,7 @@ export function EditorPanel({
 
   // Re-arm the server-side file watches after a WS reconnect. Watches are
   // keyed by connectionId on the server and swept on disconnect, and every
-  // WS open delivers a fresh connectionId via session_context — so an editor
+  // WS open delivers a fresh connectionId via session_context - so an editor
   // that stays mounted across a reconnect (laptop sleep, network blip) would
   // otherwise silently stop receiving editor_external_change forever.
   // Re-opening also re-fetches content, catching changes missed while
@@ -522,8 +522,8 @@ export function EditorPanel({
     for (const t of tabsRef.current) openPath(t.path);
   }, [connectionId, openPath]);
 
-  // Whenever a new initialPath arrives — first mount with one, or the parent
-  // sets a new path because the boss clicked another EditRequestCard —
+  // Whenever a new initialPath arrives - first mount with one, or the parent
+  // sets a new path because the boss clicked another EditRequestCard -
   // either focus the existing tab or open the file. Activate it optimistically
   // so it becomes the active tab even when other tabs were restored from the
   // module store with a different activePath set already.
@@ -532,14 +532,14 @@ export function EditorPanel({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActivePath(initialPath);
     const existing = tabsRef.current.find((t) => t.path === initialPath);
-    // A genuine user/agent-initiated open (edit request card, /isomux-edit) —
+    // A genuine user/agent-initiated open (edit request card, /isomux-edit) -
     // record it in the recents MRU.
     if (!existing) openPath(initialPath, { recordRecent: true });
     onPathOpened?.(initialPath);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPath]);
 
-  // Wire a raw WebSocket listener for editor_external_change — the one editor
+  // Wire a raw WebSocket listener for editor_external_change - the one editor
   // event that stays on the WS (the file-watch push). open/save are now apiFetch
   // (.then/.catch), so editor_content / editor_open_error / editor_save_response
   // are retired and no longer handled here.
@@ -579,7 +579,7 @@ export function EditorPanel({
         const m = msg;
         const existing = tabsRef.current.find((t) => t.path === m.path);
         if (!existing) return;
-        // Deletion banner regardless of dirty state — a clean buffer can't
+        // Deletion banner regardless of dirty state - a clean buffer can't
         // silently "reload" a file that no longer exists; the buffer is now
         // the only copy, so surface Save-to-recreate / Close.
         setTabsAndPersist((prev) =>
@@ -595,7 +595,7 @@ export function EditorPanel({
 
   // Release server-side watch timers when the panel unmounts (LogView
   // reset, agent switch, etc.). Without this, watchers persist on the WS
-  // until disconnect — a slow poll-timer leak for long-lived browser tabs.
+  // until disconnect - a slow poll-timer leak for long-lived browser tabs.
   // X-button per-tab close already sends editor_close; this is the catch-all
   // for unmount paths the user didn't explicitly trigger.
   useEffect(() => {
@@ -607,7 +607,7 @@ export function EditorPanel({
   }, [closeWatch]);
 
   // Initialize the CodeMirror EditorView once. We swap content in and out
-  // via dispatch when the active tab changes — no remount.
+  // via dispatch when the active tab changes - no remount.
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -627,7 +627,7 @@ export function EditorPanel({
 
     // Mobile gets a leaner extension set: no gutter (eats ~40px on a 390px
     // screen), no autocompletion popup (lands off-screen with the soft
-    // keyboard up — see tab board), and contentAttributes that turn off iOS
+    // keyboard up - see tab board), and contentAttributes that turn off iOS
     // autocorrect/autocapitalize/spellcheck so it doesn't mangle code.
     const view = new EditorView({
       parent: containerRef.current,
@@ -688,7 +688,7 @@ export function EditorPanel({
   }, [mode]);
 
   // Sync the editor view whenever the active tab's content or language
-  // changes — covers tab switches, content arrival from server, and external
+  // changes - covers tab switches, content arrival from server, and external
   // reloads. Doc updates check equality first to avoid feedback with the
   // updateListener that flips `dirty`. Language only reconfigures when it
   // actually differs (CodeMirror compartments are cheap but not free).
@@ -720,7 +720,7 @@ export function EditorPanel({
     }
     const tab = tabs.find((t) => t.path === activePath);
     if (!tab) return;
-    // A real file is open — restore editability if we'd locked it.
+    // A real file is open - restore editability if we'd locked it.
     if (readonlyInstalledRef.current) {
       view.dispatch({
         effects: readonlyCompartmentRef.current.reconfigure([]),
@@ -748,11 +748,11 @@ export function EditorPanel({
     if (!path) return;
     const tab = tabsRef.current.find((t) => t.path === path);
     if (!tab) return;
-    // saveTab never rejects (errors surface as banners) — fire-and-forget.
+    // saveTab never rejects (errors surface as banners) - fire-and-forget.
     void saveTab(path, tab.content, tab.mtime, tab.rev, false);
   }, [saveTab]);
 
-  // Save with Ctrl+S / Cmd+S — must capture to suppress browser save dialog.
+  // Save with Ctrl+S / Cmd+S - must capture to suppress browser save dialog.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "s" || (!e.ctrlKey && !e.metaKey)) return;
@@ -812,7 +812,7 @@ export function EditorPanel({
   const overwrite = useCallback(() => {
     if (!activeTab) return;
     // Force-save: bypass the revision/mtime check. saveTab never rejects
-    // (errors surface as banners) — fire-and-forget.
+    // (errors surface as banners) - fire-and-forget.
     void saveTab(
       activeTab.path,
       activeTab.content,
@@ -823,9 +823,9 @@ export function EditorPanel({
   }, [activeTab, saveTab]);
 
   // Deleted-banner "Save to recreate": force-write the buffer back to disk,
-  // then re-open the path. The re-open re-arms the server-side watch — needed
+  // then re-open the path. The re-open re-arms the server-side watch - needed
   // when the deletion was discovered via a reconnect re-open 404, where no
-  // watch is installed — and refreshes mtime/rev from the recreated file.
+  // watch is installed - and refreshes mtime/rev from the recreated file.
   const recreateFromBuffer = useCallback(() => {
     if (!activeTab) return;
     // saveTab never rejects (errors surface as banners).
@@ -843,7 +843,7 @@ export function EditorPanel({
   const reloadFromDisk = useCallback(() => {
     if (!activeTab) return;
     // The banners this button lives in only show on dirty buffers, and the
-    // user explicitly chose disk over their edits — discard the dirty buffer.
+    // user explicitly chose disk over their edits - discard the dirty buffer.
     openPath(activeTab.path, { discardDirty: true });
   }, [activeTab, openPath]);
 
@@ -860,7 +860,7 @@ export function EditorPanel({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        // borderLeft removed — the parent container's PanelResizer renders
+        // borderLeft removed - the parent container's PanelResizer renders
         // the divider so it can be drag-targeted and hover-tinted.
         background: "var(--bg-base)",
         position: "relative",
@@ -870,7 +870,7 @@ export function EditorPanel({
         overflow: mobile ? "hidden" : undefined,
       }}
     >
-      {/* Header: tabs + close. Two layouts — desktop is a horizontally
+      {/* Header: tabs + close. Two layouts - desktop is a horizontally
           scrolling tab strip; mobile is a single dropdown switcher with a
           dirty-only Save button next to the close ×. The mobile branch keeps
           the close affordance reachable even with many files open. */}
@@ -1050,7 +1050,7 @@ export function EditorPanel({
                         color: "var(--text-ghost)",
                         cursor: "pointer",
                         fontSize: 20,
-                        // 44×44pt hit target — Apple's minimum, important for
+                        // 44×44pt hit target - Apple's minimum, important for
                         // a button that sits next to a row tap area where a
                         // miss switches tabs instead of closing them.
                         minWidth: 44,
@@ -1223,7 +1223,7 @@ export function EditorPanel({
           {activeTab.banner.kind === "external" && (
             <>
               <span style={{ flex: 1 }}>
-                File changed externally — your edits will be lost if you reload.
+                File changed externally - your edits will be lost if you reload.
               </span>
               <button
                 onClick={reloadFromDisk}
@@ -1378,7 +1378,7 @@ export function EditorPanel({
         </div>
       )}
 
-      {/* Editor body. Hidden (not unmounted — the CodeMirror view stays attached)
+      {/* Editor body. Hidden (not unmounted - the CodeMirror view stays attached)
           when no file is open, so its empty "1"-line gutter doesn't show; a plain
           placeholder takes its place. */}
       {tabs.length === 0 && (

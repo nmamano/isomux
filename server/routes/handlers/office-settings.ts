@@ -1,6 +1,6 @@
-// Office-settings resource handlers — Phase 3a slice 3a.5. The office-wide
+// Office-settings resource handlers - Phase 3a slice 3a.5. The office-wide
 // prompt / envFile / display-name surface on the unified REST surface (opIds
-// office.{getSettings,setSettings}). Owner-only — the route table gates both with
+// office.{getSettings,setSettings}). Owner-only - the route table gates both with
 // office:admin + officeOwner.
 //
 // Strangler: office.setSettings (REST) delegates to the shared core
@@ -9,7 +9,7 @@
 // core validates COMPLETELY before it mutates/emits, so an invalid env path or
 // over-long name never produces a double-signal (no partial write, no
 // office_settings_updated). setSettings emits office_settings_updated via the
-// existing AgentManager event sink — the handler never emits.
+// existing AgentManager event sink - the handler never emits.
 //
 // office.getSettings returns the FULL OfficeSettings (incl envFile); envFile is
 // owner-only by the route guard and, by design, never rides the office-wide
@@ -35,7 +35,7 @@ import type { OfficeSettings } from "../../../shared/types.ts";
 
 // setSettings outcome the seam shapes: ok, a status-mapped validation failure
 // (400 invalid env path / over-long name), or a version conflict carrying the
-// CURRENT version (409 — the settings changed since the caller's read). The
+// CURRENT version (409 - the settings changed since the caller's read). The
 // handler maps them 1:1.
 export type ApplyOfficeSettingsResult =
   | { ok: true }
@@ -44,11 +44,11 @@ export type ApplyOfficeSettingsResult =
 
 export interface OfficeSettingsDeps {
   // Full settings + their optimistic-concurrency version (one version over the
-  // whole blob — the PUT replaces prompt/envFile/name wholesale).
+  // whole blob - the PUT replaces prompt/envFile/name wholesale).
   getSettings(): OfficeSettings & { version: string };
   // Validate-then-apply, guarded by the version from a preceding getSettings.
   // `name === undefined` preserves the current name; null or empty clears it.
-  // Throws nothing — invalid input returns { ok: false }.
+  // Throws nothing - invalid input returns { ok: false }.
   applySettings(input: {
     prompt: string | null;
     envFile: string | null;
@@ -82,7 +82,7 @@ export function officeSettingsHandlers(
             ? b.name
             : null;
       // The PUT replaces the whole settings blob, so it must carry the version
-      // from a preceding GET — same rail as memory.replace.
+      // from a preceding GET - same rail as memory.replace.
       if (typeof b.version !== "string" || b.version.length === 0) {
         return fail(
           400,

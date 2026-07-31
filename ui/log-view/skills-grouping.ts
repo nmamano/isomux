@@ -3,7 +3,7 @@
 //
 //   - A single cross-group "Most used" region surfaces at the very top: the
 //     TOP_N entries with the highest use counts, count desc (name breaks
-//     ties), spanning commands AND skills — "the most used are always the
+//     ties), spanning commands AND skills - "the most used are always the
 //     most accessible regardless of skill/command" (Nil).
 //   - The region is CAPPED (MOST_USED_CAP): counts are monotonic, so an
 //     unbounded region would eventually drain every origin group into one

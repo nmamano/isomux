@@ -2,7 +2,7 @@
 // and emitAgentReadFile attachment inference. SVG is intentionally omitted:
 // it falls through to octet-stream so we don't advertise SVG as inline image
 // content. (The /api/files response doesn't set nosniff, so browsers may
-// still sniff — if we want the stronger guarantee later, add the header.)
+// still sniff - if we want the stronger guarantee later, add the header.)
 
 const EXT_TO_MIME: Record<string, string> = {
   jpg: "image/jpeg",

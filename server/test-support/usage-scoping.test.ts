@@ -3,7 +3,7 @@
 // The report is a read surface over room-scoped data, so it follows the same
 // ACCESS gate as the other read surfaces (roomAllowedForSession / the visible
 // room projection): an office OWNER sees the whole office; a MEMBER sees only
-// the rooms they can access — agent rows, room rows, and the total — with cron
+// the rooms they can access - agent rows, room rows, and the total - with cron
 // jobs (which carry no room) owner-only.
 //
 // Direct-call seam against the preload's temp STATE_ROOT, per the
@@ -204,7 +204,7 @@ describe("renderUsageReport room scoping", () => {
     expect(report).toContain("| Room A |");
     expect(report).not.toContain("Room B");
     // Killed agents in a room the member can't reach, and the unknown-room
-    // bucket, are owner-only — including their spend.
+    // bucket, are owner-only - including their spend.
     expect(report).not.toContain("(unknown room)");
     expect(lifetimeTotalUsd(report)).toBe("$1.00");
   });
@@ -215,7 +215,7 @@ describe("renderUsageReport room scoping", () => {
     expect(report).not.toContain("Nightly");
     expect(report).not.toContain("## Office total");
     expect(report).toContain("## Total");
-    // $1.00, not $8.00 — the cron job's $7 never lands in a member's bottom line.
+    // $1.00, not $8.00 - the cron job's $7 never lands in a member's bottom line.
     expect(lifetimeTotalUsd(report)).toBe("$1.00");
   });
 
@@ -237,11 +237,11 @@ describe("renderUsageReport room scoping", () => {
     expect(report).not.toContain("Beta");
     expect(report).not.toContain("Room A");
     expect(report).not.toContain("Room B");
-    expect(lifetimeTotalUsd(report)).toBe("—");
+    expect(lifetimeTotalUsd(report)).toBe("-");
   });
 });
 
-// The direct-call tests above pin the report; this one pins the WIRING — that
+// The direct-call tests above pin the report; this one pins the WIRING - that
 // the /isomux-usage handler resolves the AUTHENTICATED CALLER to an audience.
 // A regression that dropped the caller (e.g. always passing the owner audience)
 // would leave every assertion above green.
@@ -256,7 +256,7 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
   // The command's report lands as a `system` entry in the agent's log. Read the
   // live log rather than the JSONL: a freshly spawned agent has no session yet
   // (the command is answered locally, without waking the backend), so nothing is
-  // persisted — which is exactly the state a boss typing /isomux-usage first
+  // persisted - which is exactly the state a boss typing /isomux-usage first
   // thing is in.
   function lastReport(srv: TestServer, agentId: string): string {
     const entries = srv.agentManager

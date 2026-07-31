@@ -24,10 +24,10 @@ Run ESLint during development. A good time to do it is right before human review
 
 ## Key decisions (do not revisit)
 
-- Single Bun process. No Node, no separate API server, no database — flat-file state only.
+- Single Bun process. No Node, no separate API server, no database - flat-file state only.
 - Agent = persistent identity. Conversation = resumable session.
 - 8 desks per room.
-- Subscription auth via the provider's own CLI — Isomux never handles API keys.
+- Subscription auth via the provider's own CLI - Isomux never handles API keys.
 - Browser auth: invite-link cookie sessions. The first owner claims via a tokenless name-picker form served on loopback (the server binds 127.0.0.1 pre-claim); once an owner exists, only owners can mint further invites. By default agents inherit no special auth privileges; an opt-in per-agent `privileged` flag grants a curated subset of the spawning user's room-scoped operator capabilities (drive other agents' sessions + cron over its own jobs) while keeping agent scope (never impersonates the user, never reaches owner/user administration). See `docs/access-and-invites.md`.
 - REST API to give agents extra affordances (like messaging other agents or showing a diff).
 - Codex integration uses the App Server, not `@openai/codex-sdk`. App Server is OpenAI's first-class integration for UI clients.
@@ -35,17 +35,17 @@ Run ESLint during development. A good time to do it is right before human review
 
 ## Project layout
 
-- `site/` — Landing page and demo, deployed to isomux.com via Vercel. Demo is built from `ui/demo-entry.tsx` + `ui/demo.html` into `site/demo/` (see `vercel.json`).
-- `internal-docs/` — Design documents, plans, and reference material. `documentation.md` is the index of every user-facing copy surface to update when features change.
-- `deploy/` — Unattended VPS installer (`install.sh`), documented in `docs/vps-install.md`. Its helper scripts (`harden-ssh.sh`, `oom-protect.sh`, installed on the box as `isomux-harden-ssh` / `isomux-oom-protect`) are also **embedded verbatim inside `install.sh`**, which is fetched on its own by `curl | bash` and cannot read repo files. Edit the helper, then run `bun run scripts/embed-deploy-scripts.ts`; `deploy/install-sh.test.ts` fails if the copies drift.
-- `scripts/` — Build and release tooling: `build.sh` (UI bundle), `release.sh` (tag a CalVer release), `update.sh` (customer-box updater; installed as `isomux-update`), `embed-deploy-scripts.ts` (sync the copies above). Release process: `internal-docs/release-design.md`.
-- `skills/` — Skills bundled with the project, available to every isomux agent.
-- `shared/` — TypeScript types shared between server and UI.
-- `server/` — Bun HTTP + WebSocket server, agent lifecycle, provider backends.
-- `ui/` — React frontend.
+- `site/` - Landing page and demo, deployed to isomux.com via Vercel. Demo is built from `ui/demo-entry.tsx` + `ui/demo.html` into `site/demo/` (see `vercel.json`).
+- `internal-docs/` - Design documents, plans, and reference material. `documentation.md` is the index of every user-facing copy surface to update when features change.
+- `deploy/` - Unattended VPS installer (`install.sh`), documented in `docs/vps-install.md`. Its helper scripts (`harden-ssh.sh`, `oom-protect.sh`, installed on the box as `isomux-harden-ssh` / `isomux-oom-protect`) are also **embedded verbatim inside `install.sh`**, which is fetched on its own by `curl | bash` and cannot read repo files. Edit the helper, then run `bun run scripts/embed-deploy-scripts.ts`; `deploy/install-sh.test.ts` fails if the copies drift.
+- `scripts/` - Build and release tooling: `build.sh` (UI bundle), `release.sh` (tag a CalVer release), `update.sh` (customer-box updater; installed as `isomux-update`), `embed-deploy-scripts.ts` (sync the copies above). Release process: `internal-docs/release-design.md`.
+- `skills/` - Skills bundled with the project, available to every isomux agent.
+- `shared/` - TypeScript types shared between server and UI.
+- `server/` - Bun HTTP + WebSocket server, agent lifecycle, provider backends.
+- `ui/` - React frontend.
 
 ### Key paths
 
-- `~/.isomux/` — all persisted state: agent configs, conversation logs, cronjobs, tasks, office prompt, user profiles.
-- `ui/dist/` — UI build output (gitignored).
-- `server/isomux-office.ts` — the server entry point, named so the office's command line is recognizable. `server/index.ts` remains as a shim for systemd units written before the rename — don't delete it.
+- `~/.isomux/` - all persisted state: agent configs, conversation logs, cronjobs, tasks, office prompt, user profiles.
+- `ui/dist/` - UI build output (gitignored).
+- `server/isomux-office.ts` - the server entry point, named so the office's command line is recognizable. `server/index.ts` remains as a shim for systemd units written before the rename - don't delete it.

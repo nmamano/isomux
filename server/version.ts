@@ -18,7 +18,7 @@ export interface VersionInfo {
   version: string | null;
   // Full HEAD SHA.
   commit: string | null;
-  // The tag name when HEAD is EXACTLY at a v* tag, else null — the
+  // The tag name when HEAD is EXACTLY at a v* tag, else null - the
   // machine-readable "is this a pinned release" signal the update surfaces
   // key on.
   release: string | null;
@@ -47,10 +47,10 @@ function git(root: string, args: string): string | null {
 // The release-channel tag shape (scripts/release.sh, scripts/update.sh use
 // the same rule): vYYYY.M.D with an optional .N for same-day releases. An
 // exact v-tag that is NOT CalVer (a stray "v1.0") must not report as a
-// release — release consumers treat non-null as "pinned to the channel".
+// release - release consumers treat non-null as "pinned to the channel".
 export const CALVER_RELEASE_RE = /^v\d{4}\.\d{1,2}\.\d{1,2}(\.\d+)?$/;
 
-// Uncached resolution against an explicit checkout — the testable seam.
+// Uncached resolution against an explicit checkout - the testable seam.
 export function resolveVersionInfo(root: string): VersionInfo {
   // Enumerate ALL tags at HEAD rather than trusting `describe --exact-match`
   // to pick one: with a release tag and another v-tag on the same commit,
@@ -71,7 +71,7 @@ export function resolveVersionInfo(root: string): VersionInfo {
   };
 }
 
-// The newest CalVer release tag reachable from HEAD — the lineage anchor an
+// The newest CalVer release tag reachable from HEAD - the lineage anchor an
 // untagged checkout's update notice compares against the latest release
 // ("which release is this commit past?"). A dedicated query rather than
 // parsing `git describe`: describe picks the NEAREST v* tag, so a stray

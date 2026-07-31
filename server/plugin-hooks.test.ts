@@ -3,8 +3,8 @@
 // the inverse operation so edit-message matching stays in sync with the
 // wrap format if it ever changes.
 //
-// Regression for: a turn that carried an envelope block — a `beforeTurn` plugin
-// (e.g. mem0) OR a built-in context-fullness notice (task 50392514) — got
+// Regression for: a turn that carried an envelope block - a `beforeTurn` plugin
+// (e.g. mem0) OR a built-in context-fullness notice (task 50392514) - got
 // recorded into the SDK transcript as
 // `--- begin (isomux|plugin): <id> ---\n...\n--- end (isomux|plugin): <id> ---\n\nUser message:\n<sdkText>`,
 // but the isomux log entry only carried `<sdkText>`; agent-manager's editMessage
@@ -52,7 +52,7 @@ describe("stripOutboundEnvelope", () => {
   });
 
   it("strips a built-in-only (isomux context-check) wrap", () => {
-    // A turn where only the context-fullness notice fired — no plugins enabled.
+    // A turn where only the context-fullness notice fired - no plugins enabled.
     // This is the zero-plugin case where nothing used to get stripped at all.
     const sdkText = "[Nil] keep going";
     const wrapped =
@@ -95,7 +95,7 @@ describe("stripOutboundEnvelope", () => {
   it("does not split when a block body ends with '---' but isn't a real closing line", () => {
     // Reviewer5's edge case: a stored fact (or block body) that ends with
     // `---` and is followed by `\n\nUser message:\n` shouldn't fool the
-    // matcher — only the real `--- end plugin: <id> ---` line counts.
+    // matcher - only the real `--- end plugin: <id> ---` line counts.
     const sdkText = "[Nil] real payload";
     const wrapped =
       "--- begin plugin: mem0 ---\n" +
@@ -171,7 +171,7 @@ describe("pickContextThreshold", () => {
   });
 
   it("returns the HIGHEST newly-reached band when a first sample clears several", () => {
-    // Lands at 90% with nothing fired yet — only the 75 notice should emit.
+    // Lands at 90% with nothing fired yet - only the 75 notice should emit.
     expect(pickContextThreshold(fakeManaged(snap(90)))).toBe(75);
   });
 

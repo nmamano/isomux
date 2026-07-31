@@ -70,7 +70,7 @@ export function CronjobRunView({
   // The once-only guard is a ref holding the {jobId,runId} it already fetched,
   // not a bare boolean: a boolean would never reset if this view were ever
   // reused for a different run without unmounting. Today it is a per-run
-  // overlay that always remounts, so the key comparison is belt-and-braces —
+  // overlay that always remounts, so the key comparison is belt-and-braces -
   // but it costs nothing and removes the latent trap.
   const fetchKey = `${jobId}\u0000${runId}`;
   const fetchedKeyRef = useRef<string | null>(null);
@@ -109,7 +109,7 @@ export function CronjobRunView({
   // Store first, fetched copy second. The store (cronjobRunsByJob) is the live
   // one: cron list queries seed it and `cronjob_run_updated` events keep it
   // current, and that event UPSERTS, so a status change lands there even for a
-  // run the list never loaded — which is why preferring it keeps the header
+  // run the list never loaded - which is why preferring it keeps the header
   // live. The fetched copy only fills the gap where the store has nothing at
   // all: a deep link to a run whose list hasn't loaded, or a run whose cronjob
   // was deleted. Without it the header would read "Run #<id>" with no metadata.
@@ -117,7 +117,7 @@ export function CronjobRunView({
     runs.find((r) => r.id === runId) ??
     (fetchedRun?.key === fetchKey ? fetchedRun.run : undefined);
 
-  // ESC closes the view, unless the user is editing a message — then ESC
+  // ESC closes the view, unless the user is editing a message - then ESC
   // cancels the edit (handled inside EditableUserMessage).
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -545,7 +545,7 @@ export function CronjobRunView({
         )}
       </div>
 
-      {/* Input — replaces the old read-only banner. Hidden for unresumable runs. */}
+      {/* Input - replaces the old read-only banner. Hidden for unresumable runs. */}
       {canResume ? (
         <div
           style={{
@@ -662,7 +662,7 @@ export function CronjobRunView({
           }}
         >
           {isRunning
-            ? "Run in progress — wait for it to finish before sending a follow-up."
+            ? "Run in progress - wait for it to finish before sending a follow-up."
             : run?.status === "skipped"
               ? "Skipped runs have no session to resume."
               : "This run can't be resumed (no session was established)."}

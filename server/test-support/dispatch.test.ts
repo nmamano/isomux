@@ -1,4 +1,4 @@
-// Phase 2.2 — Two-stage dispatcher contract tests (TDD red→green for NEW code).
+// Phase 2.2 - Two-stage dispatcher contract tests (TDD red→green for NEW code).
 //
 // Asserts the central authz semantics from internal-docs/generic-runtime-refactor.md
 // → Conventions "Two-stage authorization, both declared" + "Error envelope":

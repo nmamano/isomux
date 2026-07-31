@@ -1,5 +1,5 @@
-// Phase 3d slice 6 — rooms.setSettings REST characterization, plus the later
-// rooms.getSettings read (GET /api/rooms/:roomId/settings — the settings pair
+// Phase 3d slice 6 - rooms.setSettings REST characterization, plus the later
+// rooms.getSettings read (GET /api/rooms/:roomId/settings - the settings pair
 // shares one ACL, so both live here).
 //
 // The room-prompt save moved from the WS update_room_settings command (deleted
@@ -26,7 +26,7 @@
 // routes-rooms-rest.test.ts; the per-recipient projection/ACL of these events is
 // in projection.test.ts.
 //
-// Seam: startTestServer() — real auth + /api executor, plus a WS socket to
+// Seam: startTestServer() - real auth + /api executor, plus a WS socket to
 // observe the broadcast. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -174,7 +174,7 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0];
-    // Writer A reads, then writer B saves — A's version is now stale.
+    // Writer A reads, then writer B saves - A's version is now stale.
     const staleVersion = await versionFor(srv, room.id, owner.rawSessionId);
     expect(
       (
@@ -245,7 +245,7 @@ describe("rooms.getSettings REST (settings read pair)", () => {
       version: string;
     };
     expect(beforeBody.prompt).toBeNull();
-    // The never-set prompt still versions (sha of "" — the missing-file
+    // The never-set prompt still versions (sha of "" - the missing-file
     // sentinel convention shared with memory versionOf).
     expect(beforeBody.version).toMatch(/^[0-9a-f]{12}$/);
     const put = await putSettings(

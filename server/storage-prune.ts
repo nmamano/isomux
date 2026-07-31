@@ -15,18 +15,18 @@
 //
 // The route never round-trips a plan through the client: POST /api/storage/prune
 // takes a POLICY, plans server-side, and applies that same fresh plan. applyPrune
-// still re-plans and intersects, so the module is safe standalone — a stale or
+// still re-plans and intersects, so the module is safe standalone - a stale or
 // hand-edited plan can only ever delete LESS than a fresh one would, never more,
 // and a plan naming a path outside the fence aborts the run entirely.
 //
 // What is protected, and why (the non-obvious part):
-//   - the ACTIVE session of any agent — it is being appended to right now;
+//   - the ACTIVE session of any agent - it is being appended to right now;
 //   - the K newest sessions of every agent, regardless of age;
 //   - any session that another session was FORKED FROM. persistence.ts's
 //     loadLogWithAncestors assembles a fork's transcript by walking the
 //     forkedFrom chain and reading each ancestor's .jsonl, so an ancestor file
 //     stays load-bearing forever. Deleting one silently truncates the
-//     descendant's history instead of erroring — the worst failure shape there
+//     descendant's history instead of erroring - the worst failure shape there
 //     is. We protect every session named as a forkedFrom by ANY entry in the
 //     map. That is a strict SUPERSET of "the transitive ancestor closure of
 //     every retained session" (each link in a chain is itself somebody's
@@ -34,7 +34,7 @@
 //   - an attachment still REFERENCED by a surviving transcript. Attachments sit
 //     in one shared per-agent files/ dir, not under a session, so age alone
 //     would happily delete a file that a conversation you can still open
-//     renders. An attachment becomes prunable only once nothing points at it —
+//     renders. An attachment becomes prunable only once nothing points at it -
 //     which is what pruning transcripts first produces.
 //   - sessions.json is NEVER touched. server/usage-report.ts reads token and
 //     cost history from it and never opens the .jsonl, so pruning transcripts
@@ -55,7 +55,7 @@
 // symlink escape impossible and narrows the racing one to a sub-millisecond
 // window, on an operation only the office owner can trigger. It does not treat
 // same-user processes as untrusted, and it should not be described as if it
-// did. (Flagged for Nil rather than settled here — if same-user isolation ever
+// did. (Flagged for Nil rather than settled here - if same-user isolation ever
 // becomes a goal, this is one of the places that needs a real answer.)
 //
 // Seam discipline: every input is injected (logs dir, clock, active-session
@@ -80,7 +80,7 @@ import type {
   PruneResultWire,
 } from "../shared/contract-shapes.ts";
 
-// The wire contract IS the domain type — a plan travels out to the caller and
+// The wire contract IS the domain type - a plan travels out to the caller and
 // back in on apply, so a projection layer would just be a place to drift.
 //
 // Field semantics worth restating here, next to the code that enforces them:
@@ -120,7 +120,7 @@ export interface PruneDeps {
   //
   // NULL IS NOT AN EMPTY SET. An unreadable or malformed queue file means we do
   // not know what is owed, and "we do not know" must never be collapsed into
-  // "nothing is owed" on a path that deletes files — the same fail-closed rule
+  // "nothing is owed" on a path that deletes files - the same fail-closed rule
   // the unreadable-transcript branch follows.
   queuedAttachments(agentId: string): ReadonlySet<string> | null;
 }
@@ -129,7 +129,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 // Resolve a candidate's RELATIVE path against the logs root, or null if it
 // escapes. Lexical containment alone would not be enough if we followed
-// symlinks — we never do (see the header), and apply re-lstats before unlink.
+// symlinks - we never do (see the header), and apply re-lstats before unlink.
 export function resolveCandidatePath(
   logsDir: string,
   relative: string,
@@ -233,8 +233,8 @@ function listAgentDirs(logsDir: string): string[] {
 
 // True only for a REAL directory. readdirSync follows a symlinked directory, so
 // every directory this module is about to list must be lstat-checked first:
-// `logs/agent-x/files` replaced with a symlink would otherwise have us list —
-// and then unlink — files outside the logs tree entirely.
+// `logs/agent-x/files` replaced with a symlink would otherwise have us list -
+// and then unlink - files outside the logs tree entirely.
 function isRealDir(path: string): boolean {
   try {
     return lstatSync(path).isDirectory();
@@ -322,7 +322,7 @@ function planTranscripts(
 // A regex over the raw JSONL rather than JSON.parse per line: attachments are
 // always serialized as `"filename":"<on-disk name>"` (shared/types.ts
 // Attachment), the scan is ~1s over 350 MB where parsing would be minutes, and
-// over-matching is the safe direction — a stray "filename" key elsewhere in the
+// over-matching is the safe direction - a stray "filename" key elsewhere in the
 // log only ever protects an extra file. Deliberately reads whatever .jsonl is
 // on disk right now, so pruning transcripts first is what turns their
 // attachments into orphans.
@@ -390,7 +390,7 @@ function planAttachments(
     }
     // Only pay for the transcript scan when this agent actually has files.
     // `unknownReason` non-null means we could not establish reachability and
-    // every file here is spared — the two ways that happens are reported
+    // every file here is spared - the two ways that happens are reported
     // separately so a dry run says WHICH unknown stopped it.
     let referenced: Set<string> | null = null;
     let unknownReason: PruneSkipReason | null = null;
@@ -406,7 +406,7 @@ function planAttachments(
         // live reference, undelivered messages are too.
         for (const name of queued) referenced.add(name);
       } catch {
-        // Unreadable transcript — same fail-closed rule. Silence here would be
+        // Unreadable transcript - same fail-closed rule. Silence here would be
         // indistinguishable from "nothing to prune", so every file is a skip.
         unknownReason = "referenced";
       }
@@ -456,7 +456,7 @@ const SKIP_ORDER: PruneSkipReason[] = [
 ];
 
 // Reported in a plan when reachability could not be established at all. The
-// route refuses an attachment APPLY carrying this — a zero-candidate plan
+// route refuses an attachment APPLY carrying this - a zero-candidate plan
 // already deletes nothing, but an operator deserves to be told the prune was
 // blocked rather than shown a silent "nothing to do".
 export const QUEUE_STATE_UNKNOWN: PruneSkipReason = "queue-state-unknown";
@@ -561,7 +561,7 @@ export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
     const live = approved.get(candidate.path);
     if (!live) {
       // Say WHY the fresh pass excluded it, rather than collapsing every cause
-      // into one opaque reason — this is the audit trail for a delete.
+      // into one opaque reason - this is the audit trail for a delete.
       const reason = sparedBy.get(candidate.path);
       refused.push({
         path: candidate.path,
@@ -575,7 +575,7 @@ export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
     }
     // Last checks before the irreversible step.
     //
-    // The lexical fence above only rules out ".." — it cannot see a SYMLINKED
+    // The lexical fence above only rules out ".." - it cannot see a SYMLINKED
     // PARENT. If `logs/agent-x/files` were replaced with a link to somewhere
     // else, `logs/agent-x/files/name` still passes a string containment test
     // while naming a file outside the tree. So resolve the parent for real and
@@ -588,7 +588,7 @@ export function applyPrune(plan: PrunePlan, deps: PruneDeps): PruneResult {
       continue;
     }
     // The leaf itself must be a regular file. (unlink on a symlinked LEAF would
-    // only remove the link — but that reasoning does NOT extend to symlinked
+    // only remove the link - but that reasoning does NOT extend to symlinked
     // parents, which is what the two checks above are for.) A symlink appearing
     // where the planner saw a regular file means the tree changed under us, so
     // stop touching that path rather than reason about it.

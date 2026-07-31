@@ -1,11 +1,11 @@
-// Agents — conversation resource handlers — Phase 3d slice 6a. The
+// Agents - conversation resource handlers - Phase 3d slice 6a. The
 // send/edit/cancel/sendNow/newConversation/resume/listSessions surface moves off
 // the WS command bus to REST. EXPAND+CUT in one slice (like slices 6/7): the rows
 // were table-declared but never handler-registered, so this slice BUILDS the
 // handlers AND deletes the WS cases (+ the legacy POST /agents/:id/message).
 //
 // STREAMING, not response-returning: send/edit/sendNow/newConversation/resume are
-// FIRE-AND-FORGET on the turn — the index dep closures void-discard the manager
+// FIRE-AND-FORGET on the turn - the index dep closures void-discard the manager
 // promise and the handler returns only an ack; the log_entry / approval_request /
 // clear_logs events STREAM over the WS as the turn runs (the double-signal: HTTP
 // acks, WS streams). An awaited HTTP response would block on the whole turn.
@@ -13,7 +13,7 @@
 // sendMessage is UNIFIED + OVERLOADED across the two identity branches the
 // messageSend guard authorizes:
 //   - USER (cookie, agent:converse)      -> sendAsUser  (agentManager.sendMessage;
-//     the user-chat path. The approval-reply OVERLOAD lives INSIDE sendMessage —
+//     the user-chat path. The approval-reply OVERLOAD lives INSIDE sendMessage -
 //     while a pendingPermission is set for :id, the next message is the allow/deny
 //     reply, so calling the same core preserves it for free).
 //   - AGENT (bearer, agent:send-as-self) -> sendAsAgent (enqueueMessage with a
@@ -40,7 +40,7 @@ import type {
   NewConversationReq,
   HandoffReq,
 } from "../../../shared/contract-shapes.ts";
-// Pure format parser (no state) — safe for a leaf handler module to import.
+// Pure format parser (no state) - safe for a leaf handler module to import.
 import { parseDeliverAt } from "../../scheduled-messages.ts";
 import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
 
@@ -76,12 +76,12 @@ export type HandoffResult =
 
 export interface ConversationDeps {
   // Token-derived attribution (username from identity, NEVER the body) for the
-  // USER chat + edit paths — the WS cases used session.username, not a body field.
+  // USER chat + edit paths - the WS cases used session.username, not a body field.
   attributionFor(identity: Identity): {
     createdBy: string;
     username: string | undefined;
   };
-  // USER chat send. Void — sendMessage owns the echo / queue / recovery / slash /
+  // USER chat send. Void - sendMessage owns the echo / queue / recovery / slash /
   // approval-reply overload and streams the turn over WS; there is no queued id
   // to ack (the UI ignores the body and consumes the stream).
   sendAsUser(
@@ -103,7 +103,7 @@ export interface ConversationDeps {
   ): SendAsAgentResult;
   // AGENT send with deliverAt: store a durable scheduled entry instead of
   // enqueueing now (fired later by scheduled-messages.ts). Self-send IS
-  // allowed here — a future self-message is the reminder/wake-up use case the
+  // allowed here - a future self-message is the reminder/wake-up use case the
   // immediate path's self_send rejection exists to prevent looping on.
   scheduleMessage(
     receiverId: string,
@@ -147,7 +147,7 @@ export interface ConversationDeps {
 // getFilePath(agentId, filename) (path.join throws on a non-string) and into the
 // notice line's formatSize(size), so a hand-crafted element would throw or
 // render garbage mid-turn, long after the request was acked. `size` must be a
-// nonnegative safe integer — a byte count that is negative, fractional, or past
+// nonnegative safe integer - a byte count that is negative, fractional, or past
 // 2^53 is not a real upload.
 function malformedAttachmentSpec(a: unknown): boolean {
   if (typeof a !== "object" || a === null || Array.isArray(a)) return true;
@@ -162,7 +162,7 @@ function malformedAttachmentSpec(a: unknown): boolean {
 }
 
 // Reject a present-but-wrong-typed optional field at the boundary. A direct REST
-// caller can POST {text:"x", attachments:{}} — truthy but non-iterable — which the
+// caller can POST {text:"x", attachments:{}} - truthy but non-iterable - which the
 // USER path would queue and flushQueue would later spread
 // (allAttachments.push(...m.attachments)), throwing mid-turn; a non-string device
 // / clientMessageId would corrupt log metadata / the dedupe key. Mirrors slice
@@ -193,7 +193,7 @@ export function conversationHandlers(
       const b = (ctx.body ?? {}) as Partial<SendMessageReq>;
       // 400 (not 422) on the text checks + the AGENT-branch reasons below mirrors
       // the legacy POST /agents/:id/message status codes that queue.test.ts pins
-      // as "today's status codes" — this route REPLACES that endpoint, so it must
+      // as "today's status codes" - this route REPLACES that endpoint, so it must
       // not silently drift the agent-facing contract.
       if (typeof b.text !== "string") {
         return fail(400, "invalid_text", "text is required");
@@ -206,7 +206,7 @@ export function conversationHandlers(
         );
       }
       // sendNow is USER-branch only (the composer's Ctrl/Cmd+Enter). Rejected
-      // loudly for agent senders — mirrors the deliverAt style below (never
+      // loudly for agent senders - mirrors the deliverAt style below (never
       // silently ignore a delivery-affecting flag); agents already have the
       // explicit POST /api/agents/:id/send-now endpoint.
       if (b.sendNow !== undefined && ctx.identity.scope === "agent") {
@@ -269,7 +269,7 @@ export function conversationHandlers(
       }
       // USER path: fire-and-forget. Empty text is allowed when attachments carry
       // the content (the composer sends an image with no caption). The ack body
-      // is "" — there is no single queued id (sendMessage may echo, queue, or
+      // is "" - there is no single queued id (sendMessage may echo, queue, or
       // recover); the UI ignores it and consumes the WS stream (double-signal).
       deps.sendAsUser(
         ctx.params.id,
@@ -341,7 +341,7 @@ export function conversationHandlers(
 
     // Instant self-handoff (task 8883e45d): reset the session then deliver the
     // brief into the fresh session, in one call. Same auth split as
-    // newConversation (conversationReset). 422 on empty/missing text — a handoff
+    // newConversation (conversationReset). 422 on empty/missing text - a handoff
     // with no brief is useless, and matches resume's required-field style. AWAITS
     // the reset+enqueue and maps an enqueue failure to a real HTTP error, so the
     // caller never gets a false {ok:true} when the brief was not

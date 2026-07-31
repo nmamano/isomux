@@ -6,7 +6,7 @@
 //
 //   INTENDED-REACHABLE  the room-scoped operator routes open up (resume,
 //                       listSessions, converse, lifecycle, full cron over OWN jobs)
-//   STILL-BLOCKED       the escalation / owner-admin routes stay shut — invites.*
+//   STILL-BLOCKED       the escalation / owner-admin routes stay shut - invites.*
 //                       (durable login mint), sessions.* (kill the human's browser
 //                       session), users/office admin, cron.setPrompt
 //   NO-IMPERSONATION    sendMessage takes the AGENT branch (attributes to the agent)
@@ -126,7 +126,7 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
     for (const op of ["agents.newConversation", "agents.handoff"]) {
       expect(can(op, normalAgent, { id: "a-1" })).toBe(true);
     }
-    // The other four have no self path — a normal agent is blocked even on itself.
+    // The other four have no self path - a normal agent is blocked even on itself.
     for (const op of [
       "agents.resume",
       "agents.sendNow",
@@ -212,14 +212,14 @@ describe("privileged agent: full cron over its OWN jobs (Nil-approved)", () => {
       can("cron.delete", privilegedAgent, CRON_PARAMS, undefined, otherOwner),
     ).toBe(false);
   });
-  it("cron.setPrompt stays OFFICE-OWNER only — blocked for a privileged agent", () => {
+  it("cron.setPrompt stays OFFICE-OWNER only - blocked for a privileged agent", () => {
     expect(can("cron.setPrompt", privilegedAgent)).toBe(false);
     expect(can("cron.setPrompt", owner)).toBe(true);
   });
 });
 
 describe("privileged agent: escalation / owner-admin routes STAY BLOCKED", () => {
-  it("CANNOT mint invites (the durable-login escalation) — invites.* all 403", () => {
+  it("CANNOT mint invites (the durable-login escalation) - invites.* all 403", () => {
     expect(can("invites.mintSelf", privilegedAgent)).toBe(false);
     expect(can("invites.mint", privilegedAgent, { username: "x" })).toBe(false);
     expect(can("invites.list", privilegedAgent)).toBe(false);
@@ -230,13 +230,13 @@ describe("privileged agent: escalation / owner-admin routes STAY BLOCKED", () =>
     expect(can("invites.mintSelf", member)).toBe(true);
     expect(can("invites.mint", owner, { username: "x" })).toBe(true);
   });
-  it("CANNOT touch human browser sessions — sessions.list / revoke 403", () => {
+  it("CANNOT touch human browser sessions - sessions.list / revoke 403", () => {
     expect(can("sessions.list", privilegedAgent)).toBe(false);
     expect(
       can("sessions.revoke", privilegedAgent, { sessionPrefix: "p" }),
     ).toBe(false);
   });
-  it("CANNOT reach office/user administration — setAccess / office.* 403", () => {
+  it("CANNOT reach office/user administration - setAccess / office.* 403", () => {
     expect(can("users.setAccess", privilegedAgent, { username: "x" })).toBe(
       false,
     );
@@ -307,7 +307,7 @@ describe("agents.setPrivileged: double-gated + (i-b) manager-or-owner conferral"
       ),
     ).toBe(true);
   });
-  it("a member toggles ONLY agents they manage — the cross-user case is BLOCKED", () => {
+  it("a member toggles ONLY agents they manage - the cross-user case is BLOCKED", () => {
     // member manages a-1 -> allowed (manager-match)
     expect(
       can("agents.setPrivileged", member, AGENT_PARAMS, { privileged: true }),

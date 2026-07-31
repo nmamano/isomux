@@ -1,13 +1,13 @@
-// Phase 1.3 — Persistence round-trip + pre-flatten (stable-room-IDs) characterization.
+// Phase 1.3 - Persistence round-trip + pre-flatten (stable-room-IDs) characterization.
 //
 // Freezes TODAY's on-disk persistence at the persistence-FUNCTION seam:
 // loadAgents/saveAgents, loadTasks/saveTasks, the cronjob config + run files,
 // agent-history, office/server config, recent-cwds, and users (via the real
-// write API — there is no saveUsers). Two jobs:
+// write API - there is no saveUsers). Two jobs:
 //   - Round-trip: write then load, asserting field preservation, so the Phase 3
 //     refactor cannot silently drop or mangle a persisted field.
 //   - Stable-room-IDs (3c) shape: agents.json stays a nested Room[] (NO
-//     structural flatten — additive only). Phase 3c slice 1 stamps an explicit
+//     structural flatten - additive only). Phase 3c slice 1 stamps an explicit
 //     roomId on each PersistedAgent, backfilled from its container room. userId
 //     is still NOT resolved at this layer (that is agent-manager's job).
 //
@@ -371,7 +371,7 @@ describe("agent-history persistence round-trip (Phase 1.3)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Round-trip: recent-cwds (kept minimal per review — dedup/cap/order only)
+// Round-trip: recent-cwds (kept minimal per review - dedup/cap/order only)
 // ---------------------------------------------------------------------------
 
 describe("recent-cwds persistence round-trip (Phase 1.3)", () => {
@@ -391,7 +391,7 @@ describe("recent-cwds persistence round-trip (Phase 1.3)", () => {
 // ---------------------------------------------------------------------------
 // Round-trip: office-config / server-config + the shared-file sibling-key
 // preservation invariant (the two surfaces share office-config.json but flow
-// through different APIs — easy to regress).
+// through different APIs - easy to regress).
 // ---------------------------------------------------------------------------
 
 describe("office-config / server-config persistence (Phase 1.3)", () => {
@@ -539,7 +539,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
   }
 
   it("loadAgents returns the nested Room[] with positional membership preserved", () => {
-    // Return-shape characterization (not a flatten tripwire — see describe note):
+    // Return-shape characterization (not a flatten tripwire - see describe note):
     // pins that loadAgents groups agents by room, in order, by array position.
     seedNestedAgents();
     const rooms = loadAgents();
@@ -550,9 +550,9 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
 
   it("backfills an explicit roomId on each PersistedAgent from its container room (3c slice 1)", () => {
     // Phase 3c slice 1: a pre-3c file (no roomId on agents) is migrated on load
-    // by stamping each agent's roomId from its container room — the physical
+    // by stamping each agent's roomId from its container room - the physical
     // nesting position. No structural flatten: the agents stay nested under
-    // Room[]. Idempotent (a file already carrying roomId is unchanged — covered
+    // Room[]. Idempotent (a file already carrying roomId is unchanged - covered
     // by the round-trip test above).
     seedNestedAgents();
     const rooms = loadAgents();
@@ -591,7 +591,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
             customInstructions: null,
             userId: "user-1",
             username: "Boss",
-            roomId: "deadbeef", // WRONG — does not match container aaaa0001
+            roomId: "deadbeef", // WRONG - does not match container aaaa0001
           },
         ],
       },
@@ -623,7 +623,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
         notifRooms: ["aaaa0001"],
         // Simulates an existing users.json written before the Default Room
         // setting was removed. The read must tolerate it (not crash) and simply
-        // ignore it — the field is dropped from the in-memory record.
+        // ignore it - the field is dropped from the in-memory record.
         defaultRoomId: "bbbb0002",
         envFile: null,
         createdAt: 1700000000000,
@@ -657,7 +657,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
     expect(hist["agent-ccc"].lastRoomName).toBe("Room 1");
   });
 
-  it("loadAgents migrates in memory only — it does NOT rewrite agents.json on disk", () => {
+  it("loadAgents migrates in memory only - it does NOT rewrite agents.json on disk", () => {
     seedNestedAgents();
     const original = readFileSync(stateFile("agents.json"), "utf-8");
     loadAgents();

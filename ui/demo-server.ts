@@ -268,7 +268,7 @@ function seedOffice() {
 // cycle lands on an agent in a room the viewer isn't on, the ghost
 // simply doesn't render (matches real-presence behavior) until the
 // viewer switches rooms or the cycle moves on. Re-emitting the entire
-// presence_list on each tick is what the real server does too — the
+// presence_list on each tick is what the real server does too - the
 // shape is identical, just constructed inline here.
 const STEPHEN_PHONE_CONNECTION_ID = "demo-stephen-phone";
 let cycleIndex = 0;
@@ -389,7 +389,7 @@ const DEMO_LOGS: {
       {
         kind: "thinking",
         content:
-          "The user wants a motivational speech for a team meeting. I should keep it warm, uplifting, and personal — something that makes people feel valued.",
+          "The user wants a motivational speech for a team meeting. I should keep it warm, uplifting, and personal - something that makes people feel valued.",
       },
       {
         kind: "text",
@@ -424,13 +424,13 @@ const DEMO_LOGS: {
       {
         kind: "tool_result",
         content:
-          "Sector 1: OK\nSector 2: OK\nSector 3: OK\nSector 4: OK\nSector 5: OK\nSector 6: OK\nSector 7G: ALERT — motion detected, unrecognized entity\nSector 8: OK",
+          "Sector 1: OK\nSector 2: OK\nSector 3: OK\nSector 4: OK\nSector 5: OK\nSector 6: OK\nSector 7G: ALERT - motion detected, unrecognized entity\nSector 8: OK",
         metadata: { toolUseId: "tool-dwight-1", duration_ms: 3400 },
       },
       {
         kind: "text",
         content:
-          "**🔒 Perimeter Security Audit Report**\n\n- 7 of 8 sectors: ✅ **SECURE** — all sensors nominal\n- Sector 7G: ⚠️ **ALERT** — unrecognized motion detected at 03:47 AM\n- Camera feed shows: 🦝 raccoon (confirmed non-threat, but flagged per protocol)\n\n**Recommendations:**\n1. Reinforce Sector 7G fence gap with wire mesh\n2. Recalibrate motion sensitivity to filter small wildlife\n3. Schedule next full audit for end of week\n\nOverall status: **OPERATIONAL** — one minor alert, no breaches.",
+          "**🔒 Perimeter Security Audit Report**\n\n- 7 of 8 sectors: ✅ **SECURE** - all sensors nominal\n- Sector 7G: ⚠️ **ALERT** - unrecognized motion detected at 03:47 AM\n- Camera feed shows: 🦝 raccoon (confirmed non-threat, but flagged per protocol)\n\n**Recommendations:**\n1. Reinforce Sector 7G fence gap with wire mesh\n2. Recalibrate motion sensitivity to filter small wildlife\n3. Schedule next full audit for end of week\n\nOverall status: **OPERATIONAL** - one minor alert, no breaches.",
       },
     ],
   },
@@ -449,7 +449,7 @@ const DEMO_LOGS: {
       {
         kind: "text",
         content:
-          "Here are the scaled ingredients for 50 servings:\n\n```\nGround beef:     15 lbs    (was 2.4 lbs)\nKidney beans:    12 cans   (was 2 cans)\nPinto beans:      8 cans   (was 1 can)\nDiced tomatoes:  10 cans   (was 1.5 cans)\nOnions:          10 large  (was 1.5)\nGarlic:           2 heads  (was 5 cloves)\nChili powder:     1 cup    (was 2.5 tbsp)\nCumin:           0.5 cup   (was 1 tbsp)\n```\n\nKey tip: with this volume, undercook the onions slightly — they'll keep softening as the pot simmers and you don't want them to turn to mush.\n\nWant me to generate a shopping list or break this into prep stages?",
+          "Here are the scaled ingredients for 50 servings:\n\n```\nGround beef:     15 lbs    (was 2.4 lbs)\nKidney beans:    12 cans   (was 2 cans)\nPinto beans:      8 cans   (was 1 can)\nDiced tomatoes:  10 cans   (was 1.5 cans)\nOnions:          10 large  (was 1.5)\nGarlic:           2 heads  (was 5 cloves)\nChili powder:     1 cup    (was 2.5 tbsp)\nCumin:           0.5 cup   (was 1 tbsp)\n```\n\nKey tip: with this volume, undercook the onions slightly - they'll keep softening as the pot simmers and you don't want them to turn to mush.\n\nWant me to generate a shopping list or break this into prep stages?",
       },
     ],
   },
@@ -498,7 +498,7 @@ const DEMO_LOGS: {
       {
         kind: "text",
         content:
-          "The archive has 2,847 photos with a matching registry. I can already see potential duplicates — Mr. Sprinkles has multiple entries. Let me compute checksums to find exact duplicates across the entire archive.",
+          "The archive has 2,847 photos with a matching registry. I can already see potential duplicates - Mr. Sprinkles has multiple entries. Let me compute checksums to find exact duplicates across the entire archive.",
       },
       {
         kind: "tool_call",
@@ -534,7 +534,7 @@ function seedLogs() {
 }
 
 const DEMO_REPLY =
-  "This is a demo — your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).";
+  "This is a demo - your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).";
 
 // Cron jobs: maintained as plain in-memory state (not via OfficeState).
 const cronjobs: Cronjob[] = [];
@@ -648,7 +648,7 @@ function seedCronjobs() {
 }
 
 // Users: maintained as a plain in-memory map (not via OfficeState), same as
-// cronjobs. The demo fakes auth — sendInitialState emits a session_context
+// cronjobs. The demo fakes auth - sendInitialState emits a session_context
 // for Ricky (owner), so the modal renders the same "real office" surfaces
 // (owner account panes, Sign out, etc.) instead of the pre-auth picker.
 const users = new Map<string, UserRecord>();
@@ -661,7 +661,7 @@ const DEMO_USERS_SEED: { name: string; role: UserRole }[] = [
 ];
 
 // Active sessions surfaced in the Access pane. Ricky on laptop is the
-// viewer; Stephen has two sessions (laptop + phone) — the phone session
+// viewer; Stephen has two sessions (laptop + phone) - the phone session
 // is the one whose ghost cycles through the office below.
 const CURRENT_SESSION_PREFIX = "a1b2c3d4";
 let activeSessionsList: SessionWire[] = [];
@@ -701,7 +701,7 @@ function seedUsers() {
       username: ricky.name,
       role: ricky.role,
       currentSessionPrefix: CURRENT_SESSION_PREFIX,
-      // Fixed demo connectionId — the real server generates these per WS
+      // Fixed demo connectionId - the real server generates these per WS
       // upgrade. The viewer's own ghost is filtered client-side by
       // matching this, so Ricky never sees themselves while Stephen's
       // cycling ghost (different connectionId) renders normally.
@@ -745,7 +745,7 @@ function seedUsers() {
       expiresAt: now + 30 * 86400000,
       absoluteExpiresAt: now + 365 * 86400000,
       userAgent: LAPTOP_UA,
-      // Deliberately unnamed: exercises the "—" fallback in the Device column.
+      // Deliberately unnamed: exercises the " - " fallback in the Device column.
       device: null,
     },
   ];
@@ -835,7 +835,7 @@ function makeLogEntry(
 
 // Demo counterpart to the server's REST executor. As each command migrates off
 // the WS shim (handleCommand) to apiFetch, its demo handling moves here so the
-// landing demo keeps working — the demo's own WS-case -> REST-route strangle,
+// landing demo keeps working - the demo's own WS-case -> REST-route strangle,
 // one route at a time, mirroring the real server. Registered via setApiShim() in
 // demo-entry; apiFetch routes here instead of the network when the demo is live.
 export async function demoApi(
@@ -848,7 +848,7 @@ export async function demoApi(
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
   switch (route) {
-    // validate.cwd / validate.env — the demo has no filesystem, so every probe
+    // validate.cwd / validate.env - the demo has no filesystem, so every probe
     // succeeds. REST drops the resolved env path + keyCount the WS arm echoed.
     case "POST /api/validate/cwd":
       return { ok: true };
@@ -887,10 +887,10 @@ export async function demoApi(
     case "PUT /api/office/access":
       // No-op in the demo (no bind/origin policy to persist).
       return { signInUrl: null, restartRequired: false };
-    // cron.listAllRuns — demo cron jobs never fire, so there are no runs.
+    // cron.listAllRuns - demo cron jobs never fire, so there are no runs.
     case "GET /api/cron-runs":
       return { jobs: [] };
-    // cron.create — build a demo cronjob, broadcast cronjob_added, and RETURN
+    // cron.create - build a demo cronjob, broadcast cronjob_added, and RETURN
     // it (the dialog awaits the HTTP result; the old agent_save_response emit is
     // gone). username is server-derived in production; the demo user is Ricky.
     case "POST /api/cronjobs": {
@@ -919,20 +919,20 @@ export async function demoApi(
       shimEmit({ type: "cronjob_added", cronjob });
       return cronjob;
     }
-    // cron.setPrompt — set + broadcast; no body returned (204-like).
+    // cron.setPrompt - set + broadcast; no body returned (204-like).
     case "PUT /api/cron-prompt": {
       const b = (body ?? {}) as CronPromptReq;
       cronjobsPrompt = b.value && b.value.trim() ? b.value : null;
       shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
       return undefined;
     }
-    // office.getSettings — the settings modal reads the optimistic-concurrency
+    // office.getSettings - the settings modal reads the optimistic-concurrency
     // version on open (production requires it back on the PUT). The demo is
     // single-writer so conflicts can't happen: serve a fixed token and let the
     // PUT below ignore it.
     case "GET /api/office/settings":
       return { ...state.office, version: "demo-version" };
-    // office.setSettings — set + broadcast office_settings_updated; no body
+    // office.setSettings - set + broadcast office_settings_updated; no body
     // (204-like). Mirrors the retired update_office_settings handleCommand:
     // name === undefined preserves the current name (a stale tab), else it sets
     // or clears. The demo has no env validation, so every save succeeds (the
@@ -949,8 +949,8 @@ export async function demoApi(
       emitEvents(state.setOfficeSettings(b.prompt, envFile, name));
       return undefined;
     }
-    // tasks.create — push + broadcast the `tasks` event; return the created task
-    // (the caller ignores it — fire-and-forget — but the contract shape is
+    // tasks.create - push + broadcast the `tasks` event; return the created task
+    // (the caller ignores it - fire-and-forget - but the contract shape is
     // TaskItem). createdBy/username are token-derived in prod; demo user = Ricky.
     case "POST /api/tasks": {
       const b = (body ?? {}) as TaskCreateReq;
@@ -970,7 +970,7 @@ export async function demoApi(
       );
       return state.tasks.at(-1);
     }
-    // rooms.create — create + broadcast room_created; RETURN { room } (the
+    // rooms.create - create + broadcast room_created; RETURN { room } (the
     // contract shape; the UI ignores it and relies on the broadcast). No
     // rule-based creator grant in the demo: the single demo user (Ricky) is an
     // owner and reaches every room by rule, matching the production no-fan-out.
@@ -981,26 +981,26 @@ export async function demoApi(
       const created = events.find((e) => e.type === "room_created");
       return { room: created?.room };
     }
-    // view.setOrder — per-user view order is not modeled in the single-user
+    // view.setOrder - per-user view order is not modeled in the single-user
     // demo, so reorder is a no-op (matching the pre-cutover demo, where
     // reorder_rooms had no handleCommand case and was silently dropped).
     case "PUT /api/me/view/order":
       return undefined;
-    // view.setNotifRooms — self view prefs aren't modeled per-user in the
+    // view.setNotifRooms - self view prefs aren't modeled per-user in the
     // single-user demo (same as view/order). No-op; the modal + the legacy-pref
     // migration close optimistically. (Default Room was removed.)
     case "PUT /api/me/view/notif-rooms":
       return undefined;
-    // view.setShown — hide/show rooms is likewise not modeled in the demo.
+    // view.setShown - hide/show rooms is likewise not modeled in the demo.
     case "PUT /api/me/view/shown":
       return undefined;
-    // view.listRooms — the demo user is an owner with no hidden rooms, so the
+    // view.listRooms - the demo user is an owner with no hidden rooms, so the
     // accessible set is exactly the live rooms list.
     case "GET /api/me/rooms":
       return {
         rooms: state.getState().rooms.map((r) => ({ id: r.id, name: r.name })),
       };
-    // agents.spawn — build a demo agent, broadcast agent_added + a system log,
+    // agents.spawn - build a demo agent, broadcast agent_added + a system log,
     // RETURN { agent } (the dialog awaits the HTTP result; the old
     // agent_save_response emit is gone). username is server-derived in prod; the
     // demo user is Ricky.
@@ -1036,12 +1036,12 @@ export async function demoApi(
     }
   }
   // Param routes (matched by shape, since the id/agentType segment varies).
-  // backends.listModels — the demo has no backend process to probe; an empty
+  // backends.listModels - the demo has no backend process to probe; an empty
   // list makes the model dialog fall back to its hardcoded CODEX_MODELS list.
   if (method === "GET" && /^\/api\/backends\/[^/]+\/models$/.test(pathname)) {
     return { models: [] };
   }
-  // cron.getRun — no runs in the demo (cronjobs never fire), so no transcript.
+  // cron.getRun - no runs in the demo (cronjobs never fire), so no transcript.
   // Listed before listRuns: the trailing anchors already make the two routes
   // disjoint, but specific-before-general is the safe convention. The view
   // ignores the fetched `run`, so returning just `entries` is enough.
@@ -1051,11 +1051,11 @@ export async function demoApi(
   ) {
     return { entries: [] };
   }
-  // cron.listRuns — no runs in the demo.
+  // cron.listRuns - no runs in the demo.
   if (method === "GET" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
     return { runs: [] };
   }
-  // cron.runMessage (POST) / cron.editRunMessage (PATCH) — fire-and-forget
+  // cron.runMessage (POST) / cron.editRunMessage (PATCH) - fire-and-forget
   // mutations. The demo has no runs (unreachable in practice), but demoApi throws
   // on unmapped routes, so map them; the caller ignores the { messageId } ack.
   if (
@@ -1066,7 +1066,7 @@ export async function demoApi(
   ) {
     return { messageId: "demo" };
   }
-  // cron.update (PATCH) / cron.delete (DELETE) — mutate the demo cronjob and
+  // cron.update (PATCH) / cron.delete (DELETE) - mutate the demo cronjob and
   // broadcast the event; PATCH returns the merged job, DELETE returns no body.
   const cronIdMatch = pathname.match(/^\/api\/cronjobs\/([^/]+)$/);
   if (cronIdMatch && (method === "PATCH" || method === "DELETE")) {
@@ -1094,21 +1094,21 @@ export async function demoApi(
     }
     return undefined;
   }
-  // cron.runNow — the demo never fires runs; return a placeholder id (ignored).
+  // cron.runNow - the demo never fires runs; return a placeholder id (ignored).
   if (method === "POST" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
     return { runId: "demo-run" };
   }
-  // tasks.update (PATCH) / tasks.delete (DELETE) — mutate the demo board and
+  // tasks.update (PATCH) / tasks.delete (DELETE) - mutate the demo board and
   // broadcast the `tasks` event. PATCH takes a FLAT TaskUpdateReq body and
   // returns the merged task (caller ignores it); DELETE returns no body. The raw
   // body is applied as-is (matching the retired update_task handleCommand), so a
-  // key carrying `undefined` clears that field — the demo's pre-cutover behavior.
+  // key carrying `undefined` clears that field - the demo's pre-cutover behavior.
   const taskIdMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
   if (taskIdMatch && (method === "PATCH" || method === "DELETE")) {
     const id = decodeURIComponent(taskIdMatch[1]);
     if (method === "PATCH") {
       // Raw body applied as-is (it satisfies the Partial change shape); a key
-      // carrying `undefined` clears that field — the demo's pre-cutover behavior.
+      // carrying `undefined` clears that field - the demo's pre-cutover behavior.
       emitEvents(state.updateTask(id, body ?? {}));
       return state.tasks.find((t) => t.id === id);
     }
@@ -1136,7 +1136,7 @@ export async function demoApi(
     shimEmit({ type: "session_revoked", sessionPrefix: prefix });
     return undefined;
   }
-  // 3d.9b users.setAccess (PUT /api/users/:username/access) — set allowedRooms +
+  // 3d.9b users.setAccess (PUT /api/users/:username/access) - set allowedRooms +
   // prune notif/default to the new access (mirror the server clamp). An owner
   // target accesses all rooms by rule, so don't prune theirs. Listed before the
   // bare /:username route.
@@ -1232,11 +1232,11 @@ export async function demoApi(
     if (stephen && updated.id === stephen.id) emitStephenPresence();
     return { user: updated };
   }
-  // rooms.setSettings (PUT .../settings) — set the prompt + broadcast
+  // rooms.setSettings (PUT .../settings) - set the prompt + broadcast
   // room_settings_updated. No settings_save_response (the dialog reads the HTTP
   // response now); returns no body (204-like). Listed before the bare /:id route.
   const roomSettingsMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
-  // rooms.getSettings — the settings modal reads the optimistic-concurrency
+  // rooms.getSettings - the settings modal reads the optimistic-concurrency
   // version on open (production requires it back on the PUT). Single-writer
   // demo: fixed token, PUT ignores it.
   if (roomSettingsMatch && method === "GET") {
@@ -1250,11 +1250,11 @@ export async function demoApi(
     emitEvents(state.setRoomSettings(id, b.prompt));
     return undefined;
   }
-  // rooms.rename (PATCH) / rooms.close (DELETE) — mutate + broadcast
+  // rooms.rename (PATCH) / rooms.close (DELETE) - mutate + broadcast
   // room_renamed / room_closed; no body (204-like). The production close also
   // strips the dead roomId from user records, but the single demo user is an
   // owner (rule-based access, no materialized allowedRooms), so there is nothing
-  // to clean up — matching the pre-cutover demo close_room handleCommand.
+  // to clean up - matching the pre-cutover demo close_room handleCommand.
   const roomIdMatch = pathname.match(/^\/api\/rooms\/([^/]+)$/);
   if (roomIdMatch && (method === "PATCH" || method === "DELETE")) {
     const id = decodeURIComponent(roomIdMatch[1]);
@@ -1266,12 +1266,12 @@ export async function demoApi(
     emitEvents(state.closeRoom(id));
     return undefined;
   }
-  // 3d.7a — agent lifecycle, fire-and-forget mutations. The demo OfficeState
+  // 3d.7a - agent lifecycle, fire-and-forget mutations. The demo OfficeState
   // owns the agent_updated / agent_removed broadcasts; these routes mirror the
-  // retired handleCommand cases (no agent_save_response — that is 7b's
+  // retired handleCommand cases (no agent_save_response - that is 7b's
   // response-driven trio). The FF call sites ignore the body; mapped because
   // demoApi throws on an unmapped route.
-  // agents.move (POST .../move) — move + broadcast agent_updated; return { agent }.
+  // agents.move (POST .../move) - move + broadcast agent_updated; return { agent }.
   const agentMoveMatch = pathname.match(/^\/api\/agents\/([^/]+)\/move$/);
   if (agentMoveMatch && method === "POST") {
     const id = decodeURIComponent(agentMoveMatch[1]);
@@ -1279,7 +1279,7 @@ export async function demoApi(
     emitEvents(state.moveAgent(id, b.targetRoomId));
     return { agent: state.getAgent(id) };
   }
-  // agents.abort (POST .../abort) — mirror the retired abort handleCommand:
+  // agents.abort (POST .../abort) - mirror the retired abort handleCommand:
   // cancel any pending demo reply, flip to waiting, log the interrupt. No body.
   const agentAbortMatch = pathname.match(/^\/api\/agents\/([^/]+)\/abort$/);
   if (agentAbortMatch && method === "POST") {
@@ -1312,7 +1312,7 @@ export async function demoApi(
     }
     return undefined;
   }
-  // agents.revive (POST .../revive) — unreachable in the demo (no killed agents
+  // agents.revive (POST .../revive) - unreachable in the demo (no killed agents
   // -> no chips), but demoApi throws on an unmapped route, so map it; mirror the
   // retired handleCommand's clean failure.
   if (method === "POST" && /^\/api\/agents\/[^/]+\/revive$/.test(pathname)) {
@@ -1342,7 +1342,7 @@ export async function demoApi(
     emitEvents(state.kill(id));
     return undefined;
   }
-  // rooms.swapDesks (POST /api/rooms/:roomId/swap-desks) — swap + broadcast.
+  // rooms.swapDesks (POST /api/rooms/:roomId/swap-desks) - swap + broadcast.
   const swapDesksMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/swap-desks$/);
   if (swapDesksMatch && method === "POST") {
     const roomId = decodeURIComponent(swapDesksMatch[1]);
@@ -1350,16 +1350,16 @@ export async function demoApi(
     emitEvents(state.swapDesks(b.deskA, b.deskB, roomId));
     return undefined;
   }
-  // 3d.6a — conversation (send/edit/cancel/sendNow/newConversation/resume/
+  // 3d.6a - conversation (send/edit/cancel/sendNow/newConversation/resume/
   // listSessions). The demo simulates a chat reply for sendMessage (the retired
   // send_message handleCommand); the rest are no-ops the demo never exercises but
   // must map (demoApi throws on an unmapped route). The turn "streams" via the
   // same shimEmit log_entry events; the { messageId } ack is ignored by the UI.
-  // agents.listSessions (GET .../sessions) — the demo has no sessions.
+  // agents.listSessions (GET .../sessions) - the demo has no sessions.
   if (method === "GET" && /^\/api\/agents\/[^/]+\/sessions$/.test(pathname)) {
     return { sessions: [], currentSessionId: null };
   }
-  // agents.sendMessage (POST .../messages) — log the user message, show
+  // agents.sendMessage (POST .../messages) - log the user message, show
   // "thinking", then reply after a beat. username is server-derived in prod, so
   // the demo user message carries no username label.
   const messagesMatch = pathname.match(/^\/api\/agents\/([^/]+)\/messages$/);
@@ -1394,31 +1394,31 @@ export async function demoApi(
     );
     return { messageId: "demo" };
   }
-  // agents.editMessage (PATCH .../messages/:logEntryId) — no-op in the demo.
+  // agents.editMessage (PATCH .../messages/:logEntryId) - no-op in the demo.
   if (
     method === "PATCH" &&
     /^\/api\/agents\/[^/]+\/messages\/[^/]+$/.test(pathname)
   ) {
     return { messageId: "demo" };
   }
-  // agents.cancelQueued (DELETE .../queue/:messageId) — no-op (no demo queue).
+  // agents.cancelQueued (DELETE .../queue/:messageId) - no-op (no demo queue).
   if (
     method === "DELETE" &&
     /^\/api\/agents\/[^/]+\/queue\/[^/]+$/.test(pathname)
   ) {
     return undefined;
   }
-  // agents.sendNow / newConversation / resume — no-ops the demo never exercises.
+  // agents.sendNow / newConversation / resume - no-ops the demo never exercises.
   if (
     method === "POST" &&
     /^\/api\/agents\/[^/]+\/(send-now|new-conversation|resume)$/.test(pathname)
   ) {
     return undefined;
   }
-  // 3d.6b — editor (open/save/close). The demo has no filesystem: open returns a
+  // 3d.6b - editor (open/save/close). The demo has no filesystem: open returns a
   // placeholder (echoing the requested path so the client keys its tab), save is a
   // no-op ack, close (watch teardown) is a no-op. Unreachable in practice (demo
-  // agents emit no edit affordances) but must map — demoApi throws on an unmapped
+  // agents emit no edit affordances) but must map - demoApi throws on an unmapped
   // route.
   if (method === "GET" && /^\/api\/agents\/[^/]+\/file$/.test(pathname)) {
     const p = new URLSearchParams(path.split("?")[1] ?? "").get("path") ?? "";
@@ -1463,7 +1463,7 @@ export function sendInitialState() {
     recentCwds: s.recentCwds,
     office: s.office,
     rooms: s.rooms,
-    // The demo doesn't simulate kill/revive — the chip row in the spawn
+    // The demo doesn't simulate kill/revive - the chip row in the spawn
     // menu just stays empty.
     killedAgents: [],
   });
@@ -1482,7 +1482,7 @@ export function sendInitialState() {
   // Start Stephen's phone ghost cycle AFTER users_list + session_context
   // so the first presence_list emission lands with the user record
   // already in the client store (otherwise the ghost render would
-  // briefly miss the username/color denormalization). Idempotent —
+  // briefly miss the username/color denormalization). Idempotent -
   // re-calls after the first are no-ops.
   startStephenGhostCycle();
 }

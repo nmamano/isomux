@@ -1,6 +1,6 @@
 import { useAppState } from "../store.tsx";
 
-// Brief grace window — covers reconnect blips so the banner doesn't flash on
+// Brief grace window - covers reconnect blips so the banner doesn't flash on
 // every transient cycle. Implemented as a CSS animation-delay (with fill-mode
 // backwards) so the banner mounts immediately when disconnected but stays
 // visually hidden for SHOW_DELAY_MS; if connection recovers within that window,

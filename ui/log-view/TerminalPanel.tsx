@@ -87,7 +87,7 @@ function ensureMobileTerminalStyle() {
   const style = document.createElement("style");
   style.id = MOBILE_TERMINAL_STYLE_ID;
   // We render our own input proxy textarea on mobile (see MobileInputProxy
-  // below) so we own the input pipeline end-to-end — including swipe-typing
+  // below) so we own the input pipeline end-to-end - including swipe-typing
   // and IME composition events that xterm's helper textarea historically
   // mishandles. xterm's own helper textarea is hidden so it doesn't compete
   // for focus or buffer composition state out from under us.
@@ -196,7 +196,7 @@ const MobileInputProxy = forwardRef<
           e.preventDefault();
           onInput("\t");
         } else if (e.key === "Backspace" && !e.currentTarget.value) {
-          // Only intercept the empty case — if there's pending text,
+          // Only intercept the empty case - if there's pending text,
           // beforeinput already handled it. Also skip if beforeinput just
           // fired for this gesture (Bluetooth keyboard fires both).
           if (Date.now() - lastBeforeInputAtRef.current < 100) return;
@@ -218,7 +218,7 @@ const MobileInputProxy = forwardRef<
         fontSize: 16,
         opacity: 0,
         // Pointer events skipped so taps fall through to the body div,
-        // which programmatically focuses us — we never want this textarea
+        // which programmatically focuses us - we never want this textarea
         // to actually receive a tap (the cursor would land in it).
         pointerEvents: "none",
         caretColor: "transparent",
@@ -259,7 +259,7 @@ export function TerminalPanel({
   // When the panel mounts because the boss explicitly toggled it open we
   // grab keyboard focus (default). When the mount is a side-effect of an
   // agent-switch restore, the boss expects to keep typing in the chat box,
-  // so the parent passes false. On mobile we never auto-focus on mount —
+  // so the parent passes false. On mobile we never auto-focus on mount -
   // iOS gates the soft-keyboard on a user gesture, so we wait for a tap on
   // the terminal body before calling term.focus().
   autoFocus?: boolean;
@@ -283,15 +283,15 @@ export function TerminalPanel({
   const scrollMovedRef = useRef<(() => boolean) | null>(null);
   const { mode } = useTheme();
   const [exited, setExited] = useState<number | null>(null);
-  // Whether xterm currently has a text selection — drives the "Send to
+  // Whether xterm currently has a text selection - drives the "Send to
   // chat" pill's visibility.
   const [hasSelection, setHasSelection] = useState(false);
   const [ctrlActive, setCtrlActive] = useState(false);
   const ctrlActiveRef = useRef(false);
   // Tracks whether the soft keyboard is currently up (visualViewport noticeably
   // shorter than layout viewport). When up, the env(safe-area-inset-bottom)
-  // padding under the soft-key bar is wasted space — the home indicator zone
-  // is hidden behind the keyboard — so we drop it.
+  // padding under the soft-key bar is wasted space - the home indicator zone
+  // is hidden behind the keyboard - so we drop it.
   const [keyboardOpen, setKeyboardOpen] = useState(false);
   // Wrap the state setter so the ref stays in sync without a render-time
   // write. sendInput / handleSoftKey both read the ref synchronously inside
@@ -358,7 +358,7 @@ export function TerminalPanel({
     // matters for tailnet access. Exact-modifier matches are deliberate:
     // Ctrl+Shift+V keeps the browser's paste-as-plain-text, Alt/Meta
     // combos stay untouched, and Ctrl+C without a selection still sends
-    // ^C (interrupt). Do NOT clearSelection() inside the handler — xterm's
+    // ^C (interrupt). Do NOT clearSelection() inside the handler - xterm's
     // copyHandler reads the selection when the native copy event fires
     // after this keydown, so clearing synchronously would copy "".
     if (!(navigator.platform || "").includes("Mac")) {
@@ -392,7 +392,7 @@ export function TerminalPanel({
         // textarea that just sets _isFocused=true; dispatching the event
         // synthetically fires that listener regardless of display state.
         // CAUTION: depends on xterm's internal focus tracking being a pure
-        // DOM-event listener — verified in @xterm/xterm 6.0.0. If a future
+        // DOM-event listener - verified in @xterm/xterm 6.0.0. If a future
         // release polls document.activeElement instead, the cursor will
         // stop blinking on mobile and this needs revisiting. Tightening
         // the version pin in package.json would harden against that.
@@ -457,7 +457,7 @@ export function TerminalPanel({
   // window.innerHeight. 100px threshold ignores toolbar appear/disappear and
   // only flips when a full soft keyboard opens. Calibrated for iPhone soft
   // keyboards (≥250px tall); the iPad split / floating mini keyboard is
-  // shorter and won't cross the threshold — revisit if iPad becomes a
+  // shorter and won't cross the threshold - revisit if iPad becomes a
   // first-class target.
   useEffect(() => {
     if (!mobile) return;
@@ -474,7 +474,7 @@ export function TerminalPanel({
   // Mobile touch handling: single-finger pan scrolls the scrollback buffer,
   // two-finger pinch scales font size between 10–22px. xterm's canvas
   // renderer hijacks single-finger drag for selection, so the .xterm-viewport
-  // never receives the touch — we have to translate the pan to scrollLines()
+  // never receives the touch - we have to translate the pan to scrollLines()
   // ourselves. Pinch needs a manual fit() (font change doesn't change
   // container size, so ResizeObserver doesn't fire) and a terminal_resize
   // dispatch on touchend so the PTY tracks the new cols/rows.
@@ -534,7 +534,7 @@ export function TerminalPanel({
           }
         }
       } else if (!pinching && e.touches.length === 1 && scrollLastY !== null) {
-        // Always preventDefault on single-finger pan inside the terminal —
+        // Always preventDefault on single-finger pan inside the terminal -
         // we own this gesture (xterm scrollback). Without this, sub-pixel
         // early frames let iOS engage document-body rubber-band overscroll
         // on top of our scroll, producing the "two nested scrolls" effect.
@@ -592,7 +592,7 @@ export function TerminalPanel({
   }, [mobile, agentId]);
 
   // Tap on the terminal body focuses our input proxy so the soft keyboard
-  // opens. Mobile only — desktop relies on xterm's built-in click-to-focus.
+  // opens. Mobile only - desktop relies on xterm's built-in click-to-focus.
   // Suppress focus when the click came from a scroll gesture: the synthetic
   // click fires after touchend even if the touch panned the buffer, and
   // popping the keyboard mid-scroll is jarring.
@@ -602,7 +602,7 @@ export function TerminalPanel({
     inputProxyRef.current?.focus();
   }, [mobile]);
 
-  // Shared action for the "Send to chat" pill — invoked from pointerdown
+  // Shared action for the "Send to chat" pill - invoked from pointerdown
   // (mouse/touch) and from keyboard-generated clicks (Enter/Space on the
   // focused button, which emit click without a preceding pointerdown).
   function sendSelectionToChat() {
@@ -668,7 +668,7 @@ export function TerminalPanel({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        // borderLeft removed — the parent container's PanelResizer renders
+        // borderLeft removed - the parent container's PanelResizer renders
         // the divider so it can be drag-targeted and hover-tinted.
         background: "var(--bg-base)",
         position: "relative",
@@ -738,7 +738,7 @@ export function TerminalPanel({
       >
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
         {mobile && <MobileInputProxy ref={inputProxyRef} onInput={sendInput} />}
-        {/* "Send to chat" pill — shown only while a selection exists. Top-
+        {/* "Send to chat" pill - shown only while a selection exists. Top-
             right of the body: clear of the exit overlay (bottom-center), the
             soft-key bar (bottom) and the scrollbar edge. It can cover the
             top-right corner of terminal content, but only transiently while
@@ -764,7 +764,7 @@ export function TerminalPanel({
               e.preventDefault();
               e.stopPropagation();
               // detail === 0 marks a keyboard-generated click (Enter/Space
-              // on the focused button) — no pointerdown preceded it, so the
+              // on the focused button) - no pointerdown preceded it, so the
               // action runs here. Pointer-generated clicks (detail >= 1)
               // already ran it in pointerdown and are only swallowed.
               if (e.detail === 0) sendSelectionToChat();
@@ -793,7 +793,7 @@ export function TerminalPanel({
             Send to chat
           </button>
         )}
-        {/* Exit overlay — anchored to the body so it floats above whatever
+        {/* Exit overlay - anchored to the body so it floats above whatever
             sits below (soft-key bar on mobile, nothing on desktop). */}
         {exited !== null && (
           <div
@@ -837,7 +837,7 @@ export function TerminalPanel({
       </div>
 
       {/* Soft-key bar (mobile only). Adds the home-indicator safe-area
-          inset only when the soft keyboard is dismissed — when it's up, the
+          inset only when the soft keyboard is dismissed - when it's up, the
           keyboard already covers the home indicator zone, so the inset
           becomes wasted vertical space. */}
       {mobile && (
@@ -863,7 +863,7 @@ export function TerminalPanel({
               <button
                 key={key.id}
                 // touchstart + mousedown both preventDefault to keep focus on
-                // xterm's helper textarea — Safari's simulated mousedown can
+                // xterm's helper textarea - Safari's simulated mousedown can
                 // arrive too late to block focus shift on touch devices, so
                 // we belt-and-braces with touchstart.
                 onTouchStart={(e) => e.preventDefault()}

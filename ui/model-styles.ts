@@ -12,7 +12,7 @@
 // colors, sprite prop names) with no server consumer.
 
 // Desk decorations a model can carry. "book" is the whole current opus
-// rendering, including the per-desk cover-color and clock variation — that
+// rendering, including the per-desk cover-color and clock variation - that
 // variation stays inside DeskSprite's renderer, keyed on deskIndex.
 export type DeskProp = "crayons" | "book";
 
@@ -71,7 +71,7 @@ export const MODEL_STYLES: Record<string, ModelStyle> = {
 };
 
 // Missing/empty model identity (e.g. DeskSprite's optional prop): the same
-// neutral gray the old ?? fallbacks produced. Never hashed — absence of
+// neutral gray the old ?? fallbacks produced. Never hashed - absence of
 // identity should not look like a model.
 export const NEUTRAL_STYLE: ModelStyle = {
   border: "var(--border-medium)",
@@ -83,7 +83,7 @@ export const NEUTRAL_STYLE: ModelStyle = {
 // purple, sonnet gold, haiku pink, gpt green), with alphas matching the
 // established border ~0.8 / bg ~0.3 weight so they hold up over both light
 // and dark themes, as a 1-2px border and as a translucent chip background.
-// Eight entries gives deterministic VARIETY, not uniqueness — collisions are
+// Eight entries gives deterministic VARIETY, not uniqueness - collisions are
 // expected and fine; the goal is that new models stop all looking gray.
 export const FALLBACK_PALETTE: readonly ModelStyle[] = [
   { border: "rgba(235,110,100,0.80)", bg: "rgba(235,110,100,0.30)" }, // coral

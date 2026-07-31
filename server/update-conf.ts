@@ -9,18 +9,18 @@
 //
 // PRESENCE and PARSE SUCCESS are separate signals: a managed VPS with a
 // damaged conf must stay "managed" (release mode, trigger refusing with a
-// config error) — falling back to commit mode would tell an updater-managed
+// config error) - falling back to commit mode would tell an updater-managed
 // box about main drift, exactly what presence-based mode detection exists to
 // prevent. Hence the discriminated result: absent | invalid | parsed.
 //
 // Same parse contract as update.sh: literal key=value lines, never sourced or
-// evaluated — a hostile value is data. One deliberate divergence: unknown keys
+// evaluated - a hostile value is data. One deliberate divergence: unknown keys
 // are TOLERATED here (update.sh fails closed on them). The shell script is the
 // privileged consumer and must refuse a config it doesn't fully understand; a
 // server that predates a newly added key must keep reading the keys it knows,
 // or every conf addition would break the banner on not-yet-updated boxes.
 //
-// ISOMUX_UPDATE_CONF overrides the path — the same env var update.sh honors,
+// ISOMUX_UPDATE_CONF overrides the path - the same env var update.sh honors,
 // used by sandbox tests. Values are only ever used as spawn argv elements or
 // compared as strings, never interpolated into a shell.
 
@@ -33,7 +33,7 @@ export function updateConfPath(): string {
 }
 
 export type UpdateConfRead =
-  // No file — the box is not updater-managed (commit mode, no trigger).
+  // No file - the box is not updater-managed (commit mode, no trigger).
   | { state: "absent" }
   // The file exists but can't be read or has a non-key=value line: still an
   // updater-managed box, but the trigger must refuse with a config error and

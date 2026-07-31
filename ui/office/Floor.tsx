@@ -114,7 +114,7 @@ export function Walls({
   const dayOfMonth = now.getDate();
   const moonPhase = (dayOfMonth / 30) * 2 - 1; // -1 to ~1, controls crescent offset
 
-  // Stars — placed in parallelogram coords, then projected
+  // Stars - placed in parallelogram coords, then projected
   // Pane corners: TL(-295,30) TR(-155,-40) BL(-295,120) BR(-155,50)
   // u=0..1 is left-to-right, v=0..1 is top-to-bottom
   const starUV: Array<[number, number, number]> = [
@@ -215,7 +215,7 @@ export function Walls({
             )}
           </circle>
         ))}
-        {/* Moon — crescent via overlapping circles (clickable to toggle theme) */}
+        {/* Moon - crescent via overlapping circles (clickable to toggle theme) */}
         <g
           data-no-pan
           onClick={onToggleTheme}
@@ -266,7 +266,7 @@ export function Walls({
         fill="none"
       />
 
-      {/* Corkboard on left wall — casual, mutable feel */}
+      {/* Corkboard on left wall - casual, mutable feel */}
       <g
         data-no-pan
         transform="translate(-55, -30) skewY(-27)"
@@ -286,7 +286,7 @@ export function Walls({
         />
         {/* Cork surface */}
         <rect x="-46" y="-36" width="87" height="62" rx="1" fill="#c49a6c" />
-        {/* Cork texture — subtle speckles */}
+        {/* Cork texture - subtle speckles */}
         <circle cx="-30" cy="-20" r="0.8" fill="#b88a58" opacity="0.5" />
         <circle cx="-10" cy="-10" r="0.6" fill="#b88a58" opacity="0.4" />
         <circle cx="15" cy="-25" r="0.7" fill="#b88a58" opacity="0.5" />
@@ -294,7 +294,7 @@ export function Walls({
         <circle cx="-35" cy="10" r="0.7" fill="#b88a58" opacity="0.3" />
         <circle cx="5" cy="15" r="0.5" fill="#b88a58" opacity="0.4" />
 
-        {/* Index card 1 — slightly tilted, top-left */}
+        {/* Index card 1 - slightly tilted, top-left */}
         <g transform="translate(-32, -22) rotate(-3)">
           <rect
             x="0"
@@ -339,7 +339,7 @@ export function Walls({
           <circle cx="14" cy="2" r="1.2" fill="#c03030" />
         </g>
 
-        {/* Index card 2 — slightly tilted other way, center-right */}
+        {/* Index card 2 - slightly tilted other way, center-right */}
         <g transform="translate(5, -18) rotate(2)">
           <rect
             x="0"
@@ -392,7 +392,7 @@ export function Walls({
           <circle cx="15" cy="2" r="1.2" fill="#3060b0" />
         </g>
 
-        {/* Index card 3 — bottom left, slight tilt */}
+        {/* Index card 3 - bottom left, slight tilt */}
         <g transform="translate(-28, 4) rotate(1.5)">
           <rect
             x="0"
@@ -437,7 +437,7 @@ export function Walls({
           <circle cx="13" cy="1" r="1.2" fill="#c8a010" />
         </g>
 
-        {/* Empty pin hole — card was removed */}
+        {/* Empty pin hole - card was removed */}
         <g transform="translate(18, 8)">
           <circle cx="0" cy="0" r="2.5" fill="#40b060" />
           <circle cx="0" cy="0" r="1.2" fill="#309048" />
@@ -446,14 +446,14 @@ export function Walls({
         </g>
       </g>
 
-      {/* Framed wall sign on left wall — formal, authoritative feel */}
+      {/* Framed wall sign on left wall - formal, authoritative feel */}
       <g
         data-no-pan
         transform="translate(50, -75) skewY(-27)"
         onClick={(e) => onWallPanelClick?.(e.clientX, e.clientY)}
         style={{ cursor: "pointer", pointerEvents: "auto" }}
       >
-        {/* Outer frame — dark wood/brass */}
+        {/* Outer frame - dark wood/brass */}
         <rect
           x="-30"
           y="-32"
@@ -464,7 +464,7 @@ export function Walls({
           stroke="#2a2018"
           strokeWidth="1.2"
         />
-        {/* Inner frame — thin brass inset */}
+        {/* Inner frame - thin brass inset */}
         <rect
           x="-27"
           y="-29"
@@ -484,7 +484,7 @@ export function Walls({
           rx="1"
           fill={hasOfficePrompt ? "#f5f0e4" : "#ece8dc"}
         />
-        {/* Title line — always visible */}
+        {/* Title line - always visible */}
         <line
           x1="-14"
           y1="-20"
@@ -507,7 +507,7 @@ export function Walls({
               strokeWidth="0.3"
               opacity="0.3"
             />
-            {/* Body text lines — small, illegible, typed feel */}
+            {/* Body text lines - small, illegible, typed feel */}
             <line
               x1="-18"
               y1="-10"
@@ -567,7 +567,7 @@ export function Walls({
           </>
         ) : (
           <>
-            {/* Empty state — blank sign, faint placeholder */}
+            {/* Empty state - blank sign, faint placeholder */}
             <line
               x1="-8"
               y1="-4"
@@ -667,7 +667,7 @@ export function Walls({
         {/* Center dot */}
         <circle cx="0" cy="0" r="1.5" fill="var(--clock-hand)" />
       </g>
-      {/* Neon sign — right wall, hand-drawn tube letters with ligaments */}
+      {/* Neon sign - right wall, hand-drawn tube letters with ligaments */}
       {/* Letter positions: i(-38), s(-25), o(-11), m(5), u(23), x(37) */}
       {/* On (dark mode) */}
       <g
@@ -697,7 +697,7 @@ export function Walls({
           strokeLinecap="round"
           strokeLinejoin="round"
         >
-          {/* i — dot + stem */}
+          {/* i - dot + stem */}
           <circle cx="-32" cy="-12" r="1.2" fill={neon} stroke="none" />
           <line x1="-32" y1="-8" x2="-32" y2="2" />
           {/* s */}
@@ -714,7 +714,7 @@ export function Walls({
           <line x1="38" y1="-11" x2="48" y2="4" />
           <line x1="48" y1="-11" x2="38" y2="4" />
         </g>
-        {/* Ligaments — thin connecting tubes between letters */}
+        {/* Ligaments - thin connecting tubes between letters */}
         <g
           fill="none"
           stroke={neon}
@@ -802,7 +802,7 @@ export function Walls({
         />
       </g>
 
-      {/* Vent — upper-east area of right wall */}
+      {/* Vent - upper-east area of right wall */}
       <g transform="translate(500, 60) skewY(27)">
         <rect
           x="-25"
@@ -848,7 +848,7 @@ export function Walls({
         />
       </g>
 
-      {/* Left wall door — leads to previous room */}
+      {/* Left wall door - leads to previous room */}
       {leftDoor && (
         <g
           data-no-pan
@@ -974,7 +974,7 @@ export function Walls({
         </g>
       )}
 
-      {/* Right wall door — leads to next room */}
+      {/* Right wall door - leads to next room */}
       {rightDoor && (
         <g
           data-no-pan

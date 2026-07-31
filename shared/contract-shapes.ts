@@ -1,4 +1,4 @@
-// Named request and wire-projection shapes — Phase 2.3.
+// Named request and wire-projection shapes - Phase 2.3.
 //
 // The contract-first aliases referenced by the typed route table
 // (server/routes/table.ts) and the event registry (server/events/registry.ts).
@@ -6,7 +6,7 @@
 // shapes". LEAF over shared/types.ts: type aliases only, zero runtime, no
 // validation (schemas are type-level in 2.3; runtime validation lands with
 // handler migration in Phase 3). Indexed-access types keep every alias in
-// lockstep with the canonical shapes — a field rename in shared/types.ts
+// lockstep with the canonical shapes - a field rename in shared/types.ts
 // propagates here at compile time.
 
 import type {
@@ -87,7 +87,7 @@ export type EditAgentReq = Partial<
   // REQUIRED iff customInstructions is present in the body (task 44a2c98d):
   // echo back AgentInfo.customInstructionsVersion as read off full_state /
   // agent_updated (UI) or GET /api/agents/:id/instructions
-  // (agents.readInstructions, task 68891fa1 — the agent-facing read). Missing
+  // (agents.readInstructions, task 68891fa1 - the agent-facing read). Missing
   // then -> 400 invalid_version; stale -> 409 version_conflict with the
   // current version. Scalar-only edits omit it and stay friction-free.
   customInstructionsVersion?: string;
@@ -99,7 +99,7 @@ export interface ReviveReq {
 }
 
 // Body for agents.setPrivileged (PUT /api/agents/:id/privileged). Deliberately
-// its OWN request type, NOT a member of the EditAgentReq Pick — privilege is an
+// its OWN request type, NOT a member of the EditAgentReq Pick - privilege is an
 // owner-administrative mutation gated to scope==="user" (mirrors users.setAccess
 // vs users.update), so it must never ride the agent:manage edit path where a
 // privileged agent could reach it.
@@ -123,7 +123,7 @@ export interface SendMessageReq {
   // Optional legacy input. Sender authority is ALWAYS the token; rejected if
   // present and ≠ token.agentId, ignored otherwise (see guards.senderMustEqualTokenAgent).
   senderAgentId?: string;
-  // Optional retry-dedup key for the AGENT (inter-agent) branch — folds into the
+  // Optional retry-dedup key for the AGENT (inter-agent) branch - folds into the
   // manager's queue dedupe, the same field the retired POST /agents/:id/message
   // accepted. The UI (USER branch) omits it. When deliverAt is present it doubles
   // as the scheduled-message idempotency key (persisted, so it survives restarts).
@@ -136,7 +136,7 @@ export interface SendMessageReq {
   deliverAt?: string;
   // USER branch only (Ctrl/Cmd+Enter in the composer): if the message lands in
   // a busy agent's queue, immediately trigger the same abort+flush that POST
-  // /api/agents/:id/send-now performs. Everywhere else the flag is inert — an
+  // /api/agents/:id/send-now performs. Everywhere else the flag is inert - an
   // idle agent gets a plain send, and slash commands / multi-step flows take
   // their existing paths. Present on an AGENT-scope call → 400 (agents call
   // the explicit /send-now endpoint instead).
@@ -201,7 +201,7 @@ export interface AffordancePreviewUrlReq {
 }
 
 /**
- * GET /api/agents/:id/context — an agent's own context-window fullness.
+ * GET /api/agents/:id/context - an agent's own context-window fullness.
  * The reading is the latest backend sample and may lag the caller's in-flight
  * turn (an agent asking about itself is always mid-turn); treat it as "as of
  * roughly the last turn boundary". `percentage` is a raw float 0..100.
@@ -221,7 +221,7 @@ export type AgentContextUsageResp =
   | { available: false; reason: "no_session" | "not_yet_measured" };
 
 /**
- * GET /api/agents/:id/slides — the current conversation's slide map for the
+ * GET /api/agents/:id/slides - the current conversation's slide map for the
  * initial deck render. `sessionId` is the conversation's root session id (null
  * when the agent has no live session); `slides` is keyed by turn entry id.
  */
@@ -231,7 +231,7 @@ export interface SlideDeckRes {
 }
 
 /**
- * POST /api/agents/:id/slides/:entryId — "ensure slide". Returns a cached slide
+ * POST /api/agents/:id/slides/:entryId - "ensure slide". Returns a cached slide
  * immediately, else starts generation and returns pending. `force` regenerates
  * even when cached; `feedback` is a one-shot instruction for that regeneration.
  */
@@ -268,7 +268,7 @@ export interface RoomRenameReq {
 }
 
 // Room-prompt write. `version` is the token from a preceding rooms.getSettings
-// read — a mismatch means the prompt changed under you (409 version_conflict),
+// read - a mismatch means the prompt changed under you (409 version_conflict),
 // mirroring the memory read-before-replace contract.
 export interface RoomSettingsReq {
   prompt: string | null;
@@ -294,10 +294,10 @@ export interface ShownRoomsReq {
   shown: string[];
 }
 
-// view.listRooms (GET /api/me/rooms) — task 9301d0f4. Minimal reference to a
+// view.listRooms (GET /api/me/rooms) - task 9301d0f4. Minimal reference to a
 // room the CALLER can access, hidden ones included (the projected full_state
 // rooms exclude hidden, and members don't get the owner-only all_rooms_list,
-// so this read is what makes re-SHOW possible). id+name only — everything
+// so this read is what makes re-SHOW possible). id+name only - everything
 // else about a room rides the projection once the room is shown.
 export interface AccessibleRoomWire {
   id: string;
@@ -326,24 +326,24 @@ export interface SetAccessReq {
 
 // Owner-minted invites create NEW users only (task eb3354e6 revision): an
 // existing username is rejected server-side (409). Device links for existing
-// accounts ride POST /api/invites/self — or, when the user is locked out of
+// accounts ride POST /api/invites/self - or, when the user is locked out of
 // every device, the owner recovery op below.
 export interface InviteMintReq {
   username: string;
   role: UserRecord["role"];
   // Optional room grants to attach to the invite (member invites for NEW
-  // users only — owners reach every room by rule, and an existing user's
+  // users only - owners reach every room by rule, and an existing user's
   // access is managed on their record). On accept, the created member
   // record's allowedRooms seeds from this list so the invitee doesn't land
   // in an empty office.
   allowedRooms?: string[];
 }
 
-// invites.mintRecovery (POST /api/invites/recovery) — owner-only recovery for
+// invites.mintRecovery (POST /api/invites/recovery) - owner-only recovery for
 // an EXISTING user (task eb3354e6 final revision): device links are normally
 // self-service, but a user signed out of every device can't mint one. Target
 // is the stable userId; the server derives name/role from the record and
-// fixes TTL/replacement policy — no other knobs on the wire.
+// fixes TTL/replacement policy - no other knobs on the wire.
 export interface RecoveryMintReq {
   userId: string;
 }
@@ -362,7 +362,7 @@ export interface OfficeSettingsReq {
   name?: string | null;
   // Token from a preceding office.getSettings read. The PUT replaces the whole
   // settings blob (prompt/envFile/name), so ONE version guards the whole clobber
-  // surface — a mismatch is a 409 version_conflict, mirroring memory REPLACE.
+  // surface - a mismatch is a 409 version_conflict, mirroring memory REPLACE.
   version: string;
 }
 
@@ -377,14 +377,14 @@ export interface ValidateCwdReq {
 export interface ValidateEnvReq {
   scope: "office" | "user";
   username?: string;
-  // When present, validate THIS path instead of the subject's STORED envFile —
+  // When present, validate THIS path instead of the subject's STORED envFile -
   // lets the settings UI check a typed-but-unsaved path on blur. Only valid
   // with scope:"user" (rejected otherwise), and must be non-blank when
   // provided (a blank path must not silently fall back to the stored env).
   // Authorization is unchanged (validateEnvBodySelfSubject on scope/username):
   // the subject user could save the same path via users.update and then
   // validate it stored, so an explicit path exposes no information the caller
-  // couldn't already reach — it only makes the probe non-mutating.
+  // couldn't already reach - it only makes the probe non-mutating.
   path?: string;
 }
 
@@ -422,7 +422,7 @@ export interface MemoryCreateReq {
 }
 
 // isomux-memory: REPLACE the whole file (edit/retract). `version` is the token
-// from the preceding READ — a mismatch means the file changed under you (409).
+// from the preceding READ - a mismatch means the file changed under you (409).
 export interface MemoryReplaceReq {
   scope: MemoryScope;
   scopeId?: string | null;
@@ -499,7 +499,7 @@ export interface CronPromptReq {
 // implementation cannot drift: server/storage-usage.ts and
 // server/storage-prune.ts import these as their own domain types.
 
-// Stable kebab-case ids — a response key, not an index.
+// Stable kebab-case ids - a response key, not an index.
 export type StorageCategoryId =
   | "transcripts"
   | "attachments"
@@ -515,7 +515,7 @@ export interface StorageCategoryWire {
   id: StorageCategoryId;
   // Where the category lives. null when the location is not configured on this
   // box (e.g. update snapshots off an updater-managed box) AND for every caller
-  // who is not the office owner — a member gets sizes, not filesystem layout.
+  // who is not the office owner - a member gets sizes, not filesystem layout.
   path: string | null;
   // False when the location does not exist or could not be read. Distinguishes
   // "no backups have run yet" from "the backup dir holds zero bytes", which
@@ -535,7 +535,7 @@ export interface AgentStorageWire {
 
 export interface StorageUsageWire {
   // null for every caller who is not the office owner (see StorageCategoryWire
-  // .path — non-owners get sizes only, no filesystem layout).
+  // .path - non-owners get sizes only, no filesystem layout).
   stateRoot: string | null;
   measuredAt: number;
   // The in-root categories sum to exactly this; backups and update-snapshots
@@ -578,7 +578,7 @@ export type PruneSkipReason =
   // before it is ever delivered.
   | "referenced"
   // Attachments only, FAIL-CLOSED: the durable message queue could not be read,
-  // so whether these files are still owed is UNKNOWN. Unknown is not empty —
+  // so whether these files are still owed is UNKNOWN. Unknown is not empty -
   // everything is spared and an apply is refused.
   | "queue-state-unknown";
 
@@ -617,7 +617,7 @@ export interface StoragePruneReq {
 
 export interface StoragePruneRes {
   plan: PrunePlanWire;
-  // null on a dry run — never an empty result, which would read like a prune
+  // null on a dry run - never an empty result, which would read like a prune
   // that found nothing to do.
   applied: PruneResultWire | null;
 }

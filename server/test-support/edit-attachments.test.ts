@@ -1,11 +1,11 @@
-// Regression for task 1a3a0820 — editing a message that carried attachments.
+// Regression for task 1a3a0820 - editing a message that carried attachments.
 //
 // Repro (Nil, 2026-07-24): send a chat message with an image attached, then
 // edit it. The edit failed with "Cannot edit: could not locate message in
 // backend session", while editing an attachment-free message in the same chat
 // worked.
 //
-// Cause, from the real recorded shapes: attachments are never inlined — each
+// Cause, from the real recorded shapes: attachments are never inlined - each
 // becomes one notice line, and the whole notice block is pushed as a SECOND
 // text content block after the user's text (buildClaudeUserMessage /
 // buildCodexUserInput). Both backends' getSessionMessages flatten content
@@ -278,7 +278,7 @@ describe("editMessage on a message with attachments (task 1a3a0820)", () => {
       "fork persisted",
     );
 
-    // The edit UI rewrites text only — the attachments belong to the message,
+    // The edit UI rewrites text only - the attachments belong to the message,
     // so they ride along instead of being silently dropped.
     const edited = (events as AnyEvent[]).find(
       (e) =>

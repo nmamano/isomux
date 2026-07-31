@@ -12,7 +12,7 @@ import type { OfficeEvent } from "../shared/office-state.ts";
 
 // A committed context-fullness sample (design: internal-docs/
 // context-fullness-visibility.md). Window occupancy of the CURRENT
-// conversation — prompt size of the last turn vs the model's window — NOT
+// conversation - prompt size of the last turn vs the model's window - NOT
 // cumulative usage accounting (that lives in sessions.json via
 // accumulateSessionUsage; keep the two separate). `model` labels the window
 // the sample was measured against, so a stale pre-model-swap sample can't get
@@ -46,7 +46,7 @@ export interface ManagedAgent {
   // resolves it when the turn's `stream()` iterator ends at `result`.
   // `promise` is the same promise `resolve`/`reject` settle. Code that must
   // wait for the in-flight turn to end ATTACHES to it
-  // (`pendingTurn.promise.catch(...)`) — it must NEVER replace this record
+  // (`pendingTurn.promise.catch(...)`) - it must NEVER replace this record
   // with a delegating wrapper. The old wrap-and-wake pattern had a lost-wakeup
   // hole (task da065287): runAgentTurn's send-throw cleanup only fires when it
   // still owns the installed record, so a wrapper parked around the original
@@ -70,14 +70,14 @@ export interface ManagedAgent {
     anchorEntryId: string | null;
   } | null;
   // The user_message entry id logged for a turn whose deferred is not installed
-  // yet — sendMessage / executeSkill / editMessage all log the anchor and only
+  // yet - sendMessage / executeSkill / editMessage all log the anchor and only
   // then reach runAgentTurn. createTurnDeferred claims it (and clears it, so it
   // is claimed at most once) as the turn's anchorEntryId. Without this the
   // direct-send paths ran with a null anchor, every turn read TERMINAL while it
   // was still streaming, and Slide Mode wrote an empty-turn placeholder for the
   // live turn (task e9429ef3).
   nextTurnAnchorEntryId: string | null;
-  // The aggregate `afterTurn` promise for the most recent turn — all plugins'
+  // The aggregate `afterTurn` promise for the most recent turn - all plugins'
   // afterTurn hooks raced against their per-plugin timeout, joined here.
   // runAgentTurn awaits this before starting the next turn so memory writes
   // / audit writes / etc. land before the next retrieval. Self-clears on
@@ -86,16 +86,16 @@ export interface ManagedAgent {
   afterTurnPromise: Promise<void> | null;
   // Monotonic counter bumped by every control-plane action that cancels an
   // in-flight turn (abort, kill, replaceSession). runAgentTurn snapshots it
-  // at entry — AFTER beginTurn flips state to thinking — and re-checks
+  // at entry - AFTER beginTurn flips state to thinking - and re-checks
   // after each await during plugin retrieval. Any change means a Stop or
   // session swap fired while plugin work was running, so the pre-send turn
   // bails with SessionSwappedError instead of sending the stale prompt
   // into the (possibly swapped) session. The pre-send window between
   // beginTurn and createTurnDeferred is the only place plain `pendingTurn`
-  // rejection can't cover, because pendingTurn isn't installed yet — this
+  // rejection can't cover, because pendingTurn isn't installed yet - this
   // counter fills that gap.
   turnCancelToken: number;
-  // The turnCancelToken value stamped by abort()'s bump — i.e.
+  // The turnCancelToken value stamped by abort()'s bump - i.e.
   // `abortCancelToken === turnCancelToken` holds exactly when the LATEST
   // cancellation was user-initiated (Stop / Send-now). flushQueue's
   // SessionSwappedError handler uses this to keep quiet on an intentional
@@ -132,13 +132,13 @@ export interface ManagedAgent {
   topicMessageCount: number; // text entry count when topic was last generated
   // Bumped by any path that resets the conversation (/clear, /resume, fork,
   // newConversation). generateTopic captures this at start and discards the
-  // result if it changed during the await — otherwise an in-flight LLM call
+  // result if it changed during the await - otherwise an in-flight LLM call
   // would stomp on the cleared state when it finally returns.
   topicGenToken: number;
   // --- Context-window fullness (internal-docs/context-fullness-visibility.md).
   // Latest committed fullness measurement for the CURRENT conversation, or null
   // when none exists (fresh/blank conversation, resumed-but-not-yet-sampled,
-  // backend can't report — e.g. Codex before its first turn's tokenUsage
+  // backend can't report - e.g. Codex before its first turn's tokenUsage
   // notification). In-memory only; lost on server restart and repopulated at
   // the end of the first completed turn.
   contextUsage: ContextUsageSnapshot | null;
@@ -146,7 +146,7 @@ export interface ManagedAgent {
   // by every path that resets or switches the conversation (/clear, engine
   // switch, resume to a different session, edit-fork, abandoned codex thread).
   // An async getContextUsage() refresh captures it at initiation and commits
-  // only if it still matches — a late resolution from the old conversation can
+  // only if it still matches - a late resolution from the old conversation can
   // never repopulate the new one. Same pattern as topicGenToken above, kept
   // separate because setTopic bumps that one without a conversation reset.
   contextGen: number;
@@ -165,7 +165,7 @@ export interface ManagedAgent {
   // Agent-facing fullness thresholds already fired THIS generation (the raw
   // percentage values that were crossed, e.g. 60, 85). Evaluated and mutated
   // EXCLUSIVELY by the pre-send notice step in runAgentTurn, at send-accept time
-  // — never by the sample-commit path, so a committed high sample can't consume
+  // - never by the sample-commit path, so a committed high sample can't consume
   // a notice before an outbound message exists to carry it. Reset with the
   // generation (resetContextUsage); restored on edit-fork rollback; preserved on
   // model change (the conversation continues, already-fired notices stay fired).
@@ -173,7 +173,7 @@ export interface ManagedAgent {
   // Boss-facing fullness thresholds already fired THIS generation: the
   // ephemeral chat system line ("Context is NN% full. ...") emitted by the
   // sample-commit path (maybeEmitUiContextNotice in agent-manager). Deliberately
-  // SEPARATE from firedAgentThresholds — different audiences, and one firing
+  // SEPARATE from firedAgentThresholds - different audiences, and one firing
   // must never suppress the other. Same lifecycle: reset with the generation
   // (resetContextUsage); restored on edit-fork rollback; preserved on model
   // change.
@@ -211,13 +211,13 @@ export interface ManagedAgent {
   // busy (state thinking/tool_executing). On transition to idle/waiting_for_response,
   // all entries flush together as one coalesced SDK prompt with sender labels.
   // DURABLE (task 9870b472): mirrored to ~/.isomux/message-queues.json and
-  // replayed on boot. Every mutation site MUST persist — acceptance goes
+  // replayed on boot. Every mutation site MUST persist - acceptance goes
   // through enqueueMessage's transactional write; every post-accept mutation
   // must call persistQueueState (best-effort) alongside its emitQueueUpdate.
   messageQueue: QueuedMessage[];
   // Set while flushQueue is mid-flight to prevent re-entry from the
   // updateState trigger inside the same flush's await chain. Never cleared by
-  // anything other than that flush's own finally — the queue watchdog recovers
+  // anything other than that flush's own finally - the queue watchdog recovers
   // a wedged flush by cancelling it (session replacement), not by force-
   // clearing this flag, so at most one flush can ever be sending.
   flushInProgress: boolean;
@@ -243,7 +243,7 @@ export interface ManagedAgent {
   // Why the agent currently has no live subprocess, used only to word the wake
   // message accurately: "idle" = demoted by the inactivity sweep; "boot" =
   // lazy-restored on server (re)start; "fresh" = a blank conversation never
-  // backed by a subprocess (lazy spawn, or released by /clear) — its wake is
+  // backed by a subprocess (lazy spawn, or released by /clear) - its wake is
   // silent because there is nothing to announce resuming; "stream-ended" = the
   // backend's event stream ended on its own while the session was still bound
   // (subprocess died without a proper error event) and runConsumer released
@@ -264,7 +264,7 @@ export type AgentEvent =
       entryId: string;
       slide: SlideRecord;
     }
-  // Slide Mode: that turn's generation failed terminally — routed to the WS as
+  // Slide Mode: that turn's generation failed terminally - routed to the WS as
   // `slide_failed` (same room-ACL scope as slide_ready).
   | {
       type: "slide_failed";
@@ -275,7 +275,7 @@ export type AgentEvent =
     }
   // `rollback: true` marks a clear that RESTORES a prior visible timeline
   // (failed edit-fork rollback) rather than establishing a new conversation
-  // boundary — clients keep transient per-conversation cues (the unread dot)
+  // boundary - clients keep transient per-conversation cues (the unread dot)
   // instead of dropping them (task 8d763325).
   | { type: "clear_logs"; agentId: string; rollback?: boolean }
   | {
@@ -309,7 +309,7 @@ export type EventHandler = (event: AgentEvent) => void;
 //
 // `reason` rides along so catch sites can tell WHY the swap happened without
 // racing any external flag: "settings" marks a deliberate settings-driven
-// replace (model/effort/permission/sandbox/cwd edit) — flushQueue's handler
+// replace (model/effort/permission/sandbox/cwd edit) - flushQueue's handler
 // words its interrupt notice as expected behavior instead of a stall
 // (task 8ba27b27). Undefined for every other swap (abort slow path,
 // setPrivileged, watchdog forced recovery, /clear, /resume, ...).
@@ -322,14 +322,14 @@ export class SessionSwappedError extends Error {
   }
 }
 
-// Thrown by a backend session.send() when the backend isn't usable at all —
-// CLI not installed, auth missing, etc. — i.e. the failure is about the
+// Thrown by a backend session.send() when the backend isn't usable at all -
+// CLI not installed, auth missing, etc. - i.e. the failure is about the
 // agent's setup, not about the turn. sendMessage / flushQueue / editMessage
 // catch this and route it to a calmer presentation than a real turn error:
 // the `message` lands in chat as a system log entry, the agent stays in idle
 // instead of transitioning to error, and the user can edit/retry. The
 // message itself should already be user-actionable (install hint, login
-// prompt, etc.) — it's surfaced verbatim with no "Error:" prefix.
+// prompt, etc.) - it's surfaced verbatim with no "Error:" prefix.
 //
 // `command` is an optional shell command the user can run to resolve the
 // not-configured state (install command, login command). When present, the
@@ -348,7 +348,7 @@ export class BackendNotConfiguredError extends Error {
 // previous turn ended asking for a permission decision / resume pick / model
 // pick / effort pick). The next user message gets interpreted as the pick, so
 // callers that would otherwise queue or defer must take the pending-* path
-// instead. Pure derivation from ManagedAgent — lives here so the queueing
+// instead. Pure derivation from ManagedAgent - lives here so the queueing
 // gate in sendMessage and the deferral gate in executeSkill stay in lockstep.
 export function inMultiStepFlow(managed: ManagedAgent): boolean {
   return !!(

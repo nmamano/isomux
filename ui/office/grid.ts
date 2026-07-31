@@ -1,7 +1,7 @@
 // Isometric grid layout for the desks (see shared/desks.ts for the slot list)
 // All coordinates are in SVG space (viewBox: -450 -100 1100 700)
 
-// Scene container dimensions and viewBox — sized wall-to-wall (left wall -355 to right wall 595)
+// Scene container dimensions and viewBox - sized wall-to-wall (left wall -355 to right wall 595)
 export const SCENE_W = 950,
   SCENE_H = 700;
 export const VB_X = -355,
@@ -31,7 +31,7 @@ export function deskPixelPos(row: number, col: number) {
 
 // Pick a palette slot for a room from its POSITION in the room list. Cycling
 // by index guarantees adjacent rooms always differ and every palette appears
-// before any repeats — an explicit product decision (task 5c10494a): the
+// before any repeats - an explicit product decision (task 5c10494a): the
 // id-hash keying tried in 3c.3 collapsed onto few palettes on real offices
 // (5 of 12 rooms identical, 4 adjacent), and Nil prefers variety/adjacency
 // over colour stability. Accepted tradeoff: rooms recolour when the list

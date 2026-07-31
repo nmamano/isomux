@@ -1,13 +1,13 @@
-// Phase 3c slice 4: roomId is THE room reference — the dense AgentInfo.room index
+// Phase 3c slice 4: roomId is THE room reference - the dense AgentInfo.room index
 // is gone from the wire and from OfficeState. These pin the two invariants the
 // id-keyed model rests on, at the layers where they are cheaply testable:
 //
 //   (a) OfficeState tracks rooms purely by stable roomId across spawn / move /
 //       close. The load-bearing case is the close: when a LOWER empty room
-//       closes, a surviving agent's roomId is UNCHANGED and — the whole point of
-//       the cut — closeRoom emits ONLY room_closed, with NO per-agent
+//       closes, a surviving agent's roomId is UNCHANGED and - the whole point of
+//       the cut - closeRoom emits ONLY room_closed, with NO per-agent
 //       agent_updated index-shift churn.
-//   (b) The AgentManager room helpers fail LOUD — globalRoomIndexOf returns -1
+//   (b) The AgentManager room helpers fail LOUD - globalRoomIndexOf returns -1
 //       and roomById returns undefined for an unknown roomId. They NEVER coerce
 //       a miss to room 0, so a corrupt id surfaces as suppression/fallback at the
 //       call site rather than silently relocating an agent to the lobby.
@@ -40,7 +40,7 @@ function spawnInto(ofs: OfficeState, roomId: string, name: string) {
 const find = (ofs: OfficeState, id: string) =>
   ofs.getAllAgents().find((a) => a.id === id)!;
 
-describe("3c.4 roomId is the room reference — OfficeState tracks rooms by id", () => {
+describe("3c.4 roomId is the room reference - OfficeState tracks rooms by id", () => {
   it("spawn stamps the target roomId", () => {
     const ofs = new OfficeState({ rooms: rooms("r1", "r2", "r3", "r4") });
     const a = spawnInto(ofs, "r3", "A");
@@ -51,7 +51,7 @@ describe("3c.4 roomId is the room reference — OfficeState tracks rooms by id",
     const ofs = new OfficeState({ rooms: rooms("r1", "r2", "r3", "r4") });
     const a = spawnInto(ofs, "r3", "A");
     const events = ofs.closeRoom("r2"); // empty non-lobby room below r3
-    // The agent did not move — its stable roomId is unchanged...
+    // The agent did not move - its stable roomId is unchanged...
     expect(find(ofs, a.id).roomId).toBe("r3");
     // ...and the close emits ONLY room_closed: no dense index exists to shift, so
     // none of the pre-cut per-agent agent_updated churn fires. This is the point
@@ -109,7 +109,7 @@ describe("3c.4 roomId is the room reference — OfficeState tracks rooms by id",
   });
 });
 
-describe("3c.2 roomId authority — AgentManager room helpers never silently -> 0", () => {
+describe("3c.2 roomId authority - AgentManager room helpers never silently -> 0", () => {
   const mgr = createAgentManager({
     resolveBackend: () => new FakeBackend(),
     officeState: new OfficeState({
@@ -124,7 +124,7 @@ describe("3c.2 roomId authority — AgentManager room helpers never silently -> 
   });
 
   it("globalRoomIndexOf returns -1 (NOT 0) for an unknown roomId", () => {
-    // Logs a loud [3c] line — that is the intended tripwire, not a failure.
+    // Logs a loud [3c] line - that is the intended tripwire, not a failure.
     expect(mgr.globalRoomIndexOf("does-not-exist")).toBe(-1);
   });
 

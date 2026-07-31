@@ -6,13 +6,13 @@
  *
  *   1. Awaiting the previous turn's afterTurnPromise (so memory writes
  *      from the prior turn land before this turn's beforeTurn retrieval).
- *      A stale promise can't poison future turns — see runAfterTurn for
+ *      A stale promise can't poison future turns - see runAfterTurn for
  *      the self-clearing wrapper.
  *   2. Running every enabled plugin's `beforeTurn` in parallel against the
  *      same context. Per-plugin 5s race; on throw or timeout the plugin
  *      contributes no prefix and the failure goes to plugins.jsonl.
  *   3. Assembling the outbound envelope: built-in blocks first (currently just
- *      the context-fullness notice — server coordination, NOT a plugin), then
+ *      the context-fullness notice - server coordination, NOT a plugin), then
  *      per-plugin prefix blocks in alphabetical id order, each delimiter-
  *      wrapped, prepended to the outgoing text with a `User message:` separator.
  *      stripOutboundEnvelope is the exact inverse (used by edit-to-fork
@@ -26,7 +26,7 @@
  *      (completed / failed / interrupted). Per-plugin 10s race. The
  *      aggregate promise is stored on `managed.afterTurnPromise` and
  *      self-clears on settle. A turn cancelled DURING plugin retrieval
- *      (Stop / session swap before session.send) skips afterTurn — the
+ *      (Stop / session swap before session.send) skips afterTurn - the
  *      cancel-token check throws SessionSwappedError above the send
  *      lifecycle, so no afterTurn fires for a turn the backend never saw.
  *
@@ -62,7 +62,7 @@ export interface RunAgentTurnOpts {
    *  normal sends it's the raw user text; for skills it's the expanded
    *  skill prompt; for queued flushes it's the per-item bodies joined.
    *  This is what plugins should query against / store as "the user's
-   *  message" — sender prefixes like `[Nil (Phone)]` are isomux routing
+   *  message" - sender prefixes like `[Nil (Phone)]` are isomux routing
    *  noise, not intent. */
   originalText: string;
   /** Pre-prefix outgoing text, with sender prefix already applied. Plugin
@@ -74,7 +74,7 @@ export interface RunAgentTurnOpts {
   humanInput: boolean;
   /** Called synchronously after session.send resolves and BEFORE the
    *  newLogEntries snapshot is taken. Use this for "log only on send-
-   *  accepted" patterns — flushQueue uses it to write user_message entries
+   *  accepted" patterns - flushQueue uses it to write user_message entries
    *  and drain its queue once the backend has accepted the prompt. Any
    *  entries logged here land BEFORE the snapshot and are therefore
    *  excluded from `PluginAfterTurnInput.newLogEntries`. */
@@ -124,7 +124,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // 1. Claim the turn lifecycle immediately, BEFORE any await. The
   // afterTurnPromise gate (up to 10s) plus per-plugin beforeTurn (up to 5s
   // each) would otherwise leave the agent in idle / waiting_for_response
-  // state for the duration — concurrent ingress (sendMessage, executeSkill,
+  // state for the duration - concurrent ingress (sendMessage, executeSkill,
   // enqueueMessage's "isQueueIdleState" branch) would see the agent as
   // not-busy and skip the queue, leading to either a deferred supersession
   // or two send() calls racing into the same backend session.
@@ -139,7 +139,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // action that would normally cancel an in-flight turn (abort, kill,
   // replaceSession via /clear / /resume / /model / /effort / edit-fork)
   // bumps this counter. We re-check after each await during the pre-send
-  // window and bail with SessionSwappedError if it changed — pendingTurn
+  // window and bail with SessionSwappedError if it changed - pendingTurn
   // isn't installed yet, so the usual rejection path can't reach us.
   const cancelTokenAtEntry = managed.turnCancelToken;
   const checkCancelled = () => {
@@ -198,7 +198,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     checkCancelled();
   }
 
-  // 4b. Built-in outbound blocks (server coordination, NOT plugins — no
+  // 4b. Built-in outbound blocks (server coordination, NOT plugins - no
   // enable/disable coupling, absent from plugin discovery + failure
   // accounting). Currently just the context-fullness notice. Computed after
   // the plugin loop so the just-finished turn's fire-and-forget sample has the
@@ -229,20 +229,20 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   }
 
   // Final pre-send cancel check. Catches a Stop/swap that fires after the
-  // beforeTurn loop returned but before createTurnDeferred runs — small
+  // beforeTurn loop returned but before createTurnDeferred runs - small
   // window but legitimately reachable since assembling the prefix yields
   // the microtask queue.
   checkCancelled();
 
   // 6. Install the per-turn deferred. Held close to session.send so we don't
-  // park a pendingTurn through the plugin retrieval phase — the state gate
+  // park a pendingTurn through the plugin retrieval phase - the state gate
   // above is what serializes turns; pendingTurn is what makes session.send /
   // await turn cancellable on session swap.
   const turn = deps.createTurnDeferred(managed);
   const ownPending = managed.pendingTurn;
 
   // 7. Send. Snapshot the logCache AFTER onSendAccepted runs but BEFORE the
-  // agent's turn output starts arriving via processNormalizedEvent — that's
+  // agent's turn output starts arriving via processNormalizedEvent - that's
   // the window in which "new entries produced by this turn" is well-defined.
   let snapshotIdx = 0;
   let status: PluginAfterTurnInput["status"] = "completed";
@@ -258,16 +258,16 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     );
     // Send accepted: consume the fullness notice NOW (never before send, so a
     // failed send doesn't burn a once-per-generation notice). The sample-commit
-    // path never touches this set, so runAgentTurn is its sole mutator — see
+    // path never touches this set, so runAgentTurn is its sole mutator - see
     // internal-types.ts firedAgentThresholds.
     //
     // Generation guard: `session.send()` can straddle a replaceSession swap
     // (/clear, resume-to-different-id, edit-fork). If the OLD session's send
-    // resolves AFTER a reset, the live set is the NEW generation's fresh one —
+    // resolves AFTER a reset, the live set is the NEW generation's fresh one -
     // marking it here would burn its notice. Only mark when the generation is
     // unchanged. We guard on `contextGen`, NOT session identity or the cancel
     // token: a model/effort restart swaps the session (and bumps the cancel
-    // token) but CONTINUES the same conversation, keeping the same fired-set —
+    // token) but CONTINUES the same conversation, keeping the same fired-set -
     // there the notice really did go out on the old session's now-resumed
     // transcript, so marking is correct and a session/token guard would wrongly
     // let it re-fire next turn. `contextGen` bumps iff the conversation reset,
@@ -280,7 +280,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
         onSendAccepted();
       } catch (err) {
         // onSendAccepted is caller-controlled (typically log entries +
-        // queue drain). A throw here would be a caller bug — the turn is
+        // queue drain). A throw here would be a caller bug - the turn is
         // already in flight on the backend, so we log and continue.
         console.error(`[runAgentTurn] onSendAccepted threw:`, err);
       }
@@ -292,7 +292,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     // Symmetric with the pre-refactor patterns in sendMessage / flushQueue /
     // executeSkill / editMessage: if session.send (or anything before
     // `await turn`) threw, the deferred we installed is still parked in
-    // managed.pendingTurn — reject + clear only when we still own it so
+    // managed.pendingTurn - reject + clear only when we still own it so
     // awaiting callers don't hang and concurrent abort/state logic doesn't
     // observe a phantom in-flight turn.
     if (ownPending && managed.pendingTurn === ownPending) {
@@ -300,7 +300,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
       try {
         ownPending.reject(err);
       } catch {
-        // Already-rejected deferred — fine.
+        // Already-rejected deferred - fine.
       }
     }
     // SessionSwappedError = user-initiated swap (abort, /resume, /model,
@@ -310,7 +310,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     status = err instanceof SessionSwappedError ? "interrupted" : "failed";
   }
 
-  // 8. Fire afterTurn for every plugin. Even on failure / interruption —
+  // 8. Fire afterTurn for every plugin. Even on failure / interruption -
   // memory plugins may want to observe the boundary, audit plugins always
   // want the record, etc. The aggregate promise self-clears on settle.
   if (loaded.length > 0) {
@@ -341,7 +341,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// stripOutboundEnvelope — inverse of the wrap built in runAgentTurn step 5
+// stripOutboundEnvelope - inverse of the wrap built in runAgentTurn step 5
 // ---------------------------------------------------------------------------
 
 const USER_MESSAGE_SEPARATOR = "\n\nUser message:\n";
@@ -367,13 +367,13 @@ const END_ENVELOPE_AND_SEPARATOR =
  *  Returns the input unchanged when no wrap is present (no built-in block fired,
  *  no plugin contributed a prefix this turn, or the text isn't a user message at
  *  all). Two guards keep regular user text safe from accidental stripping:
- *    1. The text must start with `--- begin isomux: ` or `--- begin plugin: ` —
+ *    1. The text must start with `--- begin isomux: ` or `--- begin plugin: ` -
  *       a user whose message happens to contain the separator pattern but didn't
  *       open with a begin marker is left alone.
  *    2. The boundary regex matches the FULL `--- end (isomux|plugin): <id> ---`
  *       closing line shape (not just three dashes), so a block body containing
  *       `---` immediately before a stray separator can't short-circuit the split.
- *  The FIRST match wins, which is the structural boundary — anything that looks
+ *  The FIRST match wins, which is the structural boundary - anything that looks
  *  like the pattern in the user payload comes later in the string. Old
  *  transcripts (plugin-only wraps) strip identically: the plugin grammar is
  *  unchanged, strictly extended with the `isomux` alternative. */
@@ -397,7 +397,7 @@ export function stripOutboundEnvelope(text: string): string {
 // the conversation crosses each threshold, so system-prompt rules like "wrap up
 // past 200k" fire even when the agent never thinks to poll GET .../context.
 // Reads live on ManagedAgent (contextUsage / contextSampleInFlight /
-// firedAgentThresholds) — no dependency injection needed; the fired-set is
+// firedAgentThresholds) - no dependency injection needed; the fired-set is
 // reset/restored by resetContextUsage in agent-manager at conversation
 // boundaries.
 // ---------------------------------------------------------------------------
@@ -429,7 +429,7 @@ export function formatContextNotice(
 }
 
 /** The highest fullness threshold newly reached (percentage >= threshold) but
- *  not yet fired this generation, or null. Pure read — never mutates the fired
+ *  not yet fired this generation, or null. Pure read - never mutates the fired
  *  set. Uses the raw float percentage, never a rounded display value. */
 export function pickContextThreshold(managed: ManagedAgent): number | null {
   const snap = managed.contextUsage;
@@ -446,11 +446,11 @@ export function pickContextThreshold(managed: ManagedAgent): number | null {
  *  turn, then evaluate thresholds against the current snapshot (re-read AFTER
  *  the await, so a mid-await conversation reset degrades cleanly to null). If
  *  the first sample clears multiple bands at once (e.g. lands at 87%), only the
- *  HIGHEST newly-reached band is emitted. Does NOT mark the threshold fired —
+ *  HIGHEST newly-reached band is emitted. Does NOT mark the threshold fired -
  *  that happens only once the send is accepted, so a failed/swapped send never
  *  burns a notice. Captures `contextGen` for the send-accept guard: everything
  *  from here to `session.send()` is synchronous, so this equals the generation
- *  in effect at send time — a reset during the send await bumps `contextGen`
+ *  in effect at send time - a reset during the send await bumps `contextGen`
  *  (and replaces the fired-set), and the guard then skips the stale mark. */
 async function buildContextNoticeBlock(
   managed: ManagedAgent,
@@ -488,7 +488,7 @@ export function markContextThresholdFired(
 }
 
 // ---------------------------------------------------------------------------
-// beforeTurn — per-plugin race with timeout
+// beforeTurn - per-plugin race with timeout
 // ---------------------------------------------------------------------------
 
 async function runOneBeforeTurn(
@@ -553,8 +553,8 @@ async function runOneBeforeTurn(
 }
 
 /** Validate a plugin's beforeTurn return value and extract the prefix string.
- *  A malformed shape — non-object return, or `promptPrefix` that isn't a
- *  string — must NOT crash the turn (the spec is explicit: plugin errors
+ *  A malformed shape - non-object return, or `promptPrefix` that isn't a
+ *  string - must NOT crash the turn (the spec is explicit: plugin errors
  *  never fail the turn). Instead we log the malformation to plugins.jsonl
  *  and return null, dropping the plugin's contribution for this turn. The
  *  isolation boundary lives here so callers can't accidentally route an
@@ -609,7 +609,7 @@ function normalizeBeforeTurnResult(
 }
 
 // ---------------------------------------------------------------------------
-// afterTurn — per-plugin race, self-clearing aggregate promise
+// afterTurn - per-plugin race, self-clearing aggregate promise
 // ---------------------------------------------------------------------------
 
 function runAfterTurn(
@@ -625,7 +625,7 @@ function runAfterTurn(
     plugins.map((p) => runOneAfterTurn(p, ctx, input, origin)),
   ).then(() => undefined);
 
-  // Wrap with a self-clearing finally — a timed-out plugin must not leave a
+  // Wrap with a self-clearing finally - a timed-out plugin must not leave a
   // stale promise blocking every future turn. Identity-compare via the
   // wrapping `self` so we only null the slot if it still points at this
   // turn's promise (a later turn may have overwritten it).

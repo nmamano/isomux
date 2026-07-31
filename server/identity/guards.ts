@@ -1,4 +1,4 @@
-// Guard catalog — Phase 2.2. Named, individually contract-tested authorization
+// Guard catalog - Phase 2.2. Named, individually contract-tested authorization
 // policies. The dispatcher (./dispatch.ts) composes a route's coarse
 // `requiredCapability` (stage 1) with one of these `resourceGuard`s (stage 2);
 // no authorization logic lives in handler bodies. See
@@ -12,7 +12,7 @@
 // traffic through it.
 //
 // LEAF MODULE: imports only ./index.ts (Identity/Capability). It must NOT import
-// server/isomux-office.ts, the managers, or users.ts — mutable office state reaches
+// server/isomux-office.ts, the managers, or users.ts - mutable office state reaches
 // guards ONLY through the injected `GuardDeps` seam. That keeps the catalog pure
 // and unit-testable, and let Phase 3b swap the access model (materialized
 // `allowedRooms` → rule-based) by replacing the GuardDeps implementation, never
@@ -22,8 +22,8 @@ import { identityHasCapability, type Identity } from "./index.ts";
 
 // --- Outcome envelope -------------------------------------------------------
 // Every guard (and the dispatcher) returns this. Shared, frozen singletons keep
-// the envelope strings identical across the whole authz surface — tests pin the
-// `code`, not just the status — and make the non-leak contract STRUCTURAL: a
+// the envelope strings identical across the whole authz surface - tests pin the
+// `code`, not just the status - and make the non-leak contract STRUCTURAL: a
 // hidden resource and a missing one return the very same FORBIDDEN value, so the
 // guard cannot reveal which.
 export type AuthzOutcome =
@@ -41,7 +41,7 @@ export const UNAUTHENTICATED: AuthzOutcome = Object.freeze({
   code: "unauthenticated",
 });
 
-// The single 403 envelope shared by EVERY denial — a missing capability, a
+// The single 403 envelope shared by EVERY denial - a missing capability, a
 // failed owner/self/scope check, and an inaccessible-or-missing resource alike.
 // Uniform by design: a caller cannot distinguish "you lack the capability" from
 // "that room is hidden" from "that agent does not exist".
@@ -69,14 +69,14 @@ export interface GuardDeps {
   userIdForUsername(username: string): string | null;
   // The creator userId of `cronjobId`, or null if unknown / unowned.
   cronjobCreatorUserId(cronjobId: string): string | null;
-  // The MANAGER userId of `agentId` — the spawning user (AgentInfo.userId) — or
+  // The MANAGER userId of `agentId` - the spawning user (AgentInfo.userId) - or
   // null if the agent is unknown / unowned. Gates agents.setPrivileged: a member
   // may toggle privilege only on agents they manage.
   agentManagerUserId(agentId: string): string | null;
 }
 
 // What a guard sees. `params`/`body` are extracted by the route layer (Phase
-// 2.3); in 2.2 the contract tests pass them directly. `body` is `unknown` —
+// 2.3); in 2.2 the contract tests pass them directly. `body` is `unknown` -
 // guards that read it (senderMustEqualTokenAgent) narrow defensively.
 export interface GuardContext {
   identity: Identity;
@@ -90,7 +90,7 @@ export type Guard = (ctx: GuardContext) => AuthzOutcome;
 // --- requiresRoomAccess reference -------------------------------------------
 // Where a room-scoped guard reads its room reference. An explicit union (rather
 // than a stringly-typed lookup) so a route declares intent, and so ref
-// resolution is centralized and testable — every unresolved path collapses to
+// resolution is centralized and testable - every unresolved path collapses to
 // the same non-leak deny.
 export type RoomRef =
   | { kind: "paramRoomId"; name: string } // params[name] is a roomId (e.g. :roomId)
@@ -99,7 +99,7 @@ export type RoomRef =
 
 // Resolve a RoomRef to a concrete roomId, or null when it cannot be resolved
 // (missing/blank param, wrong body shape, or an agentId with no live room).
-// EVERY null path is a non-leak deny at the call site — never a distinct error.
+// EVERY null path is a non-leak deny at the call site - never a distinct error.
 function resolveRoomId(
   ref: RoomRef,
   params: GuardContext["params"],
@@ -130,7 +130,7 @@ function resolveRoomId(
 // pre-authn login/static surface, which is served BEFORE the dispatcher (so the
 // dispatcher's null-identity → 401 rule never applies to it). Named with a
 // `Guard` suffix because `public` is a reserved word. NOTE for 2.3: route public
-// surfaces AROUND authorize(), never through it with a null identity — the
+// surfaces AROUND authorize(), never through it with a null identity - the
 // dispatcher intentionally maps a null identity to 401 before any guard runs.
 export const publicGuard: Guard = () => ALLOW;
 
@@ -140,7 +140,7 @@ export const publicGuard: Guard = () => ALLOW;
 export const authenticated: Guard = () => ALLOW;
 
 // USER-only owner gate. `scope === "user"` is REQUIRED so a non-user identity
-// can never be authorized via role — role is an inert "member" filler for AGENT
+// can never be authorized via role - role is an inert "member" filler for AGENT
 // and CRON-RUN scope (see Identity.role). Stage-1 capabilities already block
 // non-users from owner routes; this is defense-in-depth, gate-ready for the
 // Reviewer4 security pass.
@@ -148,11 +148,11 @@ export const officeOwner: Guard = ({ identity }) =>
   identity.scope === "user" && identity.role === "owner" ? ALLOW : FORBIDDEN;
 
 // USER-scope gate. Any user identity (owner OR member) passes; AGENT and
-// CRON-RUN never do — a privileged agent stays scope==="agent", so it cannot
+// CRON-RUN never do - a privileged agent stays scope==="agent", so it cannot
 // pass either. This is the scope half of the agents.setPrivileged double-gate:
 // composed with a room-access guard (agentParam) so a user may toggle privilege
 // only on an agent they can reach (owner office-wide, member their own rooms),
-// while no agent — privileged or not — can ever flip the flag.
+// while no agent - privileged or not - can ever flip the flag.
 export const userScope: Guard = ({ identity }) =>
   identity.scope === "user" ? ALLOW : FORBIDDEN;
 
@@ -188,7 +188,7 @@ export const agentParamMustEqualTokenAgent: Guard = ({ identity, params }) =>
     : FORBIDDEN;
 
 // Inter-agent message: sender authority IS the token (AGENT scope). The legacy
-// `body.senderAgentId` is optional input — rejected if present and not equal to
+// `body.senderAgentId` is optional input - rejected if present and not equal to
 // the token's agentId, ignored otherwise. USER/CRON-RUN can't satisfy (not agent
 // scope / no agentId); a blank agentId is rejected too (not a valid sender).
 export const senderMustEqualTokenAgent: Guard = ({ identity, body }) => {
@@ -228,7 +228,7 @@ export const runParamMustEqualTokenRun: Guard = ({ identity, params }) =>
 // COMPOSE UNDER userScope: this checks ONLY the userId match, so a non-user
 // identity whose userId coincided with the agent's manager would pass it in
 // ISOLATION. The route wraps it as `and(userScope, or(officeOwner, this))`, where
-// userScope is what keeps every agent (privileged or not) out at stage 2 — do
+// userScope is what keeps every agent (privileged or not) out at stage 2 - do
 // NOT use this bare, or a userId coincidence would leak the toggle to an agent.
 export function agentManagerMatch(idParamName = "id"): Guard {
   return ({ identity, params, deps }) => {
@@ -244,7 +244,7 @@ export function agentManagerMatch(idParamName = "id"): Guard {
 // Room/agent-scoped access. Resolves the room reference (agent → room when the
 // ref is an agentId) and then checks access. NON-LEAK: a missing/blank ref, an
 // unknown agent, and an inaccessible-but-existing room ALL deny with the
-// identical FORBIDDEN envelope — the guard never reveals which.
+// identical FORBIDDEN envelope - the guard never reveals which.
 export function requiresRoomAccess(ref: RoomRef): Guard {
   return ({ identity, params, body, deps }) => {
     const roomId = resolveRoomId(ref, params, body, deps);
@@ -258,16 +258,16 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
 //
 // By default an AGENT carries its spawning user's userId, so a NARROW agent
 // inheriting that user's cronjob ownership would be a confused-deputy
-// escalation — which is why a normal agent never holds `cron:manage` and is
+// escalation - which is why a normal agent never holds `cron:manage` and is
 // blocked at stage 1 before this guard runs. A PRIVILEGED agent is granted
 // cron:manage deliberately (task 98d63ef7, Nil-approved), so here we let it
 // own-match exactly like its user would. The privilege signal is the capability
 // itself (keying authz on scope + capabilities, never a separate role/flag
-// axis), so a cron-run or normal-agent identity — neither of which carries
-// cron:manage — still can't reach the owner-match.
+// axis), so a cron-run or normal-agent identity - neither of which carries
+// cron:manage - still can't reach the owner-match.
 //
 // The officeOwner branch is unchanged and still requires scope==="user" + owner,
-// so a privileged agent can NEVER get office-wide cron powers — only its own
+// so a privileged agent can NEVER get office-wide cron powers - only its own
 // jobs. (cron.setPrompt keeps its own officeOwner guard and stays owner-only.)
 export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
   return (ctx) => {
@@ -276,7 +276,7 @@ export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
     // The in-guard cap check is the PRIVILEGE SIGNAL, not redundant bookkeeping:
     // do NOT delete it assuming stage-1 `cron:manage` covers it. This guard is
     // contract-tested in isolation (no stage 1), and the check is what tells a
-    // privileged agent (granted cron:manage) apart from a narrow one — and from
+    // privileged agent (granted cron:manage) apart from a narrow one - and from
     // a cron-run, which never holds it. Removing it (or simplifying to a bare
     // `scope === "agent"`) would let any agent own-match cronjobs.
     const isPrivilegedAgent =
@@ -303,7 +303,7 @@ export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
 //
 // NOT in this guard, deliberately: recipient EXISTENCE (for the AGENT branch)
 // and pendingPermission OWNERSHIP. Those are send-message SEMANTIC preconditions
-// the handler/core op enforces against live orchestrator state — while a
+// the handler/core op enforces against live orchestrator state - while a
 // pendingPermission is set for `:id`, the next message to THAT agent is
 // interpreted as an allow/deny, so interpretation must bind to `:id`. They are
 // listed on the route contract, not as resourceGuard authorization. Keeping them
@@ -329,7 +329,7 @@ export const messageSend: Guard = (ctx) => {
 // A cron run holds task:read + task:write so it can file and complete tasks the
 // way its system prompt describes. But `task:write` is one coarse capability
 // covering create/update/claim/done/delete, and the surface a run inherited (the
-// retired loopback /tasks route) answered DELETE with a 405 wall — so granting a
+// retired loopback /tasks route) answered DELETE with a 405 wall - so granting a
 // run the board would otherwise hand it a delete power it never had, over any
 // office-global task. Nothing about an unattended scheduled run wants that.
 // USER and AGENT are unaffected: both keep delete, as before.
@@ -338,14 +338,14 @@ export const taskDelete: Guard = ({ identity }) =>
 
 // Scheduled-message OUTBOX guard (agents.listScheduledMessages /
 // agents.cancelScheduledMessage). `:id` here is the SENDER whose pending
-// scheduled messages are being managed — the deliberate asymmetry with the
+// scheduled messages are being managed - the deliberate asymmetry with the
 // sibling send route, where `:id` is the recipient. Scope-switched like
 // messageSend:
 //   USER     → room access to the sender agent's room (a boss who can reach
-//              the agent can inspect/cancel its outbox — same authority shape
+//              the agent can inspect/cancel its outbox - same authority shape
 //              as cancelling its queued messages).
 //   AGENT    → `:id` must equal the token agent: an agent manages ONLY its own
-//              outbox. Deliberately NOT room-based — room-mates must not read
+//              outbox. Deliberately NOT room-based - room-mates must not read
 //              or cancel each other's pending scheduled messages.
 //   CRON-RUN → deny (a run has no outbox).
 export const scheduledMessagesOwner: Guard = (ctx) => {
@@ -363,11 +363,11 @@ export const scheduledMessagesOwner: Guard = (ctx) => {
 // and start it fresh.
 //   USER     → room access to the target agent (an operator clears agents it
 //              can see), unchanged.
-//   AGENT    → a PRIVILEGED agent (holds agent:converse — granted so it can
+//   AGENT    → a PRIVILEGED agent (holds agent:converse - granted so it can
 //              drive other agents' sessions the way its user does) clears any
 //              agent in an accessible room, exactly as today; an ORDINARY agent
 //              (self:affordance only, no agent:converse) may clear ONLY ITSELF.
-//              The privilege signal is the CAPABILITY, not scope alone — same
+//              The privilege signal is the CAPABILITY, not scope alone - same
 //              shape as cronjobOwnerOrOfficeOwner. It matters here because
 //              hasRoomAccess keys on the agent's SPAWNING-USER id, so a bare
 //              room check would let any ordinary agent clear every other agent
@@ -397,7 +397,7 @@ export const conversationReset: Guard = (ctx) => {
 
 // All must allow (first-deny-wins). The first non-ALLOW outcome is returned
 // verbatim, preserving its status/code for the non-leak envelope; if every
-// guard allows, ALLOW. An empty composition allows (vacuous truth) — callers
+// guard allows, ALLOW. An empty composition allows (vacuous truth) - callers
 // pass at least one guard in practice.
 export function and(...guards: readonly Guard[]): Guard {
   return (ctx) => {

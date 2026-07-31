@@ -10,7 +10,7 @@
 // cronjob-manager, server/index) all import `buildEnvFor` from here.
 //
 // User overrides office; office overrides process.env. Spawn-time failure
-// mode: if a configured env file is missing or fails to parse, throw — the
+// mode: if a configured env file is missing or fails to parse, throw - the
 // caller is responsible for surfacing the error to the agent/run log.
 
 import { readEnvFile } from "./persistence.ts";
@@ -20,7 +20,7 @@ import { getUserByName, getUserEnvFileById } from "./users.ts";
 // this once at module init from its `officeState.office.envFile` so we can
 // resolve env without coupling this module to OfficeState directly. Until
 // the provider is registered, `buildEnvFor` behaves as if no office env
-// file is configured — which only matters during the brief window before
+// file is configured - which only matters during the brief window before
 // agent-manager's module body has run, and no caller hits buildEnvFor that
 // early in practice.
 let getOfficeEnvFile: () => string | null = () => null;
@@ -32,7 +32,7 @@ export function setOfficeEnvFileProvider(fn: () => string | null): void {
 // Build the spawn-time env merge for a given user identity. `userId` is
 // the stable user record id; pass null for an unowned context (agents
 // with no spawning user, cronjobs not bound to a user). Returns
-// `undefined` when no office and no user env file are configured — the
+// `undefined` when no office and no user env file are configured - the
 // SDK then inherits process.env as-is.
 export function buildEnvForUserId(
   userId: string | null | undefined,
@@ -57,7 +57,7 @@ export function buildEnvForUserId(
 // directly. This resolves a username string (display name) to a userId
 // via case-insensitive lookup so legacy call sites that only carry a
 // username snapshot keep working. After a rename, the snapshot may no
-// longer match — those call sites should be migrated to carry userId.
+// longer match - those call sites should be migrated to carry userId.
 export function buildEnvFor(
   username?: string,
 ): { [key: string]: string | undefined } | undefined {

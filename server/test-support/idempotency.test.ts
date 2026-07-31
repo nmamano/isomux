@@ -1,4 +1,4 @@
-// Phase 2.3 — Idempotency middleware contract tests (TDD red→green for NEW code).
+// Phase 2.3 - Idempotency middleware contract tests (TDD red→green for NEW code).
 //
 // Pins the standalone semantics (not wired live in 2.3): key by stable identity
 // SUBJECT (never the raw token) + method + opId + Idempotency-Key + body hash;

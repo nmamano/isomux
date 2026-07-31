@@ -1,11 +1,11 @@
-// Phase 3d slice 9b — the users.* REST EXPAND contract (Group 7 auth surface).
+// Phase 3d slice 9b - the users.* REST EXPAND contract (Group 7 auth surface).
 //
 // users.{update,setAccess,delete} were table-declared but NEVER registered
 // (Phase 1 probe: an unauth probe returned the LEGACY flat {error:"..."} shape,
 // identical to a nonexistent path), so this slice BUILDS them. What it freezes:
 //   - The update_user SPLIT (Option A, Nil-gated): users.update carries ONLY the
 //     record fields (name/env/prompt/avatar); it CANNOT change allowedRooms (not
-//     in UserUpdateReq) — a member sending allowedRooms in the body is ignored,
+//     in UserUpdateReq) - a member sending allowedRooms in the body is ignored,
 //     no escalation. users.setAccess (officeOwner) owns allowedRooms.
 //   - selfOrOwner on update/delete: a member edits/deletes only their OWN record;
 //     editing/deleting another's is a uniform 403 (no existence oracle).
@@ -13,7 +13,7 @@
 //     not-last-owner; missing target is an idempotent 204.
 //   - AGENT bearer can never reach the user-management routes (USER-scoped guards).
 //
-// (users.list — built recipient-scoped in 9b — was removed as callerless in the
+// (users.list - built recipient-scoped in 9b - was removed as callerless in the
 // Phase 4 close-out: the UI hydrates the roster from the users_list broadcasts.)
 //
 // Seam: startTestServer(). Zero LLM.
@@ -82,7 +82,7 @@ const errCode = (r: Res) =>
   (r.body as { error?: { code?: string } })?.error?.code;
 const userOf = (r: Res) => (r.body as { user: Record<string, unknown> }).user;
 
-describe("routes/users REST — update (record split, Option A)", () => {
+describe("routes/users REST - update (record split, Option A)", () => {
   it("owner edits a member's record -> 200 { user }; allowedRooms is NOT touched", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
@@ -165,7 +165,7 @@ describe("routes/users REST — update (record split, Option A)", () => {
   });
 });
 
-describe("routes/users REST — setAccess (owner-only allowedRooms)", () => {
+describe("routes/users REST - setAccess (owner-only allowedRooms)", () => {
   it("owner sets a member's access -> 200 { user } with the new grants", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
@@ -229,7 +229,7 @@ describe("routes/users REST — setAccess (owner-only allowedRooms)", () => {
   });
 });
 
-describe("routes/users REST — delete (preconditions + non-leak)", () => {
+describe("routes/users REST - delete (preconditions + non-leak)", () => {
   it("owner deletes a member -> 204; record gone", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");

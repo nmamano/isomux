@@ -1,16 +1,16 @@
-// Phase 2.2 — Guard catalog contract tests (TDD red→green for NEW code).
+// Phase 2.2 - Guard catalog contract tests (TDD red→green for NEW code).
 //
 // Asserts the contract from internal-docs/generic-runtime-refactor.md →
 // "Guard catalog" table, "Identities and capabilities", and Conventions →
 // two-stage authz + error envelope. These are PURE T0 unit tests: no server,
 // no FS, no LLM. The guards are exercised DIRECTLY (they are not wired into the
-// live dispatchCommand switch or any HTTP handler in 2.2 — additive only).
+// live dispatchCommand switch or any HTTP handler in 2.2 - additive only).
 //
 // Three contract themes, each tested explicitly:
 //   1. Spec mapping: each guard allows/denies per its catalog row.
 //   2. Impossibility-by-construction (the Reviewer4 posture): a non-user
 //      identity can NEVER be authorized via role, and a USER/RUN can never
-//      satisfy an AGENT-keyed guard, etc. — proven even when a matching userId
+//      satisfy an AGENT-keyed guard, etc. - proven even when a matching userId
 //      or a forced role would naively pass, because every owner/self/cron-owner
 //      guard is scope-gated.
 //   3. Non-leak (Conventions → error envelope): a hidden resource and a missing
@@ -165,7 +165,7 @@ describe("guard: userScope", () => {
     expect(userScope(ctx(userOwner))).toEqual(OK);
     expect(userScope(ctx(userMember))).toEqual(OK);
   });
-  it("denies AGENT and CRON-RUN — including a PRIVILEGED agent (scope stays 'agent')", () => {
+  it("denies AGENT and CRON-RUN - including a PRIVILEGED agent (scope stays 'agent')", () => {
     expect(userScope(ctx(agent))).toEqual(DENY);
     expect(userScope(ctx(privilegedAgent))).toEqual(DENY);
     expect(userScope(ctx(run))).toEqual(DENY);
@@ -474,7 +474,7 @@ describe("guard: cronjobOwnerOrOfficeOwner", () => {
   });
   it("scope-gate / no confused deputy: a NARROW agent whose userId equals the creator is STILL denied", () => {
     // A normal agent lacks cron:manage, so it is not a privileged agent and is
-    // denied even on a userId match — the confused-deputy guard the narrow token
+    // denied even on a userId match - the confused-deputy guard the narrow token
     // exists for. (cron-run likewise.)
     const deps = makeDeps({ cronjobCreatorUserId: () => "u-spawn" });
     expect(guard(ctx(agent, { id: "job-1" }, undefined, deps))).toEqual(DENY);
@@ -494,7 +494,7 @@ describe("guard: cronjobOwnerOrOfficeOwner", () => {
   });
   it("privileged agent gets NO office-owner shortcut: it only ever own-matches, never the officeOwner branch", () => {
     // officeOwner requires scope==="user"+owner, so a privileged agent (scope
-    // "agent") can never inherit office-wide cron powers — only its own jobs.
+    // "agent") can never inherit office-wide cron powers - only its own jobs.
     // Force a creator mismatch: if the officeOwner branch leaked, this would OK.
     const deps = makeDeps({ cronjobCreatorUserId: () => "not-u-spawn" });
     expect(
@@ -545,7 +545,7 @@ describe("guard: agentManagerMatch", () => {
   });
 
   // The agents.setPrivileged composition: and(userScope, or(officeOwner, this)).
-  // This pins WHY agentManagerMatch must compose under userScope — bare, it is
+  // This pins WHY agentManagerMatch must compose under userScope - bare, it is
   // scope-agnostic and an agent with a coincidental userId match would pass.
   describe("composed as the agents.setPrivileged gate", () => {
     const composed = and(userScope, or(officeOwner, guard));
@@ -670,7 +670,7 @@ describe("guard: conversationReset", () => {
     ).toEqual(DENY);
   });
   it("ORDINARY AGENT: may clear ITSELF (:id === token agentId)", () => {
-    // hasRoomAccess deliberately true — proves the self branch does NOT depend
+    // hasRoomAccess deliberately true - proves the self branch does NOT depend
     // on room access, it binds to the token agentId.
     const anyRoom = makeDeps({
       roomIdForAgent: () => "r-1",
@@ -683,7 +683,7 @@ describe("guard: conversationReset", () => {
   it("CONFUSED-DEPUTY BLOCK: ordinary agent CANNOT clear another agent even when its spawning user has room access", () => {
     // The escalation trap: hasRoomAccess keys on the spawning-user id, which is
     // true for every agent that user owns. An ordinary agent (no agent:converse)
-    // must STILL be denied clearing a different agent — self-branch only.
+    // must STILL be denied clearing a different agent - self-branch only.
     const roomTrue = makeDeps({
       roomIdForAgent: () => "r-1",
       hasRoomAccess: () => true,

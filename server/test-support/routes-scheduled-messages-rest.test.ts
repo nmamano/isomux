@@ -4,13 +4,13 @@
 // new outbox routes (agents.listScheduledMessages / agents.cancelScheduledMessage),
 // through the REAL auth + /api executor + production persistence (temp
 // STATE_ROOT). COMPLEMENTS scheduled-messages.di.test.ts, which owns the
-// firing/tick/retry/crash-window semantics against injected fakes — the harness
+// firing/tick/retry/crash-window semantics against injected fakes - the harness
 // boots with skipSchedulers, so no tick ever runs here and entries stay pending
 // for the whole test.
 //
 // Also pins the flush-prefix formatting for scheduled deliveries (self /
 // other-sender / sender-gone) by enqueueing directly with scheduledFor set and
-// reading the coalesced prompt off the FakeBackend — the fire path's enqueue
+// reading the coalesced prompt off the FakeBackend - the fire path's enqueue
 // and a direct enqueue are the same call, so this exercises the real receiver-
 // side rendering without waiting on a timer.
 
@@ -49,7 +49,7 @@ async function spawnAgent(
   roomId: string,
 ): Promise<AgentInfo> {
   // Positional spawn(name, cwd, permissionMode, desk, customInstructions,
-  // roomId, ...) — same shape queue.test.ts uses.
+  // roomId, ...) - same shape queue.test.ts uses.
   const info = await srv.agentManager.spawn(
     name,
     srv.stateRoot,
@@ -103,7 +103,7 @@ async function call(
   return { status: res.status, body: parsed };
 }
 
-// One hour out, RFC3339 UTC — far enough that a slow test never crosses it.
+// One hour out, RFC3339 UTC - far enough that a slow test never crosses it.
 const inOneHour = () => new Date(Date.now() + 3_600_000).toISOString();
 
 async function setup() {
@@ -305,7 +305,7 @@ describe("outbox routes (list / cancel)", () => {
     );
     expect(own.status).toBe(200);
     expect(own.body.scheduled!.map((e) => e.id)).toEqual([sid]);
-    // The RECEIVER's outbox is empty — entries live under the sender.
+    // The RECEIVER's outbox is empty - entries live under the sender.
     const receiverOutbox = await call(
       srv,
       "GET",
@@ -408,8 +408,8 @@ describe("outbox routes (list / cancel)", () => {
 });
 
 describe("scheduled delivery rendering (flush prefix)", () => {
-  // Enqueue directly with scheduledFor set — the exact call the fire path
-  // makes — and read the coalesced prompt off the FakeBackend.
+  // Enqueue directly with scheduledFor set - the exact call the fire path
+  // makes - and read the coalesced prompt off the FakeBackend.
   it("marks a scheduled other-sender message, a self past-self message, and a gone sender", async () => {
     const { srv, a, b } = await setup();
     server = srv;

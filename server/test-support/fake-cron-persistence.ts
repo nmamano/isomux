@@ -1,5 +1,5 @@
 // In-memory CronPersistence for the T1 cron tier. Keeps CronjobManager DI tests
-// fully disk-free and deterministic — the payoff of injecting the persistence
+// fully disk-free and deterministic - the payoff of injecting the persistence
 // surface. Map-backed for cronjob config + runs; the session-log / usage paths
 // return sensible empties (the DI tests assert on events/sessions/scheduler,
 // not on persisted log bytes).

@@ -122,7 +122,7 @@ function TaskDetailPanel({
 }) {
   const roomLabel = (roomId: string | undefined) =>
     roomId ? (rooms.find((r) => r.id === roomId)?.name ?? "Unknown room") : "";
-  // Most-recent agents first — the raw list is oldest-first and can be long.
+  // Most-recent agents first - the raw list is oldest-first and can be long.
   // Capped to MAX_ASSIGNEE_SUGGESTIONS by default; a "+N more" chip expands to
   // the full list (same recency order, so the visible chips don't reshuffle).
   // Memoized so the chips don't re-sort on every keystroke in the form.
@@ -151,7 +151,7 @@ function TaskDetailPanel({
 
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  // Copy-to-clipboard for the task id in the header — the shared hook gives the
+  // Copy-to-clipboard for the task id in the header - the shared hook gives the
   // same modern-API + textarea fallback the rest of the app's copy controls use.
   const { copied: idCopied, copy: copyId } = useClipboardCopy();
 
@@ -208,7 +208,7 @@ function TaskDetailPanel({
     }
   }
 
-  // No deps — must run every render so the ref always has a fresh closure
+  // No deps - must run every render so the ref always has a fresh closure
   // that captures the current form state for the dirty check.
   useEffect(() => {
     if (closeRef) closeRef.current = requestClose;
@@ -222,7 +222,7 @@ function TaskDetailPanel({
     if (mode === "create") {
       // Fire-and-forget (parity with the old WS arm): the `tasks` broadcast
       // applies the change echo-first, so the optimistic onClose() below stays.
-      // `username` is dropped — the server derives createdBy + username from the
+      // `username` is dropped - the server derives createdBy + username from the
       // caller's token identity (attributionFor), never the request body.
       const body: TaskCreateReq = {
         title: title.trim(),
@@ -230,7 +230,7 @@ function TaskDetailPanel({
         priority: priority || undefined,
         assignee: assignee.trim() || undefined,
         // "" is an EXPLICIT office-global create (distinct from omitting the
-        // field, which a user caller also treats as global — same result here).
+        // field, which a user caller also treats as global - same result here).
         roomId: createRoomId,
       };
       apiFetch<TaskItem>("POST", "/api/tasks", body).catch(() => {});
@@ -249,7 +249,7 @@ function TaskDetailPanel({
       };
       // roomId re-files the task, so it carries meaning even when "" (= clear to
       // office-global). Absent === leave the room untouched, so only send it
-      // when the selection actually changed — never on an unrelated field edit.
+      // when the selection actually changed - never on an unrelated field edit.
       if (roomId !== (task.roomId ?? "")) {
         body.roomId = roomId;
       }
@@ -707,7 +707,7 @@ export function TaskView({
     TaskStatus | "all" | "active"
   >("active");
   // Room controls captured ONCE from the office's current room and held stable
-  // while the Tasks view is open — they do NOT silently follow the office room
+  // while the Tasks view is open - they do NOT silently follow the office room
   // tab. viewRoom filters the (already server-scoped) list; createRoomId is the
   // shared create target for the quick-add row and the create panel.
   //   viewRoom:     "all" | "global" | <roomId>
@@ -781,7 +781,7 @@ export function TaskView({
     }
   }, [panelOpen]);
 
-  // Focus the quick-add input on open so a title can be typed immediately —
+  // Focus the quick-add input on open so a title can be typed immediately -
   // creating a task is the most common reason to open the board.
   useEffect(() => {
     quickAddRef.current?.focus();
@@ -792,13 +792,13 @@ export function TaskView({
   // where Ctrl/Cmd+Enter actually creates. This keeps a title-only mistake from
   // committing a bare task and nudges toward adding detail.
   function openCreatePanel() {
-    // Create panel already open — don't reseed the title and clobber edits.
+    // Create panel already open - don't reseed the title and clobber edits.
     if (creating) return;
     const title = quickTitle.trim();
     setQuickTitle("");
     if (panelOpen) {
       // An edit panel is open (dirty edits possible). Route the switch through
-      // its close/dirty flow — which may prompt to discard — and defer opening
+      // its close/dirty flow - which may prompt to discard - and defer opening
       // create until it has actually closed, mirroring the row-click path.
       pendingNavRef.current = { kind: "create", title };
       tryClosePanel();
@@ -820,7 +820,7 @@ export function TaskView({
         }
         return;
       }
-      // "n" jumps focus to the quick-add input — but only when the user isn't
+      // "n" jumps focus to the quick-add input - but only when the user isn't
       // already typing in a field and no detail panel is open (the panel has its
       // own inputs). Capture phase, so it fires before the focused element.
       if (
@@ -1073,7 +1073,7 @@ export function TaskView({
             overflow: "hidden",
           }}
         >
-          {/* Quick add — type a title, press Enter (or "n" to focus). Enter
+          {/* Quick add - type a title, press Enter (or "n" to focus). Enter
               opens the detail panel; it does not create immediately. Sits ABOVE
               the filter row: it is a create affordance, not a view control. */}
           <div
@@ -1145,7 +1145,7 @@ export function TaskView({
             </select>
           </div>
 
-          {/* Hint — Enter opens the detail panel (not an immediate create). */}
+          {/* Hint - Enter opens the detail panel (not an immediate create). */}
           <div
             style={{
               padding: isMobile ? "4px 12px 0" : "4px 20px 0",
@@ -1159,7 +1159,7 @@ export function TaskView({
               : "Enter to add details · n to focus"}
           </div>
 
-          {/* Filter row — view/status/assignee + search. These narrow the table
+          {/* Filter row - view/status/assignee + search. These narrow the table
               below, so they sit UNDER the quick-add create affordance. */}
           <div
             style={{

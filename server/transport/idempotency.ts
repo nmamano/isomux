@@ -1,4 +1,4 @@
-// Centralized Idempotency-Key middleware — Phase 2.3. Idempotency lives at the
+// Centralized Idempotency-Key middleware - Phase 2.3. Idempotency lives at the
 // transport layer, not per-endpoint. See
 // internal-docs/generic-runtime-refactor.md → Conventions "Idempotency".
 //
@@ -11,7 +11,7 @@
 //   - no key → no caching (optional per request; agents/curl aren't forced to send one)
 //
 // The subject is the STABLE IDENTITY (scope:userId / scope:agentId /
-// scope:cronjobId:runId) — NEVER the raw bearer token, which must never enter a
+// scope:cronjobId:runId) - NEVER the raw bearer token, which must never enter a
 // cache key, log, or error. In-flight COLLAPSE: a concurrent retry with the same
 // key+body awaits the first call's result rather than double-running the handler;
 // a concurrent same-key call with a DIFFERENT body still 409s. Failures are NOT
@@ -171,7 +171,7 @@ export function createIdempotencyCache(
       });
       return { kind: "ran", response };
     } catch (err) {
-      // Don't cache failures — evict so a retry re-runs rather than replaying a
+      // Don't cache failures - evict so a retry re-runs rather than replaying a
       // transient error for the whole TTL window.
       const cur = store.get(cacheKey);
       if (cur && cur.state === "pending") store.delete(cacheKey);

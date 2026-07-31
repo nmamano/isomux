@@ -1,10 +1,10 @@
-// Users resource handlers — Phase 3d slice 3d.9b (Group 7, auth surface). The
+// Users resource handlers - Phase 3d slice 3d.9b (Group 7, auth surface). The
 // user-management surface on the unified REST surface (opIds users.{list,update,
 // setAccess,delete}).
 //
 // EXPAND+CUT (re-verified in Phase 1, contra the group-7 scope note): UNLIKE
 // invites/sessions/access (registered in 3a), the users.* rows were table-
-// declared but NEVER registered — an unauth probe of /api/users returned the
+// declared but NEVER registered - an unauth probe of /api/users returned the
 // LEGACY flat {error:"..."} shape (identical to a nonexistent path). So this
 // slice BUILDS the handlers AND deletes the WS update_user/delete_user/claim_user
 // cases.
@@ -13,7 +13,7 @@
 // record fields (name/env/prompt/avatar) via UserUpdateReq; users.setAccess
 // carries allowedRooms and PRUNE-clamps the target's existing notif/default
 // against the new accessible set in ONE write. View prefs (notif/default) are
-// SELF-only via view.* — owners no longer set a member's personal prefs (the
+// SELF-only via view.* - owners no longer set a member's personal prefs (the
 // deliberate capability removal Nil chose over preserving it via a wider
 // SetAccessReq). claim_user's first-login pref migration becomes view.* PUTs.
 //
@@ -72,7 +72,7 @@ export interface UsersDeps {
 // Reject a present-but-wrong-typed optional field with 422 BEFORE the core (the
 // slice-7/8 malformed-boundary pattern): a non-string name/avatar or a value
 // that is neither string nor null for env/prompt would otherwise corrupt the
-// record. Absent fields (undefined) are tolerated — UserUpdateReq is a Partial.
+// record. Absent fields (undefined) are tolerated - UserUpdateReq is a Partial.
 function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
   if (body.name !== undefined && typeof body.name !== "string") {
     return "name must be a string";

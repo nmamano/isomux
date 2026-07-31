@@ -45,7 +45,7 @@ describe("codex wrapper follows the active state root", () => {
       const wantBin = join(home, "bin", "codex");
       const commands = JSON.parse(out.split("\n").pop()!);
       // Finding 2: login cards point at the wrapper actually written, under the
-      // override root — not a stale/absent ~/.isomux/bin/codex.
+      // override root - not a stale/absent ~/.isomux/bin/codex.
       expect(commands).toHaveLength(2);
       expect(commands[0]).toContain(wantBin);
       expect(commands[0]).toContain("login");

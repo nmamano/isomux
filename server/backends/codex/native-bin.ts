@@ -10,7 +10,7 @@
 // Isolation: codex subprocesses default to the isomux state root's codex-home
 // (`CODEX_HOME=~/.isomux/codex-home/` in production; follows ISOMUX_HOME when
 // overridden) when no caller env sets it. That keeps isomux's auth/sessions/plugins out
-// of the user's interactive `~/.codex/` — version skew on shared per-user
+// of the user's interactive `~/.codex/` - version skew on shared per-user
 // state is the failure mode this whole bundling effort is closing.
 //
 // Per-user envFile entries that set CODEX_HOME (e.g.
@@ -76,7 +76,7 @@ export function resolveCodexLauncherPath(): string {
     );
   }
   cachedLauncherPath = resolved;
-  // Happy-path resolve is silent — users don't need a per-boot
+  // Happy-path resolve is silent - users don't need a per-boot
   // confirmation that the bundled launcher resolved. Set
   // ISOMUX_CODEX_LAUNCHER_LOG=1 to emit the one-shot breadcrumb when
   // debugging whether a stray global codex is shadowing the bundled one.
@@ -115,7 +115,7 @@ export function getCodexPinnedVersion(): string {
 // ISOMUX_CODEX_HOME default if and only if the merged env has no CODEX_HOME.
 // Per-user envFile or process env entries that set CODEX_HOME (e.g. for
 // per-user billing isolation) are honored verbatim. `undefined` values pass
-// through as-is — child_process.spawn skips them.
+// through as-is - child_process.spawn skips them.
 export function withIsomuxCodexHome(
   baseEnv: { [key: string]: string | undefined } | undefined,
 ): { [key: string]: string | undefined } {
@@ -134,7 +134,7 @@ export function withIsomuxCodexHome(
 // walkthrough at a user who's already done their part.
 //
 // Two positive signals, either is enough:
-//   1. OPENAI_API_KEY in the agent's effective env — env-var auth bypasses
+//   1. OPENAI_API_KEY in the agent's effective env - env-var auth bypasses
 //      auth.json entirely. Caller passes the agent's resolved env
 //      (process.env + office envFile + user envFile, in override order);
 //      defaults to process.env if no env supplied.
@@ -143,7 +143,7 @@ export function withIsomuxCodexHome(
 //
 // This used to only consult process.env, which created a footgun: a user
 // who put OPENAI_API_KEY in their envFile (the supported way to set
-// per-agent secrets — see User Settings → Env File Path) would still get
+// per-agent secrets - see User Settings → Env File Path) would still get
 // the full sign-in walkthrough on any auth-error, because the helper
 // couldn't see their envFile-set key. Threading the merged env in closes
 // that gap.
@@ -206,10 +206,10 @@ exec ${shellSingleQuote(process.execPath)} ${shellSingleQuote(launcher)} "$@"
 // and readable rather than a wall of absolute paths.
 //
 // Returns two commands:
-//   1. Browser OAuth flow — codex spawns a local server on :1455 and opens
+//   1. Browser OAuth flow - codex spawns a local server on :1455 and opens
 //      the user's browser. Works when a browser on the isomux host can reach
 //      that port (i.e. local install, or an SSH tunnel).
-//   2. Device-auth flow — codex prints a code + URL to enter on any device.
+//   2. Device-auth flow - codex prints a code + URL to enter on any device.
 //      The right call for remote / headless servers (the common self-hoster
 //      shape over Tailscale, where the redirect to `localhost:1455` on the
 //      browser machine has nowhere to land).

@@ -1,6 +1,6 @@
-// Phase 3a slice 3a.6 — system.backupStatus on the unified REST surface.
+// Phase 3a slice 3a.6 - system.backupStatus on the unified REST surface.
 // GET /api/backup/status (office:read + authenticated). Returns the NORMALIZED
-// wire shape { lastRunAt, ok, error, retention, destDir } — a rename/projection
+// wire shape { lastRunAt, ok, error, retention, destDir } - a rename/projection
 // of the internal BackupStatus (lastBackupOk null->false). The legacy
 // GET /backup/status keeps its raw shape (a separate retained endpoint).
 //
@@ -130,7 +130,7 @@ describe("routes/system.version REST", () => {
     expect(Object.keys(b).sort()).toEqual(["commit", "release", "version"]);
     // The test process runs from a real checkout, so git resolves; the dev
     // checkout has no release tag at HEAD (and if one ever exists, release
-    // equals version — assert the invariant, not the tag).
+    // equals version - assert the invariant, not the tag).
     expect(typeof b.commit).toBe("string");
     expect(typeof b.version).toBe("string");
     if (b.release !== null) expect(b.release).toBe(b.version as string);

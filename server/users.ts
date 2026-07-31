@@ -78,7 +78,7 @@ function normalizeAllowedRooms(value: unknown): string[] {
 }
 
 // Generic "string[] or []" normalizer for the per-user view-preference room-id
-// lists (hidden / order) — Phase 3b. Same shape as normalizeAllowedRooms; named
+// lists (hidden / order) - Phase 3b. Same shape as normalizeAllowedRooms; named
 // for the view fields so call sites read clearly.
 function normalizeRoomIdList(value: unknown): string[] {
   if (Array.isArray(value) && value.every((x) => typeof x === "string")) {
@@ -98,8 +98,8 @@ function normalizeMemberPrompt(value: unknown): string | null {
 }
 
 // Avatar color (live-avatars feature). Stored as a normalized lowercase
-// "#rrggbb" string. Legacy records without the field — or any record
-// where the value isn't a valid hex color — fall back to a stable
+// "#rrggbb" string. Legacy records without the field - or any record
+// where the value isn't a valid hex color - fall back to a stable
 // hash-of-userId pick from the curated palette. Read-time only; no
 // file rewrite on boot (the new field lands on the next user-edit save).
 function normalizeAvatarColor(value: unknown, userId: string): string {
@@ -108,7 +108,7 @@ function normalizeAvatarColor(value: unknown, userId: string): string {
 }
 
 // Avatar variant (live-avatars feature). One of the 8 GHOST_VARIANTS.
-// Default for legacy records is "classic" — same body as the original
+// Default for legacy records is "classic" - same body as the original
 // PoC and the lowest-disruption fallback for anyone whose stored value
 // drifts out of the supported set.
 function normalizeAvatarVariant(value: unknown): GhostVariant {
@@ -116,7 +116,7 @@ function normalizeAvatarVariant(value: unknown): GhostVariant {
 }
 
 // Treat a raw object as a user record. Used both for the post-migration
-// format (id-keyed) and the legacy name-keyed format — the id field is
+// format (id-keyed) and the legacy name-keyed format - the id field is
 // optional here; load() assigns one if it's missing.
 type RawUserRecord = Partial<UserRecord> & { name?: unknown };
 
@@ -128,7 +128,7 @@ function load(): Record<string, UserRecord> {
   // surface the error in the log, then let the server continue with no
   // users). The migration persist is OUTSIDE that catch so a write
   // failure during the one-shot upgrade does NOT silently empty the
-  // in-memory map — it propagates to the caller (server boot) and
+  // in-memory map - it propagates to the caller (server boot) and
   // halts the process. Operator restores from the pre-userid backup
   // bundle or fixes filesystem perms before retrying.
   let migratedAny = false;
@@ -156,7 +156,7 @@ function load(): Record<string, UserRecord> {
       if (typeof value.id === "string" && value.id) {
         id = value.id;
       } else {
-        // Legacy record without an id — mint a fresh one. Existing
+        // Legacy record without an id - mint a fresh one. Existing
         // legacy sessions/agents/cronjobs that referenced this user by
         // name resolve to this new id at their own load time.
         id = generateUserId(existingIds);
@@ -171,7 +171,7 @@ function load(): Record<string, UserRecord> {
         name: value.name,
         // Default Room was removed (superseded by reload view-restore). A
         // legacy `defaultRoomId` field in an existing users.json is tolerated
-        // and simply ignored here — reads never break, the field is dropped on
+        // and simply ignored here - reads never break, the field is dropped on
         // the next rewrite.
         notifRooms: normalizeNotifRooms(value.notifRooms),
         envFile:
@@ -318,7 +318,7 @@ export function claimUser(
   if (existing) return existing;
   const id = generateUserId(Object.keys(users));
   const role: UserRole = initial?.role === "owner" ? "owner" : "member";
-  // Resolved allowedRooms is the basis for the default notifRooms — a
+  // Resolved allowedRooms is the basis for the default notifRooms - a
   // new user gets notified for every room they can see by default
   // (parallels the prior "notifRooms: all" semantics but now stored
   // as an explicit list).
@@ -330,7 +330,7 @@ export function claimUser(
     envFile: null,
     createdAt: Date.now(),
     role,
-    // ACL allow-list. Strict string[] — no sentinel. New members
+    // ACL allow-list. Strict string[] - no sentinel. New members
     // default to [] (no rooms visible until an owner grants access or
     // the member creates their own room). New owners need a snapshot
     // of current room ids passed in by the caller (invite acceptance
@@ -359,7 +359,7 @@ export function claimUser(
 }
 
 // Fired after a role actually changes (promote or demote) via
-// setUserRoleById — the single role mutator. isomux-office.ts wires this at boot to
+// setUserRoleById - the single role mutator. isomux-office.ts wires this at boot to
 // refresh the cached `ws.data.session` on the user's connected sockets, so
 // role-keyed audience selection (e.g. the owners-audience fan-out in
 // liveEmitDeps) reflects the change immediately instead of after the next
@@ -406,7 +406,7 @@ export function setUserRole(name: string, role: UserRole): boolean {
 }
 
 // Delete by id. No-op if the user doesn't exist (idempotent). Sessions
-// for this user are not evicted here — that's auth.ts's responsibility
+// for this user are not evicted here - that's auth.ts's responsibility
 // via the validate-then-evict path. Agents/cronjobs that referenced this
 // user keep their userId; subsequent buildEnvFor calls resolve to no env.
 export function deleteUserById(id: string): boolean {
@@ -487,7 +487,7 @@ export function updateUserById(
           : null
         : existing.envFile,
     createdAt: existing.createdAt,
-    // Role is not in the editable-via-update_user surface — it's set by
+    // Role is not in the editable-via-update_user surface - it's set by
     // setUserRoleById (CLI/admin path) or by claimUser on creation.
     // Preserve existing role here so updating preferences doesn't
     // silently downgrade an owner to member.

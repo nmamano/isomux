@@ -3,7 +3,7 @@
 //
 // These run in real subprocesses on purpose. /proc/self/comm is per-thread and
 // the rename is a live kernel side effect, so asserting it in-process would
-// rename the test runner itself — and a renamed test runner is exactly the
+// rename the test runner itself - and a renamed test runner is exactly the
 // contamination that would make earlyoom's view of the box wrong on a dev
 // machine. Each case spawns a throwaway process, renames that, and reads the
 // kernel back.
@@ -59,7 +59,7 @@ describe("setProcessName", () => {
       setProcessName();
       // The case that matters: an agent's build is a bun process exec'd below
       // the server. It must come out named "bun" so that shielding "isomux"
-      // does not shield it — the collision this change exists to remove. Asking
+      // does not shield it - the collision this change exists to remove. Asking
       // a real bun child what the kernel calls it, rather than asserting the
       // weaker "not isomux".
       console.log(
@@ -109,7 +109,7 @@ describe("wiring", () => {
   test("the rename is not a side effect of importing a server module", () => {
     const mod = readFileSync(MODULE, "utf8");
     // A top-level call would rename anything that imports this, including bun
-    // test workers — which would both break the tests above and put a wrong
+    // test workers - which would both break the tests above and put a wrong
     // name in front of earlyoom on a dev box.
     expect(mod).not.toMatch(/^setProcessName\(/m);
   });

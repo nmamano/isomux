@@ -1,5 +1,5 @@
 // Declarative registry of every known Claude Code command and bundled skill.
-// Pure data — no handler logic lives here.
+// Pure data - no handler logic lives here.
 //
 // Resolution logic (5-step priority order) lives in
 // server/command-handlers.ts (handleSlashCommand).
@@ -35,7 +35,7 @@ export type CommandConfig = {
    * direct actions (/clear, /context), interactive pickers whose no-arg
    * behavior IS the intended action (/model, /effort, /resume open the picker),
    * and commands with a useful default when no arg is given (/diff diffs the
-   * agent cwd — an OPTIONAL directory arg doesn't make the bare form
+   * agent cwd - an OPTIONAL directory arg doesn't make the bare form
    * incomplete; users wanting one still type it via slash autocomplete). Left
    * false/absent when the bare invocation is NOT the intended action:
    * /isomux-edit needs a path, and /isomux-cronjob-system-prompt with no arg
@@ -156,7 +156,7 @@ export const commands: Record<string, CommandConfig> = {
     handler: "isomuxDiff",
     description:
       "Peek uncommitted changes in the agent's cwd (or pass a directory)",
-    // No-arg diffs the cwd — a complete, useful invocation. A directory arg is
+    // No-arg diffs the cwd - a complete, useful invocation. A directory arg is
     // optional and still reachable via slash autocomplete / manual entry.
     autoRun: true,
   },
@@ -431,11 +431,11 @@ export const commands: Record<string, CommandConfig> = {
     ...UNSUPPORTED_HARDCODED,
     description: "Manage plugins",
     message:
-      "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` — interactive plugin manager (browse, install, enable/disable)\n- `/plugin add <name>` — install a plugin by name\n- `/plugin marketplace add owner/repo` — add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it.",
+      "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` - interactive plugin manager (browse, install, enable/disable)\n- `/plugin add <name>` - install a plugin by name\n- `/plugin marketplace add owner/repo` - add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it.",
   },
 
   // =========================================================================
-  // Bundled skills (overridable — users can shadow with their own skill files)
+  // Bundled skills (overridable - users can shadow with their own skill files)
   // =========================================================================
   batch: {
     ...UNSUPPORTED_BUNDLED_SKILL,

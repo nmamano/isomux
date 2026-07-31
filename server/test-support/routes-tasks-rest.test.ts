@@ -1,4 +1,4 @@
-// Phase 3a slice 1 — Tasks on the unified REST surface (opIds tasks.*).
+// Phase 3a slice 1 - Tasks on the unified REST surface (opIds tasks.*).
 //
 // TDD'd against the typed route table: the NEW /api/tasks* endpoints are
 // identity-required (cookie or agent bearer), attribution is token-derived
@@ -103,7 +103,7 @@ describe("routes/tasks REST: /api identity required (no loopback bypass)", () =>
     const getApi = await api(srv, "/api/tasks");
     expect(getApi.status).toBe(401);
     // The rejection rides the NEW /api envelope {error:{code,message}}, not the
-    // legacy auth-middleware shape — every migrated /api route inherits this.
+    // legacy auth-middleware shape - every migrated /api route inherits this.
     expect((getApi.body as { error?: { code?: string } }).error?.code).toBe(
       "unauthenticated",
     );
@@ -354,7 +354,7 @@ describe("routes/tasks REST: cron-run bearer", () => {
       true,
     );
 
-    // An owner cookie still deletes it — the guard is cron-run-only.
+    // An owner cookie still deletes it - the guard is cron-run-only.
     expect(
       (
         await api(srv, `/api/tasks/${glob.id}`, {
@@ -592,7 +592,7 @@ describe("routes/tasks REST: room scoping", () => {
     const stored = srv.agentManager.getTasks().find((x) => x.id === t.id)!;
     expect("roomId" in stored).toBe(false);
 
-    // (1b) an untouched PATCH after a clear leaves it global — a change to some
+    // (1b) an untouched PATCH after a clear leaves it global - a change to some
     // OTHER field must not resurrect a room.
     const stillGlobal = await api(srv, `/api/tasks/${t.id}`, {
       method: "PATCH",
@@ -642,7 +642,7 @@ describe("routes/tasks REST: room scoping", () => {
     expect(okMove.status).toBe(200);
     expect((okMove.body as TaskItem).roomId).toBe(roomB);
 
-    // ... but NOT into roomA (no grant), nor an unknown id — both a uniform 404.
+    // ... but NOT into roomA (no grant), nor an unknown id - both a uniform 404.
     for (const target of [roomA, "nope1234"]) {
       const r = await api(srv, `/api/tasks/${glob.id}`, {
         method: "PATCH",

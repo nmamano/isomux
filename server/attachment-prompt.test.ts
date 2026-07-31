@@ -1,4 +1,4 @@
-// Shared attachment convention (attachment-prompt.ts) — unit tier.
+// Shared attachment convention (attachment-prompt.ts) - unit tier.
 //
 // Covers the resolver (missing-file skipping, order preservation, duplicates)
 // and the formatter (one-line invariant under hostile originalName input,

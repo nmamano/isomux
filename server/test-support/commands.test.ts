@@ -8,7 +8,7 @@
 import { describe, it, expect } from "bun:test";
 import { commands, autocompleteCommands } from "../commands.ts";
 
-// Commands whose bare `/name` invocation is complete/useful — a direct action
+// Commands whose bare `/name` invocation is complete/useful - a direct action
 // (/clear, /context) or an interactive picker that takes no argument text
 // (/model, /effort, /resume). /diff diffs the cwd with no arg.
 const EXPECTED_AUTORUN = new Set([
@@ -66,7 +66,7 @@ describe("autocompleteCommands() wire shape", () => {
         // Present and strictly true (the UI treats only a literal true as run).
         expect(c.autoRun).toBe(true);
       } else {
-        // Absent entirely — never false — so mixed-version/replay data can't be
+        // Absent entirely - never false - so mixed-version/replay data can't be
         // misread and skills (which never carry it) stay insert-only.
         expect("autoRun" in c).toBe(false);
       }

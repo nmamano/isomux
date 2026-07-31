@@ -3,11 +3,11 @@
  *
  * Injected as PreToolUse hooks into every agent's SDK session. Five concerns:
  *
- *   1. Git safety — block destructive git commands (checkout --, reset --hard, etc.)
- *   2. Filesystem safety — block rm -rf and similar
- *   3. Isomux config protection — block all writes to ~/.isomux/
- *   4. Secrets protection — block reads of .env, private keys, credentials, etc.
- *   5. Process safety — block killing processes by name pattern (pkill/killall)
+ *   1. Git safety - block destructive git commands (checkout --, reset --hard, etc.)
+ *   2. Filesystem safety - block rm -rf and similar
+ *   3. Isomux config protection - block all writes to ~/.isomux/
+ *   4. Secrets protection - block reads of .env, private keys, credentials, etc.
+ *   5. Process safety - block killing processes by name pattern (pkill/killall)
  *
  * Read operations on ~/.isomux/ are always allowed (agents need discovery/logs).
  */
@@ -26,7 +26,7 @@ import { STATE_ROOT } from "./config.ts";
 // The write-protection root follows the active state root, so a test that
 // redirects ISOMUX_HOME protects its temp dir rather than the real one.
 // NOTE: the literal "~/.isomux" patterns in the command-text checks below are
-// deliberately NOT derived from this — they match what an agent literally
+// deliberately NOT derived from this - they match what an agent literally
 // typed, not resolved app state. Do not replace those literals with STATE_ROOT.
 const ISOMUX_DIR = STATE_ROOT;
 
@@ -59,7 +59,7 @@ function denyMessage(reason: string, command: string): HookJSONOutput {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Git safety — destructive command patterns
+// 1. Git safety - destructive command patterns
 //    Ported from wallgame/.claude/hooks/git_safety_guard.py
 // ---------------------------------------------------------------------------
 
@@ -106,7 +106,7 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
     /git\s+branch\s+-D\b/,
     "git branch -D force-deletes without merge check. Use -d for safety.",
   ],
-  // 2. Filesystem safety — destructive rm commands
+  // 2. Filesystem safety - destructive rm commands
   // Note: [rR] because both -r and -R mean recursive in GNU coreutils
   // Specific root/home pattern MUST come before generic pattern
   [
@@ -172,7 +172,7 @@ const SAFE_PATTERNS: RegExp[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Path normalization — handles /bin/rm, /usr/bin/git, etc.
+// Path normalization - handles /bin/rm, /usr/bin/git, etc.
 // Ported from wallgame's _normalize_absolute_paths()
 // ---------------------------------------------------------------------------
 
@@ -197,13 +197,13 @@ function normalizeAbsolutePaths(cmd: string): string {
 // The shape that got through is the ordinary one: bash starts the body on the
 // line AFTER the operator's line, so the operator can be followed by the rest
 // of the pipeline. A regex that expects a newline right after the delimiter
-// misses exactly that. Bodies are therefore found the way bash finds them —
+// misses exactly that. Bodies are therefore found the way bash finds them -
 // per line, with the delimiter matched on a line of its own.
 // ---------------------------------------------------------------------------
 
 /**
  * A heredoc opened on a line: `<<EOF`, `<<-EOF`, `<<'EOF'`, `<<"EOF"`, `<<\EOF`.
- * `expand` follows bash's rule — quoting any part of the delimiter makes the
+ * `expand` follows bash's rule - quoting any part of the delimiter makes the
  * body literal; an unquoted delimiter leaves substitutions in it live.
  */
 type Heredoc = { delimiter: string; stripTabs: boolean; expand: boolean };
@@ -299,7 +299,7 @@ function heredocsOpenedOn(line: string): Heredoc[] {
 }
 
 /**
- * The command substitutions inside a string — the only part of an unquoted
+ * The command substitutions inside a string - the only part of an unquoted
  * heredoc body that still runs. `matchParen` lives with the command parser
  * below; the two share the same idea of where a `$( … )` ends.
  *
@@ -333,7 +333,7 @@ function extractSubstitutions(text: string): string {
  *
  * A quoted delimiter (`<<'EOF'`) makes the body wholly literal, so it goes.
  * An unquoted one (`<<EOF`) still expands the body, so `$(pkill …)` inside it
- * really does run — those substitutions are kept and only the prose around
+ * really does run - those substitutions are kept and only the prose around
  * them is dropped.
  *
  * A body with no terminator ends at the end of the input, which is what bash
@@ -388,14 +388,14 @@ function stripQuotedStrings(cmd: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Isomux config protection — block writes to ~/.isomux/
+// 3. Isomux config protection - block writes to ~/.isomux/
 // ---------------------------------------------------------------------------
 
 // Copy-like commands where only the last argument (destination) is a write target.
 // Reading from ~/.isomux/ via these is fine; only writing to it should be blocked.
 const COPY_COMMANDS = ["cp", "rsync", "scp", "install"];
 
-// Commands that can modify files — if these target ~/.isomux/, block them
+// Commands that can modify files - if these target ~/.isomux/, block them
 const WRITE_COMMANDS = [
   "cp",
   "mv",
@@ -438,7 +438,7 @@ function commandWritesToIsomux(command: string): boolean {
     if (!WRITE_COMMANDS.includes(firstToken)) continue;
 
     // For copy-like commands, only the destination (last arg) is a write target.
-    // Reading *from* ~/.isomux/ is fine — only block if writing *to* it.
+    // Reading *from* ~/.isomux/ is fine - only block if writing *to* it.
     if (COPY_COMMANDS.includes(firstToken)) {
       const args = sub.split(/\s+/).filter((a) => !a.startsWith("-"));
       const dest = args[args.length - 1] ?? "";
@@ -453,7 +453,7 @@ function commandWritesToIsomux(command: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Secrets protection — block reads of sensitive files
+// 4. Secrets protection - block reads of sensitive files
 // ---------------------------------------------------------------------------
 
 /** Exact basenames that are always sensitive */
@@ -504,7 +504,7 @@ function isSensitiveFile(filePath: string): boolean {
   // A glob arrives here too (Grep's `glob: "*.pem"` selects the same files a
   // path would). A trailing wildcard is not part of any real name, so drop it
   // and match what is left: `.env*` is a request for `.env`. This is still
-  // name matching and not glob analysis — a brace or character-class pattern
+  // name matching and not glob analysis - a brace or character-class pattern
   // can name a sensitive file without looking like one (Reviewer1).
   const name = basename(filePath).replace(/\*+$/, "");
   // Allow .env.example, .env.template, etc.
@@ -524,11 +524,11 @@ function denySecretRead(target: string, tool: string): HookJSONOutput {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Process safety — block killing processes by name pattern
+// 5. Process safety - block killing processes by name pattern
 //
 // Every agent backend on the box runs under a generic command line (`bun`,
 // `node`, `claude`). A pattern aimed at one project's dev server therefore
-// matches the office and every other agent too — that is not hypothetical, it
+// matches the office and every other agent too - that is not hypothetical, it
 // is how the office has been taken down, by a `pkill -f "server/index.ts"`
 // meant for an unrelated project.
 //
@@ -574,14 +574,14 @@ const SHELL_COMMANDS = ["bash", "sh", "zsh", "dash", "ksh"];
  *
  * `value` stops `sudo -u nil pkill …` from reading `nil` as the command.
  * `boolean` stops the ambiguity fallback in commandCandidates() from firing on
- * an ordinary flag — without it, `xargs -r grep -l killall` would go on to read
+ * an ordinary flag - without it, `xargs -r grep -l killall` would go on to read
  * `killall` as a second candidate and deny a plain search.
  *
  * Keyed by wrapper because the same letter differs between them: `-r` takes a
  * value for sudo (role) but stands alone for xargs (no-run-if-empty).
  *
  * A flag in neither set is UNKNOWN, which is what the conservative fallback is
- * for — better an extra candidate than a missed kill.
+ * for - better an extra candidate than a missed kill.
  */
 type FlagGrammar = { value: Set<string>; boolean: Set<string> };
 
@@ -777,7 +777,7 @@ function matchParen(cmd: string, open: number): number {
  * single word and only `bash -c`-style payloads are re-parsed (by the caller,
  * which knows it is looking at an interpreter).
  *
- * Command substitutions are parsed as commands in their own right — they run.
+ * Command substitutions are parsed as commands in their own right - they run.
  * Inside single quotes they don't, which falls out of consuming those spans
  * whole. The substitution leaves a `$()` placeholder in the surrounding word so
  * it still reads as "not a literal PID".
@@ -903,7 +903,7 @@ function parseCommands(cmd: string): ShellWord[][] {
  * Usually one. A second is reported when the first candidate followed a flag
  * this table doesn't know: `sudo -D /tmp pkill …` would otherwise resolve to
  * `tmp`, because `-D` silently ate its own value. Rather than chase every
- * option of every wrapper, an unrecognized flag makes the scan keep looking —
+ * option of every wrapper, an unrecognized flag makes the scan keep looking -
  * so a missing table entry costs an extra candidate instead of a bypass. That
  * only happens behind a wrapper and only right after an unknown flag, so an
  * ordinary command's arguments are never mistaken for commands: `xargs grep -l
@@ -970,7 +970,7 @@ function shellPayloads(cmd: EffectiveCommand): string[] {
   return payloads;
 }
 
-/** A literal PID, a `%1` job spec, or `$$`/`$!` — a target already in hand. */
+/** A literal PID, a `%1` job spec, or `$$`/`$!` - a target already in hand. */
 const LITERAL_PID = /^(?:\d+|%\d*|\$\$|\$!)$/;
 
 /**
@@ -1048,7 +1048,7 @@ function checkProcessKill(command: string): string | null {
   // are the same kill with the name matching moved one step upstream. Judged
   // across the whole command rather than per statement: shell loops and `;`
   // scatter the two halves into separate statements, so a tighter window only
-  // moves the hole. Two things keep that width honest — `ps` counts as a lookup
+  // moves the hole. Two things keep that width honest - `ps` counts as a lookup
   // only alongside `grep`, the step that turns it into a name match; and a kill
   // that names literal PIDs is left alone however the line reads.
   const names = new Set(commands.map((c) => c.name));
@@ -1071,7 +1071,7 @@ function checkProcessKill(command: string): string | null {
 // `file_path`, NotebookEdit uses `notebook_path`, Grep uses `path` and `glob`.
 // The published SDK types offer
 // no tool-name -> input-shape registry (`ToolInputSchemas` is an untagged union
-// of shape-named interfaces), so the table below is maintained by hand — and
+// of shape-named interfaces), so the table below is maintained by hand - and
 // because a hand-maintained table goes stale, extraction falls back to a
 // key-name heuristic and finally fails CLOSED. A guarded tool whose path we
 // cannot find is denied, not waved through.
@@ -1083,7 +1083,7 @@ type ToolPathSpec = {
   /**
    * True for a tool whose target is optional and defaults to the working
    * directory. An input with none of `keys` set is then "no particular file",
-   * which is a shape we DO recognize, so it is allowed rather than denied —
+   * which is a shape we DO recognize, so it is allowed rather than denied -
    * fail-closed still covers every tool and every input we cannot read.
    */
   targetOptional?: boolean;
@@ -1098,7 +1098,7 @@ const TOOL_PATH_SPECS: Record<string, ToolPathSpec> = {
   NotebookEdit: { keys: ["notebook_path"] },
   // Grep returns file contents, so it reads secrets as surely as Read does.
   // `glob` counts alongside `path`: `glob: "*.pem"` picks out the same files.
-  // Both are optional — a Grep with neither is a search of the working
+  // Both are optional - a Grep with neither is a search of the working
   // directory, which this name-based rule has nothing to say about.
   Grep: { keys: ["path", "glob"], targetOptional: true },
 };
@@ -1108,7 +1108,7 @@ const PATH_KEY_PATTERN = /path|file|dir/i;
 
 /**
  * Every path a tool call would touch, or null when the input shape gives no
- * answer — callers must treat null as "cannot verify" and deny. An empty array
+ * answer - callers must treat null as "cannot verify" and deny. An empty array
  * means the opposite: a recognized input that names no particular file.
  */
 function collectToolPaths(
@@ -1261,14 +1261,14 @@ const checkSensitiveFileRead: HookCallback = async (input) => {
 };
 
 // ---------------------------------------------------------------------------
-// Export — wire into SDKSessionOptions.hooks
+// Export - wire into SDKSessionOptions.hooks
 // ---------------------------------------------------------------------------
 
 export function createSafetyHooks(): Partial<
   Record<HookEvent, HookCallbackMatcher[]>
 > {
   return {
-    // One entry per tool name — a matcher is a plain tool name, not a regex, so
+    // One entry per tool name - a matcher is a plain tool name, not a regex, so
     // every guarded tool has to be listed. Notebook tools carry their path
     // under `notebook_path`; `collectToolPaths` is what makes that work.
     PreToolUse: [

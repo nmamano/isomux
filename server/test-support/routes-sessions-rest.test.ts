@@ -1,4 +1,4 @@
-// Phase 3a slice 3a.4b — Sessions on the unified REST surface
+// Phase 3a slice 3a.4b - Sessions on the unified REST surface
 // (opIds sessions.{list,revoke,logout}).
 //
 // Mirrors the 3a.4a invites net. What this freezes:
@@ -9,12 +9,12 @@
 //     cross-user rows and no session_revoked. The TARGET gets session_expired +
 //     socket close through the force-expire BRIDGE (auth core), not liveEmit.
 //   - Non-leak revoke authz (sessionOwnerOrSelf): member foreign AND nonexistent
-//     prefix BOTH 403, identical body — paired with a positive control (the same
+//     prefix BOTH 403, identical body - paired with a positive control (the same
 //     member revoking their OWN session succeeds).
 //   - Last-owner lockout (notLastOwnerLockout): sole-owner revoke-self AND
-//     logout-as-sole-owner BOTH 409 — each paired with a positive control (a 2nd
+//     logout-as-sole-owner BOTH 409 - each paired with a positive control (a 2nd
 //     owner session makes the same op 204).
-//   - Logout fails CLOSED for a bearer (no cookie session) — 403, never a no-op.
+//   - Logout fails CLOSED for a bearer (no cookie session) - 403, never a no-op.
 //   - ROLE SOURCE = record (Option A): a member promoted in the record (no
 //     reconnect) lists + revokes as an owner.
 //   - AGENT bearer → 403 (list/revoke missing session:manage; logout missing
@@ -85,7 +85,7 @@ async function api(
   return { status: res.status, body };
 }
 
-// Add a SECOND owner user (distinct name) with an active session — the positive
+// Add a SECOND owner user (distinct name) with an active session - the positive
 // control for last-owner lockout. Returns its cookie.
 async function addOwner(name: string): Promise<string> {
   const mint = await mintInvite({
@@ -284,7 +284,7 @@ describe("routes/sessions REST: revoke non-leak (+ positive control)", () => {
       ).some((s) => s.sessionPrefix === bobPrefix),
     ).toBe(true);
 
-    // POSITIVE CONTROL: the same member CAN revoke their OWN session — proves the
+    // POSITIVE CONTROL: the same member CAN revoke their OWN session - proves the
     // 403s above are the scope check, not a blanket failure.
     const own = await api(srv, `/api/sessions/${alicePrefix}`, {
       method: "DELETE",
@@ -421,7 +421,7 @@ describe("routes/sessions REST: record-role projection (Option A) + scope/auth",
   });
 });
 
-// Task 557dc8ce — device label on the session wire. The client's
+// Task 557dc8ce - device label on the session wire. The client's
 // presence_update device label (the one name-tags show) is stamped onto the
 // backing auth session (last non-null wins) and surfaced read-only as
 // SessionWire.device, so the Sessions pane can say WHICH device a session is.

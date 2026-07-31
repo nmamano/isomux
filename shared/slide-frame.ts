@@ -3,17 +3,17 @@
 // Slides are model-generated HTML rendered ONLY inside a sandboxed iframe. The
 // SECURITY BOUNDARY is a Content-Security-Policy, NOT sandbox="": sandbox=""
 // (no allow-scripts) stops scripts, but a sandboxed document can still fetch
-// subresources (img/font/css url()/etc.), which — since slides persist and
-// reopen — would be a durable browser-side network primitive for anything a
+// subresources (img/font/css url()/etc.), which - since slides persist and
+// reopen - would be a durable browser-side network primitive for anything a
 // prompt-injected answer smuggled into the markup. `default-src 'none'` denies
 // every outbound load; only inline styles are allowed (slides are inline-styled
 // and our wrapper uses one <style>). extractSlideHtml (server) additionally
-// rejects network-capable markup before persistence — defense in depth — but
+// rejects network-capable markup before persistence - defense in depth - but
 // this CSP is the boundary we rely on.
 //
 // buildSlideMeasureSrcDoc (below) is an offscreen sizing-only variant used with
 // sandbox="allow-same-origin"; because this same CSP blocks scripts and network
-// there too, allow-same-origin only grants the parent read access — it never
+// there too, allow-same-origin only grants the parent read access - it never
 // lets the model HTML execute or fetch. Full reasoning at that function.
 
 export const SLIDE_W = 1280;
@@ -38,7 +38,7 @@ export const SLIDE_CSP = [
 // <style> here are app-controlled (never model content); the fragment itself is
 // inline-styled only. `heightPx` is the body height the slide is laid out at:
 // SLIDE_H by default, or a measured natural height for overfull slides (so the
-// whole card scales to fit rather than clipping — see DeckView). overflow is
+// whole card scales to fit rather than clipping - see DeckView). overflow is
 // hidden so nothing can ever scroll inside the frame.
 export function buildSlideSrcDoc(
   html: string,
@@ -53,12 +53,12 @@ export function buildSlideSrcDoc(
 }
 
 // Height to lay a slide out at, given the natural content height measured
-// offscreen (null while unmeasured — the frame stays at the canvas height until
+// offscreen (null while unmeasured - the frame stays at the canvas height until
 // the measurement lands). Content that fits the 720 canvas keeps the canvas;
 // taller content is laid out at its own height (+2px so sub-pixel rounding
 // between the measurement and display documents can never shave the last line)
 // so the whole card scales to fit instead of clipping. Never returns less than
-// SLIDE_H — a slide is at least a full card.
+// SLIDE_H - a slide is at least a full card.
 export function slideDisplayHeight(naturalHeight: number | null): number {
   if (naturalHeight == null || naturalHeight <= SLIDE_H) return SLIDE_H;
   return Math.ceil(naturalHeight) + 2;
@@ -69,8 +69,8 @@ export function slideDisplayHeight(naturalHeight: number | null): number {
 // flows to its natural height and the parent can read scrollHeight to size the
 // display frame. This is rendered ONLY in an offscreen iframe that adds
 // sandbox="allow-same-origin" (so the parent can read its DOM). That is safe
-// because scripts stay blocked two ways — no allow-scripts in the sandbox AND
-// `script-src 'none'` in the CSP — and all network stays blocked by
+// because scripts stay blocked two ways - no allow-scripts in the sandbox AND
+// `script-src 'none'` in the CSP - and all network stays blocked by
 // `default-src 'none'`, exactly as in the display frame. allow-same-origin
 // grants only parent read access to a script-dead, network-dead document; it
 // does NOT let the model HTML run code or reach the network. See DeckView's

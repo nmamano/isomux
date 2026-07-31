@@ -3,7 +3,7 @@ import type { ContextUsageWire } from "../../shared/types.ts";
 
 // Battery-style context indicator (task 27096236; design:
 // internal-docs/context-fullness-visibility.md). Rendered as inline SVG, NOT a
-// Unicode glyph — iOS Safari emoji-renders the battery/🔋 family and overrides
+// Unicode glyph - iOS Safari emoji-renders the battery/🔋 family and overrides
 // CSS color, which would defeat the color behavior.
 //
 // Phone-battery metaphor: the fill and the number are the REMAINING context
@@ -68,7 +68,7 @@ export function ContextBattery({
     };
   }, [popoverOpen]);
 
-  // Unknown state: no reading. Ghost color, "CTX" inside the shell, "?" label —
+  // Unknown state: no reading. Ghost color, "CTX" inside the shell, "?" label -
   // see the prop comment. All the derived display values fork on this.
   const known = !!usage;
   const pct = usage ? usage.percentage : 0;
@@ -85,7 +85,7 @@ export function ContextBattery({
   const fillFrac = known ? Math.max(0, Math.min(1, (100 - pct) / 100)) : 0;
   // Inner fill spans x:2..19 (17px wide) inside the 0.5..20.5 shell.
   const fillW = 17 * fillFrac;
-  // "?" is plain ASCII on purpose — no iOS auto-emoji risk (unlike ？/⍰).
+  // "?" is plain ASCII on purpose - no iOS auto-emoji risk (unlike ？/⍰).
   const label = known ? `${remaining}%` : "?";
 
   // Plain spaced hyphen (not an em dash) per Nil's prose rule.

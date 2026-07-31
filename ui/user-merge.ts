@@ -1,5 +1,5 @@
 // Client-side user-record merge core (Phase 3b.5). PURE + React-free so it can
-// be unit-tested in isolation — the UI equivalent of the server's pure clamp /
+// be unit-tested in isolation - the UI equivalent of the server's pure clamp /
 // migration cores (clampViewFields, planOwnerAccessMigration).
 //
 // The wire splits one logical "user" across three event classes by audience:
@@ -14,7 +14,7 @@ import type { UserPublicWire, UserRecord } from "../shared/types.ts";
 
 // The client's merged view of a user. Public columns are ALWAYS present (every
 // user appears on the public roster); the sensitive columns are present ONLY
-// for records the client legitimately received in full — its OWN record (via
+// for records the client legitimately received in full - its OWN record (via
 // user_self_updated) and, for an owner, every record (via users_admin_*). A
 // member holds public-only views of other users. Typed so any sensitive read
 // is compiler-forced to narrow through isFullUserView first.
@@ -22,7 +22,7 @@ export type UserView = UserPublicWire & Partial<UserRecord>;
 
 // Fullness guard by SHAPE, never by role: an owner's view of another user is
 // full because of the admin channel, and a member's view of themselves is full
-// because of the self channel — role is not proof of shape. Checks the
+// because of the self channel - role is not proof of shape. Checks the
 // sensitive fields a full record always carries.
 export function isFullUserView(u: UserView): u is UserRecord {
   return (
@@ -35,7 +35,7 @@ export function isFullUserView(u: UserView): u is UserRecord {
   );
 }
 
-// Merge one incoming wire into a NEW map (pure — `prev` is untouched). A full
+// Merge one incoming wire into a NEW map (pure - `prev` is untouched). A full
 // (self/admin) record overwrites every column; a public wire overwrites only
 // the public columns, preserving any sensitive fields already held. On rename
 // (prevName differs) the base is the OLD record, so sensitive fields survive

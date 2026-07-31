@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PTY sidecar — runs under Node.js to work around Bun's libuv incompatibility with node-pty.
+// PTY sidecar - runs under Node.js to work around Bun's libuv incompatibility with node-pty.
 // Protocol: JSON messages over stdin/stdout, one per line.
 //   → { type: "spawn", shell, cols, rows, cwd, env }
 //   → { type: "input", data }

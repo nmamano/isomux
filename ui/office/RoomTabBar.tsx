@@ -7,11 +7,11 @@ import { GhostGraphic } from "./ghostVariants.tsx";
 import type { PresenceInfo } from "../../shared/types.ts";
 
 // Per-tab mini-ghost cluster sizing. Kept small so the bar height
-// stays at 32px (the tabs' existing height) — mini ghosts must read as
+// stays at 32px (the tabs' existing height) - mini ghosts must read as
 // subordinate to the room name.
 const MINI_GHOST_SIZE = 12;
 const MAX_MINI_GHOSTS = 3;
-// Heavy stack — each additional ghost contributes only ~4px of visible
+// Heavy stack - each additional ghost contributes only ~4px of visible
 // width past the previous one, keeping the cluster narrow. Color is
 // enough to distinguish individual ghosts.
 const MINI_GHOST_OVERLAP = -8;
@@ -24,16 +24,16 @@ function MiniGhostCluster({
   selfConnectionId: string | null;
 }) {
   // Same rules as the in-scene ghost layer: one mini-ghost per WS
-  // connection (no user-level dedupe — a single user on phone + laptop
+  // connection (no user-level dedupe - a single user on phone + laptop
   // is two ghosts), and the viewer only hides their OWN connection;
   // other tabs/devices of the same user remain visible as their own
-  // mini-ghosts. Mini-ghosts in the tab bar are non-interactive — the
+  // mini-ghosts. Mini-ghosts in the tab bar are non-interactive - the
   // scene ghost is the click target for opening a user.
   const others = selfConnectionId
     ? presences.filter((p) => p.connectionId !== selfConnectionId)
     : presences;
   const visible = others.slice(0, MAX_MINI_GHOSTS);
-  // Collapse the cluster entirely when there's no one to show — a
+  // Collapse the cluster entirely when there's no one to show - a
   // zero-width span would leave hidden hover/focus regions. Tabs shift
   // laterally as ghosts arrive/leave; the pills themselves keep a
   // constant width either way.
@@ -64,7 +64,7 @@ function MiniGhostCluster({
               // Dim away-mode ghosts at the same ~40% the in-scene
               // layer uses (viewer is in TaskView/CronjobsView/Settings).
               opacity: p.viewMode === "away" ? 0.4 : 1,
-              // Nudge down by 1px — the SVG body sits slightly above
+              // Nudge down by 1px - the SVG body sits slightly above
               // the geometric center of its bounding box, which reads
               // as the ghost floating high vs. text x-height. 1px puts
               // the body visually aligned with the room-name letters.
@@ -125,7 +125,7 @@ function EdgeScrollHint({
         padding: 0,
       }}
     >
-      {/* Inline SVG, not a unicode arrow glyph — iOS Safari emoji-renders
+      {/* Inline SVG, not a unicode arrow glyph - iOS Safari emoji-renders
           some arrow codepoints, overriding CSS color. */}
       <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden>
         <path
@@ -170,9 +170,9 @@ function EdgeScrollHint({
 
 function TotalOnlineChip({ count }: { count: number }) {
   if (count <= 0) return null;
-  // Text + green "online" dot — the conventional online-status visual
+  // Text + green "online" dot - the conventional online-status visual
   // language (Discord/Slack/Teams). The count is distinct users
-  // (server dedupes by userId), hence "users" — a ghost represents a
+  // (server dedupes by userId), hence "users" - a ghost represents a
   // device/connection, not a user. Italic and right-aligned via
   // marginLeft:auto so the chip reads as ambient annotation, not a tab.
   const label = count === 1 ? "1 online user" : `${count} online users`;
@@ -228,7 +228,7 @@ export function RoomTabBar() {
 
   // Overflow state for the scroll affordances. Tracked per direction so
   // each edge hint appears only when there is actually content hidden on
-  // that side (both false when all tabs fit — the common case).
+  // that side (both false when all tabs fit - the common case).
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -252,7 +252,7 @@ export function RoomTabBar() {
     // effect below.
     const ro = new ResizeObserver(updateOverflow);
     ro.observe(el);
-    // Translate vertical wheel to horizontal scroll — mouse users have no
+    // Translate vertical wheel to horizontal scroll - mouse users have no
     // other way to scroll the bar (the scrollbar is hidden and there is
     // no vertical axis to begin with). Native listener with passive:false
     // because React 17+ delegates wheel as passive, which would make
@@ -266,7 +266,7 @@ export function RoomTabBar() {
       const before = el.scrollLeft;
       el.scrollLeft += e.deltaY * scale;
       // Only consume the event if the bar actually moved. When clamped at
-      // an edge, wheel in that direction must chain to ancestors —
+      // an edge, wheel in that direction must chain to ancestors -
       // otherwise the bar becomes a vertical-scroll trap for whatever
       // scrollable view sits around it.
       if (el.scrollLeft !== before) e.preventDefault();
@@ -341,7 +341,7 @@ export function RoomTabBar() {
       return;
     }
 
-    // Build new order as roomId[] — remove dragFrom, insert at dropIdx
+    // Build new order as roomId[] - remove dragFrom, insert at dropIdx
     const order = rooms.map((r) => r.id);
     const [removed] = order.splice(dragFrom, 1);
     order.splice(dropIdx, 0, removed);
@@ -359,7 +359,7 @@ export function RoomTabBar() {
 
   return (
     // Wrapper/scroller split: the edge hints (and the settings modal)
-    // must NOT live inside the scroll container — absolutely positioned
+    // must NOT live inside the scroll container - absolutely positioned
     // children of a scroller travel with the content. The wrapper owns
     // the chrome (background, border, height); the scroller only scrolls.
     <div
@@ -415,7 +415,7 @@ export function RoomTabBar() {
                 alignItems: "center",
                 gap: 4,
                 position: "relative",
-                // Don't let a narrow viewport (mobile) squeeze the tab —
+                // Don't let a narrow viewport (mobile) squeeze the tab -
                 // without this, the flex parent's overflowX:auto wouldn't
                 // stop browsers from shrinking the tab and wrapping the
                 // room name across two lines, which makes the active
@@ -509,7 +509,7 @@ export function RoomTabBar() {
               {/* Close button: closeable-when-empty rooms only.
                 room.canCloseWhenEmpty is the server-authoritative
                 protected-first-room signal (false only for the canonical first
-                room, derived from canonical order — correct even under a custom
+                room, derived from canonical order - correct even under a custom
                 view order). Emptiness stays a client-side reactive check. */}
               {room.canCloseWhenEmpty && isEmpty && (
                 <button
@@ -566,7 +566,7 @@ export function RoomTabBar() {
           +
         </button>
 
-        {/* Total online users chip — answers "who is online anywhere"
+        {/* Total online users chip - answers "who is online anywhere"
           (counts distinct userIds across the WHOLE office, including
           off-scene sessions). Per-tab clusters above answer "who is
           in this room". */}

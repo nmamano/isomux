@@ -36,7 +36,7 @@ const tick = () => new Promise<void>((r) => setTimeout(r, 5));
 // Backend contract
 // ---------------------------------------------------------------------------
 
-describe("FakeBackend — Backend contract", () => {
+describe("FakeBackend - Backend contract", () => {
   it("is assignable to a Backend resolver", () => {
     const fake = new FakeBackend();
     // Type-level: the managers' resolveBackend dep is (agentType) => Backend.
@@ -122,7 +122,7 @@ describe("FakeBackend — Backend contract", () => {
 // Session lifecycle
 // ---------------------------------------------------------------------------
 
-describe("FakeSession — stream lifecycle", () => {
+describe("FakeSession - stream lifecycle", () => {
   it("auto-emits system_init carrying the assigned sessionId", async () => {
     const fake = new FakeBackend();
     fake.createSession(opts());
@@ -183,7 +183,7 @@ describe("FakeSession — stream lifecycle", () => {
     const collected = collect(s.stream()); // parks: buffer empty, not ended
     await tick();
     s.close();
-    s.close(); // idempotent — must not throw
+    s.close(); // idempotent - must not throw
     expect(await collected).toEqual([]); // resolved, did not hang
     expect(s.closed).toBe(true);
   });
@@ -195,7 +195,7 @@ describe("FakeSession — stream lifecycle", () => {
     const collected = collect(s.stream()); // parks: buffer empty, not ended
     await tick();
     s.endStream();
-    s.endStream(); // idempotent — must not throw
+    s.endStream(); // idempotent - must not throw
     expect(await collected).toEqual([]); // resolved, did not hang
   });
 

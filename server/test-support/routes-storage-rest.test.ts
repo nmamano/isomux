@@ -1,6 +1,6 @@
 // Storage retention on the unified REST surface (task 2366ccb0).
 //
-// GET  /api/storage/usage  office:read + authenticated — humans and privileged
+// GET  /api/storage/usage  office:read + authenticated - humans and privileged
 //                          agents; per-agent detail is owner-only.
 // POST /api/storage/prune  office:admin + officeOwner, DRY RUN unless the body
 //                          says apply:true.
@@ -139,7 +139,7 @@ describe("routes/storage.usage REST", () => {
       bytes: number;
     }[];
     expect(memberCats.every((c) => c.path === null)).toBe(true);
-    // Sizes are identical — only the layout and the agent list are withheld.
+    // Sizes are identical - only the layout and the agent list are withheld.
     expect(memberCats.map((c) => c.bytes)).toEqual(
       categories.map((c) => c.bytes),
     );
@@ -378,7 +378,7 @@ describe("routes/storage.prune REST", () => {
     const owner = await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0];
     const agent = await spawnAgent(srv, "Worker", room.id);
-    // Spawn is lazy — no session until a message wakes it.
+    // Spawn is lazy - no session until a message wakes it.
     const enq = srv.agentManager.enqueueMessage(agent.id, {
       sender: { kind: "user", username: "Boss" },
       text: "wake",

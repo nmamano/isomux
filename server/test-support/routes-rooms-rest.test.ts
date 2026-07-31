@@ -1,4 +1,4 @@
-// Phase 3d slice 6 — rooms.create / rooms.close / rooms.rename REST contract.
+// Phase 3d slice 6 - rooms.create / rooms.close / rooms.rename REST contract.
 //
 // HTTP-contract layer for the room-structure mutations cut over from WS in slice
 // 6. Pins status codes + guard behavior:
@@ -14,7 +14,7 @@
 //
 // The emitted events' per-recipient ACL (room_created grant catch-up, the bare
 // room_closed delta, the close-cleanup allowedRooms strip) are frozen in
-// projection.test.ts. Seam: startTestServer() — real auth + /api executor. Zero LLM.
+// projection.test.ts. Seam: startTestServer() - real auth + /api executor. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";

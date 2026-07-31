@@ -14,8 +14,8 @@ import type { ManagedAgent } from "./internal-types.ts";
 import type { RoomWire, UserRecord } from "../shared/types.ts";
 
 // `cacheRead` is discounted cache hits; `cacheCreation` is the 1.25x write
-// tier. Raw `input_tokens` (uncached) is usually ~10 — just the new user
-// message — so "cached as a % of totalIn" is always ~100% and meaningless.
+// tier. Raw `input_tokens` (uncached) is usually ~10 - just the new user
+// message - so "cached as a % of totalIn" is always ~100% and meaningless.
 // The useful signal is hit-rate over *cacheable* input: cacheRead / (cacheRead
 // + cacheCreation), which drops when the cache expires and gets rewritten.
 export interface UsageBucket {
@@ -45,7 +45,7 @@ function addBucket(dst: UsageBucket, src: UsageBucket) {
 }
 
 export function formatTokenCount(n: number): string {
-  if (n === 0) return "—";
+  if (n === 0) return "-";
   // 999_500 rounds to "1000k" under naive thresholds; promote to M.
   if (n >= 999_500) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
@@ -58,7 +58,7 @@ export function formatTokenCount(n: number): string {
 const CACHE_HIT_WARN_THRESHOLD = 80;
 
 function formatInCell(b: UsageBucket): string {
-  if (b.totalIn === 0) return "—";
+  if (b.totalIn === 0) return "-";
   const cacheable = b.cacheRead + b.cacheCreation;
   if (cacheable === 0) return formatTokenCount(b.totalIn);
   const pct = Math.round((b.cacheRead / cacheable) * 100);
@@ -67,7 +67,7 @@ function formatInCell(b: UsageBucket): string {
 }
 
 function formatUsd(n: number): string {
-  if (n === 0) return "—";
+  if (n === 0) return "-";
   if (n >= 100) return `$${n.toFixed(0)}`;
   return `$${n.toFixed(2)}`;
 }
@@ -77,7 +77,7 @@ function formatUsd(n: number): string {
 //   - lifetime: sum of (entry.usage - entry.forkBaseUsage) across all entries
 // `forkBaseUsage` is captured at fork creation by walking the parent's log to
 // find the cumulative usage at the exact fork point, so each fork contributes
-// only its own new work — no double-counting of the shared parent prefix.
+// only its own new work - no double-counting of the shared parent prefix.
 // Exported for the Phase 1.4a usage characterization (fork-usage.test.ts) so the
 // lifetime/session fork-base math is asserted directly rather than through the
 // formatting-coupled renderUsageReport string. Production callers stay internal.
@@ -140,7 +140,7 @@ export function readAgentUsage(
 // to find `forkMessageId`'s position, then returns the latest snapshot whose
 // anchor entry sits before that position. When the parent has no snapshots
 // (e.g. it predates snapshot tracking), fall back to the parent's current
-// cumulative `usage` — best-effort, slightly over-subtracts if the parent
+// cumulative `usage` - best-effort, slightly over-subtracts if the parent
 // continued past the fork, but bounded and avoids a full prefix double-count
 // in lifetime totals.
 export function findUsageAtFork(
@@ -168,7 +168,7 @@ export function findUsageAtFork(
   // Fallback when no snapshot sits before the fork point: use the parent's
   // current cumulative (priorRunsUsage + usage). After a resume with no new
   // results yet, `usage` may be undefined while priorRunsUsage holds the real
-  // value — sum both so forks off just-resumed parents still get a base.
+  // value - sum both so forks off just-resumed parents still get a base.
   if (best) return best;
   const u = parentMeta?.usage;
   const p = parentMeta?.priorRunsUsage;
@@ -188,7 +188,7 @@ export function findUsageAtFork(
 // follows the same ACCESS gate as every other read surface (roomAllowedForSession
 // / visibleRoomProjection): owners see the whole office by rule, members see
 // only the rooms they can access. Cron jobs carry no room, so a member could not
-// attribute them to a visible room — they are owner-only, and so is their spend.
+// attribute them to a visible room - they are owner-only, and so is their spend.
 export type UsageAudience =
   | { kind: "owner" }
   | { kind: "member"; roomIds: ReadonlySet<string> };
@@ -196,7 +196,7 @@ export type UsageAudience =
 // Resolve the invoking user to an audience. Mirrors canAccess() in index.ts:
 // owners access every room by RULE (their `allowedRooms` is empty post-migration
 // and must NOT be read), members access exactly their grants. Fails closed on an
-// unresolved user — slash commands only arrive on the authenticated user path,
+// unresolved user - slash commands only arrive on the authenticated user path,
 // so this is a defensive branch, not a real caller.
 export function usageAudienceForUser(
   user: UserRecord | undefined,
@@ -241,7 +241,7 @@ export function renderUsageReport(
   );
   lines.push(`| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
   // Phase 3c: resolve each agent's room by its authoritative roomId (the only
-  // room reference — the dense AgentInfo.room index has been removed). Local map
+  // room reference - the dense AgentInfo.room index has been removed). Local map
   // mirrors the id-keyed bucket pass below, so no AgentManager helper needs
   // threading in here.
   const roomByIdMap = new Map(visibleRooms.map((r) => [r.id, r] as const));
@@ -266,7 +266,7 @@ export function renderUsageReport(
   }
 
   // Per-room totals + grand total. Each agent (live or killed) contributes to
-  // the room it was last in — resolved via agent-history.json, which persists
+  // the room it was last in - resolved via agent-history.json, which persists
   // each live agent's room on every persistAll. Rooms that have since been
   // deleted still appear, labeled "(deleted)", so prior spend isn't lost.
   // Buckets are keyed by stable roomId; current-room names override historical
@@ -313,7 +313,7 @@ export function renderUsageReport(
     const currentRoom = visibleRooms.find((r) => r.id === roomId);
     // A member can only be shown spend they can attribute to a room they
     // access, so deleted and unknown rooms (no live room behind them) stay
-    // owner-only — as does the non-visible-room spend the filter drops.
+    // owner-only - as does the non-visible-room spend the filter drops.
     if (!isOwner && !currentRoom) continue;
     const name = currentRoom?.name ?? h?.lastRoomName ?? "(unknown room)";
     const deleted = !currentRoom;
@@ -352,8 +352,8 @@ export function renderUsageReport(
 
   // Per-cronjob lifetime usage. Mirrors the per-room shape: live cronjobs +
   // any disk-only cronjobs (deleted) so historical spend isn't lost. Cron jobs
-  // are not room-scoped, so this whole section — table AND its contribution to
-  // the total below — is owner-only.
+  // are not room-scoped, so this whole section - table AND its contribution to
+  // the total below - is owner-only.
   if (isOwner) renderCronjobSection(lines, total.life);
 
   lines.push("");

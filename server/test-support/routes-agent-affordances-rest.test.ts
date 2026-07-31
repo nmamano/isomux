@@ -1,4 +1,4 @@
-// Phase 3a slice 3a.3a — agent self-affordances on the unified REST surface
+// Phase 3a slice 3a.3a - agent self-affordances on the unified REST surface
 // (opIds agents.readFile / diff / editFile / terminalCommand).
 //
 // The agent-scope analogue of the cron RUN-affordances: AGENT bearer
@@ -123,7 +123,7 @@ function countLog(
 }
 
 describe("routes/agent-affordances REST: AGENT bearer happy paths + room-ACL projection", () => {
-  it("read-file: 200 + a file-view log_entry that rides room-ACL — owner sees it, a no-access member does NOT", async () => {
+  it("read-file: 200 + a file-view log_entry that rides room-ACL - owner sees it, a no-access member does NOT", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -264,7 +264,7 @@ describe("routes/agent-affordances REST: validation + manager-error mapping", ()
       ).status,
     ).toBe(400);
     // Multiline is rejected by the MANAGER (single-line check); the handler maps
-    // that 400 1:1 — proving it doesn't only catch the missing-command case.
+    // that 400 1:1 - proving it doesn't only catch the missing-command case.
     const multi = await affordance(
       srv,
       agent.id,
@@ -321,8 +321,8 @@ describe("routes/agent-affordances REST: idempotency", () => {
 
 describe("routes/agent-affordances REST: preview-url (task dcfd5a97)", () => {
   // A fake shell-script "browser" (via ISOMUX_PREVIEW_BROWSER) writes a valid
-  // PNG to the --screenshot path, so the FULL production path — handler →
-  // manager → preview-capture spawn → savePersistedFile → file-view log_entry —
+  // PNG to the --screenshot path, so the FULL production path - handler →
+  // manager → preview-capture spawn → savePersistedFile → file-view log_entry -
   // runs without Chrome. Deeper engine coverage (timeouts, kills, validation
   // matrix) lives in preview-capture.test.ts.
   function fakeBrowserScript(srv: TestServer): string {

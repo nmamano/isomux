@@ -197,10 +197,10 @@ import { type Identity } from "./identity/index.ts";
 // Body left at its prior indentation; prettier normalizes post-review.
 function bootPrelude(): void {
   // Pre-userid backup is the migration safety snapshot (NOT the daily backup
-  // scheduler), so it runs UNCONDITIONALLY — skipBackups controls only the daily
+  // scheduler), so it runs UNCONDITIONALLY - skipBackups controls only the daily
   // scheduler in runBackgroundBoot. It must run before any user/session/agent/
   // cronjob state touches disk; the state modules above lazy-load (no top-level
-  // disk reads), so this top-of-body call is in time — but it is fragile to
+  // disk reads), so this top-of-body call is in time - but it is fragile to
   // future eager-load refactors. Audit if any imported module starts loading
   // eagerly. On a fresh harness boot it is a no-op (no pre-userid state).
   runPreUseridBackupIfNeeded();
@@ -218,7 +218,7 @@ function bootPrelude(): void {
     // Env-var migration. ISOMUX_PUBLIC_ORIGIN is deprecated; copy its value
     // into office-config.json (only when JSON's slot is empty, never clobber
     // an explicit JSON value) and warn the operator. The env var still wins
-    // for THIS boot via buildPublicOrigin's precedence chain — the message
+    // for THIS boot via buildPublicOrigin's precedence chain - the message
     // tells the operator that removing the env var will silently start
     // using the JSON value, which matches what we wrote.
     let configDirty = false;
@@ -332,7 +332,7 @@ function registerBootHooks(): void {
   // Inject the room snapshot provider auth.ts uses when seeding a new
   // owner's allowedRooms at invite-acceptance time. The provider closes
   // over agentManager.getRooms() rather than auth.ts importing
-  // agent-manager directly — keeps the dependency graph one-way.
+  // agent-manager directly - keeps the dependency graph one-way.
   setRoomsSnapshotProvider(() => agentManager.getRooms().map((r) => r.id));
 
   // When an invite is consumed (typically via HTTP POST /auth/accept,
@@ -345,7 +345,7 @@ function registerBootHooks(): void {
   // users list too: acceptance is the ONE path that can create a user
   // record outside the users.* handlers (acceptInvite's claimUser upsert),
   // so without this an already-open owner tab shows the new session in the
-  // sessions table while the user roster stays stale until reload — the
+  // sessions table while the user roster stays stale until reload - the
   // "session exists but user doesn't" ghost. emitUsersList() is the same
   // sanctioned fanout every other user mutation uses (public roster to
   // all, admin roster to owners).
@@ -367,12 +367,12 @@ function registerBootHooks(): void {
 
   // Role changes (promote/demote) refresh the cached ws.data.session on the
   // affected user's connected sockets immediately (task edac170a). Without
-  // this, role-keyed audience selection — ownerSessions in liveEmitDeps —
+  // this, role-keyed audience selection - ownerSessions in liveEmitDeps -
   // reads the STALE cached role until the socket's next inbound message
   // re-validates it, so a just-demoted ex-owner could receive one more
   // owner-only event (invite_revoked / session_revoked). REFRESH, not evict:
   // the session itself is still valid (eviction via session_expired+close is
-  // reserved for invalidated sessions — revoke/logout/delete/expiry), and
+  // reserved for invalidated sessions - revoke/logout/delete/expiry), and
   // this is the same revalidateByHash the per-message recheck uses, just run
   // proactively. If revalidation fails (session expired/orphaned in the
   // meantime), fall back to the notify-then-close contract the per-message
@@ -397,7 +397,7 @@ function registerBootHooks(): void {
   // First-install onboarding: pre-spawn one Claude and one Codex welcome agent
   // so the new owner can try whichever backend they're set up for. Spawn is
   // always allowed (no CLI install check); the other backend surfaces a
-  // chat-visible error on first message — missing CLI, missing auth, all the
+  // chat-visible error on first message - missing CLI, missing auth, all the
   // same UX. Per-spawn try/catch is defense in depth against any unexpected
   // throw. Awaited so both agents are in officeState before the redirected
   // browser reads `full_state`. Guarded so an owner-recovery on an existing
@@ -409,12 +409,12 @@ function registerBootHooks(): void {
     const otherName =
       agentType === "claude" ? "Codex Welcome Agent" : "Claude Welcome Agent";
     const otherFamily = agentType === "claude" ? "Codex" : "Claude";
-    return `You are the ${selfName} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents — you (a ${selfFamily} agent) and "${otherName}" (a ${otherFamily} agent). If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check the office agent manifest (curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN") to confirm the other welcome agent is present and then send them a message asking for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+    return `You are the ${selfName} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents - you (a ${selfFamily} agent) and "${otherName}" (a ${otherFamily} agent). If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check the office agent manifest (curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN") to confirm the other welcome agent is present and then send them a message asking for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
   }
 
   // Fixed outfits so both welcome agents have a recognizable, friendly look on
   // every fresh install instead of the random palette new spawns get. Claude =
-  // blue/glasses, Codex = pink/tie — visually distinct so the user can tell
+  // blue/glasses, Codex = pink/tie - visually distinct so the user can tell
   // them apart at a glance from the desk view.
   const CLAUDE_WELCOME_OUTFIT: AgentOutfit = {
     hat: "bow",
@@ -500,7 +500,7 @@ function registerBootHooks(): void {
 // session reference is used per-message (so revoke kicks in on the next msg)
 // and to attribute writes to the right user without trusting client-supplied
 // `username` fields. The `connectionId` is a per-WS identifier (NOT per
-// auth session) — multiple tabs of the same user share `session.sessionIdHash`
+// auth session) - multiple tabs of the same user share `session.sessionIdHash`
 // but get distinct `connectionId`s, so live-avatars presence keyed by
 // connectionId gives one ghost per tab (the design contract).
 interface WsData {
@@ -542,7 +542,7 @@ function editorKey(agentId: string, absPath: string): string {
 
 // (broadcastToOwners removed in 3a.4b: the only owner-scoped events,
 // invite_revoked + session_revoked, now flow through liveEmit() with their
-// registry audience "owners" — server/events/emit.ts owns the owner fan-out, so
+// registry audience "owners" - server/events/emit.ts owns the owner fan-out, so
 // the bespoke helper is dead. No raw ws.send fan-out lives outside emit()/the
 // per-WS direct replies anymore.)
 
@@ -561,16 +561,16 @@ function mintErrStatus(code: MintErr["code"]): HandlerErrorStatus {
   }
 }
 
-// Scoped invite list for a user (record role — Reviewer1 Option A): owner sees
+// Scoped invite list for a user (record role - Reviewer1 Option A): owner sees
 // ALL outstanding invites; a member sees only invites bound to their own current
 // display name. The whole invite seam (this projection, the inviteOwnerOrSelf
 // precondition, and the revoke branch) keys owner/member off the user RECORD via
-// getUserById, NOT the WS session role — because the recipient-scoped emit is
+// getUserById, NOT the WS session role - because the recipient-scoped emit is
 // userId-keyed and must resolve the record anyway. They differ only in the rare
 // promote-without-reconnect race; the record is the authoritative source. (Two
 // intentional session-role exceptions remain, both pre-existing emit/guard infra
 // rather than this seam's projection: the invites.mint officeOwner guard, and the
-// shared owners-audience fan-out — ownerSessions in liveEmitDeps — that selects
+// shared owners-audience fan-out - ownerSessions in liveEmitDeps - that selects
 // recipients for invite_revoked/session_revoked.)
 function scopedInvitesFor(userId: string | null): InviteWire[] {
   if (!userId) return [];
@@ -592,7 +592,7 @@ function emitInvitesListForUser(userId: string): void {
 // loops DISTINCT connected userIds so the scope is computed once per user, then
 // the recipient-scoped emit (userId → sessionsForUser) delivers to all of that
 // user's sockets. Used after every MUTATION (mint / self-mint / revoke /
-// access-settings self-mint / invite-consumed) — NEVER for a pure list read.
+// access-settings self-mint / invite-consumed) - NEVER for a pure list read.
 function emitInvitesList(): void {
   const seen = new Set<string>();
   for (const ws of browsers) {
@@ -621,10 +621,10 @@ async function revokeInviteForUserRecord(
     liveEmit("invite_revoked", { tokenPrefix });
     emitInvitesList();
   } else if (result === "ambiguous" && u.role === "owner") {
-    // Owner-only diagnostic (a member never learns a prefix is ambiguous — that
+    // Owner-only diagnostic (a member never learns a prefix is ambiguous - that
     // would leak existence). Mirrors the legacy revoke_invite warning.
     console.warn(
-      `[auth] ambiguous invite prefix ${tokenPrefix} — refused revoke`,
+      `[auth] ambiguous invite prefix ${tokenPrefix} - refused revoke`,
     );
   }
   return result;
@@ -642,7 +642,7 @@ const SESSION_LOGOUT_LOCKOUT_REASON =
   "office out of in-browser recovery. Mint an additional invite for yourself " +
   "and accept it on another device first.";
 
-// Scoped session list for a user (record role — Option A, mirrors invites):
+// Scoped session list for a user (record role - Option A, mirrors invites):
 // owner sees ALL active sessions; a member sees only their own (by stable
 // userId, rename-safe). Same record-role rationale as scopedInvitesFor.
 function scopedSessionsFor(userId: string | null): SessionWire[] {
@@ -682,7 +682,7 @@ function emitSessionsList(): void {
 // Shared session-revoke core for BOTH transports (the REST sessions.revoke dep
 // and the legacy WS revoke_session arm). Branches owner/member off the user
 // RECORD; owner uses the unrestricted revoker (its lockout is pre-checked by the
-// caller — the REST precondition or the WS arm), member uses the scoped mutator
+// caller - the REST precondition or the WS arm), member uses the scoped mutator
 // whose folded lockout returns "would_strand_office". On success emits
 // session_revoked (owners-only via liveEmit); sessions_active_list rides
 // fireSessionsChangedHook→emitSessionsList and session_expired + socket close
@@ -699,7 +699,7 @@ async function revokeSessionForUserRecord(
     liveEmit("session_revoked", { sessionPrefix });
   } else if (result === "ambiguous" && u.role === "owner") {
     console.warn(
-      `[auth] ambiguous session prefix ${sessionPrefix} — refused revoke`,
+      `[auth] ambiguous session prefix ${sessionPrefix} - refused revoke`,
     );
   }
   return result;
@@ -758,7 +758,7 @@ type ApplyAccessResult =
 // with a differing ISOMUX_PUBLIC_ORIGIN env (which would win after restart and
 // 403 the minted URL) → 409; save failure → 500. If the self-invite mint fails
 // AFTER the save, we log and still return ok with signInUrl:null (preserved
-// legacy behavior — the config change is what matters).
+// legacy behavior - the config change is what matters).
 async function applyAccessSettings(
   externalAccess: boolean,
   publicOrigin: string,
@@ -902,7 +902,7 @@ function applyOfficeSettings(input: {
 // the REST handler drops it (the retired request_settings_validation WS arm used
 // to echo it). An absent env file is trivially ok (nothing to validate). For
 // scope:"user", an explicit username targets THAT user; an omitted username
-// targets the CALLER's OWN env (selfUserId) — the subject the precondition
+// targets the CALLER's OWN env (selfUserId) - the subject the precondition
 // already authorized as "self". Without this self-resolution an authorized
 // own-env probe would validate nothing and return a false ok.
 //
@@ -910,7 +910,7 @@ function applyOfficeSettings(input: {
 // path instead of the stored one, so the settings UI can check a typed-but-
 // unsaved value on blur. The override applies ONLY to scope:"user" (the REST
 // handler rejects other combinations at the boundary; this core gate keeps
-// the rule even for future callers). AUTH is unchanged — the precondition
+// the rule even for future callers). AUTH is unchanged - the precondition
 // still authorizes the scope/username subject, and the subject could save the
 // same path via users.update and validate it stored, so this exposes no new
 // reachable filesystem information; it only makes the probe non-mutating.
@@ -963,7 +963,7 @@ async function listBackendModels(input: {
     const env = agentManager.buildEnvForUserId(input.userId);
     const models = await backend.listModels({
       // The codex subprocess's cwd must be a real directory or posix_spawn fails
-      // with ENOENT before our error path can clean up — resolve `~` here the
+      // with ENOENT before our error path can clean up - resolve `~` here the
       // same way agentManager.spawn does before persisting.
       cwd: resolveCwd(input.cwd),
       env,
@@ -1013,7 +1013,7 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
   for (const p of listAllPresence()) {
     if (p.currentRoomId === null) continue;
     // Per-recipient visibility filter: drop ghosts whose room this session
-    // can't see — unknown id, or globalToVisible < 0. Reuses the projection's
+    // can't see - unknown id, or globalToVisible < 0. Reuses the projection's
     // global roomId→index map rather than a second inline index.
     const globalIdx = projection.globalRoomIdToIndex.get(p.currentRoomId);
     if (globalIdx === undefined) continue;
@@ -1040,7 +1040,7 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
 
 // Distinct online userIds across the WHOLE presence map (not the
 // per-recipient filtered `entries`). Off-scene sessions (viewMode
-// "away" / currentRoomId === null) are included — "online" here means
+// "away" / currentRoomId === null) are included - "online" here means
 // "has a live WS that has sent at least one presence_update", which is
 // independent of whether the session is currently visible in a scene.
 // Same value broadcast to every recipient; totalOnlineUsers is its size.
@@ -1075,13 +1075,13 @@ function pushPresenceListToEachWs() {
 //
 // ACCESS (security): owners reach EVERY room by RULE; members reach their
 // explicitly-granted rooms (UserRecord.allowedRooms == member grants). See
-// canAccess(). VIEW (non-security): layered ON TOP of access — `hidden`
+// canAccess(). VIEW (non-security): layered ON TOP of access - `hidden`
 // (effective shown = accessible \ hidden) and sparse `order` decide WHICH
 // accessible rooms appear and in what order. The projection materializes each
 // recipient's visible rooms array (accessible ∩ shown, ordered) and filters
 // presence/agents to it. Agents and presence carry stable room ids (post-cut
 // there are no per-recipient dense `room` indices), so the projection no longer
-// rewrites any index — it only decides room-list membership/order and
+// rewrites any index - it only decides room-list membership/order and
 // per-recipient visibility.
 //
 // Helpers below are the single source of truth for those translations; per-WS
@@ -1095,7 +1095,7 @@ function pushPresenceListToEachWs() {
 // RULE (no materialized grant list); members have access to explicitly-granted
 // rooms only (UserRecord.allowedRooms == member grants). This is the SECURITY
 // gate. View preference (hidden/order) is a separate, ADDITIVE filter applied
-// ON TOP by the projection — never here — so a future re-show path can never
+// ON TOP by the projection - never here - so a future re-show path can never
 // turn `hidden` into a security gate.
 function canAccess(user: UserRecord, roomId: string): boolean {
   return user.role === "owner" || user.allowedRooms.includes(roomId);
@@ -1120,7 +1120,7 @@ function roomAllowedForSession(
   return canAccess(user, roomId);
 }
 
-// The concrete set of room ids a user can access right now — owner: every
+// The concrete set of room ids a user can access right now - owner: every
 // current room by RULE; member: their explicit grants. For sites that need a
 // materialized accessible-set rather than a per-room predicate (e.g. the
 // presence currentRoomId clamp + the notifRooms clamp on an access change).
@@ -1138,7 +1138,7 @@ function accessibleRoomIdsFor(
   return new Set(allowedRoomsOverride ?? user.allowedRooms);
 }
 
-// Phase 3b slice 3 — one-time owner-access migration to the rule-based model.
+// Phase 3b slice 3 - one-time owner-access migration to the rule-based model.
 // Runs at boot AFTER rooms + users are loaded (it needs BOTH): the boot
 // ORDERING is the security-critical part (a migration that ran before rooms
 // load would see no live rooms and take the all-stale branch for every owner),
@@ -1146,7 +1146,7 @@ function accessibleRoomIdsFor(
 // planner's unit tests. IDEMPOTENT: the marker is "owner with non-empty
 // allowedRooms"; a migrated owner has [], so a re-run is a no-op. The per-owner
 // decision (seed hidden from the OLD grants with an effective-coverage guard,
-// then clear grants) lives in the PURE planner — see server/access-migration.ts.
+// then clear grants) lives in the PURE planner - see server/access-migration.ts.
 function migrateOwnersToRuleBasedAccess(): void {
   // Thin boot wrapper: collect the persisted users + the live room ids (rooms
   // are seeded synchronously by createManagers, so getRooms() is valid here),
@@ -1169,7 +1169,7 @@ function migrateOwnersToRuleBasedAccess(): void {
 // Production GuardDeps adapter (Phase 2.3, deferred from 2.2). Wires the guard
 // catalog's injected office-state seam to today's materialized-allowedRooms
 // predicates + the live managers. Built at boot and exposed (dormant) on the
-// ServerHandle; nothing consumes it in 2.3 — Phase 3 feeds it to authorize()
+// ServerHandle; nothing consumes it in 2.3 - Phase 3 feeds it to authorize()
 // when routes migrate. See server/identity/guard-deps.ts.
 function buildLiveGuardDeps(): GuardDeps {
   const readers: GuardDepsLiveReaders = {
@@ -1221,7 +1221,7 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<WsData>> = {
     const agent = agentManager.getAllAgents().find((a) => a.id === agentId);
     if (!agent) return null;
     // Phase 3c: return the authoritative roomId only if it names a LIVE room.
-    // Do NOT lean on downstream audience filtering to fail closed — under the 3b
+    // Do NOT lean on downstream audience filtering to fail closed - under the 3b
     // owner rule canAccess() returns true for ANY roomId string, so a dangling
     // id would still route this agent's room-ACL events to owner sockets.
     // Validate here, matching the guard-deps authz posture (pre-3c the
@@ -1231,15 +1231,15 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<WsData>> = {
   deliver: (recipients, id, payload) => {
     // Slice 3b.1: room-ACL events arrive here with recipients ALREADY filtered
     // to room-access sessions by emit()'s registry audience, so deliver() only
-    // performs per-recipient WIRE SHAPING — it does NOT own the audience decision
+    // performs per-recipient WIRE SHAPING - it does NOT own the audience decision
     // and never broadens recipients (projectAgentForSession's visibility check
     // below is defensive shaping if state/projection disagree, not a second
     // audience gate):
     //   - agent_added: suppress the agent for recipients who can't see its room
     //     (projectAgentForSession returns null). Post-cut there's no dense `room`
     //     to rewrite, so visible recipients get the verbatim agent.
-    // Every other event — including room_closed, which post-cut just removes a
-    // stable room id and no longer shifts any recipient's dense space — is
+    // Every other event - including room_closed, which post-cut just removes a
+    // stable room id and no longer shifts any recipient's dense space - is
     // delivered byte-identical verbatim. This reproduces routeAgentEventToWs for
     // the migrated events.
     if (id === "agent_added") {
@@ -1267,7 +1267,7 @@ function liveEmit<K extends EventId>(
   emit(id, payload, ctx, liveEmitDeps);
 }
 
-// Project a full UserRecord to the office-wide PUBLIC wire — the ONLY user shape
+// Project a full UserRecord to the office-wide PUBLIC wire - the ONLY user shape
 // allowed on an all-audience event. Single helper so no all-audience emit hand-
 // rolls the field set and accidentally leaks a sensitive field (grants/env/
 // prompt/view). Phase 3b slice 5.
@@ -1283,13 +1283,13 @@ function toPublicWire(user: UserRecord): UserPublicWire {
 }
 
 // Fan out a single user-record change across the THREE audiences (3b.5):
-//   - user_updated (all): UserPublicWire — public profile only.
+//   - user_updated (all): UserPublicWire - public profile only.
 //   - user_admin_updated (owners): the FULL record (grants/env/prompt/view).
 //   - user_self_updated (the subject's own sockets): the subject's full record.
 // The all-audience public event reaches owners + the subject too; the client
 // reducer merges, with the admin/self full data winning over public for records
 // the recipient is allowed to know. This is the ONLY sanctioned path for
-// user_updated — any remaining raw broadcast of user_updated/users_list is a leak.
+// user_updated - any remaining raw broadcast of user_updated/users_list is a leak.
 function emitUserUpdated(user: UserRecord, prevName?: string): void {
   const tail = prevName !== undefined ? { prevName } : {};
   liveEmit("user_updated", { user: toPublicWire(user), ...tail });
@@ -1298,7 +1298,7 @@ function emitUserUpdated(user: UserRecord, prevName?: string): void {
 }
 
 // Fan out the whole roster: PUBLIC list to all, FULL admin list to owners. The
-// per-user self record is NOT sent here — it rides emitUserUpdated on a change
+// per-user self record is NOT sent here - it rides emitUserUpdated on a change
 // and the connect hydration. A bulk op that changes self-visible fields for
 // specific users should also emitUserUpdated() each touched user.
 function emitUsersList(): void {
@@ -1342,14 +1342,14 @@ function attributionFor(identity: Identity): {
 
 // The room ACCESS set for a caller identity, for room-scoping the task board.
 // Resolves the acting user (a USER identity's own record, or an AGENT identity's
-// SPAWNING user — "agents are bounded by their manager's room access") and
+// SPAWNING user - "agents are bounded by their manager's room access") and
 // returns accessibleRoomIdsFor(user): every live room for an owner (by rule),
 // the granted rooms for a member. This is room ACCESS, never the hidden/order
-// view filter — a hidden room is still accessible, so its tasks still show.
+// view filter - a hidden room is still accessible, so its tasks still show.
 //
 // A CRON-RUN identity gets the EMPTY set by rule, so a run sees and touches only
 // office-global tasks. Its userId is the cronjob's CREATOR (there for
-// attribution), and an owner-created job would otherwise inherit every room —
+// attribution), and an owner-created job would otherwise inherit every room -
 // but a cron run has no room of its own and its prompt calls the board
 // office-global. This keeps that promise, and matches what runs could reach on
 // the retired loopback /tasks surface. Same empty set for a token whose user is
@@ -1363,7 +1363,7 @@ function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
 // The room a create with NO roomId in the body defaults to (Nil's stamping
 // rule): an AGENT caller's OWN room, else undefined (office-global) for a user /
 // cron-run / unknown identity. The agent's room is used verbatim even if its
-// spawning user can't currently access it — "agent create → the agent's room" is
+// spawning user can't currently access it - "agent create → the agent's room" is
 // the authoritative rule; an explicit cross-room target is what the access guard
 // in the handler checks.
 function defaultCreateRoomIdForIdentity(
@@ -1391,7 +1391,7 @@ function buildExecutorDeps(): ExecutorDeps {
     }
   };
 
-  // 3a.1 — Tasks (global shared board; attribution from token).
+  // 3a.1 - Tasks (global shared board; attribution from token).
   register(
     tasksHandlers({
       listTasks: () => agentManager.getTasks(),
@@ -1442,7 +1442,7 @@ function buildExecutorDeps(): ExecutorDeps {
         return null;
       },
       isSafeScopeId,
-      // EXISTENCE only — no access gate (permissive model, Nil's call).
+      // EXISTENCE only - no access gate (permissive model, Nil's call).
       roomExists: (roomId) =>
         agentManager.getRooms().some((r) => r.id === roomId),
       agentExists: (agentId) => agentManager.getAgentDisplay(agentId) != null,
@@ -1450,7 +1450,7 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
-  // 3a.2 — Cronjobs (metadata + runs; mutation tightened to owner/office-owner).
+  // 3a.2 - Cronjobs (metadata + runs; mutation tightened to owner/office-owner).
   register(
     cronHandlers({
       listCronjobs: () => cronjobManager.listCronjobs(),
@@ -1470,7 +1470,7 @@ function buildExecutorDeps(): ExecutorDeps {
       allRunsByJob: () => cronjobManager.getAllRunsByJob(),
       runTranscript: (jobId, runId) =>
         cronjobManager.getRunTranscript(jobId, runId),
-      // 3a.2b — run-message + RUN-affordance core ops. sendRunMessage/
+      // 3a.2b - run-message + RUN-affordance core ops. sendRunMessage/
       // editRunMessage are fire-and-forget: void-discard the manager's
       // background promise (like the legacy WS arms), so the HTTP response
       // never blocks on the turn/fork. The handler threads a messageId override
@@ -1522,11 +1522,11 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
-  // 3a.3a — Agent self-affordances (AGENT bearer; read-file / diff / edit-file /
+  // 3a.3a - Agent self-affordances (AGENT bearer; read-file / diff / edit-file /
   // terminal-command / preview-url on the agent's OWN chat). Slim deps: just the
   // manager emit ops. The manager emits room-ACL-projected log_entry via the
   // event sink; handlers never emit. These /api routes are the SOLE affordance
-  // surface now — the legacy loopback /agents/:id/* affordance handlers were
+  // surface now - the legacy loopback /agents/:id/* affordance handlers were
   // deleted in the loopback-bypass removal milestone.
   register(
     agentAffordanceHandlers({
@@ -1566,7 +1566,7 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
-  // 3a.3b — Uploads + file-serving (browser surfaces; room-ACL gated). Narrow
+  // 3a.3b - Uploads + file-serving (browser surfaces; room-ACL gated). Narrow
   // deps: just the persistence helpers (the guard owns access, getFilePath owns
   // path-traversal). agents.getFile is room-ACL-gated [behavior-change]; the
   // legacy /api/upload + /api/files + /api/images stay untouched.
@@ -1579,13 +1579,13 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
-  // 3a.4a — Invites (auth surface; recipient-scoped emit). EMIT-IN-DEP: there is
-  // no auth event sink, so the seam owns mutate→emit — mint/self-mint/revoke fan
+  // 3a.4a - Invites (auth surface; recipient-scoped emit). EMIT-IN-DEP: there is
+  // no auth event sink, so the seam owns mutate→emit - mint/self-mint/revoke fan
   // out emitInvitesList(), and revoke also liveEmits invite_revoked (owners). The
   // handlers stay pure REST mappers. Owner/member resolves from the user RECORD
   // (Reviewer1 Option A) uniformly across the scoped list, the inviteOwnerOrSelf
   // precondition, and the revoke branch; invites.mint alone stays on the table's
-  // officeOwner (session) guard — an accepted asymmetry. (The owners-audience
+  // officeOwner (session) guard - an accepted asymmetry. (The owners-audience
   // fan-out for invite_revoked/session_revoked also keys on session role, via the
   // pre-existing shared ownerSessions in liveEmitDeps.)
   register(
@@ -1643,7 +1643,7 @@ function buildExecutorDeps(): ExecutorDeps {
       // EXISTING user who can't self-serve (signed out everywhere). userId
       // resolves against the live record; name/role derive from it. Policy:
       // one outstanding link per username (replacePriorForUsername) and the
-      // standard 24h owner-issued delivery window (ttlMsOverride pins it —
+      // standard 24h owner-issued delivery window (ttlMsOverride pins it -
       // replacePriorForUsername alone would imply the 1h self-invite TTL,
       // which fits "both devices right here", not owner send-and-wait).
       mintRecovery: async (userId, identity) => {
@@ -1674,7 +1674,7 @@ function buildExecutorDeps(): ExecutorDeps {
       revoke: async (identity, tokenPrefix) => {
         const u = identity.userId ? getUserById(identity.userId) : undefined;
         // inviteOwnerOrSelf already passed; a missing record here is a torn-down
-        // session — uniform 403, no leak.
+        // session - uniform 403, no leak.
         if (!u) return { ok: false, status: 403, code: "forbidden" };
         const result = await revokeInviteForUserRecord(u, tokenPrefix);
         if (result === "ok") return { ok: true };
@@ -1685,13 +1685,13 @@ function buildExecutorDeps(): ExecutorDeps {
             : { ok: false, status: 404, code: "not_found" };
         }
         // Member post-precondition not_found/ambiguous (TOCTOU): uniform 403,
-        // same envelope as the precondition — never reveal which case occurred.
+        // same envelope as the precondition - never reveal which case occurred.
         return { ok: false, status: 403, code: "forbidden" };
       },
     }),
   );
 
-  // 3a.4a — inviteOwnerOrSelf: the FIRST precondition enforcer. Owner (record
+  // 3a.4a - inviteOwnerOrSelf: the FIRST precondition enforcer. Owner (record
   // role) may revoke any invite; a member only one bound to their own name.
   // NON-LEAKING: a foreign prefix AND a nonexistent prefix BOTH return the same
   // 403 envelope (no exists-but-hidden distinction). The revoke dep then
@@ -1708,7 +1708,7 @@ function buildExecutorDeps(): ExecutorDeps {
     return owns ? null : fail(403, "forbidden");
   });
 
-  // 3a.4b — Sessions (auth surface; recipient-scoped emit, mirrors invites).
+  // 3a.4b - Sessions (auth surface; recipient-scoped emit, mirrors invites).
   // session_revoked → liveEmit (owners) in the shared core; sessions_active_list
   // rides fireSessionsChangedHook→emitSessionsList; session_expired + socket
   // close ride the forceExpireSocketsForSession bridge inside the auth core ops.
@@ -1735,12 +1735,12 @@ function buildExecutorDeps(): ExecutorDeps {
             : { ok: false, status: 404, code: "not_found" };
         }
         // Member post-precondition not_found/ambiguous (TOCTOU): uniform 403,
-        // same envelope as the precondition — never reveal which case occurred.
+        // same envelope as the precondition - never reveal which case occurred.
         return { ok: false, status: 403, code: "forbidden" };
       },
       logout: async (callerSessionIdHash) => {
         // Fail closed: a bearer (non-cookie) caller has no current browser
-        // session to end (Reviewer1 correction — NEVER a 204 no-op).
+        // session to end (Reviewer1 correction - NEVER a 204 no-op).
         if (!callerSessionIdHash) {
           return { ok: false, status: 403, code: "forbidden" };
         }
@@ -1750,7 +1750,7 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
-  // 3a.4b — sessionOwnerOrSelf: owner (record role) may revoke any session; a
+  // 3a.4b - sessionOwnerOrSelf: owner (record role) may revoke any session; a
   // member only one bound to their own stable userId. NON-LEAKING: foreign AND
   // nonexistent prefixes BOTH return the same 403 (mirrors inviteOwnerOrSelf).
   preconditions.set("sessionOwnerOrSelf", (ctx) => {
@@ -1765,7 +1765,7 @@ function buildExecutorDeps(): ExecutorDeps {
     return owns ? null : fail(403, "forbidden");
   });
 
-  // 3a.4b — notLastOwnerLockout: ONE enforcer for both sessions.revoke (carries
+  // 3a.4b - notLastOwnerLockout: ONE enforcer for both sessions.revoke (carries
   // the :sessionPrefix param) and sessions.logout (/current, no param → the
   // caller's OWN session). Refuses an op that would leave the office with zero
   // active owner sessions (shell-recovery lockout).
@@ -1773,7 +1773,7 @@ function buildExecutorDeps(): ExecutorDeps {
     if (ctx.params.sessionPrefix !== undefined) {
       // revoke: only the owner GLOBAL path pre-checks lockout here. A member's
       // lockout is folded into the atomic mutator (so "would_strand_office"
-      // only ever surfaces for a session the member actually owns — non-leak).
+      // only ever surfaces for a session the member actually owns - non-leak).
       const u = ctx.identity.userId
         ? getUserById(ctx.identity.userId)
         : undefined;
@@ -1785,7 +1785,7 @@ function buildExecutorDeps(): ExecutorDeps {
       return null;
     }
     // logout: act on the caller's OWN session. Fail closed if there is none (a
-    // bearer caller) — DELETE /api/sessions/current can't identify a session.
+    // bearer caller) - DELETE /api/sessions/current can't identify a session.
     const hash = ctx.callerSessionIdHash;
     if (!hash) return fail(403, "forbidden");
     if (wouldRevokeLeaveOfficeUnreachable(hash)) {
@@ -1794,7 +1794,7 @@ function buildExecutorDeps(): ExecutorDeps {
     return null;
   });
 
-  // 3a.4c — Access settings (owner-only; office:admin + officeOwner guard, no
+  // 3a.4c - Access settings (owner-only; office:admin + officeOwner guard, no
   // precondition). Both handlers delegate to the shared cores so the WS arms and
   // REST stay in lockstep; setAccess fans out invites_list via the self-invite
   // mint inside applyAccessSettings. REST selects the narrow { signInUrl,
@@ -1819,7 +1819,7 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
-  // 3d.9b — Users (auth surface; EXPAND+CUT). The users.* handlers were never
+  // 3d.9b - Users (auth surface; EXPAND+CUT). The users.* handlers were never
   // registered (Phase 1 probe: legacy-shape 401), so this BUILDS them. The
   // update_user SPLIT lands as OPTION A (Nil-gated): users.update = record fields
   // only; users.setAccess = allowedRooms + a prune-clamp of the target's existing
@@ -1852,7 +1852,7 @@ function buildExecutorDeps(): ExecutorDeps {
             };
           }
         }
-        // Record fields ONLY — allowedRooms/notif/default are NOT in
+        // Record fields ONLY - allowedRooms/notif/default are NOT in
         // UserUpdateReq (access → users.setAccess; view prefs → view.*). Resolve
         // by id so a rename can't strand the write.
         const result = updateUserById(target.id, {
@@ -1879,7 +1879,7 @@ function buildExecutorDeps(): ExecutorDeps {
         // route mutates only name/avatarColor/avatarVariant; env/prompt are private.
         // A private-only edit changes nothing in the public projection, so a public
         // user_updated/users_list would be a pure timing signal that the record
-        // changed — the leak setAccess avoids. Mirror setAccess: owners always get
+        // changed - the leak setAccess avoids. Mirror setAccess: owners always get
         // the full record via the owners-only admin event and the subject via its
         // own self event; the all-audience public channels fire ONLY when a public
         // field actually changed. (`target` is the pre-image: updateUserById writes
@@ -1937,7 +1937,7 @@ function buildExecutorDeps(): ExecutorDeps {
           };
         }
         // setAccess is a PRIVATE-only mutation (allowedRooms + the notif/default
-        // clamp), so it emits ONLY the scoped channels — NO public user_updated /
+        // clamp), so it emits ONLY the scoped channels - NO public user_updated /
         // users_list, which would leak the timing+target of an access change to
         // every user (Option A boundary, Reviewer1). Owners get the new grants via
         // the owners-only admin event; the target re-projects via full_state +
@@ -1987,7 +1987,7 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
-  // 3d.9b — delete_user preconditions (audit-pinned in routes-table.test.ts; kept
+  // 3d.9b - delete_user preconditions (audit-pinned in routes-table.test.ts; kept
   // SEPARATE so an audit/test failure names the policy that moved). Both run
   // AFTER the selfOrOwner guard, so a member only ever reaches them for their OWN
   // record. userDeleteNotSelfOwner: an owner may not delete their own record
@@ -2022,7 +2022,7 @@ function buildExecutorDeps(): ExecutorDeps {
     return null;
   });
 
-  // 3a.5 — Office settings (owner-only) + validation probes + backend models.
+  // 3a.5 - Office settings (owner-only) + validation probes + backend models.
   // Four narrow deps over the shared cores so REST and the legacy WS arms stay in
   // lockstep. office.setSettings emits office_settings_updated via the
   // AgentManager event sink (the handler never emits). validate.cwd shares
@@ -2036,18 +2036,18 @@ function buildExecutorDeps(): ExecutorDeps {
       applySettings: (input) => applyOfficeSettings(input),
     }),
   );
-  // 3d.6 — room-structure mutations (rooms CRUD). The handlers stay thin; the
+  // 3d.6 - room-structure mutations (rooms CRUD). The handlers stay thin; the
   // COMPOUND effects live here in the dep closures (the access/invites
   // EMIT-IN-DEP pattern), faithfully mirroring the now-deleted WS create_room/
   // close_room cases:
-  //  - create: rule-based access — anyone authenticated with room:manage creates
+  //  - create: rule-based access - anyone authenticated with room:manage creates
   //    a room. OWNERS reach it by RULE (already in the room_created audience,
   //    received live, NO fan-out). A MEMBER creator needs an explicit GRANT to
   //    see their own creation (room_created fired during createRoom, before the
   //    grant, so it was suppressed for them); grant it, then push a projected
   //    full_state to catch them up. No owner allowedRooms/notifRooms fan-out and
   //    NO user_updated broadcast of the creator's grant (that broadcast was the
-  //    hidden-room-id leak — a grant change reaches only its own subject).
+  //    hidden-room-id leak - a grant change reaches only its own subject).
   //  - close: strip the closed roomId from every user's allowedRooms/notifRooms
   //    so stale references don't accumulate, fanning out user_updated per touched
   //    record + a single users_list.
@@ -2067,7 +2067,7 @@ function buildExecutorDeps(): ExecutorDeps {
           });
           if (result.ok) {
             pushProjectedFullStateForUserId(creator.id);
-            // Creator's accessible set grew by the new room — re-project the
+            // Creator's accessible set grew by the new room - re-project the
             // board (the room is empty today, but keeps access↔board in lockstep).
             pushTasksForUserId(creator.id);
           }
@@ -2112,7 +2112,7 @@ function buildExecutorDeps(): ExecutorDeps {
         pushPresenceListToEachWs();
         // NOTE (room-scoped board): the loop above stripped the closed roomId
         // from every user's allowedRooms, and owners project against LIVE rooms
-        // — so this room's tasks are now inaccessible to EVERYONE and simply
+        // - so this room's tasks are now inaccessible to EVERYONE and simply
         // become orphans carrying a dead roomId. We deliberately do NOT re-push
         // the board here (unlike the access-change invariant at setAccess):
         // whether a close should reassign those tasks to global, delete them, or
@@ -2151,7 +2151,7 @@ function buildExecutorDeps(): ExecutorDeps {
       },
     }),
   );
-  // 3d.7 — agent lifecycle. The cores own the token lifecycle (spawn/revive mint,
+  // 3d.7 - agent lifecycle. The cores own the token lifecycle (spawn/revive mint,
   // kill/rollback revoke) + the agent_*/killed_* broadcasts, so these closures
   // just delegate (handlers stay contract-shaped). move returns a DISCRIMINATED
   // result the handler maps to status: moved / same-room idempotent -> { agent };
@@ -2242,7 +2242,7 @@ function buildExecutorDeps(): ExecutorDeps {
           // order (dup name -> room existence -> desk scan), so the dialog
           // routes the error to the right field. The unknown-room case is
           // reachable only by an owner (rule-based bodyRoom access passes any
-          // id) — same post-hoc getRooms() pattern as the move dep above.
+          // id) - same post-hoc getRooms() pattern as the move dep above.
           const trimmed = input.name.trim();
           const dup = agentManager
             .getAllAgents()
@@ -2277,7 +2277,7 @@ function buildExecutorDeps(): ExecutorDeps {
       revive: (agentId, roomId, desk) =>
         agentManager.revive(agentId, roomId, desk),
       edit: async (agentId, changes) => {
-        // Version guard FIRST (task 44a2c98d), before any field validation — a
+        // Version guard FIRST (task 44a2c98d), before any field validation - a
         // stale writer is told to re-read before hearing about a bad cwd. Only
         // blob-bearing edits carry a version (the handler enforces presence);
         // compare against the agent's STORED token so the check is exactly
@@ -2303,7 +2303,7 @@ function buildExecutorDeps(): ExecutorDeps {
           }
         }
         // Validation next, side effects (saveRecentCwd) only after ALL checks
-        // pass — a rejected edit must not mutate the recent-cwd list. Check
+        // pass - a rejected edit must not mutate the recent-cwd list. Check
         // order matches the spawn dep: cwd, then modelFamily.
         if (changes.cwd) {
           try {
@@ -2317,8 +2317,8 @@ function buildExecutorDeps(): ExecutorDeps {
           }
         }
         // Strict front-door check (mirrors the spawn dep): validate a provided
-        // modelFamily against the agentType the edit will LAND on — the new
-        // engine when this edit switches it, else the agent's current one — so
+        // modelFamily against the agentType the edit will LAND on - the new
+        // engine when this edit switches it, else the agent's current one - so
         // a mismatch is an explicit 422 instead of editAgent's silent
         // coerce-to-default (kept there as boot/restore canonicalization).
         if (changes.modelFamily) {
@@ -2352,7 +2352,7 @@ function buildExecutorDeps(): ExecutorDeps {
           // AgentInfo Pick widens it); editAgent wants string|undefined. The WS
           // edit_agent command never carried null (the dialog clears via ""), so
           // coerce null->undefined to preserve parity. The version token was
-          // consumed by the guard above — strip it so only real agent fields
+          // consumed by the guard above - strip it so only real agent fields
           // reach the core.
           const { customInstructionsVersion: _version, ...fields } = changes;
           await agentManager.editAgent(agentId, {
@@ -2379,7 +2379,7 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.setPrivileged(agentId, privileged),
     }),
   );
-  // 3d.7b — reviveLastRoomAccess: revive needs access to BOTH the target room
+  // 3d.7b - reviveLastRoomAccess: revive needs access to BOTH the target room
   // (the bodyRoom("roomId") guard) AND the killed agent's lastRoomId. A killed
   // summary that is MISSING or whose lastRoomId the caller can't access BOTH
   // collapse to the same 403 (no existence oracle): the killed-chip list the UI
@@ -2401,7 +2401,7 @@ function buildExecutorDeps(): ExecutorDeps {
     if (!summary || !canAccess(user, summary.lastRoomId)) return denied;
     return null;
   });
-  // 3d.6a — conversation (send/edit/cancel/sendNow/newConversation/resume/
+  // 3d.6a - conversation (send/edit/cancel/sendNow/newConversation/resume/
   // listSessions). CALL-IN-DEP closures mirror the deleted WS cases: the
   // streaming sends void-discard the manager promise (the turn streams over WS;
   // HTTP only acks), and sendMessage UNIFIES the two messageSend branches (USER
@@ -2432,7 +2432,7 @@ function buildExecutorDeps(): ExecutorDeps {
             code: "self_send",
             message: "Cannot send a message to self.",
           };
-        // Server-derived structured sender (name + room) — never body-trusted —
+        // Server-derived structured sender (name + room) - never body-trusted -
         // blocks identity spoof + prefix-delimiter injection into the prompt.
         const senderInfo = agentManager.getAgentDisplay(senderAgentId);
         if (!senderInfo)
@@ -2454,9 +2454,9 @@ function buildExecutorDeps(): ExecutorDeps {
         });
         if (result.ok) return { ok: true, messageId: result.messageId };
         // enqueueMessage's error code passes through verbatim ("agent not found"
-        // 404 — normally pre-empted by the messageRecipientExists precondition;
+        // 404 - normally pre-empted by the messageRecipientExists precondition;
         // agent_stopped / agent_error 409; queue_full 429; persist_failed 500
-        // when the durable-queue write failed and the message was rolled back —
+        // when the durable-queue write failed and the message was rolled back -
         // the sender should retry), preserving the legacy endpoint's
         // status + code contract.
         return {
@@ -2510,7 +2510,7 @@ function buildExecutorDeps(): ExecutorDeps {
       },
       handoff: async (agentId, text) => {
         // Self-handoff (task 8883e45d): the manager owns the reset-then-deliver
-        // (agentManager.handoff — guarded to one in-flight handoff per agent, so a
+        // (agentManager.handoff - guarded to one in-flight handoff per agent, so a
         // concurrent second handoff is rejected rather than clobbering this one's
         // brief). AWAIT it and map its
         // outcome honestly: enqueueMessage's transactional persist can fail
@@ -2535,7 +2535,7 @@ function buildExecutorDeps(): ExecutorDeps {
       }),
     }),
   );
-  // 3d.6a — send-message preconditions (audit-pinned in routes-table.test.ts;
+  // 3d.6a - send-message preconditions (audit-pinned in routes-table.test.ts;
   // kept out of the pure messageSend guard, which is caller-authorization only).
   preconditions.set("messageRecipientExists", (ctx) => {
     // The AGENT (send-as-self) branch skips the room check (cross-room delivery is
@@ -2555,12 +2555,12 @@ function buildExecutorDeps(): ExecutorDeps {
     // enqueueMessage (a plain queued message, never a permission reply). The
     // request carries no alternate permission target, so the interpretation binds
     // to :id by construction. We deliberately DON'T reject an inter-agent message
-    // to an agent that has a pending permission — the legacy HTTP inter-agent path
+    // to an agent that has a pending permission - the legacy HTTP inter-agent path
     // queued it normally, and rejecting would be a behavior change. This
     // precondition is the explicit, audit-pinned record of that structural bind.
     return null;
   });
-  // 3d.6b — editor (open/save/close). EMIT/CALL-IN-DEP closures own the stateful
+  // 3d.6b - editor (open/save/close). EMIT/CALL-IN-DEP closures own the stateful
   // watch lifecycle (the seam has `browsers` + the editorWatchers registry +
   // liveEmit in scope). openFile arms a watch bound to the caller's connectionId
   // that pushes editor_external_change to that socket; closeFile disarms it; the
@@ -2642,7 +2642,7 @@ function buildExecutorDeps(): ExecutorDeps {
         const key = editorKey(agentId, r.path);
         const old = map.get(key);
         if (old) stopWatch(old);
-        // watchFile always installs (mtime poll — no fs.watch handle that
+        // watchFile always installs (mtime poll - no fs.watch handle that
         // could fail on a vanished file; a vanished file just emits on the
         // poll that sees it back).
         const watcher = watchFile(
@@ -2724,13 +2724,13 @@ function buildExecutorDeps(): ExecutorDeps {
       },
     }),
   );
-  // 3b.4 — per-user view preferences. REST view.* is the SOLE surface now: group 7
+  // 3b.4 - per-user view preferences. REST view.* is the SOLE surface now: group 7
   // (3d.9b) retired the WS update_user notif/default arm, and under Option A
   // notif/default are self-only. reorder_rooms cut over to view.setOrder in slice 6.
   register(
     viewHandlers({
       applyView: (userId, change) => applyViewChange(userId, change),
-      // Accessible rooms (hidden included) in office order, id+name only —
+      // Accessible rooms (hidden included) in office order, id+name only -
       // the re-show read for the hide-rooms UI (task 9301d0f4).
       listAccessibleRooms: (userId) => {
         const user = getUserById(userId);
@@ -2762,9 +2762,9 @@ function buildExecutorDeps(): ExecutorDeps {
       listModels: (input) => listBackendModels(input),
     }),
   );
-  // 3a.6 — System backup status. Maps the internal BackupStatus to the normalized
+  // 3a.6 - System backup status. Maps the internal BackupStatus to the normalized
   // /api wire shape (rename + null→false on ok). This is the only backup-status
-  // surface now — the legacy /backup/status, which returned the raw shape, is
+  // surface now - the legacy /backup/status, which returned the raw shape, is
   // retired.
   register(
     systemHandlers({
@@ -2885,7 +2885,7 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
-  // 3a.5 — validateEnvBodySelfSubject: the SOLE object-level policy for
+  // 3a.5 - validateEnvBodySelfSubject: the SOLE object-level policy for
   // validate.env (its guard is just `authenticated`). An owner may validate any
   // scope/user, a member ONLY their own user env. Non-leak: office scope or
   // another user's env both deny with the same 403. (This replaced the equivalent
@@ -2897,7 +2897,7 @@ function buildExecutorDeps(): ExecutorDeps {
   // scope, but a PRIVILEGED agent now also holds office:read. The subject policy
   // below keys on the resolved user's RECORD role, so an owner-spawned agent
   // would otherwise inherit owner reach and probe any user's/office env-file
-  // metadata (key count, parse errors). Env validation is a human/UI affordance —
+  // metadata (key count, parse errors). Env validation is a human/UI affordance -
   // fail closed for any non-user scope so a privileged agent can never reach it.
   preconditions.set("validateEnvBodySelfSubject", (ctx) => {
     if (ctx.identity.scope !== "user") return fail(403, "forbidden");
@@ -2953,7 +2953,7 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   const globalRoomIdToIndex = new Map(all.map((r, i) => [r.id, i] as const));
   const user = getUserById(session.userId);
   // Fast path: a full-access user with NO hidden rooms and NO custom order sees
-  // every room in office order — the identity projection (no per-room
+  // every room in office order - the identity projection (no per-room
   // allocations). Phase 3b migrates hidden/order to [], so this is the common
   // case and stays byte-identical to the pre-3b full-access fast path.
   if (
@@ -2971,12 +2971,12 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   }
   // General path. ACCESS is the security gate (roomAllowedForSession today;
   // canAccess after the 3b.3 flip). `hidden` is an additive VIEW filter ON TOP
-  // (effective shown = accessible \ hidden) and is NEVER a security gate — an
+  // (effective shown = accessible \ hidden) and is NEVER a security gate - an
   // owner who hides a room still has access; a re-show consults only access.
   // `order` is a SPARSE per-user preference: rooms listed there come first in
   // that order, then the remaining visible rooms in office order. With the
   // migrated defaults (hidden=[], order=[]) this reduces to "accessible rooms
-  // in office order", i.e. today's projection — verified by projection.test.
+  // in office order", i.e. today's projection - verified by projection.test.
   const hidden = new Set(user?.hidden ?? []);
   const orderRank = new Map<string, number>();
   // First-write-wins on duplicate order ids (applyViewChange dedupes on write;
@@ -3011,7 +3011,7 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
 
 // Returns the agent UNCHANGED (the shared AgentManager reference) if its room is
 // visible to this session, or null if not. Post-cut there is no dense `room` to
-// rewrite — agents carry a stable roomId — so this is purely a per-recipient
+// rewrite - agents carry a stable roomId - so this is purely a per-recipient
 // visibility filter. Callers treat the result as read-only (serialize, never
 // mutate).
 function projectAgentForSession(
@@ -3035,7 +3035,7 @@ function projectAgentForSession(
 }
 
 // True if a given agentId currently lives in a room visible to this
-// session. Looks up the agent's room from AgentManager — caller doesn't
+// session. Looks up the agent's room from AgentManager - caller doesn't
 // need to know it. Used by per-agent event routing (log_entry,
 // slash_commands, terminal_*) and write-side enforcement.
 function agentVisibleForSession(
@@ -3082,7 +3082,7 @@ function sendProjectedFullState(
   }
   // ACL-filtered list of currently-killed agents for the spawn menu's
   // revive chips. Drop entries whose lastRoomId isn't visible to this
-  // session — a member shouldn't be able to revive an agent from a
+  // session - a member shouldn't be able to revive an agent from a
   // private room they can't enter. Cap AFTER filtering so the user
   // sees up to KILLED_AGENT_CHIP_CAP entries they can actually act on,
   // not a smaller number trimmed by entries outside their room set.
@@ -3123,7 +3123,7 @@ function sendProjectedFullState(
 
 // Push a fresh projected full_state to every WS owned by a specific
 // userId. Called after a successful update_user that changed allowedRooms
-// — every device that user is connected from gets the new view applied
+// - every device that user is connected from gets the new view applied
 // without a reconnect. Users whose allowedRooms already covers every
 // room get the identity projection, so the call is cheap; we don't
 // need to branch on role.
@@ -3138,7 +3138,7 @@ function pushProjectedFullStateForUserId(userId: string) {
 // Push the presence_list to just ONE user's sockets (each per-recipient
 // projected). Used after a per-user view change alters which rooms that user
 // sees (hidden/order): buildPresenceListFor re-filters their ghosts, but no
-// other user's projection changed — so this stays tighter than
+// other user's projection changed - so this stays tighter than
 // pushPresenceListToEachWs.
 function pushPresenceListForUserId(userId: string) {
   for (const ws of browsers) {
@@ -3149,7 +3149,7 @@ function pushPresenceListForUserId(userId: string) {
 // --- Room-scoped task board fan-out (mirrors the presence_list projection) ---
 // The `tasks` wire event is per-recipient PROJECTED, not an all-audience
 // broadcast: each socket receives only the tasks in the rooms its user can
-// ACCESS, UNION every office-global task (no roomId). Access, not view — a
+// ACCESS, UNION every office-global task (no roomId). Access, not view - a
 // hidden room's tasks still show. This is the reconnect/full_state hydration
 // shape too, so a reload and a live push agree.
 function projectTasksForSession(session: SessionLookup): TaskItem[] {
@@ -3169,7 +3169,7 @@ function sendTasksTo(ws: ServerWebSocket<WsData>) {
   );
 }
 
-// Re-project the board to EVERY socket. Called on any task mutation — a single
+// Re-project the board to EVERY socket. Called on any task mutation - a single
 // task's room membership decides who sees it, so the whole list is re-pushed
 // per-recipient (same cost model as pushPresenceListToEachWs).
 function pushTasksToEachWs() {
@@ -3178,7 +3178,7 @@ function pushTasksToEachWs() {
 
 // Re-project the board to just ONE user's sockets. Called after that user's room
 // ACCESS changes (allowedRooms edit, creator room grant), which shifts which
-// room-scoped tasks they may see — no other user's projection changed.
+// room-scoped tasks they may see - no other user's projection changed.
 function pushTasksForUserId(userId: string) {
   for (const ws of browsers) {
     if (ws.data.session.userId === userId) sendTasksTo(ws);
@@ -3198,12 +3198,12 @@ function dedupeFirstWins(ids: readonly string[]): string[] {
   return out;
 }
 
-// Phase 3b slice 4 — the SINGLE core that owns every per-user VIEW-preference
+// Phase 3b slice 4 - the SINGLE core that owns every per-user VIEW-preference
 // write. TARGET-USER based (owners edit a member's view via admin surfaces, and
 // a role-change/demotion hook re-clamps the target the same way), so the change
 // applies to targetUserId, never the actor's session. It is the ONE place that
 // computes: the rule-based ACCESSIBLE set, effective shown (accessible \
-// hidden), the sparse-order filter+dedupe, and the notifRooms clamp — then
+// hidden), the sparse-order filter+dedupe, and the notifRooms clamp - then
 // persists once and fans out.
 //
 // NO-ORACLE on write (Isomuxer3 Q2): unknown / inaccessible / accessible-but-
@@ -3222,7 +3222,7 @@ interface ViewChange {
   notifRooms?: readonly string[];
 }
 
-// PURE clamp — the single source of truth for the view invariants. Given the
+// PURE clamp - the single source of truth for the view invariants. Given the
 // accessible set, the user's CURRENT view fields, and a partial change, compute
 // the next fields: order deduped (first wins) + filtered to accessible (hidden-
 // but-accessible ids KEPT, so hide/show is non-destructive); hidden = the
@@ -3325,7 +3325,7 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
 // in sync. Owners with an explicit allowedRooms still see only their
 // subset in the main UI; this channel is purely for the admin surface
 // where they grant/revoke other users' room access. Members never
-// receive this — leaking the full room list across visibility lines
+// receive this - leaking the full room list across visibility lines
 // would defeat the per-user ACL.
 function pushAllRoomsListToOwners() {
   const data = JSON.stringify({
@@ -3344,7 +3344,7 @@ function pushAllRoomsListToOwners() {
 // fast path and receive the event verbatim. Sessions with partial
 // coverage get either:
 //   - the event verbatim if its room/agent is visible (post-cut there's no
-//     dense index to rewrite — agents carry stable room ids), or
+//     dense index to rewrite - agents carry stable room ids), or
 //   - a suppressed event (the room/agent isn't visible), or
 //   - a fresh projected full_state when a move could change which agents are
 //     visible to a restricted recipient (agent move across rooms).
@@ -3455,7 +3455,7 @@ function emitAgentEvent(event: AgentEvent): void {
       }
       break;
     default:
-      // The routeAgentEvent bridge is BOUNDED — it is allowed ONLY for
+      // The routeAgentEvent bridge is BOUNDED - it is allowed ONLY for
       // agent_updated with changes.roomId set (handled in the case above),
       // plus any explicitly documented bridge case. Nothing else may be added
       // here. agent_removed left the bridge in task 03382535 (carried roomId →
@@ -3490,7 +3490,7 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
       // Defensive/legacy branch: agent_removed is delivered via the emit()
       // registry (room-ACL on the carried pre-removal roomId), not this
       // bridge, so this case is not normally reached. Scoped like
-      // killed_agent_added right below — a session that couldn't see the
+      // killed_agent_added right below - a session that couldn't see the
       // room must not learn the id existed (task 03382535).
       if (roomAllowedForSession(session, event.roomId)) {
         ws.send(JSON.stringify(event));
@@ -3518,12 +3518,12 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
         // Room move (discriminated by a present roomId): for a restricted
         // recipient the agent could be entering, leaving, or staying in their
         // visible set, so a targeted full_state refresh is the cheapest correct
-        // play — but the UI's full_state reducer clears logs/slashCommands, so
+        // play - but the UI's full_state reducer clears logs/slashCommands, so
         // we replay them for every currently-visible agent or the member loses
         // transcripts.
         sendProjectedFullState(ws, { replayLogsForVisible: true });
       } else if (agentVisibleForSession(session, event.agentId)) {
-        // No room change — non-room fields are safe to forward verbatim.
+        // No room change - non-room fields are safe to forward verbatim.
         ws.send(JSON.stringify(event));
       }
       break;
@@ -3568,7 +3568,7 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
     }
     case "office_settings_updated":
     case "tasks_changed": {
-      // No room scope — everyone sees these.
+      // No room scope - everyone sees these.
       ws.send(JSON.stringify(event));
       break;
     }
@@ -3584,7 +3584,7 @@ function wireEventSinks(): void {
     // Task mutations carry the full list as a domain event, but the board is
     // ROOM-SCOPED: each socket gets its own `tasks` list projected to the rooms
     // its user can access (∪ globals), so we re-push per-recipient rather than
-    // broadcasting one list. The domain event's `tasks` payload is ignored here —
+    // broadcasting one list. The domain event's `tasks` payload is ignored here -
     // projectTasksForSession reads the live board per recipient. Same shape as
     // the connect-time hydration, so a reload and a live push agree.
     if (event.type === "tasks_changed") {
@@ -3627,7 +3627,7 @@ function wireEventSinks(): void {
     // clean room-ACL events through the emit() helper (registry audience) +
     // projection-aware deliver(); agent_updated-MOVE stays on the
     // routeAgentEvent bridge inside emitAgentEvent (agent_removed left the
-    // bridge in task 03382535 — carried roomId → room-ACL).
+    // bridge in task 03382535 - carried roomId → room-ACL).
     emitAgentEvent(event);
     // Any mutation of the global rooms list also refreshes the owner-only
     // admin view of all rooms (used by UserSettingsView). Done here
@@ -3663,7 +3663,7 @@ function wireEventSinks(): void {
       case "cronjob_run_updated":
         liveEmit("cronjob_run_updated", { run: event.run });
         break;
-      // COMPATIBILITY BRIDGE (Phase 3a, deliberate — flagged to Nil): cron-run
+      // COMPATIBILITY BRIDGE (Phase 3a, deliberate - flagged to Nil): cron-run
       // transcript entries stream as `log_entry` with a synthetic
       // cronrun-<runId> agentId. The TARGET registry event is the office-wide
       // `cron_run_log_entry`, but the UI/demo still key cron transcripts on
@@ -3682,7 +3682,7 @@ function wireEventSinks(): void {
 
 // Inbound WS messages. Phase 3 moved every durable command to REST, so the WS is
 // no longer a command bus: the only inbound messages are the three permanent
-// exceptions — interactive terminal IO, presence_update (ephemeral cursor
+// exceptions - interactive terminal IO, presence_update (ephemeral cursor
 // telemetry), and ping. None is a durable command with an outcome worth
 // idempotency, so they are fire-and-forget. The top-level try/catch keeps a
 // per-message throw from tearing down the socket loop (log and move on); no
@@ -3703,8 +3703,8 @@ async function handleInboundMessage(
         break;
       case "presence_update": {
         // Live-avatars: the sender tells us where its ghost should appear, as a
-        // stable global room id. Validate it DIRECTLY — it must name a LIVE room
-        // the sender can access — and clamp to null otherwise (sanitize, don't
+        // stable global room id. Validate it DIRECTLY - it must name a LIVE room
+        // the sender can access - and clamp to null otherwise (sanitize, don't
         // reject; the common cause is a race with an allowedRooms change). No
         // room-index projection on the inbound path post-cut. Access (not
         // visible/shown) is the gate: hiding a room is a view preference, not an
@@ -3873,7 +3873,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
     async fetch(req, server) {
       const url = new URL(req.url);
 
-      // WebSocket upgrade — authenticated and origin-checked. The upgrade
+      // WebSocket upgrade - authenticated and origin-checked. The upgrade
       // carries the session into ws.data so per-message handlers can attribute
       // writes without trusting client-supplied username fields.
       if (url.pathname === "/ws") {
@@ -3897,12 +3897,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         return new Response("WebSocket upgrade failed", { status: 400 });
       }
 
-      // GET /readyz — unauthenticated readiness probe (release-channel slice
+      // GET /readyz - unauthenticated readiness probe (release-channel slice
       // C1; PUBLIC_ROUTES carries the bypass metadata). Reaching this handler
       // already proves readiness: startServer runs the startup migrations
       // (bootPrelude, migrateOwnersToRuleBasedAccess) BEFORE buildServer
       // binds, so a served request implies migrations completed. The body is
-      // deliberately state-free ("ok" only — no version, no office info).
+      // deliberately state-free ("ok" only - no version, no office info).
       // Non-loopback callers are rate-limited; loopback is exempt so the
       // updater's post-restart poll can never trip the limit and manufacture
       // a rollback.
@@ -3921,7 +3921,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // /auth/* and /i/<token> routes. These must run before the gating check
       // because unauthenticated visitors transition to authenticated through
       // them. Pass the office name so pre-auth pages render the same tab
-      // title format (`<name> | Isomux — ...`) the SPA shell uses.
+      // title format (`<name> | Isomux - ...`) the SPA shell uses.
       const officeName = agentManager.getOfficeSettings().name;
       const authResponse = await tryHandleAuthRoute(
         req,
@@ -3967,7 +3967,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           const apiAuth = authenticate(req, { officeName });
           if (apiAuth.kind !== "ok") {
             // Marshal the auth rejection into the /api envelope
-            // {error:{code,message}} — the new contract, NOT the legacy
+            // {error:{code,message}} - the new contract, NOT the legacy
             // auth-middleware shape. Every migrated /api route inherits this
             // entrypoint, so the envelope must be uniform here. authenticate()
             // rejects with only two statuses: 403 (bad origin / CSRF) and 401
@@ -3998,8 +3998,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
 
       // There is NO loopback bypass left: every caller needs an identity (a
       // bearer token or a session cookie), on this surface and on /api alike.
-      // The last three loopback-trusted prefixes — /tasks, the /cronjobs reads
-      // and /backup/status — were retired in favour of their bearer-gated /api
+      // The last three loopback-trusted prefixes - /tasks, the /cronjobs reads
+      // and /backup/status - were retired in favour of their bearer-gated /api
       // equivalents (see the retired-path wall below), because a loopback
       // caller is not a trustworthy identity on a box that also runs
       // agent-built web apps: an SSRF or open-proxy bug in any of them reaches
@@ -4008,10 +4008,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       const auth = authenticate(req, { officeName });
       if (auth.kind === "rejected") return auth.response;
 
-      // Agent discovery manifest — GET /agents. Serves the live manifest with
+      // Agent discovery manifest - GET /agents. Serves the live manifest with
       // the same entry shape as ~/.isomux/agents-summary.json (still written
       // alongside for existing file-based readers). Identity REQUIRED (bearer
-      // or cookie): an anonymous request — loopback included — already 401'd at
+      // or cookie): an anonymous request - loopback included - already 401'd at
       // the wall above (Nil's call: the endpoint always answers with a
       // projected view, never an unauthenticated full dump; agents send
       // $ISOMUX_AGENT_TOKEN).
@@ -4019,16 +4019,16 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // Browser-read hardening: GETs skip the CSRF origin check in
       // authenticate(), so a hostile web page whose request somehow carries a
       // valid cookie would otherwise be served. Two walls close that: (1) a
-      // request carrying a cross-origin Origin header is rejected — agent
+      // request carrying a cross-origin Origin header is rejected - agent
       // curl sends no Origin, and browsers always attach one to cross-origin
       // fetches; (2) no Access-Control-Allow-Origin is ever sent, so even
       // without wall 1 a cross-origin response body would stay unreadable.
       //
       // Visibility (Nil-specced): the manifest is PROJECTED to the rooms the
-      // identity's user can access — owners every room by rule, members their
+      // identity's user can access - owners every room by rule, members their
       // allowedRooms grants, agents/cron-runs their manager's/creator's
       // access. An identity with no resolvable user (an unowned cron job, a
-      // deleted user) has access to no rooms and receives [] — mirrors
+      // deleted user) has access to no rooms and receives [] - mirrors
       // guard-deps hasRoomAccess.
       if (url.pathname === "/agents" && req.method === "GET") {
         if (req.headers.get("origin") !== null && !checkOrigin(req)) {
@@ -4058,7 +4058,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // Retired legacy surfaces: /tasks*, /cronjobs* and /backup/status. These
       // were unprefixed, loopback-trusted aliases of routes that now live on the
       // bearer-gated /api surface (/api/tasks*, /api/cronjobs*, /api/cron-runs,
-      // /api/backup/status), which is where every caller — agents included — is
+      // /api/backup/status), which is where every caller - agents included - is
       // told to go. A no-identity request never reaches here: it 401s at the
       // cookie wall above. An authenticated one gets a JSON 404 rather than
       // falling through to the SPA shell, which would answer 200 text/html and
@@ -4068,7 +4068,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       //
       // Matched on a NORMALIZED path, because `URL` leaves `%2f` encoded and a
       // raw-pathname match would let `/tasks%2fabc` or `/backup/status/` slip
-      // through to the SPA shell — a 200 text/html answer to a caller still
+      // through to the SPA shell - a 200 text/html answer to a caller still
       // using a retired route, which is the thing this wall exists to prevent.
       // One decode pass only: `%252f` decodes to the literal text `%2f`, not a
       // separator, and no handler is behind any of these paths either way.
@@ -4087,7 +4087,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         });
       }
 
-      // POST /agents/:id/* — the legacy non-/api agent surface is fully retired
+      // POST /agents/:id/* - the legacy non-/api agent surface is fully retired
       // (Phase 3d slice 6a). The inter-agent message endpoint moved to POST
       // /api/agents/:id/messages (the unified agents.sendMessage route: the AGENT
       // bearer IS the sender, the structured sender is server-derived, and a
@@ -4096,7 +4096,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // moved to /api/agents/:id/* in the loopback-bypass removal milestone. So
       // any POST under /agents/ is now a stale/unknown path: fail closed with a
       // JSON 404 rather than fall through to the SPA shell (which would return
-      // 200 text/html and mask the caller). No-bearer requests never reach here —
+      // 200 text/html and mask the caller). No-bearer requests never reach here -
       // they 401 at the cookie wall above.
       if (url.pathname.startsWith("/agents/") && req.method === "POST") {
         return new Response(JSON.stringify({ error: "not found" }), {
@@ -4238,7 +4238,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // Send session context FIRST so the client knows the authenticated
         // identity and role before any reducer touches state. connectionId
         // is per-WS (live-avatars) so the client can identify its OWN
-        // ghost in presence_list — same auth session can be running in
+        // ghost in presence_list - same auth session can be running in
         // multiple tabs and each tab has a distinct connectionId.
         ws.send(
           JSON.stringify({
@@ -4248,7 +4248,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         );
         // Roster hydration (3b.5): every socket gets the PUBLIC roster; owners
         // additionally get the full admin roster; and the caller gets their OWN
-        // full record (user_self_updated) — the now-public users_list can no
+        // full record (user_self_updated) - the now-public users_list can no
         // longer carry the caller's grants/notif/default/view, which the UI
         // needs for the current user.
         ws.send(
@@ -4289,7 +4289,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             }),
           );
         }
-        // Send tasks — room-scoped to this session's accessible rooms ∪ globals
+        // Send tasks - room-scoped to this session's accessible rooms ∪ globals
         // (same projection as the live per-recipient re-push).
         sendTasksTo(ws);
         // Send cronjobs + cronjobsPrompt
@@ -4300,7 +4300,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             cronjobsPrompt: cronjobManager.getCronjobsPrompt(),
           }),
         );
-        // Send update status — always, not only when available: the client
+        // Send update status - always, not only when available: the client
         // needs the mode (and current-version info) even while quiet, and a
         // reconnect after a cleared banner must hydrate the false state.
         ws.send(
@@ -4356,7 +4356,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         browsers.delete(ws);
         unregisterSocket(ws.data.session.sessionIdHash, ws);
         // Drop this connection's editor watchers on disconnect (keyed by
-        // connectionId now that the editor is REST — a leaked watch leaks a
+        // connectionId now that the editor is REST - a leaked watch leaks a
         // poll timer for the life of the tab).
         const watchMap = editorWatchers.get(ws.data.connectionId);
         if (watchMap) {
@@ -4365,7 +4365,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
         // Live-avatars cleanup. Idempotent: removePresence returns true
         // only if an entry existed. Key is the per-WS connectionId, NOT
-        // the auth session hash — that distinction is what makes
+        // the auth session hash - that distinction is what makes
         // reconnects and same-cookie multi-tab work: when a tab reconnects
         // it gets a NEW connectionId, and the OLD close handler here
         // removes only the OLD id, never racing with the new tab's entry.
@@ -4487,7 +4487,7 @@ function runBackgroundBoot(
 
   // Plugin load + agent restore are sequenced inside the same async boot so
   // RESTORED agents come up with the full plugin set already in place. A
-  // fire-and-forget plugin load would race with restoreAgents — a slow
+  // fire-and-forget plugin load would race with restoreAgents - a slow
   // plugin import could let restored-agent turns dispatch with
   // getEnabledPlugins() empty.
   //
@@ -4549,7 +4549,7 @@ function runBackgroundBoot(
   if (!startOpts.quiet)
     console.log(`Isomux running at http://localhost:${server.port}`);
 
-  // Admin Unix socket — lets the `owner-login` CLI mint a recovery URL for
+  // Admin Unix socket - lets the `owner-login` CLI mint a recovery URL for
   // an existing owner. Starts after the HTTP listener so the CLI's printed
   // URL is immediately openable. Optional surface; a startup failure logs
   // but doesn't block the server.
@@ -4626,7 +4626,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   // Editor file-watches are keyed by connectionId in editorWatchers; the WS
   // close handlers that server.stop(true) triggers unregister them. There is no
   // global watch registry, and 0.3 opens no editor files, so a stopAllWatches()
-  // is intentionally out of 0.3 scope — add a real registry only if a later
+  // is intentionally out of 0.3 scope - add a real registry only if a later
   // harness opens editor files (don't add speculative plumbing now).
   //
   // Agent backend sessions are likewise not closed here: AgentManager exposes no
@@ -4708,7 +4708,7 @@ export async function startServer(
  * sweeps only the main process should own.
  *
  * A function rather than a bare `import.meta.main` block because there are two
- * ways in — this file directly (current units) or the `server/index.ts` shim
+ * ways in - this file directly (current units) or the `server/index.ts` shim
  * (units written before the rename). Only one of them is `import.meta.main`, so
  * the guard on its own would leave the shim path booting nothing.
  */
@@ -4734,7 +4734,7 @@ export async function runOfficeMain(): Promise<void> {
   // Idle-eviction sweep: every minute, demote agents idle past the threshold to
   // lazy so they release their ~165MB subprocess. (Boot already lazy-restores
   // everyone; this re-demotes agents that woke and then went quiet again.) Lives
-  // here, NOT in startServer — the in-process test harness calls startServer()
+  // here, NOT in startServer - the in-process test harness calls startServer()
   // directly and must not inherit a background timer. unref so it never keeps
   // the process alive on its own.
   const idleSweep = setInterval(() => {
@@ -4744,7 +4744,7 @@ export async function runOfficeMain(): Promise<void> {
   }, 60_000);
   idleSweep.unref?.();
   // Queue delivery watchdog (task da065287): self-heal sweep so a queued
-  // message can never sit indefinitely while its agent is idle — re-triggers
+  // message can never sit indefinitely while its agent is idle - re-triggers
   // missed flushes and force-recovers wedged ones (see sweepStuckFlushes).
   // Same placement rationale as the idle sweep: main-process only, so the
   // in-process test harness never inherits a background timer.

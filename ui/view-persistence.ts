@@ -12,7 +12,7 @@
 // OWNERSHIP: everything is namespaced by the (lowercased) authoritative
 // session username. The same browser origin can host different users over
 // time (user switch, session handoff), and a draft typed by user A must
-// never be restored into user B's composer — nor should B inherit A's view
+// never be restored into user B's composer - nor should B inherit A's view
 // spot instead of their own first-visible-room default.
 //
 // LAYOUT:
@@ -22,7 +22,7 @@
 //   landing on the spot another same-user tab was viewing.
 // - Drafts: one key PER composer, "isomux-draft:<encoded user>:<agentId>",
 //   holding the raw draft text. Per-composer keys are what makes multi-tab
-//   safe for drafts — a whole-map mirror would let tab B (which never saw
+//   safe for drafts - a whole-map mirror would let tab B (which never saw
 //   tab A's draft) clobber it away on tab B's next keystroke. With one key
 //   per composer, concurrent tabs only contend when editing the SAME
 //   agent's draft, where last-writer-wins is the right semantics anyway
@@ -34,7 +34,7 @@
 // saved id against the first full_state and prunes/falls back), not by TTL.
 //
 // The view parser is STRICT: a payload with a wrong-typed or unknown-valued
-// field is rejected wholesale (null), not field-sanitized — the only
+// field is rejected wholesale (null), not field-sanitized - the only
 // tolerated absence is a missing/null id, which means "office view". All
 // reads/writes go through an injectable StorageLike so tests can cover
 // mismatch and storage-exception paths without a DOM.
@@ -201,7 +201,7 @@ export function saveDraft(
 }
 
 /** Drop `user`'s draft keys for agents that no longer exist (or are no
- * longer visible to them). Only the caller's own namespace is pruned —
+ * longer visible to them). Only the caller's own namespace is pruned -
  * another user's agents can't be validated against this session's
  * ACL-filtered agent list. */
 export function pruneUserDrafts(

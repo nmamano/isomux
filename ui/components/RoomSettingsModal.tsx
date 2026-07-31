@@ -37,10 +37,10 @@ export function RoomSettingsModal({
   const mem = useMemoryEditor("room", roomId, true);
   // The settings PUT is version-guarded (optimistic concurrency, mirroring the
   // memory editor): GET on open, send the version back on save; a 409 means
-  // another writer saved since — keep the dialog open and say so. The token
+  // another writer saved since - keep the dialog open and say so. The token
   // must stay coupled to the BYTES read with it, so the prompt field hydrates
   // from the same GET response (never pair a store-snapshot prompt with the
-  // GET's version — a fresher server prompt would be silently blessed over).
+  // GET's version - a fresher server prompt would be silently blessed over).
   // Until the load resolves the field is read-only and Save stays disabled;
   // the store value paints first purely as a placeholder.
   const [settingsVersion, setSettingsVersion] = useState<string | null>(null);
@@ -74,7 +74,7 @@ export function RoomSettingsModal({
     // Rename is an independent, cosmetic field; fire-and-forget, parity with the
     // old WS rename_room (which never blocked the dialog). It shares the settings
     // PUT's room:manage guard, so a rename that would 403 already fails the
-    // settings save below — no separate error surface needed.
+    // settings save below - no separate error surface needed.
     if (room && trimmedName !== room.name) {
       const renameBody: RoomRenameReq = { name: trimmedName };
       apiFetch<void>("PATCH", `/api/rooms/${roomId}`, renameBody).catch(
@@ -103,7 +103,7 @@ export function RoomSettingsModal({
       } catch (e) {
         if (e instanceof ApiError && e.code === "version_conflict") {
           setError(
-            "Room settings changed since you opened this — reopen the dialog to edit the latest.",
+            "Room settings changed since you opened this - reopen the dialog to edit the latest.",
           );
         } else {
           setError(e instanceof ApiError ? e.message : "Save failed");
@@ -228,7 +228,7 @@ export function RoomSettingsModal({
             margin: "3px 0 0",
           }}
         >
-          Changes take effect on next conversation. Env files are now per-user —
+          Changes take effect on next conversation. Env files are now per-user -
           set them in User Settings.
         </p>
 

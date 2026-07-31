@@ -1,7 +1,7 @@
-// Room resource handlers — Phase 3d slice 6 (rooms CRUD). The room-structure
+// Room resource handlers - Phase 3d slice 6 (rooms CRUD). The room-structure
 // mutation surface (opIds rooms.{create,close,rename,setSettings}) on the
 // unified REST surface, plus the read side of the settings pair
-// (rooms.getSettings — same ACL as the PUT, so a writer can read the prompt
+// (rooms.getSettings - same ACL as the PUT, so a writer can read the prompt
 // it would overwrite). The route table gates create with room:manage +
 // authenticated, and close/rename/getSettings/setSettings with room:manage +
 // requiresRoomAccess(:roomId).
@@ -10,7 +10,7 @@
 // but never landed a handler (the rooms surface stayed WS-only). This slice
 // builds the handlers AND deletes the WS cases (create_room / close_room /
 // rename_room / update_room_settings) in the same change. The COMPOUND effects
-// live in the injected RoomsDeps closures (in the index seam), not here — create
+// live in the injected RoomsDeps closures (in the index seam), not here - create
 // applies the rule-based creator grant + projected full_state + presence; close
 // strips the dead roomId from every user record + fans out user_updated/
 // users_list + presence. That matches the access/invites EMIT-IN-DEP pattern and
@@ -57,7 +57,7 @@ export interface RoomsDeps {
     roomId: string,
   ): { prompt: string | null; version: string } | null;
   // Sets a room's prompt (null clears), guarded by the version from a preceding
-  // getSettings — a mismatch writes nothing and reports the current version
+  // getSettings - a mismatch writes nothing and reports the current version
   // (→ 409), mirroring the memory read-before-replace contract.
   setSettings(
     roomId: string,
@@ -109,7 +109,7 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
       // Version is required (shape check, never an existence oracle): the write
       // replaces the whole prompt blob, so it must carry the version from a
-      // preceding GET — same rail as memory.replace.
+      // preceding GET - same rail as memory.replace.
       if (typeof b.version !== "string" || b.version.length === 0) {
         return fail(
           400,

@@ -2,7 +2,7 @@
 // instantiable unit: collaborators (backend resolver, event sink, officeState,
 // persisted-rooms snapshot) are injected, FakeBackend is used instead of a real
 // backend, and the two init-order invariants hold. This is NOT the Phase 0.3
-// multi-socket harness or the Phase 1.1 onboarding flow — it exercises the seam
+// multi-socket harness or the Phase 1.1 onboarding flow - it exercises the seam
 // only, with zero LLM/provider calls.
 //
 // State-root isolation: STATE_ROOT is an eager import-time const resolved from
@@ -66,7 +66,7 @@ describe("AgentManager DI (disk-free seam)", () => {
       officeState: new OfficeState({ rooms: rooms("room-a", "room-b") }),
       initialRooms: [],
     });
-    // getRooms() returns the injected ids immediately — no async restore needed.
+    // getRooms() returns the injected ids immediately - no async restore needed.
     expect(mgr.getRooms().map((r) => r.id)).toEqual(["room-a", "room-b"]);
   });
 
@@ -109,7 +109,7 @@ describe("AgentManager DI (disk-free seam)", () => {
 describe("AgentManager DI (temp-state isolated)", () => {
   it("consults the injected resolver and drives the FakeBackend on first message (lazy spawn: no session at spawn)", async () => {
     // onSend completes the wake turn so it doesn't park; configurePluginHooksDeps
-    // lets runAgentTurn run at all (it throws unconfigured) — together they make
+    // lets runAgentTurn run at all (it throws unconfigured) - together they make
     // the first-message wake clean instead of logging a turn error.
     const fake = new FakeBackend({
       session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
@@ -131,7 +131,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
     );
     expect(info).not.toBeNull();
     // Lazy spawn: the resolver is still consulted at spawn (for the backend's
-    // capabilities), but NO session is created — the agent costs zero subprocess
+    // capabilities), but NO session is created - the agent costs zero subprocess
     // until its first message.
     expect(calls).toContain("claude");
     expect(fake.createSessionCount).toBe(0);

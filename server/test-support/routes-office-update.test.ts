@@ -1,4 +1,4 @@
-// office.{updateInfo,triggerUpdate} — GET/POST /api/office/update on the
+// office.{updateInfo,triggerUpdate} - GET/POST /api/office/update on the
 // unified REST surface (release-channel in-UI update slice). Owner-only
 // (office:admin + officeOwner), like the rest of the office-admin routes.
 //
@@ -6,7 +6,7 @@
 // /etc/isomux/update.conf on the host can never leak in. The POST is only
 // exercised on paths that refuse BEFORE any launch (not managed / invalid
 // tag): the launch itself is systemd-shaped and lives behind the injected
-// runner seam covered by server/update-trigger.test.ts — no test may ever
+// runner seam covered by server/update-trigger.test.ts - no test may ever
 // run a real systemctl/systemd-run. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -98,7 +98,7 @@ describe("routes/office.updateInfo REST", () => {
     // Office-wide mid-turn count, server-computed (never the caller's room
     // projection). The freshly spawned harness agent is idle.
     expect(typeof b.busyAgents).toBe("number");
-    // The checker status rides along (commit mode in the harness — no conf,
+    // The checker status rides along (commit mode in the harness - no conf,
     // and the checker itself is skipped so it's the quiet initial value).
     expect((b.status as Record<string, unknown>).updateAvailable).toBe(false);
 
@@ -175,7 +175,7 @@ describe("office.updateInfo busyAgents is office-wide", () => {
     const visibleRoom = srv.agentManager.getRooms()[0];
     const hiddenRoomId = srv.agentManager.createRoom("Hidden");
     const agent = await spawnAgent(srv, "HiddenWorker", hiddenRoomId);
-    // Restrict the owner's view to the first room only — the busy agent lives
+    // Restrict the owner's view to the first room only - the busy agent lives
     // in a room this owner cannot see, so a client-store count would be 0.
     const ownerId = getUserByName("Boss")!.id;
     updateUserById(ownerId, { allowedRooms: [visibleRoom.id] });
@@ -204,7 +204,7 @@ describe("update_status hydration on WS connect", () => {
   it("every connection gets the full status, including updateAvailable=false", async () => {
     // The stale-banner regression: a browser that reconnects after an update
     // (or after the banner cleared) must receive the authoritative false
-    // state — hydration only-when-true would leave the old banner up forever.
+    // state - hydration only-when-true would leave the old banner up forever.
     dir = mkdtempSync(join(tmpdir(), "isomux-upd-rest-"));
     process.env.ISOMUX_UPDATE_CONF = join(dir, "missing.conf");
     const srv = await startTestServer();

@@ -3,7 +3,7 @@
 // `username` is the name of the boss using this browser; `device` is an
 // optional label for this connection point ("Phone", "Laptop", ...). Per-user
 // preferences (notif rooms, env file path) live server-side keyed by username
-// — see server/users.ts.
+// - see server/users.ts.
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
 
@@ -80,7 +80,7 @@ export function getSlideModeEnabled(): boolean {
 export function setSlideModeEnabled(on: boolean): void {
   if (typeof localStorage === "undefined") return;
   // Compare BEFORE the write (it also normalizes a hand-edited value), and
-  // notify only on a real change — a Save that left the box untouched must not
+  // notify only on a real change - a Save that left the box untouched must not
   // wake every subscriber.
   const changed = getSlideModeEnabled() !== on;
   if (on) localStorage.setItem(KEY_SLIDE_MODE, "1");
@@ -90,7 +90,7 @@ export function setSlideModeEnabled(on: boolean): void {
 }
 
 // The settings surface that writes the gate renders OVER a live LogView, which
-// therefore never remounts to re-read it — so subscribers get notified instead.
+// therefore never remounts to re-read it - so subscribers get notified instead.
 // The storage event covers the same browser's other tabs.
 export function subscribeSlideModeEnabled(cb: () => void): () => void {
   slideModeListeners.add(cb);
@@ -109,7 +109,7 @@ export function subscribeSlideModeEnabled(cb: () => void): () => void {
 }
 
 // Slide Mode view toggle (design: internal-docs/slide-mode-design.md). Per
-// device, per agent — the server holds no slideMode setting; whether this
+// device, per agent - the server holds no slideMode setting; whether this
 // browser shows an agent as a deck vs chat is purely local. Stored as one
 // JSON object { [agentId]: true }; absent/false means chat view.
 const KEY_SLIDE_VIEW = "isomux-slide-view";

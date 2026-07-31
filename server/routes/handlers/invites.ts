@@ -1,4 +1,4 @@
-// Invites resource handlers — Phase 3a slice 3a.4a. The auth invite surface on
+// Invites resource handlers - Phase 3a slice 3a.4a. The auth invite surface on
 // the unified REST surface (opIds invites.{mint,mintSelf,list,revoke}).
 //
 // Strangler EXPAND: these REST handlers + the still-living WS arms
@@ -6,7 +6,7 @@
 // to the SAME auth core ops (mintInvite / revokeInviteByPrefix /
 // revokeOutstandingInviteByPrefixForUsername) and the SAME recipient-scoped emit
 // (emitInvitesList / liveEmit("invite_revoked")). One scoped-payload path for
-// both transports — the strangler leaves no WS-path divergence.
+// both transports - the strangler leaves no WS-path divergence.
 //
 // EMIT-IN-DEP (unlike tasks/cron, which emit via a manager event-sink): there is
 // NO auth-manager event sink, so the isomux-office.ts seam owns mutate→emit. The
@@ -14,9 +14,9 @@
 // back a status-mapped outcome; these handlers are PURE REST mappers that never
 // receive liveEmit and never emit directly.
 //
-// ROLE SOURCE (locked with Reviewer1 — Option A): the seam resolves owner/member
+// ROLE SOURCE (locked with Reviewer1 - Option A): the seam resolves owner/member
 // from the live user RECORD (getUserById), uniformly across the scoped list
-// projection, the inviteOwnerOrSelf precondition, and the revoke branch — because
+// projection, the inviteOwnerOrSelf precondition, and the revoke branch - because
 // the recipient-scoped emit is userId-keyed and must resolve the record anyway.
 // invites.mint stays on the table's officeOwner guard (session identity); that
 // one asymmetry is intentional and documented at the seam.
@@ -51,7 +51,7 @@ type RevokeOutcome =
   | { ok: false; status: HandlerErrorStatus; code: string };
 
 export interface InvitesDeps {
-  // Owner mint (officeOwner guard already enforced) — NEW users only (task
+  // Owner mint (officeOwner guard already enforced) - NEW users only (task
   // eb3354e6 revision): an existing username is rejected by the auth core
   // (USER_EXISTS → 409). Device links for existing accounts are self-service
   // via mintSelf; owners deliberately cannot mint them for others. createdBy
@@ -64,17 +64,17 @@ export interface InvitesDeps {
     allowedRooms?: string[];
     identity: Identity;
   }): Promise<MintOutcome>;
-  // Self mint — binds to the caller's OWN record (userId/role) with
+  // Self mint - binds to the caller's OWN record (userId/role) with
   // replacePriorForUsername; on ok the seam fans out emitInvitesList().
   mintSelf(identity: Identity): Promise<MintOutcome>;
-  // Owner recovery mint (officeOwner guard already enforced) — a device link
+  // Owner recovery mint (officeOwner guard already enforced) - a device link
   // for an EXISTING user who is locked out of every device (task eb3354e6
   // final revision). Target resolves by stable userId (404 when missing);
   // the seam derives name/role from the record and fixes TTL/replacement;
   // on ok it fans out emitInvitesList().
   mintRecovery(userId: string, identity: Identity): Promise<MintOutcome>;
   // Scoped list for the caller (record role): owner → all; member → own. Direct
-  // reply only — NO fan-out (a pure read must never emit to other users).
+  // reply only - NO fan-out (a pure read must never emit to other users).
   listScoped(identity: Identity): InviteWire[];
   // Revoke (precondition inviteOwnerOrSelf already passed). Owner unrestricted /
   // member own-only via the atomic scoped mutator; on ok the seam emits
@@ -97,7 +97,7 @@ export function invitesHandlers(
       if (body.role !== "owner" && body.role !== "member") {
         return fail(400, "invalid_request", "role must be 'owner' or 'member'");
       }
-      // Shape check only — the auth core owns the semantic validation
+      // Shape check only - the auth core owns the semantic validation
       // (member-role + new-user only, room ids must exist).
       if (
         body.allowedRooms !== undefined &&
@@ -116,7 +116,7 @@ export function invitesHandlers(
         allowedRooms: body.allowedRooms,
         identity: ctx.identity,
       });
-      // Spec: 200 {url, invite} (not 201) — matches the explicit slice contract.
+      // Spec: 200 {url, invite} (not 201) - matches the explicit slice contract.
       return r.ok
         ? ok({ url: r.url, invite: r.invite })
         : fail(r.status, "mint_failed", r.error);

@@ -18,7 +18,7 @@ export type ResolveDirResult =
 // Parsed shape of an optional `commit` argument. `single` means show the
 // changes introduced by one commit (rendered as <sha>^..<sha>, with --root
 // fallback for the initial commit). `range` is passed straight to `git diff`
-// — `..` (two-dot, cumulative A..B) and `...` (three-dot, merge-base..B) are
+// - `..` (two-dot, cumulative A..B) and `...` (three-dot, merge-base..B) are
 // both accepted because git itself supports them and they have distinct
 // semantics for reviewers.
 type CommitSpec =
@@ -50,13 +50,13 @@ export function resolveDiffCwd(
 // Allowlist for ref characters: alnum + the punctuation that legitimately
 // appears in branch names, tags, and commit SHAs. Forbids whitespace,
 // shell metas (`;`, backticks, `$`, `|`, `&`, quotes, redirects), parens,
-// braces — anything that would let an injected ref turn into an extra
+// braces - anything that would let an injected ref turn into an extra
 // shell argument once it hits `git diff ${refArgs}` below. The two-dot /
 // three-dot range operators are matched separately.
 const REF_CHARS = /^[A-Za-z0-9._\-/~^@:]+$/;
 
 // Parse a user-supplied commit/range string into an opaque CommitSpec.
-// Pure syntactic — does NOT confirm the ref exists; that's done with
+// Pure syntactic - does NOT confirm the ref exists; that's done with
 // `git rev-parse --verify` inside computeIsomuxDiff once we have a cwd.
 export function parseCommitArg(
   raw: string,
@@ -97,9 +97,9 @@ export function parseCommitArg(
 
 // Run `git diff` and return a rich payload. With no `commit` option,
 // diffs working tree vs HEAD plus untracked synthesis. With `commit`, diffs
-// a specific revision or range — untracked synthesis is skipped because it
+// a specific revision or range - untracked synthesis is skipped because it
 // only makes sense for the working tree. Shells out to git but doesn't
-// touch agent state, log cache, or broadcasts — callers format the result
+// touch agent state, log cache, or broadcasts - callers format the result
 // themselves. Both /isomux-diff and the HTTP endpoint share this so the
 // on-screen rendering stays identical.
 export function computeIsomuxDiff(
@@ -384,7 +384,7 @@ export function computeIsomuxDiff(
       continue;
     }
     if (probe.kind === "tooLarge") {
-      // Re-use "untracked" to flag "we saw it but didn't synthesize" — the
+      // Re-use "untracked" to flag "we saw it but didn't synthesize" - the
       // overlay surfaces a friendly explanation.
       fileMap.set(path, {
         path,

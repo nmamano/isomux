@@ -7,7 +7,7 @@
 // Deliberately NOT log entries: on-demand backfill arrives out of order and the
 // log files stay pure chat. Keying by rootSessionId means edit-forks of the same
 // conversation share a deck (orphaned keys from abandoned branches are harmless
-// and can be pruned against the live log). Reads never throw — a missing or
+// and can be pruned against the live log). Reads never throw - a missing or
 // corrupt file yields an empty deck.
 //
 // Writes are synchronous read-modify-write via atomicWriteFileSync. Because JS

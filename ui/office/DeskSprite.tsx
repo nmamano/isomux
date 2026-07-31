@@ -18,7 +18,7 @@ function visualState(
   }
 }
 
-// Leaf pattern variants — each is 3 stems with [quadratic control points, stroke color, width]
+// Leaf pattern variants - each is 3 stems with [quadratic control points, stroke color, width]
 const PLANT_VARIANTS: Array<Array<[string, string, number]>> = [
   // Upright bushy
   [
@@ -52,16 +52,16 @@ const PLANT_VARIANTS: Array<Array<[string, string, number]>> = [
   ],
 ];
 
-// Book color variants — [front cover, back/side, spine/dark] — green (index 0) is the BCTCI easter egg
+// Book color variants - [front cover, back/side, spine/dark] - green (index 0) is the BCTCI easter egg
 const BOOK_VARIANTS: Array<[string, string, string]> = [
-  ["#30995a", "#2a8a4a", "#1e7a3c"], // Green (BCTCI — gets the clock)
+  ["#30995a", "#2a8a4a", "#1e7a3c"], // Green (BCTCI - gets the clock)
   ["#3a6ea5", "#2e5e8a", "#224e74"], // Blue
   ["#a03a3a", "#8a2e2e", "#742222"], // Red
   ["#7a5aa0", "#6a4a8a", "#5a3a74"], // Purple
   ["#c47a2a", "#aa6a22", "#8a5a1a"], // Orange
 ];
 
-// Mug color variants — [body, darker side, rim/top, liquid fill]
+// Mug color variants - [body, darker side, rim/top, liquid fill]
 const MUG_VARIANTS: Array<[string, string, string, string]> = [
   ["#E8E8E0", "#D0D0C8", "#F0F0E8", "#3A2010"], // White ceramic
   ["#2E5E8A", "#1E4A6E", "#3A6E9A", "#3A2010"], // Navy blue
@@ -157,7 +157,7 @@ export function DeskSprite({
         strokeWidth="0.5"
       />
 
-      {/* Desk legs — from front panel corners to floor */}
+      {/* Desk legs - from front panel corners to floor */}
       {/* Left leg */}
       <path d="M40 90 L40 122 L43 124 L43 92 Z" fill="#4A3C2A" />
       <path d="M38 122 L41.5 124 L45 122 L41.5 120 Z" fill="#3E3220" />
@@ -179,9 +179,9 @@ export function DeskSprite({
       <path d="M40 72 L90 96 L140 72 L140 92 L90 116 L40 92 Z" fill="#3a2e20" />
       <path d="M40 72 L90 96 L90 116 L40 92 Z" fill="#352a1c" />
 
-      {/* Keyboard + Monitor group — shifted NW on desk */}
+      {/* Keyboard + Monitor group - shifted NW on desk */}
       <g transform="translate(-12, -6)">
-        {/* Keyboard — rendered first (behind monitor) */}
+        {/* Keyboard - rendered first (behind monitor) */}
         {/* Top face */}
         <path
           d="M60 66 L87 79 L114 66 L87 53 Z"
@@ -238,16 +238,16 @@ export function DeskSprite({
           fill="none"
         />
 
-        {/* Monitor stand — rendered second (behind screen) */}
+        {/* Monitor stand - rendered second (behind screen) */}
         {/* Stand neck */}
         <path d="M85 52 L91 55 L91 64 L85 61 Z" fill="#2a2a3a" />
         <path d="M91 55 L95 53 L95 62 L91 64 Z" fill="#1a1a28" />
-        {/* Stand base — isometric diamond */}
+        {/* Stand base - isometric diamond */}
         <path d="M78 64 L90 58 L102 64 L90 70 Z" fill="#2a2a3a" />
         <path d="M78 64 L90 70 L90 72 L78 66 Z" fill="#1a1a28" />
         <path d="M90 70 L102 64 L102 66 L90 72 Z" fill="#222233" />
 
-        {/* Monitor screen — rendered last (in front) */}
+        {/* Monitor screen - rendered last (in front) */}
         <path
           d="M64 16 L110 36 L110 62 L64 42 Z"
           fill="#222233"
@@ -314,12 +314,12 @@ export function DeskSprite({
         )}
       </g>
 
-      {/* Coffee mug — solid ceramic */}
+      {/* Coffee mug - solid ceramic */}
       {hasMug && (
         <g>
-          {/* Mug body — front face */}
+          {/* Mug body - front face */}
           <path d="M134 62 L134 55 L146 55 L146 62" fill={mugBody} />
-          {/* Mug body — side shading */}
+          {/* Mug body - side shading */}
           <path d="M134 55 L134 62 L137 62 L137 55 Z" fill={mugSide} />
           {/* Bottom ellipse */}
           <ellipse cx="140" cy="62" rx="6" ry="3" fill={mugSide} />
@@ -354,7 +354,7 @@ export function DeskSprite({
         </g>
       )}
 
-      {/* Small plant — terracotta pot, varies by desk */}
+      {/* Small plant - terracotta pot, varies by desk */}
       {hasPlant && (
         <g transform="translate(35, 54)">
           <rect x="-3" y="0" width="6" height="7" rx="1" fill="#C4634F" />
@@ -371,7 +371,7 @@ export function DeskSprite({
         </g>
       )}
 
-      {/* Model-specific desk item — SE area (see ui/model-styles.ts) */}
+      {/* Model-specific desk item - SE area (see ui/model-styles.ts) */}
       {deskProp === "crayons" && (
         <g transform="translate(100, 68)">
           {/* Scattered crayons */}
@@ -427,14 +427,14 @@ export function DeskSprite({
           const isGreen = deskIndex % BOOK_VARIANTS.length === 0;
           return (
             <g transform="translate(102.5, 69.5) scale(0.8)">
-              {/* Book on desk — color varies by desk */}
+              {/* Book on desk - color varies by desk */}
               <path d="M-4 8 L15 -1.5 L29 5.5 L10 15 Z" fill={bookBack} />
               <path d="M-4 8 L10 15 L10 16 L-4 9 Z" fill={bookSpine} />
               <path d="M-2 4 L10 10 L10 14 L-2 8 Z" fill="#F0EDE4" />
               <path d="M10 16 L29 6.5 L29 -0.5 L10 9 Z" fill={bookSpine} />
               <path d="M-4 2 L15 -7.5 L29 -0.5 L10 9 Z" fill={bookFront} />
               <path d="M-4 2 L10 9 L10 10 L-4 3 Z" fill={bookBack} />
-              {/* Title lines — parallel to SW edge */}
+              {/* Title lines - parallel to SW edge */}
               <line
                 x1="0.95"
                 y1="1.63"
@@ -453,7 +453,7 @@ export function DeskSprite({
                 strokeWidth="0.9"
                 strokeLinecap="round"
               />
-              {/* Silver clock — only on the green BCTCI book */}
+              {/* Silver clock - only on the green BCTCI book */}
               {isGreen && (
                 <g transform="matrix(4.02,-2.01,4.02,2.01,15.35,-0.68)">
                   <circle
@@ -529,7 +529,7 @@ export function DeskSprite({
           );
         })()}
 
-      {/* Desk lamp — south corner */}
+      {/* Desk lamp - south corner */}
       <g transform="translate(72, 78)">
         {/* Light pool on desk surface (dark mode only) */}
         <ellipse
@@ -540,9 +540,9 @@ export function DeskSprite({
           fill={`url(#${lampId})`}
           className="lamp-glow"
         />
-        {/* Base — small iso diamond */}
+        {/* Base - small iso diamond */}
         <path d="M-4 4 L0 2 L4 4 L0 6 Z" fill="#2a2a2a" />
-        {/* Arm — straight up */}
+        {/* Arm - straight up */}
         <line
           x1="0"
           y1="3"
@@ -552,7 +552,7 @@ export function DeskSprite({
           strokeWidth="1.5"
           strokeLinecap="round"
         />
-        {/* Shade — small cone/trapezoid */}
+        {/* Shade - small cone/trapezoid */}
         <path d="M-5 -10 L5 -10 L3 -14 L-3 -14 Z" fill="#C8A050" />
         <path d="M-5 -10 L-3 -14 L-3 -12 L-5 -9 Z" fill="#B08830" />
         {/* Bulb glow under shade (dark mode only) */}

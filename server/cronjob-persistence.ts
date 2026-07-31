@@ -31,7 +31,7 @@ const CRONJOBS_PROMPT_FILE = join(CRONJOBS_DIR, "cronjobs-prompt.md");
 // atomicWriteFileSync (top-level cronjob files) and by the per-job / per-run
 // mkdir calls below, rather than at module load.
 
-// Cronjobs system prompt — owned by cronjob-manager and stored in its own
+// Cronjobs system prompt - owned by cronjob-manager and stored in its own
 // file, not folded into office-config.json. Two managers writing the same
 // JSON with stale in-memory copies would silently clobber each other (one
 // of the v1 review blockers).
@@ -91,13 +91,13 @@ export function loadCronjobs(): Cronjob[] {
       }
       delete (r as { device?: unknown }).device;
       // Default agentType for records written before Codex cron support.
-      // Read-time only — saveCronjobs will fold it in on the next write.
+      // Read-time only - saveCronjobs will fold it in on the next write.
       if (r.agentType === undefined) r.agentType = "claude";
       // Migrate "auto" permissionMode to "bypassPermissions". Pre-port cron
       // passed permissionMode straight to the SDK without a canUseTool
       // callback, so the SDK's internal "auto" classifier resolved the
       // approvals. Post-port, ClaudeSession always installs canUseTool and
-      // cron has no resolver — an "auto" classifier mismatch would hang the
+      // cron has no resolver - an "auto" classifier mismatch would hang the
       // run until the 30-min hard timeout. bypassPermissions is the safest
       // unattended fallback.
       if ((r as { permissionMode?: string }).permissionMode === "auto") {
@@ -185,7 +185,7 @@ export function loadRuns(jobId: string): CronjobRun[] {
       if (r.agentTypeSnapshot === undefined) r.agentTypeSnapshot = "claude";
       // Same "auto" → "bypassPermissions" migration as cronjobs.json. Snapshot
       // values only describe what *was* run, so coercing them doesn't change
-      // historical truth — but it prevents resume/edit from re-using "auto"
+      // historical truth - but it prevents resume/edit from re-using "auto"
       // for a new turn on the same run row.
       if (
         (r as { permissionModeSnapshot?: string }).permissionModeSnapshot ===
@@ -211,7 +211,7 @@ export function saveRuns(jobId: string, runs: CronjobRun[]) {
   }
 }
 
-// Append a single run (writes the whole file — mirrors saveTasks pattern).
+// Append a single run (writes the whole file - mirrors saveTasks pattern).
 export function appendRun(jobId: string, run: CronjobRun) {
   const runs = loadRuns(jobId);
   runs.push(run);

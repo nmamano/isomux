@@ -1,4 +1,4 @@
-// HTTP executor — Phase 3a. The single pipeline that consumes the typed route
+// HTTP executor - Phase 3a. The single pipeline that consumes the typed route
 // table for the migrated /api surface. Given a matched route + a resolved
 // identity, it runs:
 //
@@ -60,7 +60,7 @@ export type HandlerResult =
       code: string;
       message?: string;
       // Extra fields spread into the envelope's `error` object alongside
-      // code/message — for a structured failure that must carry data past the
+      // code/message - for a structured failure that must carry data past the
       // envelope (e.g. the editor's 409 stale-save `currentMtime`).
       detail?: Record<string, unknown>;
     };
@@ -104,7 +104,7 @@ export interface RouteHandlerContext {
   query: URLSearchParams;
   req: Request;
   // The caller's own cookie-session hash, supplied by the /api dispatch from the
-  // already-resolved auth result (NOT re-derived here — the executor stays a leaf
+  // already-resolved auth result (NOT re-derived here - the executor stays a leaf
   // carrying a string, never re-validating cookies). Present only for a cookie
   // (USER) caller; absent for a bearer (agent/run) caller. Used by routes that
   // act on the caller's OWN session (sessions.logout) and the logout lockout
@@ -156,7 +156,7 @@ function render(result: HandlerResult): Response {
     case "error":
       return new Response(
         JSON.stringify({
-          // Spread detail FIRST so the canonical code/message always win — a
+          // Spread detail FIRST so the canonical code/message always win - a
           // (future, user-influenced) detail key can never clobber them.
           error: {
             ...result.detail,
@@ -240,7 +240,7 @@ export async function executeRoute(
     return render(fail(404, "not_found"));
   }
 
-  // Read the body exactly once (skip GET/HEAD and multipart — multipart is
+  // Read the body exactly once (skip GET/HEAD and multipart - multipart is
   // consumed by the handler via req.formData()). A present-but-unparseable JSON
   // body is a 400 before any auth, matching today's handlers.
   const contentType = req.headers.get("content-type") ?? "";
@@ -286,7 +286,7 @@ export async function executeRoute(
     const fn = deps.preconditions.get(pid);
     if (!fn) {
       // A declared precondition with no registered enforcer is a wiring gap, not
-      // a silent pass — fail closed so a contract test surfaces it.
+      // a silent pass - fail closed so a contract test surfaces it.
       throw new Error(
         `executeRoute: no enforcer registered for precondition "${pid}" (route ${route.opId})`,
       );

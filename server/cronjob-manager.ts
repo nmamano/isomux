@@ -9,7 +9,7 @@
 // cronjob's agentType), sends the prompt as the first user message,
 // consumes the normalized event stream, and broadcasts log entries to the
 // UI via the existing event bus. The synthetic "stream id" used for log
-// routing is `cronjobRunStreamId(runId)` — this is also the agentId passed
+// routing is `cronjobRunStreamId(runId)` - this is also the agentId passed
 // to the backend so attachments resolve under the run's logs/files dir.
 //
 // Cron differs from agents in lifecycle: a run is single-turn-then-close,
@@ -72,7 +72,7 @@ import {
 // the same builder so a user that successfully fetches Codex models with
 // their per-user OPENAI_API_KEY / CODEX_HOME via `backends.listModels` gets
 // the same env when the cronjob actually fires. Imported from env-loader
-// (not agent-manager) to keep cron decoupled from the orchestrator — the
+// (not agent-manager) to keep cron decoupled from the orchestrator - the
 // `cronjob-manager → agent-manager → command-handlers → cronjob-manager`
 // cycle is what env-loader exists to break.
 import { buildEnvForUserId as defaultResolveEnv } from "./env-loader.ts";
@@ -111,7 +111,7 @@ interface ActiveRun {
   toolCallTimestamps: Map<string, number>;
   // True for follow-up turns on a previously-finalized run (resumed or
   // edit-forked). On resume the backend reuses the existing sessionId, so
-  // system_init must NOT clobber rootSessionId — only currentSessionId
+  // system_init must NOT clobber rootSessionId - only currentSessionId
   // tracks the leaf.
   isResume: boolean;
 }
@@ -476,7 +476,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     return loadRuns(jobId);
   }
 
-  // Returns one entry per cronjob id that has a runs.json on disk — including
+  // Returns one entry per cronjob id that has a runs.json on disk - including
   // jobs whose configs have since been deleted. The Runs tab uses this so
   // historical runs from deleted cronjobs remain visible.
   function getAllRunsByJob(): { jobId: string; runs: CronjobRun[] }[] {
@@ -494,7 +494,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     if (!run) return { run: null, entries: [] };
     // Walk back from the leaf of the fork chain so edit-to-fork transcripts
     // render correctly. Old runs without currentSessionId fall back to the
-    // root — equivalent to the un-forked case.
+    // root - equivalent to the un-forked case.
     const leaf = run.currentSessionId ?? run.rootSessionId;
     const entries = loadRunLogWithAncestors(jobId, runId, leaf);
     return { run, entries };
@@ -512,7 +512,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const officeConfig = loadOfficeConfig();
     // humanizeSchedule produces sentence-case ("Daily at 09:00"); lowercase the
     // first letter so it reads as a sentence fragment ("You run daily at 09:00").
-    // Only the first letter — keeps weekday abbreviations like "Mon" capitalized.
+    // Only the first letter - keeps weekday abbreviations like "Mon" capitalized.
     const human = humanizeSchedule(cronjob.schedule);
     const scheduleDescription = human.charAt(0).toLowerCase() + human.slice(1);
     // Inspection (no live runId) renders the URL with a `<runId>` placeholder
@@ -521,11 +521,11 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
 
     let prompt = `You are "${cronjob.name}", a scheduled cron job in the Isomux office. You run ${scheduleDescription}.
 
-The Isomux office consists of agents that have persistent identity and sit at desks in various rooms of the office. You don't have a desk or persistent identity — each scheduled run starts fresh. There is no human in the loop during your run; any result must be self-contained, since someone may review it later.
+The Isomux office consists of agents that have persistent identity and sit at desks in various rooms of the office. You don't have a desk or persistent identity - each scheduled run starts fresh. There is no human in the loop during your run; any result must be self-contained, since someone may review it later.
 
-How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" — returns id, name, room (name and roomId), topic, cwd, model, and log directory for every agent in rooms visible to your creator. The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
+How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns id, name, room (name and roomId), topic, cwd, model, and log directory for every agent in rooms visible to your creator. The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 
-How to use the task board (localhost:${PORT}/api/tasks): only touch it if your prompt directs you to. Use your bearer token (the auto-injected $ISOMUX_AGENT_TOKEN) on every call; tasks you create are attributed to you. You have no room, so this is the office-GLOBAL board — you see and create office-wide tasks only (room-scoped tasks belong to agents in a room). When you do:
+How to use the task board (localhost:${PORT}/api/tasks): only touch it if your prompt directs you to. Use your bearer token (the auto-injected $ISOMUX_AGENT_TOKEN) on every call; tasks you create are attributed to you. You have no room, so this is the office-GLOBAL board - you see and create office-wide tasks only (room-scoped tasks belong to agents in a room). When you do:
   curl -s localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                          # list active global tasks (excludes done and backlog)
   curl -s "localhost:${PORT}/api/tasks?status=all" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"             # include done and backlog
   curl -s -X POST localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
@@ -539,7 +539,7 @@ How to show a styled code diff in the run transcript: call POST localhost:${PORT
   curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'                                                # uncommitted in your cwd
   curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'   # a specific commit
 
-How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
+How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents - they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
   ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
   ~/.isomux/cronjobs/<jobId>/<runId>/<rootSessionId>.jsonl      # transcript of one run, one log entry per line
@@ -561,7 +561,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       }
     }
     // Auto-loaded OFFICE memory (a cron job has no room or agent identity of its
-    // own; boss memory is intentionally NOT injected — see the boss-memory
+    // own; boss memory is intentionally NOT injected - see the boss-memory
     // auto-load boundary in the design doc). Rendered via the injected seam + the
     // shared memorySection helper so tests stay off real state.
     prompt += memorySection(
@@ -581,7 +581,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // writeLog signature (which routes to the run's <runId>/<sessionId>.jsonl).
   //
   // Per-turn lifecycle (finalize on turn_completed, error termination, etc.)
-  // lives in consumeUntilTurnCompleted — this function only logs / accumulates
+  // lives in consumeUntilTurnCompleted - this function only logs / accumulates
   // and never closes the session.
   function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
     switch (ev.kind) {
@@ -625,7 +625,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         break;
       }
       case "task_lifecycle": {
-        // Background-task breadcrumb — same shape as the agent path so cron
+        // Background-task breadcrumb - same shape as the agent path so cron
         // run transcripts also show background work start/settle.
         writeLog(active, "system", ev.label, {
           taskEvent: { taskId: ev.taskId, phase: ev.phase },
@@ -633,7 +633,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         break;
       }
       case "permission_denied": {
-        // Auto-denied tool call — same shape as the agent path so cron run
+        // Auto-denied tool call - same shape as the agent path so cron run
         // transcripts render the denial card too.
         const reason = ev.decisionReason || ev.message;
         writeLog(
@@ -692,12 +692,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
       case "approval_request": {
         // Should not happen for cronjob permission modes (Claude
         // bypassPermissions, Codex never). If it does the turn will block
-        // until the 30-minute hard timeout — surface a system note so it's
+        // until the 30-minute hard timeout - surface a system note so it's
         // diagnosable in the transcript.
         writeLog(
           active,
           "system",
-          `Approval requested for ${ev.toolName} — cronjobs run unattended; ` +
+          `Approval requested for ${ev.toolName} - cronjobs run unattended; ` +
             `this should not occur with the configured permission mode. ` +
             `The run will block until the 30-minute hard timeout.`,
         );
@@ -734,7 +734,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
           writeLog(active, "error", errorText);
           if (getBackend(active.agentType).detectAuthError(errorText)) {
             // Cronjob runs have no chat desk; surface the text portion of the
-            // login hint and drop the companion terminal-command — there's
+            // login hint and drop the companion terminal-command - there's
             // nowhere for a [Copy to terminal] card to render.
             writeLog(
               active,
@@ -784,7 +784,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         writeLog(active, "error", ev.message);
         if (getBackend(active.agentType).detectAuthError(ev.message)) {
           // Cronjob runs have no chat desk; surface the text portion of the
-          // login hint and drop the companion terminal-command — there's
+          // login hint and drop the companion terminal-command - there's
           // nowhere for a [Copy to terminal] card to render.
           writeLog(
             active,
@@ -801,7 +801,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
   // Resolve the run's spawn-env best-effort for auth-error hint generation.
   // `buildEnvForUserId` throws on a broken/missing envFile, which is correct
-  // behavior for spawn/preflight but wrong here — a hint generator that fails
+  // behavior for spawn/preflight but wrong here - a hint generator that fails
   // would mask the original auth error. Swallowing the error and falling back
   // to `undefined` (which the backend treats as process.env) keeps the
   // diagnostic shape intact. Symmetric with agent-manager's
@@ -851,7 +851,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // completes (or fails). On the first `turn_completed` for this run turn,
   // finalize the run row (status from the event) and close the session via
   // finalizeRun. Backend streams are persistent across turns, so we MUST stop
-  // reading once the turn is done — otherwise a successful Codex run would
+  // reading once the turn is done - otherwise a successful Codex run would
   // stay open until the hard timeout. Same one-turn shape applies to resumed
   // and edit-forked sessions installed via installResumedActive.
   async function consumeUntilTurnCompleted(active: ActiveRun) {
@@ -874,7 +874,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
           return;
         }
       }
-      // Stream ended without a turn_completed — should not happen with healthy
+      // Stream ended without a turn_completed - should not happen with healthy
       // backends, but if it does (e.g. transport closed mid-turn), record it.
       if (activeRuns.has(active.runId)) {
         finalizeRun(active, "failed", "stream ended before turn completed");
@@ -941,7 +941,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     });
     if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
     // tick() and the cwd-invalid branch in fire() already set lastFireAt and
-    // nextFireAt at fire time — no further schedule update needed here.
+    // nextFireAt at fire time - no further schedule update needed here.
   }
 
   function fire(
@@ -1018,9 +1018,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
     // Mint this run's bearer token now that runId is known, cwd is valid, and
     // env built cleanly; inject it as ISOMUX_AGENT_TOKEN (same env var as agent
-    // scope — scope is resolved server-side) so the run's in-flight read-file/
+    // scope - scope is resolved server-side) so the run's in-flight read-file/
     // diff affordances authenticate as the run (RUN scope: self:affordance
-    // bound to {cronjobId, runId}). Revoked on every terminal path — the
+    // bound to {cronjobId, runId}). Revoked on every terminal path - the
     // createSession failure below, and finalizeRun for everything after
     // activeRuns.set. In-memory secret, never persisted/logged.
     //
@@ -1094,7 +1094,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
     // Send the prompt as the first user message. session.send awaits the
     // backend's bootstrap (Codex: initialize + thread/start; Claude: SDK
-    // handshake) and can reject if spawn / auth fails — wrap so async
+    // handshake) and can reject if spawn / auth fails - wrap so async
     // bootstrap errors finalize the run instead of crashing the tick.
     void (async () => {
       try {
@@ -1191,18 +1191,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   // ---------------------------------------------------------------------------
-  // File display — cronjob equivalent of POST /agents/:id/read-file
+  // File display - cronjob equivalent of POST /agents/:id/read-file
   // ---------------------------------------------------------------------------
 
   // Display cap mirrors agent-manager's MAX_READ_FILE_BYTES. Files larger than
-  // this surface a system note instead of being copied — the inline-display path
+  // this surface a system note instead of being copied - the inline-display path
   // is for plots / screenshots / logs, not arbitrary blobs.
   const MAX_RUN_READ_FILE_BYTES = 20 * 1024 * 1024;
 
   // Resolve a path against the run's cwdSnapshot, copy it into the run's files
   // dir (hash-deduped via saveFile, namespaced by the synthetic cronrun-<runId>
   // stream id), and emit a `file-view` log entry so the run transcript renders
-  // the attachment inline. Cronjob counterpart of emitAgentReadFile — cronjobs
+  // the attachment inline. Cronjob counterpart of emitAgentReadFile - cronjobs
   // don't live in the agents Map, so they need their own lookup path. Only
   // active runs qualify: the entry has to land on a live stream so a reviewer
   // sees it in context.
@@ -1245,7 +1245,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       writeLog(
         active,
         "system",
-        `\`${absPath}\` is ${(st.size / (1024 * 1024)).toFixed(1)} MB — too large to display (${MAX_RUN_READ_FILE_BYTES / (1024 * 1024)} MB limit).`,
+        `\`${absPath}\` is ${(st.size / (1024 * 1024)).toFixed(1)} MB - too large to display (${MAX_RUN_READ_FILE_BYTES / (1024 * 1024)} MB limit).`,
       );
       return { ok: true };
     }
@@ -1277,7 +1277,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   // ---------------------------------------------------------------------------
-  // Git diff — cronjob equivalent of POST /agents/:id/diff
+  // Git diff - cronjob equivalent of POST /agents/:id/diff
   // ---------------------------------------------------------------------------
 
   // Emit a styled diff card into the run transcript. Same shape as
@@ -1334,7 +1334,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
           "system",
           commit
             ? `\`${commit}\` introduced no file changes (empty commit?).`
-            : `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`,
+            : `Working tree clean in \`${result.cwd}\` - no uncommitted changes.`,
         );
         break;
       case "ok":
@@ -1347,7 +1347,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   // ---------------------------------------------------------------------------
-  // Resume / edit-to-fork — follow-up turns into a finalized run
+  // Resume / edit-to-fork - follow-up turns into a finalized run
   // ---------------------------------------------------------------------------
 
   // Append a one-off log entry without an active session. Used to surface
@@ -1369,7 +1369,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   }
 
   // Build CreateSessionOptions for a resumed cronjob run. The current run's
-  // usage is rolled into priorRunsUsage before each resume — backends report
+  // usage is rolled into priorRunsUsage before each resume - backends report
   // cost cumulative-per-process, so the counter resets to zero on resume and
   // the prior segment would otherwise vanish from lifetime accounting.
   //
@@ -1380,7 +1380,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   //
   // env: resolved from the live cronjob's username (env file paths are
   // per-user, not snapshotted). Deleted-cronjob resume falls back to
-  // process.env. A broken env file throws here — the caller surfaces it as
+  // process.env. A broken env file throws here - the caller surfaces it as
   // a "Failed to resume" entry in the run transcript.
   function buildRunSessionOptions(
     run: CronjobRun,
@@ -1400,7 +1400,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // owner has no env file) so the subprocess keeps PATH/HOME/etc. In-memory
     // secret, never persisted/logged.
     //
-    // Revoke ownership: the minted token has exactly one terminal owner — the
+    // Revoke ownership: the minted token has exactly one terminal owner - the
     // caller's resume-failure catch (revokeRunToken) if resumeSession throws
     // before installResumedActive, otherwise finalizeRun after activeRuns.set.
     const env = buildEnvForUserId(job?.userId ?? null);
@@ -1440,10 +1440,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
       lastAssistantText: "",
       // Force trigger="manual" for resumed turns regardless of the run row's
       // original trigger. hasInFlightScheduledRun uses active.trigger to gate
-      // the cron scheduler — if a user resumes a scheduled run, we don't want
+      // the cron scheduler - if a user resumes a scheduled run, we don't want
       // the scheduler to suppress the cronjob's next regular fire while the
       // user-driven follow-up is in flight. (run.trigger on disk is unchanged
-      // — that's history, not in-flight semantics.)
+      // - that's history, not in-flight semantics.)
       trigger: "manual",
       killed: false,
       pendingEntries: [],
@@ -1451,7 +1451,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       isResume: true,
     };
     activeRuns.set(run.id, active);
-    // Reset terminal state — the run row goes back to "running" until finalize.
+    // Reset terminal state - the run row goes back to "running" until finalize.
     const updated = updateRun(run.cronjobId, run.id, {
       status: "running",
       endedAt: null,
@@ -1509,7 +1509,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   ): Promise<void> {
     const run = findRun(jobId, runId);
     if (!run) return;
-    // Synchronous claim — must happen before any await so a concurrent
+    // Synchronous claim - must happen before any await so a concurrent
     // send/edit for the same runId bails immediately. installResumedActive's
     // activeRuns.set keeps the slot held; the `finally` below releases it.
     if (activeRuns.has(runId) || startingRuns.has(runId)) return;
@@ -1517,7 +1517,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       emitRunErrorEntry(
         jobId,
         runId,
-        "Cannot resume a skipped run — it never opened a session.",
+        "Cannot resume a skipped run - it never opened a session.",
       );
       return;
     }
@@ -1557,7 +1557,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       } catch (err) {
         // buildRunSessionOptions minted this turn's RUN token before resume.
         // Resume failed before installResumedActive, so finalizeRun never runs
-        // for it — revoke here so the token doesn't outlive the attempt.
+        // for it - revoke here so the token doesn't outlive the attempt.
         revokeRunToken(jobId, runId);
         emitRunErrorEntry(jobId, runId, `Failed to resume: ${errMessage(err)}`);
         return;
@@ -1617,10 +1617,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
   //
   // For Codex, CODEX_HOME is honored via the cronjob owner's env file, so
   // the rollout-file lookup happens under the *same* sessions/ dir the
-  // actual session would use at resume — preventing a precheck pass under
+  // actual session would use at resume - preventing a precheck pass under
   // process.env's CODEX_HOME and a resume-time failure under the user's.
   function checkResumableSession(run: CronjobRun, leaf: string): string | null {
-    // Build env once for both branches — Claude honors CLAUDE_CONFIG_DIR for
+    // Build env once for both branches - Claude honors CLAUDE_CONFIG_DIR for
     // its project dir lookup, Codex honors CODEX_HOME for its sessions/ dir.
     // A broken envFile is a real precheck failure: fall through to a clear
     // error rather than silently checking the wrong directory.
@@ -1635,14 +1635,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
       if (!claudeSessionFileExists(run.cwdSnapshot, leaf, env)) {
         return (
           `Cannot resume session ${leaf.slice(0, 8)}…: its file is missing from ${claudeProjectDir(run.cwdSnapshot, env)}. ` +
-          `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`
+          `Most commonly this happens after the cwd was moved or renamed - the Claude CLI stores sessions under a path derived from cwd.`
         );
       }
       return null;
     }
     // Codex: explicit-resume paths only block on missing-file. Header-only
     // and corrupt rollouts surface via Codex's own thread/resume error with
-    // a more specific message — let it through.
+    // a more specific message - let it through.
     if (!codexRolloutFileExists(leaf, env)) {
       return (
         `Cannot resume Codex thread ${leaf.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(env)}. ` +
@@ -1673,7 +1673,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
   ): Promise<void> {
     const run = findRun(jobId, runId);
     if (!run) return;
-    // Synchronous claim — see sendRunMessage. Without this,
+    // Synchronous claim - see sendRunMessage. Without this,
     // getSessionMessages + forkSessionBeforeMessage below would race against
     // a second concurrent submission.
     if (activeRuns.has(runId) || startingRuns.has(runId)) return;
@@ -1681,7 +1681,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       emitRunErrorEntry(
         jobId,
         runId,
-        "Cannot edit a skipped run — it never opened a session.",
+        "Cannot edit a skipped run - it never opened a session.",
       );
       return;
     }
@@ -1749,7 +1749,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
     // 2. Match the target to a position in the backend session's message list.
     //    Uses NormalizedMessage (role + text + uuid) so the matching is engine-
-    //    agnostic — Claude and Codex both surface user turns identically here.
+    //    agnostic - Claude and Codex both surface user turns identically here.
     let sessionMessages: Awaited<ReturnType<typeof backend.getSessionMessages>>;
     try {
       sessionMessages = await backend.getSessionMessages(leaf, run.cwdSnapshot);
@@ -1782,11 +1782,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // Skip the cronjob's original prompt: it's the backend's first user message
     // but not a LogEntry, so its content will never match (it's stored only as
     // run.promptSnapshot). occurrenceIndex therefore counts from the first
-    // post-prompt user message — i.e. the first follow-up turn.
+    // post-prompt user message - i.e. the first follow-up turn.
     const cronjobPromptIsFirstUser = sessionMessages[0]?.role === "user";
     // stripOutboundEnvelope recovers `sdkText` from any turn where a built-in
     // block (context-fullness notice) or a beforeTurn plugin (e.g. mem0)
-    // contributed a prefix block — the SDK records the wrapped form built in
+    // contributed a prefix block - the SDK records the wrapped form built in
     // plugin-hooks.ts, but log entries only carry `sdkText`. Without the strip,
     // every edit on a turn that carried an envelope block would fall through to
     // the "could not locate" branch below.
@@ -1821,7 +1821,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     //      Claude: SDK forkSession at predecessor (excludes target)
     //      Codex:  thread/fork parent + thread/rollback child by N turns
     //    The result is either a linked fork (returns { sessionId,
-    //    forkedFromSessionId }) or a fresh session (no id yet — fills on
+    //    forkedFromSessionId }) or a fresh session (no id yet - fills on
     //    system_init). Cron only supports the linked-fork path because the
     //    "fresh" branch would lose the run's identity; if a backend returns
     //    "fresh" here, surface it as an error.
@@ -1846,7 +1846,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       return;
     }
 
-    // 4. Resume the new fork. If this fails, do NOT update currentSessionId —
+    // 4. Resume the new fork. If this fails, do NOT update currentSessionId -
     //    leave the run pointing at the old leaf so a retry can start over.
     let session: BackendSession;
     try {
@@ -1857,7 +1857,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     } catch (err) {
       // Symmetric to sendRunMessage: buildRunSessionOptions minted the RUN token
       // before this fork resume; it failed before installResumedActive, so
-      // finalizeRun never runs for it — revoke here.
+      // finalizeRun never runs for it - revoke here.
       revokeRunToken(jobId, runId);
       emitRunErrorEntry(
         jobId,
@@ -1876,7 +1876,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     try {
       // 5. The target log entry may live in an ancestor's JSONL (if the user has
       //    forked before). Walk back to find which JSONL actually contains it,
-      //    and point forkedFrom at that ancestor — keeps loadRunLogWithAncestors
+      //    and point forkedFrom at that ancestor - keeps loadRunLogWithAncestors
       //    cutting at the right level.
       let forkFromSessionId = leaf;
       const leafEntries = loadRunLog(jobId, runId, leaf);
@@ -1980,7 +1980,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
   function startCronjobScheduler() {
     // Load configs and cronjobsPrompt (with one-shot migration from the legacy
-    // location in office-config.json — see migrateCronjobsPromptFromOfficeConfig).
+    // location in office-config.json - see migrateCronjobsPromptFromOfficeConfig).
     cronjobs = loadCronjobs();
     // userid migration: legacy cronjobs had only a `username` snapshot for
     // identity. Resolve to the stable user.id so env selection from now on
@@ -2023,7 +2023,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
     if (dirty) saveCronjobs(cronjobs);
 
-    // Mark any "running" rows on disk as failed — server crashed mid-run.
+    // Mark any "running" rows on disk as failed - server crashed mid-run.
     for (const jobId of listAllCronjobIdsOnDisk()) {
       const runs = loadRuns(jobId);
       let mutated = false;

@@ -1,5 +1,5 @@
 // Optimistic-concurrency version tokens for prompt/settings blobs (task
-// 44a2c98d) — versionOf(content) is a short sha256 of the exact blob bytes.
+// 44a2c98d) - versionOf(content) is a short sha256 of the exact blob bytes.
 // A missing/empty blob hashes "" to a fixed value (sha256("")[:12]), which
 // serves as the missing-blob sentinel, so a READ -> WRITE round-trip works on
 // a never-written target. 12 hex chars keeps collision anxiety out of reviews
@@ -9,7 +9,7 @@
 //
 // Lives in shared/ (not server/) because AgentInfo.customInstructionsVersion
 // is maintained inside shared/office-state.ts, which also bundles into the
-// browser demo — so the hash must run without node:crypto. This is a plain,
+// browser demo - so the hash must run without node:crypto. This is a plain,
 // dependency-free SHA-256 (FIPS 180-4); known-answer vectors + a node:crypto
 // parity check are pinned in shared/blob-version.test.ts.
 

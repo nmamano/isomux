@@ -213,7 +213,7 @@ const STYLES = `
   color-scheme: dark;
 }
 
-/* Light mode — honored when the OS / browser asks for it. Same variable
+/* Light mode - honored when the OS / browser asks for it. Same variable
    shape as the dark default; accent green is darkened so links and headings
    hit AA contrast on white. Mirrors the landing palette in site/index.html. */
 @media (prefers-color-scheme: light) {
@@ -232,7 +232,7 @@ const STYLES = `
 }
 
 /* Explicit user override via the theme toggle (site/theme-toggle.js) or
-   the wall moon/sun inside the app — both write the same localStorage key
+   the wall moon/sun inside the app - both write the same localStorage key
    and the early script in <head> sets data-theme-mode before paint. The
    data-theme-mode blocks beat :root inside @media on specificity, so the
    user pick wins regardless of OS preference. */
@@ -781,7 +781,7 @@ function main() {
   });
   if (!pages.some((p) => p.slug === LANDING_SLUG)) {
     throw new Error(
-      `Landing slug "${LANDING_SLUG}" not found in docs/ — every build needs ${LANDING_SLUG}.md.`,
+      `Landing slug "${LANDING_SLUG}" not found in docs/ - every build needs ${LANDING_SLUG}.md.`,
     );
   }
 

@@ -9,10 +9,10 @@
 //     Funnel-free invite tip when an origin is active.
 //
 // "Active" means buildPublicOrigin() resolves env/config, which requires a
-// claimed office AND externalAccess captured at boot — a loopback-only bind
+// claimed office AND externalAccess captured at boot - a loopback-only bind
 // forces the localhost fallback. The config path is exercised through the real
-// Access route + restart (not by poking module state) because that gate — a
-// config-sourced origin counts, same as invites — is an explicit design
+// Access route + restart (not by poking module state) because that gate - a
+// config-sourced origin counts, same as invites - is an explicit design
 // choice these tests pin.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -112,7 +112,7 @@ describe("public-origin-derived copy (C3-a)", () => {
 
     const prompt = buildSystemPrompt("A1", "agent-1", "Test Room");
     expect(prompt).toContain(`${HUMAN_LINE} ${ORIGIN}`);
-    // Agent-run API recipes are untouched — and the origin appears in that
+    // Agent-run API recipes are untouched - and the origin appears in that
     // one line only, never substituted into a recipe.
     expect(prompt).toContain(CURL_RECIPE);
     expect(prompt.split(ORIGIN).length - 1).toBe(1);
@@ -135,8 +135,8 @@ describe("public-origin-derived copy (C3-a)", () => {
     try {
       const srv0 = await startTestServer();
       server = srv0;
-      // Set the env AFTER the Access PUT — the route 409s on a conflicting
-      // env origin — but BEFORE the restart that re-evaluates it.
+      // Set the env AFTER the Access PUT - the route 409s on a conflicting
+      // env origin - but BEFORE the restart that re-evaluates it.
       const owner = await srv0.seedOwner("Boss");
       const r = await srv0.http("/api/office/access", {
         method: "PUT",

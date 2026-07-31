@@ -1,7 +1,7 @@
 // Identity formatting helpers shared between server and UI.
 // `username` is the human boss; `device` is an optional connection-point label.
 // Old log entries (pre-migration) carry combined values like "Nil Phone" in
-// `username` with no `device` — the helpers below render them verbatim.
+// `username` with no `device` - the helpers below render them verbatim.
 
 export function formatPrefix({
   username,

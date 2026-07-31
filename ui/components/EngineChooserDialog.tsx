@@ -1,6 +1,6 @@
 // Two-button engine picker that gates the spawn flow. The Round 3 decision
-// for the Codex backend was "two separate buttons in the room — `+ New
-// Claude Agent` and `+ New Codex Agent` — agentType is the only setting
+// for the Codex backend was "two separate buttons in the room - `+ New
+// Claude Agent` and `+ New Codex Agent` - agentType is the only setting
 // locked at creation, so make the irreversible choice obvious." This dialog
 // surfaces that choice as the first step of spawning, before the full
 // EditAgentDialog opens with agentType frozen.
@@ -8,7 +8,7 @@
 // Below the engine buttons we render a "Revive" row of chips for any
 // previously-killed agents (server-capped at 12, ACL-filtered per session).
 // Clicking a chip restores the agent at the target desk with the same id,
-// same outfit, and its preserved config — picking up the conversation from
+// same outfit, and its preserved config - picking up the conversation from
 // the resumable lastSessionId if the rollout/jsonl still exists.
 
 import { useState } from "react";
@@ -48,7 +48,7 @@ const ENGINE_OPTIONS: Array<{
     agentType: "codex",
     label: "Codex",
     blurb:
-      "OpenAI — GPT-5 family. Uses your ChatGPT subscription or OPENAI_API_KEY.",
+      "OpenAI - GPT-5 family. Uses your ChatGPT subscription or OPENAI_API_KEY.",
     accent: "rgba(120,220,160,0.85)",
   },
 ];
@@ -195,7 +195,7 @@ export function EngineChooserDialog({
                 const isThisReviving = reviving === agent.id;
                 const disabled = reviving !== null && !isThisReviving;
                 const title = agent.topic
-                  ? `${agent.lastRoomName} — ${agent.topic}`
+                  ? `${agent.lastRoomName} - ${agent.topic}`
                   : agent.lastRoomName;
                 return (
                   <button

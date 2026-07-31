@@ -5,11 +5,11 @@
 > routes) was built and then replaced, before shipping, with a simpler raw model
 > at Nil's call. What shipped:
 >
-> - Per-scope plain-markdown files of `- {Creator}, {date}: {text}` lines — **no
+> - Per-scope plain-markdown files of `- {Creator}, {date}: {text}` lines - **no
 >   ids, no supersede/tombstone grammar**.
 > - **Three REST verbs on `/api/memory`:** READ (whole file + a sha256 `version`),
 >   APPEND (one server-stamped line, with an exact-duplicate guard), REPLACE
->   (whole-file overwrite guarded by the `version` from READ — 409 on mismatch).
+>   (whole-file overwrite guarded by the `version` from READ - 409 on mismatch).
 > - Every mutation is recorded to an append-only **op-log** (`memory/.oplog.jsonl`,
 >   full post-op snapshot) for manual recovery.
 > - **Per-scope size caps** degrade newest-first with a trim notice on auto-load.
@@ -82,12 +82,12 @@ concurrent edits cannot silently clobber each other (section 4).
 
 **Provenance.** An APPEND stamps the `Creator` + date from the authenticated
 caller (never the request body). A REPLACE writes the file bytes **verbatim**, so
-after a human or agent hand-edit the in-file `Creator`/date are display text only —
+after a human or agent hand-edit the in-file `Creator`/date are display text only - 
 the **op-log** is the authoritative record of who changed what and when.
 
 ### What to record (task-agnostic guidance)
 
-A small fixed list of _kinds_ of durable fact — guidance for the affordance, not an
+A small fixed list of _kinds_ of durable fact - guidance for the affordance, not an
 enforced schema (no `factType` is persisted):
 
 | Kind                     | Example                              | Natural scope |
@@ -135,7 +135,7 @@ REPLACE is a whole-file destructive primitive, so making it permissive means any
 authenticated agent can rewrite office memory (which auto-injects into every
 agent), any nameable room, or another boss's file. Nil chose this knowingly: the
 risk class is handled in the affordance ("do NOT make big changes to office-wide
-memory"), and the **op-log is the recovery net — not an authorization boundary**.
+memory"), and the **op-log is the recovery net - not an authorization boundary**.
 This is pinned by a test asserting a plain agent token _can_ REPLACE office memory,
 so it is not silently re-gated later.
 
@@ -169,7 +169,7 @@ READ is uncapped.
 
 **2. On-demand (the long tail).** The REST **READ** (`GET /api/memory`) returns the
 **whole raw file plus its `version`**, for any scope (including boss) for any
-authenticated caller — boss reads are NOT caller-scoped over REST (section 2). READ
+authenticated caller - boss reads are NOT caller-scoped over REST (section 2). READ
 is also the first half of the read-modify-REPLACE edit flow. Raw `grep` over the
 files remains a documented _convenience, not a policy boundary_.
 
@@ -188,10 +188,10 @@ Three verbs, two writers.
   exact-duplicate guard. **A normalized-exact restatement already in the scope is
   rejected 409** (naming the matched text); a genuine reword is allowed through.
 - **`PUT /api/memory` `{ scope, scopeId?, text, version }`** (REPLACE) →
-  `{ version }`: overwrites the whole file with `text` **verbatim** (raw means raw —
+  `{ version }`: overwrites the whole file with `text` **verbatim** (raw means raw - 
   no grammar, no stamping). If `version` no longer matches the current file
   (someone else wrote in between), it is a **409 conflict** carrying the current
-  version, and nothing is written — the caller re-READs and retries.
+  version, and nothing is written - the caller re-READs and retries.
 
 `PATCH`/`DELETE`-by-id are gone; editing and retracting are read-modify-REPLACE.
 
@@ -199,21 +199,21 @@ Three verbs, two writers.
 
 Agents write **via REST**, never by editing files directly (the safety hooks block
 agent writes under `~/.isomux`). Agents may touch **all four scopes** with **no
-proposal queue or boss promotion step** — shared writes are the point. Discretion,
+proposal queue or boss promotion step** - shared writes are the point. Discretion,
 not a gate, governs when an agent writes versus asks the boss first (section 6):
 the wider the scope, the more it should consult the boss. The non-ceremony safety
 measures are:
 
-1. **Memory is injected as notes, not policy** (section 3) — bad lines are
+1. **Memory is injected as notes, not policy** (section 3) - bad lines are
    attributed and weighable, not obeyed.
-2. **A system-prompt affordance that encodes restraint** (section 6) — especially
+2. **A system-prompt affordance that encodes restraint** (section 6) - especially
    the explicit "do NOT make big changes to office-wide memory."
-3. **An exact-duplicate guard on APPEND** — a cheap normalized-exact match rejects
+3. **An exact-duplicate guard on APPEND** - a cheap normalized-exact match rejects
    an obvious restatement (an over-eager agent re-stating the same fact and slowly
    polluting a shared scope). No fuzzy matching: a genuine reword is allowed.
-4. **A version guard on REPLACE** — optimistic concurrency turns a concurrent
+4. **A version guard on REPLACE** - optimistic concurrency turns a concurrent
    overwrite into a clean 409 retry instead of a lost update.
-5. **The op-log** — every mutation is snapshotted, so a bad write is recoverable.
+5. **The op-log** - every mutation is snapshotted, so a bad write is recoverable.
 
 **Authority is derived from the authenticated caller**, never from request-body
 fields. `author`/`date` are server-assigned on APPEND. `scopeId` is a
@@ -243,7 +243,7 @@ The field uses the **same READ/REPLACE verbs** as agents (a shared
 `useMemoryEditor` hook): on open it READs `{ text, version }`; on save it PUTs the
 edited text with that `version`, and a 409 conflict surfaces as a "reopen to edit
 the latest" message without closing the dialog. The textarea shows the **raw file**
-and writes it back verbatim — there is no id self-healing or special handling of
+and writes it back verbatim - there is no id self-healing or special handling of
 removed lines; what you see is what is saved. Memory saves run **separately** from
 the surrounding settings save (prompt/name/etc.), so they don't entangle.
 
@@ -257,7 +257,7 @@ The four memory scopes mirror the four system-prompt surfaces the human already
 owns (office prompt, room prompt, agent custom instructions, `memberPrompt`). A
 _human-authored_ fact that should be authoritative belongs in the prompt; a
 _human-curated_ memory line belongs in the settings memory field. The field is a
-thin client of the same permissive `/api/memory` READ/REPLACE verbs agents use —
+thin client of the same permissive `/api/memory` READ/REPLACE verbs agents use - 
 no separate human write API, no parallel copy of the prompt-editing UI.
 
 ## 6. System-prompt affordance ("How to use memory")
@@ -267,15 +267,15 @@ agent-messaging affordances. It is **both** the how-to manual and the restraint
 guardrail. It tells agents:
 
 - **What memory is:** durable facts about people, projects, environment, and rules
-  — contrasted with the session transcript, which already holds work-state.
+  - contrasted with the session transcript, which already holds work-state.
 - **The durability gate:** write lasting facts, never work-in-progress.
 - **Scope guidance + where office restraint lives:** write your own agent scope
   freely; room scope for what the whole project needs; office scope **only** for
-  genuinely office-wide facts, sparingly — and **"do NOT make big changes to
+  genuinely office-wide facts, sparingly - and **"do NOT make big changes to
   office-wide memory"** (it injects into every agent's every future session).
 - **The three operations:** APPEND by default (safe; server-stamped; 409 on a
   normalized-exact duplicate); to EDIT or REMOVE, READ the file, change the text, and REPLACE
-  it with the `version` you read — carefully, so you don't disturb other lines; a
+  it with the `version` you read - carefully, so you don't disturb other lines; a
   stale REPLACE returns 409, so re-READ and retry.
 - **When to write:** the moment you learn a durable fact (there is no extractor).
 - **The boss caveat:** boss memory is auto-loaded only for that boss's agents; it
@@ -283,7 +283,7 @@ guardrail. It tells agents:
 
 It does **not** expose the boss-memory filesystem path (section 2).
 
-**Honest caveat:** prompt-based restraint shapes a well-behaved model — a behavior
+**Honest caveat:** prompt-based restraint shapes a well-behaved model - a behavior
 nudge, not a boundary. The non-prompt guardrails are the exact-duplicate guard, the
 version guard, and the op-log (section 4).
 
@@ -292,7 +292,7 @@ version guard, and the op-log (section 4).
 Cleanup is **lazy and human-driven**: prune in the settings memory field (a
 REPLACE) when you notice junk. The slow leaks are duplicate restatements
 (mitigated at write time by the exact-normalized guard; rewords are allowed) and staleness (a fact goes
-wrong and nobody retracts it) — staleness is the known, consciously-deferred cost;
+wrong and nobody retracts it) - staleness is the known, consciously-deferred cost;
 a periodic cron agent that dedups and asks "still true?" can come later.
 
 **Recovery is the op-log.** `memory/.oplog.jsonl` records every successful APPEND
@@ -323,7 +323,7 @@ Deferred. Add only if real scale demands:
 - **Three verbs on `/api/memory`:** READ (text + version), APPEND (server-stamped,
   exact-dup 409), REPLACE (verbatim, version-guarded 409).
 - **Permissive on every verb** (any authenticated caller, target-existence gated),
-  including the destructive REPLACE of office memory — restraint via the affordance,
+  including the destructive REPLACE of office memory - restraint via the affordance,
   recovery via the op-log; pinned by a test.
 - **Boss boundary is auto-load only** (a boss's notes auto-inject solely into that
   boss's own agents' prompts), not a REST-read restriction.
@@ -332,7 +332,7 @@ Deferred. Add only if real scale demands:
   read-modify-write within one store call is serialized by the single-threaded
   event loop, and the cross-request edit flow is guarded by the version.
 - **Per-scope injected-size caps** (office 2500 / room 3500 / agent 5000 / boss
-  5000), newest-first with a trim notice — auto-load only; READ uncapped.
+  5000), newest-first with a trim notice - auto-load only; READ uncapped.
 - **Humans curate via each scope's settings field**, a thin client of the same
   READ/REPLACE verbs (`useMemoryEditor`); raw in, raw out.
 - **Every mutation is op-logged** with a full post-op snapshot for manual recovery.

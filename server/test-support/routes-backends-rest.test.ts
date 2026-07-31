@@ -1,4 +1,4 @@
-// Phase 3a slice 3a.5 — backends.listModels on the unified REST surface.
+// Phase 3a slice 3a.5 - backends.listModels on the unified REST surface.
 // GET /api/backends/:agentType/models?cwd=&includeHidden= (agent:manage +
 // authenticated). The shared core (listBackendModels) backed the legacy
 // list_backend_models WS arm, retired in 3d slice 2. Claude's listModels is a

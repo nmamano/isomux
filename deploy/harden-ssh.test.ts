@@ -1,16 +1,16 @@
-// deploy/harden-ssh.sh — the root-reachability check, exercised for real.
+// deploy/harden-ssh.sh - the root-reachability check, exercised for real.
 //
 // The load-bearing rule is that the verdict comes from the ssh AUTHENTICATION
 // TRANSCRIPT and never from ssh's exit status: a forced command in root's
 // authorized_keys exits non-zero on a successful login, and a client-side
 // config error exits non-zero without ever authenticating. Reading the exit
-// status would report both as "kept out" — the exact failure that makes a
+// status would report both as "kept out" - the exact failure that makes a
 // security check worse than none.
 //
 // So these run the script with stub binaries on PATH (ssh, sshd, sudo, runuser,
 // id, getent, passwd, ssh-keygen) and assert the exit status for each
 // combination of transcript and exit code. The root guard is stripped from the
-// copy under test — a separate test pins that the real script has it.
+// copy under test - a separate test pins that the real script has it.
 
 import {
   describe,
@@ -639,7 +639,7 @@ describe("harden-ssh.sh source", () => {
 });
 
 // The apply path, against a stubbed sshd. What makes hardening real is not the
-// file being written but sshd resolving the policies it names — Contabo's image
+// file being written but sshd resolving the policies it names - Contabo's image
 // ships a 50-cloud-init.conf that turns password logins back on, and the old
 // 90- file lost to it while reporting success.
 describe("harden-ssh.sh --apply", () => {

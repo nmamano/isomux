@@ -115,7 +115,7 @@ export function App() {
   // Refresh persistence: reopen the same spot (room / agent chat / tasks /
   // cronjobs) after a page reload, and restore unsent chat drafts. The
   // restore runs ONCE, after the first full_state, so every saved id can be
-  // validated against what actually still exists — a killed agent, a closed
+  // validated against what actually still exists - a killed agent, a closed
   // room, or lost access silently falls back to the normal default view (the
   // first visible room, which full_state already selected; the restore only
   // overrides it when the saved room is still valid). Gated off in the demo
@@ -136,13 +136,13 @@ export function App() {
   useEffect(() => {
     if (!persistEnabled || restored || !hasReceivedInitialState || !persistUser)
       return;
-    // One-shot hydration from an external system (localStorage) — the flag
+    // One-shot hydration from an external system (localStorage) - the flag
     // flip must be state (see above) and can only happen here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRestored(true);
     // Drafts: only re-dispatch for agents that still exist, and prune this
     // user's saved keys for agents that don't (killed, or no longer
-    // visible). Only our own namespace is pruned — another user's agents
+    // visible). Only our own namespace is pruned - another user's agents
     // can't be validated against this session's ACL-filtered list.
     const liveAgentIds = new Set(agents.map((a) => a.id));
     const savedDrafts = loadUserDrafts(persistUser);
@@ -204,7 +204,7 @@ export function App() {
   // Write drafts through to their per-composer keys (post-restore only) by
   // diffing against the previous Map: only the changed composer's key is
   // written, and a cleared/sent draft (entry deleted by set_draft "") removes
-  // its key. Per-composer keys — not a whole-map mirror — is what keeps
+  // its key. Per-composer keys - not a whole-map mirror - is what keeps
   // multi-tab safe: a second tab that never saw this tab's draft can't
   // clobber it, because it only ever writes the keys IT changes.
   const prevDraftsRef = useRef<Map<string, string> | null>(null);
@@ -227,8 +227,8 @@ export function App() {
     ? agents.find((a) => a.id === focusedAgentId)
     : null;
 
-  // Keep the browser tab title in sync with what's open — the focused agent,
-  // else the current room, else the office name — so tabs on different agents
+  // Keep the browser tab title in sync with what's open - the focused agent,
+  // else the current room, else the office name - so tabs on different agents
   // or rooms are distinguishable. The server renders the office name into
   // index.html for cold loads; this effect only takes over once full_state has
   // landed (connected=true) so it doesn't briefly overwrite the server-rendered
@@ -338,7 +338,7 @@ export function App() {
     if (deepRef.current) {
       window.history.back(); // popstate handler will reset state
     } else {
-      // Safety fallback — shouldn't happen, but don't break if it does
+      // Safety fallback - shouldn't happen, but don't break if it does
       setTasksOpen(false);
       setCronjobsOpen(false);
       setUsersOpen(false);
@@ -381,7 +381,7 @@ export function App() {
       }
       // "t": toggle the task board from anywhere (office view or while viewing an
       // agent), as long as you're not typing into a field. Disabled while the
-      // User Settings page is open — jumping away from it would bypass its
+      // User Settings page is open - jumping away from it would bypass its
       // unsaved-edits check.
       if (
         !isInput &&
@@ -396,7 +396,7 @@ export function App() {
       }
       // Viewport zoom/pan shortcuts (only from office view): 0 → reset, +/= → zoom in, - → zoom out.
       // "=" accepted as an alias for "+" so users don't need Shift on US layouts.
-      // Ref is null when OfficeView isn't mounted (mobile list, log view, etc.) — don't swallow the key in those cases.
+      // Ref is null when OfficeView isn't mounted (mobile list, log view, etc.) - don't swallow the key in those cases.
       const vp = viewportControlsRef.current;
       if (
         vp &&
@@ -498,7 +498,7 @@ export function App() {
       // Deep → deep transition (e.g. tasks→log, agent cycling): keep one entry
       window.history.replaceState({ isomux: true }, "");
     } else if (!isDeep && deepRef.current) {
-      // Returned to office — entry was consumed by history.back()
+      // Returned to office - entry was consumed by history.back()
       deepRef.current = false;
     }
   }, [isDeep, focusedAgentId, tasksOpen, cronjobsOpen, usersOpen]);

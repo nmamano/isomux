@@ -1,4 +1,4 @@
-// Browser preview capture — the engine behind POST /api/agents/:id/preview-url
+// Browser preview capture - the engine behind POST /api/agents/:id/preview-url
 // (task dcfd5a97). Screenshots a URL with a Chrome-family headless CLI (zero
 // bundled browser deps) so an agent can drop a page preview card into its
 // chat. Design doc: reviewed by Reviewer5, approved by Nil 2026-07-12.
@@ -6,7 +6,7 @@
 // Shape notes frozen by that review:
 //   - Any http(s) URL is accepted (task fb02f521, Nil 2026-07-12): the
 //     original local/private-host input policy was dropped because it never
-//     was an enforced network boundary — agents already have unrestricted
+//     was an enforced network boundary - agents already have unrestricted
 //     shell access, and Chrome resolves DNS independently (redirects and
 //     subresources can go anywhere). The compensating control is the agent
 //     system prompt, which tells agents the page renders in a real browser on
@@ -16,7 +16,7 @@
 //     Chrome). Deliberate: it converts the overwhelmingly common failure (dev
 //     server not running) into a precise `unreachable` error instead of a
 //     screenshot of Chrome's own error page. Disclosed in the agent prompt.
-//   - Past pre-flight, success means "Chrome produced a PNG" — which can be a
+//   - Past pre-flight, success means "Chrome produced a PNG" - which can be a
 //     rendered error page (e.g. the app's 500 page). Chrome's CLI exits 0 on
 //     navigation errors, so exit codes cannot distinguish those.
 //   - `wait` maps to --virtual-time-budget: a best-effort render budget that
@@ -27,7 +27,7 @@
 //   - All failure statuses fit the executor's HandlerErrorStatus union
 //     (400/429/500); distinct `code`s carry the failure kind.
 //
-// Testable seam: capturePreview(body, deps) — findBrowser / fetchFn /
+// Testable seam: capturePreview(body, deps) - findBrowser / fetchFn /
 // deadlineMs are injectable (preview-capture.test.ts uses a fake shell-script
 // "browser" via ISOMUX_PREVIEW_BROWSER / findBrowser, so the real spawn, group
 // kill, and temp-dir cleanup paths run deterministically without Chrome).
@@ -58,7 +58,7 @@ export interface PreviewSuccess {
   png: Buffer;
   /** Sanitized provenance for the chat card: origin + pathname, query stripped. */
   caption: string;
-  /** Generated attachment name — host/port/path only, never the query string. */
+  /** Generated attachment name - host/port/path only, never the query string. */
   filename: string;
 }
 
@@ -74,7 +74,7 @@ export interface PreviewCaptureDeps {
    * Overall capture deadline covering the pre-flight and the browser run
    * (queue-free by design: busy is an immediate 429). Termination starts
    * at the deadline; the call can return up to KILL_GRACE_MS later while a
-   * stubborn browser is reaped — never before the child is dead.
+   * stubborn browser is reaped - never before the child is dead.
    */
   deadlineMs?: number;
   /** Base dir for per-capture temp dirs. Default: os.tmpdir(). Tests inject
@@ -107,7 +107,7 @@ export const BROWSER_CANDIDATES = [
 ];
 // Absolute fallbacks, tried after the PATH names above. A systemd unit runs
 // with a minimal PATH, so a browser can be installed and still be invisible to
-// the name probe — /snap/bin (where Ubuntu 24.04 puts chromium) is never on it.
+// the name probe - /snap/bin (where Ubuntu 24.04 puts chromium) is never on it.
 // Last resort on purpose: snap-confined chromium usually installs fine and then
 // fails the capture itself, which at least surfaces the browser's own stderr
 // instead of a flat "no browser found".
@@ -119,7 +119,7 @@ export const BROWSER_ABSOLUTE_PATHS = [
 ];
 
 // Each Chrome is briefly ~150MB RSS; no queueing so the deadline never hides
-// unbounded wait time — a busy slot is an immediate 429 and agents retry.
+// unbounded wait time - a busy slot is an immediate 429 and agents retry.
 let activeCaptures = 0;
 
 function fail(
@@ -240,7 +240,7 @@ function defaultFindBrowser(): string | null {
 // lingering background-service/QUIC shutdown held the process for another
 // ~21s). So we poll for the finished file (PNG signature + IEND trailer, which
 // Chrome only writes once the image is complete), then kill the group
-// ourselves and await the exit before the caller cleans up the temp dir —
+// ourselves and await the exit before the caller cleans up the temp dir -
 // killing first, cleaning later, so Chrome can't recreate files post-rm.
 
 // PNG streams end with an IEND chunk: length(4) + "IEND"(4) + CRC(4).
@@ -296,7 +296,7 @@ function runBrowser(
         try {
           child.kill(signal); // group already gone or not a leader; best effort
         } catch {
-          // already dead — kill is idempotent by being a no-op here
+          // already dead - kill is idempotent by being a no-op here
         }
       }
     };
@@ -328,7 +328,7 @@ function runBrowser(
         .then((done) => {
           polling = false;
           if (!done || settled || fileDone || timedOut) return;
-          // Screenshot complete: don't wait out Chrome's teardown hang — kill
+          // Screenshot complete: don't wait out Chrome's teardown hang - kill
           // the group and let the 'close' handler resolve as captured.
           fileDone = true;
           if (pollTimer) clearInterval(pollTimer);
@@ -362,7 +362,7 @@ function runBrowser(
       settled = true;
       clearTimers();
       // Priority: timeout > captured > exited. A screenshot that lands after
-      // the deadline is still a timeout — the advertised contract must hold.
+      // the deadline is still a timeout - the advertised contract must hold.
       if (timedOut) {
         resolve({ kind: "timeout" });
         return;
@@ -418,7 +418,7 @@ export async function capturePreview(
   // Deadline contract: ONE absolute deadline from here (right after the
   // synchronous parse) bounds the pre-flight and the browser run. On expiry,
   // termination STARTS at the deadline; the response can then take up to
-  // KILL_GRACE_MS longer while a stubborn browser is SIGKILLed and reaped —
+  // KILL_GRACE_MS longer while a stubborn browser is SIGKILLed and reaped -
   // we never return before the child is dead, so the temp-dir cleanup can't
   // race a live Chrome. Net: response ≤ deadline + 2s.
   const deadlineMs = deps.deadlineMs ?? DEFAULT_DEADLINE_MS;
@@ -449,7 +449,7 @@ export async function capturePreview(
   let tmpDir: string | null = null;
   try {
     // Pre-flight: any HTTP response (any status) counts as reachable; only
-    // network-level failure is an error. Costs the target a duplicate GET —
+    // network-level failure is an error. Costs the target a duplicate GET -
     // disclosed tradeoff for a precise "server not running" message.
     const preflightMs = Math.min(
       PREFLIGHT_TIMEOUT_MS,
@@ -465,7 +465,7 @@ export async function capturePreview(
       return fail(
         500,
         "unreachable",
-        `\`${url}\` is not responding (${err instanceof Error ? err.message : String(err)}) — is the server running?`,
+        `\`${url}\` is not responding (${err instanceof Error ? err.message : String(err)}) - is the server running?`,
       );
     }
 
@@ -477,10 +477,10 @@ export async function capturePreview(
       `--window-size=${width},${height}`,
       // In --headless=new the page viewport is the window size MINUS an ~87px
       // virtual browser-UI strip, while --screenshot captures the full
-      // window-sized canvas — pages that paint their background via
+      // window-sized canvas - pages that paint their background via
       // viewport-sized elements (100vh containers) get an unpainted white
       // band at the bottom. Fullscreen removes the virtual UI, but sizes the
-      // window to the virtual SCREEN (default 800x600), not --window-size —
+      // window to the virtual SCREEN (default 800x600), not --window-size -
       // so pin the screen to the requested size too. Result: viewport ==
       // window == screen == canvas (verified empirically on Chrome 145,
       // 2026-07-12; see task dcfd5a97 follow-up).
@@ -493,7 +493,7 @@ export async function capturePreview(
       // Puppeteer-style automation flags: full Chrome otherwise runs its
       // phone-home background services (optimization-guide model downloads,
       // component updater, sync/signin) on every fresh profile, which was
-      // observed to stall captures by 20s+ on a box with slow egress — and to
+      // observed to stall captures by 20s+ on a box with slow egress - and to
       // keep WebSocket-heavy pages from ever settling.
       "--disable-background-networking",
       "--disable-component-update",
@@ -576,7 +576,7 @@ export async function capturePreview(
       return fail(
         500,
         "capture_failed",
-        `screenshot is ${(png.length / (1024 * 1024)).toFixed(1)} MB — over the ${MAX_PNG_BYTES / (1024 * 1024)} MB cap`,
+        `screenshot is ${(png.length / (1024 * 1024)).toFixed(1)} MB - over the ${MAX_PNG_BYTES / (1024 * 1024)} MB cap`,
       );
     }
 
@@ -590,7 +590,7 @@ export async function capturePreview(
     activeCaptures--;
     if (tmpDir) {
       // A cleanup failure must not fail an already-emitted card, but leaked
-      // Chrome profiles eat disk — make it observable. tmpDir carries no URL.
+      // Chrome profiles eat disk - make it observable. tmpDir carries no URL.
       await rm(tmpDir, { recursive: true, force: true }).catch(
         (err: unknown) => {
           console.warn(

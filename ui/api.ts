@@ -1,4 +1,4 @@
-// Unified REST client for the /api surface — the browser counterpart to the
+// Unified REST client for the /api surface - the browser counterpart to the
 // server's typed route table + executor. As Phase 3 migrates each command off
 // the WebSocket command bus, its UI call site swaps a fire-and-forget
 // `ws.send()` for an `apiFetch()`: HTTP correlates the response natively, so the
@@ -13,9 +13,9 @@ export type ApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 // Thrown for any non-2xx /api response. Carries the server's error envelope
 // ({ error: { code, message } }) so call sites can branch on `code` and render
-// `message` — the same strings the retired `*_response.error` fields carried.
+// `message` - the same strings the retired `*_response.error` fields carried.
 // `detail` is the FULL error object (code + message + any extra fields the server
-// spread in), so a structured failure can carry data past the envelope — e.g. the
+// spread in), so a structured failure can carry data past the envelope - e.g. the
 // editor's 409 stale-save carries `currentMtime` for the conflict banner.
 export class ApiError extends Error {
   constructor(
@@ -53,7 +53,7 @@ export async function apiFetch<T = unknown>(
   method: ApiMethod,
   path: string,
   body?: unknown,
-  // Extra request headers (network path only — the demo shim ignores them). The
+  // Extra request headers (network path only - the demo shim ignores them). The
   // editor rides X-Isomux-Connection-Id here to bind a file watch to this tab's
   // socket (see Conventions › Connection binding).
   opts?: { headers?: Record<string, string> },
@@ -61,7 +61,7 @@ export async function apiFetch<T = unknown>(
   // Dev guard: every route on this surface is under /api/. A caller passing a
   // bare path (e.g. a leftover "/validate/cwd") would silently miss the shim and
   // hit the SPA's catch-all instead of erroring. Cheap startsWith, not URL
-  // parsing — the intent is to catch a typo at the call site, not validate URLs.
+  // parsing - the intent is to catch a typo at the call site, not validate URLs.
   if (!path.startsWith("/api/")) {
     throw new Error(`apiFetch: path must start with "/api/" (got "${path}")`);
   }

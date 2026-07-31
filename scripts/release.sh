@@ -2,8 +2,8 @@
 # Tag and publish an isomux release (release-channel slice C1, see
 # internal-docs/release-design.md).
 #
-# A release is an annotated CalVer tag — vYYYY.M.D, with a .N suffix from the
-# second tag of a day — on a commit CI has already checked, plus a GitHub
+# A release is an annotated CalVer tag - vYYYY.M.D, with a .N suffix from the
+# second tag of a day - on a commit CI has already checked, plus a GitHub
 # Release with auto-generated notes (which is what the installer's
 # releases/latest default resolves).
 #
@@ -12,11 +12,11 @@
 #   scripts/release.sh v2026.7.19 # explicit tag
 #
 # Gates, in order: clean checkout; HEAD published on origin's main; the
-# Build workflow (.github/workflows/build.yml) completed green for HEAD —
+# Build workflow (.github/workflows/build.yml) completed green for HEAD - 
 # specifically that workflow, so an unrelated green check can never stand in
 # for CI; the bun pin unchanged since the previous release (customer
 # updaters only WARN on a bun mismatch and roll back on the installed bun,
-# so a pin change needs a fleet plan — override with
+# so a pin change needs a fleet plan - override with
 # RELEASE_ALLOW_BUN_CHANGE=1); tag free both locally and on origin.
 #
 # RELEASE_SKIP_CI=1 skips the CI gate AND the GitHub Release step so the
@@ -50,7 +50,7 @@ tag_exists() {
 
 if [[ -n $TAG ]]; then
   [[ $TAG =~ $CALVER_RE ]] || die "not a CalVer tag (vYYYY.M.D[.N]): $TAG"
-  tag_exists "$TAG" && die "tag $TAG already exists; releases are immutable — pick the next free tag"
+  tag_exists "$TAG" && die "tag $TAG already exists; releases are immutable - pick the next free tag"
 else
   base="v$(date +%Y.%-m.%-d)"
   TAG=$base
@@ -101,7 +101,7 @@ fi
 
 # Bun-pin invariant: customer updaters only warn when a release pins a
 # different bun than the box runs, and a failed start rolls back on the
-# INSTALLED bun — so until versioned side-by-side runtimes exist, a release
+# INSTALLED bun - so until versioned side-by-side runtimes exist, a release
 # must not change the pin silently.
 bun_pin_at() {
   # || true: a ref without package.json is "no pin", not a fatal error
@@ -110,7 +110,7 @@ bun_pin_at() {
     sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' | head -1
 }
 # The previous release comes from ORIGIN's tag namespace, and is read via
-# its remote-reported commit sha — a CalVer tag planted locally (higher, or
+# its remote-reported commit sha - a CalVer tag planted locally (higher, or
 # shadowing the real name) must not become the comparison baseline. Peeled
 # ^{} lines give the commit for annotated tags; a bare line covers a
 # lightweight tag.

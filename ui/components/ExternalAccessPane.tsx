@@ -1,7 +1,7 @@
 // Owner-only "Access" section: where can people reach this office from?
 // Mounts on the User Settings page (UserSettingsView) when the current
 // session's role is "owner". One of the three panes the old all-in-one
-// "Access & invites" section was split into (task 07514e7f) — see also
+// "Access & invites" section was split into (task 07514e7f) - see also
 // InvitesPane and SessionsPane.
 //
 // Pre-claim or with external access disabled, isomux binds 127.0.0.1 only and
@@ -61,7 +61,7 @@ function ExternalAccessSection({
   const [urlInput, setUrlInput] = useState("");
   const [envOriginSet, setEnvOriginSet] = useState(false);
   // The normalized env value, or null when the env var is absent OR set but
-  // invalid (in which case envOriginSet is true while envOrigin is null —
+  // invalid (in which case envOriginSet is true while envOrigin is null -
   // the UI uses that combination to flag the invalid case).
   const [envOrigin, setEnvOrigin] = useState<string | null>(null);
   const [boundLoopback, setBoundLoopback] = useState(true);
@@ -105,7 +105,7 @@ function ExternalAccessSection({
     const nextUrl = nextEnabled ? urlInput.trim() : "";
     setPending(true);
     // Save supersedes any in-flight discard prompt (the user picked Save
-    // over Discard) — drop the stashed navigation so it can't replay.
+    // over Discard) - drop the stashed navigation so it can't replay.
     pendingDiscardActionRef.current = null;
     setConfirmDiscard(false);
     setError(null);
@@ -141,7 +141,7 @@ function ExternalAccessSection({
   // later Discard can't replay it.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pendingDiscardActionRef = useRef<(() => void) | null>(null);
-  // The prompt sits mid-pane (no sticky footer here) — scroll it into view
+  // The prompt sits mid-pane (no sticky footer here) - scroll it into view
   // when it opens, so a header-back/ESC while scrolled elsewhere doesn't
   // look like a dead click.
   const discardPromptRef = useRef<HTMLDivElement | null>(null);
@@ -172,7 +172,7 @@ function ExternalAccessSection({
     setConfirmDiscard(false);
   }
   // Mirror requestClose into the parent's ref every render so the captured
-  // closure always sees fresh form state — same no-deps pattern as
+  // closure always sees fresh form state - same no-deps pattern as
   // UserSettingsView's UserEditPanel.
   useEffect(() => {
     if (closeRef) closeRef.current = requestClose;
@@ -183,7 +183,7 @@ function ExternalAccessSection({
 
   // Tab-close guard while dirty: in-app navigation already routes through
   // the discard prompt, but closing/reloading the tab was the one silent
-  // loss path (save-flow friction pass, task 4733fa30). No deps — the
+  // loss path (save-flow friction pass, task 4733fa30). No deps - the
   // handler must see the current `dirty` each render.
   useEffect(() => {
     function onBeforeUnload(e: BeforeUnloadEvent) {
@@ -243,7 +243,7 @@ function ExternalAccessSection({
           <p style={hint}>
             Pattern: https://&lt;host&gt; (the address you'll open from your
             laptop / phone). Saving doesn't change the running server's bind on
-            its own — restart isomux to apply.
+            its own - restart isomux to apply.
           </p>
         </>
       )}
@@ -258,7 +258,7 @@ function ExternalAccessSection({
       {envOrigin && enabled && normalizedInput === envOrigin && (
         <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
           Note: <code>ISOMUX_PUBLIC_ORIGIN={envOrigin}</code> is set in the
-          environment and matches this Public URL. The env var is deprecated —
+          environment and matches this Public URL. The env var is deprecated -
           remove it from your env file once this office-config value is saved.
         </p>
       )}

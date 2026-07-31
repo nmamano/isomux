@@ -54,7 +54,7 @@ export function atomicWriteFileSync(path: string, data: string | Buffer) {
 
 export function appendLog(agentId: string, sessionId: string, entry: LogEntry) {
   // Ephemeral entries (e.g. UI-only "Conversation cleared." markers) must
-  // never reach disk — guarded here as defense-in-depth so future callers
+  // never reach disk - guarded here as defense-in-depth so future callers
   // can't accidentally persist one by going through appendLog directly.
   if (entry.ephemeral) return;
   try {
@@ -148,7 +148,7 @@ export function loadLogWithAncestors(
 // - `usageSnapshots` records cumulative usage after each turn, anchored to the
 //   id of the last log entry written at that moment. /isomux-usage walks the parent's
 //   log to find the snapshot at-or-before a fork point and subtracts it from
-//   the fork's own cumulative — exact fork accounting with no double-count.
+//   the fork's own cumulative - exact fork accounting with no double-count.
 // - `forkBaseUsage` is the parent's cumulative-at-the-fork-point captured at
 //   fork creation (resolved via the snapshots above).
 type UsageSnapshot = { entryId: string; usage: PersistedUsage };
@@ -160,13 +160,13 @@ type SessionsMap = Record<
     // topic was last generated. Used on resume/startup to detect drift: if
     // the replayed log has materially more entries, the topic is stale and
     // worth regenerating. Missing on entries persisted before this field
-    // existed — treated as 0 (regenerate aggressively).
+    // existed - treated as 0 (regenerate aggressively).
     topicMessageCount?: number;
     lastModified: number;
     // The cwd this session runs in. Source of truth for per-session cwd; the
     // agent's `cwd` field is a denormalized mirror of the *active* session's
     // value (and the seed for the next new session). Absent on sessions
-    // persisted before this field existed — callers backfill from the agent
+    // persisted before this field existed - callers backfill from the agent
     // cwd then (see getSessionCwd / ensureSessionCwd).
     cwd?: string;
     // The engine config this session runs under. Source of truth for
@@ -175,7 +175,7 @@ type SessionsMap = Record<
     // session's values. An agent's engine is therefore a projection of whichever
     // session is live: resuming a session restores its stored engine, and a new
     // conversation can target a different one. Absent on sessions persisted
-    // before per-session engine existed — callers fall back to the agent's
+    // before per-session engine existed - callers fall back to the agent's
     // current engine then (a pre-feature agent only ever ran one engine).
     agentType?: AgentInfo["agentType"];
     modelFamily?: AgentInfo["modelFamily"];
@@ -291,7 +291,7 @@ export type SessionEngineConfig = {
 
 // Read a session's stored engine config. Returns null for an unknown session and
 // leaves individual fields undefined for a legacy session that predates
-// per-session engine — `agentType` undefined is the sentinel callers check.
+// per-session engine - `agentType` undefined is the sentinel callers check.
 export function getSessionEngineConfig(
   agentId: string,
   sessionId: string,
@@ -313,7 +313,7 @@ export function getSessionEngineConfig(
 // backfill: it's called at every session bootstrap (system_init), and because
 // every model/effort/permission/engine change funnels through a session replace
 // (and thus a fresh system_init), this keeps the active session's stored config
-// in lockstep with the live agent — so a later resume restores exactly what the
+// in lockstep with the live agent - so a later resume restores exactly what the
 // session last ran as. Does not touch lastModified, so it never reorders the
 // resume picker.
 export function stampSessionEngineConfig(
@@ -336,13 +336,13 @@ export function stampSessionEngineConfig(
 
 // One-time backfill: stamp the agent's CURRENT engine config onto every session
 // that predates per-session engine (no stored agentType). Called at agent
-// load/revive, BEFORE the agent can switch engines — at that moment the agent's
+// load/revive, BEFORE the agent can switch engines - at that moment the agent's
 // engine is exactly the engine every existing session ran under, so this tags
 // legacy sessions correctly by construction. Without it a legacy session would
 // stay engine-less, and after the agent later switched engines, resuming it
 // wouldn't flip back: createSession would dispatch the wrong backend (e.g. open
 // a Claude .jsonl as a Codex rollout) and the user could never re-enter that
-// conversation. Idempotent — only touches entries missing agentType, never bumps
+// conversation. Idempotent - only touches entries missing agentType, never bumps
 // lastModified.
 export function backfillSessionEngineConfigs(
   agentId: string,
@@ -373,7 +373,7 @@ export function persistSessionFork(
   forkMessageId: string,
   topic: string | null,
   topicMessageCount: number,
-  // The cwd the new (forked) session runs in — inherited from the active
+  // The cwd the new (forked) session runs in - inherited from the active
   // session's cwd at fork time, so a fork keeps working in the same directory.
   cwd: string,
   forkBaseUsage?: PersistedUsage,
@@ -466,7 +466,7 @@ export function appendSessionUsageSnapshot(
   const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
   const snapshots = existing.usageSnapshots ?? [];
   // Coalesce snapshots that share an entryId (multiple results with no log
-  // activity between them — shouldn't happen, but keep the list compact).
+  // activity between them - shouldn't happen, but keep the list compact).
   const last = snapshots[snapshots.length - 1];
   if (last && last.entryId === entryId) {
     last.usage = usage;
@@ -572,7 +572,7 @@ export interface PersistedAgent {
   modelFamily?: string;
   effort?: EffortLevel;
   // Engine. Missing field defaults to "claude" on load (legacy agents spawned
-  // before this field was added). Fixed at spawn — see task f352984f Round 3.
+  // before this field was added). Fixed at spawn - see task f352984f Round 3.
   agentType?: AgentInfo["agentType"];
   // Codex-only sandbox setting.
   codexSandbox?: AgentInfo["codexSandbox"];
@@ -581,7 +581,7 @@ export interface PersistedAgent {
   customInstructions: string | null;
   // Identity reference for per-user env at spawn/resume time. `userId` is
   // authoritative for env lookup (via buildEnvForUserId) and identifies
-  // the agent's manager — the spawning user, shown in the system prompt
+  // the agent's manager - the spawning user, shown in the system prompt
   // user section. Set at spawn and immutable. `username` is the matching
   // display snapshot kept for UI/wire compatibility and audit purposes;
   // not authoritative for any behavior, can go stale across renames.
@@ -590,7 +590,7 @@ export interface PersistedAgent {
   username?: string | null;
   // Stable room id (matches the container Room.id). Phase 3c: persisted agents
   // are explicitly room-id keyed. Physical nesting under rooms stays the source
-  // of truth, so this is optional and backfilled from the container on load —
+  // of truth, so this is optional and backfilled from the container on load -
   // there is no structural flatten to {rooms, agents} in 3c (deferred/not
   // required).
   roomId?: string;
@@ -598,7 +598,7 @@ export interface PersistedAgent {
   // token at mint time so it carries its spawning user's room-scoped operator
   // capabilities. Absent on agents persisted before this field landed; read
   // sites coerce a missing value with `?? false`, so there is NO migration
-  // backfill (which keeps the saveAgents→loadAgents round-trip lossless — see
+  // backfill (which keeps the saveAgents→loadAgents round-trip lossless - see
   // migratePersistedAgent).
   privileged?: boolean;
 }
@@ -618,7 +618,7 @@ function migratePersistedAgent(
 ): void {
   // NOTE: `privileged` needs no backfill here. It's an optional field and every
   // read site coerces a missing value with `?? false`, so a legacy agent (no
-  // field) already behaves as not-privileged — and NOT rewriting it keeps the
+  // field) already behaves as not-privileged - and NOT rewriting it keeps the
   // saveAgents->loadAgents round-trip lossless.
   if (agent.modelFamily) return;
   if (typeof agent.model === "string") {
@@ -762,7 +762,7 @@ export interface ManifestAgentInput {
   desk: number;
   room: number;
   roomName: string;
-  // Stable room id — the value memory scopeIds and room-targeting routes
+  // Stable room id - the value memory scopeIds and room-targeting routes
   // expect (the 1-based `room` number is display-only).
   roomId: string;
   topic: string | null;
@@ -834,7 +834,7 @@ export function saveRecentCwd(cwd: string) {
 //
 // The same file also carries deployment-level keys not edited via the UI
 // (currently `publicOrigin`, used as a fallback for `ISOMUX_PUBLIC_ORIGIN`
-// when the env var is unset — see docs/access-and-invites.md). Those keys
+// when the env var is unset - see docs/access-and-invites.md). Those keys
 // are NOT part of OfficeSettings; `loadOfficeConfig`/`saveOfficeConfig`
 // only surface prompt + envFile to the UI-mutated office state. Save uses
 // a read-modify-write so sibling keys outside OfficeSettings survive UI
@@ -876,7 +876,7 @@ export function loadOfficeConfig(): OfficeSettings {
     envFile: null,
     name: null,
   };
-  // Only persist if the legacy prompt actually had content — otherwise a fresh
+  // Only persist if the legacy prompt actually had content - otherwise a fresh
   // install touches a new file for no reason, and the next save/set will write
   // it anyway once there's real data.
   if (legacyPrompt) {
@@ -909,7 +909,7 @@ export function saveOfficeConfig(config: OfficeSettings) {
 //     under `<isomuxRoot>/plugins/<id>/`.
 //   - Object ({ id, path }) = an external plugin at the explicit `path`. The
 //     plugin's exported `id` must match the entry's `id` (the path's basename
-//     does NOT have to match — e.g., the mem0 plugin lives at a directory
+//     does NOT have to match - e.g., the mem0 plugin lives at a directory
 //     called `isomux-mem0` but exports id "mem0").
 //
 // The hybrid shape keeps bundled-plugin config clean (just a string id, no
@@ -921,7 +921,7 @@ export type EnabledPluginEntry = string | { id: string; path: string };
 // Read `enabledPlugins` from office-config.json. Returns validated entries
 // (deduped by id, first occurrence wins). Goes through readOfficeConfigRaw
 // rather than loadOfficeConfig because `OfficeSettings` filters unknown keys
-// — `enabledPlugins` lives alongside `prompt` / `envFile` / `name` /
+// - `enabledPlugins` lives alongside `prompt` / `envFile` / `name` /
 // `publicOrigin` in the JSON but is not surfaced to the UI in v0 (operator
 // edits the file directly).
 //
@@ -932,7 +932,7 @@ export type EnabledPluginEntry = string | { id: string; path: string };
 //   `path: string` that's absolute (starts with `/`) or tilde-prefixed
 //   (starts with `~/`). Relative paths are rejected because they'd resolve
 //   against the server cwd which is brittle.
-// - Bad entries are logged to stderr and dropped — a malformed enable list
+// - Bad entries are logged to stderr and dropped - a malformed enable list
 //   should not silently broaden the trust boundary.
 export function loadEnabledPlugins(): EnabledPluginEntry[] {
   const raw = readOfficeConfigRaw();
@@ -1019,7 +1019,7 @@ export interface ServerConfig {
 
 // Re-read the raw JSON object so save paths can do a read-modify-write that
 // preserves unrelated sibling keys (e.g. `publicOrigin` when the UI saves
-// prompt/envFile, or vice versa). Always returns a plain object — missing
+// prompt/envFile, or vice versa). Always returns a plain object - missing
 // file or parse failure both map to `{}`.
 function readOfficeConfigRaw(): Record<string, unknown> {
   try {
@@ -1266,7 +1266,7 @@ export function saveTasks(tasks: TaskItem[]) {
 
 const SCHEDULED_MESSAGES_FILE = join(ISOMUX_DIR, "scheduled-messages.json");
 
-// Load the raw scheduled-messages array. Returns unknown[] — per-entry shape
+// Load the raw scheduled-messages array. Returns unknown[] - per-entry shape
 // validation belongs to the scheduled-message manager (so it also applies to
 // injected test persistence), not here. A corrupt file is QUARANTINED (renamed
 // aside with a timestamp suffix) rather than left in place, so a later save
@@ -1305,7 +1305,7 @@ export function loadScheduledMessagesRaw(): unknown[] {
 
 // Unlike the other save* helpers, this THROWS on failure: a schedule/cancel
 // request whose durable write failed must fail the HTTP request (a memory-only
-// scheduled message would silently die on restart — review-pinned behavior).
+// scheduled message would silently die on restart - review-pinned behavior).
 export function saveScheduledMessages(entries: ScheduledMessageEntry[]) {
   atomicWriteFileSync(
     SCHEDULED_MESSAGES_FILE,
@@ -1323,7 +1323,7 @@ const MESSAGE_QUEUES_FILE = join(ISOMUX_DIR, "message-queues.json");
 // Per-record shape validation belongs to agent-manager (which also drops
 // records for agents no longer on disk); this layer owns only the file
 // contract. A corrupt file is QUARANTINED (renamed aside with a timestamp
-// suffix) rather than left in place — same policy as scheduled-messages.
+// suffix) rather than left in place - same policy as scheduled-messages.
 // Never throws.
 export function loadMessageQueuesRaw(): Record<string, unknown> {
   try {
@@ -1357,14 +1357,14 @@ export function loadMessageQueuesRaw(): Record<string, unknown> {
 // Side-effect-free read of the same file, for callers that must NOT quarantine.
 // loadMessageQueuesRaw renames a corrupt file aside; that is right for the boot
 // path and wrong for anything read-only (the storage pruner reads the durable
-// queue to learn which attachments are still owed to an undelivered message —
-// see server/storage-prune.ts — and a dry run must never move a user's file).
+// queue to learn which attachments are still owed to an undelivered message -
+// see server/storage-prune.ts - and a dry run must never move a user's file).
 //
 // EMPTY and UNKNOWN are separate results, deliberately. A caller that is about
 // to DELETE files based on "nothing is queued" must not be handed the same
 // answer for "the queue is genuinely empty" and "the queue file could not be
 // read or parsed". An absent file is a real, valid empty (a fresh box); an
-// unreadable or malformed one is `ok: false` and the caller has to decide —
+// unreadable or malformed one is `ok: false` and the caller has to decide -
 // the pruner treats it as fail-closed.
 export type MessageQueuesPeek =
   | { ok: true; records: Record<string, unknown> }
@@ -1385,7 +1385,7 @@ export function peekMessageQueuesRaw(): MessageQueuesPeek {
 }
 
 // THROWS on failure. The ACCEPTANCE path (enqueueMessage) needs the throw to
-// roll back and fail the request — an acked-but-unpersisted message would be
+// roll back and fail the request - an acked-but-unpersisted message would be
 // silent loss on restart (review-pinned, mirrors saveScheduledMessages).
 // Post-accept callers (drain/cancel/clear) catch and log instead: the backend
 // already accepted, and stale disk merely widens at-least-once replay.

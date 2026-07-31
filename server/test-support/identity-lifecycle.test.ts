@@ -1,4 +1,4 @@
-// Phase 2.1 — Identity & capabilities: agent token lifecycle + redaction.
+// Phase 2.1 - Identity & capabilities: agent token lifecycle + redaction.
 // (The cron RUN-token lifecycle lives in cronjob-manager.di.test.ts.)
 //
 // TDD red-green for NEW code. Drives the REAL AgentManager through the
@@ -6,7 +6,7 @@
 // injects it into the agent's session env; kill revokes it; revive rotates it;
 // and the raw token never appears on any externally-visible surface (WS
 // messages, log entries, the backend-visible system prompt). ADDITIVE: nothing
-// is rejected here — issuance, env-injection, and redaction only.
+// is rejected here - issuance, env-injection, and redaction only.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -147,7 +147,7 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
   it("live GRANT re-mints with the privileged set and session-swaps the new token in", async () => {
     // autoSystemInit:false -> the live session carries no sessionId, so the swap
     // starts a fresh session (no Claude resume-file preflight) while still
-    // re-injecting the new token — which is what we assert here.
+    // re-injecting the new token - which is what we assert here.
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
     });
@@ -155,7 +155,7 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
     const { info } = await spawnAgent(srv, "PrivAgent");
     // Lazy spawn: wake the agent so it has a LIVE session for setPrivileged to
     // swap (a dormant agent re-mints the token but defers the env injection to
-    // its next wake — the swap path under test only runs on a live session).
+    // its next wake - the swap path under test only runs on a live session).
     await wake(srv, info.id);
 
     const raw1 = getAgentTokenRaw(info.id) as string;
@@ -170,7 +170,7 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
     expect(raw2).not.toBe(raw1); // re-minted
     expect(resolveToken(raw1)).toBeNull(); // old token revoked
     const id2 = resolveToken(raw2)!;
-    expect(id2.scope).toBe("agent"); // STILL agent — no impersonation
+    expect(id2.scope).toBe("agent"); // STILL agent - no impersonation
     expect(identityHasCapability(id2, "agent:manage")).toBe(true);
     expect(identityHasCapability(id2, "cron:manage")).toBe(true);
     expect(srv.agentManager.getAgent(info.id)?.privileged).toBe(true);

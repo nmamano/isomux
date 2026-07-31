@@ -1,4 +1,4 @@
-// Codex backend — T2 adapter-contract tier.
+// Codex backend - T2 adapter-contract tier.
 //
 // Freezes the Codex App Server -> NormalizedEvent translation by driving the
 // REAL CodexSession with curated JSON-RPC provider events through a fake
@@ -6,7 +6,7 @@
 // subprocess, zero LLM: plain `bun test` runs these always. The live
 // end-to-end smoke lives in server/backends/live-smoke.test.ts (T3, opt-in).
 //
-// Fixtures are deliberately minimal — the smallest event stream that exercises
+// Fixtures are deliberately minimal - the smallest event stream that exercises
 // each translation branch. They are expected to break on Codex SDK/protocol
 // bumps; keeping them small keeps a refresh cheap (see
 // internal-docs/generic-runtime-refactor.md, Testing strategy -> test tiers).
@@ -41,7 +41,7 @@ import type { NormalizedEvent } from "../types.ts";
 const FIXTURE_THREAD_ID = "thread-fixture-1";
 
 // ---------------------------------------------------------------------------
-// FakeCodexTransport — curated-event driver for the real adapter.
+// FakeCodexTransport - curated-event driver for the real adapter.
 //
 // Implements ONLY the production CodexTransport surface. The fire* / record
 // helpers below are test-only and intentionally kept off the interface so the
@@ -310,7 +310,7 @@ describe("CodexSession bootstrap", () => {
 // ---------------------------------------------------------------------------
 // Assistant text / reasoning
 // ---------------------------------------------------------------------------
-describe("CodexSession item translation — text & thinking", () => {
+describe("CodexSession item translation - text & thinking", () => {
   it("agentMessage -> assistant_text; empty text is dropped", async () => {
     const { fake, it } = await bootstrapped();
     fireItem(fake, { type: "agentMessage", text: "" });
@@ -345,7 +345,7 @@ describe("CodexSession item translation — text & thinking", () => {
 // ---------------------------------------------------------------------------
 // Tool calls (each emits a tool_call then a tool_result)
 // ---------------------------------------------------------------------------
-describe("CodexSession item translation — tool calls", () => {
+describe("CodexSession item translation - tool calls", () => {
   it("commandExecution -> Bash tool_call + tool_result, exit 0 not an error", async () => {
     const { fake, it } = await bootstrapped();
     fireItem(fake, {
@@ -612,7 +612,7 @@ describe("CodexSession token usage", () => {
 // Compaction / errors / warnings / per-thread filter
 // ---------------------------------------------------------------------------
 describe("CodexSession misc notifications", () => {
-  // The wire type (ContextCompactedNotification) is { threadId, turnId } — there
+  // The wire type (ContextCompactedNotification) is { threadId, turnId } - there
   // is no `summary` field, so the adapter emits the bare compacted marker (the
   // dead params.summary read was removed, 9fc5d488); summary stays undefined.
   it("thread/compacted -> compacted (no summary on the wire)", async () => {
@@ -801,7 +801,7 @@ describe("CodexSession auto-declined server requests", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Auth coalescing — the representative case (per design review). After
+// Auth coalescing - the representative case (per design review). After
 // turn/started, an auth-shaped stderr burst produces exactly ONE system_text,
 // triggers exactly ONE best-effort turn/interrupt, and the resulting
 // turn_completed is failed + causedByAuth with a non-auth-shaped summary so the
@@ -872,7 +872,7 @@ describe("CodexSession image view", () => {
     const dir = mkdtempSync(join(tmpdir(), "isomux-codex-img-"));
     tempDirs.push(dir);
     const imgPath = join(dir, "shot.png");
-    // Minimal PNG signature bytes — enough for statSync/readFileSync to succeed.
+    // Minimal PNG signature bytes - enough for statSync/readFileSync to succeed.
     writeFileSync(imgPath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]));
 
     const { fake, it } = await bootstrapped();
@@ -893,7 +893,7 @@ describe("CodexSession image view", () => {
 });
 
 // ---------------------------------------------------------------------------
-// buildCodexUserInput — inbound attachments follow the shared path-notice
+// buildCodexUserInput - inbound attachments follow the shared path-notice
 // convention (server/attachment-prompt.ts): no localImage, no inlined
 // contents, one text item joining one line per resolved attachment. Fixture
 // files live under the preload-managed temp STATE_ROOT.

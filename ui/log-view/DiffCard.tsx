@@ -23,7 +23,7 @@ function writePref(v: DiffOutputFormat) {
 // Split a multi-file unified patch by `diff --git` boundaries. Path is read
 // from the chunk's body (`+++ b/...` for adds/mods/renames-with-content,
 // `rename to ...` for pure renames, `--- a/...` for deletions) which is much
-// more reliable than parsing the `diff --git a/X b/Y` header — that line is
+// more reliable than parsing the `diff --git a/X b/Y` header - that line is
 // ambiguous when paths contain spaces or " b/" substrings.
 function splitPatchByFile(patchText: string): Map<string, string> {
   const map = new Map<string, string>();
@@ -195,7 +195,7 @@ function DiffOverlay({
   const reason = truncated
     ? "The total patch was over 2 MB so the diff content was not shipped to the browser. Re-run /isomux-diff after narrowing the working tree, or open this file in your editor."
     : summary.status === "binary"
-      ? "Binary file — no textual diff to render."
+      ? "Binary file - no textual diff to render."
       : summary.status === "untracked"
         ? "Untracked file too large to synthesize a patch (>1 MB). Open in your editor, or `git add` it and re-run."
         : !patch
@@ -510,7 +510,7 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
                 ? `${payload.subject} · ${payload.head}`
                 : payload.subject
               : payload.branch
-                ? `${payload.branch} · ${payload.head ?? "—"}`
+                ? `${payload.branch} · ${payload.head ?? " - "}`
                 : payload.head}
           </span>
         )}

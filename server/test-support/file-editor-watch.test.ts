@@ -6,12 +6,12 @@
 // implementation used fs.watch on the file path itself; under Bun that
 // watch fires NOTHING for a rename-replace and is permanently dead
 // afterwards, so the editor never auto-reloaded agent edits. (A
-// parent-directory fs.watch loses the rename too — Bun coalesces the burst
+// parent-directory fs.watch loses the rename too - Bun coalesces the burst
 // into one pre-rename event.) watchFile now polls the file's mtime on an
 // interval, which is save-mechanism-agnostic; these tests freeze that
 // every save style produces a change event.
 //
-// Zero LLM, zero server — exercises server/file-editor.ts directly against
+// Zero LLM, zero server - exercises server/file-editor.ts directly against
 // a temp directory.
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
@@ -111,7 +111,7 @@ describe("watchFile", () => {
 
   it("emits for a save landing between read and watch install", async () => {
     // The read-then-watch gap (Reviewer2 finding): the baseline must be the
-    // signature of the READ, not of watch-install time — otherwise a change
+    // signature of the READ, not of watch-install time - otherwise a change
     // in the gap is recorded as the baseline and never emits.
     const file2 = join(dir, "gap.txt");
     writeFileSync(file2, "v0");
@@ -134,7 +134,7 @@ describe("watchFile", () => {
 });
 
 // Deletion lifecycle (task 1ed49547): a confirmed-missing path must produce a
-// distinct "deleted" event — exactly once — and a recreation afterwards must
+// distinct "deleted" event - exactly once - and a recreation afterwards must
 // resume change events. All tests use a fast poll (the pollMs test override)
 // so the two-consecutive-miss confirmation stays fast.
 describe("watchFile deletion", () => {
@@ -167,7 +167,7 @@ describe("watchFile deletion", () => {
 
   it("does not emit deleted for a single-poll transient absence", async () => {
     // A rare save style (unlink + recreate) can leave the path absent for one
-    // poll. One miss must NOT be classified as a deletion — that's the
+    // poll. One miss must NOT be classified as a deletion - that's the
     // two-consecutive-miss confirmation. Recreate between the first and
     // second poll and assert the watch reports a change, never a deletion.
     const file = join(dir, "flicker.txt");
@@ -250,7 +250,7 @@ describe("file revisions", () => {
     const r2 = openFile(file);
     if (r1.kind !== "ok" || r2.kind !== "ok") throw new Error("open failed");
     expect(r2.rev).toBe(r1.rev);
-    // Replace the file (new inode — detectable even in the same millisecond).
+    // Replace the file (new inode - detectable even in the same millisecond).
     const tmp = join(dir, "rev.txt.tmp");
     writeFileSync(tmp, "v1");
     renameSync(tmp, file);
@@ -272,7 +272,7 @@ describe("file revisions", () => {
     expect(s.rev).toBeGreaterThan(r.rev);
   });
 
-  it("saveFile with a stale rev refuses — even when mtime moved BACKWARDS", () => {
+  it("saveFile with a stale rev refuses - even when mtime moved BACKWARDS", () => {
     // The legacy `currentMtime > expectedMtime` guard misses a rollback (a
     // restore that moves mtime into the past). The rev guard must catch it.
     const file = join(dir, "rollback.txt");
@@ -310,7 +310,7 @@ describe("file revisions", () => {
   });
 
   it("recreation with a MATCHING signature still bumps: saveFile's ENOENT records the missing sentinel", () => {
-    // rename-away + rename-back preserves ino, mtime and size — the recreated
+    // rename-away + rename-back preserves ino, mtime and size - the recreated
     // signature EQUALS the pre-delete one. Without the missing sentinel being
     // recorded at the saveFile ENOENT observation, the restore would return
     // the old rev and a client that saw the deletion banner could be told
@@ -337,7 +337,7 @@ describe("file revisions", () => {
     if (r.kind !== "ok") throw new Error("open failed");
     const aside = join(dir, "resurrect2.aside");
     renameSync(file, aside);
-    // The reconnect re-open observes the deletion — no watch armed, no save.
+    // The reconnect re-open observes the deletion - no watch armed, no save.
     expect(openFile(file).kind).toBe("not_found");
     renameSync(aside, file); // same signature restored
     const reopened = openFile(file);
@@ -351,7 +351,7 @@ describe("file revisions", () => {
     // miss exactly the disconnected-conflict cases the revision exists to
     // catch. Non-reuse is STATE-based: each process reserves a generation by
     // read-increment-persist on <STATE_ROOT>/editor-rev-generation, and every
-    // rev is generation*BLOCK+counter — no timing involved, so this test is
+    // rev is generation*BLOCK+counter - no timing involved, so this test is
     // deterministic. Simulate the restart at the module boundary: fresh
     // imports (the query string busts the module cache) get a brand-new
     // registry AND run the same generation reservation a new server process
@@ -370,7 +370,7 @@ describe("file revisions", () => {
     const gen2 = await freshGeneration("gen2");
     const r2 = gen2.openFile(file);
     if (r2.kind !== "ok") throw new Error("gen2 open failed");
-    // Same unchanged file, but the new generation must not echo the old rev —
+    // Same unchanged file, but the new generation must not echo the old rev -
     // it has no basis to claim continuity with pre-restart state.
     expect(r2.rev).not.toBe(r1.rev);
     // And the guard side: a pre-restart rev presented to the new generation
@@ -412,7 +412,7 @@ describe("file revisions", () => {
     if (r1.kind !== "ok") throw new Error("open failed");
 
     // Corruption case A: empty file (what a torn non-atomic write would have
-    // left). The next "process" must NOT restart the sequence — it takes a
+    // left). The next "process" must NOT restart the sequence - it takes a
     // degraded high-range generation, so it can never reissue any low
     // sequential generation (in particular not the one r1.rev lives in).
     writeFileSync(genFile, "", "utf8");
@@ -428,7 +428,7 @@ describe("file revisions", () => {
     // above its high-range generation.
     expect(/^\d+$/.test(readFileSync(genFile, "utf8").trim())).toBe(true);
 
-    // Corruption case B: non-numeric garbage — same non-low guarantee.
+    // Corruption case B: non-numeric garbage - same non-low guarantee.
     writeFileSync(genFile, "not a number", "utf8");
     const genB = await freshGeneration("garbage");
     const rB = genB.openFile(file);

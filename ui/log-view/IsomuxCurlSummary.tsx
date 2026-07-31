@@ -88,7 +88,7 @@ export function IsomuxCurlHeader({
       {req.pipeTail && (
         // Elided only by pipeTailForDisplay, which is bounded so the card
         // always shows more of the tail than the raw collapsed row it replaces
-        // — the parser does not semantically validate tails, so a card that
+        // - the parser does not semantically validate tails, so a card that
         // showed less could hide a side effect (a `sed w` script).
         <span
           style={{

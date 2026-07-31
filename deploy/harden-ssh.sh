@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# isomux-harden-ssh — SSH hardening for an isomux box, and the check that says
+# isomux-harden-ssh - SSH hardening for an isomux box, and the check that says
 # whether it holds.
 #
 # Two jobs:
-#   apply — key-only SSH auth. Skipped, loudly, on a box that has no SSH key
+#   apply - key-only SSH auth. Skipped, loudly, on a box that has no SSH key
 #           yet: turning off password logins there would lock the operator out.
-#   check — can the isomux service account log in as root on this box? Answered
+#   check - can the isomux service account log in as root on this box? Answered
 #           by TRYING, as that account, and reading the authentication
 #           transcript. Also checks passwordless sudo.
 #
@@ -17,7 +17,7 @@
 #
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
 # which is fetched on its own by curl | bash and so cannot read repo files. The
-# two copies are pinned equal by deploy/install-sh.test.ts — edit here, then
+# two copies are pinned equal by deploy/install-sh.test.ts - edit here, then
 # paste into the heredoc there.
 #
 # Usage (as root):
@@ -170,7 +170,7 @@ apply_hardening() {
   fi
   # Refuse to turn off password logins when no key can get back in. Assumption:
   # any non-empty authorized_keys under /root or /home belongs to an account
-  # the operator can log in with — true on a freshly provisioned VPS, where
+  # the operator can log in with - true on a freshly provisioned VPS, where
   # those are the provider-created login accounts.
   local f has_keys=""
   for f in "${AUTHORIZED_KEYS_FILES[@]}"; do

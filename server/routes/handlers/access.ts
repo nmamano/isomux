@@ -1,11 +1,11 @@
-// Access-settings resource handlers — Phase 3a slice 3a.4c. The office
+// Access-settings resource handlers - Phase 3a slice 3a.4c. The office
 // bind/origin policy on the unified REST surface (opIds office.{getAccess,
-// setAccess}). Owner-only — the route table gates both with office:admin +
+// setAccess}). Owner-only - the route table gates both with office:admin +
 // officeOwner; there is no member or scoped variant.
 //
 // Strangler EXPAND: these REST handlers + the legacy WS arms (get_access_settings
 // / update_access_settings) BOTH delegate to the SAME shared cores in the index
-// seam — computeAccessSettings() (read) and applyAccessSettings() (validate →
+// seam - computeAccessSettings() (read) and applyAccessSettings() (validate →
 // save → owner self-invite → emitInvitesList). Handlers stay pure REST mappers.
 //
 // RESPONSE shapes: getAccess returns the full AccessSettings; setAccess returns

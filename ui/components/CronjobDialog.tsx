@@ -100,7 +100,7 @@ export function CronjobDialog({
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
     cronjob?.codexSandbox ?? "workspace-write",
   );
-  // Initial permission mode is fixed per engine — the dropdown shows a
+  // Initial permission mode is fixed per engine - the dropdown shows a
   // single option in each case (no human-in-the-loop modes for unattended).
   //   Claude: "bypassPermissions". Legacy "auto" rows have already been
   //           migrated to bypassPermissions at load time.
@@ -130,7 +130,7 @@ export function CronjobDialog({
 
   // Engine change resets dependent fields to the new backend's safe defaults
   // so a stale Claude-flavored model/effort/permission doesn't survive a flip
-  // to Codex (or vice versa). Locked when editing — see Engine field below.
+  // to Codex (or vice versa). Locked when editing - see Engine field below.
   function handleEngineChange(next: AgentBackendType) {
     if (next === agentType) return;
     setAgentType(next);
@@ -149,7 +149,7 @@ export function CronjobDialog({
   // on a Codex cronjob, or when the user flips the Engine select to Codex.
   // GET backends.listModels: a DOMAIN failure (auth/transport in the executor's
   // model probe) comes back as a 200 carrying { models: [], authError, error },
-  // NOT a thrown ApiError — so read r.error in .then(); only a real HTTP/network
+  // NOT a thrown ApiError - so read r.error in .then(); only a real HTTP/network
   // failure reaches .catch().
   useEffect(() => {
     if (!isCodex) return;
@@ -251,7 +251,7 @@ export function CronjobDialog({
     // agent_save_response.error). Same .then/.catch shape as the model load.
     let req: Promise<unknown>;
     if (isEdit) {
-      // agentType is intentionally omitted — immutable on edit. CronUpdateReq is
+      // agentType is intentionally omitted - immutable on edit. CronUpdateReq is
       // the changes FLAT (not wrapped in { changes } like the old WS command).
       const body: CronUpdateReq = {
         name: name.trim() || cronjob.name,
@@ -270,7 +270,7 @@ export function CronjobDialog({
         body,
       );
     } else {
-      // username is omitted — the server derives attribution from identity.
+      // username is omitted - the server derives attribution from identity.
       const body: CronCreateReq = {
         name: name.trim() || "Untitled cron job",
         schedule: buildSchedule(),
@@ -536,7 +536,7 @@ export function CronjobDialog({
             // Locked on edit, mirroring agents. To switch engines the user
             // creates a new cronjob.
             <div
-              title="Engine is fixed at create time — to switch engines, create a new cronjob."
+              title="Engine is fixed at create time - to switch engines, create a new cronjob."
               style={{
                 ...inputStyle,
                 display: "flex",
@@ -670,7 +670,7 @@ export function CronjobDialog({
             >
               {modelsError.message}
               {modelsError.authError
-                ? " — sign in via the card a Codex agent emits."
+                ? " - sign in via the card a Codex agent emits."
                 : ""}
             </p>
           )}
@@ -697,7 +697,7 @@ export function CronjobDialog({
               } else {
                 // No supportedEfforts reported (or list not yet loaded): fall
                 // back to the static list minus "max"/"ultra" (not universal
-                // across Codex models — e.g. luna lacks ultra; the dynamic
+                // across Codex models - e.g. luna lacks ultra; the dynamic
                 // per-model list is the real source when available).
                 effortOptions = EFFORT_LEVELS.filter(
                   (opt) => opt.level !== "max" && opt.level !== "ultra",
@@ -752,7 +752,7 @@ export function CronjobDialog({
               margin: "3px 0 0",
             }}
           >
-            Cron jobs run unattended — modes that require human approval are not
+            Cron jobs run unattended - modes that require human approval are not
             available.
           </p>
 

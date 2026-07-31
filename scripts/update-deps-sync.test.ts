@@ -1,4 +1,4 @@
-// scripts/update.sh sync_system_deps — the step that lets an update deliver
+// scripts/update.sh sync_system_deps - the step that lets an update deliver
 // system dependencies the target release newly requires. The function is
 // extracted from the updater with sed (same approach as
 // deploy/install-resolve-ref.test.ts) and driven against a real git repo
@@ -28,7 +28,7 @@ const UPDATE_SH = new URL("./update.sh", import.meta.url).pathname;
 let base: string;
 let toolsDir: string;
 
-// A PATH with exactly the tools sync_system_deps uses — and nothing else, so
+// A PATH with exactly the tools sync_system_deps uses - and nothing else, so
 // the no-apt branch is testable on a box that does have apt.
 function buildToolsDir(dir: string) {
   mkdirSync(dir, { recursive: true });
@@ -155,7 +155,7 @@ describe("update.sh system-dependency sync", () => {
 
   it("hands the installer a minimal environment, not the caller's", () => {
     // An inherited DRY_RUN would make the installer print instead of install
-    // and still exit 0 — a dependency sync that reports success and did
+    // and still exit 0 - a dependency sync that reports success and did
     // nothing. INSTALL_CALLBACK_URL would post about an install nobody ran.
     const repo = buildTrustRepo("trust-env", fakeInstaller());
     const r = syncDeps({ trustRepo: repo, hostileEnv: true });

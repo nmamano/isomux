@@ -1,7 +1,7 @@
 // Owner-only "Sessions" section: every signed-in device across the office,
 // with revoke controls. Mounts on the User Settings page (UserSettingsView)
 // when the current session's role is "owner". One of the three panes the old
-// all-in-one "Access & invites" section was split into (task 07514e7f) — see
+// all-in-one "Access & invites" section was split into (task 07514e7f) - see
 // also ExternalAccessPane and InvitesPane.
 
 import { useState } from "react";
@@ -28,7 +28,7 @@ export function SessionsPane() {
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>Sessions</h4>
       {/* Task eb3354e6: owners looking to ADD a device tend to land here
-          (it's where devices are listed) — point them at the two flows that
+          (it's where devices are listed) - point them at the two flows that
           actually mint links. */}
       <p style={hint}>
         Devices signed into this office, across all users. Revoking a session

@@ -3,11 +3,11 @@
 // In-process TypeScript modules, loaded by the Bun runtime at boot from
 // <isomuxRoot>/plugins/ and ~/.isomux/plugins/. Two hooks:
 //
-//   beforeTurn — may inject a prompt prefix wrapped in per-plugin delimiters.
-//   afterTurn  — observes the turn outcome (memory writes, audit, etc.).
+//   beforeTurn - may inject a prompt prefix wrapped in per-plugin delimiters.
+//   afterTurn  - observes the turn outcome (memory writes, audit, etc.).
 //
 // This file is the canonical definition for isomux's own use. Plugins
-// themselves should NOT import from here — they re-declare these shapes
+// themselves should NOT import from here - they re-declare these shapes
 // locally so the contract can evolve before being published as a package.
 // See internal-docs/isomux-plugin-system.md.
 
@@ -35,14 +35,14 @@ export interface PluginTurnContext {
    *  expanded skill prompt (what the user effectively asked the model to
    *  do); for coalesced queue flushes it's the per-item bodies joined
    *  without sender prefixes. This is the right value for plugins that
-   *  want to reason about user intent — memory retrieval queries, audit
+   *  want to reason about user intent - memory retrieval queries, audit
    *  records of "what was asked", etc. */
   originalText: string;
   /** Exact pre-plugin SDK prompt: sender prefix applied, plugin prefix
    *  blocks NOT yet prepended. This is the closest thing to "what the
    *  model will see" before plugins add their own context. Useful for
    *  audit/debug plugins that need to reason about the exact backend
-   *  payload. Most plugins should prefer `originalText` instead — the
+   *  payload. Most plugins should prefer `originalText` instead - the
    *  sender prefix is an isomux-routing concern, not user intent. */
   sdkText: string;
 }
@@ -62,21 +62,21 @@ export interface PluginAfterTurnInput {
    *  `failed` for a backend or transport error, `interrupted` for a
    *  user-initiated stop / session swap that landed AFTER send. A turn
    *  cancelled DURING plugin retrieval (Stop, /clear, /resume, etc. before
-   *  session.send) skips `afterTurn` entirely — nothing reached the model,
+   *  session.send) skips `afterTurn` entirely - nothing reached the model,
    *  so there is no turn outcome to observe. Plugins must not rely on
    *  `afterTurn` for symmetry with every `beforeTurn` invocation. */
   status: "completed" | "failed" | "interrupted";
   /** The final string sent to the backend. Includes both the sender prefix
    *  (`[Nil (Phone)]`) AND every plugin's prefix block from this turn. The
    *  three text representations available to a plugin:
-   *    - `ctx.originalText`  — sender prefix stripped, plugin prefixes stripped.
+   *    - `ctx.originalText`  - sender prefix stripped, plugin prefixes stripped.
    *                            Use this for storing the user's semantic
    *                            request (mem0 add()) and for retrieval
    *                            queries (mem0 search()).
-   *    - `ctx.sdkText`       — sender prefix applied, plugin prefixes NOT
+   *    - `ctx.sdkText`       - sender prefix applied, plugin prefixes NOT
    *                            yet added. Useful for plugins that need to
    *                            know exactly what isomux routing produced.
-   *    - `userTextSent`      — both prefix layers applied. This is what the
+   *    - `userTextSent`      - both prefix layers applied. This is what the
    *                            model literally saw. Useful for audit/debug
    *                            plugins that need to reproduce the prompt. */
   userTextSent: string;
@@ -89,7 +89,7 @@ export interface PluginAfterTurnInput {
   assistantText: string;
   /** Log entries produced during this turn, post-snapshot. Includes
    *  tool_call / tool_result / error / system / thinking entries. The
-   *  triggering user_message is NOT included — the snapshot is taken
+   *  triggering user_message is NOT included - the snapshot is taken
    *  after it's been logged. */
   newLogEntries: LogEntry[];
 }

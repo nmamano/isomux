@@ -175,7 +175,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
   });
 });
 
-// Phase 2.1 (ADDITIVE) — RUN-scope token wired into the PRIMARY run lifecycle.
+// Phase 2.1 (ADDITIVE) - RUN-scope token wired into the PRIMARY run lifecycle.
 // fire() mints a token, injects it as ISOMUX_AGENT_TOKEN into the run env (so a
 // firing run's in-flight read-file/diff can authenticate as the run), and every
 // terminal path revokes it. Resumed follow-up turns are out of 2.1 scope (still
@@ -238,7 +238,7 @@ describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
   });
 });
 
-describe("buildCronjobSystemPrompt — memory injection (DI seam)", () => {
+describe("buildCronjobSystemPrompt - memory injection (DI seam)", () => {
   it("appends the office memory section via the injected seam; none by default", () => {
     const withMem = createCronjobManager(
       baseDeps({
@@ -259,7 +259,7 @@ describe("buildCronjobSystemPrompt — memory injection (DI seam)", () => {
   });
 });
 
-// Follow-up #11 — RUN token on RESUMED cron turns. Phase 2.1 wired the RUN
+// Follow-up #11 - RUN token on RESUMED cron turns. Phase 2.1 wired the RUN
 // token only into the primary fire() lifecycle; resumed follow-up turns
 // (sendRunMessage / editRunMessage) resume through buildRunSessionOptions, which
 // now mints + injects a fresh RUN token and revokes it on every terminal path
@@ -407,7 +407,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
 
     // Force the resume to throw AFTER buildRunSessionOptions mints the token
     // (call arguments evaluate before the call). The resume-failure catch must
-    // revoke it — installResumedActive never runs, so finalizeRun never would.
+    // revoke it - installResumedActive never runs, so finalizeRun never would.
     fake.resumeSession = () => {
       throw new Error("boom (resume)");
     };
@@ -416,7 +416,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     fake.sessions.forEach((s) => s.close());
   });
 
-  it("a post-mint, pre-install failure (install-time emit throws) revokes the token — no leak", async () => {
+  it("a post-mint, pre-install failure (install-time emit throws) revokes the token - no leak", async () => {
     // resumeSession SUCCEEDS (token minted + injected), but installResumedActive
     // throws AFTER activeRuns.set (its cronjob_run_updated emit throws). Without
     // the guard the token would outlive the run with no terminal owner (finalize
@@ -462,7 +462,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
 
     armed = true;
     await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
-    // The resumed turn's token was minted then revoked by the post-mint guard —
+    // The resumed turn's token was minted then revoked by the post-mint guard -
     // not leaked. (A subsequent resume could start again; the run isn't wedged.)
     expect(getRunTokenRaw(job.id, run.id)).toBeNull();
     fake.sessions.forEach((s) => s.close());

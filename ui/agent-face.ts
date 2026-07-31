@@ -5,8 +5,8 @@
 // you. Rendered in App.tsx's document.title effect, nowhere else.
 //
 // Glyph rules (tested in agent-face.test.ts): nothing with an emoji
-// presentation or variation selector — iOS Safari force-emoji-renders those
-// (same gotcha that made the Slide Mode toggle an SVG instead of a glyph) —
+// presentation or variation selector - iOS Safari force-emoji-renders those
+// (same gotcha that made the Slide Mode toggle an SVG instead of a glyph) -
 // and no combining marks, which clip unpredictably in tab strips where we
 // can't control the font. Kaomoji ingredients like ｡ ﹏ ﾉ are plain text
 // everywhere and pass both rules.
@@ -40,7 +40,7 @@ export function faceForState(state: AgentState): string {
 
 /** Tab-title label for a focused agent. The face leads: browser tabs truncate
  *  from the right, so a trailing face is the first thing a crowded tab strip
- *  drops — exactly when it's most useful. */
+ *  drops - exactly when it's most useful. */
 export function agentTabLabel(name: string, state: AgentState): string {
   const face = faceForState(state);
   return face ? `${face} ${name}` : name;

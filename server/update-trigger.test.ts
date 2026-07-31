@@ -1,4 +1,4 @@
-// server/update-trigger.ts — plan building for the three box shapes (system /
+// server/update-trigger.ts - plan building for the three box shapes (system /
 // user / not managed) and the triggerUpdate composition with an INJECTED
 // runner. NOTHING here may ever execute a real systemctl or systemd-run: plan
 // tests assert argv without running it, and the one real-spawn test for

@@ -12,7 +12,7 @@ import {
 } from "./claude";
 
 // ---------------------------------------------------------------------------
-// makePushableInput — pushable async iterable for query()'s prompt arg
+// makePushableInput - pushable async iterable for query()'s prompt arg
 // ---------------------------------------------------------------------------
 
 describe("makePushableInput", () => {
@@ -92,7 +92,7 @@ describe("makePushableInput", () => {
 });
 
 // ---------------------------------------------------------------------------
-// wrapV1Query — adapter shape over a Query-like object
+// wrapV1Query - adapter shape over a Query-like object
 // ---------------------------------------------------------------------------
 
 // Minimal Query stand-in: yields a controlled sequence + records interrupt
@@ -249,7 +249,7 @@ describe("wrapV1Query", () => {
   it("close swallows interrupt() rejections", async () => {
     const q = new FakeQuery();
     const input = makePushableInput<SDKUserMessage>();
-    // Override interrupt to reject — close() must still complete.
+    // Override interrupt to reject - close() must still complete.
     q.interrupt = () => Promise.reject(new Error("ignored"));
     const conv = wrapV1Query(q, input);
     expect(() => conv.close()).not.toThrow();
@@ -312,7 +312,7 @@ describe("wrapV1Query", () => {
 });
 
 // ---------------------------------------------------------------------------
-// sessionOptsToV1 — verbatim passthrough, add resume when set
+// sessionOptsToV1 - verbatim passthrough, add resume when set
 // ---------------------------------------------------------------------------
 
 describe("sessionOptsToV1", () => {
@@ -323,7 +323,7 @@ describe("sessionOptsToV1", () => {
     permissionMode: "default" as const,
   };
 
-  it("passes typed systemPrompt/effort through untouched — the prompt must ride the typed option (stdin), never extraArgs/argv (task e6a0387a)", () => {
+  it("passes typed systemPrompt/effort through untouched - the prompt must ride the typed option (stdin), never extraArgs/argv (task e6a0387a)", () => {
     const v1 = sessionOptsToV1({
       ...base,
       systemPrompt: { type: "preset", preset: "claude_code", append: "sys" },
