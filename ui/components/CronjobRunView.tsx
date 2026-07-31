@@ -51,7 +51,6 @@ export function CronjobRunView({
   );
   const streamId = cronjobRunStreamId(runId);
   const runs = cronjobRunsByJob.get(jobId) ?? [];
-  const run = runs.find((r) => r.id === runId);
   const device = getDevice();
 
   const [input, setInput] = useState("");
@@ -67,11 +66,24 @@ export function CronjobRunView({
   // entries when the user clicked a run that had started before they opened
   // the app. The reducer dedupes by id, so re-sending overlapping entries is
   // harmless.
-  const [loaded, setLoaded] = useState(false);
+  //
+  // The once-only guard is a ref holding the {jobId,runId} it already fetched,
+  // not a bare boolean: a boolean would never reset if this view were ever
+  // reused for a different run without unmounting. Today it is a per-run
+  // overlay that always remounts, so the key comparison is belt-and-braces —
+  // but it costs nothing and removes the latent trap.
+  const fetchKey = `${jobId}\u0000${runId}`;
+  const fetchedKeyRef = useRef<string | null>(null);
+  // The run as the server returned it, kept only as a header fallback for when
+  // the store has no copy (see `run` below). Keyed so a stale answer from a
+  // previous run can never be shown against this one.
+  const [fetchedRun, setFetchedRun] = useState<{
+    key: string;
+    run: CronjobRun;
+  } | null>(null);
   useEffect(() => {
-    if (loaded) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoaded(true);
+    if (fetchedKeyRef.current === fetchKey) return;
+    fetchedKeyRef.current = fetchKey;
     // Fetch the historical transcript and merge it into the run's log stream
     // (the same stream live `log_entry` events feed during an active run). The
     // batch reducer dedupes by id, so overlapping live entries are neither
@@ -82,15 +94,28 @@ export function CronjobRunView({
         runId,
       )}`,
     )
-      .then(({ entries }) => dispatch({ type: "log_entries_batch", entries }))
+      .then(({ run, entries }) => {
+        dispatch({ type: "log_entries_batch", entries });
+        setFetchedRun({ key: fetchKey, run });
+      })
       .catch(() => {
         // 404 (run gone) or transport error: leave the stream as-is. Matches the
         // old load_cronjob_run, which replayed zero entries for a missing run, so
         // the view still shows "No log entries."; any live entries already in the
-        // stream are preserved. Run metadata stays store-only (cronjobRunsByJob),
-        // so the fetched `run` is intentionally ignored.
+        // stream are preserved, and the header keeps its "Run #<id>" fallback.
       });
-  }, [jobId, runId, loaded, dispatch]);
+  }, [jobId, runId, fetchKey, dispatch]);
+
+  // Store first, fetched copy second. The store (cronjobRunsByJob) is the live
+  // one: cron list queries seed it and `cronjob_run_updated` events keep it
+  // current, and that event UPSERTS, so a status change lands there even for a
+  // run the list never loaded — which is why preferring it keeps the header
+  // live. The fetched copy only fills the gap where the store has nothing at
+  // all: a deep link to a run whose list hasn't loaded, or a run whose cronjob
+  // was deleted. Without it the header would read "Run #<id>" with no metadata.
+  const run =
+    runs.find((r) => r.id === runId) ??
+    (fetchedRun?.key === fetchKey ? fetchedRun.run : undefined);
 
   // ESC closes the view, unless the user is editing a message — then ESC
   // cancels the edit (handled inside EditableUserMessage).

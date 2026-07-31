@@ -10,7 +10,7 @@
 // anything it can't FULLY understand (compound commands, command substitution,
 // unknown flags, non-isomux hosts), and the caller falls back to the plain
 // rendering. A false null costs nothing; a false parse would show a wrong
-// summary. Four deliberate tolerances on top of that:
+// summary. Five deliberate tolerances on top of that:
 // - side-effect-free redirections (`2>/dev/null`, `>/dev/null`, `2>&1`) are
 //   accepted and omitted from the card (see tokenize);
 // - saving output to a file (`> file`, `>> file`, `-o file`) is accepted for
@@ -28,6 +28,11 @@
 //   standard Codex message-POST shape) supplies the body: literal JSON becomes
 //   card fields, anything else a "body from heredoc" note (see
 //   resolveHeredocBody).
+// - trailing `;`/`&&`-chained inspection commands (`curl ... > f; wc -c f`,
+//   `curl ... >/dev/null && echo posted`) are accepted for a small allowlist of
+//   display/inspection commands, and — like a pipe tail — are ALWAYS shown on
+//   the card verbatim (trailingCommand); see splitStatements and
+//   TRAILING_COMMANDS.
 
 export type CurlBodyField = { key: string; value: string };
 
@@ -80,6 +85,17 @@ export type IsomuxCurlRequest = {
   outputFile: string | null;
   /** True when outputFile is appended to (`>>`) rather than overwritten. */
   outputAppend: boolean;
+  /**
+   * Trailing statements chained onto the curl with `;` or `&&`, verbatim and
+   * including the separator, e.g. `; wc -c /tmp/tasks.json` or
+   * `&& echo "posted"`. Null when the command is a single statement.
+   *
+   * Same contract as pipeTail: the statements are command-gated (see
+   * TRAILING_COMMANDS) and shell-checked, but NOT semantically validated, so
+   * the collapsed card must show them at least as fully as the raw collapsed
+   * row would — run them through pipeTailForDisplay().
+   */
+  trailingCommand: string | null;
 };
 
 // --- shell tokenizer ---------------------------------------------------------
@@ -255,6 +271,86 @@ function tokenize(
   return { tokens, pipeTail: null, outputRedirect };
 }
 
+// --- statement splitting -----------------------------------------------------
+
+type Statement = { sep: string; text: string };
+
+/**
+ * Split a command into top-level statements at unquoted `;` / `&&`, so a curl
+ * with a trailing inspection command (`curl ... > f; wc -c f`, the shape agent
+ * transcripts are full of) can still be carded. Each statement carries the
+ * separator that preceded it (`""` for the first), and the statements are
+ * contiguous slices of the input, so the caller can recover the remainder
+ * verbatim.
+ *
+ * Returns null when there is nothing to split, or on a separator we don't
+ * model: `;;` (case), a lone `&` (backgrounding). `||` needs no special case —
+ * it stays inside a statement, where tokenize() rejects it. Every null path is
+ * safe because the caller then hands the UN-split command to tokenize(), which
+ * bails on the `;`/`&` it kept: a rejected shape degrades to raw rendering, not
+ * to a wrong card.
+ *
+ * Quoting is tracked so a `;` inside an argument (`-d '{"a":"x; y"}'`) is not a
+ * separator. A `;` inside `$(...)`/backticks IS treated as one, which cuts the
+ * command mid-substitution — harmless, because the resulting head still carries
+ * the `$(`/backtick that makes tokenize() bail.
+ */
+function splitStatements(command: string): Statement[] | null {
+  const out: Statement[] = [];
+  let sep = "";
+  let start = 0;
+  let i = 0;
+  const n = command.length;
+  while (i < n) {
+    const c = command[i];
+    if (c === "'") {
+      const end = command.indexOf("'", i + 1);
+      if (end === -1) return null;
+      i = end + 1;
+      continue;
+    }
+    if (c === '"') {
+      i++;
+      while (i < n && command[i] !== '"') {
+        if (command[i] === "\\") i++;
+        i++;
+      }
+      if (i >= n) return null;
+      i++;
+      continue;
+    }
+    if (c === "\\") {
+      i += 2;
+      continue;
+    }
+    if (c === ";" || c === "&") {
+      let next: string;
+      if (c === ";") {
+        if (command[i + 1] === ";") return null;
+        next = ";";
+      } else if (command[i + 1] === "&") {
+        next = "&&";
+      } else if (command[i - 1] === ">") {
+        // The `&` of a stream-merging redirection (`2>&1`), not a separator.
+        // Leave it in the statement and let tokenize() judge the redirection.
+        i++;
+        continue;
+      } else {
+        return null; // a lone `&` backgrounds the command
+      }
+      out.push({ sep, text: command.slice(start, i) });
+      sep = next;
+      i += next.length;
+      start = i;
+      continue;
+    }
+    i++;
+  }
+  if (out.length === 0) return null;
+  out.push({ sep, text: command.slice(start) });
+  return out;
+}
+
 // --- heredoc extraction ------------------------------------------------------
 
 // A heredoc feeding the command: `line` is the command with the `<<DELIM`
@@ -418,6 +514,20 @@ const FILTER_COMMANDS = new Set([
   "column",
 ]);
 
+// Commands accepted as a trailing `;`/`&&` statement after the curl. A superset
+// of FILTER_COMMANDS: a trailing statement reads a file or prints a word rather
+// than a stdin stream, so the three additions here (`echo` — by far the most
+// common shape in transcripts, `curl ... >/dev/null && echo posted` — plus the
+// two file-inspection commands that pair with saving output) would be nonsense
+// as pipe stages, which is why FILTER_COMMANDS stays as it is.
+//
+// The gate is coarse in exactly the same way (see FILTER_COMMANDS): it does not
+// prove that an accepted command is read-only, and the card's safety property
+// remains display, not validation — a trailing statement is always shown
+// verbatim, bounded so the card can never conceal what the raw collapsed row
+// would have revealed.
+const TRAILING_COMMANDS = new Set([...FILTER_COMMANDS, "echo", "ls", "stat"]);
+
 // Characters of the raw command an UNCARDED Bash row shows in its collapsed
 // summary (extractToolSummary in LogEntryCard.tsx, which imports this).
 // It lives here, not there, because MAX_TAIL_DISPLAY below is derived from it
@@ -439,7 +549,14 @@ export const BASH_RAW_SUMMARY_CHARS = 80;
 // as it is for a long raw command.
 const MAX_TAIL_DISPLAY = 64;
 
-/** A pipe tail as the collapsed card renders it. See MAX_TAIL_DISPLAY. */
+/**
+ * A pipe tail — or a trailing `;`/`&&` statement, which carries the same
+ * show-it-verbatim obligation — as the collapsed card renders it. Each such
+ * segment is bounded independently, which preserves the property above: the raw
+ * row's 80-character window starts at least 20 characters into the command, so
+ * it can reveal at most 60 characters of any one segment, always as a prefix.
+ * See MAX_TAIL_DISPLAY.
+ */
 export function pipeTailForDisplay(tail: string): string {
   return tail.length > MAX_TAIL_DISPLAY
     ? tail.slice(0, MAX_TAIL_DISPLAY) + "…"
@@ -456,15 +573,24 @@ export function pipeTailForDisplay(tail: string): string {
  * See FILTER_COMMANDS for what this does and does not guarantee.
  */
 function isSafePipeTail(tail: string): boolean {
-  const stage = tokenize(tail.slice(1));
+  return isSafeStage(tail.slice(1), FILTER_COMMANDS);
+}
+
+/**
+ * Validate one command plus its own optional `| ...` continuation. `allowed`
+ * gates only this command's name; anything past a `|` reads stdin by
+ * construction, so the recursion always gates on FILTER_COMMANDS.
+ */
+function isSafeStage(text: string, allowed: ReadonlySet<string>): boolean {
+  const stage = tokenize(text);
   if (!stage || stage.tokens.length === 0) return false;
   const [cmd, ...rest] = stage.tokens;
-  const allowed =
-    FILTER_COMMANDS.has(cmd) ||
+  const ok =
+    allowed.has(cmd) ||
     ((cmd === "python" || cmd === "python3") &&
       rest[0] === "-m" &&
       rest[1] === "json.tool");
-  if (!allowed) return false;
+  if (!ok) return false;
   return stage.pipeTail === null || isSafePipeTail(stage.pipeTail);
 }
 
@@ -1270,7 +1396,9 @@ function outerExpandsBody(command: string): boolean {
  * a `jq ... | curl ... -d @-` producer pipeline where jq builds the request
  * body — from --arg templates, a positional input file, or a heredoc
  * (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-`) — or a heredoc feeding curl
- * directly as its body (`curl ... -d @- <<'EOF'`). A single-statement
+ * directly as its body (`curl ... -d @- <<'EOF'`). The curl may be followed by
+ * `;`/`&&`-chained inspection commands (`> /tmp/out.json; wc -c /tmp/out.json`),
+ * which are shown verbatim on the card. A single-statement
  * `bash -lc '<script>'` wrapper (how Codex issues every command) is unwrapped
  * and its script re-parsed. Null for everything else. `ports` is the set of
  * local ports the isomux server may listen on (default: the documented 4000).
@@ -1305,6 +1433,28 @@ function parseIsomuxCurlInner(
   // extractHeredoc returns null, the untouched command's `<`/newline makes
   // tokenize() bail.
   const heredoc = extractHeredoc(command);
+  // Peel off any trailing `;`/`&&` statements, but only when no heredoc is in
+  // play: a heredoc body is not shell-quoted and may legitimately contain a
+  // `;`, so splitting there would corrupt a shape that cards correctly today.
+  // (extractHeredoc already requires its terminator to end the command, so a
+  // heredoc WITH a trailing statement stays raw either way.)
+  let statement = command;
+  let trailingCommand: string | null = null;
+  if (!heredoc) {
+    const statements = splitStatements(command);
+    if (statements) {
+      // Every statement after the first must be an allowed inspection command;
+      // one stray `&& curl ...` (a second request the card could not describe)
+      // or `&& git push` takes the whole command back to raw rendering.
+      for (const st of statements.slice(1)) {
+        if (!isSafeStage(st.text, TRAILING_COMMANDS)) return null;
+      }
+      statement = statements[0].text;
+      // The statements are contiguous slices, so the remainder — separator
+      // included — is exactly what the user typed.
+      trailingCommand = command.slice(statement.length).trim();
+    }
+  }
   if (
     heredoc &&
     heredoc.literal &&
@@ -1316,7 +1466,7 @@ function parseIsomuxCurlInner(
     // treat it as non-literal (curl-fed path notes it; jq-fed path stays raw).
     heredoc.literal = false;
   }
-  const tokenized = tokenize(heredoc ? heredoc.line : command, true);
+  const tokenized = tokenize(heredoc ? heredoc.line : statement, true);
   if (!tokenized) return null;
   const { tokens, pipeTail } = tokenized;
   if (tokens.length === 0) return null;
@@ -1327,12 +1477,15 @@ function parseIsomuxCurlInner(
     // heredoc the curl never reads still bails to raw. No heredoc -> plain
     // curl, exactly as before.
     const stdinBody = heredoc ? resolveHeredocBody(heredoc) : null;
-    return parseCurlStage(
-      tokens,
-      pipeTail,
-      ports,
-      stdinBody,
-      tokenized.outputRedirect,
+    return withTrailing(
+      parseCurlStage(
+        tokens,
+        pipeTail,
+        ports,
+        stdinBody,
+        tokenized.outputRedirect,
+      ),
+      trailingCommand,
     );
   }
   if (tokens[0] === "jq") {
@@ -1348,15 +1501,27 @@ function parseIsomuxCurlInner(
     if (body === null) return null;
     const next = tokenize(pipeTail.slice(1), true);
     if (!next || next.tokens[0] !== "curl") return null;
-    return parseCurlStage(
-      next.tokens,
-      next.pipeTail,
-      ports,
-      body,
-      next.outputRedirect,
+    return withTrailing(
+      parseCurlStage(
+        next.tokens,
+        next.pipeTail,
+        ports,
+        body,
+        next.outputRedirect,
+      ),
+      trailingCommand,
     );
   }
   return null;
+}
+
+/** Attach the verbatim trailing statements to a successfully parsed request. */
+function withTrailing(
+  req: IsomuxCurlRequest | null,
+  trailingCommand: string | null,
+): IsomuxCurlRequest | null {
+  if (!req || !trailingCommand) return req;
+  return { ...req, trailingCommand };
 }
 
 /**
@@ -1551,5 +1716,8 @@ function parseCurlStage(
     bodyNote,
     outputFile,
     outputAppend: outputRedirect?.append ?? false,
+    // Filled in by withTrailing() once the whole command has been split; a
+    // single curl stage on its own never has trailing statements.
+    trailingCommand: null,
   };
 }

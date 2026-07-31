@@ -350,10 +350,15 @@ describe("parseIsomuxCurl", () => {
   });
 
   test("rejects compound commands and stderr file redirections", () => {
+    // `;`/`&&` chains onto a display/inspection command are now accepted WITH
+    // the trailing statement shown verbatim (see the trailing-statement suite);
+    // a chain onto anything else still stays raw.
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/api/tasks && echo done"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks && make deploy"),
     ).toBeNull();
-    expect(parseIsomuxCurl("curl -s localhost:4000/api/tasks; ls")).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks; ssh box uptime"),
+    ).toBeNull();
     // Stdout-to-file is now accepted WITH the path surfaced on the card
     // (see the output-to-file suite); stderr-to-file still stays raw.
     expect(
@@ -1501,5 +1506,207 @@ describe("parseIsomuxCurl wrapped-heredoc outer-shell expansion", () => {
     expect(req).not.toBeNull();
     expect(req!.hasAuth).toBe(true);
     expect(req!.bodyFields).toEqual([{ key: "text", value: "plain body" }]);
+  });
+});
+
+// Agents constantly chain a small inspection command onto a curl — save the
+// response and check its size, POST and `echo` a confirmation. The whole
+// command used to fall back to raw rendering because the tokenizer bails on
+// `;`. These shapes are carded, with the trailing statements shown verbatim.
+describe("parseIsomuxCurl trailing ;/&& statements", () => {
+  test("the reported shape: save to a file, then wc it", () => {
+    const req = parseIsomuxCurl(
+      `curl -s "localhost:4000/api/tasks?status=all" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" > /tmp/tasks.json; wc -c /tmp/tasks.json`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("GET");
+    expect(req!.path).toBe("/api/tasks?status=all");
+    expect(req!.hasAuth).toBe(true);
+    expect(req!.outputFile).toBe("/tmp/tasks.json");
+    expect(req!.trailingCommand).toBe("; wc -c /tmp/tasks.json");
+  });
+
+  test("`&& echo` after a discarded response (the most common shape)", () => {
+    const req = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/agents/agent-123-abc/diff -d '{}' >/dev/null && echo posted`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("POST");
+    expect(req!.outputFile).toBeNull();
+    expect(req!.trailingCommand).toBe("&& echo posted");
+  });
+
+  test("-o file then head, and a pipe tail plus a trailing statement", () => {
+    expect(
+      parseIsomuxCurl(
+        "curl -s -o /tmp/out.json localhost:4000/api/tasks; head /tmp/out.json",
+      )!.trailingCommand,
+    ).toBe("; head /tmp/out.json");
+    const piped = parseIsomuxCurl(
+      "curl -s localhost:4000/api/tasks | head -c 100; echo",
+    );
+    expect(piped!.pipeTail).toBe("| head -c 100");
+    expect(piped!.trailingCommand).toBe("; echo");
+  });
+
+  test("several trailing statements, stderr silencing, and internal pipes", () => {
+    expect(
+      parseIsomuxCurl(
+        "curl -s localhost:4000/api/tasks > /tmp/t.json; echo; ls -la /tmp/t.json 2>/dev/null",
+      )!.trailingCommand,
+    ).toBe("; echo; ls -la /tmp/t.json 2>/dev/null");
+    expect(
+      parseIsomuxCurl(
+        "curl -s localhost:4000/api/tasks > /tmp/t.json; cat /tmp/t.json | jq '.[] | .title'",
+      )!.trailingCommand,
+    ).toBe("; cat /tmp/t.json | jq '.[] | .title'");
+  });
+
+  test("a stream-merging `2>&1` is not mistaken for a separator", () => {
+    const req = parseIsomuxCurl(
+      "curl -s localhost:4000/api/tasks 2>&1 | head -50; echo",
+    );
+    expect(req).not.toBeNull();
+    expect(req!.pipeTail).toBe("| head -50");
+    expect(req!.trailingCommand).toBe("; echo");
+  });
+
+  test("no trailing statement leaves the field null", () => {
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks")!.trailingCommand,
+    ).toBeNull();
+  });
+
+  test("the wrapper path picks up trailing statements too", () => {
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc 'curl -s localhost:4000/api/tasks > /tmp/t.json; wc -c /tmp/t.json'`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.path).toBe("/api/tasks");
+    expect(req!.trailingCommand).toBe("; wc -c /tmp/t.json");
+  });
+
+  test("a `;` inside a quoted argument is not a separator", () => {
+    const single = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/tasks -d '{"title":"a; b"}'`,
+    );
+    expect(single!.bodyFields).toEqual([{ key: "title", value: "a; b" }]);
+    expect(single!.trailingCommand).toBeNull();
+    const double = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/tasks -d "{\\"title\\":\\"a; b\\"}"`,
+    );
+    expect(double!.bodyFields).toEqual([{ key: "title", value: "a; b" }]);
+    expect(double!.trailingCommand).toBeNull();
+    // An ESCAPED separator is an argument to curl, not a statement boundary:
+    // it must not split (the command then bails on the junk positional args,
+    // which is the honest reading — bash passes them to curl).
+    expect(
+      parseIsomuxCurl(String.raw`curl -s localhost:4000/api/tasks \; echo hi`),
+    ).toBeNull();
+  });
+
+  test("separators and spacing are preserved exactly", () => {
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks ;echo a  && ls b")!
+        .trailingCommand,
+    ).toBe(";echo a  && ls b");
+  });
+
+  test("an empty stage rejects rather than being skipped", () => {
+    expect(parseIsomuxCurl("curl -s localhost:4000/api/tasks;")).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks && ; echo"),
+    ).toBeNull();
+  });
+
+  test("a disallowed LATER stage rejects the whole card", () => {
+    // Not just the first trailing statement: every one is gated, and a
+    // forbidden construct anywhere in the remainder (backticks, `$(`) is
+    // caught by the same tokenize() the head goes through.
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks; echo ok; git status"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks; echo `id`"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks; echo a || echo b"),
+    ).toBeNull();
+  });
+
+  test("conservative bails: second request, control flow, non-inspection commands", () => {
+    const raw = [
+      // Two requests: the card can only describe one, so raw is the honest
+      // rendering (the single most common chained shape after `&& echo`).
+      "curl -s -X POST localhost:4000/api/tasks/a1/done -d '{}' && curl -s localhost:4000/api/tasks",
+      // Control flow and backgrounding.
+      "curl -s localhost:4000/api/tasks && echo up || echo down",
+      "curl -s localhost:4000/api/tasks & echo backgrounded",
+      "curl -s localhost:4000/api/tasks ;; echo x",
+      // Commands outside the inspection allowlist.
+      "curl -s localhost:4000/api/tasks > /tmp/t.json; git add -A",
+      "curl -s localhost:4000/api/tasks; cd /tmp",
+      "curl -s localhost:4000/api/tasks; python3 -c 'import os'",
+      // A file redirect inside the trailing statement.
+      "curl -s localhost:4000/api/tasks > /tmp/t.json; wc -c /tmp/t.json > /tmp/size",
+      // Command substitution in the trailing statement.
+      "curl -s localhost:4000/api/tasks; echo $(rm -rf /tmp/x)",
+      // A heredoc body can hold an unquoted `;`, so heredoc + trailing is not
+      // split at all and stays raw.
+      `curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{"text":"one; two"}\nEOF\nwc -c /tmp/t.json`,
+    ];
+    for (const command of raw) {
+      expect(parseIsomuxCurl(command)).toBeNull();
+    }
+  });
+
+  // Same stance as the pipe-tail allowlist: a coarse command gate, not a purity
+  // proof. What makes it honest is that the statement is shown verbatim.
+  test("side-effecting args of allowed inspection commands parse, shown verbatim", () => {
+    const req = parseIsomuxCurl(
+      "curl -s localhost:4000/api/tasks; sed -e w/tmp/pwn /tmp/t.json",
+    );
+    expect(req).not.toBeNull();
+    expect(req!.trailingCommand).toBe("; sed -e w/tmp/pwn /tmp/t.json");
+  });
+
+  // The pipe-tail property (see "displayed tail never shows less than the raw
+  // collapsed row would"), pinned for the trailing statement: it is bounded
+  // independently, and the raw row can never reach further into it.
+  test("displayed trailing statement never shows less than the raw row would", () => {
+    const longTrailing = `; jq '${"x".repeat(300)}' /tmp/t.json`;
+    // No space before the `;`, so the raw slice reaches one character further
+    // into the segment than it does for a pipe tail — still inside the bound.
+    const rawShowsAfter = (prefix: string) =>
+      Math.max(0, BASH_RAW_SUMMARY_CHARS - prefix.length);
+    for (const prefix of [
+      "curl localhost:4000",
+      "curl -s localhost:4000/api/tasks",
+    ]) {
+      const req = parseIsomuxCurl(`${prefix}${longTrailing}`);
+      expect(req).not.toBeNull();
+      const shown = pipeTailForDisplay(req!.trailingCommand!).replace("…", "");
+      expect(shown.length).toBeGreaterThanOrEqual(rawShowsAfter(prefix));
+      expect(longTrailing.startsWith(shown)).toBe(true);
+    }
+
+    // Both segments at once, in the order the header renders them. The bounds
+    // are independent, which is sound because the raw row's window is
+    // contiguous and each segment's shown prefix already outruns it — but the
+    // combined case is what the renderer actually wires up, so pin it.
+    const command = `curl -s localhost:4000/api/tasks | head -c 100; echo ${"y".repeat(300)}`;
+    const both = parseIsomuxCurl(command);
+    expect(both).not.toBeNull();
+    expect(both!.pipeTail).toBe("| head -c 100");
+    expect(both!.trailingCommand).toStartWith("; echo yyy");
+    const rawRow = command.slice(0, BASH_RAW_SUMMARY_CHARS);
+    for (const segment of [both!.pipeTail!, both!.trailingCommand!]) {
+      // What the raw collapsed row reveals of this segment ("" once the row
+      // has run out) must be a prefix of what the card shows for it.
+      const at = command.indexOf(segment);
+      const rawPart = rawRow.slice(at, at + segment.length);
+      const shown = pipeTailForDisplay(segment).replace("…", "");
+      expect(shown).toStartWith(rawPart);
+    }
   });
 });

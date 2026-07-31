@@ -181,17 +181,13 @@ export function ContextMenu({
             const rawLabel = s.topic || s.sessionId.slice(0, 8) + "...";
             const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
             const branchedSuffix = s.branched ? " (branched)" : "";
-            // Engine badge so a mixed Claude/Codex session list is legible at a
-            // glance; selecting a row flips the agent to that session's engine.
-            const engineSuffix =
-              s.agentType === "codex"
-                ? "  · Codex"
-                : s.agentType === "claude"
-                  ? "  · Claude"
-                  : "";
+            // No engine badge: which backend a past session ran on doesn't
+            // change the choice of what to resume, and the row reads better
+            // without it. Selecting a row still flips the agent to that
+            // session's engine.
             const displayLabel = isCurrent
-              ? `● ${label}  ${formatTime(s.lastModified)}${engineSuffix}  (current)`
-              : `${label}  ${formatTime(s.lastModified)}${engineSuffix}${branchedSuffix}`;
+              ? `● ${label}  ${formatTime(s.lastModified)}  (current)`
+              : `${label}  ${formatTime(s.lastModified)}${branchedSuffix}`;
             return (
               <MenuItem
                 key={s.sessionId}

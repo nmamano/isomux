@@ -100,6 +100,21 @@ export function IsomuxCurlHeader({
           {pipeTailForDisplay(req.pipeTail)}
         </span>
       )}
+      {req.trailingCommand && (
+        // Same obligation as the pipe tail: a `; wc -c f` / `&& echo posted`
+        // chained onto the curl is command-gated but not semantically
+        // validated, so it is always shown, bounded by the same rule that keeps
+        // the card from showing less than the raw collapsed row would.
+        <span
+          style={{
+            color: "var(--text-ghost)",
+            fontSize: isMobile ? 12 : 10,
+            overflowWrap: "anywhere",
+          }}
+        >
+          {pipeTailForDisplay(req.trailingCommand)}
+        </span>
+      )}
     </>
   );
 }
