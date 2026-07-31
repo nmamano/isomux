@@ -71,9 +71,15 @@ reworked at implementation time):
 10. **No implementation this session.** Both designs are approved as designs;
    implementation is sequenced separately.
 
-Still open: the provider-console question (H1) - what the guarantee says about
-rescue-mode access we cannot technically drop while we hold the provider
-account.
+11. **Provider console: consent-gated per incident (option c), ruled
+    2026-07-31.** Rescue-mode access is opened only on the customer's explicit
+    written request for a specific incident, logged, and ends with the
+    incident. Nil's condition: the public-facing terms/docs must carry a
+    footnote WITH LINKS showing that comparable services do the same or worse
+    (e.g. the reference competitor publishes standing SSH access to customer
+    servers with sessions logged for 90 days), so the comparison is evidenced,
+    not asserted. The guarantee copy stays honest that this layer is
+    procedural: provider-account control cannot be technically dropped.
 
 ## Provider-agnostic, Contabo first
 

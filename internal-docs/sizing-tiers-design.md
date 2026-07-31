@@ -372,8 +372,10 @@ What an upgrade means for a running office:
 **Ruled 2026-07-31**: decision 1 (ship both tiers, entry positioned for
 customers not running many agents at once) and decision 3 (publish no
 concurrency numbers). Both are folded into the sections above and left here for
-the record. Decision 2 stays a recommendation. Decisions 4 and 5 remain open,
-and 4 wants the benchmark's swap arm first.
+the record. Decision 2 is **deferred** (Nil, 2026-07-31): the
+refuse-above-pressure mechanism reads as too finicky for now; the hard fence
+stands alone, revisit only if it proves to be the needed piece. Decisions 4
+and 5 remain open, and 4 wants the benchmark's swap arm first.
 
 Note on decision 2, since it came up: the cap under discussion is a **memory**
 cap, not a disk cap. Disk is not scarce on these boxes; a 100 GB SSD comfortably
