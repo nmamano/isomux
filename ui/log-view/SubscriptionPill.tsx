@@ -25,6 +25,10 @@ import { getUsagePin, setUsagePin, type UsagePin } from "../device-settings.ts";
 const RING_RADIUS = 9;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
+// A reading younger than this is presented as current; only older ones get the
+// "Reading taken N ago" line in the popover.
+const STALE_READING_MS = 15 * 60 * 1000;
+
 // A short local date-and-time ("Sat 1 Aug, 09:00") in the viewer's own
 // timezone - the reset matters to whoever is looking at the screen, not to the
 // server.
@@ -196,8 +200,7 @@ export function SubscriptionPill({
   const dash = (RING_CIRCUMFERENCE * rawUsed) / 100;
 
   const planLine = usage.plan ? `Plan: ${usage.plan}` : null;
-  const caveat =
-    "This is account-wide, not per agent: every agent signed in to the same account shows the same number.";
+  const caveat = "This is account-wide, not per agent.";
   // Both lists stay in display order. What identifies the window behind the
   // number is the popover's bullet + bold on that row and the button's
   // accessible name ("5-hour plan allowance 95% used"), NOT position.
@@ -207,9 +210,10 @@ export function SubscriptionPill({
   );
   // How old the reading is. Account data goes stale while an agent sits idle
   // (nothing refreshes it between turns), so the popover says so rather than
-  // presenting a week-old number as current.
+  // presenting a week-old number as current - but a fresh reading stays
+  // unannotated (Nil: the line should only appear when it is actually stale).
   const ageLine =
-    coords && coords.atMs > usage.sampledAtMs
+    coords && coords.atMs - usage.sampledAtMs > STALE_READING_MS
       ? `Reading taken ${formatTimeUntil(coords.atMs - usage.sampledAtMs)} ago.`
       : null;
   const tooltip = [...(planLine ? [planLine] : []), ...hoverLines, caveat].join(
@@ -381,16 +385,25 @@ function ChoiceRow({
   selected: boolean;
   onClick: () => void;
 }) {
+  // Selection reads as an accent-tinted background (--bg-subtle was too faint
+  // to notice); hovering tints the row so the rows read as clickable at all.
+  const [hovered, setHovered] = useState(false);
   return (
     <button
       type="button"
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       aria-pressed={selected}
       style={{
         display: "block",
         width: "100%",
         textAlign: "left",
-        background: selected ? "var(--bg-subtle)" : "none",
+        background: selected
+          ? "var(--accent-bg)"
+          : hovered
+            ? "var(--accent-hover)"
+            : "none",
         border: "none",
         borderRadius: 4,
         padding: "2px 4px",
