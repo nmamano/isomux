@@ -20,6 +20,12 @@ import { styleForModel } from "../model-styles.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
+import {
+  addFinalized,
+  dictationText,
+  joinSpoken,
+  startDictation,
+} from "../spoken-punctuation.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
@@ -1330,46 +1336,37 @@ export function LogView({
     el.style.height = Math.min(el.scrollHeight, 200) + "px";
   }
 
-  // Join newly transcribed speech onto existing composer text, inserting a
-  // single separating space when neither side already provides whitespace so
-  // dictated words don't run into the prior text.
-  function joinSpoken(base: string, addition: string): string {
-    if (!base || !addition) return base + addition;
-    if (/\s$/.test(base) || /^\s/.test(addition)) return base + addition;
-    return base + " " + addition;
-  }
-
   const SpeechRecognition =
     window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
-  // Tracks the draft text before voice started + all finalized speech segments
-  const committedTextRef = useRef("");
+  // The draft text before voice started + every finalized speech segment since.
+  const dictationRef = useRef(startDictation(""));
 
   function startListening() {
     if (isListeningRef.current || !SpeechRecognition) return;
     isListeningRef.current = true;
     setIsListening(true);
-    committedTextRef.current = inputRef.current;
+    dictationRef.current = startDictation(inputRef.current);
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = "en-US";
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let interimText = "";
+      let interimRaw = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          // Join each finalized segment individually so that multiple finals
+          // Fold each finalized segment in individually so that multiple finals
           // arriving in one event can't concatenate into a run-together blob.
-          committedTextRef.current = joinSpoken(committedTextRef.current, t);
+          dictationRef.current = addFinalized(dictationRef.current, t);
         } else {
-          interimText += t;
+          interimRaw = joinSpoken(interimRaw, t);
         }
       }
       dispatch({
         type: "set_draft",
         agentId: agent.id,
-        text: joinSpoken(committedTextRef.current, interimText),
+        text: dictationText(dictationRef.current, interimRaw),
       });
       requestAnimationFrame(() => {
         const el = textareaRef.current;

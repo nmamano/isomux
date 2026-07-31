@@ -416,7 +416,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.',
       );
       lines.push(
-        "  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.",
+        '  • Use voice-to-text for faster prompting. The shortcut is ctrl+space. Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.',
       );
       // Reachability tips depend on whether this boot has a real public
       // origin (env/config, non-loopback bind). Without one, the office is

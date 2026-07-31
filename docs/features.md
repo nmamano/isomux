@@ -84,7 +84,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Right-click context menu** - resume past sessions, edit agent, kill.
 - **File attachments** - agents understand images and PDFs. Upload via button, drag-and-drop, or paste.
 - **Image display** - agents can show images inline in the conversation.
-- **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost).
+- **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
 - **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API.
 
 ### Developer tools
