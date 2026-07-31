@@ -178,6 +178,15 @@ export const commands: Record<string, CommandConfig> = {
     description: "Per-agent / per-room / per-cron-job token spend",
     autoRun: true,
   },
+  "isomux-storage": {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "isomuxStorage",
+    description: "Disk space the office is using, broken down by category",
+    autoRun: true,
+  },
 
   // =========================================================================
   // Unsupported hardcoded commands (non-overridable)

@@ -18,7 +18,7 @@ import {
 } from "../shared/types.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
-import { listAgentSessions } from "./persistence.ts";
+import { listAgentSessions, loadAgentHistory } from "./persistence.ts";
 import { tildifyCwd } from "./cwd-utils.ts";
 import {
   commands,
@@ -36,6 +36,8 @@ import {
   codexWrapperCommandForShell,
 } from "./backends/codex/native-bin.ts";
 import { renderUsageReport, usageAudienceForUser } from "./usage-report.ts";
+import { aggregateOnly, type StorageUsage } from "./storage-usage.ts";
+import { renderStorageReport, type AgentLabel } from "./storage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
   resolveEditorPath,
@@ -185,6 +187,12 @@ interface HandlerDeps {
   // broadcast the explicit-null pill clear, like every other boundary
   // (newConversation, resume-to-different-session, edit-fork).
   resetContextUsage: (managed: ManagedAgent) => void;
+  // The office's disk-usage measurement, FULL (per-agent detail included) —
+  // the same call GET /api/storage/usage makes, memoized for 30s. Injected
+  // rather than imported so the /isomux-storage access-control branches can be
+  // pinned without walking a real state root, and so the refusal path can be
+  // proven not to measure at all.
+  getStorageUsage: () => StorageUsage;
   // Defer-to-queue path for slash commands that arrive while the agent is busy.
   enqueueMessage: (
     agentId: string,
@@ -992,6 +1000,57 @@ export function createCommandHandling(deps: HandlerDeps) {
           // Spend is room-scoped: the report shows the caller only what their
           // room access already lets them see (owners: the whole office).
           usageAudienceForUser(getUserByName(username)),
+        ),
+      );
+      deps.updateState(agentId, "waiting_for_response");
+      return true;
+    },
+
+    async isomuxStorage(agentId, _managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+      // Same gate as GET /api/storage/usage: office:read, which every human
+      // has and a plain agent token does not. An invocation that did not come
+      // from a signed-in person gets nothing rather than office-wide disk
+      // totals — the command's equivalent of the route's 403.
+      const user = username ? getUserByName(username) : undefined;
+      if (!user) {
+        deps.addLogEntry(
+          agentId,
+          "system",
+          "Storage usage is only available to signed-in office members.",
+        );
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
+      // Shares the route's memoized measurement (30s), so running the command
+      // right after loading the settings page re-walks nothing. Reached only
+      // AFTER the user check above, so an unauthenticated invocation never
+      // triggers a disk walk either.
+      const usage = deps.getStorageUsage();
+      // Stored history outlives the agents that wrote it, so a name comes from
+      // the live agent when there is one and from agent history when the agent
+      // has been killed. The raw directory name is the last resort — a row with
+      // no label would hide real bytes. The "killed" flag follows agent
+      // history's own killedAt rather than mere absence from the live map, so a
+      // name is never annotated on a guess. Names go out RAW; the renderer
+      // escapes them.
+      const history = loadAgentHistory();
+      const agentLabel = (id: string): AgentLabel => {
+        const live = deps.agents.get(id);
+        if (live) return { name: live.info.name };
+        const past = history[id];
+        if (!past) return { name: id };
+        return { name: past.name, killed: Boolean(past.killedAt) };
+      };
+      deps.addLogEntry(
+        agentId,
+        "system",
+        renderStorageReport(
+          // Per-agent detail and filesystem paths are owner-only, exactly as
+          // on the route.
+          user.role === "owner" ? usage : aggregateOnly(usage),
+          { agentLabel },
         ),
       );
       deps.updateState(agentId, "waiting_for_response");

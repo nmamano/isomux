@@ -164,6 +164,7 @@ import { systemHandlers } from "./routes/handlers/system.ts";
 import { storageHandlers } from "./routes/handlers/storage.ts";
 import { STATE_ROOT } from "./config.ts";
 import { measureStorageCached } from "./storage-usage.ts";
+import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
 import { updateHandlers } from "./routes/handlers/update.ts";
 import { triggerUpdate } from "./update-trigger.ts";
@@ -2781,13 +2782,10 @@ function buildExecutorDeps(): ExecutorDeps {
   );
   // Storage visibility + the MANUAL pruner (task 2366ccb0). Nothing here is
   // scheduled: the only way anything gets deleted is an owner POSTing
-  // apply:true. The three locations are resolved fresh per call — the backup
-  // dir from the backup module, the snapshot dir from the updater conf (absent
-  // on boxes that are not updater-managed).
-  const updateSnapshotDir = (): string | null => {
-    const conf = readUpdateConf();
-    return conf.state === "parsed" ? (conf.values.SNAPSHOT_DIR ?? null) : null;
-  };
+  // apply:true. The three locations are resolved fresh per call by
+  // productionStorageRoots(), which the /isomux-storage slash command shares so
+  // the two surfaces cannot disagree about what counts as isomux storage.
+  //
   // Rebuilt per call so the active-session set is never a stale snapshot: a
   // plan computed a minute ago must not authorize deleting a session an agent
   // has since resumed (applyPrune re-plans against these same live deps).
@@ -2852,12 +2850,7 @@ function buildExecutorDeps(): ExecutorDeps {
   };
   register(
     storageHandlers({
-      getUsage: () =>
-        measureStorageCached({
-          stateRoot: STATE_ROOT,
-          backupDir: getBackupStatus().backupDir,
-          snapshotDir: updateSnapshotDir(),
-        }),
+      getUsage: () => measureStorageCached(productionStorageRoots()),
       planPrune: (target, policy) => planPrune(target, policy, pruneDeps()),
       applyPrune: (plan) => applyPrune(plan, pruneDeps()),
     }),

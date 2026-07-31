@@ -31,7 +31,7 @@ Isomux is a meta-harness: it sits one level above Claude Code and Codex and mana
 - **Custom instructions per agent**, editable at spawn and later.
 - **Agent-collaboration skills**: `/pair-programming`, `/peer-review`, `/soft-handoff`, `/second-opinion`, `/subagent-review`.
 - **Other bundled skills**: `/grill-me` (based on the original by Matt Pocock), `/handoff` (continue an unfinished task on a fresh session: the agent writes a short brief of what's left, you approve it, and it restarts clean on just that brief), `/isomux-report-bug`.
-- **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`.
+- **Inspection commands**: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-usage`, `/isomux-storage`.
 
 ## Multi-user
 
@@ -94,6 +94,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - `/isomux-diff` — rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
 - **Browser preview cards** — agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser on the server, which the [VPS install](vps-install.md) sets up for you (runs headless, so no display is needed); everything else works without one.
 - `/isomux-usage` — per-agent / per-room / per-cron-job token spend, scoped to the rooms you can access.
+- `/isomux-storage` — disk usage by category; owners also see the biggest agents.
 - **Plugin system**: add memory, audit, or other turn-aware behavior. Reference [mem0 plugin](https://github.com/nmamano/isomux-mem0) gives agents long-term memory across sessions.
 
 ### Navigation and shortcuts
@@ -125,5 +126,5 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Built-in safety hooks (Claude agents)** — blocks `rm -rf`, `git reset --hard`, killing processes created by others, and other footguns out of the box. Codex agents don't have equivalent hooks (Codex doesn't expose a programmatic hook surface).
 - **Secrets via env files** — keep API tokens and other secrets out of prompts: point the office (or each user, from their user settings) at an env file, and its variables are loaded into agents' environment at spawn time, with per-user values overriding office-wide ones. Secrets are injected into the agent's environment without embedding their values in prompts or conversation logs.
 - **Daily local backup and restore**: `~/.isomux/` (agents, conversations, settings, cron history, every agent's session logs) is snapshotted once a day to `~/isomux-backups/isomux-YYYY-MM-DD.tar.gz` (override path with `ISOMUX_BACKUP_DIR`). Last seven tarballs kept; older ones pruned. Snapshots are live and atomic so they can't capture half-written state. Restore is manual: stop the service, move `~/.isomux` aside, `tar -xzf` the chosen tarball into `~`, restart. Current backup state is at `GET /api/backup/status`. SDK session transcripts (`~/.claude/projects/`) are not in scope — prefer starting fresh sessions after a restore rather than resuming.
-- **Disk-usage breakdown and manual pruning** — `GET /api/storage/usage` splits the office footprint by conversation transcripts, attachments, codex home, cron history, backups, and update snapshots, with per-agent detail for the owner. `POST /api/storage/prune` removes old transcripts, and attachments once no surviving transcript references them: a dry run unless you ask it to apply, never scheduled, and it always spares live sessions, each agent's newest sessions, and any session another was branched from.
+- **Disk-usage breakdown and manual pruning** — `/isomux-storage` in any conversation, or `GET /api/storage/usage`, splits the office footprint by conversation transcripts, attachments, codex home, cron history, backups, and update snapshots, with per-agent detail for the owner. `POST /api/storage/prune` removes old transcripts, and attachments once no surviving transcript references them: a dry run unless you ask it to apply, never scheduled, and it always spares live sessions, each agent's newest sessions, and any session another was branched from.
 - **Update notice** — the office header shows when a new release is out. On a [VPS install](vps-install.md), the owner can apply it from there, and a failed update rolls back on its own. On a source checkout, the notice shows what you're running, the latest release, and how far main is ahead; it stays quiet if you're ahead of main.

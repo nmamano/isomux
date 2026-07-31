@@ -18,6 +18,7 @@ const EXPECTED_AUTORUN = new Set([
   "login",
   "usage",
   "isomux-usage",
+  "isomux-storage",
   "isomux-all-hands",
   "isomux-system-prompt",
   "resume",

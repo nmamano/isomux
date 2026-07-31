@@ -110,6 +110,8 @@ import {
   type TerminalDeps,
 } from "./terminal.ts";
 import { createCommandHandling } from "./command-handlers.ts";
+import { measureStorageCached } from "./storage-usage.ts";
+import { productionStorageRoots } from "./storage-roots.ts";
 import {
   BackendNotConfiguredError,
   SessionSwappedError,
@@ -4057,6 +4059,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     createTurnDeferred,
     enqueueMessage,
     resetContextUsage,
+    // Same measurement, same roots, same 30s memo as GET /api/storage/usage —
+    // productionStorageRoots() is the single answer to "what counts as isomux
+    // storage", shared by the route and the /isomux-storage command.
+    getStorageUsage: () => measureStorageCached(productionStorageRoots()),
   });
 
   // === Message queue ===

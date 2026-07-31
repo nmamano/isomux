@@ -52,22 +52,6 @@ export function formatTokenCount(n: number): string {
   return n.toLocaleString();
 }
 
-export function formatRelativeTime(timestamp: number): string {
-  const now = Date.now();
-  const diffMs = now - timestamp;
-  const diffSec = Math.floor(diffMs / 1000);
-  const diffMin = Math.floor(diffSec / 60);
-  const diffHr = Math.floor(diffMin / 60);
-  const diffDays = Math.floor(diffHr / 24);
-
-  if (diffSec < 60) return "just now";
-  if (diffMin < 60) return `${diffMin}m ago`;
-  if (diffHr < 24) return `${diffHr}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  const date = new Date(timestamp);
-  return date.toLocaleDateString([], { month: "short", day: "numeric" });
-}
-
 // Hide the (N% hit) suffix above 80% since typical usage hovers 92-100% and the
 // clutter drowns out the signal. Showing only low hit rates turns absence into
 // the default and presence into a cache-thrash canary.

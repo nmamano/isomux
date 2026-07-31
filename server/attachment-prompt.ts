@@ -22,6 +22,7 @@
 // Claude's behavior on an empty content array is undefined).
 
 import { getFilePath } from "./persistence.ts";
+import { formatSize } from "./format-human.ts";
 import type { AttachmentSpec } from "./backends/types.ts";
 
 // A resolved inbound attachment: upload-time metadata plus the authoritative
@@ -132,15 +133,4 @@ export function quoteOneLine(s: string): string {
 function oneLine(s: string): string {
   // eslint-disable-next-line no-control-regex
   return s.replace(/[\u0000-\u001f\u007f\u2028\u2029()"\\]/g, "_");
-}
-
-// Deterministic human-readable size. Binary units, one decimal above bytes.
-export function formatSize(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return "unknown size";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) {
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  }
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
