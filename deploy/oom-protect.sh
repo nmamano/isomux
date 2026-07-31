@@ -30,7 +30,7 @@
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
 # which is fetched on its own by curl | bash and so cannot read repo files. The
 # two copies are pinned equal by deploy/install-sh.test.ts — edit here, then
-# paste into the heredoc there.
+# run `bun run scripts/embed-deploy-scripts.ts` to update the copy there.
 #
 # Usage (as root):
 #   isomux-oom-protect             apply
@@ -44,6 +44,10 @@ DRY_RUN=""
 SWAPFILE=/swapfile
 SWAP_SIZE_MIB=2048
 SYSCTL_CONF=/etc/sysctl.d/60-isomux-memory.conf
+# Where to read and write process state. A seam for deploy/oom-protect.test.ts,
+# which points it at a fake tree so the kill-order logic can be tested without
+# real pids to race against. Never changed in production.
+PROC_ROOT=/proc
 
 log() { printf '[%s] %s\n' "$TAG" "$*"; }
 warn() { log "warning: $*"; }
@@ -112,13 +116,29 @@ install_earlyoom() {
 #              descent thrashing instead.
 # --avoid      the daemons that keep the box reachable and the office alive
 # --prefer     agent processes: the memory hogs, and the cheapest to lose
+#
+# Both lists match a process NAME, which is why the office server is shielded as
+# `isomux` and not as `bun`. It runs under bun, so its name used to be `bun` —
+# and so is every `bun install` and `bun run build` an agent starts. Shielding
+# that name shielded the multi-GB build spike this whole setup exists to kill,
+# while the server gained nothing its own workload did not also get. The server
+# now names itself `isomux` at startup (server/process-name.ts) so the two can
+# be told apart. A build keeps the name `bun` and is a candidate again.
+#
+# An office older than that rename is still called `bun` and so is not matched
+# here. What it falls back on is the OOMScoreAdjust tier, the stronger of the
+# two shields — either the one its system unit already carries, or the one this
+# tool stamps onto it below. Note that an old USER-level office that this tool
+# has never been run against has neither, since its configured tier is the
+# ineffective one. Keeping `bun` in the list to cover that case is what caused
+# the bug, so it stays out.
 configure_earlyoom() {
   write_file /etc/systemd/system/earlyoom.service.d/isomux.conf 644 <<'EOF'
 # Written by isomux-oom-protect. Replaces the packaged command line, so
 # /etc/default/earlyoom is not consulted.
 [Service]
 ExecStart=
-ExecStart=/usr/bin/earlyoom -m 10,5 -s 100,100 -r 3600 --avoid '^(systemd|systemd-.+|sshd|tailscaled|caddy|earlyoom|bun)$' --prefer '^(claude|codex|node|chrome)$'
+ExecStart=/usr/bin/earlyoom -m 10,5 -s 100,100 -r 3600 --avoid '^(systemd|systemd-.+|sshd|tailscaled|caddy|earlyoom|isomux)$' --prefer '^(claude|codex|node|chrome)$'
 # The process that decides who dies must never be a candidate itself.
 OOMScoreAdjust=-1000
 Nice=-20
@@ -140,10 +160,50 @@ EOF
 # these tiers cannot tell the server apart from the agents and builds it
 # spawns - steering the kill toward an agent is earlyoom's job (--prefer
 # above), not theirs. And on a user-level office (systemctl --user) the -500
-# does not apply at all: Ubuntu's user manager lacks the privilege to lower
-# scores, the write fails silently, and everything runs at 100. `systemctl
-# show` echoes the configured value either way; only /proc/PID/oom_score_adj
-# tells the truth, which is why this script reads every write back.
+# from the unit file does not apply: Ubuntu's user manager lacks the
+# privilege to lower scores, the write fails silently, and everything runs
+# at 100. This script repairs the running server from root instead, which
+# lasts until the office restarts. `systemctl show` echoes the configured
+# value either way; only /proc/PID/oom_score_adj tells the truth, which is
+# why every write below is read back.
+
+# A process's start time; together with its pid it identifies it uniquely
+# (a pid on its own can be recycled). Field 22 of PROC_ROOT/PID/stat,
+# reached by dropping everything up to the last ')' because the process
+# name in field 2 may contain spaces.
+proc_starttime() {
+  sed 's/.*) //' "$PROC_ROOT/$1/stat" 2>/dev/null | awk '{ print $20 }'
+}
+
+# Set the kill order on a running process and read it back from /proc. The
+# readback is the point: a refused write is silent and `systemctl show`
+# reports what was ASKED for, not what took (task c5b4e89e).
+stamp_pid() {
+  local pid=$1 score=$2 what=$3
+  [[ -n $pid && $pid != 0 && -r $PROC_ROOT/$pid/stat ]] || return 1
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would set oom_score_adj=$score on the running $what (pid $pid)"
+    return 0
+  fi
+  # Start time is read before the write and re-read only AFTER the readback,
+  # so one identity check covers both; a recycled pid cannot fake a success.
+  local before after actual
+  before=$(proc_starttime "$pid")
+  printf '%s\n' "$score" >"$PROC_ROOT/$pid/oom_score_adj" 2>/dev/null || true
+  actual=$(cat "$PROC_ROOT/$pid/oom_score_adj" 2>/dev/null) || actual=""
+  after=$(proc_starttime "$pid")
+  if [[ -z $before || -z $after || $after != "$before" ]]; then
+    warn "$what (pid $pid) exited mid-write; nothing verified. Re-run this tool."
+    return 1
+  fi
+  if [[ $actual != "$score" ]]; then
+    warn "kill order NOT applied to $what (pid $pid): asked for $score, the kernel reports $actual."
+    return 1
+  fi
+  log "  $what (pid $pid): oom_score_adj=$actual confirmed"
+  return 0
+}
+
 oom_tier() {
   local unit=$1 score=$2
   write_file "/etc/systemd/system/$unit.d/isomux-oom.conf" 644 <<EOF
@@ -156,13 +216,60 @@ EOF
   # avoid. Write it to the running process too.
   local pid
   pid=$(systemctl show -p MainPID --value "$unit" 2>/dev/null) || pid=0
-  if [[ -n $pid && $pid != 0 && -w /proc/$pid/oom_score_adj ]]; then
-    if [[ -n $DRY_RUN ]]; then
-      log "DRY-RUN: would set oom_score_adj=$score on the running $unit (pid $pid)"
-    else
-      printf '%s\n' "$score" >"/proc/$pid/oom_score_adj" 2>/dev/null ||
-        warn "could not set the kill order on the running $unit; it applies at its next restart"
-    fi
+  stamp_pid "$pid" "$score" "$unit" || true
+}
+
+# The office on a `systemctl --user` install ----------------------------------
+#
+# The tier above writes a drop-in for a SYSTEM unit. An office installed the
+# self-hosted way (docs/self-hosted.md) has no isomux.service on the system bus,
+# so that drop-in is inert — and the obvious repair, a matching drop-in under
+# the user's own systemd, does not work either.
+#
+# Measured on a live office box, 2026-07-31. Ubuntu starts every user manager at
+# OOMScoreAdjust=100 (/usr/lib/systemd/system/user@.service) and its services
+# inherit that. Lowering a score needs CAP_SYS_RESOURCE, which a user manager
+# does not have, so its request for -500 is refused by the kernel — while
+# `systemctl --user show` still cheerfully reports -500 and the service starts
+# clean. The server reads 100.
+#
+# Root is not subject to that limit and can write the score straight onto the
+# running process, which is what this does. Two honest limits come with it:
+# the value is lost when the office restarts, until this tool runs again; and
+# agents started AFTER the stamp inherit the server's new score, because a score
+# is inherited at fork. Ordering agents against the office is a separate piece
+# of work (task C in the sizing design).
+#
+# Making the value survive a restart would mean lowering the whole user manager,
+# putting every process in that operator's login session under the same
+# protection — a policy decision this script does not get to make on its own.
+
+# Print the pid of a running user-level isomux service, if there is one.
+#
+# Found by cgroup rather than by asking systemd: there is no user D-Bus session
+# to reach into from here, and this works the same whether the operator happens
+# to be logged in or not. The service and everything it spawns share one cgroup,
+# so the server is the one whose parent is outside it.
+find_user_isomux_pid() {
+  local proc pid ppid
+  for proc in "$PROC_ROOT"/[0-9]*; do
+    pid=${proc##*/}
+    grep -qs '/user@[0-9]*\.service/.*/isomux\.service' "$proc/cgroup" || continue
+    ppid=$(awk '/^PPid:/ { print $2 }' "$proc/status" 2>/dev/null) || continue
+    grep -qs '/user@[0-9]*\.service/.*/isomux\.service' \
+      "$PROC_ROOT/$ppid/cgroup" && continue
+    printf '%s\n' "$pid"
+    return 0
+  done
+  return 1
+}
+
+configure_user_level_office() {
+  local pid
+  pid=$(find_user_isomux_pid) || return 0
+  log "found a user-level office (pid $pid); setting its kill order from root"
+  if stamp_pid "$pid" -500 "user-level office"; then
+    log "  NOTE: lasts until the office restarts; re-run this tool after restarts."
   fi
 }
 
@@ -175,6 +282,7 @@ configure_kill_order() {
   oom_tier caddy.service -500
   oom_tier isomux.service -500
   run systemctl daemon-reload
+  configure_user_level_office
 }
 
 # --- swap and swappiness ----------------------------------------------------

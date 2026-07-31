@@ -45,8 +45,14 @@ end of this doc):
   protects every `bun install` and `bun run build` an agent starts. The
   multi-GB build spike this whole design is sized around is therefore the one
   thing earlyoom is currently biased *against* killing, and its selection is
-  biased toward a `claude` process instead. Worth fixing by protecting the server's PID rather
-  than the name `bun`; out of scope here, and noted in the follow-ups.
+  biased toward a `claude` process instead.
+
+  **Fixed 2026-07-31 (task a51393e7)**, in earlyoom's own idiom rather than
+  around it: the office server writes `isomux` to `/proc/self/comm` at startup,
+  and `--avoid` shields that name instead of `bun`. A name is reset by exec, so
+  an agent's build stays `bun` and is a candidate again. An office older than
+  the rename keeps its `OOMScoreAdjust` tier, the stronger of the two shields,
+  and simply loses this one until it is updated.
 - The `OOMScoreAdjust` tiers protect *reachability*: ssh and tailscaled at
   `-900` sit far below anything else on the box, so they go last. Those two are
   system units in every deployment shape, so that half holds everywhere. The
@@ -71,10 +77,44 @@ deployment shapes:
 On the user-level box a drop-in is present under `~/.config/systemd/user/` and
 systemd's user manager reports `OOMScoreAdjust=-500`, yet the running process
 reads `100`. The negative value
-is silently ineffective there and the protection is a no-op; the cause is not
-established. Note that the incident work verified a user manager *accepts* the
+is silently ineffective there and the protection is a no-op. Note that the
+incident work verified a user manager *accepts* the
 directive, which is exactly the trap: acceptance of a written value says nothing
 about the effective one.
+
+**Cause, established 2026-07-31 (task c5b4e89e).** Ubuntu starts every user
+manager at `OOMScoreAdjust=100`
+(`/usr/lib/systemd/system/user@.service`), and services inherit it. The kernel
+only permits *lowering* `oom_score_adj` with `CAP_SYS_RESOURCE`, which a user
+manager does not hold — the office box's has `CapEff=0000000800000000`,
+`CAP_WAKE_ALARM` alone. The request for `-500` is therefore refused, and the
+service still starts clean, so nothing surfaces. Confirmed from both ends with
+throwaway units: a *system* unit asking for `-500` gets `-500` at runtime and
+its child inherits `-500`; a *user* unit asking for the same gets `100`. Same
+directive, same systemd, different manager privileges, opposite outcome. The bug
+also reproduces on an unrelated box, so it is not a quirk of this one.
+
+**Fix shipped 2026-07-31, deliberately conservative.** `isomux-oom-protect`
+already runs as root, and root is not subject to that restriction: it can write
+the score onto the running process directly (verified — `0` to `-500` on a live
+unprivileged process). So the tool now finds a user-level office by its cgroup
+and stamps it from root. Two limits are stated in its output rather than papered
+over: the value is lost when the office restarts until the tool runs again, and
+agents started after the stamp inherit the server's new score, because a score is
+inherited at fork.
+
+Making it survive a restart would mean lowering the whole user manager, which
+puts every process in that operator's login session under the same protection.
+That is a host-policy decision with the wrong failure bias — it would also
+protect the agent and build workloads that are supposed to be sacrificed — so it
+is queued for Nil rather than settled in the patch.
+
+**And every write is now read back.** `stamp_pid` compares
+`/proc/PID/oom_score_adj` against what was asked for and warns loudly on a
+mismatch, naming the value the kernel will actually use. It also compares the
+process start time either side of the write, so a pid that exits mid-stamp and
+gets recycled cannot be reported as a success. `systemctl show` is never used as
+verification anywhere in the tool.
 
 **Design principle from this.** Assert the effective value, not the written
 config. Any memory or OOM setting this design adds should be verified by reading
@@ -91,8 +131,17 @@ heuristics. Descendants inherit the stamp, so a build inherits its agent's.
 
 This is a **scope addition**: it is code on the spawn path, not a provisioning
 default like the rest of this design, and it needs Nil's acceptance before being
-sequenced as mandatory. It also has to be applied on the user-unit path to fix
-that case, which is desirable given the no-op measured above.
+sequenced as mandatory. Still open as of 2026-07-31, and still needed: the two
+fixes shipped that day correct earlyoom's *selection* and make the user-level
+tier real, but neither orders agents against the office. On both install shapes
+the descendants still carry the server's own score, so the kernel's own killer
+cannot tell them apart.
+
+One implementation note found while fixing the other two. The Claude SDK owns
+the spawn — `query()` in `server/backends/claude.ts` starts the `claude` binary
+internally — so isomux has no pid to stamp at spawn time. Doing this means
+either a periodic sweep of the server's descendants in `/proc` or a hook in the
+SDK, neither of which is a one-liner. Size it accordingly.
 
 ## What the incident task assumed, and what changed
 
@@ -443,11 +492,14 @@ for Nil rather than settled here:
 
 - **a51393e7 (P2)**: earlyoom's `--avoid` shields agent-spawned `bun` builds,
   because it matches process names and `bun` is on the list to protect the
-  office server. Detail in the mechanism section above.
+  office server. Detail in the mechanism section above. **Fixed 2026-07-31**:
+  the server names its own process `isomux` at startup and `--avoid` shields
+  that instead, so a build stays `bun` and stays a candidate.
 - **c5b4e89e (P2)**: user-level installs' OOM protection is a no-op, config
-  `-500` against runtime `100`, cause unestablished. Acceptance requires reading
+  `-500` against runtime `100`. Acceptance requires reading
   back `/proc/PID/oom_score_adj` rather than trusting `systemctl show`, since
-  that is precisely how this trap was set.
+  that is precisely how this trap was set. **Cause established and fixed
+  2026-07-31**, see the mechanism section above.
 - **21bc0e19 (P3)**: `isomux-oom-protect`'s kill-order comment contradicts
   itself and would mislead a maintainer about who dies. Behavior is fine; the
   comment is not.

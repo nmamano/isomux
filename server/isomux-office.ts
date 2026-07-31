@@ -19,6 +19,7 @@ import {
 } from "./presence.ts";
 import type { AgentEvent } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
+import { setProcessName } from "./process-name.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
 import type { AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
@@ -4717,6 +4718,13 @@ export async function runOfficeMain(): Promise<void> {
     await runAdminCli(process.argv.slice(2));
     process.exit(0);
   }
+  // Name this process `isomux` rather than `bun`, so out-of-memory protection
+  // can shield the office server without also shielding the agent builds that
+  // share the name `bun` (see server/process-name.ts). Here rather than at
+  // module scope because it renames the calling thread: the in-process test
+  // harness calls startServer() directly and must not rename itself. After the
+  // CLI fast-path above, which is a different program and keeps its own name.
+  setProcessName();
   const handle = await startServer();
   // Idle-eviction sweep: every minute, demote agents idle past the threshold to
   // lazy so they release their ~165MB subprocess. (Boot already lazy-restores
