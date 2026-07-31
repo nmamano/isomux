@@ -614,27 +614,13 @@ function matchIsomuxUrl(
 // Known isomux routes worth a human label in the card. "*" matches exactly one
 // path segment. Kept to the routes agents actually hit from transcripts; an
 // unknown isomux path still gets a card, just without the label.
-const TASK_ROUTES: Array<[string, string, string]> = [
-  ["GET", "", "List tasks"],
-  ["POST", "", "Create task"],
-  ["POST", "/*/claim", "Claim task"],
-  ["POST", "/*/done", "Complete task"],
-  ["PATCH", "/*", "Update task"],
-  ["DELETE", "/*", "Delete task"],
-];
-
 const ROUTE_LABELS: Array<[string, string, string]> = [
-  // The task board is exposed both at /tasks and /api/tasks.
-  ...TASK_ROUTES.map(([m, suffix, label]): [string, string, string] => [
-    m,
-    `/tasks${suffix}`,
-    label,
-  ]),
-  ...TASK_ROUTES.map(([m, suffix, label]): [string, string, string] => [
-    m,
-    `/api/tasks${suffix}`,
-    label,
-  ]),
+  ["GET", "/api/tasks", "List tasks"],
+  ["POST", "/api/tasks", "Create task"],
+  ["POST", "/api/tasks/*/claim", "Claim task"],
+  ["POST", "/api/tasks/*/done", "Complete task"],
+  ["PATCH", "/api/tasks/*", "Update task"],
+  ["DELETE", "/api/tasks/*", "Delete task"],
   // The agent-discovery manifest is exposed both at /agents and /api/agents.
   ["GET", "/agents", "List office agents"],
   ["GET", "/api/agents", "List office agents"],
@@ -733,7 +719,7 @@ export function humanizeIsomuxRequest(
     if (m === "PUT") return `Rewrite ${phrase}`;
   }
 
-  // Task board (/tasks and /api/tasks)
+  // Task board (/api/tasks; the leading `api` segment was shifted off above)
   if (segs[0] === "tasks") {
     if (segs.length === 1) {
       if (m === "GET") {

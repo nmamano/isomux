@@ -329,6 +329,25 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
   });
 });
 
+describe("install.sh: the managed Caddyfile", () => {
+  it("turns the admin API off, in a global block ahead of the site block", () => {
+    // Caddy's admin API listens on 127.0.0.1:2019 by default and rewrites the
+    // proxy config with no credential. Loopback is not a trust boundary here:
+    // agents run on this box, and an SSRF bug in anything they build reaches it.
+    // Not the usual "up to the next \n}\n": the Caddyfile heredoc has its own
+    // closing braces at column 0. Slice to the next function instead.
+    const body = SRC.slice(
+      SRC.indexOf("configure_caddy() {"),
+      SRC.indexOf("\nreport() {"),
+    );
+    expect(body).toContain("admin off");
+    // Caddy only accepts global options as the FIRST block in the file.
+    expect(body.indexOf("admin off")).toBeLessThan(body.indexOf("$DOMAIN {"));
+    // Still the same office it proxies to.
+    expect(body).toContain("reverse_proxy 127.0.0.1:4000");
+  });
+});
+
 describe("install.sh: out-of-memory protection", () => {
   it("installs and runs the protection script, without failing the install", () => {
     expect(SRC).toContain("OOM_TOOL=/usr/local/sbin/isomux-oom-protect");

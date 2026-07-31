@@ -60,8 +60,6 @@ import type { TaskItem } from "../shared/types.ts";
 import {
   CODEX_MODELS,
   MODEL_FAMILIES,
-  isValidStatus,
-  isValidPriority,
   type AgentOutfit,
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -1327,6 +1325,16 @@ function attributionFor(identity: Identity): {
     const display = agentManager.getAgentDisplay(identity.agentId);
     if (display) createdBy = display.name;
   }
+  // A cron run acts as the JOB, not as the human who created the job: its
+  // userId is there for `username` (ownership), but a task the run files should
+  // read as the job's, the way it did when the run passed createdBy itself on
+  // the retired loopback /tasks route.
+  if (identity.scope === "cron-run" && identity.cronjobId) {
+    const job = cronjobManager
+      .listCronjobs()
+      .find((c) => c.id === identity.cronjobId);
+    if (job) createdBy = job.name;
+  }
   return { createdBy, username };
 }
 
@@ -1334,11 +1342,18 @@ function attributionFor(identity: Identity): {
 // Resolves the acting user (a USER identity's own record, or an AGENT identity's
 // SPAWNING user — "agents are bounded by their manager's room access") and
 // returns accessibleRoomIdsFor(user): every live room for an owner (by rule),
-// the granted rooms for a member. An identity with no resolvable user (a
-// cron-run, or a token whose user is gone) sees ONLY office-global tasks, so it
-// gets the empty set. This is room ACCESS, never the hidden/order view filter —
-// a hidden room is still accessible, so its tasks still show.
+// the granted rooms for a member. This is room ACCESS, never the hidden/order
+// view filter — a hidden room is still accessible, so its tasks still show.
+//
+// A CRON-RUN identity gets the EMPTY set by rule, so a run sees and touches only
+// office-global tasks. Its userId is the cronjob's CREATOR (there for
+// attribution), and an owner-created job would otherwise inherit every room —
+// but a cron run has no room of its own and its prompt calls the board
+// office-global. This keeps that promise, and matches what runs could reach on
+// the retired loopback /tasks surface. Same empty set for a token whose user is
+// gone.
 function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
+  if (identity.scope === "cron-run") return new Set<string>();
   const user = identity.userId ? getUserById(identity.userId) : null;
   return user ? accessibleRoomIdsFor(user) : new Set<string>();
 }
@@ -2746,8 +2761,9 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
   // 3a.6 — System backup status. Maps the internal BackupStatus to the normalized
-  // /api wire shape (rename + null→false on ok); the legacy /backup/status keeps
-  // its raw shape.
+  // /api wire shape (rename + null→false on ok). This is the only backup-status
+  // surface now — the legacy /backup/status, which returned the raw shape, is
+  // retired.
   register(
     systemHandlers({
       getBackupStatus: () => {
@@ -3943,25 +3959,20 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // Unified REST surface (Phase 3a). Routes declared in the typed table are
       // dispatched through the executor: identity -> authorize -> preconditions
       // -> idempotency -> handler -> emit. Identity is REQUIRED (cookie or
-      // bearer); there is NO loopback bypass for /api (allowLoopback:false), so
-      // the new surface cannot reintroduce the bypass the legacy paths still
-      // carry. An unmatched or not-yet-migrated /api path falls through to the
+      // bearer). An unmatched or not-yet-migrated /api path falls through to the
       // legacy handlers (/api/upload, /api/files, /api/images) and the static
       // serve below.
       if (url.pathname.startsWith("/api/")) {
         const apiMatch = matchRoute(API_ROUTES, req.method, url.pathname);
         if (apiMatch && executorDeps.handlers.has(apiMatch.route.opId)) {
-          const apiAuth = authenticate(req, server, {
-            allowLoopback: false,
-            officeName,
-          });
+          const apiAuth = authenticate(req, { officeName });
           if (apiAuth.kind !== "ok") {
-            // Marshal the auth rejection (or the impossible loopback case, since
-            // allowLoopback:false) into the /api envelope {error:{code,message}}
-            // — the new contract, NOT the legacy auth-middleware shape. Every
-            // migrated /api route inherits this entrypoint, so the envelope must
-            // be uniform here. authenticate() rejects with only two statuses:
-            // 403 (bad origin / CSRF) and 401 (no / invalid identity).
+            // Marshal the auth rejection into the /api envelope
+            // {error:{code,message}} — the new contract, NOT the legacy
+            // auth-middleware shape. Every migrated /api route inherits this
+            // entrypoint, so the envelope must be uniform here. authenticate()
+            // rejects with only two statuses: 403 (bad origin / CSRF) and 401
+            // (no / invalid identity).
             const badOrigin =
               apiAuth.kind === "rejected" && apiAuth.response.status === 403;
             return badOrigin
@@ -3986,67 +3997,25 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
       }
 
-      // Loopback bypass is intentionally narrow: it only applies to API paths
-      // agents legitimately hit from the same box (POST /tasks, /cronjobs read
-      // routes, /backup/status). The SPA shell still requires an authenticated
-      // cookie even from localhost, so a same-host browser is pushed through the
-      // bootstrap-invite flow instead of getting a half-functional page where
-      // HTTP works but WS rejects.
-      //
-      // /agents (both the exact-match discovery manifest and the /agents/
-      // per-agent action surface) is deliberately NOT in this list: the
-      // loopback-bypass removal milestone made the agent surface
-      // bearer-required, and GET /agents requires an identity by design (it
-      // answers with a room-ACL-projected view, so "who is asking" is part of
-      // the contract — an anonymous loopback curl 401s; the world-readable
-      // agents-summary.json file remains the full-manifest source for
-      // same-box readers). The self-affordance routes moved to /api
-      // (token-required), and POST /agents/:id/message now derives the sender
-      // from the AGENT bearer — a no/invalid-bearer request is no longer
-      // loopback-trusted, so it falls through to the cookie wall below and
-      // 401s. (/tasks, /cronjobs, /backup/status loopback removal is a
-      // separate later milestone.)
-      const isAgentApiPath =
-        url.pathname.startsWith("/tasks") ||
-        url.pathname.startsWith("/cronjobs") ||
-        url.pathname === "/backup/status";
-      const auth = authenticate(req, server, {
-        allowLoopback: isAgentApiPath,
-        officeName,
-      });
+      // There is NO loopback bypass left: every caller needs an identity (a
+      // bearer token or a session cookie), on this surface and on /api alike.
+      // The last three loopback-trusted prefixes — /tasks, the /cronjobs reads
+      // and /backup/status — were retired in favour of their bearer-gated /api
+      // equivalents (see the retired-path wall below), because a loopback
+      // caller is not a trustworthy identity on a box that also runs
+      // agent-built web apps: an SSRF or open-proxy bug in any of them reaches
+      // a loopback listener in two hops, and the final socket cannot tell who
+      // the original caller was.
+      const auth = authenticate(req, { officeName });
       if (auth.kind === "rejected") return auth.response;
-
-      // CORS preflight for task API
-      if (req.method === "OPTIONS" && url.pathname.startsWith("/tasks")) {
-        return new Response(null, {
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-          },
-        });
-      }
-
-      // CORS preflight for cronjobs API (read-only over loopback now — the
-      // in-flight run read-file/diff affordances moved to the token-required
-      // /api surface, so POST is no longer accepted here).
-      if (req.method === "OPTIONS" && url.pathname.startsWith("/cronjobs")) {
-        return new Response(null, {
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type",
-          },
-        });
-      }
 
       // Agent discovery manifest — GET /agents. Serves the live manifest with
       // the same entry shape as ~/.isomux/agents-summary.json (still written
       // alongside for existing file-based readers). Identity REQUIRED (bearer
-      // or cookie): /agents is off the loopback-trust list above, so an
-      // anonymous request — loopback included — already 401'd at the wall
-      // (Nil's call: the endpoint always answers with a projected view, never
-      // an unauthenticated full dump; agents send $ISOMUX_AGENT_TOKEN).
+      // or cookie): an anonymous request — loopback included — already 401'd at
+      // the wall above (Nil's call: the endpoint always answers with a
+      // projected view, never an unauthenticated full dump; agents send
+      // $ISOMUX_AGENT_TOKEN).
       //
       // Browser-read hardening: GETs skip the CSRF origin check in
       // authenticate(), so a hostile web page whose request somehow carries a
@@ -4069,15 +4038,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             headers: { "Content-Type": "application/json" },
           });
         }
-        if (auth.kind !== "ok") {
-          // Defensive only: with /agents off the loopback list, auth is
-          // always "ok" here. Keep the wall explicit so a future edit to the
-          // bypass list cannot silently reopen an anonymous full read.
-          return new Response(JSON.stringify({ error: "unauthenticated" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
+        // No explicit wall here: authenticate() has only two outcomes now, and
+        // the rejected one returned above, so reaching this line means an
+        // identity was resolved. (The old defensive 401 guarded against a future
+        // edit to the loopback-bypass list; that list is gone.)
         const user = auth.identity.userId
           ? getUserById(auth.identity.userId)
           : null;
@@ -4092,311 +4056,35 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         });
       }
 
-      // Cronjobs HTTP API — read-only over loopback. Mutations and the in-flight
-      // run read-file/diff affordances are token-required under /api now (the
-      // legacy loopback POST affordances were removed in the loopback-bypass
-      // removal milestone); a POST here falls through to the 405 method gate.
-      if (url.pathname.startsWith("/cronjobs")) {
-        const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        };
-        const parts = url.pathname.split("/").filter(Boolean); // ["cronjobs"] or ["cronjobs", id] or ["cronjobs", id, "runs"] or ["cronjobs", id, "runs", runId, ...]
-        if (req.method !== "GET") {
-          return new Response(JSON.stringify({ error: "method not allowed" }), {
-            status: 405,
-            headers: corsHeaders,
-          });
-        }
-        const cronjobs = cronjobManager.listCronjobs();
-        // GET /cronjobs
-        if (parts.length === 1) {
-          return new Response(JSON.stringify(cronjobs), {
-            headers: corsHeaders,
-          });
-        }
-        const jobId = parts[1];
-        const cronjob = cronjobs.find((c) => c.id === jobId);
-        if (!cronjob)
-          return new Response(JSON.stringify({ error: "not found" }), {
-            status: 404,
-            headers: corsHeaders,
-          });
-        // GET /cronjobs/:id
-        if (parts.length === 2) {
-          return new Response(JSON.stringify(cronjob), {
-            headers: corsHeaders,
-          });
-        }
-        // GET /cronjobs/:id/runs
-        if (parts[2] === "runs" && parts.length === 3) {
-          const runs = cronjobManager.getRunsForCronjob(jobId);
-          return new Response(JSON.stringify(runs), { headers: corsHeaders });
-        }
-        // GET /cronjobs/:id/runs/:runId
-        if (parts[2] === "runs" && parts.length === 4) {
-          const { run, entries } = cronjobManager.getRunTranscript(
-            jobId,
-            parts[3],
-          );
-          if (!run)
-            return new Response(JSON.stringify({ error: "not found" }), {
-              status: 404,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify({ run, entries }), {
-            headers: corsHeaders,
-          });
-        }
+      // Retired legacy surfaces: /tasks*, /cronjobs* and /backup/status. These
+      // were unprefixed, loopback-trusted aliases of routes that now live on the
+      // bearer-gated /api surface (/api/tasks*, /api/cronjobs*, /api/cron-runs,
+      // /api/backup/status), which is where every caller — agents included — is
+      // told to go. A no-identity request never reaches here: it 401s at the
+      // cookie wall above. An authenticated one gets a JSON 404 rather than
+      // falling through to the SPA shell, which would answer 200 text/html and
+      // mask the caller. Note the two things that went away with the handlers:
+      // the anonymous loopback trust, and the `Access-Control-Allow-Origin: *`
+      // these routes put on their responses and OPTIONS preflight.
+      //
+      // Matched on a NORMALIZED path, because `URL` leaves `%2f` encoded and a
+      // raw-pathname match would let `/tasks%2fabc` or `/backup/status/` slip
+      // through to the SPA shell — a 200 text/html answer to a caller still
+      // using a retired route, which is the thing this wall exists to prevent.
+      // One decode pass only: `%252f` decodes to the literal text `%2f`, not a
+      // separator, and no handler is behind any of these paths either way.
+      const retiredPath =
+        url.pathname.replace(/%2f/gi, "/").replace(/\/+$/, "") || "/";
+      if (
+        retiredPath === "/tasks" ||
+        retiredPath.startsWith("/tasks/") ||
+        retiredPath === "/cronjobs" ||
+        retiredPath.startsWith("/cronjobs/") ||
+        retiredPath === "/backup/status"
+      ) {
         return new Response(JSON.stringify({ error: "not found" }), {
           status: 404,
-          headers: corsHeaders,
-        });
-      }
-
-      // Task HTTP API
-      if (url.pathname.startsWith("/tasks")) {
-        const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        };
-        const parts = url.pathname.split("/").filter(Boolean); // ["tasks"] or ["tasks", id] or ["tasks", id, action]
-        const taskId = parts[1];
-        const action = parts[2]; // "claim" or "done"
-
-        // ROOM-SCOPING on the LEGACY identity-free surface: this loopback route
-        // carries no caller identity, so it can project to exactly ONE room set —
-        // the office-GLOBAL board (tasks with no roomId). Every op here is scoped
-        // to globals: list/get hide room-scoped tasks, create files global (its
-        // body can't name a room), and a room-scoped task id is a 404 on
-        // get/patch/claim/done — otherwise a known/guessed id would be a
-        // cross-room read OR write bypass around the new boundary. Room-scoped
-        // tasks live on the identity-required /api/tasks surface (agents use their
-        // bearer token there); cron runs, which have no room, use this board.
-        const isGlobal = (t: TaskItem) => !t.roomId;
-
-        // DELETE blocked at HTTP level
-        if (req.method === "DELETE") {
-          return new Response(
-            JSON.stringify({ error: "DELETE not allowed via HTTP" }),
-            { status: 405, headers: corsHeaders },
-          );
-        }
-
-        // GET /tasks — list (globals only; excludes done and backlog by default)
-        if (req.method === "GET" && !taskId) {
-          const status = url.searchParams.get("status");
-          const assignee = url.searchParams.get("assignee");
-          const titleFilter = url.searchParams.get("title");
-          let filtered = agentManager.getTasks().filter(isGlobal);
-          if (!status) {
-            filtered = filtered.filter(
-              (t) => t.status !== "done" && t.status !== "backlog",
-            );
-          } else if (status !== "all") {
-            filtered = filtered.filter((t) => t.status === status);
-          }
-          if (assignee) {
-            filtered = filtered.filter((t) => t.assignee === assignee);
-          }
-          if (titleFilter) {
-            const q = titleFilter.toLowerCase();
-            filtered = filtered.filter((t) =>
-              t.title.toLowerCase().includes(q),
-            );
-          }
-          return new Response(JSON.stringify(filtered), {
-            headers: corsHeaders,
-          });
-        }
-
-        // GET /tasks/:id — detail (globals only; a room-scoped id is a 404)
-        if (req.method === "GET" && taskId && !action) {
-          const task = agentManager.getTasks().find((t) => t.id === taskId);
-          if (!task || !isGlobal(task))
-            return new Response(JSON.stringify({ error: "not found" }), {
-              status: 404,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify(task), { headers: corsHeaders });
-        }
-
-        // POST /tasks — create
-        if (req.method === "POST" && !taskId) {
-          let body: Record<string, unknown>;
-          try {
-            body = (await req.json()) as Record<string, unknown>;
-          } catch {
-            return new Response(JSON.stringify({ error: "invalid JSON" }), {
-              status: 400,
-              headers: corsHeaders,
-            });
-          }
-          if (
-            typeof body.title !== "string" ||
-            typeof body.createdBy !== "string"
-          ) {
-            return new Response(
-              JSON.stringify({ error: "title and createdBy required" }),
-              { status: 400, headers: corsHeaders },
-            );
-          }
-          if (body.priority !== undefined && !isValidPriority(body.priority)) {
-            return new Response(
-              JSON.stringify({ error: "invalid priority, must be P0-P3" }),
-              { status: 400, headers: corsHeaders },
-            );
-          }
-          const task = agentManager.addTask(body.title, body.createdBy, {
-            description:
-              typeof body.description === "string"
-                ? body.description
-                : undefined,
-            priority: body.priority,
-            assignee:
-              typeof body.assignee === "string" ? body.assignee : undefined,
-            username:
-              typeof body.username === "string" ? body.username : undefined,
-          });
-          return new Response(JSON.stringify(task), {
-            status: 201,
-            headers: corsHeaders,
-          });
-        }
-
-        // PATCH /tasks/:id — update
-        if (req.method === "PATCH" && taskId && !action) {
-          let body: Record<string, unknown>;
-          try {
-            body = (await req.json()) as Record<string, unknown>;
-          } catch {
-            return new Response(JSON.stringify({ error: "invalid JSON" }), {
-              status: 400,
-              headers: corsHeaders,
-            });
-          }
-          if (body.status !== undefined && !isValidStatus(body.status)) {
-            return new Response(
-              JSON.stringify({
-                error: "invalid status, must be open|in_progress|backlog|done",
-              }),
-              { status: 400, headers: corsHeaders },
-            );
-          }
-          // `priority: null` clears it, matching /api/tasks (task dc642af2).
-          if (
-            body.priority !== undefined &&
-            body.priority !== null &&
-            !isValidPriority(body.priority)
-          ) {
-            return new Response(
-              JSON.stringify({
-                error: "invalid priority, must be P0-P3 or null to clear",
-              }),
-              { status: 400, headers: corsHeaders },
-            );
-          }
-          const changes: Partial<
-            Pick<
-              TaskItem,
-              "title" | "description" | "priority" | "status" | "assignee"
-            >
-          > = {};
-          if (typeof body.title === "string") changes.title = body.title;
-          if (body.description !== undefined)
-            changes.description =
-              typeof body.description === "string"
-                ? body.description
-                : undefined;
-          if (body.status !== undefined) changes.status = body.status;
-          if (body.priority !== undefined)
-            changes.priority = body.priority ?? undefined;
-          if (body.assignee !== undefined)
-            changes.assignee =
-              typeof body.assignee === "string" ? body.assignee : undefined;
-          // Globals-only wall: a room-scoped id 404s here (no cross-room write).
-          const existing = agentManager.getTasks().find((t) => t.id === taskId);
-          if (!existing || !isGlobal(existing))
-            return new Response(JSON.stringify({ error: "not found" }), {
-              status: 404,
-              headers: corsHeaders,
-            });
-          const task = agentManager.updateTask(taskId, changes);
-          if (!task)
-            return new Response(JSON.stringify({ error: "not found" }), {
-              status: 404,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify(task), { headers: corsHeaders });
-        }
-
-        // POST /tasks/:id/claim
-        if (req.method === "POST" && taskId && action === "claim") {
-          let body: Record<string, unknown>;
-          try {
-            body = (await req.json()) as Record<string, unknown>;
-          } catch {
-            return new Response(JSON.stringify({ error: "invalid JSON" }), {
-              status: 400,
-              headers: corsHeaders,
-            });
-          }
-          const changes: Partial<Pick<TaskItem, "status" | "assignee">> = {
-            status: "in_progress",
-          };
-          if (typeof body.assignee === "string")
-            changes.assignee = body.assignee;
-          // Globals-only wall: a room-scoped id 404s here (no cross-room write).
-          const existing = agentManager.getTasks().find((t) => t.id === taskId);
-          if (!existing || !isGlobal(existing))
-            return new Response(JSON.stringify({ error: "not found" }), {
-              status: 404,
-              headers: corsHeaders,
-            });
-          const task = agentManager.updateTask(taskId, changes);
-          if (!task)
-            return new Response(JSON.stringify({ error: "not found" }), {
-              status: 404,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify(task), { headers: corsHeaders });
-        }
-
-        // POST /tasks/:id/done
-        if (req.method === "POST" && taskId && action === "done") {
-          // Agents send `curl -d '{}'` — consume the body so Bun doesn't warn
-          try {
-            await req.json();
-          } catch {}
-          // Globals-only wall: a room-scoped id 404s here (no cross-room write).
-          const existing = agentManager.getTasks().find((t) => t.id === taskId);
-          if (!existing || !isGlobal(existing))
-            return new Response(JSON.stringify({ error: "not found" }), {
-              status: 404,
-              headers: corsHeaders,
-            });
-          const task = agentManager.updateTask(taskId, { status: "done" });
-          if (!task)
-            return new Response(JSON.stringify({ error: "not found" }), {
-              status: 404,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify(task), { headers: corsHeaders });
-        }
-
-        return new Response(JSON.stringify({ error: "not found" }), {
-          status: 404,
-          headers: corsHeaders,
-        });
-      }
-
-      // GET /backup/status — last-run timestamp, ok/error, retention, dest dir.
-      if (url.pathname === "/backup/status" && req.method === "GET") {
-        return new Response(JSON.stringify(getBackupStatus()), {
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
         });
       }
 
@@ -4410,7 +4098,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // any POST under /agents/ is now a stale/unknown path: fail closed with a
       // JSON 404 rather than fall through to the SPA shell (which would return
       // 200 text/html and mask the caller). No-bearer requests never reach here —
-      // they 401 at the cookie wall above, since /agents/ is off isAgentApiPath.
+      // they 401 at the cookie wall above.
       if (url.pathname.startsWith("/agents/") && req.method === "POST") {
         return new Response(JSON.stringify({ error: "not found" }), {
           status: 404,

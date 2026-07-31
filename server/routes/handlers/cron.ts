@@ -3,9 +3,10 @@
 // /listRuns/listAllRuns/getRun). The run-message + RUN-bearer affordance handlers
 // live alongside these once 3a.2b lands.
 //
-// These REST handlers + the legacy /cronjobs HTTP reads delegate to the SAME
-// CronjobManager core ops (injected via CronDeps); the WS command arms that once
-// shared them were retired across 3d.3 (run-messages) and 3d.4 (config muts).
+// These handlers are the ONLY cronjob surface: the legacy /cronjobs HTTP reads
+// that shared these CronjobManager core ops (injected via CronDeps) are retired,
+// as are the WS command arms, across 3d.3 (run-messages), 3d.4 (config muts) and
+// the legacy-routes retirement (the reads).
 // The manager emits the cronjob_* / run-state domain events, which the
 // wireEventSinks sink routes through the emit() helper (audience `all`).
 // Handlers never emit directly.

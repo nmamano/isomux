@@ -4,8 +4,9 @@
 // identity-required (cookie or agent bearer), attribution is token-derived
 // ([behavior-change] createdBy/username NOT from body), DELETE is unified, and a
 // mutation fans out the `all`-audience `tasks` event through the emit() helper
-// (double-signal). The LEGACY /tasks* surface (frozen in routes-tasks.test.ts)
-// must stay byte-identical, including its loopback trust and DELETE-405 wall.
+// (double-signal). The legacy unprefixed /tasks* surface is retired; its
+// end-state (401 anonymous, 404 authenticated) lives in
+// routes-legacy-retired.test.ts.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -15,7 +16,7 @@ import {
   type TestServer,
   type TestSocket,
 } from "./harness.ts";
-import { mintAgentToken } from "../identity/tokens.ts";
+import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, TaskItem } from "../../shared/types.ts";
 
@@ -114,10 +115,6 @@ describe("routes/tasks REST: /api identity required (no loopback bypass)", () =>
     expect((postApi.body as { error?: { code?: string } }).error?.code).toBe(
       "unauthenticated",
     );
-
-    // Legacy loopback-trusted surface is untouched: no cookie, still 200.
-    const legacy = await api(srv, "/tasks");
-    expect(legacy.status).toBe(200);
   });
 });
 
@@ -268,14 +265,6 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     expect(again.status).toBe(200);
     expect((again.body as TaskItem).priority).toBeUndefined();
   });
-
-  it("legacy HTTP DELETE /tasks/:id stays a 405 wall (unchanged)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Boss");
-    const r = await api(srv, "/tasks/whatever", { method: "DELETE" });
-    expect(r.status).toBe(405);
-  });
 });
 
 // --- Agent bearer auth + agent-name attribution -----------------------------
@@ -301,6 +290,82 @@ describe("routes/tasks REST: agent bearer", () => {
     const t = r.body as TaskItem;
     expect(t.createdBy).toBe("TaskBot");
     expect(t.username).toBe("Boss");
+  });
+});
+
+describe("routes/tasks REST: cron-run bearer", () => {
+  it("a run token authenticates and createdBy is the JOB name, username the creator", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const job = srv.cronjobManager.addCronjob({
+      name: "Nightly Sweep",
+      schedule: { type: "interval", minutes: 60 },
+      prompt: "p",
+      cwd: srv.stateRoot,
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "bypassPermissions",
+      username: "Boss",
+      userId: ownerId,
+    });
+    const runToken = mintRunToken(job.id, "run-1", ownerId);
+
+    expect((await api(srv, "/api/tasks", { bearer: runToken })).status).toBe(
+      200,
+    );
+    const r = await api(srv, "/api/tasks", {
+      method: "POST",
+      bearer: runToken,
+      body: { title: "filed by the run" },
+    });
+    expect(r.status).toBe(201);
+    const t = r.body as TaskItem;
+    // The run acts as the job, not as the human who created the job.
+    expect(t.createdBy).toBe("Nightly Sweep");
+    expect(t.username).toBe("Boss");
+  });
+
+  // task:write is one coarse capability, and the surface a run inherited (the
+  // retired loopback /tasks route) walled DELETE off at 405. The taskDelete
+  // guard keeps that boundary: a run files and completes, it does not erase.
+  it("a run token cannot DELETE a task -> 403, and the task survives", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const glob = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { title: "keep me", roomId: "" },
+      })
+    ).body as TaskItem;
+    const runToken = mintRunToken("job-del", "run-del", ownerId);
+
+    const r = await api(srv, `/api/tasks/${glob.id}`, {
+      method: "DELETE",
+      bearer: runToken,
+    });
+    expect(r.status).toBe(403);
+    expect(srv.agentManager.getTasks().some((t) => t.id === glob.id)).toBe(
+      true,
+    );
+
+    // An owner cookie still deletes it — the guard is cron-run-only.
+    expect(
+      (
+        await api(srv, `/api/tasks/${glob.id}`, {
+          method: "DELETE",
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(204);
+    expect(srv.agentManager.getTasks().some((t) => t.id === glob.id)).toBe(
+      false,
+    );
   });
 });
 
@@ -620,53 +685,76 @@ describe("routes/tasks REST: room scoping", () => {
     expect((homed.body as TaskItem).roomId).toBe(roomA);
   });
 
-  it("legacy loopback /tasks is GLOBALS-ONLY: hides room tasks and refuses to mutate them", async () => {
+  // A CRON RUN is the identity that inherited the retired loopback /tasks
+  // board: it has no room of its own, and its userId is the job's CREATOR, so
+  // without the cron-run rule an owner-created job would inherit every room.
+  it("a CRON-RUN bearer is GLOBALS-ONLY even for an owner's job: hides room tasks and refuses to mutate them", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
     const roomB = srv.agentManager.createRoom("Room B");
     const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
       .body as TaskItem;
     const glob = (await postTask(srv, owner.rawSessionId, "glob", ""))
       .body as TaskItem;
+    const runToken = mintRunToken("job-1", "run-1", ownerId);
 
-    // GET list (loopback, no cookie): only the global task.
-    const legacyIds = idsOf(await api(srv, "/tasks"));
-    expect(legacyIds.has(glob.id)).toBe(true);
-    expect(legacyIds.has(inB.id)).toBe(false);
-    // GET + every mutation on the room task is a 404 through the legacy surface.
-    expect((await api(srv, `/tasks/${inB.id}`)).status).toBe(404);
+    // GET list: only the global task, though the job's creator is an owner.
+    const runIds = idsOf(await api(srv, "/api/tasks", { bearer: runToken }));
+    expect(runIds.has(glob.id)).toBe(true);
+    expect(runIds.has(inB.id)).toBe(false);
+    // GET + every mutation on the room task is a 404 for the run.
+    expect(
+      (await api(srv, `/api/tasks/${inB.id}`, { bearer: runToken })).status,
+    ).toBe(404);
     expect(
       (
-        await api(srv, `/tasks/${inB.id}`, {
+        await api(srv, `/api/tasks/${inB.id}`, {
           method: "PATCH",
+          bearer: runToken,
           body: { status: "done" },
         })
       ).status,
     ).toBe(404);
     expect(
       (
-        await api(srv, `/tasks/${inB.id}/claim`, {
+        await api(srv, `/api/tasks/${inB.id}/claim`, {
           method: "POST",
+          bearer: runToken,
           body: { assignee: "x" },
         })
       ).status,
     ).toBe(404);
     expect(
-      (await api(srv, `/tasks/${inB.id}/done`, { method: "POST", body: {} }))
-        .status,
+      (
+        await api(srv, `/api/tasks/${inB.id}/done`, {
+          method: "POST",
+          bearer: runToken,
+          body: {},
+        })
+      ).status,
     ).toBe(404);
     expect(
       srv.agentManager.getTasks().find((t) => t.id === inB.id)?.status,
     ).toBe("open");
-    // Legacy create files GLOBAL even if the body names a room.
-    const legacyCreate = (
-      await api(srv, "/tasks", {
-        method: "POST",
-        body: { title: "leg", createdBy: "c", roomId: roomB },
-      })
-    ).body as TaskItem;
-    expect(legacyCreate.roomId).toBeUndefined();
+    // A create with no roomId files GLOBAL; naming a room is a 404.
+    const runCreate = await api(srv, "/api/tasks", {
+      method: "POST",
+      bearer: runToken,
+      body: { title: "from the run" },
+    });
+    expect(runCreate.status).toBe(201);
+    expect((runCreate.body as TaskItem).roomId).toBeUndefined();
+    expect(
+      (
+        await api(srv, "/api/tasks", {
+          method: "POST",
+          bearer: runToken,
+          body: { title: "into B", roomId: roomB },
+        })
+      ).status,
+    ).toBe(404);
   });
 
   it("a mutation fans out per-recipient: a member socket never receives a room task it can't see", async () => {

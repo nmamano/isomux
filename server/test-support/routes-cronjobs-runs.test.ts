@@ -12,9 +12,9 @@
 //     UI/demo-coordinated wire switch). This is Reviewer1's PINNED bridge test.
 //   - The legacy loopback affordance path (`/cronjobs/:id/runs/:runId/read-file`,
 //     no `/api`, no token) is now REJECTED: the loopback-bypass removal deleted
-//     the legacy cron-run POST handlers, so it falls through to the 405 method
-//     gate (/cronjobs stays loopback-trusted for GET this milestone, so it is a
-//     405, not a 401) and writes nothing to the transcript.
+//     the legacy cron-run POST handlers, and the legacy-routes retirement took
+//     the whole /cronjobs prefix with it, so a no-token POST 401s at the cookie
+//     wall and writes nothing to the transcript.
 //   - run-message ownership tightening: REST via the route guard
 //     (cronjobOwnerOrOfficeOwner). The legacy WS run-message arms were retired in
 //     3d.3 and the shared wsCanMutateCronjob shim in 3d.4.
@@ -256,7 +256,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     expect(countLog(sock, live.streamId, "file-view")).toBe(1);
   });
 
-  it("legacy loopback affordance path (no /api, no token) is rejected — the deleted POST hits the 405 method gate, not the transcript", async () => {
+  it("legacy loopback affordance path (no /api, no token) is rejected — 401 at the cookie wall, not the transcript", async () => {
     const live = await startLiveRun();
     writeFileSync(join(live.srv.stateRoot, "legacy.txt"), "y");
     const sock = await live.srv.connectWs(live.ownerSession);
@@ -268,10 +268,10 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
         body: JSON.stringify({ path: "legacy.txt" }),
       },
     );
-    // The legacy loopback cron-run affordances were deleted. /cronjobs stays
-    // loopback-trusted for GET this milestone, so a no-token POST is NOT a 401;
-    // the deleted handler leaves the existing method gate to reject it 405.
-    expect(res.status).toBe(405);
+    // The legacy loopback cron-run affordances were deleted, and the whole
+    // /cronjobs prefix is retired, so a no-token POST no longer reaches any
+    // handler: it 401s at the cookie wall.
+    expect(res.status).toBe(401);
     // Fail-closed: nothing reached the run transcript. ping/pong barrier — any
     // (erroneous) emit would have been ws.send'd before this ping arrives.
     sock.send({ type: "ping" });
@@ -395,7 +395,7 @@ describe("routes/cron run-affordances: RUN-bearer authz (no active run needed)",
     expect(r.status).toBe(403);
   });
 
-  it("no identity (no cookie, no bearer) -> 401 (allowLoopback:false on /api)", async () => {
+  it("no identity (no cookie, no bearer) -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");

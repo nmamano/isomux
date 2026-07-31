@@ -1,30 +1,28 @@
-// Phase 1.4(b) — Auth / loopback / origin policy characterization.
+// Auth / identity / origin policy for the HTTP surface.
 //
-// Freezes TODAY's auth posture for the HTTP surface — the exact thing Phase 2
-// (token identity) and the Phase 3 loopback-bypass-removal milestone flip. We
-// pin the BEFORE so the flip is a visible, intentional diff, not a silent one.
+// Started life as Phase 1.4(b) characterization of the loopback bypass; now it
+// pins the END state, after the legacy-routes retirement removed the last
+// loopback-trusted prefixes (/tasks, the /cronjobs reads, /backup/status).
 //
-// What is frozen (all current behavior, NOT the desired end-state):
-//   - Loopback trust: paths in isAgentApiPath (/tasks, /cronjobs, /agents/,
-//     /backup/status) are reachable from 127.0.0.1 with NO cookie. The harness
-//     fetches loopback, so these succeed unauthenticated.
-//   - Cookie wall: everything else (/api/upload, /api/files, the SPA shell) is
-//     NOT loopback-trusted and requires a valid session cookie even on the same
-//     box -> 401.
-//   - Origin/CSRF: the origin check runs for non-safe methods regardless of the
-//     loopback bypass. A mismatched Origin -> 403 "bad origin"; a MISSING Origin
+// What is pinned:
+//   - NO loopback trust anywhere: an anonymous same-box request is 401, on the
+//     retired prefixes and on /api alike. The harness fetches loopback, so
+//     these cases would pass trivially if a bypass came back.
+//   - Cookie wall: /api/upload, /api/files and the SPA shell require a valid
+//     session cookie (or a bearer) even from the same box -> 401.
+//   - Origin/CSRF: the origin check runs for non-safe methods, BEFORE identity
+//     is resolved. A mismatched Origin -> 403 "bad origin"; a MISSING Origin
 //     (typical agent curl) is allowed; a safe GET skips the check entirely.
 //   - 401 shape: JSON { error:"unauthenticated" } when the client wants JSON,
 //     the login HTML page when it wants text/html.
-//   - Attribution is BODY-TRUST: POST /tasks createdBy comes from the body, not
-//     from the cookie identity.
+//   - Bearer precedence: a valid bearer wins over a cookie; a garbage bearer is
+//     ignored rather than becoming a new rejection.
 //
 // srv.http() force-sets a valid Origin, so the origin-policy cases fetch
 // srv.baseUrl directly to control (or omit) the Origin header. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
-import type { TaskItem } from "../../shared/types.ts";
 import type { SessionLookup } from "../auth.ts";
 import { resolveIdentityForRequest } from "../auth-middleware.ts";
 import { mintAgentToken, _testResetTokens } from "../identity/tokens.ts";
@@ -40,16 +38,16 @@ afterEach(async () => {
 // it on boot, but the precedence unit cases below mint tokens without a boot.
 afterEach(() => _testResetTokens());
 
-describe("routes/auth: loopback trust (no cookie) (Phase 1.4b)", () => {
-  it("isAgentApiPath GET routes are reachable with no cookie", async () => {
+describe("routes/auth: no loopback trust on the retired prefixes", () => {
+  it("an anonymous same-box GET on each retired prefix -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
-    expect((await srv.http("/tasks")).status).toBe(200);
-    expect((await srv.http("/cronjobs")).status).toBe(200);
-    expect((await srv.http("/backup/status")).status).toBe(200);
+    expect((await srv.http("/tasks")).status).toBe(401);
+    expect((await srv.http("/cronjobs")).status).toBe(401);
+    expect((await srv.http("/backup/status")).status).toBe(401);
   });
 
-  it("a loopback POST /tasks mutates with no cookie -> 201", async () => {
+  it("an anonymous same-box POST /tasks does not mutate -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
     const res = await srv.http("/tasks", {
@@ -57,11 +55,12 @@ describe("routes/auth: loopback trust (no cookie) (Phase 1.4b)", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "loopback", createdBy: "agent" }),
     });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(401);
+    expect(srv.agentManager.getTasks().length).toBe(0);
   });
 });
 
-describe("routes/auth: cookie wall for non-loopback paths (Phase 1.4b)", () => {
+describe("routes/auth: cookie wall (Phase 1.4b)", () => {
   it("GET /api/files without a cookie -> 401 unauthenticated", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -89,20 +88,24 @@ describe("routes/auth: cookie wall for non-loopback paths (Phase 1.4b)", () => {
   });
 });
 
-describe("routes/auth: origin / CSRF (Phase 1.4b)", () => {
-  it("mutating POST with a mismatched Origin -> 403 bad origin (before loopback bypass)", async () => {
+// The origin check runs BEFORE identity resolution, so these cases use a bearer
+// on /api/tasks: the 403 must come from the Origin, not from a missing identity.
+describe("routes/auth: origin / CSRF", () => {
+  it("mutating POST with a mismatched Origin -> 403 bad origin", async () => {
     const srv = await startTestServer();
     server = srv;
-    const res = await fetch(`${srv.baseUrl}/tasks`, {
+    const raw = mintAgentToken("agent-csrf", "user-1");
+    const res = await fetch(`${srv.baseUrl}/api/tasks`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${raw}`,
         Origin: "https://evil.example",
       },
-      body: JSON.stringify({ title: "csrf", createdBy: "attacker" }),
+      body: JSON.stringify({ title: "csrf" }),
     });
     expect(res.status).toBe(403);
-    expect((await res.json()).error).toBe("bad origin");
+    expect((await res.json()).error.code).toBe("bad_origin");
     // The CSRF attempt did not create a task.
     expect(srv.agentManager.getTasks().length).toBe(0);
   });
@@ -110,11 +113,15 @@ describe("routes/auth: origin / CSRF (Phase 1.4b)", () => {
   it("mutating POST with NO Origin header is allowed (agent curl) -> 201", async () => {
     const srv = await startTestServer();
     server = srv;
+    const raw = mintAgentToken("agent-no-origin", "user-1");
     // No Origin header set; Bun's fetch does not synthesize one server-side.
-    const res = await fetch(`${srv.baseUrl}/tasks`, {
+    const res = await fetch(`${srv.baseUrl}/api/tasks`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "no-origin", createdBy: "agent" }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${raw}`,
+      },
+      body: JSON.stringify({ title: "no-origin" }),
     });
     expect(res.status).toBe(201);
   });
@@ -122,8 +129,12 @@ describe("routes/auth: origin / CSRF (Phase 1.4b)", () => {
   it("a safe GET with a mismatched Origin is allowed (origin check is non-safe-only)", async () => {
     const srv = await startTestServer();
     server = srv;
-    const res = await fetch(`${srv.baseUrl}/tasks`, {
-      headers: { Origin: "https://evil.example" },
+    const raw = mintAgentToken("agent-safe-get", "user-1");
+    const res = await fetch(`${srv.baseUrl}/api/tasks`, {
+      headers: {
+        Authorization: `Bearer ${raw}`,
+        Origin: "https://evil.example",
+      },
     });
     expect(res.status).toBe(200);
   });
@@ -155,23 +166,6 @@ describe("routes/auth: 401 shape by Accept (Phase 1.4b)", () => {
   });
 });
 
-describe("routes/auth: body-trust attribution (Phase 1.4b)", () => {
-  it("POST /tasks createdBy comes from the body, not the cookie identity", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const alice = await srv.seedOwner("Alice");
-    const res = await srv.http("/tasks", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      rawSessionId: alice.rawSessionId,
-      body: JSON.stringify({ title: "on behalf", createdBy: "Bob" }),
-    });
-    expect(res.status).toBe(201);
-    // The cookie session is Alice, but createdBy is taken verbatim from the body.
-    expect(((await res.json()) as TaskItem).createdBy).toBe("Bob");
-  });
-});
-
 // Phase 2.1 (ADDITIVE) — Bearer lands ALONGSIDE the cookie path. These assert
 // the NEW acceptance (a valid bearer authenticates), NOT any new rejection: a
 // garbage bearer behaves exactly like no Authorization. NOTE the deliberate
@@ -200,7 +194,7 @@ describe("routes/auth: bearer alongside cookie (Phase 2.1, additive)", () => {
     expect((await res.json()).error).toBe("unauthenticated");
   });
 
-  it("a garbage bearer does not disturb loopback trust (POST /tasks still 201)", async () => {
+  it("a garbage bearer on a retired prefix is still 401, not a bypass", async () => {
     const srv = await startTestServer();
     server = srv;
     const res = await srv.http("/tasks", {
@@ -211,7 +205,7 @@ describe("routes/auth: bearer alongside cookie (Phase 2.1, additive)", () => {
       },
       body: JSON.stringify({ title: "loopback+badbearer", createdBy: "agent" }),
     });
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(401);
   });
 });
 

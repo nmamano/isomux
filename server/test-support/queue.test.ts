@@ -1277,7 +1277,7 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
-    // RUN scope carries only self:affordance — it is not an agent identity, so
+    // RUN scope carries no agent:send-as-self — it is not an agent identity, so
     // it must not be allowed to body-trust a senderAgentId.
     const runToken = mintRunToken("some-job", "some-run", null);
 

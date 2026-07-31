@@ -2141,8 +2141,20 @@ mint_invite() {
 
 configure_caddy() {
   step configure-caddy
+  # `admin off` turns off Caddy's admin API, which otherwise listens on
+  # 127.0.0.1:2019 and can rewrite the whole proxy config with no credential.
+  # Loopback is not a trust boundary on this box: agents run here as a local
+  # user, and any web app they build is one SSRF or open-proxy bug away from
+  # reaching it from outside. Nothing in isomux drives Caddy through the API —
+  # this installer restarts the service instead — so the only thing lost is
+  # `caddy reload` / `systemctl reload caddy` on this box; a restart still
+  # applies a changed Caddyfile.
   write_file /etc/caddy/Caddyfile 644 <<EOF
 $CADDY_MARKER
+{
+	admin off
+}
+
 $DOMAIN {
 	reverse_proxy 127.0.0.1:4000
 }

@@ -159,10 +159,19 @@ export function agentCapabilities(privileged: boolean): readonly Capability[] {
   return privileged ? PRIVILEGED_AGENT_CAPABILITIES : AGENT_CAPABILITIES;
 }
 
-// CRON-RUN set: only the self-affordances, bound to its {cronjobId, runId}. The
-// cron-run analogue of an agent token; closes the loopback hole for a firing
-// run's in-flight read-file/diff without relying on a bypass.
-export const RUN_CAPABILITIES: readonly Capability[] = ["self:affordance"];
+// CRON-RUN set: the self-affordances, bound to its {cronjobId, runId}, plus the
+// task board. The cron-run analogue of an agent token; closes the loopback hole
+// for a firing run's in-flight read-file/diff without relying on a bypass.
+//
+// task:read + task:write are here because the cron system prompt gives a run the
+// board, and it reached it over the (now retired) loopback /tasks route. The
+// board a run sees is office-GLOBAL only: accessibleRoomIdsForIdentity returns
+// the empty set for cron-run scope, and a create with no roomId files global.
+export const RUN_CAPABILITIES: readonly Capability[] = [
+  "self:affordance",
+  "task:read",
+  "task:write",
+];
 
 export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
   switch (scope) {

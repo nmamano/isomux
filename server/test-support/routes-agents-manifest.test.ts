@@ -8,10 +8,9 @@
 // view.
 //
 // Auth posture (Nil-specced, round 3): identity REQUIRED — bearer token or
-// login cookie. GET /agents is deliberately OFF the loopback-trust list, so an
-// anonymous request 401s even from loopback (unlike /tasks and /cronjobs,
-// whose loopback reads are a separately-tracked legacy posture). Non-GET on
-// the exact path and the /agents/<id> action surface 401 as before.
+// login cookie. There is no loopback trust on any path, so an anonymous
+// request 401s even from loopback. Non-GET on the exact path and the
+// /agents/<id> action surface 401 as before.
 //
 // Visibility: the manifest is PROJECTED to the rooms the identity's user can
 // access — owner: every room by rule; member: allowedRooms grants; agent /
@@ -230,7 +229,7 @@ describe("GET /agents (discovery manifest)", () => {
     await spawnAt(srv, "Alpha", r1, 0);
 
     // No bearer, no cookie — the harness IS a loopback peer, so this pins
-    // that /agents is off the loopback-trust list (unlike /tasks).
+    // that no path is loopback-trusted.
     const res = await fetch(`${srv.baseUrl}/agents`, {
       headers: { Accept: "application/json" },
     });
@@ -325,7 +324,7 @@ describe("GET /agents projection (room ACL)", () => {
     await spawnOwnedBy(srv, "MemberAgent", r2, 1, member.username);
 
     // srv.http attaches the server's own Origin — the same-origin path —
-    // plus the session cookie. With /agents off the loopback-trust list, the
+    // plus the session cookie. With no loopback trust anywhere, the
     // cookie now resolves to a USER identity and projects.
     const asMember = await srv.http("/agents", {
       rawSessionId: member.rawSessionId,

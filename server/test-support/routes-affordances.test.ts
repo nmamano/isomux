@@ -11,11 +11,11 @@
 // sender-authority + dedupe/cap/reject matrix is frozen by queue.test.ts.
 //
 // Key current behaviors frozen here:
-//   - Legacy agent affordances are gone: /agents/ is off isAgentApiPath, so a
-//     no-bearer loopback POST is rejected 401 at the cookie wall before any
-//     handler runs — fail-closed by construction.
-//   - /api/upload and /api/files are NOT in isAgentApiPath, so they require a
-//     cookie even from loopback. Auth posture itself is frozen in routes-auth;
+//   - Legacy agent affordances are gone: a no-bearer loopback POST is rejected
+//     401 at the cookie wall before any handler runs — fail-closed by
+//     construction.
+//   - /api/upload and /api/files require a cookie even from loopback (there is
+//     no loopback bypass anywhere). Auth posture itself is frozen in routes-auth;
 //     here we use a seeded owner cookie.
 //   - Upload limits are 5 files / 200MB each / 400MB total in code today. We
 //     freeze the cheap COUNT limit; the byte limits are intentionally NOT
@@ -63,10 +63,10 @@ interface HttpResult {
 }
 
 // Legacy agent affordances POST to /agents/:id/:action over loopback with NO
-// bearer. After the loopback-bypass removal, /agents/ is off isAgentApiPath, so
-// these requests are rejected 401 at the cookie wall (used below to prove the
-// legacy surface fails closed). The token-required /api affordances are covered
-// in routes-agent-affordances-rest.test.ts.
+// bearer. There is no loopback bypass, so these requests are rejected 401 at the
+// cookie wall (used below to prove the legacy surface fails closed). The
+// token-required /api affordances are covered in
+// routes-agent-affordances-rest.test.ts.
 async function affordance(
   srv: TestServer,
   agentId: string,
@@ -91,8 +91,8 @@ async function affordance(
 
 describe("routes/affordances: legacy loopback agent affordances removed (loopback-bypass removal)", () => {
   // The legacy loopback agent self-affordances (POST /agents/:id/{read-file,
-  // edit-file,terminal-command,diff}) were deleted. /agents/ was dropped from
-  // isAgentApiPath, so a no-bearer loopback POST is rejected 401 at the cookie
+  // edit-file,terminal-command,diff}) were deleted, and there is no loopback
+  // bypass, so a no-bearer loopback POST is rejected 401 at the cookie
   // wall BEFORE any handler runs — which is exactly why the legacy surface now
   // fails closed (no handler, so no transcript write is possible). A VALID
   // bearer clears the cookie wall but hits the /agents/ POST block's JSON-404
@@ -212,7 +212,7 @@ describe("routes/affordances: upload + file-serving (Phase 1.4b)", () => {
     expect(attachments.length).toBe(1);
     expect(attachments[0].originalName).toBe("note.txt");
     expect(attachments[0].size).toBe(5);
-    // Serve it back (cookie-required: /api/files is not loopback-trusted).
+    // Serve it back (cookie-required, like every other path).
     const got = await srv.http(
       `/api/files/${a.id}/${attachments[0].filename}`,
       {

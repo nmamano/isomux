@@ -64,6 +64,10 @@ wildcard DNS record and certificate; self-hosted keeps it opt-in.
 
 ## Prerequisite: retire the loopback-trusted legacy routes
 
+**DONE 2026-07-30** (task c31aa079): the three prefixes and the Caddy admin API
+listener are gone. What follows is the reasoning as written when it still blocked
+C.
+
 **This blocks C.** isomux treats any loopback caller as authenticated on three
 path prefixes - `/tasks`, `/cronjobs` (read-only) and `/backup/status`
 (`isomux-office.ts`, `isAgentApiPath`). Refusing to point a share at port 4000

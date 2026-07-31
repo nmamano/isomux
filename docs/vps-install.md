@@ -33,7 +33,7 @@ After a few minutes it prints a single-use owner invite link, also saved on the 
 
 - Installs bun, Node.js, git, Caddy, and Chrome (headless, for the agents' page-preview cards); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
-- Serves your domain through Caddy with an automatic Let's Encrypt certificate.
+- Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy's admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.
 - Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth; unattended security updates (a standard Ubuntu feature — it patches system packages, never isomux itself).
 - Checks that the `isomux` account cannot log in as root, and stops the install if it can. See [root access](#root-access).
 - Sets up out-of-memory protection so a busy office can't lock the box up. See [running out of memory](#running-out-of-memory).

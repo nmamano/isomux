@@ -324,6 +324,18 @@ export const messageSend: Guard = (ctx) => {
   }
 };
 
+// Task DELETE: any scope EXCEPT cron-run.
+//
+// A cron run holds task:read + task:write so it can file and complete tasks the
+// way its system prompt describes. But `task:write` is one coarse capability
+// covering create/update/claim/done/delete, and the surface a run inherited (the
+// retired loopback /tasks route) answered DELETE with a 405 wall — so granting a
+// run the board would otherwise hand it a delete power it never had, over any
+// office-global task. Nothing about an unattended scheduled run wants that.
+// USER and AGENT are unaffected: both keep delete, as before.
+export const taskDelete: Guard = ({ identity }) =>
+  identity.scope === "cron-run" ? FORBIDDEN : ALLOW;
+
 // Scheduled-message OUTBOX guard (agents.listScheduledMessages /
 // agents.cancelScheduledMessage). `:id` here is the SENDER whose pending
 // scheduled messages are being managed — the deliberate asymmetry with the

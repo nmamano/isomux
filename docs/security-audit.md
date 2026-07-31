@@ -213,7 +213,7 @@ Non-safe methods reject mismatched Origin. Missing Origin is accepted (for loopb
 
 ### 6.4 CORS wildcard on `/tasks` and `/cronjobs`
 
-Both endpoints return `Access-Control-Allow-Origin: *`. With `credentials: include` the browser may still attach the cookie to the request, but it will not expose the response body to JavaScript because a wildcard ACAO lacks `Access-Control-Allow-Credentials: true`. For state-changing routes the Origin gate independently rejects mismatched origins before any response is generated. **Verdict: surprising but not a bypass.** Optional cleanup: replace `*` with the resolved public origin.
+Both endpoints returned `Access-Control-Allow-Origin: *`. With `credentials: include` the browser may still attach the cookie to the request, but it will not expose the response body to JavaScript because a wildcard ACAO lacks `Access-Control-Allow-Credentials: true`. For state-changing routes the Origin gate independently rejects mismatched origins before any response is generated. **Verdict: surprising but not a bypass.** **Resolved (2026-07-30):** both endpoints are retired along with their preflight handlers, so neither the wildcard ACAO nor the preflight exists any more. (The 404 wall on the stale `POST /agents/:id/*` path still sends `Access-Control-Allow-Origin: *` on its error envelope — a response with no data in it.)
 
 ### 6.5 DNS rebinding
 
@@ -254,7 +254,7 @@ Primary auth modules:
 - `server/auth.ts`
 - `server/auth-middleware.ts`
 - `server/users.ts`
-- `server/index.ts` (auth-relevant slices: WS upgrade, command dispatch, `/auth` routes, `/tasks`, `/cronjobs`, `/agents/:id/*`, `/api/upload`, `/api/files`)
+- `server/index.ts` (auth-relevant slices as of the audit date: WS upgrade, command dispatch, `/auth` routes, `/tasks`, `/cronjobs`, `/agents/:id/*`, `/api/upload`, `/api/files`)
 - `server/cronjob-manager.ts` (auth-relevant slices)
 - `server/mime-types.ts`
 - `shared/identity.ts`, `shared/public-origin.ts`, `shared/types.ts`
@@ -280,11 +280,11 @@ Known **post-acceptance** authorization gaps fall outside this report's external
 
 - Cronjob config and run transcripts are readable by every authenticated user. The full cronjob list is delivered to each session on connect (office-wide metadata read by design), and the cron read routes (`cron.list`, `cron.get`, `cron.listRuns`, `cron.listAllRuns`, `cron.getRun`) require only `cron:read`, which every authenticated user holds, so any member can read any creator's config and runs.
 - Run transcripts execute with the creator's env and can contain their secrets, so transcript read, not metadata, is the sharp edge here.
-- `server/index.ts` — the legacy `GET /cronjobs/*` read route is a trusted same-host (loopback) bypass: a process on the server reads cronjob metadata and transcripts without a token. Its removal is deferred.
+- The legacy `GET /cronjobs/*` read route was a trusted same-host (loopback) bypass: a process on the server read cronjob metadata and transcripts without a token. **Resolved (2026-07-30):** the route is retired; `/api/cronjobs*` requires `cron:read`, so the office-wide-read gap below is now the only one left here.
 
 Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.delete`/`cron.runNow`) require the creator or an office owner (`cronjobOwnerOrOfficeOwner`, keyed on the stored `userId`); the shared cron prompt (`cron.setPrompt`) requires an office owner; create (`cron.create`) is open to any authenticated user.
 
-**If tightening is desired:** restrict run-transcript reads to the creator plus office owners (metadata can stay office-wide-read), and remove the loopback `GET /cronjobs/*` route.
+**If tightening is desired:** restrict run-transcript reads to the creator plus office owners (metadata can stay office-wide-read).
 
 ### C.2 File serving and uploads bypass the room/agent ACL
 
@@ -303,18 +303,15 @@ Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.
 
 **If tightening is desired:** demote active-content extensions (`html`/`htm`/`xml`/`xhtml`/`svg`/`css`/`js`) on `/api/files` to `application/octet-stream` with `Content-Disposition: attachment`; add `X-Content-Type-Options: nosniff`; consider serving attachments from a separate origin.
 
-### C.4 Loopback bypass scope (agent-API is token-bound; task/cron/backup are not)
+### C.4 Loopback bypass scope — RESOLVED (2026-07-30)
 
 - `server/index.ts` — the agent self-affordances (`POST /api/agents/:id/{diff,edit-file,read-file,terminal-command}`) and `POST /agents/:id/message` require a per-agent bearer token: affordances are bound to the calling agent by `agentParamMustEqualTokenAgent`, and the message sender is derived from the agent's injected `ISOMUX_AGENT_TOKEN` (a `senderAgentId` that does not match the token is rejected). A same-host process cannot act as an agent it holds no token for.
-- The remaining loopback bypass (`isAgentApiPath`) covers `POST /tasks`, the `GET /cronjobs` read routes, and `GET /backup/status`: a same-host process reaches these without a token, so it can list/create tasks, read cronjob metadata/transcripts, and read backup status as if it were local.
+- The last loopback bypass covered `POST /tasks`, the `GET /cronjobs` read routes, and `GET /backup/status`: a same-host process reached these without a token, so it could list/create tasks, read cronjob metadata/transcripts, and read backup status as if it were local. **Resolved:** those three prefixes are retired in favour of `/api/tasks*`, `/api/cronjobs*` and `/api/backup/status`, which require an identity like every other `/api` route. There is no loopback allowlist left in the code.
+- What motivated finishing it: any web app an agent builds runs on the same box, so an SSRF or open-proxy bug in one of them reached those routes from outside in two hops, and the receiving socket could not tell the original caller apart from a local process. The same reasoning turned off Caddy's admin API (`127.0.0.1:2019`) in the installer's Caddyfile.
 
-**If tightening is desired:** extend the per-agent/per-run token requirement to the task and cronjob-read surfaces, as was done for the agent affordance and message endpoints.
+### C.5 HTTP `POST /tasks` accepts client-controlled attribution — RESOLVED
 
-### C.5 HTTP `POST /tasks` accepts client-controlled attribution
-
-- `server/index.ts` — HTTP `POST /tasks` trusts `body.createdBy` and `body.username`; the WS path uses `session.username`.
-
-**If tightening is desired:** force `createdBy = session.username` on the authenticated browser path; keep body-driven attribution for the loopback path.
+- HTTP `POST /tasks` trusted `body.createdBy` and `body.username`; the WS path used `session.username`. **Resolved:** that route is retired. On `/api/tasks` both fields are derived from the caller's token or cookie and a body value is ignored — an agent's tasks read as the agent, a cron run's as the job.
 
 ### C.6 Room creation/close/rename gates use only room-visibility
 

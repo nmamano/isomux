@@ -36,6 +36,7 @@ import {
   conversationReset,
   cronjobOwnerOrOfficeOwner,
   runParamMustEqualTokenRun,
+  taskDelete,
   and,
   or,
   type Guard,
@@ -896,7 +897,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "tasks.delete",
     method: "DELETE",
     path: "/api/tasks/:id",
-    auth: cap("task:write", authenticated),
+    // taskDelete, not `authenticated`: task:write is one coarse capability, and
+    // a cron run holds it only for the create/complete affordance in its prompt.
+    auth: cap("task:write", taskDelete),
     emits: ["tasks"],
   }),
 

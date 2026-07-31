@@ -8,10 +8,9 @@
 // { lastRunAt, ok, error, retention, destDir } — a rename/projection of the
 // internal BackupStatus (lastBackupAt→lastRunAt, lastBackupOk→ok with null→false,
 // lastBackupError→error, backupDir→destDir; `running` is intentionally omitted by
-// the spec). The legacy GET /backup/status [retain] keeps returning the RAW
-// BackupStatus for its existing consumer; the two paths do not share a body shape
-// and must not be confused. The seam owns the mapping (getBackupStatusWire); the
-// handler is a pure pass-through.
+// the spec). This is the only backup-status route; the legacy GET /backup/status,
+// which served the RAW BackupStatus, is retired. The seam owns the mapping
+// (getBackupStatusWire); the handler is a pure pass-through.
 //
 // LEAF over the executor. Only the injected SystemDeps.
 

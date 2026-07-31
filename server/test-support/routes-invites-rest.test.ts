@@ -14,7 +14,7 @@
 //     alone stays officeOwner (session) — a member POST is 403.
 //   - Status mapping: mint INVALID→400 / conflict→409 / ok→200; member revoke
 //     uniform 403; owner nonexistent→404.
-//   - AGENT bearer → 403 (no invite:manage); no identity → 401 (allowLoopback:false).
+//   - AGENT bearer → 403 (no invite:manage); no identity → 401.
 //   - Strangler: the legacy WS arms share the SAME core (covered where it bites —
 //     the recipient-scoped emit + record-role revoke run on both transports).
 //
@@ -665,7 +665,7 @@ describe("routes/invites REST: record-role projection (Option A) + scope/auth", 
         .status,
     ).toBe(403);
 
-    // No identity (no cookie, no bearer) -> 401 (allowLoopback:false on /api).
+    // No identity (no cookie, no bearer) -> 401.
     expect((await api(srv, "/api/invites")).status).toBe(401);
     expect(
       (await api(srv, "/api/invites", { method: "POST", body: {} })).status,

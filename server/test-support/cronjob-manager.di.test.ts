@@ -203,7 +203,11 @@ describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
     expect(id.scope).toBe("cron-run");
     expect(id.cronjobId).toBe(job.id);
     expect(id.runId).toBe(run!.id);
-    expect([...id.capabilities]).toEqual(["self:affordance"]);
+    expect([...id.capabilities]).toEqual([
+      "self:affordance",
+      "task:read",
+      "task:write",
+    ]);
 
     // Redaction: the run token must not ride in the run's system prompt.
     expect(sess?.opts.systemPrompt ?? "").not.toContain(raw as string);
@@ -333,7 +337,11 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     expect(id.scope).toBe("cron-run");
     expect(id.cronjobId).toBe(job.id);
     expect(id.runId).toBe(run.id);
-    expect([...id.capabilities]).toEqual(["self:affordance"]);
+    expect([...id.capabilities]).toEqual([
+      "self:affordance",
+      "task:read",
+      "task:write",
+    ]);
     // Redaction: the run token must not ride in the resumed run's system prompt.
     expect(resumed.opts.systemPrompt ?? "").not.toContain(raw as string);
 

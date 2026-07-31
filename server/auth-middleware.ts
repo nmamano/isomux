@@ -136,15 +136,12 @@ export interface AuthOk {
   // dispatcher (2.3) will.
   identity: Identity;
 }
-export interface AuthLoopback {
-  kind: "loopback";
-}
 export interface AuthRejected {
   kind: "rejected";
   response: Response;
 }
 
-export type AuthResult = AuthOk | AuthLoopback | AuthRejected;
+export type AuthResult = AuthOk | AuthRejected;
 
 function wantsJson(req: Request): boolean {
   const accept = req.headers.get("accept") ?? "";
@@ -182,20 +179,18 @@ function authPageTitle(officeName: string | null, suffix: string): string {
 // ---------------------------------------------------------------------------
 // Gating function. Called at the top of every fetch handler.
 //
-// The `allowLoopback` parameter is true for the API paths agents legitimately
-// hit from the same box (POST /tasks, /cronjobs read routes, /backup/status).
-// It's false for the SPA shell and static assets — and for the agent surface
-// (/agents/...), which is bearer-required after the loopback-bypass removal, so
-// a same-box agent must present its ISOMUX_AGENT_TOKEN. A same-box browser still
-// has to claim a cookie via /i/<token> instead of getting a half-functional
-// landing page where HTTP works but WS doesn't.
+// Every caller needs an identity: a bearer token (agent / cron-run) or a
+// session cookie. There is no loopback bypass — the last three
+// loopback-trusted prefixes (/tasks, the /cronjobs reads, /backup/status) were
+// retired in favour of their bearer-gated /api equivalents, so a same-box agent
+// presents its ISOMUX_AGENT_TOKEN and a same-box browser claims a cookie via
+// /i/<token> instead of getting a half-functional landing page where HTTP works
+// but WS doesn't.
 
-export function authenticate<T>(
+export function authenticate(
   req: Request,
-  server: Server<T>,
-  opts?: { allowLoopback?: boolean; officeName?: string | null },
+  opts?: { officeName?: string | null },
 ): AuthResult {
-  const looped = !!opts?.allowLoopback && requestIsLoopback(req, server);
   // Origin check runs regardless of the cookie path. A user's browser
   // running on the same machine as the server can otherwise be tricked by
   // a malicious origin into mutating state via the agent-API endpoints
@@ -213,24 +208,19 @@ export function authenticate<T>(
       };
     }
   }
-  // Bearer (Phase 2.1, ADDITIVE) lands ALONGSIDE the cookie path. A valid
-  // bearer is resolved BEFORE the loopback short-circuit so that
-  // `Authorization: Bearer ...` is deterministic and a valid bearer wins; an
-  // invalid/garbage bearer is IGNORED (treated like no Authorization) so it
-  // never becomes a NEW rejection — valid cookie/loopback can still pass, and
-  // an invalid bearer alone still gets today's 401.
+  // Bearer is resolved BEFORE the cookie so `Authorization: Bearer ...` is
+  // deterministic and a valid bearer wins; an invalid/garbage bearer is IGNORED
+  // (treated like no Authorization) rather than becoming its own rejection, so a
+  // valid cookie alongside it can still pass and an invalid bearer alone gets
+  // the plain 401.
   //
-  // Until the guard catalog lands (2.2), a valid agent/run bearer clears the
-  // cookie wall anywhere authenticate() gates. That broad acceptance is
-  // acceptable ONLY for this additive phase because the token is a bearer
-  // secret injected into local subprocess env; 2.2 + the Reviewer4 pass narrow
-  // it by capability + resource guard.
+  // A valid agent/run bearer clears this wall anywhere authenticate() gates.
+  // What the caller may then DO is decided per route on the /api surface (the
+  // capability + resource guards); this function only answers "is there an
+  // identity".
   const bearerId = resolveBearerIdentity(req);
   if (bearerId) {
     return { kind: "ok", identity: bearerId };
-  }
-  if (looped) {
-    return { kind: "loopback" };
   }
   const cookie = readSessionCookie(req);
   const session = validateSession(cookie);

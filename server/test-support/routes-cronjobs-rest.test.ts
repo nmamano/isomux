@@ -4,8 +4,9 @@
 // /api surface, with the [behavior-change] authz tightenings ENFORCED by the
 // REST route guards (the legacy WS command arms + their shims were retired in
 // 3d.4). Attribution (createdBy/username/userId) is
-// token-derived. The legacy /cronjobs HTTP reads stay loopback-trusted +
-// byte-identical (frozen in routes-cronjobs.test.ts).
+// token-derived. The legacy unprefixed /cronjobs reads are retired; their
+// end-state (401 anonymous, 404 authenticated) lives in
+// routes-legacy-retired.test.ts.
 //
 // The cron-run transcript `log_entry` compatibility bridge + RUN-bearer run
 // affordances are covered in routes-cronjobs-runs.test.ts (slice 2b).
@@ -19,7 +20,8 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { getUserByName } from "../users.ts";
-import type { Cronjob } from "../../shared/types.ts";
+import { saveRuns, appendRunLog } from "../cronjob-persistence.ts";
+import type { Cronjob, CronjobRun, LogEntry } from "../../shared/types.ts";
 
 // AddCronjobInput is a factory-local interface; derive it from the method.
 type AddCronjobInput = Parameters<
@@ -103,8 +105,40 @@ function seedJob(srv: TestServer, username: string, name = "Seed"): Cronjob {
   });
 }
 
+// Persist one completed run plus a single transcript entry for it.
+function seedRun(srv: TestServer, job: Cronjob, runId: string): CronjobRun {
+  const run: CronjobRun = {
+    id: runId,
+    cronjobId: job.id,
+    cronjobName: job.name,
+    trigger: "scheduled",
+    status: "completed",
+    startedAt: 1700000000000,
+    endedAt: 1700000060000,
+    errorReason: null,
+    promptSnapshot: job.prompt,
+    agentTypeSnapshot: job.agentType,
+    modelFamilySnapshot: job.modelFamily,
+    effortSnapshot: job.effort,
+    cwdSnapshot: job.cwd,
+    permissionModeSnapshot: job.permissionMode,
+    rootSessionId: "rsess-1",
+    currentSessionId: "rsess-1",
+    previewText: "All done.",
+  };
+  saveRuns(job.id, [run]);
+  appendRunLog(job.id, runId, "rsess-1", {
+    id: "entry-1",
+    agentId: runId,
+    timestamp: 1700000030000,
+    kind: "text",
+    content: "summary line",
+  });
+  return run;
+}
+
 describe("routes/cron REST: reads", () => {
-  it("GET /api/cronjobs lists; /api/cronjobs/:id gets; legacy /cronjobs still loopback-200", async () => {
+  it("GET /api/cronjobs lists; /api/cronjobs/:id gets", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -129,9 +163,6 @@ describe("routes/cron REST: reads", () => {
         })
       ).status,
     ).toBe(404);
-
-    // Legacy loopback read surface untouched.
-    expect((await api(srv, "/cronjobs")).status).toBe(200);
   });
 
   it("run reads: listRuns/listAllRuns shapes; getRun unknown -> 404", async () => {
@@ -156,6 +187,32 @@ describe("routes/cron REST: reads", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(run.status).toBe(404);
+  });
+
+  // Ported from the retired unprefixed /cronjobs suite: the non-empty runs list
+  // and the run-detail transcript shape had no /api coverage.
+  it("a seeded run appears in listRuns and getRun returns { run, entries }", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const job = seedJob(srv, "Boss");
+    const seeded = seedRun(srv, job, "run00001");
+
+    const list = await api(srv, `/api/cronjobs/${job.id}/runs`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect((list.body as { runs: CronjobRun[] }).runs.map((r) => r.id)).toEqual(
+      [seeded.id],
+    );
+
+    const detail = await api(srv, `/api/cronjobs/${job.id}/runs/${seeded.id}`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(detail.status).toBe(200);
+    const body = detail.body as { run: CronjobRun; entries: LogEntry[] };
+    expect(body.run.id).toBe(seeded.id);
+    expect(body.run.status).toBe("completed");
+    expect(body.entries.map((e) => e.content)).toEqual(["summary line"]);
   });
 });
 

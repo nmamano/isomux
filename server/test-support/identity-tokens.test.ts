@@ -58,8 +58,15 @@ describe("identity: capability sets (Phase 2.1)", () => {
     );
   });
 
-  it("RUN scope holds exactly self:affordance", () => {
-    expect([...RUN_CAPABILITIES]).toEqual(["self:affordance"]);
+  it("RUN scope holds the self-affordances plus the task board", () => {
+    // task:read/task:write are here because the cron system prompt hands a run
+    // the office-global board; it reached it over the retired loopback /tasks
+    // route before. Nothing else: a run cannot spawn, converse, or read cron.
+    expect([...RUN_CAPABILITIES]).toEqual([
+      "self:affordance",
+      "task:read",
+      "task:write",
+    ]);
   });
 
   it("USER (browser) scope holds the management caps but NOT the agent-identity caps", () => {
@@ -289,7 +296,11 @@ describe("identity: cron-run token mint/resolve/revoke (Phase 2.1)", () => {
     expect(id.cronjobId).toBe("job-1");
     expect(id.runId).toBe("run-1");
     expect(id.userId).toBe("user-9");
-    expect([...id.capabilities]).toEqual(["self:affordance"]);
+    expect([...id.capabilities]).toEqual([
+      "self:affordance",
+      "task:read",
+      "task:write",
+    ]);
     expect(id.agentId).toBeUndefined();
   });
 
