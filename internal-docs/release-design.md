@@ -252,10 +252,11 @@ Shipped (the shell-drivable slice):
 
 Remaining:
 
-- `internal-docs/backup-restore.md` (referenced by `backup.ts`) still does
-  not exist; the daily-backup restore procedure is undocumented. The
-  updater no longer depends on it (it snapshots and restores on its own),
-  but operators do.
+- ~~`internal-docs/backup-restore.md` (referenced by `backup.ts`) still does
+  not exist; the daily-backup restore procedure is undocumented.~~ Written
+  2026-07-31. The updater does not depend on it (it snapshots and restores
+  on its own), but operators do; the runbook also covers restoring a
+  `pre-update-*` snapshot by hand.
 - First real release: run `scripts/release.sh` once, then flip the
   installer expectation that `releases/latest` 404s.
 - The in-UI trigger's busy-agent confirm has never been exercised with an
