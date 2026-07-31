@@ -69,7 +69,7 @@ export interface TestServer extends ServerHandle {
   // COLD-RELOAD this server WITHOUT wiping STATE_ROOT: stops the current
   // instance and re-runs the real boot path against the on-disk state this run
   // persisted. Returns a FRESH TestServer (new port + handle); the old one is
-  // dead. For persistence / boot-migration ORDERING tests — e.g. asserting the
+  // dead. For persistence / boot-migration ORDERING tests - e.g. asserting the
   // 3b owner-access migration runs at boot against real persisted owners +
   // rooms. Test-support ONLY; see bootTestServer's header.
   restart(): Promise<TestServer>;
@@ -98,7 +98,7 @@ export async function startTestServer(
 //   - restart() passes wipe:false to COLD-RELOAD the same on-disk state, the
 //     seam persistence / migration-ordering tests need.
 // EITHER WAY the in-memory module caches that lazy-load from STATE_ROOT are
-// reset, so a restart is a TRUE cold boot that re-reads every persisted file —
+// reset, so a restart is a TRUE cold boot that re-reads every persisted file -
 // the only difference from a fresh boot is that the files survive. The boot is
 // single-instance guarded like a fresh boot (preserving STATE_ROOT while a
 // second server existed would be unsafe). Test-support ONLY; never production.
@@ -125,7 +125,7 @@ async function bootTestServer(
       removeStateDir(STATE_ROOT);
       mkdirSync(STATE_ROOT, { recursive: true });
     }
-    // Reset the module caches that lazy-load from STATE_ROOT — ALWAYS, even on a
+    // Reset the module caches that lazy-load from STATE_ROOT - ALWAYS, even on a
     // no-wipe restart, so the re-boot re-reads the persisted files instead of
     // serving a stale in-memory cache from the prior instance.
     _testResetState();
@@ -184,15 +184,31 @@ async function bootTestServer(
       };
     }
 
-    function http(
+    async function http(
       path: string,
       init: RequestInit & { rawSessionId?: string } = {},
     ): Promise<Response> {
       const { rawSessionId, ...rest } = init;
       const headers = new Headers(rest.headers);
       headers.set("Origin", buildPublicOrigin().origin);
+      // Fetch's keep-alive pool can hand this request a socket that belonged
+      // to an earlier test's server: every test binds port 0, ports recycle,
+      // and a reused dead socket surfaces as ECONNRESET - seen repeatedly on
+      // GitHub's slower runners, never locally (task 837d6411). Close per
+      // request, and retry idempotent methods once in case the pool still
+      // wins the race.
+      headers.set("Connection", "close");
       if (rawSessionId) headers.set("Cookie", `${COOKIE_NAME}=${rawSessionId}`);
-      return fetch(`${baseUrl}${path}`, { ...rest, headers });
+      const attempt = () => fetch(`${baseUrl}${path}`, { ...rest, headers });
+      try {
+        return await attempt();
+      } catch (err) {
+        const method = (rest.method ?? "GET").toUpperCase();
+        const idempotent = ["GET", "HEAD", "OPTIONS"].includes(method);
+        const code = (err as { code?: string })?.code;
+        if (idempotent && code === "ECONNRESET") return attempt();
+        throw err;
+      }
     }
 
     async function connectWs(rawSessionId: string): Promise<TestSocket> {
@@ -278,7 +294,7 @@ async function bootTestServer(
       try {
         // Bun 1.3.11 bug: server.stop() (graceful OR forced) NEVER resolves if
         // any ServerWebSocket was closed via ws.close() during the server's
-        // life — which the production force-expire path does on session
+        // life - which the production force-expire path does on session
         // revoke/logout (forceExpireSocketsForSession). Confirmed with a pure
         // Bun.serve repro (no isomux involved). The harness binds an EPHEMERAL
         // port (port:0), so a not-fully-drained server is inert and harmless
@@ -301,7 +317,7 @@ async function bootTestServer(
     async function restart(): Promise<TestServer> {
       // Stop this instance (releases the single-instance lock) and re-boot
       // WITHOUT wiping STATE_ROOT, so every load() re-reads the files this run
-      // persisted — exercising the real boot path (incl. boot migrations)
+      // persisted - exercising the real boot path (incl. boot migrations)
       // against real on-disk state. Returns the fresh TestServer.
       await stop();
       return bootTestServer(opts, { wipe: false });
