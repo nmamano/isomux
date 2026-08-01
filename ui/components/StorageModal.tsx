@@ -311,8 +311,7 @@ export function StorageModal({ onBack }: { onBack: () => void }) {
             This permanently deletes files from this machine.
           </strong>{" "}
           There is no undo and no trash. Old conversations and attachments are
-          deleted only when you run this cleanup: it runs once, and does nothing
-          afterwards.
+          deleted only when you run this cleanup.
         </div>
 
         <FieldLabel>What to delete</FieldLabel>

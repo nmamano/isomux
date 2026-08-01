@@ -352,7 +352,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             </label>
             <ExpandableTextarea
               title="Office Memory"
-              hint="This editor rewrites the file exactly as shown. Use one memory per line; keep existing author/date text unless you mean to change it."
+              hint="This editor rewrites the file exactly as shown. Use one memory per line."
               value={mem.memory}
               onChange={mem.setMemory}
               placeholder={
@@ -375,7 +375,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
               }}
             >
               This editor rewrites the file exactly as shown. Use one memory per
-              line; keep existing author/date text unless you mean to change it.
+              line.
             </p>
           </>
         )}

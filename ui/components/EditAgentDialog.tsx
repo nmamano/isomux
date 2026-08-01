@@ -1323,7 +1323,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               </label>
               <ExpandableTextarea
                 title="Agent Memory"
-                hint="This editor rewrites the file exactly as shown. Use one memory per line; keep existing author/date text unless you mean to change it."
+                hint="This editor rewrites the file exactly as shown. Use one memory per line."
                 value={mem.memory}
                 onChange={mem.setMemory}
                 placeholder={
@@ -1343,8 +1343,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 }}
               >
                 This editor rewrites the file exactly as shown. Use one memory
-                per line; keep existing author/date text unless you mean to
-                change it.
+                per line.
               </p>
             </>
           )}

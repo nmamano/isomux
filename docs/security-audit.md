@@ -4,6 +4,8 @@ navTitle: Security audit
 
 # Isomux authorization-system security audit
 
+> **Note (2026-08-01):** This audit was conducted on 2026-05-17. Isomux development has continued since then; it is overdue for a new pass.
+
 ## Preface
 
 This audit was performed in collaboration by an **Anthropic Claude Opus 4.7 (Max-effort) agent** and an **OpenAI GPT-5.5 (xhigh-thinking) agent**. The Opus agent drove the review: read the auth-relevant modules, framed the threat model, drafted the findings, and authored this document. The GPT-5.5 agent acted as an independent reviewer: scrutinized scope and findings, calibrated severities, fact-checked claims, and signed off on the final wording. Both agents are Large-Language-Model-based and operate as conversational coding agents inside the Isomux office they audited; their interaction was via the office's inter-agent messaging API. The work was directed by Isomux's primary author (Nil Mamano).

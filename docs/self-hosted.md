@@ -29,22 +29,18 @@ Optional: install a Chrome-family browser on the host to enable browser preview 
 
 ### Surviving a memory spike
 
-A busy office can use up the box's memory. Every live agent holds a couple of hundred megabytes of its own, and the builds and test runs they start can use far more - and running those is the whole point. Left to the kernel it ends badly: the machine swaps until nothing answers, SSH included, and only a reboot brings it back.
+A busy office can exhaust the box's memory, and left to the kernel that ends with the whole machine swapping until nothing answers. Isomux handles its half automatically: the office marks every process it starts as a better out-of-memory kill candidate than the office server itself, so a spike usually costs one runaway agent or build instead of the whole office. Linux only, no setup, no privileges.
 
-Isomux does its own half of this with no setup at all. The office marks every process it starts as a better candidate for the kill than the office server itself, so what goes under memory pressure is much more likely to be one runaway agent or build than the office everyone else is working in. It is a strong bias rather than a rule - how much memory a process is holding still counts, and so does the box-wide part below - but it usually turns a whole-office outage into one agent you message again. Linux only, and it needs no privileges.
-
-The other half is box-wide and does need root. On a Linux host, from your checkout:
+The box-wide half needs root. From your checkout:
 
 ```bash
 sudo bash deploy/oom-protect.sh --dry-run   # print what would change
 sudo bash deploy/oom-protect.sh
 ```
 
-That installs [earlyoom](https://github.com/rfjakob/earlyoom), which kills one process while there is still memory left to act with, puts SSH and Tailscale last in the kill order to help preserve a way in, adds a 2 GB swap file if the box has none, and tells the kernel to prefer dropping caches over swapping. Nothing but earlyoom is restarted, so it is safe to run on a live office. It also copies itself to `/usr/local/sbin/isomux-oom-protect`, so later runs are just `sudo isomux-oom-protect`.
+That installs [earlyoom](https://github.com/rfjakob/earlyoom) (kills one process while there is still memory left to act with), puts SSH and Tailscale last in the kill order, adds a 2 GB swap file if the box has none, and installs itself at `/usr/local/sbin/isomux-oom-protect`. It also sets up a small root timer that re-applies the office's own kill-order stamp within a minute of any office restart - a user-level service cannot hold that setting itself. Safe to run on a live office; nothing but earlyoom is restarted.
 
-One part of that needs root every time, not once. A service you run under your own user cannot lower its own priority in the kill order: the kernel refuses, and it refuses quietly, so the setting looks applied when it is not. Root can write it onto the running office instead, and has to write it again after every office restart. The tool installs a small timer that does that for you, within a minute of a restart.
-
-On macOS and Windows you get neither half. The bias the office puts on its own processes is a Linux kernel feature, and earlyoom is a Linux program.
+macOS and Windows get neither half - both mechanisms are Linux-specific.
 
 ## 2. Make it reachable
 

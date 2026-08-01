@@ -103,18 +103,6 @@ export function DeviceSettingsModal({ onClose }: { onClose: () => void }) {
           }}
         />
 
-        <p
-          style={{
-            fontSize: 11,
-            color: "var(--text-ghost)",
-            margin: "10px 0 0",
-            lineHeight: 1.4,
-          }}
-        >
-          Looking for language or Slide Mode? Those follow you across devices
-          now - find them under Preferences in User Settings.
-        </p>
-
         <div
           style={{
             display: "flex",

@@ -200,19 +200,20 @@ function buildLang(
 describe("buildSystemPrompt - reply language", () => {
   it("adds nothing for no preference or for English", () => {
     const baseline = buildLang(null);
-    expect(baseline).not.toContain("Write your replies in");
+    expect(baseline).not.toContain("as their default language");
     expect(buildLang("en")).toBe(baseline);
     // An unrecognized code is ignored rather than interpolated raw.
     // A hand-edited users.json could hold a code we do not offer.
     expect(buildLang("klingon" as SupportedLanguageCode)).toBe(baseline);
   });
 
-  it("asks for Spanish, names the boss, and carves out code + other bosses", () => {
+  it("names Spanish as the boss's default and carves out code + other bosses", () => {
     const p = buildLang("es");
-    expect(p).toContain("Write your replies in Spanish");
-    expect(p).toContain('the language "Nil" prefers');
-    expect(p).toContain("reply in the language they used");
-    expect(p).toContain("Code, commands, file paths, and file contents");
+    expect(p).toContain("Reply in the language bosses speak to you in");
+    expect(p).toContain(
+      '"Nil" has indicated Spanish as their default language',
+    );
+    expect(p).toContain("Code, commands, and file system stay as they are");
   });
 
   it("is purely additive - the rest of the prompt is unchanged", () => {

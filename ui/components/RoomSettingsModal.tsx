@@ -258,7 +258,7 @@ export function RoomSettingsModal({
         </label>
         <ExpandableTextarea
           title={`${room.name} · Memory`}
-          hint="This editor rewrites the file exactly as shown. Use one memory per line; keep existing author/date text unless you mean to change it."
+          hint="This editor rewrites the file exactly as shown. Use one memory per line."
           value={mem.memory}
           onChange={mem.setMemory}
           placeholder={
@@ -276,7 +276,7 @@ export function RoomSettingsModal({
           }}
         >
           This editor rewrites the file exactly as shown. Use one memory per
-          line; keep existing author/date text unless you mean to change it.
+          line.
         </p>
 
         {error && (
