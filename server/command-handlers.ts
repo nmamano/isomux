@@ -705,6 +705,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
         ]),
         managed.info.agentType,
+        ownerRecord?.language ?? null,
       );
       // Pick a fence longer than any backtick run inside the prompt so the block
       // renders verbatim regardless of what office/room/agent prompts contain.

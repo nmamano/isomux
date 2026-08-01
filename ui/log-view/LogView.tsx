@@ -53,6 +53,7 @@ import { EditorPanel } from "./EditorPanel.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useSlideModeEnabled } from "../hooks/useSlideMode.ts";
+import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
 import {
   getDevice,
   getSlideView as readSlideViewPref,
@@ -593,11 +594,12 @@ export function LogView({
   // Slide Mode view toggle - per device, per agent. LogView can stay mounted
   // across an agent switch, so re-read the pref when agent.id changes using the
   // render-time "reset state on prop change" pattern (no effect / cascading
-  // render). The per-agent pref only takes effect while the device-local Slide
-  // Mode gate is on (Device Settings); with the gate off the deck entry point
-  // is hidden and an agent left on the deck falls back to chat, without the
-  // pref being cleared.
+  // render). The per-agent pref only takes effect while the Slide Mode gate is
+  // on (a per-user preference in User Settings since task 49d4e2f6); with the
+  // gate off the deck entry point is hidden and an agent left on the deck
+  // falls back to chat, without the pref being cleared.
   const slideModeEnabled = useSlideModeEnabled();
+  const speechLocale = useSpeechLocale();
   const [slideViewPref, setSlideViewPref] = useState(() =>
     readSlideViewPref(agent.id),
   );
@@ -1351,7 +1353,11 @@ export function LogView({
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = "en-US";
+    // The Web Speech API has no auto-detect: it transcribes whatever locale it
+    // is told and mangles anything else, so this has to come from somewhere.
+    // The user's language preference if they have set one, otherwise whatever
+    // the browser reports (task e80c39c4; it was pinned to en-US before).
+    recognition.lang = speechLocale;
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimRaw = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {

@@ -1,4 +1,5 @@
 import type { GhostVariant } from "./avatar.ts";
+import type { SupportedLanguageCode } from "./languages.ts";
 
 // Agent states derived from SDK stream events
 export type AgentState =
@@ -941,6 +942,22 @@ export interface UserRecord {
   // user record regardless of role (member is the superset; UserRole
   // "owner" is the admin-privilege flag).
   memberPrompt: string | null;
+  // Personal preferences (task 49d4e2f6). SELF-only: written through
+  // PUT /api/me/preferences, never through the selfOrOwner users.update
+  // route, so an owner cannot set a member's personal settings. They ride
+  // the same private channels as the rest of this record (self + admin),
+  // never the public wire.
+  //
+  // `language`: one of shared/languages.ts SUPPORTED_LANGUAGES, or null when
+  // the user has never picked one. Drives the reply-language clause in the
+  // agent system prompt plus the voice input/output locale. null means "no
+  // clause" - agents behave exactly as they did before the setting existed.
+  language: SupportedLanguageCode | null;
+  // `slideMode`: the global Slide Mode gate (experimental deck view). Was a
+  // per-device localStorage flag until task 49d4e2f6 moved it here, so it
+  // follows the user across devices; the per-agent deck-vs-chat toggle stays
+  // per-device.
+  slideMode: boolean;
 }
 
 // Office-wide user display metadata: the ONLY user shape allowed on an `all`

@@ -42,6 +42,7 @@ Isomux is a meta-harness: it sits one level above Claude Code and Codex and mana
 - **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings.
 - **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 - **Customizable ghosts** - each user picks a color and one of 8 ghost styles from User Settings.
+- **Per-user preferences** - settings that belong to you rather than to a browser live under Preferences in User Settings and follow you to every device you sign in from: the language your agents reply in, and the Slide Mode toggle. Settings that really are about one browser (its device label) stay under My devices.
 
 ## Multi-device
 
@@ -84,8 +85,9 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Right-click context menu** - resume past sessions, edit agent, kill.
 - **File attachments** - agents understand images and PDFs. Upload via button, drag-and-drop, or paste.
 - **Image display** - agents can show images inline in the conversation.
-- **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
-- **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API.
+- **Voice-to-text** prompting via the browser's `SpeechRecognition` API (HTTPS or localhost). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on. It listens in your preferred language, falling back to your browser's.
+- **Text-to-speech** for agent replies via the browser's `SpeechSynthesis` API, in the same language. If your device has no voice installed for it, the speak button says so instead of reading the text out in the wrong language.
+- **Expand any prompt or memory field** to a full-screen editor with the button in its corner - the same field, more room, Esc to come back. Save still lives in the dialog you came from.
 
 ### Developer tools
 

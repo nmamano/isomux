@@ -172,12 +172,14 @@ import { updateHandlers } from "./routes/handlers/update.ts";
 import { triggerUpdate } from "./update-trigger.ts";
 import { readUpdateConf } from "./update-conf.ts";
 import { viewHandlers } from "./routes/handlers/view.ts";
+import { preferencesHandlers } from "./routes/handlers/preferences.ts";
 import { roomsHandlers } from "./routes/handlers/rooms.ts";
 import { agentsHandlers } from "./routes/handlers/agents.ts";
 import { conversationHandlers } from "./routes/handlers/conversation.ts";
 import { editorHandlers } from "./routes/handlers/editor.ts";
 import type {
   AccessSettings,
+  PreferencesReq,
   UserPublicWire,
 } from "../shared/contract-shapes.ts";
 import { createIdempotencyCache } from "./transport/idempotency.ts";
@@ -1300,6 +1302,18 @@ function emitUserUpdated(user: UserRecord, prevName?: string): void {
   liveEmit("user_self_updated", { user, ...tail }, { userId: user.id });
 }
 
+// Fan out a PRIVATE-only record change: owners get the full record on the
+// owners-only admin channel, the subject on its own. No public user_updated /
+// users_list, because nothing in UserPublicWire changed - emitting them would
+// broadcast the TIMING and TARGET of a private edit to every user without
+// carrying any observable delta (the leak users.setAccess already avoids).
+// Rename is deliberately not supported here: a rename is always a public
+// change and belongs on emitUserUpdated's path.
+function emitPrivateUserRecord(user: UserRecord): void {
+  liveEmit("user_admin_updated", { user });
+  liveEmit("user_self_updated", { user }, { userId: user.id });
+}
+
 // Fan out the whole roster: PUBLIC list to all, FULL admin list to owners. The
 // per-user self record is NOT sent here - it rides emitUserUpdated on a change
 // and the connect hydration. A bulk op that changes self-visible fields for
@@ -1895,12 +1909,7 @@ function buildExecutorDeps(): ExecutorDeps {
           emitUserUpdated(result.user, renamed ? username : undefined);
           emitUsersList();
         } else {
-          liveEmit("user_admin_updated", { user: result.user });
-          liveEmit(
-            "user_self_updated",
-            { user: result.user },
-            { userId: result.user.id },
-          );
+          emitPrivateUserRecord(result.user);
         }
         const presenceTouched = refreshPresenceForUser(result.user.id, {
           name: result.user.name,
@@ -1945,12 +1954,7 @@ function buildExecutorDeps(): ExecutorDeps {
         // every user (Option A boundary, Reviewer1). Owners get the new grants via
         // the owners-only admin event; the target re-projects via full_state +
         // its own self event; presence sanitizes currentRoomId.
-        liveEmit("user_admin_updated", { user: result.user });
-        liveEmit(
-          "user_self_updated",
-          { user: result.user },
-          { userId: result.user.id },
-        );
+        emitPrivateUserRecord(result.user);
         pushProjectedFullStateForUserId(result.user.id);
         // Their accessible-room set changed → re-project the room-scoped board.
         pushTasksForUserId(result.user.id);
@@ -2755,6 +2759,15 @@ function buildExecutorDeps(): ExecutorDeps {
       },
     }),
   );
+  // Personal preferences (task 49d4e2f6) - reply language + the Slide Mode
+  // gate. Self-only, same audience posture as view.*: the handler is a pure
+  // REST mapper and this seam owns mutate -> emit.
+  register(
+    preferencesHandlers({
+      applyPreferences: (userId, change) =>
+        applyPreferencesChange(userId, change),
+    }),
+  );
   register(
     validateHandlers({
       validateCwd: (cwd) => {
@@ -3345,6 +3358,36 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   if (recordChanged) {
     emitUserUpdated(r.user);
     emitUsersList();
+  }
+  return true;
+}
+
+// Personal-preference core (task 49d4e2f6). Sibling of applyViewChange: it
+// persists the self-only preference fields and fans out the record. There is
+// nothing to clamp here - the handler already rejected values outside the
+// supported set, and users.ts normalizes defensively on top - so this is just
+// write + conditional fan-out. No projection is involved: neither field
+// changes which rooms or agents the user can see, so no full_state push.
+function applyPreferencesChange(
+  targetUserId: string,
+  change: PreferencesReq,
+): boolean {
+  const user = getUserById(targetUserId);
+  if (!user) return false;
+  const r = updateUserById(targetUserId, change);
+  if (!r.ok) {
+    console.error(
+      `[prefs] applyPreferencesChange failed for ${targetUserId}: ${r.error}`,
+    );
+    return false;
+  }
+  // Only fan out on a real change: a Save that left both fields untouched
+  // must not wake every connected client.
+  if (
+    r.user.language !== user.language ||
+    r.user.slideMode !== user.slideMode
+  ) {
+    emitPrivateUserRecord(r.user);
   }
   return true;
 }

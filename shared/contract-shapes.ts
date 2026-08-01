@@ -21,6 +21,7 @@ import type {
   OfficeSettings,
   SlideRecord,
 } from "./types.ts";
+import type { SupportedLanguageCode } from "./languages.ts";
 
 // --- Wire projections (response / event shapes) -----------------------------
 
@@ -311,6 +312,21 @@ export interface MeRoomsRes {
 export interface NotifRoomsReq {
   notifRooms: string[];
 }
+
+// prefs.update (PATCH /api/me/preferences) - task 49d4e2f6. SELF-only personal
+// preferences, deliberately NOT on the selfOrOwner users.update route: the
+// Option A split keeps an owner out of a member's personal settings. A Partial
+// so a caller can set one field without restating the other; `language: null`
+// is a meaningful value (clears the pick), so absent and null differ here.
+export type PreferencesReq = Partial<{
+  language: SupportedLanguageCode | null;
+  slideMode: boolean;
+}>;
+
+// The writable preference keys, as VALUES, so the handler can reject an unknown
+// key (a typo like `langauge` would otherwise be a successful no-op) without a
+// second hand-maintained list drifting from the type above.
+export const PREFERENCE_KEYS = ["language", "slideMode"] as const;
 
 export type UserUpdateReq = Partial<{
   name: string;

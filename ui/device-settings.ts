@@ -2,8 +2,10 @@
 //
 // `username` is the name of the boss using this browser; `device` is an
 // optional label for this connection point ("Phone", "Laptop", ...). Per-user
-// preferences (notif rooms, env file path) live server-side keyed by username
-// - see server/users.ts.
+// preferences (notif rooms, env file path, language, the Slide Mode gate) live
+// server-side on the user record - see server/users.ts - and are edited from
+// User Settings, so they follow a boss across devices. What stays here is what
+// is genuinely about THIS browser.
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
 
@@ -64,48 +66,26 @@ export function clearLegacyUserPrefs(): void {
   localStorage.removeItem(LEGACY_KEY_NOTIF_ROOMS);
 }
 
-// Global Slide Mode gate (experimental feature, default OFF). Sits ABOVE the
-// per-agent view toggle below: while off, the deck entry point is hidden and
-// every agent renders as chat, whatever their per-agent pref says. The gate
-// never writes the per-agent prefs, so turning it back on restores them.
-const KEY_SLIDE_MODE = "isomux-slide-mode";
+// Legacy per-device Slide Mode gate. The gate itself is a per-USER preference
+// now (task 49d4e2f6) - it lives on the user record and follows a boss across
+// devices - so all that survives here is the one-shot migration read: a device
+// that had the experiment switched on hands that "on" to the user record once,
+// then forgets the key forever. Turning it OFF on a device is deliberately NOT
+// migrated: the write is a seed, not a sync, so a second device can't silently
+// undo a preference the user set elsewhere.
+const LEGACY_KEY_SLIDE_MODE = "isomux-slide-mode";
 
-const slideModeListeners = new Set<() => void>();
-
-export function getSlideModeEnabled(): boolean {
-  if (typeof localStorage === "undefined") return false;
-  return localStorage.getItem(KEY_SLIDE_MODE) === "1";
+// null when this device never had the setting (nothing to migrate).
+export function readLegacySlideMode(): boolean | null {
+  if (typeof localStorage === "undefined") return null;
+  const raw = localStorage.getItem(LEGACY_KEY_SLIDE_MODE);
+  if (raw === null) return null;
+  return raw === "1";
 }
 
-export function setSlideModeEnabled(on: boolean): void {
+export function clearLegacySlideMode(): void {
   if (typeof localStorage === "undefined") return;
-  // Compare BEFORE the write (it also normalizes a hand-edited value), and
-  // notify only on a real change - a Save that left the box untouched must not
-  // wake every subscriber.
-  const changed = getSlideModeEnabled() !== on;
-  if (on) localStorage.setItem(KEY_SLIDE_MODE, "1");
-  else localStorage.removeItem(KEY_SLIDE_MODE);
-  if (!changed) return;
-  for (const cb of slideModeListeners) cb();
-}
-
-// The settings surface that writes the gate renders OVER a live LogView, which
-// therefore never remounts to re-read it - so subscribers get notified instead.
-// The storage event covers the same browser's other tabs.
-export function subscribeSlideModeEnabled(cb: () => void): () => void {
-  slideModeListeners.add(cb);
-  const onStorage = (e: StorageEvent) => {
-    if (e.key === null || e.key === KEY_SLIDE_MODE) cb();
-  };
-  if (typeof window !== "undefined") {
-    window.addEventListener("storage", onStorage);
-  }
-  return () => {
-    slideModeListeners.delete(cb);
-    if (typeof window !== "undefined") {
-      window.removeEventListener("storage", onStorage);
-    }
-  };
+  localStorage.removeItem(LEGACY_KEY_SLIDE_MODE);
 }
 
 // Slide Mode view toggle (design: internal-docs/slide-mode-design.md). Per

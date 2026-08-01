@@ -1,11 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAppState } from "../store.tsx";
-import {
-  getDevice,
-  setDevice,
-  getSlideModeEnabled,
-  setSlideModeEnabled,
-} from "../device-settings.ts";
+import { getDevice, setDevice } from "../device-settings.ts";
 import {
   dialogLabel,
   dialogInput,
@@ -15,12 +10,13 @@ import {
 } from "./dialog-styles.ts";
 
 // Device-scoped settings (one record per browser, stored in localStorage).
-// The device label and the Slide Mode gate - user-level prefs (default room,
-// notifications, env) live on the server and are edited from User Settings.
+// Just the device label now: user-level preferences (notifications, env,
+// language, the Slide Mode gate) live on the server and are edited from User
+// Settings, so they follow the user rather than the browser. Slide Mode moved
+// out of here in task 49d4e2f6.
 export function DeviceSettingsModal({ onClose }: { onClose: () => void }) {
   const { isMobile } = useAppState();
   const [label, setLabel] = useState<string>(() => getDevice() ?? "");
-  const [slideMode, setSlideMode] = useState<boolean>(getSlideModeEnabled);
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -35,7 +31,6 @@ export function DeviceSettingsModal({ onClose }: { onClose: () => void }) {
 
   function handleSave() {
     setDevice(label.trim() || null);
-    setSlideModeEnabled(slideMode);
     onClose();
   }
 
@@ -108,27 +103,16 @@ export function DeviceSettingsModal({ onClose }: { onClose: () => void }) {
           }}
         />
 
-        <label style={{ ...labelStyle, display: "flex", gap: 8 }}>
-          <input
-            type="checkbox"
-            checked={slideMode}
-            onChange={(e) => setSlideMode(e.target.checked)}
-            style={{ accentColor: "var(--accent)", cursor: "pointer" }}
-          />
-          <span>
-            Slide Mode <span style={hintStyle}>(experimental)</span>
-          </span>
-        </label>
         <p
           style={{
             fontSize: 11,
             color: "var(--text-ghost)",
-            margin: "2px 0 0 24px",
+            margin: "10px 0 0",
             lineHeight: 1.4,
           }}
         >
-          Adds a header toggle that shows an agent&apos;s turns as generated
-          slides instead of chat.
+          Looking for language or Slide Mode? Those follow you across devices
+          now - find them under Preferences in User Settings.
         </p>
 
         <div

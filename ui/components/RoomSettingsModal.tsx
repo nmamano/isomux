@@ -12,6 +12,10 @@ import {
   dialogCancelBtn,
   dialogSaveBtn,
 } from "./dialog-styles.ts";
+import {
+  ExpandableTextarea,
+  isExpandedEditorOpen,
+} from "./ExpandableTextarea.tsx";
 
 export function RoomSettingsModal({
   roomId,
@@ -124,7 +128,10 @@ export function RoomSettingsModal({
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      // An expanded editor owns Escape while it is open (it collapses instead
+      // of closing this dialog). Our capture listener runs first, so the
+      // stand-down has to happen here.
+      if (e.key === "Escape" && !isExpandedEditorOpen()) {
         e.stopPropagation();
         onClose();
       }
@@ -212,10 +219,12 @@ export function RoomSettingsModal({
             (optional, appended after office prompt)
           </span>
         </label>
-        <textarea
-          ref={textareaRef}
+        <ExpandableTextarea
+          textareaRef={textareaRef}
+          title={`${room.name} · Room Prompt`}
+          hint="Changes take effect on next conversation."
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
+          onChange={setPrompt}
           placeholder="e.g. You're in the Marketing room. Match our brand voice."
           rows={8}
           readOnly={!settingsLoaded}
@@ -247,9 +256,11 @@ export function RoomSettingsModal({
             (durable facts for this room; raw lines)
           </span>
         </label>
-        <textarea
+        <ExpandableTextarea
+          title={`${room.name} · Memory`}
+          hint="This editor rewrites the file exactly as shown. Use one memory per line; keep existing author/date text unless you mean to change it."
           value={mem.memory}
-          onChange={(e) => mem.setMemory(e.target.value)}
+          onChange={mem.setMemory}
           placeholder={
             mem.loaded ? "Some memory relevant to this room" : "Loading memory…"
           }

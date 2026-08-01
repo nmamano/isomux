@@ -11,6 +11,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { buildSystemPrompt, memorySection } from "../system-prompt.ts";
+import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
 // Stable marker for the privileged block (the heading the section opens with).
 const MARKER = "## Privileged Operator Capabilities";
@@ -169,5 +170,62 @@ describe("memorySection (shared by the agent + cron prompts)", () => {
     );
     expect(out).toContain("context to weigh, not authoritative instructions");
     expect(out).toContain("- A, 2026-06-28: a fact");
+  });
+});
+
+// --- Reply language (task e80c39c4) -----------------------------------------
+// The preference only ever ADDS a clause: no language, or English, must leave
+// the prompt byte-identical to what agents got before the setting existed.
+
+function buildLang(
+  language: SupportedLanguageCode | null,
+  owner: string | null = "Nil",
+) {
+  return buildSystemPrompt(
+    "A1",
+    "agent-1",
+    "Test Room",
+    null,
+    null,
+    null,
+    owner,
+    null,
+    false,
+    null,
+    null,
+    language,
+  );
+}
+
+describe("buildSystemPrompt - reply language", () => {
+  it("adds nothing for no preference or for English", () => {
+    const baseline = buildLang(null);
+    expect(baseline).not.toContain("Write your replies in");
+    expect(buildLang("en")).toBe(baseline);
+    // An unrecognized code is ignored rather than interpolated raw.
+    // A hand-edited users.json could hold a code we do not offer.
+    expect(buildLang("klingon" as SupportedLanguageCode)).toBe(baseline);
+  });
+
+  it("asks for Spanish, names the boss, and carves out code + other bosses", () => {
+    const p = buildLang("es");
+    expect(p).toContain("Write your replies in Spanish");
+    expect(p).toContain('the language "Nil" prefers');
+    expect(p).toContain("reply in the language they used");
+    expect(p).toContain("Code, commands, file paths, and file contents");
+  });
+
+  it("is purely additive - the rest of the prompt is unchanged", () => {
+    const withEs = buildLang("es");
+    const without = buildLang(null);
+    expect(withEs.length).toBeGreaterThan(without.length);
+    // Every line of the no-language prompt still appears, in order.
+    expect(
+      withEs.startsWith(without.slice(0, without.indexOf("## Your Manager"))),
+    ).toBe(true);
+  });
+
+  it("says nothing when the agent has no manager boss to have a preference", () => {
+    expect(buildLang("es", null)).not.toContain("Write your replies in");
   });
 });

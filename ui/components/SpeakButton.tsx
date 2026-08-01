@@ -1,4 +1,6 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
+import { languageLabelFor } from "../../shared/languages.ts";
 
 const SPEAK_ICON = (
   <svg
@@ -62,15 +64,48 @@ function stripMarkdown(md: string): string {
     .trim();
 }
 
-function pickVoice(): SpeechSynthesisVoice | undefined {
-  const voices = speechSynthesis.getVoices();
-  const en = voices.filter((v) => v.lang.startsWith("en"));
-  return (
-    en.find((v) => v.name === "Google US English") ??
-    en.find((v) => /google/i.test(v.name)) ??
-    en.find((v) => v.default) ??
-    en[0]
+/** "es-ES" -> "es". Voices are matched on the language, not the region: a
+ *  Mexican Spanish voice reading Spanish is fine; an English one is not. */
+function baseLanguage(locale: string): string {
+  return locale.split("-")[0].toLowerCase();
+}
+
+// Best voice for a locale, or undefined when the device has none for that
+// LANGUAGE. Exact-region matches are preferred, then any voice of the same
+// language; within each, Google voices first (they're the good ones on Chrome)
+// and then the browser's own default.
+function pickVoice(
+  voices: SpeechSynthesisVoice[],
+  locale: string,
+): SpeechSynthesisVoice | undefined {
+  const base = baseLanguage(locale);
+  const sameLanguage = voices.filter((v) => baseLanguage(v.lang) === base);
+  if (sameLanguage.length === 0) return undefined;
+  const exact = sameLanguage.filter(
+    (v) => v.lang.replace("_", "-").toLowerCase() === locale.toLowerCase(),
   );
+  const best = (pool: SpeechSynthesisVoice[]) =>
+    pool.find((v) => /google/i.test(v.name)) ??
+    pool.find((v) => v.default) ??
+    pool[0];
+  return best(exact) ?? best(sameLanguage);
+}
+
+// getVoices() is populated ASYNCHRONOUSLY on Chrome: the first call after page
+// load usually returns []. Subscribing to voiceschanged is what lets the button
+// know, before it is clicked, whether a voice for the user's language exists.
+function useVoices(): SpeechSynthesisVoice[] {
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>(() =>
+    typeof speechSynthesis === "undefined" ? [] : speechSynthesis.getVoices(),
+  );
+  useEffect(() => {
+    if (typeof speechSynthesis === "undefined") return;
+    const read = () => setVoices(speechSynthesis.getVoices());
+    read();
+    speechSynthesis.addEventListener("voiceschanged", read);
+    return () => speechSynthesis.removeEventListener("voiceschanged", read);
+  }, []);
+  return voices;
 }
 
 export function SpeakButton({
@@ -81,6 +116,16 @@ export function SpeakButton({
   size?: number;
 }) {
   const [speaking, setSpeaking] = useState(false);
+  const locale = useSpeechLocale();
+  const voices = useVoices();
+  const voice = pickVoice(voices, locale);
+  // Only a real "we looked and there is nothing" counts as missing. An empty
+  // list means the voices have not loaded yet (or this browser doesn't expose
+  // them), in which case we still speak and let the browser choose from
+  // utterance.lang - what we must never do is read Spanish text aloud in an
+  // English voice, which is what the old unconditional en-only filter did.
+  const noVoiceForLanguage = voices.length > 0 && !voice;
+  const languageName = languageLabelFor(locale);
 
   const handleClick = useCallback(() => {
     if (speaking) {
@@ -88,49 +133,69 @@ export function SpeakButton({
       setSpeaking(false);
       return;
     }
+    if (noVoiceForLanguage) return;
 
     const text = stripMarkdown(getText());
     if (!text) return;
 
     const utterance = new SpeechSynthesisUtterance(text);
-    const voice = pickVoice();
+    // Set the language even when we picked a voice: it is what the browser
+    // falls back on if the voice is unavailable by the time it speaks.
+    utterance.lang = locale;
     if (voice) utterance.voice = voice;
     utterance.onend = () => setSpeaking(false);
     utterance.onerror = () => setSpeaking(false);
 
     setSpeaking(true);
     speechSynthesis.speak(utterance);
-  }, [getText, speaking]);
+  }, [getText, speaking, locale, voice, noVoiceForLanguage]);
 
   if (typeof speechSynthesis === "undefined") return null;
 
+  // Never take Stop away from someone mid-utterance: the voice list can change
+  // (voiceschanged), or the language preference can, WHILE audio is playing,
+  // and a disabled button would leave them with no way to shut it up.
+  const disabled = !speaking && noVoiceForLanguage;
+  const label = disabled
+    ? `No ${languageName} voice is installed on this device`
+    : speaking
+      ? "Stop"
+      : "Speak";
+
+  // The title lives on a wrapper, not the button: browsers do not reliably show
+  // a tooltip for a DISABLED button, which is the one case where the
+  // explanation actually matters.
   return (
-    <button
-      onClick={(e) => {
-        handleClick();
-        (e.target as HTMLElement).blur();
-      }}
-      className="copy-btn"
-      title={speaking ? "Stop" : "Speak"}
-      style={{
-        width: size,
-        height: size,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        border: "1px solid var(--border-medium)",
-        borderRadius: 6,
-        background: speaking
-          ? "var(--accent-bg, var(--green-bg))"
-          : "var(--btn-surface)",
-        color: speaking ? "var(--accent)" : "var(--text-dim)",
-        cursor: "pointer",
-        padding: 0,
-        flexShrink: 0,
-        transition: "color 0.15s, background 0.15s, border-color 0.15s",
-      }}
-    >
-      {speaking ? STOP_ICON : SPEAK_ICON}
-    </button>
+    <span title={label} style={{ display: "inline-flex", flexShrink: 0 }}>
+      <button
+        onClick={(e) => {
+          handleClick();
+          (e.target as HTMLElement).blur();
+        }}
+        className="copy-btn"
+        disabled={disabled}
+        aria-label={label}
+        style={{
+          opacity: disabled ? 0.4 : 1,
+          width: size,
+          height: size,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          border: "1px solid var(--border-medium)",
+          borderRadius: 6,
+          background: speaking
+            ? "var(--accent-bg, var(--green-bg))"
+            : "var(--btn-surface)",
+          color: speaking ? "var(--accent)" : "var(--text-dim)",
+          cursor: disabled ? "not-allowed" : "pointer",
+          padding: 0,
+          flexShrink: 0,
+          transition: "color 0.15s, background 0.15s, border-color 0.15s",
+        }}
+      >
+        {speaking ? STOP_ICON : SPEAK_ICON}
+      </button>
+    </span>
   );
 }

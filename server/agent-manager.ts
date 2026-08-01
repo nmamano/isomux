@@ -4084,6 +4084,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.privileged ?? false,
       memoryStore.renderForPromptMulti(memoryRefs),
       managed.info.agentType,
+      ownerRecord?.language ?? null,
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's

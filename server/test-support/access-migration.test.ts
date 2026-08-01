@@ -33,6 +33,8 @@ function mkUser(over: Partial<UserRecord> & { id: string }): UserRecord {
     memberPrompt: null,
     avatarColor: "#abcabc",
     avatarVariant: "classic",
+    language: null,
+    slideMode: false,
     ...over,
   };
 }

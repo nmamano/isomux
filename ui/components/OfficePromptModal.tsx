@@ -11,6 +11,10 @@ import {
   dialogCancelBtn,
   dialogSaveBtn,
 } from "./dialog-styles.ts";
+import {
+  ExpandableTextarea,
+  isExpandedEditorOpen,
+} from "./ExpandableTextarea.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -153,10 +157,11 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     }
   }, [readOnly]);
 
-  // ESC to close
+  // ESC to close - unless an expanded editor is open, which collapses instead
+  // (this capture listener runs before the overlay's own, so it stands down).
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && !isExpandedEditorOpen()) {
         e.stopPropagation();
         onClose();
       }
@@ -290,10 +295,12 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             (system prompt for all agents)
           </span>
         </label>
-        <textarea
-          ref={textareaRef}
+        <ExpandableTextarea
+          textareaRef={textareaRef}
+          title="Office Rules"
+          hint="System prompt for all agents. Changes take effect on next conversation."
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={setText}
           placeholder="e.g. Always write tests. Use TypeScript. Be concise."
           rows={8}
           readOnly={readOnly || !settingsLoaded}
@@ -329,9 +336,11 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
                 (durable office-wide facts; raw lines)
               </span>
             </label>
-            <textarea
+            <ExpandableTextarea
+              title="Office Memory"
+              hint="This editor rewrites the file exactly as shown. Use one memory per line; keep existing author/date text unless you mean to change it."
               value={mem.memory}
-              onChange={(e) => mem.setMemory(e.target.value)}
+              onChange={mem.setMemory}
               placeholder={
                 mem.loaded
                   ? "Some memory relevant to the entire office"

@@ -46,6 +46,11 @@ import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
 import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
+import { PreferencesPane } from "./PreferencesPane.tsx";
+import {
+  ExpandableTextarea,
+  isExpandedEditorOpen,
+} from "./ExpandableTextarea.tsx";
 import { useAccessListsSeed, formatRelative } from "./access-shared.tsx";
 
 type ValidationStatus =
@@ -56,9 +61,10 @@ type ValidationStatus =
 
 // Account-section entries in the sidebar. Owners get the three admin panes
 // the old "Access & invites" section was split into (task 07514e7f) plus the
-// self-scoped "My devices" pane (task eb3354e6 revision: device links are
-// self-service for everyone); members get only "My devices".
-type AccountSection = "access" | "invites" | "sessions" | "devices";
+// two self-scoped panes ("My devices" - task eb3354e6 revision: device links
+// are self-service for everyone - and "Preferences", task 49d4e2f6); members
+// get the two self-scoped ones.
+type AccountSection = "access" | "invites" | "sessions" | "devices" | "prefs";
 
 // What the detail pane shows: a user's editor, or one account section.
 // null = nothing selected - on mobile that means the list is showing; on
@@ -221,6 +227,9 @@ export function UserSettingsView({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
+      // An expanded editor collapses on Escape instead of navigating this
+      // page; our capture listener runs first, so stand down for it.
+      if (isExpandedEditorOpen()) return;
       e.stopPropagation();
       if (isMobile && selection) {
         backToList();
@@ -251,8 +260,12 @@ export function UserSettingsView({
         { section: "invites", label: "Invites" },
         { section: "sessions", label: "Sessions" },
         { section: "devices", label: "My devices" },
+        { section: "prefs", label: "Preferences" },
       ]
-    : [{ section: "devices", label: "My devices" }];
+    : [
+        { section: "devices", label: "My devices" },
+        { section: "prefs", label: "Preferences" },
+      ];
 
   function signOut() {
     setLogoutBlockedReason(null);
@@ -617,6 +630,8 @@ export function UserSettingsView({
                   <SessionsPane />
                 ) : selection.section === "devices" && sessionContext ? (
                   <MyDevicesPane />
+                ) : selection.section === "prefs" && sessionContext ? (
+                  <PreferencesPane />
                 ) : null}
               </div>
             ) : selectedUser && isFullUserView(selectedUser) ? (
@@ -1410,9 +1425,11 @@ function UserEditPanel({
             users&apos; agents can look it up if they need context on you)
           </span>
         </label>
-        <textarea
+        <ExpandableTextarea
+          title={`${user.name} · Profile Prompt`}
+          hint="Auto-injected into the system prompt of agents this user owns; other users' agents can look it up if they need context on them."
           value={memberPrompt}
-          onChange={(e) => setMemberPrompt(e.target.value)}
+          onChange={setMemberPrompt}
           placeholder="A few notes for agents about who you are, your role, how you like to collaborate…"
           rows={5}
           style={{
@@ -1432,9 +1449,11 @@ function UserEditPanel({
             unless you mean to change it)
           </span>
         </label>
-        <textarea
+        <ExpandableTextarea
+          title={`${user.name} · Memory`}
+          hint="This editor rewrites the file exactly as shown. Use one memory per line; keep existing author/date text unless you mean to change it."
           value={mem.memory}
-          onChange={(e) => mem.setMemory(e.target.value)}
+          onChange={mem.setMemory}
           placeholder={
             mem.loaded ? "Some memory relevant to this user" : "Loading memory…"
           }

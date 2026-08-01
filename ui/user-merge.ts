@@ -31,7 +31,9 @@ export function isFullUserView(u: UserView): u is UserRecord {
     Array.isArray(u.hidden) &&
     Array.isArray(u.order) &&
     "envFile" in u &&
-    "memberPrompt" in u
+    "memberPrompt" in u &&
+    "language" in u &&
+    "slideMode" in u
   );
 }
 

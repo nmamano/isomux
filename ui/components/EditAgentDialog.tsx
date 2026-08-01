@@ -29,6 +29,7 @@ import {
 import { Character } from "../office/Character.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
+import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
 import type {
   MoveAgentReq,
   SpawnReq,
@@ -1291,9 +1292,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               (optional)
             </span>
           </label>
-          <textarea
+          <ExpandableTextarea
+            title="Custom Instructions"
+            hint="Personal system prompt for this agent. Run /isomux-system-prompt in a chat to see the agent's full system prompt."
             value={customInstructions}
-            onChange={(e) => setCustomInstructions(e.target.value)}
+            onChange={setCustomInstructions}
             placeholder='e.g. "You are a backend specialist. Always write tests."'
             rows={3}
             style={{ ...inputStyle, resize: "vertical" }}
@@ -1318,9 +1321,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   (durable facts for this agent; raw lines)
                 </span>
               </label>
-              <textarea
+              <ExpandableTextarea
+                title="Agent Memory"
+                hint="This editor rewrites the file exactly as shown. Use one memory per line; keep existing author/date text unless you mean to change it."
                 value={mem.memory}
-                onChange={(e) => mem.setMemory(e.target.value)}
+                onChange={mem.setMemory}
                 placeholder={
                   mem.loaded
                     ? "Some memory relevant to this agent"

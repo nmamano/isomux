@@ -203,8 +203,9 @@ Setup:
 - Accessed via the cron jobs entry in the office nav bar, or by clicking the decorative wall clock
 
 ### Other
-- Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
-- Per-user profiles - your default room, notification preferences, and credentials follow you wherever you log in from
+- Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on. Both use your preferred language, falling back to your browser's.
+- Per-user profiles - your notification preferences, credentials, and personal preferences (the language your agents reply in, the Slide Mode toggle) follow you wherever you log in from
+- Expand any prompt or memory field to a full-screen editor with the button in its corner, then Esc back to the dialog you were in
 - Env files for secrets and config: point Isomux at an env file on the server, office-wide (shared by every agent) or per-user (in your user settings), and its variables are loaded into each agent's environment at spawn time, with per-user values overriding office-wide ones. This is the right home for API tokens and other secrets: they're injected into the agent's environment without embedding their values in prompts or conversation logs. The file applies to newly spawned agents; existing agents keep their current environment.
 - Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
 - Daily local backup: your office (agents, conversations, settings) is snapshotted once a day, so you can restore from a recent snapshot if anything goes wrong

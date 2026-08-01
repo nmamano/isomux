@@ -88,6 +88,7 @@ import type {
   ShownRoomsReq,
   NotifRoomsReq,
   MeRoomsRes,
+  PreferencesReq,
   RecoveryMintReq,
   UserUpdateReq,
   SetAccessReq,
@@ -645,6 +646,25 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/me/rooms",
     auth: cap("view:manage", authenticated),
     emits: [],
+  }),
+
+  // --- Personal preferences (per-user; self-only) ---------------------------
+  // Task 49d4e2f6. Settings that follow a boss across devices (reply language,
+  // Slide Mode gate). Sibling of the view.* surface rather than a field on
+  // users.update, because users.update is selfOrOwner and personal preferences
+  // are deliberately NOT something an owner sets for a member (the Option A
+  // split - see routes/handlers/users.ts). user:self keeps agents out: it is
+  // absent from AGENT_CAPABILITIES and PRIVILEGED_AGENT_CAPABILITIES.
+  defineRoute<PreferencesReq, NoContent>({
+    opId: "prefs.update",
+    method: "PATCH",
+    path: "/api/me/preferences",
+    auth: cap("user:self", authenticated),
+    // SCOPED events only, like users.setAccess: neither preference appears in
+    // UserPublicWire, so a public user_updated / users_list would carry no
+    // observable change and would only broadcast the TIMING of a private edit.
+    // Owners get the full record on the admin channel, the subject on its own.
+    emits: ["user_admin_updated", "user_self_updated"],
   }),
 
   // --- Users ----------------------------------------------------------------
