@@ -52,6 +52,12 @@ export type Capability =
   // Shared by USER and AGENT - isomux-memory (durable shared facts).
   | "memory:read"
   | "memory:write"
+  // Shared by USER and AGENT - reading conversation logs (history search and
+  // session retrieval, GET /api/agents/:id/logs). DELIBERATELY NOT office:read:
+  // an ordinary agent token does not carry office:read, and widening that
+  // capability to reach this route would drag every other office:read surface
+  // along with it. Its own capability is what keeps the widening surgical.
+  | "log:read"
   // AGENT-identity capabilities - deliberately absent from USER scope (a human
   // is not an agent and has no own-chat).
   | "agent:send-as-self"
@@ -103,19 +109,21 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "task:write",
   "memory:read",
   "memory:write",
+  "log:read",
 ];
 
 // AGENT set: the loopback surface plus the global task board and isomux-memory.
-// An agent can message as itself, use the task board and shared memory, and use
-// the self-affordances on its own chat. It cannot spawn/kill, touch settings,
-// mint invites, mutate cronjobs, or read cronjob transcripts - those
-// capabilities are simply absent.
+// An agent can message as itself, use the task board and shared memory, read
+// conversation logs it can reach, and use the self-affordances on its own chat.
+// It cannot spawn/kill, touch settings, mint invites, mutate cronjobs, or read
+// cronjob transcripts - those capabilities are simply absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
   "agent:send-as-self",
   "task:read",
   "task:write",
   "memory:read",
   "memory:write",
+  "log:read",
   "self:affordance",
 ];
 
@@ -162,6 +170,11 @@ export function agentCapabilities(privileged: boolean): readonly Capability[] {
 // CRON-RUN set: the self-affordances, bound to its {cronjobId, runId}, plus the
 // task board. The cron-run analogue of an agent token; closes the loopback hole
 // for a firing run's in-flight read-file/diff without relying on a bypass.
+//
+// `log:read` is DELIBERATELY absent. A run has no room, no chat, and no history
+// to reconnect itself to; its room-access set is empty by rule
+// (accessibleRoomIdsForIdentity), so the capability would reach nothing anyway -
+// but leaving it out states the intent instead of relying on that coincidence.
 //
 // task:read + task:write are here because the cron system prompt gives a run the
 // board, and it reached it over the (now retired) loopback /tasks route. The

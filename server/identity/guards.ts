@@ -388,6 +388,55 @@ export const conversationReset: Guard = (ctx) => {
   }
 };
 
+// Conversation-log READ (agents.logs): who may search and retrieve an agent's
+// history.
+//   USER     → room access to the target agent, exactly like every other read
+//              surface. A boss already reads these conversations in the UI.
+//   AGENT    → ITSELF, or any agent sitting in a room accessible to its
+//              SPAWNING USER. Note that this is broader than "the caller's own
+//              room": requiresRoomAccess asks whether the principal can reach
+//              the TARGET's room, not whether the two share one, so an agent
+//              reaches every room its boss can - which is the stated scope.
+//   CRON-RUN → deny (a run has no history, and holds no log:read anyway).
+//
+// WHY THE BARE ROOM CHECK IS CORRECT HERE, when conversationReset above warns
+// against exactly that shape: the warning there is about a MUTATION. Clearing
+// another agent's session via a room check would be a confused-deputy
+// escalation, because hasRoomAccess keys on the agent's SPAWNING-USER id, so
+// any ordinary agent could reset every other agent its boss owns.
+//
+// This route is a READ, and "every agent in rooms its boss can access" is the
+// scope that was chosen for it deliberately - it supersedes an earlier
+// self-only design. The spawning-user keying is not an accident being exploited
+// here; it is precisely how "its boss's rooms" is expressed in this codebase.
+// Nothing becomes visible that the boss could not already read in the UI.
+//
+// The SELF branch is checked FIRST and independently, so an agent never loses
+// access to its own history because its room's grants changed underneath it.
+//
+// KNOWN LIMITATION: roomIdForAgent resolves through the LIVE roster, so a
+// KILLED agent - whose logs remain on disk - collapses into the same non-leak
+// deny as an unknown one. Reaching those would mean changing shared
+// roomIdForAgent semantics or teaching GuardDeps about the killed list, which
+// is a security-sensitive change to a seam many routes depend on; it is
+// deliberately out of scope rather than quietly bolted on.
+const logReadRoomGuard = requiresRoomAccess({
+  kind: "paramAgentId",
+  name: "id",
+});
+export const logSearchAccess: Guard = (ctx) => {
+  switch (ctx.identity.scope) {
+    case "user":
+      return logReadRoomGuard(ctx);
+    case "agent":
+      return agentParamMustEqualTokenAgent(ctx).ok
+        ? ALLOW
+        : logReadRoomGuard(ctx);
+    case "cron-run":
+      return FORBIDDEN;
+  }
+};
+
 // --- Combinators ------------------------------------------------------------
 // Typed composition for the route table's compound guards (e.g. agents.move /
 // agents.revive need access to BOTH the source and target room). Encoding these

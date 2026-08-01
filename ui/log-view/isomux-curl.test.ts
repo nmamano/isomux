@@ -1129,6 +1129,19 @@ describe("describeIsomuxRoute", () => {
       "Check isomux version",
     );
   });
+
+  test("the conversation-log route is labeled in every mode", () => {
+    // describeIsomuxRoute matches on path segments only, so all three modes of
+    // /logs share this static fallback; humanizeIsomuxRequest is what tells
+    // them apart (see its own tests below).
+    for (const path of [
+      "/api/agents/agent-123/logs",
+      "/api/agents/agent-123/logs?q=marmalade",
+      "/api/agents/agent-123/logs?session=s1&around=e4",
+    ]) {
+      expect(describeIsomuxRoute("GET", path)).toBe("Search conversation logs");
+    }
+  });
 });
 
 describe("humanizeIsomuxRequest", () => {
@@ -1156,6 +1169,24 @@ describe("humanizeIsomuxRequest", () => {
       `curl -s -X POST localhost:4000/api/memory -H 'Content-Type: application/json' -d '{"scope":"room","text":"x"}'`,
     );
     expect(humanizeIsomuxRequest(req)).toBe("Save a room memory");
+  });
+
+  test("the conversation-log route names its mode and its target", () => {
+    const who = (id: string) => (id === "agent-123-abc" ? "Isomuxer4" : null);
+    const say = (qs: string) =>
+      humanizeIsomuxRequest(
+        parse(`curl -s 'localhost:4000/api/agents/agent-123-abc/logs${qs}'`),
+        who,
+      );
+    expect(say("")).toBe("List Isomuxer4's log sessions");
+    expect(say("?q=marmalade")).toBe(`Search Isomuxer4's logs for "marmalade"`);
+    expect(say("?session=s1")).toBe("Read a session from Isomuxer4's logs");
+    expect(say("?session=s1&around=e4")).toBe(
+      "Read around an entry in Isomuxer4's logs",
+    );
+    // A search inside one session is still a search - q wins, matching how the
+    // server resolves the mode.
+    expect(say("?session=s1&q=jam")).toBe(`Search Isomuxer4's logs for "jam"`);
   });
 
   test("agent message resolves the receiver name", () => {

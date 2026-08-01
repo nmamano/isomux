@@ -151,6 +151,10 @@ import { memoryHandlers } from "./routes/handlers/memory.ts";
 import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
+import { logsHandlers } from "./routes/handlers/logs.ts";
+import { buildSessionIndex, retrieveSession } from "./log-search.ts";
+import { fileLogSource } from "./log-source.ts";
+import { runSearchInChild } from "./log-search-runner.ts";
 import { slidesHandlers } from "./routes/handlers/slides.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
 import { skillUsageHandlers } from "./routes/handlers/skill-usage.ts";
@@ -1395,6 +1399,10 @@ function defaultCreateRoomIdForIdentity(
   return undefined;
 }
 
+// The office's conversation-log tree, read-only. Built once: it holds no state
+// beyond the directory path, so every log read shares it.
+const officeLogSource = fileLogSource(join(STATE_ROOT, "logs"));
+
 // Assemble the executor deps for the migrated /api surface. Called from
 // startServer once the managers exist. Each resource slice registers its
 // handlers (and any precondition enforcers) here over its own slim deps bundle;
@@ -1559,6 +1567,25 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.emitAgentPreviewUrl(agentId, body),
       getAgentContextUsage: (agentId) =>
         agentManager.getAgentContextUsage(agentId),
+    }),
+  );
+
+  // Conversation-log search + retrieval (tasks da7b2899, b6d07978). The index
+  // and retrieval modes read straight through the shared file source here; the
+  // SEARCH mode goes out to a killable child process (log-search-runner.ts),
+  // which is both the ReDoS guard for caller-supplied regexes and what keeps an
+  // all-session scan off the single process that serves the whole office.
+  register(
+    logsHandlers({
+      listSessionIds: (agentId) =>
+        officeLogSource
+          .listSessions(agentId)
+          .then((ss) => ss.map((s) => s.sessionId)),
+      sessionIndex: (agentId) => buildSessionIndex(officeLogSource, agentId),
+      retrieveSession: (agentId, sessionId, query) =>
+        retrieveSession(officeLogSource, agentId, sessionId, query),
+      search: (callerKey, agentId, query) =>
+        runSearchInChild(callerKey, agentId, query),
     }),
   );
 

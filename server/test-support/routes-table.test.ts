@@ -243,6 +243,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.terminalCommand": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.contextUsage": { caps: ["self:affordance"], emits: [] },
+  // Conversation-log search + retrieval. Its OWN capability, deliberately NOT
+  // office:read (which plain agent tokens do not carry) and not self:affordance
+  // (the scope reaches past the caller's own chat). Read-only, so no emits.
+  "agents.logs": { caps: ["log:read"], emits: [] },
   // Agents - Slide Mode (boss-session read surface; generation fires
   // slide_ready / slide_failed asynchronously on completion, not inline).
   "agents.getSlides": { caps: ["office:read"], emits: [] },

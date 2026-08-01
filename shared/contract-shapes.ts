@@ -16,6 +16,7 @@ import type {
   TaskItem,
   Cronjob,
   Attachment,
+  LogEntry,
   MemoryScope,
   MemoryItem,
   OfficeSettings,
@@ -220,6 +221,127 @@ export type AgentContextUsageResp =
       sampledAtMs: number;
     }
   | { available: false; reason: "no_session" | "not_yet_measured" };
+
+/**
+ * GET /api/agents/:id/logs - conversation-log search and retrieval. One route,
+ * three modes chosen by the query (see server/log-search.ts): `?q=` searches,
+ * `?session=` retrieves, neither lists the agent's sessions.
+ *
+ * The three response shapes are distinguishable without a discriminator field:
+ * the index carries `sessions`, a search carries `results`, a retrieval carries
+ * `entries`.
+ */
+
+/** Entry kinds, indexed off LogEntry so the two can never drift. */
+export type LogEntryKind = LogEntry["kind"];
+
+/**
+ * The named kind presets. `conversation` is the default in every mode, which is
+ * what keeps thinking traces opt-in: reaching them takes an explicit
+ * `kind=thinking` or `tier=full`.
+ */
+export type LogTier = "prompts" | "conversation" | "full";
+
+/** One session in the index mode's listing. */
+export interface LogSessionIndexEntry {
+  sessionId: string;
+  topic: string | null;
+  lastModified: number;
+  /** This session was forked off another one. */
+  forked?: true;
+  /** Another session was forked off this one. */
+  branched?: true;
+}
+
+export interface LogSessionIndexResp {
+  agentId: string;
+  sessions: LogSessionIndexEntry[];
+}
+
+/**
+ * One search hit. `sessionId` + `entryId` are the context handle: feed them
+ * back as `?session=<sessionId>&around=<entryId>` to read the neighbouring
+ * entries. `snippet` is cut from the DECODED content, never the raw JSONL line.
+ */
+export interface LogSearchHit {
+  sessionId: string;
+  topic: string | null;
+  timestamp: number;
+  kind: LogEntryKind;
+  entryId: string;
+  snippet: string;
+}
+
+export interface LogSearchResp {
+  agentId: string;
+  query: string;
+  regex: boolean;
+  /**
+   * The kinds actually applied - the canonical resolved selection. `null` means
+   * no filter at all (every kind).
+   */
+  kinds: LogEntryKind[] | null;
+  /**
+   * The preset `kinds` came from, or `null` when an explicit `kind=` replaced
+   * it. Never report a preset name for a selection the caller overrode: an
+   * arbitrary kind set has no tier, and labelling it with one would make the
+   * response contradict itself.
+   */
+  tier: LogTier | null;
+  /**
+   * The TRUE match count when the scan ran to completion, and `null` when it
+   * did NOT (`timedOut: true`), because at that point no true total is
+   * knowable. A partial count is reported separately rather than being passed
+   * off as a total - the dangerous confusion is a caller reading a partial 0 as
+   * "there are no matches".
+   */
+  totalMatches: number | null;
+  /** How many matches were found before the scan stopped. Only when timedOut. */
+  matchesFoundBeforeTimeout?: number;
+  /** Results were omitted by `limit`, among the hits that WERE found. */
+  truncated: boolean;
+  /**
+   * The scan ran out of its wall-clock budget and stopped early. A separate
+   * signal from `truncated` on purpose - "I stopped looking" and "there was
+   * more than you asked for" are different facts.
+   */
+  timedOut: boolean;
+  results: LogSearchHit[];
+}
+
+/**
+ * One retrieved entry. Content is capped per entry so `tier=full` on a session
+ * with large tool results cannot detonate the caller's context; when it is cut,
+ * `contentTruncated` is set and `contentLength` reports the true size.
+ */
+export interface LogRetrievedEntry {
+  entryId: string;
+  timestamp: number;
+  kind: LogEntryKind;
+  content: string;
+  contentTruncated?: true;
+  contentLength?: number;
+}
+
+export interface LogRetrieveResp {
+  agentId: string;
+  sessionId: string;
+  topic: string | null;
+  /** The kinds actually applied; `null` means every kind. See LogSearchResp. */
+  kinds: LogEntryKind[] | null;
+  /** The preset they came from, or `null` when `kind=` overrode it. */
+  tier: LogTier | null;
+  totalEntries: number;
+  truncated: boolean;
+  entries: LogRetrievedEntry[];
+  /** Present only in `around` mode: the anchor entry, its window, and whether
+   * the anchor was found in this session's timeline at all. */
+  around?: string;
+  window?: number;
+  found?: boolean;
+}
+
+export type LogsResp = LogSessionIndexResp | LogSearchResp | LogRetrieveResp;
 
 /**
  * GET /api/agents/:id/slides - the current conversation's slide map for the

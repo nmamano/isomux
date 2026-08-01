@@ -760,6 +760,9 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["POST", "/api/agents/*/edit-file", "Offer file in editor"],
   ["POST", "/api/agents/*/terminal-command", "Suggest terminal command"],
   ["GET", "/api/agents/*/context", "Check context usage"],
+  // One route, three modes (search / retrieve / list). This static label is the
+  // fallback; humanizeIsomuxRequest below reads the query and says which.
+  ["GET", "/api/agents/*/logs", "Search conversation logs"],
   ["GET", "/api/agents/*/slides", "Read slides"],
   ["POST", "/api/agents/*/slides/*", "Generate slide"],
   ["GET", "/api/agents/*/instructions", "Read agent instructions"],
@@ -919,6 +922,17 @@ export function humanizeIsomuxRequest(
         if (sub === "resume" && m === "POST")
           return `Resume a session for ${who}`;
         if (sub === "sessions" && m === "GET") return `List ${who}'s sessions`;
+        // /logs is one route with three modes, so the label is chosen from the
+        // query rather than the path - "Search" would be wrong two thirds of
+        // the time.
+        if (sub === "logs" && m === "GET") {
+          const q = query.get("q");
+          if (q) return `Search ${who}'s logs for "${truncateLabel(q, 32)}"`;
+          if (query.get("around"))
+            return `Read around an entry in ${who}'s logs`;
+          if (query.get("session")) return `Read a session from ${who}'s logs`;
+          return `List ${who}'s log sessions`;
+        }
         if (sub === "slides" && m === "GET") return `Read ${who}'s slides`;
         if (sub === "move" && m === "POST") return `Move ${who}`;
         if (sub === "revive" && m === "POST") return `Revive ${who}`;

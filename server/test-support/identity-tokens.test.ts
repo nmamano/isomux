@@ -53,6 +53,10 @@ describe("identity: capability sets (Phase 2.1)", () => {
           "task:write",
           "memory:read",
           "memory:write",
+          // Conversation-log reads (GET /api/agents/:id/logs). Its own
+          // capability rather than office:read, which an agent token does not
+          // carry - see the Capability union.
+          "log:read",
         ] as Capability[]
       ).sort(),
     );
@@ -61,7 +65,8 @@ describe("identity: capability sets (Phase 2.1)", () => {
   it("RUN scope holds the self-affordances plus the task board", () => {
     // task:read/task:write are here because the cron system prompt hands a run
     // the office-global board; it reached it over the retired loopback /tasks
-    // route before. Nothing else: a run cannot spawn, converse, or read cron.
+    // route before. Nothing else: a run cannot spawn, converse, or read cron -
+    // and NOT log:read either: a run has no room, no chat, and no history.
     expect([...RUN_CAPABILITIES]).toEqual([
       "self:affordance",
       "task:read",

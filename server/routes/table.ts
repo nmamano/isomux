@@ -34,6 +34,7 @@ import {
   messageSend,
   scheduledMessagesOwner,
   conversationReset,
+  logSearchAccess,
   cronjobOwnerOrOfficeOwner,
   runParamMustEqualTokenRun,
   taskDelete,
@@ -76,6 +77,7 @@ import type {
   AffordanceTerminalCmdReq,
   AffordancePreviewUrlReq,
   AgentContextUsageResp,
+  LogsResp,
   SlideDeckRes,
   EnsureSlideReq,
   EnsureSlideRes,
@@ -490,6 +492,22 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/agents/:id/context",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: [],
+  }),
+
+  // Conversation-log search + retrieval (tasks da7b2899, b6d07978). ONE route
+  // with three modes, chosen by the query: ?q= searches, ?session= retrieves,
+  // neither lists the agent's sessions. Read-only, so nothing is emitted.
+  //
+  // Its OWN capability (`log:read`) rather than office:read, which plain agent
+  // tokens do not carry - see the Capability union in identity/index.ts. The
+  // guard widens an AGENT's reach past its own chat to any agent in a room its
+  // boss can access; logSearchAccess documents why that is sound for a read.
+  defineRoute<void, LogsResp>({
+    opId: "agents.logs",
+    method: "GET",
+    path: "/api/agents/:id/logs",
+    auth: cap("log:read", logSearchAccess),
     emits: [],
   }),
 
