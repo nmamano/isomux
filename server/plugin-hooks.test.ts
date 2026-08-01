@@ -14,7 +14,9 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  MEMORY_NOTICE_FILL_RATIO,
   formatContextNotice,
+  formatMemoryNotice,
   markContextThresholdFired,
   pickContextThreshold,
   stripOutboundEnvelope,
@@ -224,5 +226,55 @@ describe("formatContextNotice", () => {
   it("rounds the displayed percentage from the raw float", () => {
     expect(formatContextNotice(50, snap(50.4))).toContain("50% full");
     expect(formatContextNotice(75, snap(75.6))).toContain("76% full");
+  });
+});
+
+describe("formatMemoryNotice (task f1a08f05)", () => {
+  const scope = (label: string, fill: number) => ({
+    label,
+    contentChars: Math.round(3500 * fill),
+    cap: 3500,
+  });
+
+  it("says nothing when every scope is under the ratio", () => {
+    expect(formatMemoryNotice([])).toBeNull();
+    expect(
+      formatMemoryNotice([
+        scope("Office-wide", 0.5),
+        scope("Your agent", 0.79),
+      ]),
+    ).toBeNull();
+  });
+
+  it("fires exactly at the ratio", () => {
+    expect(
+      formatMemoryNotice([scope("Office-wide", MEMORY_NOTICE_FILL_RATIO)]),
+    ).toBe(
+      "[memory check: auto-loaded memory is near its size limit - Office-wide at 80% of cap. " +
+        "When a scope exceeds its cap, its oldest facts are omitted from your context. " +
+        "Mention this to the boss and offer to propose specific trims; " +
+        "apply them through the memory READ + PUT API only after approval. " +
+        "The boss can also edit memory in Settings.]",
+    );
+  });
+
+  it("names only the over-ratio scopes, fullest first", () => {
+    const line = formatMemoryNotice([
+      scope("Office-wide", 0.2),
+      scope('Room "Isomux Dev"', 0.9),
+      scope('Boss "Nil"', 1.18),
+      scope("Your agent", 0.4),
+    ])!;
+    expect(line).toContain(
+      'Boss "Nil" at 118% of cap, Room "Isomux Dev" at 90% of cap.',
+    );
+    expect(line).not.toContain("Office-wide");
+    expect(line).not.toContain("Your agent");
+  });
+
+  it("uses a spaced hyphen, never an em dash (Nil's prose rule)", () => {
+    expect(formatMemoryNotice([scope("Office-wide", 1.5)])).not.toContain(
+      "\u2014",
+    );
   });
 });

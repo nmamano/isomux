@@ -350,4 +350,49 @@ describe("memory-store: render for prompt", () => {
       ]),
     ).toBeNull();
   });
+
+  it("measureForPromptMulti sizes each non-empty scope against its cap", () => {
+    const { store } = freshStore({ caps: { ...MEMORY_CAPS, office: 100 } });
+    store.append({ scope: "office", scopeId: null, author: "A", text: "o" });
+    store.append({ scope: "agent", scopeId: "a1", author: "B", text: "g" });
+    const out = store.measureForPromptMulti([
+      { scope: "office", scopeId: null, label: "Office-wide" },
+      { scope: "room", scopeId: "r1", label: 'Room "X"' }, // empty -> skipped
+      { scope: "agent", scopeId: "a1", label: "Your agent" },
+    ]);
+    expect(out).toEqual([
+      {
+        scope: "office",
+        label: "Office-wide",
+        contentChars: "- A, 2026-06-28: o".length,
+        cap: 100,
+      },
+      {
+        scope: "agent",
+        label: "Your agent",
+        contentChars: "- B, 2026-06-28: g".length,
+        cap: MEMORY_CAPS.agent,
+      },
+    ]);
+  });
+
+  it("measureForPromptMulti reports the size BEFORE the cap trims it", () => {
+    // The notice's job is to say how much is being dropped, so an over-cap
+    // scope must report a raw size above its cap, not the trimmed one.
+    const { store } = freshStore({ caps: { ...MEMORY_CAPS, office: 40 } });
+    store.append({ scope: "office", scopeId: null, author: "A", text: "one" });
+    store.append({ scope: "office", scopeId: null, author: "A", text: "two" });
+    store.append({
+      scope: "office",
+      scopeId: null,
+      author: "A",
+      text: "three",
+    });
+    const [m] = store.measureForPromptMulti([
+      { scope: "office", scopeId: null, label: "Office-wide" },
+    ]);
+    expect(m.contentChars).toBeGreaterThan(m.cap);
+    // The rendered form really is trimmed at the same moment.
+    expect(store.renderForPrompt("office", null)).toContain(OVER_CAP_NOTICE);
+  });
 });

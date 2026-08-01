@@ -83,7 +83,7 @@ import {
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
-import { memoryStore } from "./memory-store.ts";
+import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { capturePreview } from "./preview-capture.ts";
@@ -171,6 +171,7 @@ import {
   runAgentTurn,
   stripOutboundEnvelope,
   CONTEXT_NOTICE_THRESHOLDS,
+  formatMemoryNotice,
 } from "./plugin-hooks.ts";
 import { stripAttachmentNotices } from "./attachment-prompt.ts";
 // --- Dependency injection (Phase 0.2) ---
@@ -1346,6 +1347,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       contextSampleInFlight: null,
       firedAgentThresholds: new Set(),
       firedUiThresholds: new Set(),
+      memoryNotice: null,
+      memoryNoticeFired: false,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -2347,12 +2350,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       snapshot: ContextUsageSnapshot | null;
       fired: Set<number>;
       firedUi: Set<number>;
+      memoryFired: boolean;
     } | null = null,
   ): void {
     managed.contextGen++;
     managed.contextUsage = restore ? restore.snapshot : null;
     managed.firedAgentThresholds = restore ? restore.fired : new Set();
     managed.firedUiThresholds = restore ? restore.firedUi : new Set();
+    // Memory notice: same rule for the flag, then RE-ARM from it. Arming has to
+    // happen here as well as at session build because the paths that start a
+    // conversation disagree on the order: /clear resets and builds the session
+    // lazily afterwards, while a different-session resume, a successful
+    // edit-fork, and the Codex new-thread system_init all build the session
+    // FIRST and reset after. Arming is a pure function of (flag, memory files),
+    // so running it at both points is idempotent and the last one is right
+    // whichever that is.
+    managed.memoryNoticeFired = restore ? restore.memoryFired : false;
+    armMemoryNotice(managed);
     // Null the slot so nothing ever waits on an orphaned old-conversation
     // request (it still self-discards at commit via the gen check).
     managed.contextSampleInFlight = null;
@@ -3955,6 +3969,47 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return true;
   }
 
+  // The auto-loaded memory scopes for one agent, in prompt order. Null when the
+  // agent's room is gone (nothing sensible to label or measure).
+  function memoryRefsFor(managed: ManagedAgent): MemoryScopeRef[] | null {
+    const room = roomById(managed.info.roomId);
+    if (!room) return null;
+    return [
+      { scope: "office", scopeId: null, label: "Office-wide" },
+      {
+        scope: "room",
+        scopeId: managed.info.roomId,
+        label: `Room "${room.name}"`,
+      },
+      // Boss notes auto-load ONLY for this agent's manager boss (stable
+      // userId), so one boss's notes never bleed into another's context.
+      ...(managed.info.userId
+        ? [
+            {
+              scope: "boss" as const,
+              scopeId: managed.info.userId,
+              label: `Boss "${managed.info.username ?? "boss"}"`,
+            },
+          ]
+        : []),
+      { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
+    ];
+  }
+
+  // Put this conversation's memory-size notice in the slot, or clear it when the
+  // conversation has already had one. Called from BOTH session build and
+  // resetContextUsage - see the comment there for why order-independence
+  // matters. Pure in (fired flag, memory files), so repeating it is free.
+  function armMemoryNotice(
+    managed: ManagedAgent,
+    refs = memoryRefsFor(managed),
+  ): void {
+    managed.memoryNotice =
+      managed.memoryNoticeFired || !refs
+        ? null
+        : formatMemoryNotice(memoryStore.measureForPromptMulti(refs));
+  }
+
   function createSession(
     managed: ManagedAgent,
     resumeSessionId?: string,
@@ -4012,6 +4067,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const ownerRecord = managed.info.username
       ? getUserByName(managed.info.username)
       : undefined;
+    // One refs list, two consumers: the rendered layer that goes into the prompt
+    // and the per-scope sizing behind the session-start memory notice. They have
+    // to agree on which scopes load, so they read the same list.
+    const memoryRefs = memoryRefsFor(managed) ?? [];
+    armMemoryNotice(managed, memoryRefs);
     const systemPrompt = buildSystemPrompt(
       managed.info.name,
       managed.info.id,
@@ -4022,26 +4082,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.username,
       ownerRecord?.memberPrompt ?? null,
       managed.info.privileged ?? false,
-      memoryStore.renderForPromptMulti([
-        { scope: "office", scopeId: null, label: "Office-wide" },
-        {
-          scope: "room",
-          scopeId: managed.info.roomId,
-          label: `Room "${room.name}"`,
-        },
-        // Boss notes auto-load ONLY for this agent's manager boss (stable
-        // userId), so one boss's notes never bleed into another's context.
-        ...(managed.info.userId
-          ? [
-              {
-                scope: "boss" as const,
-                scopeId: managed.info.userId,
-                label: `Boss "${managed.info.username ?? "boss"}"`,
-              },
-            ]
-          : []),
-        { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
-      ]),
+      memoryStore.renderForPromptMulti(memoryRefs),
       managed.info.agentType,
     );
     if (resumeSessionId) {
@@ -4184,6 +4225,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       contextSampleInFlight: null,
       firedAgentThresholds: new Set(),
       firedUiThresholds: new Set(),
+      memoryNotice: null,
+      memoryNoticeFired: false,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -6533,6 +6576,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // stash pristine regardless of aliasing.
     const oldFiredAgentThresholds = new Set(managed.firedAgentThresholds);
     const oldFiredUiThresholds = new Set(managed.firedUiThresholds);
+    // The memory notice is conversation-scoped too, and a rollback restores the
+    // SAME conversation - so an already-delivered notice must stay delivered.
+    // Only the FLAG is stashed; resetContextUsage re-arms the slot from it.
+    const oldMemoryNoticeFired = managed.memoryNoticeFired;
 
     // Find target up front so the ephemeral short-circuit and the not-found
     // error can return before the fork pipeline runs.
@@ -6954,6 +7001,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
                 snapshot: oldContextUsage,
                 fired: oldFiredAgentThresholds,
                 firedUi: oldFiredUiThresholds,
+                memoryFired: oldMemoryNoticeFired,
               }
             : null,
         );

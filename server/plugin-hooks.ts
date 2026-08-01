@@ -200,13 +200,21 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
 
   // 4b. Built-in outbound blocks (server coordination, NOT plugins - no
   // enable/disable coupling, absent from plugin discovery + failure
-  // accounting). Currently just the context-fullness notice. Computed after
-  // the plugin loop so the just-finished turn's fire-and-forget sample has the
-  // most time to land; the bounded await inside caps the added latency (~500ms
-  // worst case, and only on turns where a sample is still in flight).
+  // accounting): the context-fullness notice and the session-start memory-size
+  // notice. Computed after the plugin loop so the just-finished turn's
+  // fire-and-forget sample has the most time to land; the bounded await inside
+  // caps the added latency (~500ms worst case, and only on turns where a sample
+  // is still in flight).
   const contextNotice = await buildContextNoticeBlock(managed);
   // The await above can straddle a Stop / session swap.
   checkCancelled();
+  // Read AFTER that await for the same reason: a session swap in the window
+  // re-arms the slot, and we want the value we are actually about to send.
+  // `gen` is captured with it, for the same send-accept guard the context
+  // notice uses - everything from here to session.send() is synchronous.
+  const memoryNotice = managed.memoryNotice
+    ? { block: managed.memoryNotice, gen: managed.contextGen }
+    : null;
 
   // 5. Assemble the outbound envelope: built-in blocks first, then plugin
   // blocks in sorted order, then the user payload. Built-ins get their own
@@ -216,6 +224,11 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   if (contextNotice) {
     envelopeBlocks.push(
       `--- begin isomux: context-check ---\n${contextNotice.block}\n--- end isomux: context-check ---`,
+    );
+  }
+  if (memoryNotice) {
+    envelopeBlocks.push(
+      `--- begin isomux: memory-check ---\n${memoryNotice.block}\n--- end isomux: memory-check ---`,
     );
   }
   for (const { id, prefix } of prefixes) {
@@ -274,6 +287,16 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     // which is exactly iff the fired-set was replaced.
     if (contextNotice && managed.contextGen === contextNotice.gen) {
       markContextThresholdFired(managed, contextNotice.threshold);
+    }
+    // Same never-before-send rule for the memory notice: a failed send must not
+    // burn it. Generation guard for the same reason as above, and it has to be
+    // the generation rather than a comparison against the slot's current text:
+    // strings compare BY VALUE, so a /clear during the send that re-armed an
+    // identically-worded notice would look like the one we just sent and burn a
+    // notice that never went out.
+    if (memoryNotice && managed.contextGen === memoryNotice.gen) {
+      managed.memoryNotice = null;
+      managed.memoryNoticeFired = true;
     }
     if (onSendAccepted) {
       try {
@@ -350,8 +373,10 @@ const USER_MESSAGE_SEPARATOR = "\n\nUser message:\n";
 // the full closing line of EITHER a built-in (`isomux`) or plugin block so we
 // don't false-strip on a `---` substring that happens to precede the separator
 // inside a block body (e.g. a stored memory that ends with `---`). Plugin ids
-// are constrained to `[a-z0-9_-]+` in persistence.ts:726; the sole built-in id
-// (`context-check`) matches the same grammar.
+// are constrained to `[a-z0-9_-]+` in persistence.ts:726; the built-in ids
+// (`context-check`, `memory-check`) match the same grammar. Requiring the
+// separator right after the closing line is also what makes this find the LAST
+// block when several fire on the same turn.
 const END_ENVELOPE_AND_SEPARATOR =
   /(?:^|\n)--- end (?:isomux|plugin): [a-z0-9_-]+ ---\n\nUser message:\n/;
 
@@ -426,6 +451,55 @@ export function formatContextNotice(
       ? "Wrap up: finish or hand off current work; tell the boss a /clear is advisable."
       : "Budget accordingly.";
   return `[context check: ${pct}% full - ${used} / ${max} tokens. ${advice}]`;
+}
+
+// ---------------------------------------------------------------------------
+// Built-in session-start memory-size notice (task f1a08f05)
+//
+// Auto-loaded memory is capped per scope (memory-store MEMORY_CAPS) and
+// renderCapped omits the OLDEST lines of an over-cap scope. That is not silent
+// - it appends OVER_CAP_NOTICE to the rendered layer - but it is a passive line
+// in the system prompt, delivered only once the cap is already exceeded. This
+// notice arrives as a MESSAGE, which asks for a decision, and it fires BEFORE
+// the cap is reached so the trimming can happen while nothing is being left
+// out yet. A message rather than a prompt line is also deliberate: a size
+// figure in the system prompt would change on every write, which is the kind of
+// per-agent variability the prompt keeps out (task 46f86536).
+//
+// Armed by agent-manager at session creation (it already renders memory there)
+// and consumed here on the first accepted send of the conversation.
+// ---------------------------------------------------------------------------
+
+// A scope this full (fraction of its cap) is worth telling the agent about.
+// At 1.0 the oldest facts are already being dropped; 0.8 gives the boss a
+// chance to curate before that happens.
+export const MEMORY_NOTICE_FILL_RATIO = 0.8;
+
+/** The session-start memory notice, or null when every scope is comfortably
+ *  under its cap. Scopes are listed fullest first, and only the ones at or over
+ *  the ratio are named - the point is what to trim, not an inventory. */
+export function formatMemoryNotice(
+  measurements: readonly {
+    label: string;
+    contentChars: number;
+    cap: number;
+  }[],
+): string | null {
+  const full = measurements
+    .map((m) => ({ label: m.label, fill: m.contentChars / m.cap }))
+    .filter((m) => m.fill >= MEMORY_NOTICE_FILL_RATIO)
+    .sort((a, b) => b.fill - a.fill);
+  if (full.length === 0) return null;
+  const listed = full
+    .map((m) => `${m.label} at ${Math.round(m.fill * 100)}% of cap`)
+    .join(", ");
+  return (
+    `[memory check: auto-loaded memory is near its size limit - ${listed}. ` +
+    `When a scope exceeds its cap, its oldest facts are omitted from your context. ` +
+    `Mention this to the boss and offer to propose specific trims; ` +
+    `apply them through the memory READ + PUT API only after approval. ` +
+    `The boss can also edit memory in Settings.]`
+  );
 }
 
 /** The highest fullness threshold newly reached (percentage >= threshold) but

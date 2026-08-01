@@ -179,6 +179,23 @@ export interface ManagedAgent {
   // (resetContextUsage); restored on edit-fork rollback; preserved on model
   // change.
   firedUiThresholds: Set<number>;
+  // --- Session-start memory-size notice (task f1a08f05).
+  // The formatted notice waiting to ride out on the next message, or null when
+  // there is nothing to say (every scope under the ratio) or it has already gone
+  // out. Armed by createBackendSession, which already renders the memory layer;
+  // consumed by the pre-send step in runAgentTurn at send-accept time, on the
+  // same never-before-send rule as firedAgentThresholds.
+  memoryNotice: string | null;
+  // Whether this conversation has already had its memory notice. Arming skips
+  // an agent whose flag is set, which makes the notice once per CONVERSATION
+  // rather than once per session process - a model/effort change rebuilds the
+  // session mid-conversation and must not re-fire it. Same lifecycle as
+  // firedAgentThresholds: cleared with the generation (resetContextUsage),
+  // restored on edit-fork rollback (rollback puts the SAME conversation back,
+  // so its already-fired notice stays fired). In-memory only, like every other
+  // notice flag here - a server restart forgets it, and the next session start
+  // may re-notice.
+  memoryNoticeFired: boolean;
   // --- Subscription-allowance usage (the pill next to the context battery).
   // Latest committed reading for the ACCOUNT this agent's backend is signed in
   // to, or null when there is none (Claude API-key/Bedrock/Vertex sessions,

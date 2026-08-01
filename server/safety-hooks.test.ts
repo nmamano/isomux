@@ -568,3 +568,154 @@ describe("existing guards still hold", () => {
     expect(await bash("ls -la /tmp")).toEqual({ denied: false, reason: "" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bash-side sensitive-read grammar (task 137c6684)
+//
+// The Grep TOOL was already covered; Bash-side readers were not. The trap this
+// pins down is that grep's first bare operand is the PATTERN, so a naive
+// path check denies what the agent was searching FOR.
+// ---------------------------------------------------------------------------
+
+describe("sensitive-read guard covers Bash readers", () => {
+  const denies = (cmd: string) =>
+    it(`denies: ${cmd}`, async () => {
+      const { denied, reason } = await bash(cmd);
+      expect(denied).toBe(true);
+      expect(reason).toContain("may contain secrets");
+    });
+  const allows = (cmd: string) =>
+    it(`allows: ${cmd}`, async () => {
+      expect(await bash(cmd)).toEqual({ denied: false, reason: "" });
+    });
+
+  describe("the first operand is a pattern, not a path", () => {
+    allows("grep id_rsa ~/.ssh/config");
+    allows("grep -rn AWS_SECRET .");
+    allows("grep .env ~/notes.md");
+    allows("rg id_rsa src/");
+    allows("rg '\\.pem$' docs/");
+    allows("sed -n 's/id_rsa/x/p' notes.txt");
+    allows("awk '/id_rsa/ {print}' notes.txt");
+    // rg's -r is --replace and eats its value, so `id_rsa` is the replacement
+    // and `KEY` is the pattern - no path named here at all.
+    allows("rg -r id_rsa KEY notes.txt");
+    // grep's -r is boolean, so the same shape really does name a path. Not
+    // sensitive here, but it proves the two are parsed differently.
+    allows("grep -r id_rsa notes.txt");
+  });
+
+  describe("but the path operands still get checked", () => {
+    denies("grep AWS_SECRET .env");
+    denies("grep -rn AWS_SECRET .env.production");
+    denies("grep -e KEY .env");
+    denies("grep --regexp=KEY .env");
+    denies("rg KEY ~/.ssh/id_rsa");
+    denies("rg -n KEY secrets.pem");
+    denies("sed -n 1p .env");
+    denies("sed -e 's/a/b/' server.key");
+    denies("awk '{print}' secrets.pem");
+    denies("awk -F: '{print $2}' .env");
+    denies("cut -d= -f2 .env");
+    // Option permutation: GNU grep accepts the file before the -e pattern.
+    denies("grep .env -e KEY");
+    // A pattern FILE is read too.
+    denies("grep -f .env notes.txt");
+    // After `--` everything is an operand, but the pattern still comes first.
+    denies("grep -- KEY .env");
+  });
+
+  describe("a file SELECTOR names the file too", () => {
+    // `grep --include=.env -r KEY ~/` prints .env contents just as surely as
+    // naming the file. Same shape isSensitiveFile already checks for the Grep
+    // tool's `glob` field.
+    denies("grep --include=.env -r KEY .");
+    denies("rg -g '*.pem' KEY .");
+    denies("rg --iglob '.env*' KEY .");
+    // Excluding a file is not reading it - rg spells that with a leading `!`.
+    allows("rg -g '!*.pem' KEY .");
+    allows("rg --iglob '!.env*' KEY .");
+    allows("grep --exclude=*.pem -r KEY .");
+    // ...but that grammar belongs to rg's glob flags alone. Everywhere else a
+    // leading `!` is just the first character of a filename.
+    denies("grep -f '!patterns.pem' notes.txt");
+    denies("rg -f '!patterns.pem' src/");
+    denies("awk -f '!prog.key' notes.txt");
+    denies("cat < '!secrets.pem'");
+  });
+
+  describe("quoted paths are paths", () => {
+    // stripQuotedStrings() blanks a quoted word, which used to hide the path
+    // from this check entirely - including for plain `cat`.
+    denies("grep AWS_SECRET '.env'");
+    denies('cat ".env"');
+    denies("cat '/tmp/isomux-safety-probe/id_rsa'");
+  });
+
+  describe("plain readers keep checking every operand", () => {
+    denies("cat .env");
+    denies("head -n 5 .env");
+    denies("tail -f server.key");
+    denies("xxd id_ed25519");
+    denies("base64 .env");
+    denies("cat notes.txt .env");
+    allows("cat notes.txt README.md");
+    allows("head -n 5 package.json");
+  });
+
+  describe("the template/example carve-out still applies", () => {
+    allows("grep KEY .env.example");
+    allows("cat .env.template");
+    allows("sed -n 1p .env.sample");
+  });
+
+  describe("through pipes, redirections and substitutions", () => {
+    denies("ls | grep KEY .env");
+    denies("cat notes.txt && grep KEY .env");
+    denies("echo hi; cat $(ls) .env");
+    // A reader inside a command substitution is its own sub-command - including
+    // inside DOUBLE quotes, where the substitution still runs.
+    denies("wc -l $(cat .env)");
+    denies('echo "$(cat .env)"');
+    denies("echo `cat .env`");
+    // Single quotes really are literal, so nothing runs in there.
+    allows("echo '$(cat .env)'");
+  });
+
+  describe("readers hidden behind a wrapper or an interpreter", () => {
+    denies("sudo cat .env");
+    denies("sudo -u nil cat .env");
+    denies("xargs grep KEY .env");
+    denies("env cat .env");
+    denies("bash -c 'cat .env'");
+    denies('sh -lc "grep KEY .env"');
+    // An assignment prefix is not the command.
+    denies("X=1 cat .env");
+  });
+
+  describe("input redirection is a read; here-strings and writes are not", () => {
+    denies("cat < .env");
+    denies("grep KEY <.env");
+    denies("sed -n 1p < server.key");
+    // A redirection may come BEFORE the command; the shell still opens the file.
+    denies("< .env cat");
+    denies("2<.env cat");
+    denies("< .env grep KEY");
+    // `<<<` is a here-string: the word is DATA, not a file to open.
+    allows("cat <<< '.env'");
+    // A redirect target is never the pattern slot, so this still resolves
+    // KEY as the pattern and .env as a path.
+    denies("grep KEY < .env");
+  });
+
+  describe("a quoted word is data, not option syntax", () => {
+    // `-v` here is grep's pattern, not its invert-match flag, so the file
+    // operand is still the one after it.
+    denies("grep -- '-v' .env");
+    allows("sed 's/-n/x/' notes.txt");
+  });
+
+  describe("a heredoc body is still data, not a command", () => {
+    allows("jq -Rs '{text: .}' <<'EOF'\ncat .env is just prose here\nEOF");
+  });
+});

@@ -241,6 +241,21 @@ export interface MemoryStore {
   // NON-EMPTY scope contributes a "<label>:\n<lines>" block, in the given order;
   // null when every scope is empty. Labels are plain text, NOT markdown headings.
   renderForPromptMulti(refs: readonly MemoryScopeRef[]): string | null;
+  // How full each of those scopes is against its cap, for the session-start
+  // memory-size notice. Same refs, same order; scopes with no content at all are
+  // omitted. `contentChars` is the size BEFORE renderCapped drops anything, so a
+  // scope already over its cap reports a fill above 1.
+  measureForPromptMulti(
+    refs: readonly MemoryScopeRef[],
+  ): MemoryScopeMeasurement[];
+}
+
+// One scope's contribution to the auto-loaded memory layer, sized against its cap.
+export interface MemoryScopeMeasurement {
+  scope: MemoryScope;
+  label: string;
+  contentChars: number;
+  cap: number;
 }
 
 export interface MemoryStoreDeps {
@@ -402,6 +417,28 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     return blocks.length ? blocks.join("\n\n") : null;
   }
 
+  // Sizes the SAME lines renderForPrompt would join, before renderCapped trims
+  // them - the point of the notice is to say how much is being dropped, so the
+  // pre-cap size is the number that matters.
+  function measureForPromptMulti(
+    refs: readonly MemoryScopeRef[],
+  ): MemoryScopeMeasurement[] {
+    const out: MemoryScopeMeasurement[] = [];
+    for (const ref of refs) {
+      const lines = readText(ref.scope, ref.scopeId)
+        .split("\n")
+        .filter((l) => l.trim() !== "");
+      if (lines.length === 0) continue;
+      out.push({
+        scope: ref.scope,
+        label: ref.label,
+        contentChars: lines.join("\n").length,
+        cap: caps[ref.scope],
+      });
+    }
+    return out;
+  }
+
   return {
     read,
     readText,
@@ -410,6 +447,7 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     findDuplicate,
     renderForPrompt,
     renderForPromptMulti,
+    measureForPromptMulti,
   };
 }
 

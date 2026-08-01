@@ -481,7 +481,7 @@ const SENSITIVE_PATTERNS: RegExp[] = [
   /^id_dsa/, // SSH DSA keys
 ];
 
-/** Bash commands that read file contents */
+/** Bash commands that read file contents. Every bare operand is a path. */
 const FILE_READ_COMMANDS = [
   "cat",
   "head",
@@ -495,7 +495,311 @@ const FILE_READ_COMMANDS = [
   "hexdump",
   "od",
   "base64",
+  "nl",
+  "tac",
+  "cut",
 ];
+
+// ---------------------------------------------------------------------------
+// 4b. Per-command grammar for the Bash-side readers (task 137c6684)
+//
+// `cat .env` is easy: every bare operand is a path. `grep`, `rg`, `sed` and
+// `awk` are not - their FIRST bare operand is the pattern or the script, so the
+// naive "check every non-flag word" rule denies `grep id_rsa ~/.ssh/config` for
+// something the agent was searching FOR, not reading.
+//
+// Telling the two apart needs to know, per command, which flags eat the next
+// token: `rg -r id_rsa KEY notes.txt` names no path at all (`-r` is rg's
+// --replace), while `grep -r id_rsa notes.txt` does (grep's -r is boolean
+// --recursive). The same letter, opposite arity, which is why this is keyed by
+// command name - the same reasoning as WRAPPER_FLAGS above.
+//
+// A flag in no set is UNKNOWN and treated as consuming NOTHING. That direction
+// is deliberate: guessing "consumes a value" would step over a real path and
+// miss a secret read, while guessing "stands alone" at worst checks a flag's
+// value as if it were a path, which can only over-block.
+// ---------------------------------------------------------------------------
+
+type ReaderGrammar = {
+  /** Flags that consume the next token as their value. */
+  value: Set<string>;
+  /** Value flags whose value names a file the command reads - a pattern file
+   *  (`grep -f patterns`) or a file SELECTOR (`grep --include=.env`, which is
+   *  the same request as naming the file, and the same thing isSensitiveFile
+   *  already checks for the Grep tool's `glob` field). */
+  pathValue: Set<string>;
+  /** True when the first bare operand is a pattern/script rather than a path. */
+  firstOperandIsPattern: boolean;
+  /** Flags that SUPPLY the pattern/script, so every bare operand is a path. */
+  patternFlags: Set<string>;
+  /** pathValue flags whose value is a GLOB with rg's negation grammar, where a
+   *  leading `!` means "exclude". Only these: everywhere else a leading `!` is
+   *  an ordinary first character of a filename (`grep -f '!patterns.pem'`). */
+  negatableGlobs: Set<string>;
+};
+
+function plainReader(): ReaderGrammar {
+  // Deliberately empty flag sets: with no first-operand ambiguity to resolve,
+  // every non-flag token is a path candidate, exactly as it was before this
+  // table existed. A value that is not a path (`head -n 5 .env`: the `5`) gets
+  // checked and simply isn't sensitive.
+  return {
+    value: new Set(),
+    pathValue: new Set(),
+    firstOperandIsPattern: false,
+    patternFlags: new Set(),
+    negatableGlobs: new Set(),
+  };
+}
+
+const GREP_GRAMMAR: ReaderGrammar = {
+  value: new Set([
+    "-e",
+    "--regexp",
+    "-f",
+    "--file",
+    "-m",
+    "--max-count",
+    "-A",
+    "--after-context",
+    "-B",
+    "--before-context",
+    "-C",
+    "--context",
+    "-d",
+    "--directories",
+    "-D",
+    "--devices",
+    "--include",
+    "--exclude",
+    "--exclude-from",
+    "--exclude-dir",
+    "--label",
+    "--binary-files",
+    "--group-separator",
+  ]),
+  pathValue: new Set(["-f", "--file", "--exclude-from", "--include"]),
+  firstOperandIsPattern: true,
+  patternFlags: new Set(["-e", "--regexp", "-f", "--file"]),
+  // grep's --include has no negation grammar; --exclude is the negative form
+  // and is not a pathValue at all.
+  negatableGlobs: new Set(),
+};
+
+const RG_GRAMMAR: ReaderGrammar = {
+  value: new Set([
+    "-e",
+    "--regexp",
+    "-f",
+    "--file",
+    "-g",
+    "--glob",
+    "--iglob",
+    "-t",
+    "--type",
+    "-T",
+    "--type-not",
+    "--type-add",
+    "-m",
+    "--max-count",
+    "-A",
+    "--after-context",
+    "-B",
+    "--before-context",
+    "-C",
+    "--context",
+    "-M",
+    "--max-columns",
+    // rg's -r is --replace and takes a value; grep's -r is boolean --recursive.
+    "-r",
+    "--replace",
+    "-d",
+    "--max-depth",
+    "--max-filesize",
+    "--ignore-file",
+    "--path-separator",
+    "--sort",
+    "--sortr",
+    "--pre",
+    "--colors",
+    "-j",
+    "--threads",
+    "-E",
+    "--encoding",
+    "--context-separator",
+    "--field-match-separator",
+  ]),
+  pathValue: new Set([
+    "-f",
+    "--file",
+    "--ignore-file",
+    "-g",
+    "--glob",
+    "--iglob",
+  ]),
+  firstOperandIsPattern: true,
+  patternFlags: new Set(["-e", "--regexp", "-f", "--file"]),
+  negatableGlobs: new Set(["-g", "--glob", "--iglob"]),
+};
+
+const AG_GRAMMAR: ReaderGrammar = {
+  value: new Set([
+    "-A",
+    "--after",
+    "-B",
+    "--before",
+    "-C",
+    "--context",
+    "-m",
+    "--max-count",
+    "-G",
+    "--file-search-regex",
+    "--ignore",
+    "--path-to-ignore",
+    "--workers",
+  ]),
+  pathValue: new Set(["--path-to-ignore"]),
+  firstOperandIsPattern: true,
+  patternFlags: new Set(),
+  negatableGlobs: new Set(),
+};
+
+const SED_GRAMMAR: ReaderGrammar = {
+  // `-i` takes an OPTIONAL suffix that GNU sed only accepts attached (`-i.bak`),
+  // so on its own it consumes nothing and stays out of `value`.
+  value: new Set(["-e", "--expression", "-f", "--file", "-l", "--line-length"]),
+  pathValue: new Set(["-f", "--file"]),
+  firstOperandIsPattern: true,
+  patternFlags: new Set(["-e", "--expression", "-f", "--file"]),
+  negatableGlobs: new Set(),
+};
+
+const AWK_GRAMMAR: ReaderGrammar = {
+  value: new Set([
+    "-F",
+    "--field-separator",
+    "-v",
+    "--assign",
+    "-f",
+    "--file",
+    "--source",
+    "-e",
+    "--include",
+    "-i",
+  ]),
+  pathValue: new Set(["-f", "--file", "--include"]),
+  firstOperandIsPattern: true,
+  patternFlags: new Set(["-f", "--file", "--source", "-e"]),
+  negatableGlobs: new Set(),
+};
+
+const READER_GRAMMAR: Record<string, ReaderGrammar> = {
+  ...Object.fromEntries(FILE_READ_COMMANDS.map((c) => [c, plainReader()])),
+  grep: GREP_GRAMMAR,
+  egrep: GREP_GRAMMAR,
+  fgrep: GREP_GRAMMAR,
+  rgrep: GREP_GRAMMAR,
+  rg: RG_GRAMMAR,
+  ag: AG_GRAMMAR,
+  sed: SED_GRAMMAR,
+  awk: AWK_GRAMMAR,
+  gawk: AWK_GRAMMAR,
+  mawk: AWK_GRAMMAR,
+  nawk: AWK_GRAMMAR,
+};
+
+/**
+ * The path-valued arguments of one reader invocation.
+ *
+ * `args` comes from the shared shell parser (parseCommands -> commandCandidates),
+ * so quoting, wrappers, assignment prefixes, command substitutions and `bash -c`
+ * payloads are already resolved before we get here.
+ *
+ * One left-to-right pass collects operands and notes whether a pattern-supplying
+ * flag appeared; the first-operand drop happens at the END so it survives GNU's
+ * option permutation (`grep .env -e KEY` really does read .env).
+ */
+function readerPathOperands(args: ShellWord[], g: ReaderGrammar): string[] {
+  const operands: string[] = [];
+  const paths: string[] = [];
+  // rg spells an EXCLUSION as `-g '!*.pem'`. Excluding a file is not reading
+  // it, and treating it as a path would deny the safest form of the command.
+  // Scoped to the flags that actually have that grammar: for anything else a
+  // leading `!` is just the first character of a filename, and a redirect
+  // target (no flag) is never a glob.
+  const pushPath = (v: string, flag?: string) => {
+    if (flag && g.negatableGlobs.has(flag) && v.startsWith("!")) return;
+    paths.push(v);
+  };
+  let sawPatternFlag = false;
+  let endOfOptions = false;
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    // `cat < .env`: a file the command reads, but never a positional operand,
+    // so it must not be mistaken for the pattern slot.
+    if (arg.redirect) {
+      pushPath(arg.text);
+      continue;
+    }
+    const tok = arg.text;
+    if (!endOfOptions && tok === "--") {
+      endOfOptions = true;
+      continue;
+    }
+    // A quoted word is data the shell handed over whole, never option syntax:
+    // `grep -- '-v'` and `sed 's/-x/y/'` are operands even though they start
+    // with a dash.
+    if (!endOfOptions && !arg.quoted && tok.length > 1 && tok.startsWith("-")) {
+      if (tok.startsWith("--")) {
+        const eq = tok.indexOf("=");
+        const name = eq === -1 ? tok : tok.slice(0, eq);
+        if (g.patternFlags.has(name)) sawPatternFlag = true;
+        if (eq !== -1) {
+          if (g.pathValue.has(name)) pushPath(tok.slice(eq + 1), name);
+        } else if (g.value.has(name)) {
+          const v = args[++i];
+          if (v !== undefined && g.pathValue.has(name)) pushPath(v.text, name);
+        }
+        continue;
+      }
+      // Short-option cluster: `-rn`, `-ie`, `-A3`. The first value-taking letter
+      // takes the rest of the cluster if non-empty, else the next token - GNU
+      // behaviour, and what makes `-ne PATTERN` read PATTERN as -e's value.
+      for (let j = 1; j < tok.length; j++) {
+        const f = `-${tok[j]}`;
+        if (g.patternFlags.has(f)) sawPatternFlag = true;
+        if (!g.value.has(f)) continue;
+        const attached = tok.slice(j + 1);
+        const v = attached.length ? attached : args[++i]?.text;
+        if (v !== undefined && g.pathValue.has(f)) pushPath(v, f);
+        break;
+      }
+      continue;
+    }
+    operands.push(tok);
+  }
+  if (g.firstOperandIsPattern && !sawPatternFlag) operands.shift();
+  return [...paths, ...operands];
+}
+
+/** The first sensitive file a bash line would read, or null.
+ *
+ *  Runs over collectCommands(), the same resolution the process-kill guard
+ *  uses, so a reader hidden behind a wrapper (`sudo cat .env`), an assignment
+ *  prefix (`X=1 cat .env`), a substitution inside double quotes
+ *  (`echo "$(cat .env)"`) or a `bash -c` payload is still seen. Input
+ *  redirections are kept here (`cat < .env`) and only here - the kill guard has
+ *  no use for them, so its call keeps the parser's default behaviour. */
+function bashSensitiveReadTarget(command: string): string | null {
+  for (const cmd of collectCommands(command, 0, true)) {
+    const grammar = READER_GRAMMAR[cmd.name];
+    if (!grammar) continue;
+    for (const path of readerPathOperands(cmd.args, grammar)) {
+      if (isSensitiveFile(path)) return path;
+    }
+  }
+  return null;
+}
 
 /** Suffixes that indicate a template/example file, not real secrets */
 const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
@@ -751,8 +1055,13 @@ const PATTERN_KILL_REASON =
   "Killing processes by name pattern also hits processes you don't own. " +
   "Target what you started instead: by port or PID.";
 
-/** One shell word, plus whether any of it arrived inside quotes. */
-type ShellWord = { text: string; quoted: boolean };
+/** One shell word, plus whether any of it arrived inside quotes.
+ *
+ *  `redirect` marks the target of an input redirection (`< file`), which is a
+ *  file the command READS but never a positional operand. Only produced when a
+ *  caller opts in (see parseCommands' `keepInputTargets`); the process-kill
+ *  guard has no use for it and keeps the default. */
+type ShellWord = { text: string; quoted: boolean; redirect?: true };
 
 /** A resolved command: the program being run, and the words after it. */
 type EffectiveCommand = { name: string; args: ShellWord[] };
@@ -782,17 +1091,21 @@ function matchParen(cmd: string, open: number): number {
  * whole. The substitution leaves a `$()` placeholder in the surrounding word so
  * it still reads as "not a literal PID".
  */
-function parseCommands(cmd: string): ShellWord[][] {
+function parseCommands(cmd: string, keepInputTargets = false): ShellWord[][] {
   const commands: ShellWord[][] = [];
   let words: ShellWord[] = [];
   let cur = "";
   let curQuoted = false;
   let dropWord = false; // set after a redirection operator: its target is noise
+  let keepAsRedirect = false; // ...unless the caller wants `< file` targets
 
   const endWord = () => {
     if (!cur) return;
     if (!dropWord) words.push({ text: cur, quoted: curQuoted });
+    else if (keepAsRedirect)
+      words.push({ text: cur, quoted: curQuoted, redirect: true });
     dropWord = false;
+    keepAsRedirect = false;
     cur = "";
     curQuoted = false;
   };
@@ -808,7 +1121,7 @@ function parseCommands(cmd: string): ShellWord[][] {
 
     if (ch === "$" && cmd[i + 1] === "(") {
       const end = matchParen(cmd, i + 1);
-      commands.push(...parseCommands(cmd.slice(i + 2, end)));
+      commands.push(...parseCommands(cmd.slice(i + 2, end), keepInputTargets));
       cur += "$()";
       i = end + 1;
       continue;
@@ -816,7 +1129,7 @@ function parseCommands(cmd: string): ShellWord[][] {
     if (ch === "`") {
       const end = cmd.indexOf("`", i + 1);
       const stop = end === -1 ? cmd.length : end;
-      commands.push(...parseCommands(cmd.slice(i + 1, stop)));
+      commands.push(...parseCommands(cmd.slice(i + 1, stop), keepInputTargets));
       cur += "``";
       i = stop + 1;
       continue;
@@ -842,7 +1155,9 @@ function parseCommands(cmd: string): ShellWord[][] {
         }
         if (cmd[i] === "$" && cmd[i + 1] === "(") {
           const end = matchParen(cmd, i + 1);
-          commands.push(...parseCommands(cmd.slice(i + 2, end)));
+          commands.push(
+            ...parseCommands(cmd.slice(i + 2, end), keepInputTargets),
+          );
           cur += "$()";
           i = end + 1;
           continue;
@@ -850,7 +1165,9 @@ function parseCommands(cmd: string): ShellWord[][] {
         if (cmd[i] === "`") {
           const end = cmd.indexOf("`", i + 1);
           const stop = end === -1 ? cmd.length : end;
-          commands.push(...parseCommands(cmd.slice(i + 1, stop)));
+          commands.push(
+            ...parseCommands(cmd.slice(i + 1, stop), keepInputTargets),
+          );
           cur += "``";
           i = stop + 1;
           continue;
@@ -869,10 +1186,25 @@ function parseCommands(cmd: string): ShellWord[][] {
     }
     if (ch === ">" || ch === "<") {
       // Skip the operator (`>`, `>>`, `2>&1`, `&>`) and drop its target.
+      // A lone `<` is the exception a reader check cares about: its target is a
+      // file being read. `<<` / `<<<` are heredoc and here-string, whose bodies
+      // are DATA (`cat <<< '.env'` reads no file), and `<&3` names a descriptor.
       endWord();
-      i++;
-      while (i < cmd.length && (cmd[i] === ">" || cmd[i] === "&")) i++;
+      // Consume the whole run of the operator character first, so `<<<` is one
+      // here-string operator rather than three input redirections.
+      let run = 0;
+      while (i < cmd.length && cmd[i] === ch) {
+        run++;
+        i++;
+      }
+      let toDescriptor = false;
+      while (i < cmd.length && (cmd[i] === ">" || cmd[i] === "&")) {
+        toDescriptor = true;
+        i++;
+      }
       dropWord = true;
+      keepAsRedirect =
+        keepInputTargets && ch === "<" && run === 1 && !toDescriptor;
       continue;
     }
     if (ch === ";" || ch === "|" || ch === "&" || ch === "\n") {
@@ -1021,17 +1353,48 @@ function killsOnlyLiteralPids(cmd: EffectiveCommand): boolean {
 }
 
 /**
+ * commandCandidates, with input-redirection targets lifted out of the word
+ * stream first and re-attached to whatever command resolves.
+ *
+ * A redirection may PRECEDE the command - `< .env cat` and `2<.env cat` both
+ * open the file and then run `cat` - so leaving the target in the stream would
+ * put it (or the bare fd number in front of it) in command position and lose
+ * the reader entirely. Only used by the reader check, which is the only caller
+ * that asks parseCommands for redirect targets at all.
+ */
+function candidatesWithRedirects(words: ShellWord[]): EffectiveCommand[] {
+  const redirects = words.filter((w) => w.redirect);
+  if (redirects.length === 0) return commandCandidates(words);
+  const rest = words.filter((w) => !w.redirect);
+  // `2<.env cat` leaves the descriptor number as a word of its own, in command
+  // position. Only stripped ahead of a redirect, so an ordinary operand that
+  // happens to be a number is untouched.
+  while (rest.length > 0 && /^\d+$/.test(rest[0].text)) rest.shift();
+  return commandCandidates(rest).map((cmd) => ({
+    name: cmd.name,
+    args: [...cmd.args, ...redirects],
+  }));
+}
+
+/**
  * Every command a line runs, following `bash -c` payloads into the command
  * lines they execute. Depth-limited because a payload can nest.
  */
-function collectCommands(command: string, depth = 0): EffectiveCommand[] {
-  const commands = parseCommands(stripHeredocBodies(command)).flatMap(
-    commandCandidates,
-  );
+function collectCommands(
+  command: string,
+  depth = 0,
+  keepInputTargets = false,
+): EffectiveCommand[] {
+  const commands = parseCommands(
+    stripHeredocBodies(command),
+    keepInputTargets,
+  ).flatMap(keepInputTargets ? candidatesWithRedirects : commandCandidates);
   if (depth >= 4) return commands;
   return commands.flatMap((cmd) => [
     cmd,
-    ...shellPayloads(cmd).flatMap((p) => collectCommands(p, depth + 1)),
+    ...shellPayloads(cmd).flatMap((p) =>
+      collectCommands(p, depth + 1, keepInputTargets),
+    ),
   ]);
 }
 
@@ -1184,24 +1547,18 @@ const checkBashSafety: HookCallback = async (input) => {
   const killReason = checkProcessKill(command);
   if (killReason) return denyMessage(killReason, command);
 
-  // Check sensitive file reads via shell commands (cat .env, head key.pem, etc.)
-  const subCommands = normalized.split(/[|;&]+/).map((s) => s.trim());
-  for (const sub of subCommands) {
-    const tokens = sub.split(/\s+/);
-    const cmd = tokens[0]?.replace(/^.*\//, "") ?? "";
-    if (!FILE_READ_COMMANDS.includes(cmd)) continue;
-    // Check all non-flag arguments as potential file paths
-    for (const arg of tokens.slice(1)) {
-      if (arg.startsWith("-")) continue;
-      if (isSensitiveFile(arg)) {
-        return denyMessage(
-          `"${basename(arg)}" may contain secrets. Agents are not allowed ` +
-            `to read sensitive files (.env, private keys, credentials, etc.). ` +
-            `If you need a value from this file, ask the user to provide it.`,
-          command,
-        );
-      }
-    }
+  // Check sensitive file reads via shell commands (cat .env, grep KEY .env,
+  // sed -n 1p id_rsa, ...). Runs on the RAW command, not `normalized`: the
+  // reader grammar needs the words themselves, quotes resolved rather than
+  // blanked, and a wrapper or `bash -c` payload hides the reader entirely.
+  const secretTarget = bashSensitiveReadTarget(command);
+  if (secretTarget) {
+    return denyMessage(
+      `"${basename(secretTarget)}" may contain secrets. Agents are not allowed ` +
+        `to read sensitive files (.env, private keys, credentials, etc.). ` +
+        `If you need a value from this file, ask the user to provide it.`,
+      command,
+    );
   }
 
   // Check safe patterns first (allowlist)
