@@ -12,6 +12,7 @@ import {
   NO_EDITS,
   displayLanguage,
   resolvePreferenceForm,
+  languageSeed,
 } from "./preference-form.ts";
 
 const record = (over: {
@@ -126,5 +127,26 @@ describe("resolvePreferenceForm - edited form", () => {
     expect(before.language).toBe("en");
     expect(after.language).toBe("es");
     expect(after.slideMode).toBe(true);
+  });
+});
+
+describe("languageSeed (Nil 2026-08-01: browser locale takes effect without a Save)", () => {
+  it("seeds the detected non-English language for a never-chosen record", () => {
+    expect(languageSeed(record({ language: null }), "es-MX")).toBe("es");
+  });
+
+  it("never seeds English - a null record already behaves as English", () => {
+    expect(languageSeed(record({ language: null }), "en-US")).toBeNull();
+  });
+
+  it("never overrides an explicit choice, even the default", () => {
+    expect(languageSeed(record({ language: "en" }), "es-ES")).toBeNull();
+    expect(languageSeed(record({ language: "es" }), "es-ES")).toBeNull();
+  });
+
+  it("does nothing before the record loads or for unsupported locales", () => {
+    expect(languageSeed(null, "es-ES")).toBeNull();
+    expect(languageSeed(record({ language: null }), "fr-FR")).toBeNull();
+    expect(languageSeed(record({ language: null }), null)).toBeNull();
   });
 });

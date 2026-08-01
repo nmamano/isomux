@@ -28,6 +28,7 @@ import {
   readLegacySlideMode,
   clearLegacySlideMode,
 } from "./device-settings.ts";
+import { languageSeed } from "./preference-form.ts";
 import { useSelfUser } from "./hooks/useSelfUser.ts";
 import { apiFetch } from "./api.ts";
 import type { PreferencesReq } from "../shared/contract-shapes.ts";
@@ -262,6 +263,26 @@ export function App() {
     } else {
       clearLegacySlideMode();
     }
+  }, [selfUser]);
+
+  // One-shot language seed (Nil, 2026-08-01): the browser's language takes
+  // effect without a first Save. A record that never chose a language gets the
+  // detected browser language committed once (English is never seeded - a null
+  // record already behaves as English). A failed write re-arms and retries on
+  // the next record update, like the slide migration above.
+  const langSeededRef = useRef(false);
+  useEffect(() => {
+    if (langSeededRef.current || !selfUser) return;
+    const seed = languageSeed(selfUser, navigator.language);
+    if (seed === null) {
+      langSeededRef.current = true;
+      return;
+    }
+    langSeededRef.current = true;
+    const body: PreferencesReq = { language: seed };
+    apiFetch<void>("PATCH", "/api/me/preferences", body).catch(() => {
+      langSeededRef.current = false;
+    });
   }, [selfUser]);
 
   const viewportControlsRef = useRef<ViewportControls | null>(null);

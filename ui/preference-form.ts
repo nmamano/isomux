@@ -1,12 +1,11 @@
 // The Preferences pane's decisions, as pure functions (task 49d4e2f6 / e80c39c4).
 //
 // This is the ONE place that answers "which language is in effect for this
-// user", so the open product question - whether a browser-detected language
-// should become the user's actual stored preference without them asking, or
-// only be preselected in the picker - can be answered by changing this file,
-// not by hunting through a component. Today it is preselect-only: nothing is
-// written until the user presses Save, and `record.language === null` is what
-// the SERVER reads, so agents keep their existing behavior until then.
+// user". Nil's call (2026-08-01): the browser's language takes effect WITHOUT
+// a first Save - a user on a Spanish browser gets Spanish-speaking agents
+// without ever opening an (English) settings pane. `languageSeed` decides
+// when the app auto-commits the detected language to the server; English is
+// never seeded, because a null record already behaves as English.
 //
 // Pure and React-free so it can be tested without a DOM (this repo has no
 // component-test harness).
@@ -49,6 +48,19 @@ export function displayLanguage(
     detectBrowserLanguage(navigatorLanguage) ??
     DEFAULT_LANGUAGE
   );
+}
+
+// The language the app should auto-commit for a record that has never chosen
+// one, or null when there is nothing to seed: no record yet, already chosen,
+// or the browser language is unsupported or just the default.
+export function languageSeed(
+  record: Pick<UserRecord, "language"> | null,
+  navigatorLanguage: string | null | undefined,
+): SupportedLanguageCode | null {
+  if (!record || record.language !== null) return null;
+  const detected = detectBrowserLanguage(navigatorLanguage);
+  if (!detected || detected === DEFAULT_LANGUAGE) return null;
+  return detected;
 }
 
 export function resolvePreferenceForm(
