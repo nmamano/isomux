@@ -20,6 +20,7 @@ import {
 import type { AgentEvent } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
+import { startAgentOomStamping } from "./oom-stamp.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
 import type { AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
@@ -4771,6 +4772,13 @@ export async function runOfficeMain(): Promise<void> {
   // harness calls startServer() directly and must not rename itself. After the
   // CLI fast-path above, which is a different program and keeps its own name.
   setProcessName();
+  // The other half of the same protection: mark every process this office
+  // starts as a better candidate for the kill than the office itself, since
+  // they all inherit the server's own score otherwise (server/oom-stamp.ts).
+  // Here for the same reason as the sweeps below - main process only, never
+  // inherited by the in-process test harness - and it stamps whatever is
+  // already running, so it can start before the server does.
+  startAgentOomStamping();
   const handle = await startServer();
   // Idle-eviction sweep: every minute, demote agents idle past the threshold to
   // lazy so they release their ~165MB subprocess. (Boot already lazy-restores

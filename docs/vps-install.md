@@ -64,7 +64,7 @@ That command applies the SSH hardening and re-runs the check. It is a snapshot o
 
 A busy office can use up the box's memory. Left to the kernel that ends badly: the machine swaps until nothing responds, SSH included, and only a reboot from the provider's console brings it back.
 
-The installer sets up [earlyoom](https://github.com/rfjakob/earlyoom), which kills one process while there is still memory left to act with. The order is deliberate: agent processes go first, then the office server and Caddy, and SSH and Tailscale last. A killed agent is a papercut - message it again and it comes back. It also creates a 2 GB swap file if the box has none, and tells the kernel to prefer dropping caches over swapping.
+The installer sets up [earlyoom](https://github.com/rfjakob/earlyoom), which kills one process while there is still memory left to act with. The order is deliberate: agent processes go first, then the office server and Caddy, and SSH and Tailscale last. The office backs that up from its own side, marking every process it starts as a better candidate than itself, so a runaway build is much more likely to be the one picked than the office server is. A killed agent is a papercut - message it again and it comes back. It also creates a 2 GB swap file if the box has none, and tells the kernel to prefer dropping caches over swapping.
 
 To apply the same settings to a box installed before this existed, or to see what they'd change:
 

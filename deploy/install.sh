@@ -1552,9 +1552,10 @@ configure_oom_protection() {
 #   sudo bash deploy/oom-protect.sh --dry-run   # show what would change
 #   sudo bash deploy/oom-protect.sh
 #
-# Nothing here restarts a service other than earlyoom: the new kill order is
-# written to the already-running processes directly, so applying it does not
-# interrupt SSH, the VPN, or the office.
+# Nothing here restarts a service other than earlyoom, and the only unit it
+# starts is a small re-stamp timer of its own: the new kill order is written to
+# the already-running processes directly, so applying it does not interrupt SSH,
+# the VPN, or the office.
 #
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
 # which is fetched on its own by curl | bash and so cannot read repo files. The
@@ -1564,15 +1565,25 @@ configure_oom_protection() {
 # Usage (as root):
 #   isomux-oom-protect             apply
 #   isomux-oom-protect --dry-run   print what it would do, change nothing
+#   isomux-oom-protect --restamp   re-apply a user-level office's kill order
 #   isomux-oom-protect --help
 
 set -Eeuo pipefail
 
 TAG=isomux-oom-protect
 DRY_RUN=""
+RESTAMP=""
 SWAPFILE=/swapfile
 SWAP_SIZE_MIB=2048
 SYSCTL_CONF=/etc/sysctl.d/60-isomux-memory.conf
+# Where deploy/install.sh puts this tool, and what the re-stamp timer runs.
+OOM_TOOL_PATH=/usr/local/sbin/isomux-oom-protect
+RESTAMP_UNIT=isomux-oom-restamp
+# How long a restarted office can go unprotected. Short, because the window is
+# the whole point of the timer; the run itself is a scan of /proc.
+RESTAMP_INTERVAL=1min
+# What the office server is tiered at, on either install shape.
+OFFICE_SCORE=-500
 # Where to read and write process state. A seam for deploy/oom-protect.test.ts,
 # which points it at a fake tree so the kill-order logic can be tested without
 # real pids to race against. Never changed in production.
@@ -1603,10 +1614,13 @@ write_file() {
 
 usage() {
   cat <<EOF
-Usage: isomux-oom-protect [--dry-run]
+Usage: isomux-oom-protect [--dry-run] [--restamp]
 
   (no option)  install and configure earlyoom, tier the OOM kill order, set
                swap and swappiness
+  --restamp    only re-apply the kill order to a running user-level office,
+               and stay quiet when it is already right. This is what the
+               $RESTAMP_UNIT timer runs every $RESTAMP_INTERVAL.
   --dry-run    print what would change, change nothing
 EOF
 }
@@ -1685,16 +1699,18 @@ EOF
 #   -900  ssh, tailscaled   keep the box reachable
 #   -500  isomux, caddy     keep the office up
 #
-# Two facts worth remembering. Descendants inherit the server's score, so
-# these tiers cannot tell the server apart from the agents and builds it
-# spawns - steering the kill toward an agent is earlyoom's job (--prefer
-# above), not theirs. And on a user-level office (systemctl --user) the -500
-# from the unit file does not apply: Ubuntu's user manager lacks the
-# privilege to lower scores, the write fails silently, and everything runs
-# at 100. This script repairs the running server from root instead, which
-# lasts until the office restarts. `systemctl show` echoes the configured
-# value either way; only /proc/PID/oom_score_adj tells the truth, which is
-# why every write below is read back.
+# Two facts worth remembering. A score is inherited at fork, so these tiers
+# would hand the office's own agents and builds the same protection as the
+# office - the office undoes that from inside the server by raising its
+# descendants back above itself (server/oom-stamp.ts), and earlyoom's --prefer
+# above steers by name on top. Neither is this table's job. And on a user-level
+# office (systemctl --user) the -500 from the unit file does not apply: Ubuntu's
+# user manager lacks the privilege to lower scores, the write fails silently,
+# and everything runs at 100. This script repairs the running server from root
+# instead, and installs a timer that repeats the repair after every office
+# restart. `systemctl show` echoes the configured value either way; only
+# /proc/PID/oom_score_adj tells the truth, which is why every write below is
+# read back.
 
 # A process's start time; together with its pid it identifies it uniquely
 # (a pid on its own can be recycled). Field 22 of PROC_ROOT/PID/stat,
@@ -1763,13 +1779,18 @@ EOF
 # clean. The server reads 100.
 #
 # Root is not subject to that limit and can write the score straight onto the
-# running process, which is what this does. Two honest limits come with it:
-# the value is lost when the office restarts, until this tool runs again; and
-# agents started AFTER the stamp inherit the server's new score, because a score
-# is inherited at fork. Ordering agents against the office is a separate piece
-# of work (task C in the sizing design).
+# running process, which is what this does. Because it is written to a process
+# rather than to a config, it dies with it: an office that restarts comes back at
+# 100 again. The re-stamp timer further down is what puts it back, so nobody has
+# to re-run this tool by hand after every restart.
 #
-# Making the value survive a restart would mean lowering the whole user manager,
+# The other half of the problem - ordering the office's own agents against the
+# office - is not solved here at all. The office does that for itself, on every
+# install shape, by raising its descendants' scores from inside the server
+# (server/oom-stamp.ts): raising a score needs no privilege, only lowering one
+# does.
+#
+# Making the value survive natively would mean lowering the whole user manager,
 # putting every process in that operator's login session under the same
 # protection - a policy decision this script does not get to make on its own.
 
@@ -1794,11 +1815,118 @@ find_user_isomux_pid() {
 }
 
 configure_user_level_office() {
-  local pid
+  local pid current
   pid=$(find_user_isomux_pid) || return 0
+  current=$(cat "$PROC_ROOT/$pid/oom_score_adj" 2>/dev/null) || current=""
+  # The timer below runs this every $RESTAMP_INTERVAL. When the office has not
+  # restarted there is nothing to do, and nothing worth a line in the journal.
+  if [[ -n $RESTAMP && $current == "$OFFICE_SCORE" ]]; then
+    return 0
+  fi
   log "found a user-level office (pid $pid); setting its kill order from root"
-  if stamp_pid "$pid" -500 "user-level office"; then
-    log "  NOTE: lasts until the office restarts; re-run this tool after restarts."
+  if stamp_pid "$pid" "$OFFICE_SCORE" "user-level office"; then
+    return 0
+  fi
+  # In the timer's mode systemd is the only thing watching, so an attempted but
+  # unverified stamp has to come back as a failed run. Exiting 0 here would
+  # record a minute-by-minute history of success for protection that is not
+  # there, which is the exact shape of the bug this whole tool came from.
+  # The full install path stays best-effort: it has other work to finish, and
+  # stamp_pid has already said what went wrong either way.
+  if [[ -n $RESTAMP ]]; then
+    return 1
+  fi
+  return 0
+}
+
+# Keeping that stamp applied --------------------------------------------------
+#
+# Polling, once every $RESTAMP_INTERVAL, rather than reacting to the restart: a
+# path unit would need one fixed file to watch, and this tool deliberately does
+# not know which user runs the office - it scans /proc for it precisely because
+# of that.
+#
+# Installed on every box, including a hosted one whose office is a system unit
+# and already carries the score in its unit file. There the timer finds no
+# user-level office and says nothing. The alternative, installing it only when an
+# office happens to be running at the moment this tool runs, silently skips the
+# operator who sets a box up before starting the office.
+#
+# One thing to know on a box with more than one login: whoever can create their
+# own systemd user unit named isomux.service gets this -500 on it. That is
+# already true of running this tool by hand, and an isomux box is a
+# single-operator box - everyone with an office account effectively has a shell
+# on it (docs/self-hosted.md).
+install_restamp_timer() {
+  # The unit runs the copy at $OOM_TOOL_PATH, so that copy has to be THIS
+  # version of the tool: one installed before --restamp existed would answer
+  # every single run with a usage error.
+  local self
+  self=$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null) || self=""
+  if [[ -z $self || ! -r $self ]]; then
+    warn "could not find this script on disk, so the automatic re-stamp was not set up. A user-level office loses its kill order at the next restart until this tool is run again."
+    return 0
+  fi
+  if [[ $self != "$OOM_TOOL_PATH" ]]; then
+    # Into a sibling and then renamed, never written in place: the timer may be
+    # starting a run from that exact path at this moment, and truncating the
+    # file underneath it would feed the shell half a script. A rename swaps the
+    # name atomically and the running copy keeps the old inode. Sibling so it is
+    # the same filesystem, which is what makes the rename atomic.
+    #
+    # -D so a box without /usr/local/sbin gets it made rather than aborting the
+    # run here, after the kill order has been applied but before the swap steps.
+    local staged="$OOM_TOOL_PATH.new.$$"
+    if run install -D -m 755 "$self" "$staged" && run mv -f "$staged" "$OOM_TOOL_PATH"; then
+      [[ -n $DRY_RUN ]] || log "installed this tool at $OOM_TOOL_PATH, which is where the re-stamp timer runs it from"
+    else
+      run rm -f "$staged"
+      warn "could not install this tool at $OOM_TOOL_PATH, so the automatic re-stamp was not set up. A user-level office will lose its kill order at its next restart until this tool is run again."
+      return 0
+    fi
+  fi
+  write_file "/etc/systemd/system/$RESTAMP_UNIT.service" 644 <<EOF
+# Written by isomux-oom-protect.
+[Unit]
+Description=Re-apply the isomux office kill order
+
+[Service]
+Type=oneshot
+ExecStart=$OOM_TOOL_PATH --restamp
+# This runs on a $RESTAMP_INTERVAL timer and normally has nothing to say, but
+# each run still costs systemd a "Starting"/"Finished" pair. LogLevelMax drops
+# those. Measured on systemd 255 with throwaway units rather than taken from the
+# manual: it filters what the manager writes ABOUT a unit, leaves the unit's own
+# output alone, and a failed run still records at warning. SyslogLevel then puts
+# this tool's own lines at that same ceiling instead of below it, so they keep
+# surviving if the filter is ever applied to them as well, which is what the
+# documentation says it already does.
+SyslogLevel=notice
+LogLevelMax=notice
+EOF
+  write_file "/etc/systemd/system/$RESTAMP_UNIT.timer" 644 <<EOF
+# Written by isomux-oom-protect.
+[Unit]
+Description=Re-apply the isomux office kill order after an office restart
+
+[Timer]
+OnBootSec=$RESTAMP_INTERVAL
+OnUnitActiveSec=$RESTAMP_INTERVAL
+# Without this systemd may batch the wakeup up to a minute late, which would
+# double the window this timer exists to close.
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
+EOF
+  run systemctl daemon-reload
+  # Not fatal if it will not start: everything above this point has already been
+  # applied to the running box, and losing the automatic repeat is worth saying
+  # out loud rather than aborting the rest of the run over.
+  if run systemctl enable --now "$RESTAMP_UNIT.timer"; then
+    log "$RESTAMP_UNIT.timer will re-apply a user-level office's kill order within $RESTAMP_INTERVAL of a restart"
+  else
+    warn "could not start $RESTAMP_UNIT.timer. A user-level office will lose its kill order at its next restart until this tool is run again."
   fi
 }
 
@@ -1809,9 +1937,10 @@ configure_kill_order() {
   oom_tier ssh.service -900
   oom_tier tailscaled.service -900
   oom_tier caddy.service -500
-  oom_tier isomux.service -500
+  oom_tier isomux.service "$OFFICE_SCORE"
   run systemctl daemon-reload
   configure_user_level_office
+  install_restamp_timer
 }
 
 # --- swap and swappiness ----------------------------------------------------
@@ -1872,22 +2001,32 @@ configure_swap() {
 # --- main -------------------------------------------------------------------
 
 main() {
-  case ${1:-} in
-    "") ;;
-    --dry-run) DRY_RUN=1 ;;
-    -h | --help)
-      usage
-      exit 0
-      ;;
-    *)
-      usage
-      exit 3
-      ;;
-  esac
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --dry-run) DRY_RUN=1 ;;
+      --restamp) RESTAMP=1 ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *)
+        usage
+        exit 3
+        ;;
+    esac
+    shift
+  done
   [[ $EUID -eq 0 ]] || {
     log "ERROR: must run as root (try: sudo isomux-oom-protect)"
     exit 3
   }
+  # The timer's job, and only that: everything else here is either already in a
+  # unit file that survives a restart on its own, or a one-time provisioning
+  # step. Doing it every minute would restart earlyoom every minute.
+  if [[ -n $RESTAMP ]]; then
+    configure_user_level_office || exit 1
+    exit 0
+  fi
   local have_earlyoom=1
   install_earlyoom || have_earlyoom=""
   [[ -z $have_earlyoom ]] || configure_earlyoom

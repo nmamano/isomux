@@ -31,6 +31,7 @@ const SRC = readFileSync(SCRIPT, "utf8");
 
 let dir = "";
 let testable = "";
+let mainable = "";
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "oom-protect-test-"));
@@ -39,6 +40,21 @@ beforeAll(() => {
   const body = SRC.replace(/\nmain "\$@"\n$/, "\n");
   expect(body).not.toBe(SRC);
   writeFileSync(testable, body);
+  // A second copy that CAN be run as an unprivileged user: the root guard
+  // removed, and the /proc seam taken from the environment. The exit status of
+  // `--restamp` is what the timer's unit reports to systemd, so it has to be
+  // exercised through main itself and not through the function underneath.
+  // (`deploy/harden-ssh.test.ts` strips that script's root guard the same way;
+  // the guard is pinned separately below so stripping it cannot hide a
+  // removal.)
+  mainable = join(dir, "mainable.sh");
+  const unguarded = SRC.replace(
+    /^ {2}\[\[ \$EUID -eq 0 \]\] \|\| \{\n[^}]*\}\n/m,
+    "",
+  ).replace("\nPROC_ROOT=/proc\n", "\nPROC_ROOT=${PROC_ROOT:-/proc}\n");
+  expect(unguarded).not.toContain("EUID");
+  expect(unguarded).toContain("PROC_ROOT:-/proc");
+  writeFileSync(mainable, unguarded);
 });
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -268,13 +284,236 @@ describe("find_user_isomux_pid: the server, not the agents beside it", () => {
     const { out } = await run(root, `configure_user_level_office`);
     expect(out).toContain("found a user-level office (pid 500)");
     expect(out).toContain("oom_score_adj=-500 confirmed");
-    expect(out).toContain("lasts until the office restarts");
+    // The old advice was "re-run this tool after restarts". A timer does it now
+    // (task b584901d), and telling an operator to do it by hand again would be
+    // both wrong and, per Nil, not an acceptable answer in the first place.
+    expect(out).not.toContain("re-run this tool");
+  });
+});
+
+describe("--restamp: what the timer runs every minute", () => {
+  const USER_CG =
+    "0::/user.slice/user-1000.slice/user@1000.service/app.slice/isomux.service";
+
+  it("says nothing at all when the office already has the right score", async () => {
+    // The whole point of the mode. This fires once a minute forever, so a line
+    // per run would be ~3000 journal entries a day saying nothing happened.
+    const root = mkdtempSync(join(dir, "proc-restamp-quiet-"));
+    fakeProc(root, 500, { cgroup: USER_CG, ppid: 1, score: "-500" });
+    const { out } = await run(
+      root,
+      `RESTAMP=1; configure_user_level_office; echo "rc=$?"`,
+    );
+    expect(out).not.toContain("found a user-level office");
+    expect(out).not.toContain("confirmed");
+    expect(out).toContain("rc=0");
+  });
+
+  it("re-applies the score, and speaks up, after the office restarted", async () => {
+    // A restarted office comes back at whatever its user manager gives it (100
+    // on Ubuntu), because the stamp was written to a process, not to a config.
+    const root = mkdtempSync(join(dir, "proc-restamp-"));
+    fakeProc(root, 500, { cgroup: USER_CG, ppid: 1, score: "100" });
+    const { out } = await run(root, `RESTAMP=1; configure_user_level_office`);
+    expect(out).toContain("found a user-level office (pid 500)");
+    expect(out).toContain("oom_score_adj=-500 confirmed");
+    expect(
+      readFileSync(join(root, "500", "oom_score_adj"), "utf8").trim(),
+    ).toBe("-500");
+  });
+
+  /** Drive the real `main --restamp`, exactly as the timer's unit does. */
+  async function runRestamp(
+    procRoot: string,
+  ): Promise<{ out: string; exit: number }> {
+    const proc = Bun.spawn(["bash", mainable, "--restamp"], {
+      env: { ...process.env, PROC_ROOT: procRoot },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    return { out: out + err, exit: await proc.exited };
+  }
+
+  it("fails the run when the stamp could not be verified", async () => {
+    // systemd is the only thing watching this. Exiting 0 on a refused write
+    // would write a minute-by-minute history of success for protection that is
+    // not there - the same lie about a written-but-ineffective value that
+    // started all of this (task c5b4e89e).
+    const root = mkdtempSync(join(dir, "proc-restamp-refused-"));
+    fakeProc(root, 500, {
+      cgroup: USER_CG,
+      ppid: 1,
+      score: "100",
+      readOnlyScore: true,
+    });
+    const { out, exit } = await runRestamp(root);
+    expect(out).toContain("kill order NOT applied");
+    expect(exit).toBe(1);
+  });
+
+  it("succeeds, through main, when it really did re-apply the score", async () => {
+    const root = mkdtempSync(join(dir, "proc-restamp-main-"));
+    fakeProc(root, 500, { cgroup: USER_CG, ppid: 1, score: "100" });
+    const { out, exit } = await runRestamp(root);
+    expect(out).toContain("oom_score_adj=-500 confirmed");
+    expect(exit).toBe(0);
+  });
+
+  it("succeeds silently, through main, when there is nothing to do", async () => {
+    const root = mkdtempSync(join(dir, "proc-restamp-main-quiet-"));
+    fakeProc(root, 500, { cgroup: USER_CG, ppid: 1, score: "-500" });
+    const { out, exit } = await runRestamp(root);
+    expect(out.trim()).toBe("");
+    expect(exit).toBe(0);
+  });
+
+  it("leaves a full run best-effort when a stamp is refused", async () => {
+    // The opposite call from the timer's: an interactive run has earlyoom, the
+    // tiers, swappiness and swap still to do, and aborting over one refused
+    // write would cost the operator all of it. The warning is the signal there.
+    const root = mkdtempSync(join(dir, "proc-full-refused-"));
+    fakeProc(root, 500, {
+      cgroup: USER_CG,
+      ppid: 1,
+      score: "100",
+      readOnlyScore: true,
+    });
+    const { out } = await run(
+      root,
+      `configure_user_level_office; echo "rc=$?"`,
+    );
+    expect(out).toContain("kill order NOT applied");
+    expect(out).toContain("rc=0");
+  });
+
+  it("stays quiet on a box with no user-level office at all", async () => {
+    // Every hosted box: the office is a system unit and carries -500 from its
+    // unit file. The timer is installed there anyway and must cost nothing.
+    const root = mkdtempSync(join(dir, "proc-restamp-none-"));
+    fakeProc(root, 600, { cgroup: "0::/system.slice/isomux.service" });
+    const { out } = await run(
+      root,
+      `RESTAMP=1; configure_user_level_office; echo "rc=$?"`,
+    );
+    expect(out).not.toContain("found a user-level office");
+    expect(out).toContain("rc=0");
+  });
+});
+
+describe("the re-stamp timer", () => {
+  it("installs units that run THIS copy of the tool, once a minute", async () => {
+    const root = mkdtempSync(join(dir, "proc-timer-"));
+    const { out } = await run(root, `DRY_RUN=1; install_restamp_timer`);
+    // A box set up before --restamp existed has an older copy at the canonical
+    // path, and the unit points there. Refreshing it is not optional: the old
+    // copy would answer --restamp with a usage error every single minute.
+    expect(out).toContain("install -D -m 755");
+    expect(out).toContain("/usr/local/sbin/isomux-oom-protect");
+    expect(out).toContain(
+      "ExecStart=/usr/local/sbin/isomux-oom-protect --restamp",
+    );
+    expect(out).toContain("OnUnitActiveSec=1min");
+    expect(out).toContain("OnBootSec=1min");
+    expect(out).toContain("systemctl enable --now isomux-oom-restamp.timer");
+  });
+
+  it("swaps the copy in by rename, never writing it in place", async () => {
+    // The timer may be starting a run from that exact path right now, and
+    // truncating the file underneath it would hand the shell half a script.
+    const root = mkdtempSync(join(dir, "proc-timer-atomic-"));
+    const { out } = await run(root, `DRY_RUN=1; install_restamp_timer`);
+    const staged = out.match(
+      /install -D -m 755 \S+ (\/usr\/local\/sbin\/isomux-oom-protect\.new\.\d+)/,
+    );
+    expect(staged).not.toBeNull();
+    // Staged first, then renamed onto the real name, in that order.
+    const stagedPath = staged?.[1] as string;
+    expect(out).toContain(
+      `mv -f ${stagedPath} /usr/local/sbin/isomux-oom-protect`,
+    );
+    expect(out.indexOf("install -D -m 755")).toBeLessThan(
+      out.indexOf("mv -f "),
+    );
+  });
+
+  it("does not copy the tool over itself when it IS the installed copy", async () => {
+    // The hosted path: deploy/install.sh writes the tool to the canonical path
+    // and runs it from there, so there is nothing to refresh.
+    const root = mkdtempSync(join(dir, "proc-timer-self-"));
+    const { out } = await run(
+      root,
+      `DRY_RUN=1; OOM_TOOL_PATH=${testable}; install_restamp_timer`,
+    );
+    expect(out).not.toContain("install -D -m 755");
+    expect(out).not.toContain("mv -f");
+    expect(out).toContain(`ExecStart=${testable} --restamp`);
+  });
+
+  it("keeps the journal quiet without hiding a failure", async () => {
+    // A oneshot on a one-minute timer costs a Starting/Finished pair per run
+    // unless PID 1's own messages about it are filtered too. LogLevelMax does
+    // that; SyslogLevel is what keeps the tool's output from falling below the
+    // same ceiling and disappearing with them.
+    const root = mkdtempSync(join(dir, "proc-timer2-"));
+    const { out } = await run(root, `DRY_RUN=1; install_restamp_timer`);
+    expect(out).toContain("LogLevelMax=notice");
+    expect(out).toContain("SyslogLevel=notice");
+  });
+});
+
+describe("the command line", () => {
+  /** Run the real script (not the sourceable copy) as an unprivileged user. */
+  async function runScript(
+    ...args: string[]
+  ): Promise<{ out: string; exit: number }> {
+    const proc = Bun.spawn(["bash", SCRIPT, ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    return { out: out + err, exit: await proc.exited };
+  }
+
+  it("takes --restamp and --dry-run together", async () => {
+    // Both reach the root check, which is as far as an unprivileged run gets.
+    // If either had been rejected we would see the usage text instead.
+    const { out, exit } = await runScript("--restamp", "--dry-run");
+    expect(out).toContain("must run as root");
+    expect(out).not.toContain("Usage:");
+    expect(exit).toBe(3);
+  });
+
+  it("still refuses an unknown flag", async () => {
+    const { out, exit } = await runScript("--nope");
+    expect(out).toContain("Usage:");
+    expect(exit).toBe(3);
+  });
+
+  it("documents --restamp in its own help", async () => {
+    const { out, exit } = await runScript("--help");
+    expect(out).toContain("--restamp");
+    expect(exit).toBe(0);
   });
 });
 
 describe("the shipped script", () => {
   it("still calls main, which the sourceable copy strips", () => {
     expect(SRC.endsWith('\nmain "$@"\n')).toBe(true);
+  });
+
+  it("still refuses to run as anyone but root", () => {
+    // The `--restamp` tests above run a copy with this guard stripped out, so
+    // it gets pinned here: stripping it in a test must never be able to hide
+    // its removal from the real script.
+    expect(SRC).toContain("[[ $EUID -eq 0 ]] ||");
+    expect(SRC).toContain("must run as root");
   });
 
   it("never verifies a score with systemctl show", () => {

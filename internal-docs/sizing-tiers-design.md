@@ -62,7 +62,8 @@ end of this doc):
   a system unit that does not exist, and a hand-placed user drop-in is silently
   ineffective anyway.
 
-What the tiers do **not** do is order agents against the office server.
+What the tiers do **not** do is order agents against the office server (fixed
+2026-08-01, elsewhere: see "What shipped" below).
 `oom_score_adj` is inherited across fork and preserved across exec, so every
 agent and every build the office spawns carries the server's own value. The
 kernel's last-resort tier therefore does not distinguish the server from its
@@ -103,11 +104,24 @@ over: the value is lost when the office restarts until the tool runs again, and
 agents started after the stamp inherit the server's new score, because a score is
 inherited at fork.
 
-Making it survive a restart would mean lowering the whole user manager, which
-puts every process in that operator's login session under the same protection.
-That is a host-policy decision with the wrong failure bias - it would also
-protect the agent and build workloads that are supposed to be sacrificed - so it
-is queued for Nil rather than settled in the patch.
+**Both limits are closed as of 2026-08-01.** The first by task b584901d: the tool
+now installs a root-owned oneshot and timer (`isomux-oom-restamp`,
+`OnUnitActiveSec=1min`) that re-applies the stamp within a minute of an office
+restart, prints nothing when there is nothing to do, and is installed on every
+box - on a hosted one it finds no user-level office and stays silent, which is
+cheaper than deciding at install time whether the box will ever need it. The
+timer runs `--restamp`, a mode of the same tool, from
+`/usr/local/sbin/isomux-oom-protect`, which the tool refreshes with its own copy
+when it is run from a checkout: a pre-`--restamp` copy sitting at that path would
+otherwise fail every minute. The second limit by task 37b194be above, since
+descendants no longer keep the server's score at all.
+
+Making it survive a restart *natively* would mean lowering the whole user
+manager, which puts every process in that operator's login session under the same
+protection. That is a host-policy decision with the wrong failure bias - it would
+also protect the agent and build workloads that are supposed to be sacrificed -
+so it is queued for Nil rather than settled in the patch, and the timer above is
+what makes it not urgent.
 
 **And every write is now read back.** `stamp_pid` compares
 `/proc/PID/oom_score_adj` against what was asked for and warns loudly on a
@@ -121,8 +135,10 @@ config. Any memory or OOM setting this design adds should be verified by reading
 back what the kernel actually holds for the process, the same lesson the
 harden-ssh work reached independently.
 
-**Proposed fix, cheap and unprivileged.** Have the office stamp a positive
-`oom_score_adj` on each agent process at spawn. Raising the value needs no
+**Proposed fix, cheap and unprivileged. Accepted by Nil as decision D4 on
+2026-07-31 and shipped 2026-08-01 (task 37b194be); the paragraphs below are the
+design as proposed, with what actually landed noted at the end.** Have the office
+stamp a positive `oom_score_adj` on each agent process at spawn. Raising the value needs no
 privilege; only lowering it does. Verified on the office box: a process at
 `100` can set itself to `300`, and is denied at `50` without
 `CAP_SYS_RESOURCE`. So a server at `-500` can put its own agents decisively
@@ -142,6 +158,30 @@ the spawn - `query()` in `server/backends/claude.ts` starts the `claude` binary
 internally - so isomux has no pid to stamp at spawn time. Doing this means
 either a periodic sweep of the server's descendants in `/proc` or a hook in the
 SDK, neither of which is a one-liner. Size it accordingly.
+
+**What shipped, 2026-08-01 (task 37b194be).** The sweep, in the server rather
+than in a root unit (Nil's direction: one code path that behaves identically on a
+hosted system unit and a self-hosted user unit). `server/oom-stamp.ts` walks
+`/proc` every ten seconds, takes the transitive descendants of its own pid, and
+raises each to `AGENT_OOM_SCORE_ADJ = 300`; `runOfficeMain()` starts it next to
+`setProcessName()`, and it is a no-op off Linux. Three properties are worth
+carrying forward. It only ever raises, so it needs no privilege and cannot
+undo a deliberate value. It reads every write back and re-checks the process
+identity either side, the same discipline as `stamp_pid`. And one value for all
+descendants is deliberate: with the bias equal, what separates them is size, so
+the heavier ones are the likelier victims - a bias, not an ordering the kernel
+owes us, and earlyoom's name preference still layers on top. 300 was picked
+against measurement rather than
+taste - on an 8 GB box `+100` of `oom_score_adj` moves `oom_score` by ~67 points
+while a 1.2 GB difference in RSS moves it by ~51, so 300 clears a user-level
+office's forced 100 by a margin equivalent to roughly 3 GB of office growth on
+that box.
+
+Two things this does *not* settle, both left to Nil. Once descendants carry 300,
+earlyoom's `--prefer '^(claude|codex|node|chrome)$'` bonus of +300 can still pick
+a smaller `claude` over the bigger `bun` build underneath it, so that list may
+now be doing more harm than good. And the `user@<uid>.service` floor below stays
+open.
 
 ## What the incident task assumed, and what changed
 
@@ -469,8 +509,9 @@ reachability), per f057617f. Order:
 2. The cgroup drop-in (`MemoryHigh` / `MemoryMax` / `MemorySwapMax`), with the
    `MemoryOOMGroup`/`OOMPolicy`/`Restart` interaction verified rather than
    assumed, and every value read back from the kernel rather than trusted from
-   config. The spawn-time `oom_score_adj` stamp belongs here too, but only if
-   Nil accepts it as a scope addition.
+   config. The `oom_score_adj` stamp on agent processes belonged here too, but
+   it was accepted (D4) and shipped ahead of the rest on 2026-08-01, as an
+   in-server sweep rather than at spawn time.
 3. PSI and `memory.events.local` telemetry, and the "stopped under memory
    pressure" attribution in the agent's chat.
 4. Graceful degradation, once decision 2 is settled.
@@ -504,5 +545,9 @@ for Nil rather than settled here:
   itself and would mislead a maintainer about who dies. Behavior is fine; the
   comment is not.
 
-The spawn-time `oom_score_adj` stamp is likewise a Nil call, being a scope
-addition rather than a provisioning default.
+The `oom_score_adj` stamp on agent processes was likewise a Nil call, being a
+scope addition rather than a provisioning default. **Accepted 2026-07-31 (D4) and
+shipped 2026-08-01 as task 37b194be**, in the server rather than at spawn time.
+Two follow-ups it leaves behind, both his: whether earlyoom's `--prefer` list
+still earns its place now that agents carry their own bias, and the
+`user@<uid>.service` floor.
