@@ -33,12 +33,13 @@ When the output isn't going to a terminal - cloud-init, a piped log, an agent ru
 
 ## What it does
 
-- Installs bun, Node.js, git, Caddy, and Chrome (headless, for the agents' page-preview cards); fetches isomux and builds it.
+- Installs bun, Node.js, git, Caddy, and Chrome (headless, for the agents' page-preview cards, and as the browser Playwright drives when an agent wants to look at a page it just changed); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy's admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.
 - Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth; unattended security updates (a standard Ubuntu feature - it patches system packages, never isomux itself).
 - Checks that the `isomux` account cannot log in as root, and stops the install if it can. See [root access](#root-access).
 - Sets up out-of-memory protection so a busy office can't lock the box up. See [running out of memory](#running-out-of-memory).
+- Makes the sandbox that Codex agents run their tools in actually work. On Ubuntu 24.04 that takes one small AppArmor policy file which the sandbox's own package doesn't ship. The installer tries the sandbox first and only acts if it is broken, so a box where it already works is left alone. If it still can't get it working, the install carries on and says so in the output.
 - Claims the office owner over loopback before the box is exposed, then mints your invite link.
 
 ## Root access

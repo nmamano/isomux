@@ -1,8 +1,8 @@
-// Keeps deploy/install.sh's embedded copies of the helper scripts identical to
-// the scripts themselves.
+// Keeps deploy/install.sh's embedded copies of the helper files identical to
+// the files themselves.
 //
 // install.sh is fetched on its own (curl | bash), so it cannot read repo files:
-// anything it installs on the box has to be inside it. The helper scripts are
+// anything it installs on the box has to be inside it. The helper files are
 // still real files in the repo so they can be read, linted, and run straight
 // from a checkout. This script is what keeps the two in step - edit the helper,
 // run this, commit both. deploy/install-sh.test.ts fails if they drift.
@@ -18,6 +18,14 @@ const INSTALL_SH = `${ROOT}deploy/install.sh`;
 export const EMBEDDED = [
   { path: "deploy/harden-ssh.sh", delimiter: "ISOMUX_HARDEN_SSH_SH" },
   { path: "deploy/oom-protect.sh", delimiter: "ISOMUX_OOM_PROTECT_SH" },
+  // Not a script: the AppArmor profile the installer falls back to when the
+  // box has no apparmor-profiles package to copy it from. Same reason it is
+  // embedded, same reason it stays a real file - `apparmor_parser -Q` can
+  // syntax-check the repo copy.
+  {
+    path: "deploy/bwrap-userns-restrict.apparmor",
+    delimiter: "ISOMUX_BWRAP_USERNS_RESTRICT",
+  },
 ];
 
 /** install.sh with every embedded copy replaced by the current file contents. */

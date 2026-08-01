@@ -125,6 +125,7 @@ step() { CURRENT_STEP=$1; }
 die() { echo "DIE: $*"; case "$*" in *caddy*) exit 1 ;; esac; }
 install_packages() { echo "install_packages"; ${apt}; ${opts.packagesFail ? "report_failure; exit 1" : "true"}; }
 install_browser() { echo "install_browser"; }
+configure_codex_sandbox() { echo "configure_codex_sandbox"; }
 deps_only
 `;
   const res = spawnSync("bash", ["-c", script], {

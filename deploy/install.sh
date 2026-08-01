@@ -4,6 +4,7 @@
 # Turns a fresh Ubuntu 24.04 server into an HTTPS-served isomux instance:
 # bun + isomux (systemd service) + Caddy with automatic Let's Encrypt +
 # a headless browser for the agents' page-preview cards +
+# a working bubblewrap sandbox for codex agents +
 # firewall/SSH hardening + out-of-memory protection + unattended security
 # updates (a standard Ubuntu feature - it patches system packages, never
 # isomux itself). Ends by claiming the office owner, minting a single-use
@@ -43,7 +44,8 @@
 #   DRY_RUN       set to 1 to print state-changing commands instead of
 #                 running them.
 #   ISOMUX_DEPS_ONLY  set to 1 to install only the system dependencies (apt
-#                 packages, Node.js, the headless browser) and exit, leaving
+#                 packages, Node.js, the headless browser, the codex
+#                 sandbox's bubblewrap) and exit, leaving
 #                 the office, the service and the box's configuration alone.
 #                 DOMAIN is not needed. scripts/update.sh runs the TARGET
 #                 release's installer this way, so an update can deliver
@@ -91,6 +93,13 @@ COOKIE_JAR=$STATE_DIR/session.cookies
 INVITE_FILE=$STATE_DIR/invite-url
 CHROME_PATH=/usr/bin/google-chrome
 CHROME_DEB_URL=https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+# The AppArmor profile that lets codex's bubblewrap sandbox start on a box
+# where unprivileged user namespaces are restricted (see configure_codex_sandbox).
+BWRAP_PROFILE_NAME=bwrap-userns-restrict
+BWRAP_PROFILE=/etc/apparmor.d/$BWRAP_PROFILE_NAME
+BWRAP_PROFILE_DISABLED=/etc/apparmor.d/disable/$BWRAP_PROFILE_NAME
+BWRAP_PROFILE_PACKAGED=/usr/share/apparmor/extra-profiles/$BWRAP_PROFILE_NAME
+USERNS_RESTRICT_SYSCTL=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
 BASE_URL=http://127.0.0.1:4000
 ADMIN_SOCK=$SERVICE_HOME/.isomux/admin.sock
 HEALTH_TIMEOUT_S=180
@@ -2045,6 +2054,236 @@ verify_browser() {
   fi
 }
 
+# Codex agents confine their own tool calls with bubblewrap, so `bwrap` has to
+# work for the service account or the read-only and workspace-write sandbox
+# settings have nothing to run in. On Ubuntu 24.04 the package alone is not
+# enough: the kernel ships with kernel.apparmor_restrict_unprivileged_userns=1
+# and the bubblewrap deb carries no AppArmor profile, so an unprivileged bwrap
+# lands in the restriction's deny-capabilities transition and dies with
+# "loopback: Failed RTM_NEWADDR: Operation not permitted".
+#
+# The fix is Ubuntu's own two-stage profile, shipped by apparmor-profiles: the
+# bwrap profile keeps the capabilities needed to build a sandbox, and every
+# child bwrap execs is stacked into unpriv_bwrap, which denies capability
+# outright. bwrap works, and does not become a general way around the box-wide
+# user-namespace restriction - which is what matters on a box that runs
+# whatever an agent asks it to. Deliberately NOT the two shortcuts that make
+# the same symptom go away: a hand-written flags=(unconfined) profile, and
+# turning the sysctl off.
+#
+# Probe-gated, not version-gated: the smoke test decides. A box where bwrap
+# already works is left untouched, so a future Ubuntu that fixes this upstream
+# gets nothing done to it, and a re-run of this installer does nothing twice.
+#
+# Non-fatal throughout, like the browser step: an office without a working
+# bubblewrap still runs, and codex agents can still be pointed at a different
+# sandbox setting. Every failure path says what actually failed rather than
+# weakening the policy to make the message stop.
+configure_codex_sandbox() {
+  step codex-sandbox
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would install bubblewrap, smoke-test it as $SERVICE_USER, and load the $BWRAP_PROFILE_NAME AppArmor profile if unprivileged user namespaces are restricted"
+    return 0
+  fi
+  if ! command -v bwrap >/dev/null 2>&1 && ! apt_install bubblewrap; then
+    log "warning: could not install the bubblewrap package, so codex agents have no sandbox to run their tools in (their read-only and workspace-write settings need it). Re-run this installer to retry; nothing else is affected."
+    return 0
+  fi
+  local diag
+  if diag=$(bwrap_smoke_test); then
+    log "codex sandbox ready: bwrap works for $SERVICE_USER"
+    return 0
+  fi
+  if ! userns_restricted; then
+    log "warning: bwrap does not work for $SERVICE_USER, and this box does not restrict unprivileged user namespaces, so AppArmor policy is not the cause and there is nothing safe to change. Codex agents cannot use their sandbox until this is fixed; nothing else is affected. bwrap said: $diag"
+    return 0
+  fi
+  install_bwrap_profile || return 0
+  if diag=$(bwrap_smoke_test); then
+    log "codex sandbox ready: loaded the $BWRAP_PROFILE_NAME AppArmor profile, bwrap now works for $SERVICE_USER"
+  else
+    log "warning: the $BWRAP_PROFILE_NAME AppArmor profile is loaded and bwrap still does not work for $SERVICE_USER, so codex agents cannot use their sandbox. Nothing else is affected. bwrap said: $diag"
+  fi
+}
+
+# The narrowest thing a codex sandbox does that the user-namespace restriction
+# breaks: a fresh network namespace with the filesystem bound through. Run as
+# the SERVICE ACCOUNT, because the restriction only applies to unprivileged
+# users - as root this would pass on a box where codex cannot start at all.
+# Prints whatever bwrap said, so a caller can show the real diagnostic.
+bwrap_smoke_test() {
+  as_service_user bwrap --unshare-net --dev-bind / / /bin/true 2>&1
+}
+
+# True when the kernel is refusing unprivileged user namespaces to unconfined
+# processes, which is Ubuntu 24.04's default and the reason bwrap needs a
+# profile. The knob's absence means a kernel without the feature - a box where
+# this whole step has nothing to say.
+userns_restricted() {
+  [[ -r $USERNS_RESTRICT_SYSCTL ]] || return 1
+  [[ $(cat "$USERNS_RESTRICT_SYSCTL" 2>/dev/null) == 1 ]]
+}
+
+# Put the two-stage profile in /etc/apparmor.d and load it. Ubuntu's
+# apparmor-profiles parks its extras in /usr/share/apparmor/extra-profiles and
+# loads none of them - the package calls them experimental - so enabling
+# exactly this one is a copy plus a parser run, and the package's other extras
+# stay where they are. Returns nonzero (having warned) when the profile could
+# not be put in place, so the caller stops rather than re-testing for nothing.
+#
+# The caller invokes this as `install_bwrap_profile || return 0`, which turns
+# errexit off for everything in here. So every step that changes the box is
+# checked by hand and reports what it said: without that, a failed copy would
+# fall through to the parser and the operator would be told the parser could
+# not read a file, never that the copy is what broke. Nothing here goes
+# through `run`, for the same reason verify_browser doesn't - the caller
+# returns before this in dry-run mode.
+install_bwrap_profile() {
+  local out=""
+  # AppArmor's own opt-out, a symlink in /etc/apparmor.d/disable pointing at
+  # the profile. Someone put it there on purpose, and apparmor_parser -r would
+  # load the profile regardless: the disable directory is honored by the
+  # apparmor service and the aa-* tools, not by the parser given an explicit
+  # pathname. So check it here rather than quietly reversing that decision.
+  # -L as well as -e: the link is DANGLING whenever its target is missing,
+  # which is exactly the box this step runs on - about to create the target -
+  # and -e alone is false for a dangling link.
+  if [[ -e $BWRAP_PROFILE_DISABLED || -L $BWRAP_PROFILE_DISABLED ]]; then
+    log "warning: $BWRAP_PROFILE_DISABLED marks the $BWRAP_PROFILE_NAME AppArmor profile as disabled on this box, so codex agents cannot use their sandbox. Leaving it disabled; remove that link and re-run this installer to enable it."
+    return 1
+  fi
+  if [[ -e $BWRAP_PROFILE ]]; then
+    # Already there and bwrap still fails, so it is present but not loaded
+    # (a re-run after aa-teardown, or a copy someone left unloaded). Reload
+    # what is on the box rather than overwriting it: the file may be the
+    # operator's.
+    log "reloading the AppArmor profile already at $BWRAP_PROFILE"
+  elif apt_install apparmor apparmor-profiles && [[ -r $BWRAP_PROFILE_PACKAGED ]]; then
+    if ! out=$(install -m 644 "$BWRAP_PROFILE_PACKAGED" "$BWRAP_PROFILE" 2>&1); then
+      log "warning: could not copy the $BWRAP_PROFILE_NAME AppArmor profile to $BWRAP_PROFILE, so codex agents cannot use their sandbox. Nothing else is affected. install said: $out"
+      return 1
+    fi
+    log "enabled Ubuntu's packaged AppArmor profile $BWRAP_PROFILE_NAME so codex's bubblewrap sandbox can start"
+  else
+    # No package to copy from. Vendored copy of the same upstream profile,
+    # never a hand-written permissive one: the point of the exercise is the
+    # unpriv_bwrap stage that denies capability to bwrap's children.
+    #
+    # Deliberately NOT write_file. It creates the file and fills it as two
+    # separate commands, and with errexit off in here a failed create followed
+    # by a successful write returns 0 - the profile would land with whatever
+    # mode the umask gives it and nothing would say so. Both steps are checked
+    # here instead. `2>&1 >file` and not `>file 2>&1`: stderr has to be
+    # captured BEFORE stdout is pointed at the profile, or the diagnostic
+    # would be written into the profile.
+    if ! out=$(install -m 644 /dev/null "$BWRAP_PROFILE" 2>&1); then
+      log "warning: could not create $BWRAP_PROFILE for the vendored $BWRAP_PROFILE_NAME AppArmor profile, so codex agents cannot use their sandbox. Nothing else is affected. install said: $out"
+      return 1
+    fi
+    if ! out=$(vendored_bwrap_profile 2>&1 >"$BWRAP_PROFILE"); then
+      # Leave no empty file behind: the next run would find it, take the
+      # "already there, just reload it" branch above, and hand the parser an
+      # empty profile. Ours to remove - this branch created it a line ago.
+      rm -f "$BWRAP_PROFILE"
+      log "warning: could not write the vendored $BWRAP_PROFILE_NAME AppArmor profile to $BWRAP_PROFILE, so codex agents cannot use their sandbox. Nothing else is affected. The error was: $out"
+      return 1
+    fi
+    log "this box ships no $BWRAP_PROFILE_NAME profile to enable, so isomux installed its vendored copy of the upstream one at $BWRAP_PROFILE"
+  fi
+  if ! out=$(apparmor_parser -r "$BWRAP_PROFILE" 2>&1); then
+    log "warning: could not load the AppArmor profile $BWRAP_PROFILE, so codex agents cannot use their sandbox. Nothing else is affected. apparmor_parser said: $out"
+    return 1
+  fi
+}
+
+# The fallback profile itself, kept in its own function so the heredoc's
+# column-0 `}` lines stay out of install_bwrap_profile. Byte-equal to
+# deploy/bwrap-userns-restrict.apparmor (regenerate with
+# `bun run scripts/embed-deploy-scripts.ts`).
+vendored_bwrap_profile() {
+  cat <<'ISOMUX_BWRAP_USERNS_RESTRICT'
+# isomux's vendored copy of Ubuntu's bwrap-userns-restrict AppArmor profile,
+# used only when the box has no apparmor-profiles package to copy it from.
+# Upstream (AppArmor project, profiles/apparmor/profiles/extras):
+# https://gitlab.com/apparmor/apparmor/-/raw/aa74b9b12d9ed55909489403a0c2514b9ea6a95f/profiles/apparmor/profiles/extras/bwrap-userns-restrict
+# Byte-identical to the copy apparmor-profiles 4.0.1-0ubuntu0.24.04.7 ships as
+# /usr/share/apparmor/extra-profiles/bwrap-userns-restrict, except this header.
+# The "disabled by default" note below is upstream's, and describes the
+# PACKAGED copy: deploy/install.sh writes this one straight into
+# /etc/apparmor.d/ and loads it, and only on a box where bwrap is already
+# broken without it.
+
+# This profile allows almost everything and only exists to allow
+# bwrap to work on a system with user namespace restrictions
+# being enforced.
+# bwrap is allowed access to user namespaces and capabilities
+# within the user namespace, but its children do not have
+# capabilities, blocking bwrap from being able to be used to
+# arbitrarily by-pass the user namespace restrictions.
+#
+# Note: the bwrap child is stacked against the bwrap profile due to
+# bwraps use of no-new-privs
+
+# disabled by default as it can break some use cases on a system that
+# doesn't have or has disable user namespace restrictions for unconfined
+# use aa-enforce to enable it
+
+abi <abi/4.0>,
+
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(attach_disconnected) {
+  allow capability,
+  # not allow all, to allow for pix stack
+  # sadly we have to allow  m every where to allow children to work under
+  # stacking.
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+  allow px /** -> bwrap//&unpriv_bwrap,
+
+  # the local include should not be used without understanding the userns
+  # restriction.
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/bwrap-userns-restrict>
+}
+
+profile unpriv_bwrap flags=(attach_disconnected) {
+  # not allow all, to allow for pix stack
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+
+  allow pix /** -> &unpriv_bwrap,
+
+  audit deny capability,
+
+  # the local include should not be used without understanding the userns
+  # restriction.
+  # Site-specific additions and overrides. See local/README for details.
+  include if exists <local/unpriv_bwrap>
+}
+ISOMUX_BWRAP_USERNS_RESTRICT
+}
+
 # Default ISOMUX_REF: the latest GitHub release of the target repo, so a
 # fresh box lands on a pinned, tested version. The main fallback exists for
 # exactly one case per repo class: the OFFICIAL repo falls back only on a
@@ -2527,8 +2766,11 @@ report() {
 # update until someone re-runs the whole installer).
 #
 # Deliberately narrow, because it runs on a live, configured box:
-#   - install_packages and install_browser are the steps that install system
-#     dependencies, and both are additive and idempotent.
+#   - install_packages, install_browser and configure_codex_sandbox are the
+#     steps that install system dependencies, and all three are additive and
+#     idempotent. The sandbox step only touches AppArmor on a box where
+#     bubblewrap is already broken, so a sync cannot change a working box's
+#     policy.
 #   - NOT the firewall, SSH hardening, or unattended upgrades: that is box
 #     policy the operator may have adjusted since the install, and an update
 #     must not silently reimpose ours.
@@ -2553,6 +2795,7 @@ deps_only() {
   restore_caddy_state ||
     die "installed the system dependencies but could not restore caddy to active=${CADDY_PRIOR_ACTIVE:-no} enabled=${CADDY_PRIOR_ENABLED:-no}; the office's public URL may be down. Check: systemctl status caddy"
   install_browser
+  configure_codex_sandbox
   step report
   [[ -z $FAILURE_SENTINEL ]] || rm -f "$FAILURE_SENTINEL"
   log "system dependencies are up to date"
@@ -2574,6 +2817,7 @@ main() {
   create_service_user
   check_root_reachability
   install_browser
+  configure_codex_sandbox
   fetch_isomux
   install_bun
   build_isomux

@@ -14,6 +14,14 @@ const SRC = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
 const repoFile = (p: string) =>
   readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
+/** Shell/profile source with whole-line comments removed. */
+function stripComments(src: string): string {
+  return src
+    .split("\n")
+    .filter((l) => !l.trimStart().startsWith("#"))
+    .join("\n");
+}
+
 /** Position of a step's call inside main(), for ordering assertions. */
 function stepIndex(name: string): number {
   const idx = SRC.indexOf(`\n  ${name}\n`, SRC.lastIndexOf("\nmain() {"));
@@ -175,6 +183,37 @@ describe("install.sh escalation: template unit + placement", () => {
     }
   });
 
+  it("makes codex's bubblewrap sandbox work, without weakening the box", () => {
+    // Behavior lives in install-codex-sandbox.test.ts, which RUNS the step.
+    // Pinned here: the placement, and the two shortcuts that must never appear
+    // - a permissive profile, or turning the kernel restriction off box-wide -
+    // since both make the symptom go away on a box that then runs arbitrary
+    // agent commands with user namespaces wide open.
+    // Comments stripped: the step's own comment names both shortcuts in order
+    // to rule them out, and the vendored profile keeps upstream's commentary.
+    const code = stripComments(SRC);
+    expect(code).not.toContain("flags=(unconfined)");
+    expect(code).not.toMatch(
+      /sysctl[^\n]*apparmor_restrict_unprivileged_userns/,
+    );
+    expect(code).toContain("audit deny capability");
+    // The smoke test runs as the service user: root is exempt from the
+    // restriction, so as root it would pass on a box where codex cannot start.
+    expect(SRC).toContain(
+      "as_service_user bwrap --unshare-net --dev-bind / / /bin/true",
+    );
+    // After create_service_user (the probe needs that account) and before the
+    // build, like the browser step. Scoped to main's body: deps_only calls it
+    // too.
+    const body = SRC.slice(SRC.lastIndexOf("\nmain() {"));
+    const createUser = body.indexOf("  create_service_user\n");
+    const sandbox = body.indexOf("  configure_codex_sandbox\n");
+    const fetch = body.indexOf("  fetch_isomux\n");
+    expect(createUser).toBeGreaterThan(-1);
+    expect(sandbox).toBeGreaterThan(createUser);
+    expect(fetch).toBeGreaterThan(sandbox);
+  });
+
   it("the service unit names an entry point every release has", () => {
     // This installer is fetched from main but installs a RELEASE, so the unit
     // may only name a path that exists in older releases too. server/index.ts
@@ -197,6 +236,9 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(fn.length).toBeGreaterThan(0);
     expect(fn).toContain("install_packages");
     expect(fn).toContain("install_browser");
+    // A release can newly require a working codex sandbox, and the step is a
+    // no-op on a box that already has one.
+    expect(fn).toContain("configure_codex_sandbox");
     // Calls only: the comments name steps they explain.
     const calls = fn
       .split("\n")
