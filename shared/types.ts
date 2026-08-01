@@ -194,6 +194,20 @@ export function familyDisplayLabel(family: string): string {
   return family;
 }
 
+// True when familyDisplayLabel's output already tells you which engine the
+// agent runs on, so rendering the engine next to it would just repeat it
+// ("GPT-5.6 Sol · codex"). Every Claude family reads as "Opus 5"/"Haiku 4.5",
+// and every KNOWN Codex model reads as "GPT-…" - both unmistakable.
+//
+// The exception is a Codex slug missing from CODEX_MODELS: the model list is
+// fetched live from the Codex app-server, so an agent can end up on a slug
+// this table doesn't carry. familyDisplayLabel then falls back to the raw
+// slug, which says nothing about the backend on its own - there the engine is
+// the only signal, so callers should still show it.
+export function modelLabelImpliesEngine(family: string): boolean {
+  return isClaudeFamily(family) || CODEX_MODELS.some((m) => m.value === family);
+}
+
 // Migrate a legacy exact model ID (e.g. "claude-opus-4-6") to a family.
 export function familyFromLegacyModel(model: string | undefined): ModelFamily {
   if (!model) return "opus";

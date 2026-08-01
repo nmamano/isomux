@@ -21,40 +21,16 @@ import {
   formatSize,
   formatRelativeTime,
   escapeMarkdownTableCellText,
-} from "./format-human.ts";
+} from "../shared/format-human.ts";
 
-// Category order is the reading order of the report, not the contract's order:
-// the biggest, most-explicable things first, "everything else" last, and the
-// two out-of-root locations after the office-state subtotal.
-const IN_ROOT_ORDER: readonly StorageCategoryId[] = [
-  "transcripts",
-  "attachments",
-  "session-metadata",
-  "codex-home",
-  "cronjobs",
-  "memory",
-  "other-state",
-];
-
-const OUT_OF_ROOT_ORDER: readonly StorageCategoryId[] = [
-  "backups",
-  "update-snapshots",
-];
-
-// Plain-language labels. The wire ids are kebab-case keys for an API; a person
-// reading chat should not have to know that "other-state" means "the rest of
-// ~/.isomux".
-const LABELS: Record<StorageCategoryId, string> = {
-  transcripts: "Conversation transcripts",
-  attachments: "Chat attachments",
-  "session-metadata": "Session metadata",
-  "codex-home": "Codex home",
-  cronjobs: "Cron job history",
-  memory: "Memory",
-  "other-state": "Everything else",
-  backups: "Backups",
-  "update-snapshots": "Update snapshots",
-};
+// Reading order and plain-language labels are shared with the owner-only
+// storage panel in office settings, so the same bytes are never called two
+// different things in chat and in the UI.
+import {
+  IN_ROOT_ORDER,
+  OUT_OF_ROOT_ORDER,
+  CATEGORY_LABELS as LABELS,
+} from "../shared/storage-labels.ts";
 
 // Only the largest handful of agents are worth a table row; the tail is a long
 // list of near-zero directories. The count that was dropped is always stated -

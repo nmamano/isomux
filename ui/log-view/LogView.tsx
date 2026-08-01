@@ -15,7 +15,10 @@ import type {
   Attachment,
 } from "../../shared/types.ts";
 import { formatIdentity } from "../../shared/identity.ts";
-import { familyDisplayLabel } from "../../shared/types.ts";
+import {
+  familyDisplayLabel,
+  modelLabelImpliesEngine,
+} from "../../shared/types.ts";
 import { styleForModel } from "../model-styles.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
@@ -1834,25 +1837,32 @@ export function LogView({
                 >
                   {familyDisplayLabel(agent.modelFamily)}
                 </span>
-                {agent.agentType !== "claude" && (
-                  <>
-                    <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-                    <span
-                      style={{
-                        fontFamily: "'JetBrains Mono',monospace",
-                        fontSize: 10,
-                        fontWeight: 600,
-                        letterSpacing: 0.5,
-                        textTransform: "uppercase",
-                        color: "var(--accent-blue, #5eafff)",
-                        whiteSpace: "nowrap",
-                      }}
-                      title={`Backend: ${agent.agentType}`}
-                    >
-                      {agent.agentType}
-                    </span>
-                  </>
-                )}
+                {/* Only when the model name doesn't already give the engine
+                    away - "GPT-5.6 Sol · codex" says codex twice (task
+                    176a5085). An unrecognized Codex slug still gets the badge,
+                    since the raw slug alone doesn't identify the backend. */}
+                {agent.agentType !== "claude" &&
+                  !modelLabelImpliesEngine(agent.modelFamily) && (
+                    <>
+                      <span style={{ color: "var(--text-ghost)" }}>
+                        &middot;
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: "'JetBrains Mono',monospace",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                          color: "var(--accent-blue, #5eafff)",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={`Backend: ${agent.agentType}`}
+                      >
+                        {agent.agentType}
+                      </span>
+                    </>
+                  )}
               </span>
             </div>
             {STATE_LABELS[agent.state] && (

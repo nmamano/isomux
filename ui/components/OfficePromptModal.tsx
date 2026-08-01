@@ -15,6 +15,7 @@ import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
+import { StorageModal } from "./StorageModal.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -46,6 +47,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   // over. Until the load resolves the fields are read-only and Save stays
   // disabled; the store values paint first purely as placeholders.
   const [settingsVersion, setSettingsVersion] = useState<string | null>(null);
+  const [storageOpen, setStorageOpen] = useState(false);
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -157,9 +159,14 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     }
   }, [readOnly]);
 
-  // ESC to close - unless an expanded editor is open, which collapses instead
-  // (this capture listener runs before the overlay's own, so it stands down).
+  // ESC to close. Stands down entirely while the storage panel is up (both
+  // listeners sit on `window` in the capture phase, and stopPropagation does
+  // not stop a sibling listener on the SAME target - without the storageOpen
+  // guard one Escape would close the storage panel and this dialog together),
+  // and stands down while an expanded editor is open, which collapses instead
+  // (this capture listener runs before the overlay's own).
   useEffect(() => {
+    if (storageOpen) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape" && !isExpandedEditorOpen()) {
         e.stopPropagation();
@@ -168,7 +175,14 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onClose]);
+  }, [onClose, storageOpen]);
+
+  // Exactly ONE dialog layer is live at a time. The storage panel REPLACES this
+  // one rather than stacking on it: two overlays means two backdrops, two
+  // Escape handlers, and a focus order nobody can predict. This component stays
+  // mounted throughout, so unsaved edits in the fields below survive a trip
+  // through storage and back.
+  if (storageOpen) return <StorageModal onBack={() => setStorageOpen(false)} />;
 
   return (
     <div
@@ -363,6 +377,41 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
               This editor rewrites the file exactly as shown. Use one memory per
               line; keep existing author/date text unless you mean to change it.
             </p>
+          </>
+        )}
+
+        {/* Storage is owner-only, matching the server: POST /api/storage/prune
+            is gated on officeOwner, and GET /api/storage/usage strips the
+            per-agent detail and every filesystem path for anyone else. A member
+            who opened this dialog read-only never sees the entry point. */}
+        {isOwner && (
+          <>
+            <label
+              style={{
+                display: "block",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                marginTop: 14,
+                marginBottom: 5,
+              }}
+            >
+              Storage{" "}
+              <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+                (disk usage; delete old files)
+              </span>
+            </label>
+            <button
+              onClick={() => setStorageOpen(true)}
+              style={{
+                ...cancelBtnStyle,
+                width: "100%",
+                textAlign: "left",
+                padding: "9px 12px",
+              }}
+            >
+              Open storage…
+            </button>
           </>
         )}
 

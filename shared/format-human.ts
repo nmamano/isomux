@@ -6,6 +6,12 @@
 // usage-report.ts - which meant the /isomux-storage report could not reuse them
 // without dragging in the persistence layer and the agent SDK behind them.
 // Formatting is not the property of any one report.
+//
+// Lives in shared/ (moved from server/) for the same reason it left those two
+// modules: the storage panel renders in the browser the SAME measurement
+// /isomux-storage renders in chat, and ui/ imports nothing from server/. A size
+// reading "1.4 GB" in chat and "1.37 GB" in the panel is exactly the drift this
+// module exists to prevent.
 
 // Deterministic human-readable size. Binary units, one decimal above bytes.
 export function formatSize(bytes: number): string {

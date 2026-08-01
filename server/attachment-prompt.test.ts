@@ -18,7 +18,7 @@ import {
 } from "./attachment-prompt.ts";
 // formatSize moved to the leaf formatting module; the notice-line contract it
 // feeds is still asserted here, alongside the lines that embed it.
-import { formatSize } from "./format-human.ts";
+import { formatSize } from "../shared/format-human.ts";
 
 const TEST_AGENT_ID = `test-att-prompt-${Date.now()}-${Math.random()
   .toString(36)

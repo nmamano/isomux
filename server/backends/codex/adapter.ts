@@ -31,7 +31,7 @@ import {
   formatAttachmentLines,
 } from "../../attachment-prompt.ts";
 import { mimeTypeForFilename } from "../../mime-types.ts";
-import { markdownInlineCode } from "../../format-human.ts";
+import { markdownInlineCode } from "../../../shared/format-human.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
 

@@ -22,7 +22,7 @@
 // Claude's behavior on an empty content array is undefined).
 
 import { getFilePath } from "./persistence.ts";
-import { formatSize } from "./format-human.ts";
+import { formatSize } from "../shared/format-human.ts";
 import type { AttachmentSpec } from "./backends/types.ts";
 
 // A resolved inbound attachment: upload-time metadata plus the authoritative

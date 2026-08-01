@@ -119,6 +119,7 @@ import type {
   StorageUsageWire,
   StoragePruneReq,
   StoragePruneRes,
+  BackupStatusWire,
 } from "../../shared/contract-shapes.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -1084,16 +1085,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- System ---------------------------------------------------------------
-  defineRoute<
-    void,
-    {
-      lastRunAt: number | null;
-      ok: boolean;
-      error: string | null;
-      retention: number;
-      destDir: string;
-    }
-  >({
+  defineRoute<void, BackupStatusWire>({
     opId: "system.backupStatus",
     method: "GET",
     path: "/api/backup/status",

@@ -759,3 +759,18 @@ export interface StoragePruneRes {
   // that found nothing to do.
   applied: PruneResultWire | null;
 }
+
+// GET /api/backup/status. The NORMALIZED wire shape - a projection of the
+// server's internal BackupStatus, not that type (lastBackupAt→lastRunAt,
+// lastBackupOk→ok with null→false, lastBackupError→error, backupDir→destDir;
+// `running` is deliberately omitted). Moved here from the handler alongside the
+// storage shapes when the storage panel became its first UI consumer: ui/
+// imports nothing from server/, and the route table declared this shape inline,
+// which is the drift this file exists to stop.
+export interface BackupStatusWire {
+  lastRunAt: number | null;
+  ok: boolean;
+  error: string | null;
+  retention: number;
+  destDir: string;
+}

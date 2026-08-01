@@ -16,13 +16,11 @@
 
 import { ok, type RouteHandler } from "../executor.ts";
 
-export interface BackupStatusWire {
-  lastRunAt: number | null;
-  ok: boolean;
-  error: string | null;
-  retention: number;
-  destDir: string;
-}
+// The shape moved to shared/contract-shapes.ts when the storage panel became
+// its first UI consumer (ui/ imports nothing from server/). Re-exported here so
+// it stays the name every existing server caller already reaches for.
+import type { BackupStatusWire } from "../../../shared/contract-shapes.ts";
+export type { BackupStatusWire };
 
 // GET /api/version - git-derived deployment identity. Same shape as
 // server/version.ts VersionInfo; redeclared so this leaf depends only on its
