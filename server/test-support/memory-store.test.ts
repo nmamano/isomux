@@ -144,7 +144,7 @@ describe("memory-store: caps", () => {
   it("MEMORY_CAPS are the Nil-set values", () => {
     expect(MEMORY_CAPS).toEqual({
       office: 2500,
-      room: 3500,
+      room: 10000,
       agent: 5000,
       boss: 5000,
     });

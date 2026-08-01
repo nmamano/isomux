@@ -115,13 +115,14 @@ export function isExactDuplicateText(text: string, existing: string): boolean {
 
 // --- per-scope injected-size caps -------------------------------------------
 
-// Max injected size per scope, in characters (Nil-set). Office/room are smaller
-// than boss/agent because they reach more people. The four caps sum to ~16k
-// chars (~4k tokens), the total memory budget Nil considers sane. Central +
-// exported; injectable via MemoryStoreDeps.caps so tests use tiny fixtures.
+// Max injected size per scope, in characters (Nil-set; room raised 3500->10000
+// on 2026-08-01 after real room memory proved the working size). The four caps
+// sum to ~22.5k chars (~5.6k tokens) fully maxed; typical loads sit far lower.
+// Central + exported; injectable via MemoryStoreDeps.caps so tests use tiny
+// fixtures.
 export const MEMORY_CAPS: Record<MemoryScope, number> = {
   office: 2500,
-  room: 3500,
+  room: 10000,
   agent: 5000,
   boss: 5000,
 };
