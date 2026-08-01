@@ -227,6 +227,29 @@ describe("routes/memory REST: APPEND dedup guard", () => {
   });
 });
 
+describe("routes/memory REST: APPEND hard cap", () => {
+  it("a line that would put the scope over its cap -> 422 memory_over_cap, nothing written", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "CapBot");
+    const token = mintAgentToken(bot.id, ownerId);
+
+    const huge = "x".repeat(6000); // agent cap is 5000 chars
+    const res = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "agent", text: huge },
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("memory_over_cap");
+
+    const read = await api(srv, "/api/memory?scope=agent", { bearer: token });
+    expect((read.body as { text: string }).text).toBe("");
+  });
+});
+
 describe("routes/memory REST: APPEND permissive + existence gates", () => {
   it("an agent may append to ANOTHER agent's scope (explicit id); nonexistent -> 404; malformed -> 400", async () => {
     const srv = await startTestServer();

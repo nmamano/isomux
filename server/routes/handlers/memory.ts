@@ -20,6 +20,7 @@
 // LEAF over the executor + injected MemoryDeps. No manager/auth/store imports.
 
 import { ok, created, fail, type RouteHandler } from "../executor.ts";
+import { MemoryCapError } from "../../memory-store.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
 import type {
@@ -220,13 +221,27 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           "caller identity could not be resolved",
         );
       }
-      const res = deps.append({
-        scope: target.scope,
-        scopeId: target.scopeId,
-        author,
-        text,
-      });
-      return created(res);
+      // Caps are hard: a line that would put the scope over its injected-size
+      // cap is refused here, loudly, instead of ever being trimmed later.
+      try {
+        const res = deps.append({
+          scope: target.scope,
+          scopeId: target.scopeId,
+          author,
+          text,
+        });
+        return created(res);
+      } catch (e) {
+        if (e instanceof MemoryCapError) {
+          return fail(
+            422,
+            "memory_over_cap",
+            `adding this would put the scope over its size cap (${e.size} of ${e.cap} chars); trim existing memories first`,
+            { size: e.size, cap: e.cap },
+          );
+        }
+        throw e;
+      }
     },
 
     // REPLACE - overwrite the whole file, guarded by the version from READ. This
@@ -254,13 +269,28 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           "caller identity could not be resolved",
         );
       }
-      const res = deps.replace({
-        scope: target.scope,
-        scopeId: target.scopeId,
-        text: body.text,
-        author,
-        expectedVersion: body.version,
-      });
+      // Caps are hard on growth too; a replace that shrinks a legacy over-cap
+      // file is allowed (see memory-store), so incremental trims go through.
+      let res;
+      try {
+        res = deps.replace({
+          scope: target.scope,
+          scopeId: target.scopeId,
+          text: body.text,
+          author,
+          expectedVersion: body.version,
+        });
+      } catch (e) {
+        if (e instanceof MemoryCapError) {
+          return fail(
+            422,
+            "memory_over_cap",
+            `the new contents exceed this scope's size cap (${e.size} of ${e.cap} chars); trim further`,
+            { size: e.size, cap: e.cap },
+          );
+        }
+        throw e;
+      }
       if (!res.ok) {
         return fail(
           409,

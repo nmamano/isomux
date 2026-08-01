@@ -250,11 +250,10 @@ describe("formatMemoryNotice (task f1a08f05)", () => {
     expect(
       formatMemoryNotice([scope("Office-wide", MEMORY_NOTICE_FILL_RATIO)]),
     ).toBe(
-      "[memory check: auto-loaded memory is near its size limit - Office-wide at 80% of cap. " +
-        "When a scope exceeds its cap, its oldest facts are omitted from your context. " +
-        "Mention this to the boss and offer to propose specific trims; " +
-        "apply them through the memory READ + PUT API only after approval. " +
-        "The boss can also edit memory in Settings.]",
+      "[memory check: auto-loaded memory is close to its size cap - Office-wide at 80% of its cap. " +
+        "Caps are hard: a save that would put a scope over its cap is refused. " +
+        "Offer the boss specific trims, applying them through the memory READ + PUT API after approval. " +
+        "Let the boss know they can also edit memory in Settings.]",
     );
   });
 
@@ -266,7 +265,7 @@ describe("formatMemoryNotice (task f1a08f05)", () => {
       scope("Your agent", 0.4),
     ])!;
     expect(line).toContain(
-      'Boss "Nil" at 118% of cap, Room "Isomux Dev" at 90% of cap.',
+      'Boss "Nil" at 118% (at or over its cap; saves to it fail until it is trimmed), Room "Isomux Dev" at 90% of its cap.',
     );
     expect(line).not.toContain("Office-wide");
     expect(line).not.toContain("Your agent");

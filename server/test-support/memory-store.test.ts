@@ -3,7 +3,14 @@
 // server, no LLM, no network. See server/memory-store.ts.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "fs";
+import {
+  mkdtempSync,
+  rmSync,
+  readFileSync,
+  existsSync,
+  mkdirSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -15,8 +22,8 @@ import {
   isExactDuplicateText,
   versionOf,
   MEMORY_CAPS,
-  OVER_CAP_NOTICE,
-  renderCapped,
+  MemoryCapError,
+  injectedSize,
   type OpLogEntry,
 } from "../memory-store.ts";
 
@@ -142,17 +149,10 @@ describe("memory-store: caps", () => {
       boss: 5000,
     });
   });
-  it("renderCapped: under cap returns all; over cap keeps newest + notice", () => {
-    const lines = ["- a", "- b", "- c"];
-    expect(renderCapped(lines, 100)).toBe("- a\n- b\n- c");
-    // tiny cap: only the newest line(s) that fit survive, in file order
-    const capped = renderCapped(lines, 4);
-    expect(capped).toBe(`- c\n${OVER_CAP_NOTICE}`);
-  });
-  it("renderCapped: a single line longer than the cap yields the notice alone", () => {
-    expect(renderCapped(["- way too long for the cap"], 5)).toBe(
-      OVER_CAP_NOTICE,
-    );
+  it("injectedSize: counts non-empty lines joined, as the prompt renders them", () => {
+    expect(injectedSize("- a\n- b\n- c")).toBe(11);
+    expect(injectedSize("- a\n\n\n- b\n")).toBe(7); // blank lines don't count
+    expect(injectedSize("")).toBe(0);
   });
 });
 
@@ -311,25 +311,73 @@ describe("memory-store: render for prompt", () => {
     );
   });
 
-  it("applies the per-scope cap (newest-first) with the notice", () => {
-    const { store } = freshStore({
+  it("renders a legacy over-cap scope in FULL - caps never drop lines at render", () => {
+    // Write the over-cap file directly, as a legacy file would exist on disk:
+    // the write API itself refuses to create this state.
+    const { root, store } = freshStore({
       caps: { office: 30, room: 30, agent: 30, boss: 30 },
     });
-    store.append({
-      scope: "office",
-      scopeId: null,
-      author: "A",
-      text: "oldest",
-    });
-    store.append({
-      scope: "office",
-      scopeId: null,
-      author: "A",
-      text: "newest",
-    });
+    const legacy =
+      "- A, 2026-01-01: oldest fact kept\n- A, 2026-01-02: newest fact kept\n";
+    mkdirSync(join(root, "memory"), { recursive: true });
+    writeFileSync(join(root, "memory", "office.md"), legacy);
     const out = store.renderForPrompt("office", null)!;
-    expect(out).toContain("newest");
-    expect(out).toContain(OVER_CAP_NOTICE);
+    expect(out).toContain("oldest fact kept");
+    expect(out).toContain("newest fact kept");
+  });
+
+  it("append refuses a line that would put the scope over its cap", () => {
+    const { store } = freshStore({
+      caps: { office: 60, room: 60, agent: 60, boss: 60 },
+    });
+    store.append({ scope: "office", scopeId: null, author: "A", text: "one" });
+    let err: unknown;
+    try {
+      store.append({
+        scope: "office",
+        scopeId: null,
+        author: "A",
+        text: "a fact long enough to overflow the tiny cap for sure",
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MemoryCapError);
+    // and the file was not written
+    expect(store.readText("office", null)).not.toContain("overflow");
+  });
+
+  it("replace refuses growth over the cap but allows a shrinking trim of a legacy over-cap file", () => {
+    const { root, store } = freshStore({
+      caps: { office: 30, room: 30, agent: 30, boss: 30 },
+    });
+    const legacy =
+      "- A, 2026-01-01: aaaaaaaaaaaaaaaa\n- A, 2026-01-02: bbbbbbbbbbbbbbbb\n";
+    mkdirSync(join(root, "memory"), { recursive: true });
+    writeFileSync(join(root, "memory", "office.md"), legacy);
+    // still over cap but SMALLER: allowed (incremental trim)
+    const smaller = "- A, 2026-01-01: aaaaaaaaaaaaaaaa\n- A, 2026-01-02: bbb\n";
+    expect(injectedSize(smaller)).toBeGreaterThan(30);
+    const res = store.replace({
+      scope: "office",
+      scopeId: null,
+      text: smaller,
+      author: "A",
+    });
+    expect(res.ok).toBe(true);
+    // growth over the cap: refused
+    let err: unknown;
+    try {
+      store.replace({
+        scope: "office",
+        scopeId: null,
+        text: smaller + "- A, 2026-01-03: cccccccccccccccc\n",
+        author: "A",
+      });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MemoryCapError);
   });
 
   it("renderForPromptMulti labels each non-empty scope and skips empties", () => {
@@ -376,23 +424,22 @@ describe("memory-store: render for prompt", () => {
     ]);
   });
 
-  it("measureForPromptMulti reports the size BEFORE the cap trims it", () => {
-    // The notice's job is to say how much is being dropped, so an over-cap
-    // scope must report a raw size above its cap, not the trimmed one.
-    const { store } = freshStore({ caps: { ...MEMORY_CAPS, office: 40 } });
-    store.append({ scope: "office", scopeId: null, author: "A", text: "one" });
-    store.append({ scope: "office", scopeId: null, author: "A", text: "two" });
-    store.append({
-      scope: "office",
-      scopeId: null,
-      author: "A",
-      text: "three",
+  it("measureForPromptMulti reports a legacy over-cap scope with fill above its cap", () => {
+    // The write API refuses to create this state, so lay the file down
+    // directly, as a pre-cap-enforcement legacy file would exist on disk.
+    const { root, store } = freshStore({
+      caps: { ...MEMORY_CAPS, office: 40 },
     });
+    const legacy =
+      "- A, 2026-06-28: one\n- A, 2026-06-28: two\n- A, 2026-06-28: three\n";
+    mkdirSync(join(root, "memory"), { recursive: true });
+    writeFileSync(join(root, "memory", "office.md"), legacy);
     const [m] = store.measureForPromptMulti([
       { scope: "office", scopeId: null, label: "Office-wide" },
     ]);
     expect(m.contentChars).toBeGreaterThan(m.cap);
-    // The rendered form really is trimmed at the same moment.
-    expect(store.renderForPrompt("office", null)).toContain(OVER_CAP_NOTICE);
+    // ...and the rendered form still carries everything (no trimming).
+    expect(store.renderForPrompt("office", null)).toContain("one");
+    expect(store.renderForPrompt("office", null)).toContain("three");
   });
 });

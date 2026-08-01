@@ -140,8 +140,12 @@ describe("session-start memory-size notice (task f1a08f05)", () => {
     await runTurn(srv, agent.id, "one");
     const turn1 = lastSent();
     expect(turn1.startsWith("--- begin isomux: memory-check ---")).toBe(true);
-    expect(turn1).toContain("[memory check: auto-loaded memory is near its");
-    expect(turn1).toMatch(new RegExp(`Room "${room.name}" at 9\\d% of cap`));
+    expect(turn1).toContain(
+      "[memory check: auto-loaded memory is close to its",
+    );
+    expect(turn1).toMatch(
+      new RegExp(`Room "${room.name}" at 9\\d% of its cap`),
+    );
     const unwrapped = stripOutboundEnvelope(turn1);
     expect(unwrapped).not.toContain("---");
     expect(unwrapped.endsWith("one")).toBe(true);

@@ -116,8 +116,9 @@ export function isExactDuplicateText(text: string, existing: string): boolean {
 // --- per-scope injected-size caps -------------------------------------------
 
 // Max injected size per scope, in characters (Nil-set). Office/room are smaller
-// than boss/agent because they reach more people. Central + exported; injectable
-// via MemoryStoreDeps.caps so tests use tiny fixtures.
+// than boss/agent because they reach more people. The four caps sum to ~16k
+// chars (~4k tokens), the total memory budget Nil considers sane. Central +
+// exported; injectable via MemoryStoreDeps.caps so tests use tiny fixtures.
 export const MEMORY_CAPS: Record<MemoryScope, number> = {
   office: 2500,
   room: 3500,
@@ -125,27 +126,26 @@ export const MEMORY_CAPS: Record<MemoryScope, number> = {
   boss: 5000,
 };
 
-// Appended when a scope is truncated. A fixed diagnostic OUTSIDE the cap budget.
-export const OVER_CAP_NOTICE =
-  "Not all memories fit. Consider suggesting the boss to trim them.";
-
-// Join non-empty lines under a char cap: keep the NEWEST (end of file) that fit,
-// present survivors in FILE ORDER, append the notice when anything was dropped.
-// A single line longer than the cap yields the notice alone.
-export function renderCapped(lines: readonly string[], cap: number): string {
-  const full = lines.join("\n");
-  if (full.length <= cap) return full;
-  const kept: string[] = [];
-  let size = 0;
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const add = lines[i].length + (kept.length ? 1 : 0); // +1 for the newline join
-    if (size + add > cap) break;
-    kept.push(lines[i]);
-    size += add;
+// Caps are HARD and enforced at write time: a save that would put a scope over
+// its cap is refused (fail loud and early - Nil, 2026-08-01), so memories are
+// never silently dropped from the prompt. A scope can still sit over its cap
+// from before this rule existed; such a scope renders in FULL, refuses new
+// appends, and accepts a replace only if it shrinks the file.
+export class MemoryCapError extends Error {
+  constructor(
+    readonly size: number,
+    readonly cap: number,
+  ) {
+    super(`memory scope over its size cap (${size} of ${cap} chars)`);
   }
-  kept.reverse(); // back to file order
-  const body = kept.join("\n");
-  return body.length ? `${body}\n${OVER_CAP_NOTICE}` : OVER_CAP_NOTICE;
+}
+
+// The size a scope contributes to the prompt: non-empty lines, newline-joined.
+export function injectedSize(text: string): number {
+  return text
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .join("\n").length;
 }
 
 // --- optimistic-concurrency version -----------------------------------------
@@ -243,8 +243,8 @@ export interface MemoryStore {
   renderForPromptMulti(refs: readonly MemoryScopeRef[]): string | null;
   // How full each of those scopes is against its cap, for the session-start
   // memory-size notice. Same refs, same order; scopes with no content at all are
-  // omitted. `contentChars` is the size BEFORE renderCapped drops anything, so a
-  // scope already over its cap reports a fill above 1.
+  // omitted. `contentChars` is the injected size; a legacy scope still over its
+  // cap (from before caps were write-enforced) reports a fill above 1.
   measureForPromptMulti(
     refs: readonly MemoryScopeRef[],
   ): MemoryScopeMeasurement[];
@@ -317,6 +317,12 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
       date,
       text: input.text,
     });
+    // Hard cap, checked BEFORE the write: appending must never push the scope
+    // over its injected-size cap. Throws so no caller can ignore it.
+    const cap = caps[input.scope];
+    const prospective =
+      injectedSize(readText(input.scope, input.scopeId)) + line.length + 1;
+    if (prospective > cap) throw new MemoryCapError(prospective, cap);
     const path = filePath(input.scope, input.scopeId);
     mkdirSync(dirname(path), { recursive: true });
     appendFileSync(path, line + "\n");
@@ -362,6 +368,15 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     ) {
       return { ok: false, conflict: true, version: currentVersion };
     }
+    // Hard cap on growth. A replace that SHRINKS a legacy over-cap file is
+    // allowed even while still over - otherwise an incremental trim from, say,
+    // 118% to 105% would be refused and the only way out would be one perfect
+    // rewrite.
+    const newSize = injectedSize(input.text);
+    const cap = caps[input.scope];
+    if (newSize > cap && newSize >= injectedSize(current)) {
+      throw new MemoryCapError(newSize, cap);
+    }
     const content = input.text;
     const path = filePath(input.scope, input.scopeId);
     mkdirSync(dirname(path), { recursive: true });
@@ -399,11 +414,14 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     scope: MemoryScope,
     scopeId: string | null,
   ): string | null {
+    // Renders in FULL, always - caps are enforced at write time, never by
+    // dropping lines here. A legacy over-cap scope still renders whole; the
+    // session-start memory notice is what surfaces it.
     const lines = readText(scope, scopeId)
       .split("\n")
       .filter((l) => l.trim() !== "");
     if (lines.length === 0) return null;
-    return renderCapped(lines, caps[scope]);
+    return lines.join("\n");
   }
 
   function renderForPromptMulti(
@@ -417,9 +435,8 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     return blocks.length ? blocks.join("\n\n") : null;
   }
 
-  // Sizes the SAME lines renderForPrompt would join, before renderCapped trims
-  // them - the point of the notice is to say how much is being dropped, so the
-  // pre-cap size is the number that matters.
+  // Sizes the SAME lines renderForPrompt joins - what each scope actually
+  // contributes to the prompt, measured against the write-enforced cap.
   function measureForPromptMulti(
     refs: readonly MemoryScopeRef[],
   ): MemoryScopeMeasurement[] {

@@ -456,23 +456,23 @@ export function formatContextNotice(
 // ---------------------------------------------------------------------------
 // Built-in session-start memory-size notice (task f1a08f05)
 //
-// Auto-loaded memory is capped per scope (memory-store MEMORY_CAPS) and
-// renderCapped omits the OLDEST lines of an over-cap scope. That is not silent
-// - it appends OVER_CAP_NOTICE to the rendered layer - but it is a passive line
-// in the system prompt, delivered only once the cap is already exceeded. This
-// notice arrives as a MESSAGE, which asks for a decision, and it fires BEFORE
-// the cap is reached so the trimming can happen while nothing is being left
-// out yet. A message rather than a prompt line is also deliberate: a size
-// figure in the system prompt would change on every write, which is the kind of
-// per-agent variability the prompt keeps out (task 46f86536).
+// Auto-loaded memory is capped per scope (memory-store MEMORY_CAPS) and the
+// caps are HARD: a save that would push a scope over is refused at write time
+// (fail loud and early - Nil, 2026-08-01); nothing is ever silently dropped
+// from the prompt. This notice arrives as a MESSAGE, which asks for a decision,
+// and it fires BEFORE the cap is reached so the trimming can happen while
+// saves still succeed. A message rather than a prompt line is also deliberate:
+// a size figure in the system prompt would change on every write, which is the
+// kind of per-agent variability the prompt keeps out (task 46f86536).
 //
 // Armed by agent-manager at session creation (it already renders memory there)
 // and consumed here on the first accepted send of the conversation.
 // ---------------------------------------------------------------------------
 
 // A scope this full (fraction of its cap) is worth telling the agent about.
-// At 1.0 the oldest facts are already being dropped; 0.8 gives the boss a
-// chance to curate before that happens.
+// At 1.0 new saves to the scope are refused; 0.8 gives the boss a chance to
+// curate before that happens. Fills above 1 exist only on legacy files written
+// before caps were write-enforced.
 export const MEMORY_NOTICE_FILL_RATIO = 0.8;
 
 /** The session-start memory notice, or null when every scope is comfortably
@@ -491,14 +491,17 @@ export function formatMemoryNotice(
     .sort((a, b) => b.fill - a.fill);
   if (full.length === 0) return null;
   const listed = full
-    .map((m) => `${m.label} at ${Math.round(m.fill * 100)}% of cap`)
+    .map((m) =>
+      m.fill >= 1
+        ? `${m.label} at ${Math.round(m.fill * 100)}% (at or over its cap; saves to it fail until it is trimmed)`
+        : `${m.label} at ${Math.round(m.fill * 100)}% of its cap`,
+    )
     .join(", ");
   return (
-    `[memory check: auto-loaded memory is near its size limit - ${listed}. ` +
-    `When a scope exceeds its cap, its oldest facts are omitted from your context. ` +
-    `Mention this to the boss and offer to propose specific trims; ` +
-    `apply them through the memory READ + PUT API only after approval. ` +
-    `The boss can also edit memory in Settings.]`
+    `[memory check: auto-loaded memory is close to its size cap - ${listed}. ` +
+    `Caps are hard: a save that would put a scope over its cap is refused. ` +
+    `Offer the boss specific trims, applying them through the memory READ + PUT API after approval. ` +
+    `Let the boss know they can also edit memory in Settings.]`
   );
 }
 
