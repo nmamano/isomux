@@ -46,7 +46,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 - Works with your existing Claude or ChatGPT subscription - if \`claude\` works in your terminal, Claude agents work in your browser; Codex ships bundled and authenticates on first use. No API key needed - it piggybacks on the underlying CLI's auth.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. No bundler, no database, minimal deps.
 - GitHub: github.com/nmamano/isomux
-- Docs: isomux.com/docs (full feature list, self-hosted setup, access and invites, backup/restore, security audit)
+- Docs: isomux.com/docs (full feature list, self-hosted setup, one-command VPS install, access and invites, backup/restore, security audit)
 - Created by Nil Mamano (nilmamano.com)
 - Blog post with architecture deep dive: nilmamano.com/blog/isomux
 
@@ -69,6 +69,9 @@ Setup:
 6. Install Isomux as an app for a full-screen experience: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome will prompt you to install on first visit.
 7. For voice input over Tailscale, enable HTTPS certificates in the Tailscale admin console and run \`tailscale serve --bg http://localhost:4000\`.
 8. To let people use the office from outside your Tailscale network - friends, collaborators on a different VPN, anyone - expose it via Tailscale Funnel. Free, no domain needed, no router work. The docs at isomux.com/docs/access-and-invites have an agent prompt that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives on the same page.
+
+## Hosted Isomux (not live yet)
+A managed version is in the works: you pick a name, we set up a server, and your office is served at \`yourname.isomux.app\`. Details are at isomux.com/hosted. It isn't open for signups yet, and the plans and prices on that page aren't final. Anyone interested should ask in the Discord. Don't quote prices, dates, or promises beyond what that page says, and don't imply it exists today.
 
 ## Full Feature List
 
@@ -181,6 +184,7 @@ Setup:
 
 ### Safety
 - Claude agents can run in bypassPermissions mode with safety hooks as guardrails; Codex agents have no equivalent (Codex 0.130 doesn't expose a programmatic hook surface).
+- Codex approvals: when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - Built-in pre-tool-use hooks block dangerous commands before they execute (Claude only):
   - Git safety: blocks destructive git commands (\`git reset --hard\`, force push, etc.)
   - Filesystem safety: blocks \`rm -rf\` on root/home paths (allows it on temp directories)

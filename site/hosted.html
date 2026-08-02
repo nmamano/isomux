@@ -1,0 +1,843 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hosted Isomux - your office, our server</title>
+    <meta
+      name="description"
+      content="Your own isomux office at yourname.isomux.app. We set up the server and then lock ourselves out."
+    />
+
+    <!-- Favicon (same as app) -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='2,10 16,18 16,30 2,22' fill='%23209050'/><polygon points='30,10 16,18 16,30 30,22' fill='%23186840'/><polygon points='16,8 24,12.5 16,17 8,12.5' fill='%230d1117'/><text x='16' y='14.5' text-anchor='middle' font-size='6' font-family='monospace' font-weight='bold' fill='%23E6F5EC'>%3E_</text><polygon points='16,2 2,10 8,12.5 16,8' fill='%233AC874'/><polygon points='16,2 30,10 24,12.5 16,8' fill='%234BE88A'/><polygon points='2,10 16,18 16,17 8,12.5' fill='%2330B76A'/><polygon points='30,10 16,18 16,17 24,12.5' fill='%2341D57E'/></svg>"
+    />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://isomux.com/hosted" />
+    <meta
+      property="og:title"
+      content="Hosted Isomux - your office, our server"
+    />
+    <meta
+      property="og:description"
+      content="Your own isomux office at yourname.isomux.app. We set up the server and then lock ourselves out."
+    />
+    <meta property="og:image" content="https://isomux.com/screenshot.png" />
+    <meta property="og:site_name" content="Isomux" />
+
+    <!-- Twitter / X -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:url" content="https://isomux.com/hosted" />
+    <meta
+      name="twitter:title"
+      content="Hosted Isomux - your office, our server"
+    />
+    <meta
+      name="twitter:description"
+      content="Your own isomux office at yourname.isomux.app. We set up the server and then lock ourselves out."
+    />
+    <meta name="twitter:image" content="https://isomux.com/screenshot.png" />
+
+    <!-- Theme color for mobile browsers (per system color scheme) -->
+    <meta
+      name="theme-color"
+      content="#0d1117"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#f4f6f9"
+      media="(prefers-color-scheme: light)"
+    />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/chatbot.css" />
+    <!-- Pre-paint theme resolution, same contract as the landing: a theme
+         picked anywhere on this origin (landing, docs, embedded demo) is
+         applied before first paint so the page doesn't flash the wrong
+         palette. Mirrors site/theme-toggle.js. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          if (saved) {
+            document.documentElement.setAttribute("data-theme", saved);
+            var lightIds = ["light", "solarized-light"];
+            document.documentElement.setAttribute(
+              "data-theme-mode",
+              lightIds.indexOf(saved) >= 0 ? "light" : "dark",
+            );
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      /* Palette and theme blocks are kept identical to site/index.html so the
+         two pages stay in sync under every theme. */
+      :root {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --accent-hover: #3da85a;
+        --border: #30363d;
+        --max-width: 960px;
+        color-scheme: dark;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --bg-surface: #ffffff;
+          --bg-card: #eef1f5;
+          --text: #1a2030;
+          --text-dim: #5a6a80;
+          --accent: #1f9550;
+          --accent-hover: #16803f;
+          --border: #d8dde6;
+          color-scheme: light;
+        }
+      }
+
+      :root[data-theme-mode="dark"] {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --accent-hover: #3da85a;
+        --border: #30363d;
+        color-scheme: dark;
+      }
+      :root[data-theme-mode="light"] {
+        --bg: #f4f6f9;
+        --bg-surface: #ffffff;
+        --bg-card: #eef1f5;
+        --text: #1a2030;
+        --text-dim: #5a6a80;
+        --accent: #1f9550;
+        --accent-hover: #16803f;
+        --border: #d8dde6;
+        color-scheme: light;
+      }
+
+      .theme-toggle {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        z-index: 90;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg-surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition:
+          background 0.15s,
+          transform 0.15s;
+      }
+      .theme-toggle:hover {
+        background: var(--bg-card);
+        transform: scale(1.06);
+      }
+      .theme-toggle svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      body {
+        font-family:
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          Helvetica,
+          Arial,
+          sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.6;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      h1,
+      h2,
+      h3 {
+        font-family:
+          "Space Grotesk",
+          -apple-system,
+          sans-serif;
+      }
+
+      /* ---- Top bar ---- */
+      .topbar {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 20px 24px 0;
+        font-size: 0.9rem;
+      }
+      .topbar a {
+        color: var(--text-dim);
+      }
+
+      /* ---- Hero ---- */
+      .hero {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 32px 24px 8px;
+        text-align: center;
+      }
+
+      .hero h1 {
+        font-size: 2.4rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin-bottom: 10px;
+      }
+
+      .hero .tagline {
+        font-family:
+          "Space Grotesk",
+          -apple-system,
+          sans-serif;
+        font-size: 1.15rem;
+        color: var(--text-dim);
+        margin-bottom: 18px;
+      }
+
+      .address {
+        font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+        color: var(--accent);
+      }
+
+      .status-badge {
+        display: inline-block;
+        background: rgba(80, 184, 108, 0.1);
+        border: 1px solid rgba(80, 184, 108, 0.3);
+        border-radius: 20px;
+        padding: 6px 18px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--accent);
+        margin-bottom: 20px;
+        line-height: 1.5;
+      }
+
+      .cta-row {
+        display: flex;
+        gap: 12px;
+        justify-content: center;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: background 0.15s;
+      }
+
+      .btn-primary {
+        height: 36px;
+        padding: 0 20px;
+        background: var(--accent);
+        color: #fff;
+      }
+      .btn-primary:hover {
+        background: var(--accent-hover);
+        text-decoration: none;
+      }
+
+      .btn-secondary {
+        height: 36px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0 14px;
+        font-size: 0.9rem;
+        color: var(--text);
+      }
+      .btn-secondary:hover {
+        background: var(--bg-card);
+        text-decoration: none;
+      }
+
+      .cta-note {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+        margin-top: 12px;
+      }
+
+      /* ---- Section shared ---- */
+      section {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 28px 24px;
+      }
+
+      section h2 {
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin-bottom: 18px;
+        letter-spacing: -0.01em;
+      }
+
+      .section-intro {
+        color: var(--text-dim);
+        margin-bottom: 18px;
+        font-size: 0.95rem;
+      }
+
+      /* ---- Steps ---- */
+      .steps {
+        list-style: none;
+        counter-reset: step;
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 14px;
+      }
+      .steps li {
+        counter-increment: step;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px 18px;
+      }
+      .steps li::before {
+        content: counter(step);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--accent);
+        color: #fff;
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+      }
+      .steps h3 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .steps p {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+      }
+
+      /* ---- Feature cards ---- */
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+      .card {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px 18px;
+      }
+      .card h3 {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--accent);
+        margin-bottom: 6px;
+      }
+      .card p {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+      }
+
+      /* ---- Lockout ---- */
+      .lockout {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--accent);
+        border-radius: 10px;
+        padding: 20px 22px;
+      }
+      .lockout p {
+        color: var(--text-dim);
+        font-size: 0.95rem;
+        margin-bottom: 10px;
+      }
+      .lockout p:last-child {
+        margin-bottom: 0;
+      }
+      .lockout strong {
+        color: var(--text);
+      }
+
+      /* ---- Pricing ---- */
+      .currency-toggle {
+        display: inline-flex;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+        margin-bottom: 14px;
+      }
+      .currency-toggle[hidden] {
+        display: none;
+      }
+      .currency-toggle button {
+        font: inherit;
+        font-size: 0.85rem;
+        padding: 5px 12px;
+        background: none;
+        border: 0;
+        color: var(--text-dim);
+        cursor: pointer;
+      }
+      .currency-toggle button.active {
+        background: var(--bg-surface);
+        color: var(--text);
+        font-weight: 600;
+      }
+      .plans {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+      .plan {
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 20px 22px;
+      }
+      .plan h3 {
+        font-size: 1.1rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .plan .price {
+        font-family:
+          "Space Grotesk",
+          -apple-system,
+          sans-serif;
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: var(--accent);
+      }
+      .plan .price span {
+        font-size: 0.9rem;
+        font-weight: 500;
+        color: var(--text-dim);
+      }
+      .plan p {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+        margin-top: 8px;
+      }
+
+      .included {
+        list-style: none;
+      }
+      .included li {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+        padding-left: 16px;
+        position: relative;
+        margin-bottom: 4px;
+      }
+      .included li::before {
+        content: "\b7";
+        position: absolute;
+        left: 0;
+        color: var(--accent);
+        font-weight: bold;
+      }
+
+      /* ---- FAQ ---- */
+      .faq h3 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin-top: 18px;
+        margin-bottom: 4px;
+      }
+      .faq h3:first-child {
+        margin-top: 0;
+      }
+      .faq p {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+      }
+
+      /* ---- Footer ---- */
+      footer {
+        max-width: var(--max-width);
+        margin: 0 auto;
+        padding: 32px 24px;
+        border-top: 1px solid var(--border);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        color: var(--text-dim);
+        font-size: 0.9rem;
+      }
+
+      .footer-links {
+        display: flex;
+        gap: 24px;
+      }
+
+      /* ---- Responsive ---- */
+      @media (max-width: 640px) {
+        .hero {
+          padding: 24px 16px 8px;
+        }
+        .hero h1 {
+          font-size: 1.7rem;
+        }
+        .hero .tagline {
+          font-size: 1rem;
+        }
+        section {
+          padding: 24px 16px;
+        }
+        section h2 {
+          font-size: 1.3rem;
+        }
+        .steps,
+        .cards,
+        .plans {
+          grid-template-columns: 1fr;
+        }
+        footer {
+          flex-direction: column;
+          gap: 12px;
+          text-align: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar"><a href="/">&larr; isomux.com</a></div>
+
+    <!-- Hero -->
+    <div class="hero">
+      <h1>Hosted Isomux</h1>
+      <p class="tagline">
+        Your own office at <span class="address">yourname.isomux.app</span>. We
+        set up the server, then lock ourselves out.
+      </p>
+      <div class="status-badge">Not live yet</div>
+      <div class="cta-row">
+        <a
+          href="https://discord.gg/FrjEYyNvYs"
+          target="_blank"
+          rel="noopener"
+          class="btn btn-primary"
+          >Get early access</a
+        >
+        <a href="/" class="btn btn-secondary">See what isomux is</a>
+      </div>
+      <p class="cta-note">
+        Ask in Discord and tell us what you would use it for.
+      </p>
+    </div>
+
+    <!-- How it works -->
+    <section id="how">
+      <h2>How it works</h2>
+      <ol class="steps">
+        <li>
+          <h3>Pick a name</h3>
+          <p>Your office lives at that name, served over HTTPS.</p>
+        </li>
+        <li>
+          <h3>Pick a plan</h3>
+          <p>Monthly, cancel whenever you want.</p>
+        </li>
+        <li>
+          <h3>We build your server</h3>
+          <p>Nothing to install. A sign-in link is waiting when it is done.</p>
+        </li>
+        <li>
+          <h3>Sign in and start working</h3>
+          <p>
+            Connect your Claude or ChatGPT plan from the office terminal, then
+            spawn your first agent.
+          </p>
+        </li>
+      </ol>
+    </section>
+
+    <!-- What you get -->
+    <section id="what">
+      <h2>What you get</h2>
+      <div class="cards">
+        <div class="card">
+          <h3>A whole office</h3>
+          <p>
+            Not one agent. Rooms of Claude and Codex coworkers that message each
+            other, share a task board, and remember what they learn.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Room for your team</h3>
+          <p>
+            Invite people with a link and pick which rooms each one sees. No
+            accounts, no passwords, no per-seat pricing.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Every device</h3>
+          <p>
+            The same office and the same conversations from your laptop and your
+            phone, wherever you are.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Your subscriptions</h3>
+          <p>
+            Sign in with your own Claude or ChatGPT plan from inside the office.
+            We never see your model credentials and never resell tokens.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Nobody else on the box</h3>
+          <p>A server of your own, running your office and nothing else.</p>
+        </div>
+        <div class="card">
+          <h3>Updates when you say so</h3>
+          <p>
+            New releases show up in your office header. You apply them when no
+            agent is mid-task.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- The guarantee -->
+    <section id="access">
+      <h2>We lock ourselves out</h2>
+      <div class="lockout">
+        <p>
+          <strong
+            >Setting your server up is the only time we are inside it.</strong
+          >
+          Once you confirm you are in, our key comes off the box. From then on
+          we keep no access of our own, and we do not read your conversations or
+          your files.
+        </p>
+        <p>
+          We rent the server, so restarting it, powering it off and wiping it
+          stay ours. So does the provider's rescue console, which can reach the
+          disk. We open it only when you ask us to, in writing, for one specific
+          problem, and we write down that we did. That is a promise about what
+          we do, not a capability we can give up while the server is in our
+          name.
+        </p>
+        <p>
+          The catch, stated plainly: nobody can let you back in if you lose
+          access to your own office. Leave us a key of your own at signup and
+          that stops being a risk.
+        </p>
+      </div>
+    </section>
+
+    <!-- Plans -->
+    <section id="plans">
+      <h2>Plans</h2>
+      <p class="section-intro">
+        Priced a small step above what the server costs us. Nothing here is
+        final until we open.
+      </p>
+      <!-- PROPOSED numbers pending Nil's call: entry box costs EUR 5.50/mo,
+           larger tier EUR 11-13/mo, plus backups, fees and traffic. -->
+      <div class="currency-toggle" hidden>
+        <button type="button" class="active" data-cur="eur">EUR</button>
+        <button type="button" data-cur="usd">USD</button>
+      </div>
+      <div class="plans">
+        <div class="plan">
+          <h3>Entry</h3>
+          <div class="price" data-eur="8" data-usd="9">
+            &euro;8 <span>/ month</span>
+          </div>
+          <p>
+            Sized for an office where a few agents work at a time. Most people
+            start here.
+          </p>
+        </div>
+        <div class="plan">
+          <h3>Team</h3>
+          <div class="price" data-eur="19" data-usd="22">
+            &euro;19 <span>/ month</span>
+          </div>
+          <p>
+            More cores, memory and disk, for busier offices and heavier builds.
+          </p>
+        </div>
+      </div>
+      <ul class="included">
+        <li>Your own address, with HTTPS</li>
+        <li>As many people in the office as you want</li>
+        <li>Every isomux feature</li>
+        <li>Cancel whenever you want</li>
+      </ul>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="faq">
+      <h2>Questions</h2>
+      <h3>What is isomux?</h3>
+      <p>
+        An office where Claude and Codex agents work like coworkers: they talk
+        to each other, share a task board, and you reach them from any device.
+        <a href="/">Have a look</a>.
+      </p>
+      <h3>Can I run it myself instead?</h3>
+      <p>
+        Yes, and plenty of people do. Isomux is free and open source, and there
+        is a <a href="/docs/vps-install">one-command install</a> for a fresh
+        server. Hosted is for people who would rather not own the box.
+      </p>
+      <h3>Do I need an API key?</h3>
+      <p>
+        No. Sign in with your Claude or ChatGPT subscription from the terminal
+        inside your office. An API key works too if you prefer one.
+      </p>
+      <h3>Who else can get into my office?</h3>
+      <p>
+        Only the people you invite. Once you tell us you are in, our key comes
+        off the box.
+      </p>
+      <h3>Can I invite my team?</h3>
+      <p>
+        Yes. One link per person, and you choose which rooms each of them sees.
+      </p>
+      <h3>Is there a free trial?</h3>
+      <p>No. Plans are monthly and you can cancel whenever you want.</p>
+      <h3>What happens if I cancel?</h3>
+      <p>
+        Your office keeps serving to the end of the period you paid for, plus a
+        week to take your work out.
+      </p>
+    </section>
+
+    <!-- Closing CTA -->
+    <section id="waitlist" style="text-align: center">
+      <h2>Want in early?</h2>
+      <p class="section-intro">
+        Hosted isomux is not open yet. Say hello in Discord and we will come
+        find you when it is.
+      </p>
+      <div class="cta-row">
+        <a
+          href="https://discord.gg/FrjEYyNvYs"
+          target="_blank"
+          rel="noopener"
+          class="btn btn-primary"
+          >Get early access</a
+        >
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+      <span>Isomux</span>
+
+      <div class="footer-links">
+        <a href="/">isomux.com</a>
+        <a href="/docs">Docs</a>
+        <a
+          href="https://github.com/nmamano/isomux"
+          target="_blank"
+          rel="noopener"
+          >GitHub</a
+        >
+      </div>
+    </footer>
+
+    <script>
+      (function () {
+        var toggle = document.querySelector(".currency-toggle");
+        if (!toggle) return;
+        var buttons = toggle.querySelectorAll("button");
+        var prices = document.querySelectorAll(".plan .price");
+        function show(cur) {
+          for (var i = 0; i < prices.length; i++) {
+            var p = prices[i];
+            var amount =
+              cur === "usd"
+                ? "$" + p.getAttribute("data-usd")
+                : "€" + p.getAttribute("data-eur");
+            p.innerHTML = amount + " <span>/ month</span>";
+          }
+          for (var j = 0; j < buttons.length; j++) {
+            buttons[j].className =
+              buttons[j].getAttribute("data-cur") === cur ? "active" : "";
+          }
+        }
+        for (var k = 0; k < buttons.length; k++) {
+          buttons[k].addEventListener("click", function () {
+            var cur = this.getAttribute("data-cur");
+            show(cur);
+            try {
+              localStorage.setItem("isomux-currency", cur);
+            } catch (e) {}
+          });
+        }
+        var cur = null;
+        try {
+          cur = localStorage.getItem("isomux-currency");
+        } catch (e) {}
+        if (cur !== "eur" && cur !== "usd") {
+          var tz = "";
+          try {
+            tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+          } catch (e) {}
+          cur = tz.indexOf("Europe/") === 0 ? "eur" : "usd";
+        }
+        show(cur);
+        toggle.hidden = false;
+      })();
+    </script>
+    <script defer src="/_vercel/insights/script.js"></script>
+    <script defer src="/theme-toggle.js"></script>
+
+    <!-- Chat widget -->
+    <div id="chat-widget"></div>
+    <script defer src="/chatbot.js"></script>
+  </body>
+</html>

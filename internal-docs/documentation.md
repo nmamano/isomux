@@ -18,8 +18,8 @@ Keep these consistent across all surfaces below.
 - **Audience:** Developers landing on the GitHub repo.
 - **Structure:**
   - Headline tagline (the bold line under the H1): Isomux's one-line category pitch. **Must stay in lockstep with the landing's `<title>`, social meta tags, and hero (section 2), and the org profile tagline (section 11).**
-  - `## Feature Highlights` - short bulleted list of the headline features. **Must stay in lockstep with the landing page's `<ul class="feature-highlights">` (see section 2)** - same bullets, same order, same wording. Any edit here needs a matching edit there, and vice versa. Ends with a one-liner linking to `docs/features.md`.
-  - `## Get Started` - install & first-run instructions (basic local only). Ends with a link to `docs/self-hosted.md`.
+  - `## Feature Highlights` - two subsections, `### Coworkers...` and `### An office made for humans and agents`. **Must stay in lockstep with the landing page's `<ul class="coworker-list">` and `<ul class="office-list">` (see section 2)** - same bullets, same order, same wording. Any edit here needs a matching edit there, and vice versa. Ends with a one-liner linking to `docs/features.md`.
+  - `## Get Started` - install & first-run instructions (basic local only). Ends with links to `docs/self-hosted.md`, `docs/vps-install.md`, and the hosted page (section 2b).
   - `## How it works` - one-line link to `docs/how-it-works.md`. Technical overview content lives in the docs.
 - **Update when:** any user-visible feature is added, removed, or meaningfully changed.
 
@@ -29,11 +29,20 @@ Keep these consistent across all surfaces below.
 - **Audience:** Visitors to isomux.com.
 - **Structure:**
   - `<title>`, social meta tags (og/twitter title + description), and the hero `<p class="tagline">`: Isomux's category pitch. **Must stay in lockstep with the README headline (section 1)** and the org profile tagline (section 11). The `<title>` and social titles use the short form; the description and hero use the full line.
-  - `<section id="features">` with `<ul class="feature-highlights">` - **must stay in lockstep with the README's `## Feature Highlights` (section 1)**: same bullets, same order, same wording (modulo HTML markup, inline links, and code-style spans). Any edit here needs a matching edit there, and vice versa. Followed by a one-liner linking to `/docs/features`.
-  - `<section id="setup">` - basic local Get Started (always open, no foldables). Ends with a link to `/docs/self-hosted` for always-on-server setups.
+  - `<section id="features">` with `<ul class="coworker-list">`, and `<section id="office">` with `<ul class="office-list">` - **must stay in lockstep with the README's `## Feature Highlights` (section 1)**: same bullets, same order, same wording (modulo HTML markup, inline links, and code-style spans). Any edit here needs a matching edit there, and vice versa. Followed by a one-liner linking to `/docs/features`.
+  - `<section id="setup">` - basic local Get Started (always open, no foldables). Ends with links to `/docs/self-hosted` and `/docs/vps-install` for always-on-server setups, and to `/hosted` for the managed version.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
 - **Update when:** headline features change. Always update both this file and the README in the same commit so they don't drift.
 - **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`).
+
+## 2b. Hosted landing page (isomux.com/hosted)
+
+- **File:** `site/hosted.html`
+- **Audience:** People who want isomux without running a server. Marketing page for the managed product designed in `internal-docs/hosted-isomux-design.md` and `internal-docs/control-plane-design.md`.
+- **Structure:** hero with the not-live badge, how it works, what you get, the lock-ourselves-out section, plans, FAQ, closing CTA. Self-contained HTML with the landing's palette and theme handling copied in; linked from the landing's setup section and footer.
+- **Update when:** the hosted product's promises change - pricing, the access guarantee, cancellation terms, or launch status. Every claim on it traces to a ruling in the two design docs; keep it that way rather than writing new policy in the copy.
+- **Related:** `api/chat.ts` carries a short "Hosted Isomux" section so the site chatbot doesn't invent details or imply it has launched.
+- **Deploy note:** static, served by Vercel with `cleanUrls`, so the file is served at `/hosted`. Moves to `cloud.isomux.com` if and when the control plane ships.
 
 ## 3. Site chatbot system prompt
 
@@ -134,7 +143,7 @@ These aren't user-facing docs, but they do describe features and can fall out of
 ## Quick checklist when adding a user-visible feature
 
 1. `README.md` `## Feature Highlights` - only if the feature is headline-level.
-2. `site/index.html` `<ul class="feature-highlights">` - keep in lockstep with the README.
+2. `site/index.html` `<ul class="coworker-list">` / `<ul class="office-list">` - keep in lockstep with the README.
 3. `docs/features.md` - canonical inventory. Add/edit here whenever any user-visible feature changes.
 4. `docs/<other>.md` - touch the relevant page if the feature affects setup, access, backup, etc.
 5. `api/chat.ts` `SYSTEM_PROMPT` - the feature-list section and any relevant guideline.

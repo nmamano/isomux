@@ -822,6 +822,10 @@
           and memories built over time
           <ul class="cw-detail">
             <li>and each agent even tracks its own usage</li>
+            <li>
+              see how much context and plan allowance each one has left before
+              it runs out
+            </li>
           </ul>
         </li>
         <li>
@@ -896,6 +900,11 @@
           and memory, so you don't have to repeat context every time
         </li>
         <li>
+          <strong>Custom commands</strong> on top of your own:
+          <code>/pair-programming</code>, <code>/peer-review</code>,
+          <code>/second-opinion</code>
+        </li>
+        <li>
           <strong>Every desk comes stocked</strong>: built-in terminal, editor,
           diff viewer, diagram viewer, and URL screenshotter
         </li>
@@ -907,9 +916,14 @@
         </li>
         <li><strong>Customizable</strong> with plugins</li>
         <li>
+          <strong>Kept up to date</strong>: the office tells you when a new
+          release is out, and you apply it when nothing is mid-task
+        </li>
+        <li>
           <strong>Full of quality-of-life features</strong>: edit a past message
           to branch the conversation, attach files, auto-generated conversation
-          topics, pre-tool-call safety hooks, and more
+          topics, pre-tool-call safety hooks, secrets kept out of prompts, daily
+          backups, and more
         </li>
       </ul>
       <p style="color: var(--text-dim); font-size: 0.95rem; margin-top: 20px">
@@ -1003,7 +1017,13 @@ bun run dev</pre
         <p style="margin-top: 20px">
           Want to run it on an always-on box, access from every device, and
           invite other users to your office? See
-          <a href="/docs/self-hosted">self-hosted setup</a>.
+          <a href="/docs/self-hosted">self-hosted setup</a>, or the
+          <a href="/docs/vps-install">one-command install</a> for a fresh
+          server.
+        </p>
+        <p style="margin-top: 8px">
+          Rather not run a server at all?
+          <a href="/hosted">We can host it for you</a>.
         </p>
       </div>
     </section>
@@ -1022,6 +1042,7 @@ bun run dev</pre
       <span>Isomux</span>
 
       <div class="footer-links">
+        <a href="/hosted">Hosted</a>
         <a
           href="https://github.com/nmamano/isomux"
           target="_blank"
