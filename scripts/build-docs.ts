@@ -703,6 +703,7 @@ ${opts.body}
 </footer>
 <div id="chat-widget"></div>
 ${contextScript}
+<script defer src="/analytics.js"></script>
 <script defer src="/theme-toggle.js"></script>
 <script defer src="/chatbot.js"></script>
 </body>
