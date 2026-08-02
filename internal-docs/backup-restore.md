@@ -21,7 +21,10 @@ own agents die with the service they would be restoring.
 - **Destination:** `$ISOMUX_BACKUP_DIR`, else `~/isomux-backups`. That is
   the home directory of the **server process**, which on a VPS install is
   `/home/isomux/isomux-backups`, not your own home. The destination sits
-  outside the state root so a restore never clobbers the backups.
+  outside the state root so a restore never clobbers the backups. It is
+  still the same disk as the office it protects, and nothing copies it
+  anywhere else - a box that dies takes its backups with it. If the office
+  matters, pull the tarballs onto another machine on a schedule.
 - **File name:** `isomux-YYYY-MM-DD.tar.gz`, the local date the run
   happened.
 - **Retention:** the 7 newest are kept, older ones pruned after each
@@ -85,6 +88,11 @@ Read `destDir` from there rather than assuming `~/isomux-backups` - it is
 the path the running process actually uses.
 
 ## Restoring
+
+Two shapes: onto the box the office already runs on (this section), and
+onto a replacement box after the old one is gone (next section). Both were
+exercised end to end on the Hetzner test box on 2026-08-01, against release
+v2026.7.23; the commands below are the ones that were run.
 
 Pick the tarball first, and be deliberate about it: the state root you are
 about to replace is the only copy of anything that happened since that
@@ -180,6 +188,85 @@ curl -sf http://127.0.0.1:4000/readyz && echo ready
 startup migrations, which is the same signal the updater polls before it
 calls an update good.
 
+## Restoring onto a new box
+
+The old box is gone and the office has to come back on a machine that has
+never run it. Everything above still applies; these are the extra steps
+around it.
+
+**0. Have the tarball somewhere other than the dead box.** The backups
+live next to the office they protect, so this procedure starts with a copy
+pulled off earlier:
+
+```
+scp root@office.example.com:/home/isomux/isomux-backups/isomux-2026-08-01.tar.gz .
+```
+
+**1. Point the domain's DNS records at the new box, then install isomux
+normally.**
+
+They have to resolve to the new box before you install, or Caddy cannot
+get a certificate - including an AAAA record if the domain has one. Then
+the one-liner from `docs/vps-install.md`:
+
+```
+DOMAIN=office.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh)"
+```
+
+Install the release the backup came from if you know it
+(`ISOMUX_REF=v2026.7.23`); newer code reading older state is supported,
+the other direction is not.
+
+What you get is an empty office with its own owner and its own invite
+link. The restore replaces both, so ignore the invite link the installer
+prints.
+
+**2. Restore over the fresh state root**, the same steps as above:
+
+```
+scp isomux-2026-08-01.tar.gz root@office.example.com:/root/
+ssh root@office.example.com
+systemctl stop isomux
+systemctl is-active isomux                                    # inactive, not deactivating
+tar -tzf /root/isomux-2026-08-01.tar.gz >/dev/null            # expect: silence
+mv /home/isomux/.isomux /home/isomux/.isomux.fresh-install-$(date +%Y%m%d-%H%M%S)
+tar -xzf /root/isomux-2026-08-01.tar.gz -C /home/isomux
+systemctl start isomux
+curl -sf http://127.0.0.1:4000/readyz && echo ready
+```
+
+**3. Delete the backup the fresh install already took.** A new office
+backs up as it starts, so `/home/isomux/isomux-backups` holds a tarball of
+the empty office. Left there it is what a later "restore the newest
+tarball" picks, and it holds the schedule off for 24h. The old box's
+backups died with it and the archive you restored from is in `/root/`, so
+this directory holds exactly that one file - list it and delete it by
+name:
+
+```
+ls -la /home/isomux/isomux-backups/
+rm /home/isomux/isomux-backups/isomux-2026-08-02.tar.gz
+```
+
+A few hundred bytes is the tell: an empty office compresses to about 300,
+a real one does not. With the directory empty the office takes a real
+backup at its next hourly check, or immediately if you restart it.
+
+**4. Sign in.** The installer's invite was minted into the state root you
+just replaced, so it is gone. Mint a fresh owner link instead, using the
+restored office's own owner name - look it up first, and pick one if the
+office has several owners:
+
+```
+jq -r '.[] | select(.role=="owner") | .name' /home/isomux/.isomux/users.json
+cd /opt/isomux
+sudo -u isomux HOME=/home/isomux /usr/local/bin/bun run server/index.ts owner-login --name "<that name>"
+```
+
+The link is single-use and expires in 15 minutes. Sessions are in the
+archive too, so a browser signed in before the backup was taken stays
+signed in until that session would have expired anyway.
+
 ## After the restore
 
 - **Agents all come back; some need a fresh session.** Agent
@@ -200,7 +287,11 @@ calls an update good.
   was taken.
 - **The next daily backup is unaffected.** The backup directory lives
   outside the state root, so the restore does not touch it and the
-  schedule picks up where it was.
+  schedule picks up where it was. On a new box it is the exception: see
+  step 3 there.
+- **Agents come back pointing at directories the box may not have.** An
+  agent's working directory is not in the archive, only the path to it. On
+  a rebuilt box those paths are empty until you clone the repos back.
 
 ## Other tarballs you may find
 

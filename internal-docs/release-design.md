@@ -254,9 +254,16 @@ Remaining:
 
 - ~~`internal-docs/backup-restore.md` (referenced by `backup.ts`) still does
   not exist; the daily-backup restore procedure is undocumented.~~ Written
-  2026-07-31. The updater does not depend on it (it snapshots and restores
-  on its own), but operators do; the runbook also covers restoring a
-  `pre-update-*` snapshot by hand.
+  2026-07-31, exercised 2026-08-01. The updater does not depend on it (it
+  snapshots and restores on its own), but operators do; the runbook also
+  covers restoring a `pre-update-*` snapshot by hand. Both restore shapes
+  were run end to end on the test box against v2026.7.23 - in place, and
+  onto a provider-rebuilt blank Ubuntu 24.04 (fresh `deploy/install.sh`,
+  then the backup over it): users, rooms, agents, tasks, memory, chat
+  history and sign-in all came back, no code changes needed. One gap the
+  drill exposed is a policy call, not a bug: the daily tarballs only ever
+  exist on the box they protect, so "the VPS died" also loses the backups
+  unless someone copies them off.
 - First real release: run `scripts/release.sh` once, then flip the
   installer expectation that `releases/latest` 404s.
 - The in-UI trigger's busy-agent confirm has never been exercised with an
