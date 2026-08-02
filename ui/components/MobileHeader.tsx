@@ -101,7 +101,7 @@ export function MobileHeader({
                 display: "flex",
                 alignItems: "center",
                 gap: 3,
-                fontSize: 9,
+                fontSize: 10,
                 fontWeight: 600,
                 color: s.c,
                 fontFamily: "'JetBrains Mono',monospace",

@@ -39,6 +39,7 @@ const NOOP_GUARD_DEPS: GuardDeps = {
   userIdForUsername: () => null,
   cronjobCreatorUserId: () => null,
   agentManagerUserId: () => null,
+  killedAgentManagerUserId: () => null,
 };
 
 function userIdentity(role: "owner" | "member"): Identity {

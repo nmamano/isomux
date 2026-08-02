@@ -861,7 +861,7 @@ export function OfficeView({
             <span
               key={i}
               style={{
-                fontSize: 9,
+                fontSize: 10,
                 color: "var(--text-hint)",
                 fontFamily: "'JetBrains Mono',monospace",
                 letterSpacing: "0.04em",

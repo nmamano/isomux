@@ -42,6 +42,7 @@ const deps: GuardDeps = {
   userIdForUsername: () => null,
   cronjobCreatorUserId: () => null,
   agentManagerUserId: () => null,
+  killedAgentManagerUserId: () => null,
 };
 
 const allowGuard: Guard = () => ({ ok: true });

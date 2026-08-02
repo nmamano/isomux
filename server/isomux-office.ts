@@ -1195,6 +1195,8 @@ function buildLiveGuardDeps(): GuardDeps {
     },
     getAllAgents: () => agentManager.getAllAgents(),
     getRooms: () => agentManager.getRooms(),
+    killedAgentManagerUserId: (agentId) =>
+      agentManager.killedAgentManagerUserId(agentId),
     getUserByName: (username) => getUserByName(username) ?? null,
     listCronjobs: () => cronjobManager.listCronjobs(),
   };

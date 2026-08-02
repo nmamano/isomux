@@ -17,6 +17,8 @@
 // FakeBackend auto-completes), so spawn/kill/move are deterministic.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { loadRecentCwds } from "../persistence.ts";
@@ -909,6 +911,66 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const after = srv.agentManager.getAgent(x.id);
     expect(after?.agentType).toBe("codex");
     expect(after?.modelFamily).toBe("gpt-5.5");
+  });
+
+  // Task a7a60fba. The engine switch applies the metadata edit (name/cwd/
+  // outfit/instructions) and only THEN hands off to newConversation for the
+  // engine change, with no rollback wrapper around the pair. That is safe only
+  // as long as nothing between the two can throw - the steps newConversation
+  // runs first are each deliberately non-throwing (emitQueueUpdate does no
+  // disk I/O; persistQueueState is the best-effort wrapper; persistSessionTopic
+  // goes through loadSessionsMap/saveSessionsMap, which swallow their own I/O
+  // errors). This pins that, because if any of them starts propagating, the
+  // switch half-applies: the new name lands and the engine does not.
+  //
+  // The failure is induced at the real filesystem rather than through a mock:
+  // sessions.json is replaced by a DIRECTORY, so both the read and the atomic
+  // write genuinely fail (EISDIR), root or not.
+  it("a failing session-topic write does NOT strand an engine switch half-applied", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0); // claude agent
+    // persistCurrentSessionTopic only writes when there is a session AND a real
+    // topic, so give it both - otherwise the test would pass vacuously. A fresh
+    // agent is dormant, so one message is what wakes a session into existence.
+    await req(srv, "POST", `/api/agents/${x.id}/messages`, {
+      body: { text: "hello" },
+      rawSessionId: owner.rawSessionId,
+    });
+    for (
+      let i = 0;
+      i < 40 && !srv.agentManager.getCurrentSessionId(x.id);
+      i++
+    ) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    srv.agentManager.setTopic(x.id, "the marmalade problem");
+    expect(srv.agentManager.getCurrentSessionId(x.id)).toBeTruthy();
+    expect(srv.agentManager.getAgent(x.id)?.topic).toBe(
+      "the marmalade problem",
+    );
+
+    const sessionsPath = join(srv.stateRoot, "logs", x.id, "sessions.json");
+    rmSync(sessionsPath, { force: true });
+    mkdirSync(sessionsPath, { recursive: true });
+    // Prove the write really is broken now; a passing write would make the
+    // assertions below meaningless.
+    expect(() => writeFileSync(sessionsPath, "x")).toThrow();
+
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { agentType: "codex", modelFamily: "gpt-5.5", name: "Renamed" },
+      rawSessionId: owner.rawSessionId,
+    });
+
+    expect(res.status).toBe(200);
+    const after = srv.agentManager.getAgent(x.id);
+    // Both halves landed: the metadata edit AND the engine change.
+    expect(after?.name).toBe("Renamed");
+    expect(after?.agentType).toBe("codex");
+    expect(after?.modelFamily).toBe("gpt-5.5");
+    expect(after?.state).not.toBe("error");
   });
 
   it("PATCH codex->claude with a Codex slug -> 422 (validated against the NEW engine, both directions)", async () => {

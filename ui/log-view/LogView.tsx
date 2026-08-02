@@ -2486,7 +2486,7 @@ export function LogView({
                           </span>
                         )}
                         {att.error && (
-                          <span style={{ fontSize: isMobile ? 11 : 9 }}>
+                          <span style={{ fontSize: isMobile ? 11 : 10 }}>
                             {att.error}
                           </span>
                         )}

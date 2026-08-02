@@ -233,7 +233,7 @@ export function DeskUnit({
           {needsAttention && (
             <span
               style={{
-                fontSize: 9,
+                fontSize: 10,
                 fontWeight: 700,
                 color: "white",
                 background: "var(--purple)",

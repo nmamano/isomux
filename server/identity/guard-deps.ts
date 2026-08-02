@@ -38,6 +38,12 @@ export interface GuardDepsLiveReaders {
   }[];
   // The live global rooms list (dense, creation order); index → roomId.
   getRooms(): readonly { id: string }[];
+  // The spawning userId recorded for a KILLED agent (history entry on disk, no
+  // live-roster entry), or null for a live/unknown/user-less one.
+  // agentManager.killedAgentManagerUserId, which owns the live-map exclusion -
+  // it holds the authoritative map, so asking it avoids re-deriving "killed"
+  // from a second snapshot here.
+  killedAgentManagerUserId(agentId: string): string | null;
   // Username → user record (or null). users.getUserByName.
   getUserByName(username: string): { id: string } | null;
   // The live cronjob list; id → creator userId. cronjobManager.listCronjobs.
@@ -80,6 +86,10 @@ export function buildProductionGuardDeps(
       const agent = live.getAllAgents().find((a) => a.id === agentId);
       // Unknown agent collapses with unowned into the same null (non-leak deny).
       return agent?.userId ?? null;
+    },
+
+    killedAgentManagerUserId(agentId: string): string | null {
+      return live.killedAgentManagerUserId(agentId);
     },
   };
 }

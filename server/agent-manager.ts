@@ -661,6 +661,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // is applied first; cwd was already validated by the route handler. We
     // deliberately do NOT move the old session's files - it's abandoned to
     // history under its own engine/cwd.
+    //
+    // No rollback wrapper here, unlike the normal path below. The
+    // session-recreate rollback that path carries is moot for this branch:
+    // newConversation installs NO session (release-on-clear - a blank
+    // conversation holds no subprocess), so there is no failed install to
+    // unwind. What keeps the pair safe is narrower than "nothing can fail",
+    // though - it is that every step newConversation runs BEFORE the engine
+    // change is deliberately non-throwing: emitQueueUpdate does no disk I/O,
+    // persistQueueState is the best-effort wrapper, and persistSessionTopic's
+    // I/O errors are swallowed inside load/saveSessionsMap. Let any of them
+    // start propagating and this branch half-applies - the new name lands, the
+    // engine does not - and then it needs the snapshot/revert treatment the
+    // normal path gets. Pinned by "a failing session-topic write does NOT
+    // strand an engine switch half-applied" (routes-agents-rest.test.ts).
+    // Task a7a60fba.
     if (
       (changes.agentType === "claude" || changes.agentType === "codex") &&
       changes.agentType !== managed.info.agentType
@@ -1179,6 +1194,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     summaries.sort((a, b) => b.killedAt - a.killedAt);
     return summaries;
+  }
+
+  // The spawning user recorded for a KILLED agent - one that is gone from the
+  // live map but still has its history entry (and its transcripts on disk).
+  // Gates the killed-agent branch of log reads (task ffb90761), which is why it
+  // is a lookup of its own rather than a widening of the live-roster seams.
+  //
+  // Every unresolvable case fails closed with null: a LIVE agent (that one is
+  // the live path's business, never this one), an unknown id, and a legacy
+  // history entry from before agents recorded their user.
+  function killedAgentManagerUserId(agentId: string): string | null {
+    if (agents.has(agentId)) return null;
+    return loadAgentHistory()[agentId]?.userId ?? null;
   }
 
   // For legacy entries (no kill-time stamp), use the agent's log directory
@@ -7203,6 +7231,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getAllAgents,
     getManifest,
     getKilledAgentSummaries,
+    killedAgentManagerUserId,
     restoreAgents,
     demoteToLazy,
     sweepIdleAgents,

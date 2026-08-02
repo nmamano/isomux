@@ -211,7 +211,7 @@ export function AgentListView({
                     {needsAttention.has(agent.id) && (
                       <span
                         style={{
-                          fontSize: 9,
+                          fontSize: 10,
                           fontWeight: 700,
                           color: "white",
                           background: "var(--purple)",

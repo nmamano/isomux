@@ -1083,7 +1083,7 @@ function SectionLabel({
   return (
     <div
       style={{
-        fontSize: isMobile ? 11 : 9,
+        fontSize: isMobile ? 11 : 10,
         fontWeight: 600,
         textTransform: "uppercase",
         letterSpacing: "0.05em",

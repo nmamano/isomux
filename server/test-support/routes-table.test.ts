@@ -128,6 +128,7 @@ describe("route table: public routes are routed AROUND authorize()", () => {
       userIdForUsername: () => null,
       cronjobCreatorUserId: () => null,
       agentManagerUserId: () => null,
+      killedAgentManagerUserId: () => null,
     };
     const cap = API_ROUTES.find((r) => r.auth.kind === "capability");
     if (!cap || cap.auth.kind !== "capability") throw new Error("no cap route");

@@ -200,7 +200,7 @@ export function ContextBattery({
           className="context-battery-pct"
           style={{
             fontFamily: "'JetBrains Mono',monospace",
-            fontSize: 9,
+            fontSize: 10,
             fontWeight: 600,
             color: "inherit",
             whiteSpace: "nowrap",

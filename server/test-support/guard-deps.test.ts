@@ -29,6 +29,10 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
       { id: "aDangling", roomId: "rGone", userId: null }, // roomId names no live room; unowned
     ],
     getRooms: () => [{ id: "r1" }, { id: "r2" }],
+    // The killed list: "aDead" was spawned by u2 and is gone from the roster.
+    // "a1" is LIVE and deliberately answers null here (the reader owns that
+    // exclusion), so the two lookups can never both claim the same agent.
+    killedAgentManagerUserId: (agentId) => (agentId === "aDead" ? "u2" : null),
     getUserByName: (name) => (name === "Nil" ? { id: "u1" } : null),
     listCronjobs: () => [
       { id: "j1", userId: "u7" },
@@ -64,6 +68,15 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     expect(deps.agentManagerUserId("a2")).toBe("u2");
     expect(deps.agentManagerUserId("aDangling")).toBeNull(); // unowned
     expect(deps.agentManagerUserId("ghost")).toBeNull(); // unknown
+  });
+  it("killedAgentManagerUserId reads the KILLED list, and the two lookups stay disjoint", () => {
+    expect(deps.killedAgentManagerUserId("aDead")).toBe("u2");
+    expect(deps.killedAgentManagerUserId("ghost")).toBeNull();
+    // A live agent resolves through the roster and NOT through the killed
+    // list; a dead one the other way round.
+    expect(deps.killedAgentManagerUserId("a1")).toBeNull();
+    expect(deps.agentManagerUserId("aDead")).toBeNull();
+    expect(deps.roomIdForAgent("aDead")).toBeNull();
   });
 });
 
@@ -119,8 +132,9 @@ describe("guard-deps (T1): the live adapter agrees with today's ACL", () => {
     }
   });
 
-  it("roomIdForAgent / userIdForUsername fail closed on unknowns", () => {
+  it("roomIdForAgent / userIdForUsername / killedAgentManagerUserId fail closed on unknowns", () => {
     expect(server.guardDeps.roomIdForAgent("nonexistent")).toBeNull();
     expect(server.guardDeps.userIdForUsername("nobody-here")).toBeNull();
+    expect(server.guardDeps.killedAgentManagerUserId("nonexistent")).toBeNull();
   });
 });

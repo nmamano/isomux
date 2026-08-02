@@ -1725,7 +1725,7 @@ function RoleBadge({ role }: { role: "owner" | "member" }) {
   return (
     <span
       style={{
-        fontSize: 9,
+        fontSize: 10,
         fontWeight: 600,
         textTransform: "uppercase",
         letterSpacing: 0.5,

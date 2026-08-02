@@ -19,6 +19,7 @@ const deps: GuardDeps = {
   userIdForUsername: () => null,
   cronjobCreatorUserId: () => null,
   agentManagerUserId: () => null,
+  killedAgentManagerUserId: () => null,
 };
 const identity: Identity = {
   scope: "user",

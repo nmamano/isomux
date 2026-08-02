@@ -496,3 +496,117 @@ describe("routes/logs REST: authorization matrix", () => {
     expect(errCode(r)).toBe("unauthenticated");
   });
 });
+
+// A killed agent's logs stay on disk, and until task ffb90761 they were
+// unreachable: the room lookup runs over the LIVE roster, so a dead agent
+// denied exactly like an id that never existed. The rule for a dead one is not
+// the room rule - it is the boss that spawned it, plus office owners - so the
+// matrix below pins each half in both directions.
+describe("routes/logs REST: KILLED agents (task ffb90761)", () => {
+  it("the boss who spawned it still reads its logs; a killed agent is not a 403 wall", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomA] });
+
+    const dead = await spawnOwnedBy(srv, "Dead", roomA, 0, member.username);
+    seedLog(srv, dead.id);
+    await srv.agentManager.kill(dead.id);
+    expect(srv.agentManager.getAgent(dead.id)).toBeUndefined();
+
+    // Mia spawned it, so Mia reads it - search included, not just the index.
+    const r = await api(srv, `/api/agents/${dead.id}/logs?q=marmalade`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.totalMatches).toBe(2);
+
+    // And an office owner reaches it even though someone else spawned it.
+    expect(
+      (
+        await api(srv, `/api/agents/${dead.id}/logs`, {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(200);
+  });
+
+  it("an agent reads a killed agent of the SAME boss, and a stranger's is refused", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const mia = await srv.seedMember("Mia");
+    const rex = await srv.seedMember("Rex");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const miaId = getUserByName("Mia")!.id;
+    const rexId = getUserByName("Rex")!.id;
+    updateUserById(miaId, { allowedRooms: [roomA] });
+    updateUserById(rexId, { allowedRooms: [roomA] });
+
+    const live = await spawnOwnedBy(srv, "Live", roomA, 0, mia.username);
+    const dead = await spawnOwnedBy(srv, "Dead", roomA, 1, mia.username);
+    seedLog(srv, dead.id);
+    await srv.agentManager.kill(dead.id);
+
+    // Mia's live agent inherits Mia's reach into Mia's killed agent.
+    expect(
+      (
+        await api(srv, `/api/agents/${dead.id}/logs`, {
+          bearer: mintAgentToken(live.id, miaId),
+        })
+      ).status,
+    ).toBe(200);
+
+    // Rex shared the ROOM with the dead agent and is still refused: sharing a
+    // room with a corpse is not the rule, being its boss is.
+    const refused = await api(srv, `/api/agents/${dead.id}/logs`, {
+      rawSessionId: rex.rawSessionId,
+    });
+    expect(refused.status).toBe(403);
+    expect(errCode(refused)).toBe("forbidden");
+  });
+
+  it("a killed agent whose boss you are not denies exactly like an unknown id (non-leak)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const mia = await srv.seedMember("Mia");
+    const rex = await srv.seedMember("Rex");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomA] });
+    updateUserById(getUserByName("Rex")!.id, { allowedRooms: [roomA] });
+
+    const dead = await spawnOwnedBy(srv, "Dead", roomA, 0, mia.username);
+    seedLog(srv, dead.id);
+    await srv.agentManager.kill(dead.id);
+
+    const foreign = await api(srv, `/api/agents/${dead.id}/logs`, {
+      rawSessionId: rex.rawSessionId,
+    });
+    const ghost = await api(srv, `/api/agents/agent-never-existed/logs`, {
+      rawSessionId: rex.rawSessionId,
+    });
+    expect(foreign.status).toBe(ghost.status);
+    expect(errCode(foreign)).toBe(errCode(ghost));
+    expect(foreign.status).toBe(403);
+  });
+
+  it("a CRON-RUN token is still refused, even for a killed agent its user spawned", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const ownerId = getUserByName(owner.username)!.id;
+
+    const dead = await spawnOwnedBy(srv, "Dead", roomA, 0, owner.username);
+    seedLog(srv, dead.id);
+    await srv.agentManager.kill(dead.id);
+
+    const r = await api(srv, `/api/agents/${dead.id}/logs`, {
+      bearer: mintRunToken("job-1", "run-1", ownerId),
+    });
+    expect(r.status).toBe(403);
+  });
+});

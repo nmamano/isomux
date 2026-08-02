@@ -43,6 +43,7 @@ import {
   cronjobOwnerOrOfficeOwner,
   messageSend,
   conversationReset,
+  logSearchAccess,
   and,
   or,
   type GuardDeps,
@@ -106,6 +107,7 @@ function makeDeps(over: Partial<GuardDeps> = {}): GuardDeps {
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => null,
     agentManagerUserId: () => null,
+    killedAgentManagerUserId: () => null,
     ...over,
   };
 }
@@ -694,5 +696,119 @@ describe("guard: conversationReset", () => {
   });
   it("CRON-RUN: denied (a run has no session to reset)", () => {
     expect(conversationReset(ctx(run, { id: "a-1" }))).toEqual(DENY);
+  });
+});
+
+// --- logSearchAccess, including the KILLED-agent path (task ffb90761) --------
+// The live half is the room rule; the killed half is a different rule entirely
+// (the dead agent's own boss, or an office owner), so both halves are pinned in
+// BOTH directions - a room-only implementation and a killed-only one each fail
+// a test here.
+
+describe("guard: logSearchAccess", () => {
+  // A live agent in an accessible room: nothing is killed.
+  const liveVisible = makeDeps({
+    roomIdForAgent: () => "r-1",
+    hasRoomAccess: () => true,
+  });
+  // The target is KILLED: gone from the roster (roomIdForAgent null, the same
+  // answer an unknown id gets), spawned by u-mem.
+  const killedByMember = makeDeps({
+    roomIdForAgent: () => null,
+    hasRoomAccess: () => true, // deliberately generous - the room path is dead anyway
+    killedAgentManagerUserId: () => "u-mem",
+  });
+
+  it("USER: room access on a LIVE target, unchanged", () => {
+    expect(
+      logSearchAccess(ctx(userMember, { id: "a-x" }, undefined, liveVisible)),
+    ).toEqual(OK);
+    const hidden = makeDeps({
+      roomIdForAgent: () => "r-h",
+      hasRoomAccess: () => false,
+    });
+    expect(
+      logSearchAccess(ctx(userMember, { id: "a-x" }, undefined, hidden)),
+    ).toEqual(DENY);
+  });
+  it("AGENT: itself, and a target in a room its boss can reach", () => {
+    const noRoom = makeDeps({ roomIdForAgent: () => null });
+    expect(
+      logSearchAccess(ctx(agent, { id: "a-1" }, undefined, noRoom)),
+    ).toEqual(OK); // self, no room needed
+    expect(
+      logSearchAccess(ctx(agent, { id: "a-other" }, undefined, liveVisible)),
+    ).toEqual(OK);
+  });
+  it("KILLED target: its own boss reads it, though the room path denies", () => {
+    expect(
+      logSearchAccess(
+        ctx(userMember, { id: "a-dead" }, undefined, killedByMember),
+      ),
+    ).toEqual(OK);
+  });
+  it("KILLED target: an AGENT of the same boss reads it (its userId is that boss)", () => {
+    const killedBySpawner = makeDeps({
+      roomIdForAgent: () => null,
+      killedAgentManagerUserId: () => "u-spawn", // == agent.userId
+    });
+    expect(
+      logSearchAccess(ctx(agent, { id: "a-dead" }, undefined, killedBySpawner)),
+    ).toEqual(OK);
+  });
+  it("KILLED target: an office OWNER reads any of them", () => {
+    const killedByStranger = makeDeps({
+      roomIdForAgent: () => null,
+      killedAgentManagerUserId: () => "u-someone-else",
+    });
+    expect(
+      logSearchAccess(
+        ctx(userOwner, { id: "a-dead" }, undefined, killedByStranger),
+      ),
+    ).toEqual(OK);
+  });
+  it("KILLED target: another boss is denied - a room-mate of the dead agent is NOT enough", () => {
+    const killedByOther = makeDeps({
+      roomIdForAgent: () => null,
+      hasRoomAccess: () => true,
+      killedAgentManagerUserId: () => "u-other",
+    });
+    expect(
+      logSearchAccess(
+        ctx(userMember, { id: "a-dead" }, undefined, killedByOther),
+      ),
+    ).toEqual(DENY);
+    // Same for an agent whose boss is not the dead agent's boss.
+    expect(
+      logSearchAccess(ctx(agent, { id: "a-dead" }, undefined, killedByOther)),
+    ).toEqual(DENY);
+  });
+  it("NON-LEAK: an unknown id denies exactly like a killed one belonging to someone else", () => {
+    const unknown = makeDeps({
+      roomIdForAgent: () => null,
+      killedAgentManagerUserId: () => null,
+    });
+    const foreignDead = makeDeps({
+      roomIdForAgent: () => null,
+      killedAgentManagerUserId: () => "u-other",
+    });
+    const a = logSearchAccess(
+      ctx(userMember, { id: "a-ghost" }, undefined, unknown),
+    );
+    const b = logSearchAccess(
+      ctx(userMember, { id: "a-dead" }, undefined, foreignDead),
+    );
+    expect(a).toEqual(DENY);
+    expect(a).toEqual(b);
+  });
+  it("CRON-RUN: denied even for a killed agent its cron user spawned", () => {
+    const killedByRunUser = makeDeps({
+      roomIdForAgent: () => null,
+      hasRoomAccess: () => true,
+      killedAgentManagerUserId: () => "u-cron", // == run.userId
+    });
+    expect(
+      logSearchAccess(ctx(run, { id: "a-dead" }, undefined, killedByRunUser)),
+    ).toEqual(DENY);
   });
 });

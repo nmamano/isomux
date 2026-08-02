@@ -167,7 +167,7 @@ export function ContextMenu({
           <div
             style={{
               padding: "4px 10px",
-              fontSize: 9,
+              fontSize: 10,
               color: "var(--text-ghost)",
               fontWeight: 600,
               textTransform: "uppercase",

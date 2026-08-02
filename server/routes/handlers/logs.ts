@@ -7,6 +7,12 @@
 // room its boss can access. See server/identity/guards.ts for why a bare room
 // check is the right shape for this READ, unlike the mutating routes next to it.
 //
+// The target need not be ALIVE. A killed agent keeps its transcripts, and the
+// whole read path below is disk-backed (nothing here consults the roster), so
+// the only thing that had to change for task ffb90761 was the guard, which
+// answers for a dead agent on its own rule: the boss that spawned it, or an
+// office owner.
+//
 // Read-only: nothing lands in chat, so the route emits nothing.
 //
 // One route, three modes, resolved from the query by parseLogQuery:
@@ -62,8 +68,8 @@ export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
   return {
     "agents.logs": async (ctx) => {
       const agentId = ctx.params.id;
-      // The guard has already resolved this agent through the live roster, so
-      // this is defense in depth rather than the real check - but it is the
+      // The guard has already resolved this agent (live roster or killed list),
+      // so this is defense in depth rather than the real check - but it is the
       // last point before an id becomes part of a filesystem path.
       if (!isSafeId(agentId)) {
         return fail(403, "forbidden");

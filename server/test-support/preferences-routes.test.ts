@@ -290,6 +290,7 @@ describe("prefs.update - agent tokens are locked out", () => {
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => "u-1",
     agentManagerUserId: () => "u-1",
+    killedAgentManagerUserId: () => null,
   };
   const identity = (
     scope: Identity["scope"],

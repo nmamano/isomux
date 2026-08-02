@@ -481,7 +481,7 @@ export function RoomTabBar() {
                 <span
                   style={{
                     color: "var(--text-hint)",
-                    fontSize: 9,
+                    fontSize: 10,
                     marginLeft: 4,
                   }}
                 >

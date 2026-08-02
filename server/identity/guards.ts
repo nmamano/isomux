@@ -73,6 +73,12 @@ export interface GuardDeps {
   // null if the agent is unknown / unowned. Gates agents.setPrivileged: a member
   // may toggle privilege only on agents they manage.
   agentManagerUserId(agentId: string): string | null;
+  // The MANAGER userId of a KILLED agent - one that has left the live roster but
+  // whose logs remain on disk - or null when `agentId` is LIVE, unknown, or has
+  // no recorded manager. Deliberately separate from the two live lookups above:
+  // it reads the killed list, and every route that does not want dead agents in
+  // scope simply does not ask for it.
+  killedAgentManagerUserId(agentId: string): string | null;
 }
 
 // What a guard sees. `params`/`body` are extracted by the route layer (Phase
@@ -398,6 +404,7 @@ export const conversationReset: Guard = (ctx) => {
 //              the TARGET's room, not whether the two share one, so an agent
 //              reaches every room its boss can - which is the stated scope.
 //   CRON-RUN → deny (a run has no history, and holds no log:read anyway).
+// Plus, for a target that has been KILLED: its own boss, or an office owner.
 //
 // WHY THE BARE ROOM CHECK IS CORRECT HERE, when conversationReset above warns
 // against exactly that shape: the warning there is about a MUTATION. Clearing
@@ -414,24 +421,45 @@ export const conversationReset: Guard = (ctx) => {
 // The SELF branch is checked FIRST and independently, so an agent never loses
 // access to its own history because its room's grants changed underneath it.
 //
-// KNOWN LIMITATION: roomIdForAgent resolves through the LIVE roster, so a
-// KILLED agent - whose logs remain on disk - collapses into the same non-leak
-// deny as an unknown one. Reaching those would mean changing shared
-// roomIdForAgent semantics or teaching GuardDeps about the killed list, which
-// is a security-sensitive change to a seam many routes depend on; it is
-// deliberately out of scope rather than quietly bolted on.
+// KILLED AGENTS take a second path (killedAgentLogAccess below), because the
+// room path cannot serve them: roomIdForAgent resolves through the LIVE roster,
+// so a killed agent - whose logs are all still on disk - denies exactly like an
+// unknown id.
 const logReadRoomGuard = requiresRoomAccess({
   kind: "paramAgentId",
   name: "id",
 });
+
+// Killed-agent log reach (task ffb90761). A DIFFERENT rule from the live one,
+// not a room check against a stale room: the killed agent's own boss - the user
+// that spawned it - plus office owners, nobody else. Room grants move after a
+// kill and a dead agent's last room is a fact about the past; who spawned it is
+// not. Narrower than the live rule too: a room-mate of the killed agent gets
+// nothing here unless they share its boss.
+//
+// COMPOSE UNDER A SCOPE SWITCH, like agentManagerMatch: this checks the userId
+// match alone, and an AGENT identity carries its spawning user's userId - which
+// is what makes "an agent reaches its boss's killed agents" work, and what would
+// leak the surface to a cron run if this were ever used bare. logSearchAccess
+// denies cron-run before reaching it.
+export const killedAgentLogAccess: Guard = (ctx) => {
+  if (officeOwner(ctx).ok) return ALLOW;
+  const agentId = ctx.params.id;
+  if (!agentId) return FORBIDDEN;
+  const managerUserId = ctx.deps.killedAgentManagerUserId(agentId);
+  return managerUserId !== null && managerUserId === ctx.identity.userId
+    ? ALLOW
+    : FORBIDDEN;
+};
+
 export const logSearchAccess: Guard = (ctx) => {
   switch (ctx.identity.scope) {
     case "user":
-      return logReadRoomGuard(ctx);
+      return logReadRoomGuard(ctx).ok ? ALLOW : killedAgentLogAccess(ctx);
     case "agent":
-      return agentParamMustEqualTokenAgent(ctx).ok
+      return agentParamMustEqualTokenAgent(ctx).ok || logReadRoomGuard(ctx).ok
         ? ALLOW
-        : logReadRoomGuard(ctx);
+        : killedAgentLogAccess(ctx);
     case "cron-run":
       return FORBIDDEN;
   }

@@ -1418,7 +1418,7 @@ export function TaskView({
                         {viewRoom === "all" && (
                           <span
                             style={{
-                              fontSize: 9,
+                              fontSize: 10,
                               fontWeight: 700,
                               fontFamily: "'JetBrains Mono',monospace",
                               color: task.roomId

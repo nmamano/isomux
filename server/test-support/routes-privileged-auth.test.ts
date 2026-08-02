@@ -68,6 +68,7 @@ function deps(over: Partial<GuardDeps> = {}): GuardDeps {
     // Default: the target agent is managed by the member fixture (for the
     // setPrivileged (i-b) tests, which override per case).
     agentManagerUserId: () => member.userId,
+    killedAgentManagerUserId: () => null,
     ...over,
   };
 }
