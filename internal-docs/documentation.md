@@ -39,7 +39,7 @@ Keep these consistent across all surfaces below.
 
 - **File:** `site/hosted.html`
 - **Audience:** People who want isomux without running a server. Marketing page for the managed product designed in `internal-docs/hosted-isomux-design.md` and `internal-docs/control-plane-design.md`.
-- **Structure:** hero with the not-live badge, how it works, what you get, the lock-ourselves-out section, plans, FAQ, closing CTA. Self-contained HTML with the landing's palette and theme handling copied in; linked from the landing's setup section and footer.
+- **Structure:** hero (the Discord button carries the not-live status), how it works, what you get, plans, and a Questions list whose last entry, "How private is my server?", is a folded `<details>` holding the access-boundary copy. Self-contained HTML with the landing's palette and theme handling copied in; linked from the landing's setup section and footer.
 - **Update when:** the hosted product's promises change - pricing, the access guarantee, cancellation terms, or launch status. Every claim on it traces to a ruling in the two design docs; keep it that way rather than writing new policy in the copy.
 - **Related:** `api/chat.ts` carries a short "Hosted Isomux" section so the site chatbot doesn't invent details or imply it has launched.
 - **Deploy note:** static, served by Vercel with `cleanUrls`, so the file is served at `/hosted`. Moves to `cloud.isomux.com` if and when the control plane ships.
