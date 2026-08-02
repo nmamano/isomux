@@ -342,6 +342,18 @@ row, and the per-agent figure is the one the SDK bump (c641fff6) may change.
 The upper rows are pure arithmetic: nobody has run 55 concurrent agents on
 anything. Publish none of these until the benchmark below has run.
 
+**RAN 2026-08-02. Results in `sizing-tiers-benchmark-results.md`**, which
+supersedes the capacity estimates in the table above and largely answers decision
+4. Four things it changed: entry-tier capacity is ~14 agents with a build and ~20
+without (the estimates were conservative); no constrained capacity arm ever
+reached cgroup OOM, because the office thrashes rather than dies;
+`isomux.service` needs `OOMPolicy=continue`, *paired with* the `oom_score_adj`
+stamp, before a one-agent blast radius is possible at all; and the shipped 2 GiB
+swapfile is the worst of the tested options at load, which reverses the
+small-swap rationale above. Two things it did **not** settle and which the note
+is explicit about: the `MemorySwapMax` value to ship, and the 1 GiB reserve,
+which stays provisional. The spec of the run follows, unchanged.
+
 **The benchmark that would make them real** (filed as task 6ce6b700). Run it on
 the idle-but-paid Contabo box 169.58.97.2, cancelled but paid through
 2026-08-29, and **not** on 169.58.96.127, which is running the week-long steal
@@ -486,7 +498,19 @@ holds an office, and it is RAM that runs out.
 3. **RULED: publish no concurrency numbers.** Public copy stays vague and
    capability-phrased, per the copy rules. The figures in this doc are for
    internal sizing only.
-4. **OPEN. Hosted swap: keep 2 GiB, or go larger on the entry tier?** Larger
+4. **NARROWED by the benchmark, awaiting Nil's ruling.** What hurts is swap
+   *exhaustion*, not swap size: at a load where 2 GiB is used to the last
+   megabyte, p95 turn latency is 30.7 s against 3.4 s with 8 GiB under identical
+   load. Keeping 2 GiB is the worst of the three tested options, and the question
+   behind the decision is answered - leaning on disk instead of RAM is a
+   usability problem at any size, since even 8 GiB runs ~12x the unloaded p95, so
+   swap is a safety net and not headroom to sell. What is **not** settled is the
+   `MemorySwapMax` value: every 8 GiB arm ran with cgroup swap unlimited, so the
+   natural pairing of a larger swapfile with a cgroup cap below it is untested
+   and could recreate the same cliff at a different threshold. See the results
+   note; the original framing follows.
+
+   **OPEN. Hosted swap: keep 2 GiB, or go larger on the entry tier?** Larger
    swap lets an 8 GB box ride out a build spike instead of losing a process, at
    the cost of a slow office. This contradicts the shipped small-swap rationale,
    which is why it is here rather than decided. It also sets `MemorySwapMax`,
