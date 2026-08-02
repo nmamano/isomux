@@ -1064,15 +1064,16 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
         "Context is 52% full." + NOTICE_SUFFIX,
       );
 
-      // Same band again: no re-fire. Wait on sampledAtMs ADVANCING so the
-      // assertion is deterministic - it provably runs after the third turn's
-      // sample committed, not against the still-cached second sample.
-      const prevSampledAt = mgr.getAgent(info.id)!.contextUsage!.sampledAtMs;
+      // Same band again: no re-fire. Nudge the raw value (same rounded band)
+      // and wait on it, so the assertion provably runs after the third turn's
+      // sample committed. Waiting on sampledAtMs ADVANCING is unsound: it is
+      // Date.now() at millisecond granularity, and the fake pipeline can
+      // commit two turns in the same millisecond, leaving the strict > false
+      // forever (CI flake, 2026-08-02).
+      pct = 52.2;
       await diRunTurn(mgr, info.id, "three");
       await waitUntil(
-        () =>
-          (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
-          prevSampledAt,
+        () => mgr.getAgent(info.id)?.contextUsage?.percentage === 52.2,
         WAIT_MS,
         "third sample recommitted",
       );
@@ -1089,13 +1090,11 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       expect(uiNotices(mgr, info.id)[1].content).toBe(
         "Context is 87% full." + NOTICE_SUFFIX,
       );
-      const sampledAtBeforeFive = mgr.getAgent(info.id)!.contextUsage!
-        .sampledAtMs;
+      // Same nudge-the-value pattern as the third sample above.
+      pct = 87.2;
       await diRunTurn(mgr, info.id, "five");
       await waitUntil(
-        () =>
-          (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
-          sampledAtBeforeFive,
+        () => mgr.getAgent(info.id)?.contextUsage?.percentage === 87.2,
         WAIT_MS,
         "fifth sample recommitted",
       );
@@ -1115,7 +1114,8 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
   });
 
   it("a first sample already past both bands emits only the HIGHEST band's line", async () => {
-    const fake = backendWith(usage(87));
+    let pct = 87;
+    const fake = backendWith(() => Promise.resolve(usage(pct)));
     const mgr = makeManager(fake);
     const info = await diSpawn(mgr);
     try {
@@ -1128,13 +1128,13 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       const notices = uiNotices(mgr, info.id);
       expect(notices).toHaveLength(1);
       expect(notices[0].content).toContain("wrap up");
-      // Both bands consumed: another committed sample stays silent.
-      const prevSampledAt = mgr.getAgent(info.id)!.contextUsage!.sampledAtMs;
+      // Both bands consumed: another committed sample stays silent. Nudged
+      // value instead of a sampledAtMs-advance wait - same-millisecond
+      // commits made the strict > unsatisfiable (CI flake, 2026-08-02).
+      pct = 87.2;
       await diRunTurn(mgr, info.id, "two");
       await waitUntil(
-        () =>
-          (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
-          prevSampledAt,
+        () => mgr.getAgent(info.id)?.contextUsage?.percentage === 87.2,
         WAIT_MS,
         "second sample recommitted",
       );

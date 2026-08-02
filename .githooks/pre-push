@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
-# Mirrors the GitHub Actions build job. Bypass with `git push --no-verify`
-# only after deciding the push is safe.
+# Runs the exact CI gate (`bun run ci`: format:check, lint, typecheck, UI
+# build, tests) so a push that passes here passes on GitHub. One command on
+# purpose - a hand-copied subset of the steps is how the two drifted apart.
+# Bypass with `git push --no-verify` only after deciding the push is safe.
 set -e
 
-echo "→ format:check"
-bun run format:check
-
-echo "→ lint"
-bun run lint
-
-echo "→ typecheck"
-bun x tsc --noEmit
+echo "→ bun run ci (the exact GitHub gate)"
+bun run ci
