@@ -272,151 +272,166 @@ export function StorageModal({ onBack }: { onBack: () => void }) {
           backdropFilter: "blur(16px)",
           border: "1px solid var(--border-light)",
           borderRadius: 16,
-          padding: "24px 28px",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : 24,
-          marginBottom: 24,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
+          marginBottom: isMobile ? 24 : undefined,
           width: isMobile ? "calc(100% - 32px)" : 560,
           maxWidth: isMobile ? "100%" : undefined,
+          maxHeight: isMobile ? "calc(100dvh - 48px)" : "90vh",
           boxShadow: "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <h3
-          style={{
-            fontSize: 17,
-            fontWeight: 700,
-            margin: 0,
-            color: "var(--text-primary)",
-          }}
-        >
-          Office Storage
-        </h3>
-
-        <UsageBlock usage={usage} error={loadError} />
-        <BackupBlock backup={backup} />
-
-        <SectionLabel>Delete old files</SectionLabel>
-        <div
-          style={{
-            border: "1px solid rgba(255,107,107,0.45)",
-            background: "rgba(255,107,107,0.08)",
-            borderRadius: 8,
-            padding: "10px 12px",
-            fontSize: 11,
-            lineHeight: 1.5,
-            color: "var(--text-secondary)",
-          }}
-        >
-          <strong style={{ color: "#ff6b6b" }}>
-            This permanently deletes files from this machine.
-          </strong>{" "}
-          There is no undo and no trash. Old conversations and attachments are
-          deleted only when you run this cleanup.
-        </div>
-
-        <FieldLabel>What to delete</FieldLabel>
-        <div style={{ display: "flex", gap: 8 }}>
-          {(Object.keys(TARGET_LABELS) as PruneTarget[]).map((t) => (
-            <button
-              key={t}
-              onClick={() => editForm(() => setTarget(t))}
-              disabled={busy}
-              style={{
-                ...dialogCancelBtn,
-                flex: 1,
-                borderColor: target === t ? "var(--accent)" : "var(--border)",
-                color: target === t ? "var(--text-primary)" : "var(--text-dim)",
-                background: target === t ? "var(--bg-input)" : "transparent",
-                opacity: busy ? 0.5 : 1,
-                cursor: busy ? "not-allowed" : "pointer",
-              }}
-            >
-              {TARGET_LABELS[t]}
-            </button>
-          ))}
-        </div>
-
-        <FieldLabel>Older than</FieldLabel>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input
-            type="number"
-            min={1}
-            value={olderThanDays}
-            disabled={busy}
-            onChange={(e) => editForm(() => setOlderThanDays(e.target.value))}
-            style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
-          />
-          <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-            days. Anything touched more recently is kept.
-          </span>
-        </div>
-
-        {target === "transcripts" && (
-          <>
-            <FieldLabel>Always keep, per agent</FieldLabel>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="number"
-                min={0}
-                value={keepPerAgent}
-                disabled={busy}
-                onChange={(e) =>
-                  editForm(() => setKeepPerAgent(e.target.value))
-                }
-                style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
-              />
-              <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
-                newest conversations, however old they are. 0 spares none on
-                that basis.
-              </span>
-            </div>
-          </>
-        )}
-
-        {/* Stays available after a delete too: the receipt below is replaced by
-            a fresh preview when one is run, so a second pass never reads as a
-            continuation of the finished one. */}
-        <button
-          onClick={() => void runPreview()}
-          disabled={!formValid || busy}
-          style={{
-            ...dialogCancelBtn,
-            marginTop: 14,
-            width: "100%",
-            opacity: formValid && !busy ? 1 : 0.5,
-            cursor: formValid && !busy ? "pointer" : "not-allowed",
-          }}
-        >
-          {phase.kind === "previewing"
-            ? "Checking…"
-            : "Preview what would be deleted"}
-        </button>
-
-        {pruneError && <ErrorLine>{pruneError}</ErrorLine>}
-
-        {plan && (
-          <PlanBlock
-            plan={plan}
-            queueUnreadable={queueUnreadable}
-            phase={phase}
-            confirmText={confirmText}
-            onConfirmText={setConfirmText}
-            onAskConfirm={() => setPhase({ kind: "confirming", plan })}
-            onCancelConfirm={() => {
-              setPhase({ kind: "previewed", plan });
-              setConfirmText("");
+        {/* The scroll lives HERE, not on the backdrop. A backdrop that centers
+            a taller-than-viewport child pushes its top edge off-screen, and no
+            amount of scrolling brings it back: scroll offsets cannot go
+            negative. Capping the panel and scrolling inside it is what the
+            other tall dialogs do (EditAgentDialog, CronjobDialog). */}
+        <div style={{ overflowY: "auto", flex: 1, padding: "24px 28px 0" }}>
+          <h3
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              margin: 0,
+              color: "var(--text-primary)",
             }}
-            onApply={() => void runApply(plan)}
-          />
-        )}
+          >
+            Office Storage
+          </h3>
 
-        {phase.kind === "done" && <ResultBlock result={phase.result} />}
+          <UsageBlock usage={usage} error={loadError} />
+          <BackupBlock backup={backup} />
 
+          <SectionLabel>Delete old files</SectionLabel>
+          <div
+            style={{
+              border: "1px solid rgba(255,107,107,0.45)",
+              background: "rgba(255,107,107,0.08)",
+              borderRadius: 8,
+              padding: "10px 12px",
+              fontSize: 11,
+              lineHeight: 1.5,
+              color: "var(--text-secondary)",
+            }}
+          >
+            <strong style={{ color: "#ff6b6b" }}>
+              This permanently deletes files from this machine.
+            </strong>{" "}
+            There is no undo and no trash. Old conversations and attachments are
+            only ever deleted when you run this cleanup.
+          </div>
+
+          <FieldLabel>What to delete</FieldLabel>
+          <div style={{ display: "flex", gap: 8 }}>
+            {(Object.keys(TARGET_LABELS) as PruneTarget[]).map((t) => (
+              <button
+                key={t}
+                onClick={() => editForm(() => setTarget(t))}
+                disabled={busy}
+                style={{
+                  ...dialogCancelBtn,
+                  flex: 1,
+                  borderColor: target === t ? "var(--accent)" : "var(--border)",
+                  color:
+                    target === t ? "var(--text-primary)" : "var(--text-dim)",
+                  background: target === t ? "var(--bg-input)" : "transparent",
+                  opacity: busy ? 0.5 : 1,
+                  cursor: busy ? "not-allowed" : "pointer",
+                }}
+              >
+                {TARGET_LABELS[t]}
+              </button>
+            ))}
+          </div>
+
+          <FieldLabel>Older than</FieldLabel>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="number"
+              min={1}
+              value={olderThanDays}
+              disabled={busy}
+              onChange={(e) => editForm(() => setOlderThanDays(e.target.value))}
+              style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
+            />
+            <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+              days. Anything touched more recently is kept.
+            </span>
+          </div>
+
+          {target === "transcripts" && (
+            <>
+              <FieldLabel>Always keep, per agent</FieldLabel>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <input
+                  type="number"
+                  min={0}
+                  value={keepPerAgent}
+                  disabled={busy}
+                  onChange={(e) =>
+                    editForm(() => setKeepPerAgent(e.target.value))
+                  }
+                  style={{ ...dialogInput, width: 90, opacity: busy ? 0.5 : 1 }}
+                />
+                <span style={{ fontSize: 11, color: "var(--text-ghost)" }}>
+                  newest conversations, however old they are. 0 spares none on
+                  that basis.
+                </span>
+              </div>
+            </>
+          )}
+
+          {/* Stays available after a delete too: the receipt below is replaced by
+              a fresh preview when one is run, so a second pass never reads as a
+              continuation of the finished one. */}
+          <button
+            onClick={() => void runPreview()}
+            disabled={!formValid || busy}
+            style={{
+              ...dialogCancelBtn,
+              marginTop: 14,
+              width: "100%",
+              opacity: formValid && !busy ? 1 : 0.5,
+              cursor: formValid && !busy ? "pointer" : "not-allowed",
+            }}
+          >
+            {phase.kind === "previewing"
+              ? "Checking…"
+              : "Preview what would be deleted"}
+          </button>
+
+          {pruneError && <ErrorLine>{pruneError}</ErrorLine>}
+
+          {plan && (
+            <PlanBlock
+              plan={plan}
+              queueUnreadable={queueUnreadable}
+              phase={phase}
+              confirmText={confirmText}
+              onConfirmText={setConfirmText}
+              onAskConfirm={() => setPhase({ kind: "confirming", plan })}
+              onCancelConfirm={() => {
+                setPhase({ kind: "previewed", plan });
+                setConfirmText("");
+              }}
+              onApply={() => void runApply(plan)}
+            />
+          )}
+
+          {phase.kind === "done" && <ResultBlock result={phase.result} />}
+        </div>
+
+        {/* Outside the scroll region: the way out of a destructive panel should
+            not be something you have to scroll to find. */}
         <div
           style={{
             display: "flex",
             justifyContent: "flex-end",
-            marginTop: 20,
+            padding: "16px 28px",
+            borderTop: "1px solid var(--border)",
+            flexShrink: 0,
           }}
         >
           <button
@@ -483,7 +498,7 @@ function UsageBlock({
             <CategoryRow key={id} cat={byId.get(id)} id={id} />
           ))}
           <tr>
-            <td style={{ ...cell, fontWeight: 700 }}>Office state</td>
+            <td style={{ ...cell, fontWeight: 700 }}>Total office state</td>
             <td style={{ ...cellRight, fontWeight: 700 }}>
               {formatSize(usage.stateRootBytes)}
             </td>
