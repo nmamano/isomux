@@ -32,7 +32,7 @@ free · open source · no account needed · works with your subscriptions
 - ...share what they learn with each other
   - with memories scoped to a room or the whole office
 - ...talk and listen
-  - speak your prompt, hear the reply read back
+  - speak your prompt, hear the reply
 
 ### An office made for humans and agents
 
