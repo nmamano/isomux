@@ -991,3 +991,194 @@ describe("routes/tasks REST: room scoping", () => {
     await waitUntil(carriesInB, 2000, "board re-projected after grant");
   });
 });
+
+// The ?roomId= list filter (task 43c55a3b). It exists because an agent asked to
+// "find my room's tasks" had no server-side way to do it and hand-rolled a jq
+// pipeline over a field the task object does not have (roomName), reading the
+// null fallback as "everything is office-global". Same value grammar as the
+// create/update roomId body field so one value means one thing across all verbs.
+describe("routes/tasks REST: ?roomId= list filter", () => {
+  const idsOf = (r: Res) => new Set((r.body as TaskItem[]).map((t) => t.id));
+  function postTask(
+    srv: TestServer,
+    rawSessionId: string,
+    title: string,
+    roomId?: string,
+  ) {
+    const body: Record<string, unknown> = { title };
+    if (roomId !== undefined) body.roomId = roomId;
+    return api(srv, "/api/tasks", { method: "POST", rawSessionId, body });
+  }
+
+  it("narrows to one room; empty value narrows to office-global only", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    const inA = (await postTask(srv, owner.rawSessionId, "in A", roomA))
+      .body as TaskItem;
+    const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
+      .body as TaskItem;
+    const glob = (await postTask(srv, owner.rawSessionId, "global", ""))
+      .body as TaskItem;
+
+    const onlyA = idsOf(
+      await api(srv, `/api/tasks?roomId=${roomA}`, {
+        rawSessionId: owner.rawSessionId,
+      }),
+    );
+    expect([...onlyA]).toEqual([inA.id]);
+
+    const onlyGlobal = idsOf(
+      await api(srv, "/api/tasks?roomId=", {
+        rawSessionId: owner.rawSessionId,
+      }),
+    );
+    expect(onlyGlobal.has(glob.id)).toBe(true);
+    expect(onlyGlobal.has(inA.id)).toBe(false);
+    expect(onlyGlobal.has(inB.id)).toBe(false);
+
+    // Omitting the param is unchanged: accessible rooms UNION globals.
+    const unfiltered = idsOf(
+      await api(srv, "/api/tasks", { rawSessionId: owner.rawSessionId }),
+    );
+    expect(unfiltered.has(inA.id)).toBe(true);
+    expect(unfiltered.has(inB.id)).toBe(true);
+    expect(unfiltered.has(glob.id)).toBe(true);
+  });
+
+  it("composes with ?status= rather than replacing it", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    const open = (await postTask(srv, owner.rawSessionId, "open one", roomA))
+      .body as TaskItem;
+    const done = (await postTask(srv, owner.rawSessionId, "done one", roomA))
+      .body as TaskItem;
+    // Both dimensions need a foil, or a dropped room filter still looks right.
+    const elsewhere = (
+      await postTask(srv, owner.rawSessionId, "open, room B", roomB)
+    ).body as TaskItem;
+    await api(srv, `/api/tasks/${done.id}/done`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: {},
+    });
+
+    // Default (no status) still hides done, within the room filter.
+    const active = idsOf(
+      await api(srv, `/api/tasks?roomId=${roomA}`, {
+        rawSessionId: owner.rawSessionId,
+      }),
+    );
+    expect(active.has(open.id)).toBe(true);
+    expect(active.has(done.id)).toBe(false);
+    expect(active.has(elsewhere.id)).toBe(false);
+
+    const all = idsOf(
+      await api(srv, `/api/tasks?status=all&roomId=${roomA}`, {
+        rawSessionId: owner.rawSessionId,
+      }),
+    );
+    expect(all.has(open.id)).toBe(true);
+    expect(all.has(done.id)).toBe(true);
+    expect(all.has(elsewhere.id)).toBe(false);
+  });
+
+  it("composes with ?assignee= and ?title= too", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    const mine = (await postTask(srv, owner.rawSessionId, "parser work", roomA))
+      .body as TaskItem;
+    // Same assignee AND same title word, but in another room - the foil that
+    // makes a dropped room filter visible on both narrowings.
+    const elsewhere = (
+      await postTask(srv, owner.rawSessionId, "parser work", roomB)
+    ).body as TaskItem;
+    for (const t of [mine, elsewhere]) {
+      await api(srv, `/api/tasks/${t.id}/claim`, {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { assignee: "Isomuxer1" },
+      });
+    }
+
+    const byAssignee = idsOf(
+      await api(srv, `/api/tasks?roomId=${roomA}&assignee=Isomuxer1`, {
+        rawSessionId: owner.rawSessionId,
+      }),
+    );
+    expect([...byAssignee]).toEqual([mine.id]);
+
+    const byTitle = idsOf(
+      await api(srv, `/api/tasks?roomId=${roomA}&title=parser`, {
+        rawSessionId: owner.rawSessionId,
+      }),
+    );
+    expect([...byTitle]).toEqual([mine.id]);
+    expect(byTitle.has(elsewhere.id)).toBe(false);
+  });
+
+  it("an inaccessible OR unknown roomId is a uniform 404, not an empty list", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id; // Mia has no grant
+    await postTask(srv, owner.rawSessionId, "in A", roomA);
+
+    const forbidden = await api(srv, `/api/tasks?roomId=${roomA}`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(forbidden.status).toBe(404);
+    const unknown = await api(srv, "/api/tasks?roomId=deadbeef", {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(unknown.status).toBe(404);
+    // An accessible room with nothing in it is the distinguishable case: 200 [].
+    const roomB = srv.agentManager.createRoom("Room B");
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
+    const empty = await api(srv, `/api/tasks?roomId=${roomB}`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual([]);
+  });
+
+  it("an agent can filter to its own room with the id its prompt hands it", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
+    const token = mintAgentToken(bot.id, ownerId);
+
+    const mine = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        bearer: token,
+        body: { title: "mine" },
+      })
+    ).body as TaskItem;
+    const theirs = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        bearer: token,
+        body: { title: "theirs", roomId: roomB },
+      })
+    ).body as TaskItem;
+
+    const r = await api(srv, `/api/tasks?roomId=${roomA}`, { bearer: token });
+    expect(r.status).toBe(200);
+    expect([...idsOf(r)]).toEqual([mine.id]);
+    expect(idsOf(r).has(theirs.id)).toBe(false);
+  });
+});

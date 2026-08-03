@@ -14,6 +14,7 @@ import type {
   AgentInfo,
   Attachment,
   EffortLevel,
+  KilledAgentSummary,
   LogEntry,
   OfficeSettings,
   ScheduledMessageEntry,
@@ -789,6 +790,15 @@ export function buildManifest(agents: ManifestAgentInput[]) {
     username: a.username,
     logDir: join(LOGS_DIR, a.id),
   }));
+}
+
+// The killed-roster analogue, served as GET /agents?killed=1 (task 18fded2c).
+// Never written to a file - a killed agent is not something a file-based reader
+// polls - but it lives here so `logDir` is derived in exactly one place. The
+// KilledAgentSummary fields pass through untouched; logDir is the addition that
+// makes the id actionable (it is where the transcripts the log route serves are).
+export function buildKilledManifest(killed: readonly KilledAgentSummary[]) {
+  return killed.map((k) => ({ ...k, logDir: join(LOGS_DIR, k.id) }));
 }
 
 export function writeManifest(agents: ManifestAgentInput[]) {

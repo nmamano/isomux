@@ -98,6 +98,85 @@ describe("memory-store: format/parse", () => {
     expect(item?.text).toBe("spies are durable");
   });
 
+  // The author-less shape (task f9d2bbac): an agent's note to its own scope.
+  it("formatMemoryLine drops the author when it is null", () => {
+    expect(
+      formatMemoryLine({
+        author: null,
+        date: "2026-06-28",
+        text: "no em dashes in prose",
+      }),
+    ).toBe("- 2026-06-28: no em dashes in prose");
+  });
+
+  it("parseMemoryLine round-trips an author-less line", () => {
+    const raw = formatMemoryLine({
+      author: null,
+      date: "2026-06-28",
+      text: "a fact",
+    });
+    expect(parseMemoryLine(raw, "agent", "a1")).toEqual({
+      scope: "agent",
+      scopeId: "a1",
+      author: null,
+      date: "2026-06-28",
+      text: "a fact",
+      raw,
+    });
+  });
+
+  // Both shapes coexist in one file: existing memory across deployments keeps
+  // its author stamp and has to keep parsing next to new self-notes.
+  it("parseMemoryLine handles both shapes in the same scope", () => {
+    expect(
+      parseMemoryLine("- Bot, 2026-06-28: named", "agent", "a1")?.author,
+    ).toBe("Bot");
+    expect(
+      parseMemoryLine("- 2026-06-28: unnamed", "agent", "a1")?.author,
+    ).toBeNull();
+  });
+
+  // The reason the parser tries authorless FIRST instead of using one regex with
+  // an optional author group: a greedy optional group fills itself off a comma
+  // inside the TEXT, inventing an author out of the line's own body.
+  it("parseMemoryLine does not invent an author from a comma+date inside the text", () => {
+    const item = parseMemoryLine(
+      "- 2026-06-28: shipped, 2026-07-01: done",
+      "agent",
+      "a1",
+    );
+    expect(item?.author).toBeNull();
+    expect(item?.date).toBe("2026-06-28");
+    expect(item?.text).toBe("shipped, 2026-07-01: done");
+  });
+
+  it("parseMemoryLine keeps an author that itself looks like a date", () => {
+    const item = parseMemoryLine(
+      "- 2026-06-28, 2026-07-01: odd but authored",
+      "office",
+      null,
+    );
+    expect(item?.author).toBe("2026-06-28");
+    expect(item?.date).toBe("2026-07-01");
+  });
+
+  it("parseMemoryLine trims trailing whitespace on both shapes", () => {
+    expect(
+      parseMemoryLine("- 2026-06-28: a fact   ", "agent", "a1"),
+    ).toMatchObject({
+      author: null,
+      text: "a fact",
+      raw: "- 2026-06-28: a fact",
+    });
+    expect(
+      parseMemoryLine("- Bot, 2026-06-28: a fact  ", "agent", "a1"),
+    ).toMatchObject({
+      author: "Bot",
+      text: "a fact",
+      raw: "- Bot, 2026-06-28: a fact",
+    });
+  });
+
   it("parseMemoryLine returns null for free-form / non-matching lines", () => {
     expect(parseMemoryLine("just some prose", "office", null)).toBeNull();
     expect(parseMemoryLine("", "office", null)).toBeNull();
@@ -183,6 +262,122 @@ describe("memory-store: append", () => {
     expect(after.version).toBe(res.version);
     expect(after.version).not.toBe(before.version);
     void root;
+  });
+
+  // authorAgentId is what makes a line a self-note. The store owns the rule, so
+  // these pin it at the store seam rather than only through the route.
+  it("drops the author when the caller is the agent scope's own agent", () => {
+    const { store } = freshStore();
+    const res = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "Bot",
+      authorAgentId: "a1",
+      text: "a durable fact",
+    });
+    expect(res.item.raw).toBe("- 2026-06-28: a durable fact");
+    expect(res.item.author).toBeNull();
+    expect(store.read("agent", "a1").text).toBe(
+      "- 2026-06-28: a durable fact\n",
+    );
+  });
+
+  it("keeps the author for every writer that is not the scope's own agent", () => {
+    const { store } = freshStore();
+    // another agent -> named
+    expect(
+      store.append({
+        scope: "agent",
+        scopeId: "a1",
+        author: "Other",
+        authorAgentId: "a2",
+        text: "one",
+      }).item.raw,
+    ).toBe("- Other, 2026-06-28: one");
+    // a human (no agentId at all) -> named
+    expect(
+      store.append({
+        scope: "agent",
+        scopeId: "a1",
+        author: "Nil",
+        authorAgentId: null,
+        text: "two",
+      }).item.raw,
+    ).toBe("- Nil, 2026-06-28: two");
+    // the same agent writing to a NON-agent scope -> named
+    expect(
+      store.append({
+        scope: "room",
+        scopeId: "a1",
+        author: "Bot",
+        authorAgentId: "a1",
+        text: "three",
+      }).item.raw,
+    ).toBe("- Bot, 2026-06-28: three");
+  });
+
+  // The whole point of task f9d2bbac is cap space, so prove the bytes are
+  // actually reclaimed rather than just absent from the rendered line: with a
+  // cap that fits exactly one authored line, a self-note leaves room for a
+  // second one and the authored form does not.
+  it("the dropped author is reclaimed against the scope's hard cap", () => {
+    const { store } = freshStore({ caps: { ...MEMORY_CAPS, agent: 60 } });
+    // "- 2026-06-28: 0123456789" = 24 chars; authored adds "SomeAgent, " = 11.
+    const text = "0123456789";
+    const first = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "SomeAgent",
+      authorAgentId: "a1",
+      text,
+    });
+    expect(first.item.raw.length).toBe(24);
+    // 24 + 1 newline + 24 + 1 = 50 <= 60, so a second self-note fits.
+    expect(() =>
+      store.append({
+        scope: "agent",
+        scopeId: "a1",
+        author: "SomeAgent",
+        authorAgentId: "a1",
+        text: "9876543210",
+      }),
+    ).not.toThrow();
+    // The same two lines WITH the author would be 35 + 1 + 35 + 1 = 72 > 60.
+    const { store: authored } = freshStore({
+      caps: { ...MEMORY_CAPS, agent: 60 },
+    });
+    authored.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "SomeAgent",
+      authorAgentId: "a2", // not the scope's own agent -> stays named
+      text,
+    });
+    expect(() =>
+      authored.append({
+        scope: "agent",
+        scopeId: "a1",
+        author: "SomeAgent",
+        authorAgentId: "a2",
+        text: "9876543210",
+      }),
+    ).toThrow(MemoryCapError);
+  });
+
+  it("a self-note's op-log actor still names the agent", () => {
+    const { root, store } = freshStore();
+    store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "Bot",
+      authorAgentId: "a1",
+      text: "x",
+    });
+    expect(opLog(root)[0]).toMatchObject({
+      actor: "Bot",
+      op: "append",
+      content: "- 2026-06-28: x\n",
+    });
   });
 
   it("logs an append op with server-stamped actor + post-op content", () => {

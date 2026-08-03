@@ -88,7 +88,7 @@ describe("public-origin-derived copy (C3-a)", () => {
     server = srv;
     await srv.seedOwner("Boss");
 
-    const prompt = buildSystemPrompt("A1", "agent-1", "Test Room");
+    const prompt = buildSystemPrompt("A1", "agent-1", "Test Room", "room-1");
     expect(prompt).not.toContain(HUMAN_LINE);
     expect(prompt).toContain(CURL_RECIPE);
 
@@ -110,7 +110,7 @@ describe("public-origin-derived copy (C3-a)", () => {
     const srv = await restartWithConfigOrigin(srv0);
     server = srv;
 
-    const prompt = buildSystemPrompt("A1", "agent-1", "Test Room");
+    const prompt = buildSystemPrompt("A1", "agent-1", "Test Room", "room-1");
     expect(prompt).toContain(`${HUMAN_LINE} ${ORIGIN}`);
     // Agent-run API recipes are untouched - and the origin appears in that
     // one line only, never substituted into a recipe.
@@ -149,7 +149,7 @@ describe("public-origin-derived copy (C3-a)", () => {
       const srv = await srv0.restart();
       server = srv;
 
-      const prompt = buildSystemPrompt("A1", "agent-1", "Test Room");
+      const prompt = buildSystemPrompt("A1", "agent-1", "Test Room", "room-1");
       expect(prompt).toContain(`${HUMAN_LINE} ${ENV_ORIGIN}`);
       expect(prompt).not.toContain(ORIGIN);
     } finally {

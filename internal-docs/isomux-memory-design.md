@@ -6,7 +6,11 @@
 > at Nil's call. What shipped:
 >
 > - Per-scope plain-markdown files of `- {Creator}, {date}: {text}` lines - **no
->   ids, no supersede/tombstone grammar**.
+>   ids, no supersede/tombstone grammar**. One exception, added later by task
+>   f9d2bbac: an agent APPENDing to its OWN agent scope writes
+>   `- {date}: {text}`, because there the Creator names the reader and burns
+>   cap + prompt space for nothing. Both shapes parse; nothing rewrites
+>   existing lines.
 > - **Three REST verbs on `/api/memory`:** READ (whole file + a sha256 `version`),
 >   APPEND (one server-stamped line, with an exact-duplicate guard), REPLACE
 >   (whole-file overwrite guarded by the `version` from READ - 409 on mismatch).
@@ -14,8 +18,8 @@
 >   full post-op snapshot) for manual recovery.
 > - **Per-scope size caps** degrade newest-first with a trim notice on auto-load.
 > - **Authority is permissive on every verb** (any authenticated caller may
->   read/append/replace any existing target); `author`/`date` are server-stamped
->   on APPEND. The only structural boundary is that a boss's memory auto-loads
+>   read/append/replace any existing target); `date` is server-stamped on APPEND,
+>   as is `author` except on the self-note case above. The only structural boundary is that a boss's memory auto-loads
 >   solely into that boss's own agents' prompts.
 > - **Humans curate through the same READ/REPLACE verbs** from each scope's
 >   settings field (a shared `useMemoryEditor` hook).
@@ -70,6 +74,7 @@ Each scope file is a **flat list** of facts, one per line, raw and unstructured:
 
 ```
 - {Creator}, {YYYY-MM-DD}: {self-contained fact}
+- {YYYY-MM-DD}: {self-contained fact}            # an agent's note to ITSELF
 ```
 
 That shape is the **APPEND convention, not an enforced grammar**: APPEND writes it,
@@ -80,8 +85,11 @@ append-safe. Editing or retracting a fact is a **whole-file REPLACE** (read the
 file, change the text, write it back), guarded by an optimistic `version` so two
 concurrent edits cannot silently clobber each other (section 4).
 
-**Provenance.** An APPEND stamps the `Creator` + date from the authenticated
-caller (never the request body). A REPLACE writes the file bytes **verbatim**, so
+**Provenance.** An APPEND stamps the date from the authenticated caller (never
+the request body), and the `Creator` too - unless the caller IS the agent whose
+scope it is, which writes the second shape above (task f9d2bbac). The op-log
+`actor` names the caller on every op, self-notes included, so dropping the
+in-file Creator loses no attribution. A REPLACE writes the file bytes **verbatim**, so
 after a human or agent hand-edit the in-file `Creator`/date are display text only - 
 the **op-log** is the authoritative record of who changed what and when.
 
@@ -123,6 +131,8 @@ and restraint lives in the system-prompt affordance:
   existing scope/target, including any boss and including the destructive REPLACE.
   There is no per-scope / per-room / per-boss access gate. `author` + `date` are
   server-stamped on APPEND from the caller's identity; body values are ignored.
+  (`author` is omitted from the line - not taken from the body - when an agent
+  appends to its own agent scope; see Provenance above.)
 - **The one structural boss property is in AUTO-LOAD, not REST:** a boss's notes
   are auto-injected only into that boss's own agents' prompts (keyed on the
   agent's stable manager `userId`), so one boss's notes never bleed into another
@@ -183,8 +193,9 @@ Three verbs, two writers.
   file and an optimistic-concurrency `version` (short sha256 of the file bytes; a
   missing file hashes `""` to a fixed sentinel).
 - **`POST /api/memory` `{ scope, scopeId?, text }`** (APPEND) → `{ item, version }`:
-  the safe default. Appends one `- {Creator}, {date}: {text}` line; server stamps
-  `Creator` + `date`; validates the text is a single non-blank line; runs the
+  the safe default. Appends one `- {Creator}, {date}: {text}` line - or
+  `- {date}: {text}` when an agent writes to its own agent scope; server stamps
+  `date`, and `Creator` in every other case; validates the text is a single non-blank line; runs the
   exact-duplicate guard. **A normalized-exact restatement already in the scope is
   rejected 409** (naming the matched text); a genuine reword is allowed through.
 - **`PUT /api/memory` `{ scope, scopeId?, text, version }`** (REPLACE) →
@@ -317,7 +328,8 @@ Deferred. Add only if real scale demands:
 
 ## 9. Decisions (as shipped)
 
-- **Raw, unstructured `- {Creator}, {date}: {text}` lines.** No ids, no
+- **Raw, unstructured `- {Creator}, {date}: {text}` lines**, and
+  `- {date}: {text}` for an agent's note to its own scope. No ids, no
   supersede/tombstone, no persisted `factType`. Editing/retracting is whole-file
   REPLACE.
 - **Three verbs on `/api/memory`:** READ (text + version), APPEND (server-stamped,

@@ -24,6 +24,7 @@ function build(privileged?: boolean): string {
     "A1",
     "agent-1",
     "Test Room",
+    "room-1",
     null,
     null,
     null,
@@ -93,6 +94,7 @@ function buildMem(opts: {
     "A1",
     "agent-1",
     "Test Room",
+    "room-1",
     null,
     null,
     opts.custom ?? null,
@@ -185,6 +187,7 @@ function buildLang(
     "A1",
     "agent-1",
     "Test Room",
+    "room-1",
     null,
     null,
     null,
@@ -228,5 +231,68 @@ describe("buildSystemPrompt - reply language", () => {
 
   it("says nothing when the agent has no manager boss to have a preference", () => {
     expect(buildLang("es", null)).not.toContain("Write your replies in");
+  });
+});
+
+// The affordance copy an agent acts on. These are string pins, not prose review:
+// each one exists because an agent got it wrong from the prompt alone.
+describe("buildSystemPrompt - task-board copy", () => {
+  // Task 43c55a3b: an agent read the whole board as office-global because it
+  // filtered on `.roomName`, a field the task object does not have, and its jq
+  // fallback turned "absent" into "global". The prompt now names the field, says
+  // there is no room NAME, and hands over the agent's own roomId.
+  it("names the task object's room field and denies a room name", () => {
+    const p = build();
+    expect(p).toContain("roomId field and carries no room NAME");
+    expect(p).toContain("a task with no roomId is office-global");
+  });
+
+  it("interpolates the agent's own roomId, in prose and in the filter recipe", () => {
+    const p = build();
+    expect(p).toContain("Your room's id is room-1.");
+    expect(p).toContain("/api/tasks?roomId=room-1");
+    // A different room must actually change the prompt (guards a hardcoded id).
+    expect(buildSystemPrompt("A1", "agent-1", "Test Room", "room-9")).toContain(
+      "Your room's id is room-9.",
+    );
+  });
+});
+
+describe("buildSystemPrompt - killed-agent discovery copy", () => {
+  // Task 18fded2c: the log route answers for killed agents, so the prompt has to
+  // say how their ids are found - the sentence Nil cut in ffb90761 was cut
+  // precisely because that discovery did not exist yet.
+  it("documents ?killed=1 with its field list and ties it to log reads", () => {
+    const p = build();
+    expect(p).toContain("/agents?killed=1");
+    expect(p).toContain("killedAt");
+    expect(p).toContain(
+      "Killed agents keep their logs too, and you can read those if they were your boss's",
+    );
+  });
+
+  // The killed roster is boss-scoped while the live one is room-scoped. Sharing
+  // a route makes that easy to miss, so the prompt has to say it outright - an
+  // agent that assumes last-room access would mis-predict what it can reach.
+  it("says the killed roster is scoped differently from the live one", () => {
+    const p = build();
+    expect(p).toContain("scoped differently from the live one above");
+    expect(p).toContain("the agents your boss SPAWNED");
+  });
+});
+
+describe("buildSystemPrompt - memory attribution copy", () => {
+  // Task f9d2bbac: a self-note is stamped with the date only, so the two places
+  // that promise an author have to stop over-promising.
+  it("scopes the author stamp to writes outside the agent's own scope", () => {
+    expect(build()).toContain(
+      "the server stamps the date, and the author unless you are writing to your own agent scope",
+    );
+  });
+
+  it("the auto-load layer says self-notes carry only a date", () => {
+    expect(memorySection("- 2026-06-28: x")).toContain(
+      "your own notes to yourself carry only a date",
+    );
   });
 });

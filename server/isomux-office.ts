@@ -43,6 +43,7 @@ import {
   loadEnabledPlugins,
   loadSessionsMap,
   peekMessageQueuesRaw,
+  buildKilledManifest,
 } from "./persistence.ts";
 import { loadPlugins } from "./plugins.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
@@ -4158,6 +4159,61 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         const user = auth.identity.userId
           ? getUserById(auth.identity.userId)
           : null;
+        // ?killed=1 asks the other roster: agents that have left the office but
+        // whose transcripts are still on disk (task 18fded2c). It exists so the
+        // killed-agent log reach shipped in ffb90761 is usable - without it an
+        // agent can read a dead agent's logs but has no way to learn its id.
+        //
+        // EXACTLY "1" selects it; any other value is a 400 rather than a silent
+        // fall-through to the live roster. `?killed=0` reads as "no" to a human
+        // and would otherwise be answered with the killed list, while a typo'd
+        // value would be answered with live agents - both are the quietly-wrong
+        // answer this surface is being hardened against.
+        const killedParam = url.searchParams.get("killed");
+        if (killedParam !== null) {
+          if (killedParam !== "1") {
+            return new Response(
+              JSON.stringify({
+                error: "killed must be 1 (omit it for the live roster)",
+              }),
+              { status: 400, headers: { "Content-Type": "application/json" } },
+            );
+          }
+          // SCOPED LIKE THE LOG RULE, deliberately NOT like the live manifest
+          // below: the killed agent's own boss (the user that spawned it), plus
+          // office owners, and NEVER a cron run. Room grants move after a kill
+          // and a dead agent's last room is a fact about the past, so the room
+          // projection the live arm uses would be the wrong question here - and
+          // it would hand out ids the log route then refuses.
+          //
+          // Mirrors killedAgentLogAccess in identity/guards.ts clause for
+          // clause, INCLUDING its cron-run denial: an AGENT identity carries its
+          // spawning user's userId (which is what lets an agent reach its own
+          // boss's killed agents), but a CRON-RUN identity carries its
+          // creator's - so without this branch a cron run would out-reach the
+          // very log route this discovery feeds.
+          if (auth.identity.scope === "cron-run") {
+            return new Response(JSON.stringify({ error: "forbidden" }), {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          const isOwner =
+            auth.identity.scope === "user" && auth.identity.role === "owner";
+          // One history load either way - the per-id killedAgentManagerUserId
+          // lookup re-reads and re-parses agent-history.json for every entry.
+          const killed = isOwner
+            ? agentManager.getKilledAgentSummaries()
+            : auth.identity.userId
+              ? agentManager.getKilledAgentSummariesForManager(
+                  auth.identity.userId,
+                )
+              : [];
+          return new Response(
+            JSON.stringify(buildKilledManifest(killed), null, 2),
+            { headers: { "Content-Type": "application/json" } },
+          );
+        }
         const accessible = user
           ? accessibleRoomIdsFor(user)
           : new Set<string>();

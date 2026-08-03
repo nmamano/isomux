@@ -97,10 +97,28 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       const status = ctx.query.get("status");
       const assignee = ctx.query.get("assignee");
       const titleFilter = ctx.query.get("title");
+      const roomFilter = ctx.query.get("roomId");
       // Room scope FIRST: a caller only ever sees their accessible rooms UNION
       // office-global tasks; the status/assignee/title filters narrow within that.
       const accessible = deps.accessibleRoomIds(ctx.identity);
       let filtered = deps.listTasks().filter((t) => taskVisible(t, accessible));
+      // Explicit room filter (task 43c55a3b), same grammar as the create/update
+      // roomId field so one value means one thing across all three verbs:
+      //   ?roomId=<id>  -> that room only, IF the caller can access it
+      //   ?roomId=      -> office-global tasks only
+      //   omitted       -> no room filter (accessible rooms ∪ global, as before)
+      // An inaccessible or unknown id is the same uniform 404 create/update give
+      // it, NOT an empty list: a typo answering "no tasks here" is precisely the
+      // silent-wrong-answer failure this param exists to end.
+      if (roomFilter !== null) {
+        if (roomFilter.length === 0) {
+          filtered = filtered.filter((t) => !t.roomId);
+        } else if (accessible.has(roomFilter)) {
+          filtered = filtered.filter((t) => t.roomId === roomFilter);
+        } else {
+          return fail(404, "not_found");
+        }
+      }
       if (!status) {
         filtered = filtered.filter(
           (t) => t.status !== "done" && t.status !== "backlog",

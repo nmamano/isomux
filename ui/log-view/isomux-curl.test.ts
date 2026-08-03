@@ -1236,6 +1236,24 @@ describe("humanizeIsomuxRequest", () => {
     ).toBe("List all tasks");
   });
 
+  test("task list room filter qualifies the status phrase, not replaces it", () => {
+    expect(
+      humanizeIsomuxRequest(
+        parse("curl -s 'localhost:4000/api/tasks?roomId=e6818e47'"),
+      ),
+    ).toBe("List open tasks in one room");
+    expect(
+      humanizeIsomuxRequest(
+        parse("curl -s 'localhost:4000/api/tasks?status=all&roomId=e6818e47'"),
+      ),
+    ).toBe("List all tasks in one room");
+    expect(
+      humanizeIsomuxRequest(
+        parse("curl -s 'localhost:4000/api/tasks?roomId='"),
+      ),
+    ).toBe("List open tasks (office-global only)");
+  });
+
   test("unknown route returns null", () => {
     const req = parse("curl -s localhost:4000/api/does-not-exist");
     expect(humanizeIsomuxRequest(req)).toBeNull();
@@ -1253,6 +1271,33 @@ describe("agent discovery route label", () => {
     expect(describeIsomuxRoute("GET", "/api/agents")).toBe(
       "List office agents",
     );
+  });
+
+  test("?killed=1 says which roster it is", () => {
+    const req = parseIsomuxCurl(
+      `curl -s "localhost:4000/agents?killed=1" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`,
+    );
+    expect(req).not.toBeNull();
+    expect(humanizeIsomuxRequest(req!)).toBe("List killed agents");
+    // The static route label is shared by both rosters; only the humanizer reads
+    // the query, exactly like /logs.
+    expect(req!.action).toBe("List office agents");
+  });
+
+  // The server answers a present non-"1" value with 400, so the card must not
+  // claim EITHER roster came back - including the live one.
+  test("a present non-1 killed value is labelled invalid, not as a listing", () => {
+    for (const q of ["?killed=0", "?killed", "?killed=true", "?killed=yes"]) {
+      const req = parseIsomuxCurl(`curl -s "localhost:4000/agents${q}"`);
+      expect(req).not.toBeNull();
+      expect(humanizeIsomuxRequest(req!)).toBe(
+        "List agents (invalid killed filter)",
+      );
+    }
+    // Absent is untouched: the live roster, as before.
+    expect(
+      humanizeIsomuxRequest(parseIsomuxCurl("curl -s localhost:4000/agents")!),
+    ).toBe("List office agents");
   });
 });
 

@@ -35,10 +35,13 @@ export interface MemoryDeps {
     scopeId: string | null,
   ): { text: string; version: string };
   // Append one server-stamped line; returns the new item + post-write version.
+  // authorAgentId is the caller's own agentId (agent tokens only) - the store
+  // uses it to skip the redundant author stamp on an agent's notes to itself.
   append(input: {
     scope: MemoryScope;
     scopeId: string | null;
     author: string;
+    authorAgentId?: string | null;
     text: string;
   }): { item: MemoryItem; version: string };
   // Overwrite the whole file guarded by expectedVersion; conflict writes nothing.
@@ -228,6 +231,12 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           scope: target.scope,
           scopeId: target.scopeId,
           author,
+          // Only an AGENT token can be writing to its own agent scope; a user
+          // cookie always names a human, so it passes null and stays stamped.
+          authorAgentId:
+            ctx.identity.scope === "agent"
+              ? (ctx.identity.agentId ?? null)
+              : null,
           text,
         });
         return created(res);

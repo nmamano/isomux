@@ -1178,14 +1178,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     };
   }
 
-  // All currently-killed agents, sorted newest-first. Caller layers ACL
-  // filtering and the cap. Legacy entries (no killedAt) get the agent's log
-  // dir mtime as a proxy so they sort approximately by recency.
-  function getKilledAgentSummaries(): KilledAgentSummary[] {
-    const history = loadAgentHistory();
+  // Shared body of the two killed-roster reads below. Takes an ALREADY-LOADED
+  // history so a caller that also needs to inspect entries does not pay a second
+  // read+parse of the file (loadAgentHistory is uncached).
+  function killedSummariesFrom(
+    history: AgentHistory,
+    include?: (id: string, entry: AgentHistoryEntry) => boolean,
+  ): KilledAgentSummary[] {
     const summaries: KilledAgentSummary[] = [];
     for (const [id, entry] of Object.entries(history)) {
       if (agents.has(id)) continue; // revived agents have a history entry but are alive
+      if (include && !include(id, entry)) continue;
       const fallback = entry.killedAt ? 0 : legacyKilledAtFromDisk(id);
       // Skip entries with no killedAt AND no on-disk log dir - there's nothing
       // to revive and no ordering signal.
@@ -1194,6 +1197,31 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     summaries.sort((a, b) => b.killedAt - a.killedAt);
     return summaries;
+  }
+
+  // All currently-killed agents, sorted newest-first. Caller layers ACL
+  // filtering and the cap. Legacy entries (no killedAt) get the agent's log
+  // dir mtime as a proxy so they sort approximately by recency.
+  function getKilledAgentSummaries(): KilledAgentSummary[] {
+    return killedSummariesFrom(loadAgentHistory());
+  }
+
+  // The killed agents SPAWNED BY one user - the boss-scoped reach behind
+  // GET /agents?killed=1 (task 18fded2c), the same rule killedAgentLogAccess
+  // applies to the transcripts these ids unlock.
+  //
+  // Deliberately NOT `getKilledAgentSummaries().filter(k =>
+  // killedAgentManagerUserId(k.id) === userId)`: that lookup re-reads and
+  // re-parses agent-history.json for EVERY entry. This loads it once.
+  // A legacy entry with no recorded userId fails closed (undefined never
+  // matches a real userId), matching killedAgentManagerUserId's null.
+  function getKilledAgentSummariesForManager(
+    userId: string,
+  ): KilledAgentSummary[] {
+    return killedSummariesFrom(
+      loadAgentHistory(),
+      (_id, entry) => entry.userId === userId,
+    );
   }
 
   // The spawning user recorded for a KILLED agent - one that is gone from the
@@ -4104,6 +4132,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.name,
       managed.info.id,
       room.name,
+      room.id,
       officeState.office.prompt,
       room.prompt,
       managed.info.customInstructions,
@@ -7231,6 +7260,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getAllAgents,
     getManifest,
     getKilledAgentSummaries,
+    getKilledAgentSummariesForManager,
     killedAgentManagerUserId,
     restoreAgents,
     demoteToLazy,

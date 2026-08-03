@@ -630,7 +630,10 @@ export type MemoryScope = "office" | "room" | "agent" | "boss";
 export interface MemoryItem {
   scope: MemoryScope;
   scopeId: string | null; // office has none
-  author: string; // the in-file Creator (server-stamped on append; free-text after a rewrite)
+  // The in-file Creator (server-stamped on append; free-text after a rewrite).
+  // null when the line names no author, which an APPEND writes only for an
+  // agent's note to its OWN agent scope - there the author is the reader.
+  author: string | null;
   date: string; // YYYY-MM-DD
   text: string; // the self-contained fact
   raw: string; // the exact persisted markdown line

@@ -10,6 +10,10 @@
 //
 // Each fact is one bullet line:
 //   - {Creator}, {YYYY-MM-DD}: {the self-contained fact}
+//   - {YYYY-MM-DD}: {the self-contained fact}          (agent's note to ITSELF)
+// The second shape exists only for an agent APPENDing to its own agent scope,
+// where the Creator names the reader and burns cap + prompt space for nothing
+// (task f9d2bbac). Both shapes parse; nothing rewrites existing lines.
 // There are NO ids and NO supersede/tombstone grammar. There are three verbs:
 //   APPEND  - add one server-stamped line (the safe default).
 //   READ    - return the whole raw file plus an optimistic-concurrency version.
@@ -18,10 +22,11 @@
 // Every mutating op is recorded to the op-log so a bad write can be restored by
 // re-REPLACEing an earlier `content` snapshot.
 //
-// Provenance: APPEND stamps the Creator + date from the authenticated caller. A
-// REPLACE writes the file bytes verbatim (free-form), so in-file creators are
-// DISPLAY ONLY after a rewrite - the op-log `actor` is the authoritative record
-// of who changed what.
+// Provenance: APPEND stamps the date from the authenticated caller, and the
+// Creator too unless the caller IS the agent whose scope it is. A REPLACE writes
+// the file bytes verbatim (free-form), so in-file creators are DISPLAY ONLY
+// after a rewrite - the op-log `actor` is the authoritative record of who
+// changed what, and it names the caller on every op including a self-note.
 //
 // Pure helpers (format/parse/version) + an INJECTABLE store so unit tests can pin
 // deterministic dates/timestamps and a temp dir, while production uses the default
@@ -57,14 +62,22 @@ function nowIsoUtc(): string {
 
 // --- pure format / parse ----------------------------------------------------
 
-// The APPEND line shape: "- {author}, {date}: {text}". REPLACE writes raw bytes
-// and does NOT go through here.
+// The APPEND line shape: "- {author}, {date}: {text}", or "- {date}: {text}" when
+// `author` is null. REPLACE writes raw bytes and does NOT go through here.
+//
+// The author-less shape exists for the one case where the name is pure waste
+// (task f9d2bbac): an agent writing to its OWN agent scope, where the author is
+// the reader. It costs twice otherwise - once against the scope's hard size cap,
+// and again in the agent's own prompt. Every other writer (another agent, a boss,
+// a human rewrite) still gets named, because there the name carries information.
 export function formatMemoryLine(input: {
-  author: string;
+  author: string | null;
   date: string;
   text: string;
 }): string {
-  return `- ${input.author}, ${input.date}: ${input.text}`;
+  return input.author === null
+    ? `- ${input.date}: ${input.text}`
+    : `- ${input.author}, ${input.date}: ${input.text}`;
 }
 
 // Best-effort parse of an APPEND-shaped line, used only for the exact-duplicate
@@ -72,21 +85,31 @@ export function formatMemoryLine(input: {
 // containing a comma still parses (the author capture is lazy). A free-form line
 // written by a human REPLACE that doesn't match simply yields null and doesn't
 // participate in dedup - raw memory is allowed to be unstructured.
-const LINE_RE = /^- (.+?), (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
+//
+// TWO regexes, authorless tried FIRST, rather than one with an optional author
+// group. An optional group is greedy and would try to fill itself: on the
+// authorless line "- 2026-06-28: shipped, 2026-07-01: done" it captures
+// author="2026-06-28: shipped" off the comma inside the TEXT. Anchoring the
+// date directly after "- " is unambiguous (an author is never empty), and any
+// line that doesn't match falls through to the original authored pattern, so
+// every previously-parsing line parses identically.
+const AUTHORLESS_LINE_RE = /^- (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
+const AUTHORED_LINE_RE = /^- (.+?), (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
 
 export function parseMemoryLine(
   raw: string,
   scope: MemoryScope,
   scopeId: string | null,
 ): MemoryItem | null {
-  const m = LINE_RE.exec(raw);
+  const bare = AUTHORLESS_LINE_RE.exec(raw);
+  const m = bare ?? AUTHORED_LINE_RE.exec(raw);
   if (!m) return null;
   return {
     scope,
     scopeId,
-    author: m[1],
-    date: m[2],
-    text: m[3],
+    author: bare ? null : m[1],
+    date: bare ? m[1] : m[2],
+    text: bare ? m[2] : m[3],
     raw: raw.replace(/\s+$/, ""),
   };
 }
@@ -212,10 +235,14 @@ export interface MemoryStore {
   // version (auto-load render, dedup, the transitional curation reads).
   readText(scope: MemoryScope, scopeId: string | null): string;
   // Append one server-stamped line. Returns the new item + post-write version.
+  // `authorAgentId` is the caller's OWN agentId when the caller is an agent (null
+  // otherwise); it is what lets an agent's notes to itself skip the redundant
+  // author stamp. It never affects the op-log actor, which is always `author`.
   append(input: {
     scope: MemoryScope;
     scopeId: string | null;
     author: string;
+    authorAgentId?: string | null;
     text: string;
   }): MemoryAppendResult;
   // Overwrite the whole file. If expectedVersion is given and no longer matches
@@ -310,11 +337,20 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     scope: MemoryScope;
     scopeId: string | null;
     author: string;
+    authorAgentId?: string | null;
     text: string;
   }): MemoryAppendResult {
     const date = today();
+    // Self-authored agent memory drops the author from the stored line - see
+    // formatMemoryLine. The decision lives HERE, not in the handler, because the
+    // store is the only place that owns the line grammar. `author` stays the real
+    // caller either way: it is the op-log actor, which must always name someone.
+    const selfAuthored =
+      input.scope === "agent" &&
+      !!input.authorAgentId &&
+      input.authorAgentId === input.scopeId;
     const line = formatMemoryLine({
-      author: input.author,
+      author: selfAuthored ? null : input.author,
       date,
       text: input.text,
     });
@@ -343,7 +379,7 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
       item: {
         scope: input.scope,
         scopeId: input.scopeId,
-        author: input.author,
+        author: selfAuthored ? null : input.author,
         date,
         text: input.text,
         raw: line,

@@ -92,6 +92,12 @@ function readMem(srv: TestServer, ...parts: string[]): string | null {
     return null;
   }
 }
+function opLog(srv: TestServer): { actor: string; op: string; text: string }[] {
+  return readFileSync(join(srv.stateRoot, "memory", ".oplog.jsonl"), "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+}
 function asRead(body: unknown): { text: string; version: string } {
   return body as { text: string; version: string };
 }
@@ -123,7 +129,11 @@ describe("routes/memory REST: identity required", () => {
 });
 
 describe("routes/memory REST: APPEND (agent own scope)", () => {
-  it("appends a server-stamped raw line; body author/date ignored; returns item+version", async () => {
+  // Task f9d2bbac: a note an agent writes to its OWN agent scope is stamped with
+  // the date only. The author there would name the reader, and it costs twice -
+  // against the scope's hard cap and again in that agent's own prompt. Every
+  // other writer stays named; the two cases below pin that.
+  it("self-note: date-only raw line, body author/date ignored; returns item+version", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -145,17 +155,105 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     });
     expect(r.status).toBe(201);
     const { item, version } = asAppend(r.body);
-    expect(item.author).toBe("MemBot");
+    expect(item.author).toBeNull();
     expect(item.text).toBe("no em dashes in prose");
     expect(item.scopeId).toBe(bot.id);
     expect(item.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(item.date).not.toBe("1999-12-31");
-    expect(item.raw).toBe(`- MemBot, ${item.date}: no em dashes in prose`);
+    expect(item.raw).toBe(`- ${item.date}: no em dashes in prose`);
+    expect(item.raw).not.toContain("MemBot");
     expect(version).toMatch(/^[0-9a-f]{12}$/);
 
     const onDisk = readMem(srv, "agents", `${bot.id}.md`)!;
-    expect(onDisk).toBe(`- MemBot, ${item.date}: no em dashes in prose\n`);
+    expect(onDisk).toBe(`- ${item.date}: no em dashes in prose\n`);
     expect(onDisk).not.toContain("EVIL");
+    // The op-log actor is unaffected - it must always name someone, and it is
+    // the authoritative who-did-what.
+    expect(opLog(srv).at(-1)!.actor).toBe("MemBot");
+  });
+
+  it("ANOTHER agent writing to this agent's scope stays named", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const other = await spawnAgent(srv, "Nosy");
+    const token = mintAgentToken(other.id, ownerId);
+
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "agent", scopeId: bot.id, text: "MemBot owns the parser" },
+    });
+    expect(r.status).toBe(201);
+    const { item } = asAppend(r.body);
+    expect(item.author).toBe("Nosy");
+    expect(item.raw).toBe(`- Nosy, ${item.date}: MemBot owns the parser`);
+  });
+
+  it("a HUMAN writing to an agent's scope stays named", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const bot = await spawnAgent(srv, "MemBot");
+
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { scope: "agent", scopeId: bot.id, text: "ship it by friday" },
+    });
+    expect(r.status).toBe(201);
+    const { item } = asAppend(r.body);
+    expect(item.author).toBe("Boss");
+    expect(item.raw).toBe(`- Boss, ${item.date}: ship it by friday`);
+  });
+
+  it("an agent's note to ANOTHER scope (room) stays named", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const roomId = srv.agentManager.getRooms()[0].id;
+
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, text: "the build needs bun" },
+    });
+    expect(r.status).toBe(201);
+    const { item } = asAppend(r.body);
+    expect(item.author).toBe("MemBot");
+    expect(item.raw).toBe(`- MemBot, ${item.date}: the build needs bun`);
+  });
+
+  // The author-less line stays a first-class line: the normalized-duplicate
+  // guard parses it (409, not a silent second copy).
+  it("a self-note still participates in the duplicate guard", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const body = { scope: "agent", text: "prefer a named constant" };
+
+    const first = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body,
+    });
+    expect(first.status).toBe(201);
+    const dup = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body,
+    });
+    expect(dup.status).toBe(409);
+    expect(errCode(dup.body)).toBe("duplicate_memory");
+    expect(matchedText(dup.body)).toBe("prefer a named constant");
   });
 
   it("scopeId omitted defaults to the caller's own agent", async () => {

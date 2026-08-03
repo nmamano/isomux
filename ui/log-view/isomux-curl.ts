@@ -853,9 +853,19 @@ export function humanizeIsomuxRequest(
     if (segs.length === 1) {
       if (m === "GET") {
         const status = query.get("status");
-        if (status === "all") return "List all tasks";
-        if (status) return `List ${status} tasks`;
-        return "List open tasks";
+        // ?roomId= narrows the board to one room ("" = office-global only). It
+        // composes with ?status=, so it qualifies the same phrase rather than
+        // replacing it.
+        const room = query.get("roomId");
+        const scope =
+          room === null
+            ? ""
+            : room === ""
+              ? " (office-global only)"
+              : " in one room";
+        if (status === "all") return `List all tasks${scope}`;
+        if (status) return `List ${status} tasks${scope}`;
+        return `List open tasks${scope}`;
       }
       if (m === "POST") {
         const title = field("title");
@@ -882,7 +892,18 @@ export function humanizeIsomuxRequest(
 
   // Agents
   if (segs[0] === "agents") {
-    if (segs.length === 1 && m === "GET") return "List office agents";
+    // ?killed=1 flips the roster the route answers with, so it gets its own
+    // phrase rather than the live-agent one. The card mirrors the server's
+    // exact-value contract: a present non-"1" value is a 400 there, so it must
+    // not be labelled as listing EITHER roster - "List office agents" would be
+    // just as wrong as "List killed agents", since neither came back.
+    if (segs.length === 1 && m === "GET") {
+      const killed = query.get("killed");
+      if (killed === null) return "List office agents";
+      return killed === "1"
+        ? "List killed agents"
+        : "List agents (invalid killed filter)";
+    }
     if (segs.length === 1 && m === "POST") {
       const name = field("name");
       return name

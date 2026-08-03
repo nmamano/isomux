@@ -30,7 +30,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
-import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { getAgentTokenRaw, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { DEFAULT_EFFORT, type EffortLevel } from "../../shared/types.ts";
 
@@ -337,5 +337,186 @@ describe("GET /agents projection (room ACL)", () => {
     });
     expect(asOwner.status).toBe(200);
     expect(await manifestNames(asOwner)).toEqual(["MemberAgent", "OwnerAgent"]);
+  });
+});
+
+// GET /agents?killed=1 - the other roster (task 18fded2c). It exists so the
+// killed-agent log reach shipped in ffb90761 is usable: an agent could read a
+// dead agent's transcripts but had no way to learn its id.
+//
+// SCOPED LIKE THE LOG GUARD, deliberately NOT like the live manifest above: the
+// killed agent's own boss plus office owners, never "anyone who shares its last
+// room". These pin exactly that difference - a room-mate managed by a different
+// boss is the case a room projection would wrongly let through.
+describe("GET /agents?killed=1 (killed roster)", () => {
+  async function killedFor(
+    srv: TestServer,
+    init: { bearer?: string; rawSessionId?: string },
+  ): Promise<Array<Record<string, unknown>>> {
+    const res = await srv.http("/agents?killed=1", {
+      headers: init.bearer
+        ? { Authorization: `Bearer ${init.bearer}` }
+        : undefined,
+      rawSessionId: init.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    return (await res.json()) as Array<Record<string, unknown>>;
+  }
+
+  it("an agent sees its own boss's killed agents, with a logDir it can read", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const doomed = await spawnOwnedBy(srv, "Doomed", r1, 0, owner.username);
+    const survivor = await spawnOwnedBy(srv, "Survivor", r1, 1, owner.username);
+    await srv.agentManager.kill(doomed.id);
+
+    const list = await killedFor(srv, { bearer: bearerFor(survivor.id) });
+    const entry = list.find((k) => k.id === doomed.id);
+    expect(entry).toBeDefined();
+    expect(entry!.name).toBe("Doomed");
+    expect(entry!.lastRoomId).toBe(r1);
+    expect(entry!.logDir).toBe(join(srv.stateRoot, "logs", doomed.id));
+    expect(typeof entry!.killedAt).toBe("number");
+    // The LIVE arm must be unaffected: it still answers live agents only.
+    const live = await srv.http("/agents", {
+      headers: { Authorization: `Bearer ${bearerFor(survivor.id)}` },
+    });
+    expect(await manifestNames(live)).toEqual(["Survivor"]);
+  });
+
+  it("a room-mate managed by a DIFFERENT boss does not see it", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mem");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    await setAccess(srv, owner.rawSessionId, member.username, [r1]);
+
+    // Both sat in the SAME room, so a room-scoped rule would let Mem's agent see
+    // Boss's killed one. The boss rule must not.
+    const doomed = await spawnOwnedBy(srv, "Doomed", r1, 0, owner.username);
+    const memberAgent = await spawnOwnedBy(
+      srv,
+      "MemBot",
+      r1,
+      1,
+      member.username,
+    );
+    await srv.agentManager.kill(doomed.id);
+
+    const asMember = await killedFor(srv, {
+      bearer: bearerFor(memberAgent.id),
+    });
+    expect(asMember.find((k) => k.id === doomed.id)).toBeUndefined();
+    // ...while an office owner's cookie sees every killed agent.
+    const asOwner = await killedFor(srv, { rawSessionId: owner.rawSessionId });
+    expect(asOwner.find((k) => k.id === doomed.id)).toBeDefined();
+  });
+
+  it("a member sees only the killed agents they spawned", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mem");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    await setAccess(srv, owner.rawSessionId, member.username, [r1]);
+    const theirs = await spawnOwnedBy(srv, "BossBot", r1, 0, owner.username);
+    const mine = await spawnOwnedBy(srv, "MemBot", r1, 1, member.username);
+    await srv.agentManager.kill(theirs.id);
+    await srv.agentManager.kill(mine.id);
+
+    const list = await killedFor(srv, { rawSessionId: member.rawSessionId });
+    const ids = list.map((k) => k.id);
+    expect(ids).toContain(mine.id);
+    expect(ids).not.toContain(theirs.id);
+  });
+
+  it("anonymous is still 401; only killed=1 selects the roster, else 400", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const doomed = await spawnOwnedBy(srv, "Doomed", r1, 0, owner.username);
+    await srv.agentManager.kill(doomed.id);
+
+    const anon = await fetch(`${srv.baseUrl}/agents?killed=1`);
+    expect(anon.status).toBe(401);
+
+    const yes = await srv.http("/agents?killed=1", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(yes.status).toBe(200);
+    expect(
+      ((await yes.json()) as Array<{ id: string }>).some(
+        (k) => k.id === doomed.id,
+      ),
+    ).toBe(true);
+
+    // Every other present value is a loud 400. `?killed=0` reads as "no" and
+    // must not be answered with the killed list; a typo must not be answered
+    // with the LIVE list, which is what a presence check would have done.
+    for (const q of ["?killed", "?killed=0", "?killed=true", "?killed=yes"]) {
+      const res = await srv.http(`/agents${q}`, {
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it("a CRON-RUN token is denied, matching the log route it feeds", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const doomed = await spawnOwnedBy(srv, "Doomed", r1, 0, owner.username);
+    await srv.agentManager.kill(doomed.id);
+
+    // A run token carries its cronjob CREATOR's userId, so without an explicit
+    // denial it would inherit that boss's killed-agent reach - out-reaching
+    // logSearchAccess, which denies cron-run outright.
+    const runToken = mintRunToken("job-1", "run-1", getUserByName("Boss")!.id);
+    const res = await srv.http("/agents?killed=1", {
+      headers: { Authorization: `Bearer ${runToken}` },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("excludes revived agents and legacy records with no recorded boss", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const revived = await spawnOwnedBy(srv, "Revived", r1, 0, owner.username);
+    const stays = await spawnOwnedBy(srv, "Stays", r1, 1, owner.username);
+    await srv.agentManager.kill(revived.id);
+    await srv.agentManager.kill(stays.id);
+    await srv.agentManager.revive(revived.id, r1, 0);
+
+    const list = (await (
+      await srv.http("/agents?killed=1", { rawSessionId: owner.rawSessionId })
+    ).json()) as Array<{ id: string }>;
+    // Back among the living -> off the killed roster (it has a history entry).
+    expect(list.some((k) => k.id === revived.id)).toBe(false);
+    expect(list.some((k) => k.id === stays.id)).toBe(true);
+
+    // A history entry with NO recorded userId - what a legacy record from before
+    // agents stored their boss looks like - must fail CLOSED for everyone but an
+    // office owner: no real userId can match `undefined`.
+    const unowned = await spawnAt(srv, "Unowned", r1, 2); // no username passed
+    await srv.agentManager.kill(unowned.id);
+    const member = await srv.seedMember("Mem");
+    const asMember = (await (
+      await srv.http("/agents?killed=1", { rawSessionId: member.rawSessionId })
+    ).json()) as Array<{ id: string }>;
+    expect(asMember.some((k) => k.id === unowned.id)).toBe(false);
+    expect(asMember).toEqual([]); // Mem spawned nothing of their own either
+    // The owner still sees it, so the exclusion above is the boss rule biting,
+    // not the entry being dropped from the roster altogether.
+    const asOwner = (await (
+      await srv.http("/agents?killed=1", { rawSessionId: owner.rawSessionId })
+    ).json()) as Array<{ id: string }>;
+    expect(asOwner.some((k) => k.id === unowned.id)).toBe(true);
   });
 });

@@ -678,6 +678,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         managed.info.name,
         managed.info.id,
         room.name,
+        room.id,
         officeConfig.prompt,
         room.prompt,
         managed.info.customInstructions,
