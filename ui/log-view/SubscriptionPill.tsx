@@ -11,13 +11,17 @@ import { getUsagePin, setUsagePin, type UsagePin } from "../device-settings.ts";
 // says so in `primaryIndex`); every window the backend reports is a popover
 // row, and the leading one is marked there so the number is never ambiguous.
 //
-// Two deliberate differences from the battery:
-//   - It DISAPPEARS when there's no reading, instead of showing an unknown
-//     state. A Claude API-key / Bedrock / Vertex session has no plan quota at
-//     all, so an "unknown" pill there would imply a number exists somewhere.
-//   - It fills UP as usage grows, where the battery drains DOWN, and it's a
-//     ring rather than a battery shell - two same-shaped meters with opposite
-//     polarity sitting side by side would be a trap.
+// It shares the battery's LIFECYCLE (per Nil 2026-08-01): the pill always
+// renders, and with no reading it shows an empty ring and "?" in a ghost color
+// rather than disappearing. An indicator that comes and goes is one the eye
+// stops trusting, and a missing pill and a zero-usage pill looked the same.
+// The unknown copy says outright that some sessions never report one, so the
+// "?" doesn't imply a number is hiding somewhere.
+//
+// One deliberate difference from the battery: it fills UP as usage grows, where
+// the battery drains DOWN, and it's a ring rather than a battery shell - two
+// same-shaped meters with opposite polarity sitting side by side would be a
+// trap.
 // The color bands are shared with the battery on purpose (bandColor: < 50 dim,
 // 50-74 orange, >= 75 red), keyed off the used percentage.
 
@@ -119,6 +123,12 @@ export function resolveTrackedWindow(
 export const AUTO_CHOICE_LABEL = "Auto (most constrained)";
 const CHOOSER_HINT = "Which limit the number tracks:";
 
+// Shown in place of the window list when there is no reading. Second sentence
+// exists so the "?" isn't read as "a number exists and we lost it": an API key
+// / Bedrock / Vertex session has no plan quota to report at all.
+export const UNKNOWN_USAGE_TEXT =
+  "Plan usage not reported yet. It updates when the agent finishes a turn - sessions without plan limits (API key, Bedrock, Vertex) never report one.";
+
 export function SubscriptionPill({
   usage,
   agentId,
@@ -126,7 +136,8 @@ export function SubscriptionPill({
   isMobile,
 }: {
   // null/undefined = no reading (no plan limits apply, the backend hasn't
-  // reported yet, or the server restarted). Nothing renders in that case.
+  // reported yet, or the server restarted). The pill still renders, in the
+  // ghost-colored "?" state - see the file header.
   usage: SubscriptionUsageWire | null | undefined;
   // Both are the pin's storage key - see getUsagePin. `provider` is the
   // agent's engine, so a pin never crosses from one provider's windows to
@@ -179,11 +190,14 @@ export function SubscriptionPill({
     };
   }, [popoverOpen]);
 
-  // Hidden entirely without a reading. Hooks above run unconditionally so the
-  // hook order stays stable when a reading arrives mid-session.
-  if (!usage || usage.windows.length === 0) return null;
-  const tracked = resolveTrackedWindow(usage.windows, usage.primaryIndex, pin);
-  const headline = usage.windows[tracked.index];
+  // A usable reading, or null. Narrowing it into one const keeps every derived
+  // value below on a single fork instead of re-testing `usage` each time; the
+  // pill renders either way (see the file header).
+  const reading = usage && usage.windows.length > 0 ? usage : null;
+  const tracked = reading
+    ? resolveTrackedWindow(reading.windows, reading.primaryIndex, pin)
+    : null;
+  const headline = reading && tracked ? reading.windows[tracked.index] : null;
 
   const choose = (next: UsagePin | null) => {
     setUsagePin(agentId, provider, next);
@@ -194,31 +208,38 @@ export function SubscriptionPill({
   // rounded for the label - same contract as the context battery, whose bands
   // key off the raw float. Rounding first would paint 49.6% orange, i.e. a
   // different threshold than the one the two indicators are supposed to share.
-  const rawUsed = Math.max(0, Math.min(100, headline.usedPercent));
+  const rawUsed = headline
+    ? Math.max(0, Math.min(100, headline.usedPercent))
+    : 0;
   const used = Math.round(rawUsed);
-  const color = bandColor(rawUsed);
+  const color = reading ? bandColor(rawUsed) : "var(--text-ghost)";
   const dash = (RING_CIRCUMFERENCE * rawUsed) / 100;
+  // "?" is plain ASCII on purpose - no iOS auto-emoji risk (unlike ？/⍰), same
+  // rule the battery's unknown label follows.
+  const label = reading ? `${used}%` : "?";
 
-  const planLine = usage.plan ? `Plan: ${usage.plan}` : null;
+  const planLine = reading?.plan ? `Plan: ${reading.plan}` : null;
   const caveat = "This is account-wide, not per agent.";
   // Both lists stay in display order. What identifies the window behind the
   // number is the popover's bullet + bold on that row and the button's
   // accessible name ("5-hour plan allowance 95% used"), NOT position.
-  const hoverLines = usage.windows.map((w) => windowLine(w, null));
-  const popoverLines = usage.windows.map((w) =>
-    windowLine(w, coords?.atMs ?? null),
-  );
+  const hoverLines = reading
+    ? reading.windows.map((w) => windowLine(w, null))
+    : [];
+  const popoverLines = reading
+    ? reading.windows.map((w) => windowLine(w, coords?.atMs ?? null))
+    : [];
   // How old the reading is. Account data goes stale while an agent sits idle
   // (nothing refreshes it between turns), so the popover says so rather than
   // presenting a week-old number as current - but a fresh reading stays
   // unannotated (Nil: the line should only appear when it is actually stale).
   const ageLine =
-    coords && coords.atMs - usage.sampledAtMs > STALE_READING_MS
-      ? `Reading taken ${formatTimeUntil(coords.atMs - usage.sampledAtMs)} ago.`
+    reading && coords && coords.atMs - reading.sampledAtMs > STALE_READING_MS
+      ? `Reading taken ${formatTimeUntil(coords.atMs - reading.sampledAtMs)} ago.`
       : null;
-  const tooltip = [...(planLine ? [planLine] : []), ...hoverLines, caveat].join(
-    "\n",
-  );
+  const tooltip = reading
+    ? [...(planLine ? [planLine] : []), ...hoverLines, caveat].join("\n")
+    : UNKNOWN_USAGE_TEXT;
 
   const toggle = () => {
     const next = !open;
@@ -246,9 +267,13 @@ export function SubscriptionPill({
         ref={btnRef}
         onClick={toggle}
         title={isMobile ? undefined : tooltip}
-        aria-label={`${headline.label} plan allowance ${used}% used${
-          tracked.pinned ? ", pinned" : ""
-        }. Tap for details.`}
+        aria-label={
+          headline && tracked
+            ? `${headline.label} plan allowance ${used}% used${
+                tracked.pinned ? ", pinned" : ""
+              }. Tap for details.`
+            : "Plan usage not reported yet. Tap for details."
+        }
         aria-expanded={popoverOpen}
         aria-controls={popoverOpen ? popoverId : undefined}
         data-testid="subscription-pill"
@@ -273,7 +298,9 @@ export function SubscriptionPill({
           aria-hidden="true"
           style={{ display: "block", flexShrink: 0 }}
         >
-          {/* track */}
+          {/* track. With no reading the ring is the only mark left, so it
+              carries a bit more weight than the track behind a real arc -
+              matching how the battery's empty shell stays legible. */}
           <circle
             cx={12}
             cy={12}
@@ -281,7 +308,7 @@ export function SubscriptionPill({
             fill="none"
             stroke="currentColor"
             strokeWidth={5}
-            opacity={0.3}
+            opacity={reading ? 0.3 : 0.55}
           />
           {/* used arc, starting at 12 o'clock and filling clockwise */}
           {rawUsed > 0 && (
@@ -308,17 +335,19 @@ export function SubscriptionPill({
             lineHeight: 1,
           }}
         >
-          {used}%
+          {label}
         </span>
       </button>
       {popoverOpen && (
         <div
           ref={popRef}
           id={popoverId}
-          // Not role="tooltip": a tooltip is non-interactive descriptive
-          // content, and this popover contains the limit chooser's buttons.
-          role="dialog"
-          aria-label={CHOOSER_HINT}
+          // With a reading this is role="dialog", not role="tooltip": a tooltip
+          // is non-interactive descriptive content, and the popover holds the
+          // limit chooser's buttons. Without one there is nothing to choose, so
+          // it degrades to the battery's plain descriptive tooltip.
+          role={reading ? "dialog" : "tooltip"}
+          aria-label={reading ? CHOOSER_HINT : undefined}
           style={{
             position: "fixed",
             top: coords.top,
@@ -337,33 +366,41 @@ export function SubscriptionPill({
             whiteSpace: "normal",
           }}
         >
-          {planLine && <div>{planLine}</div>}
-          <div style={{ marginTop: 4, color: "var(--text-dim)" }}>
-            {CHOOSER_HINT}
-          </div>
-          {popoverLines.map((line, i) => (
-            <ChoiceRow
-              key={i}
-              text={i === tracked.index ? `\u2022 ${line}` : line}
-              active={i === tracked.index}
-              selected={tracked.pinned && i === tracked.index}
-              onClick={() =>
-                choose({ label: usage.windows[i].label, index: i })
-              }
-            />
-          ))}
-          <ChoiceRow
-            text={AUTO_CHOICE_LABEL}
-            active={!tracked.pinned}
-            selected={!tracked.pinned}
-            onClick={() => choose(null)}
-          />
-          {ageLine && (
-            <div style={{ marginTop: 6, color: "var(--text-dim)" }}>
-              {ageLine}
-            </div>
+          {reading && tracked ? (
+            <>
+              {planLine && <div>{planLine}</div>}
+              <div style={{ marginTop: 4, color: "var(--text-dim)" }}>
+                {CHOOSER_HINT}
+              </div>
+              {popoverLines.map((line, i) => (
+                <ChoiceRow
+                  key={i}
+                  text={i === tracked.index ? `\u2022 ${line}` : line}
+                  active={i === tracked.index}
+                  selected={tracked.pinned && i === tracked.index}
+                  onClick={() =>
+                    choose({ label: reading.windows[i].label, index: i })
+                  }
+                />
+              ))}
+              <ChoiceRow
+                text={AUTO_CHOICE_LABEL}
+                active={!tracked.pinned}
+                selected={!tracked.pinned}
+                onClick={() => choose(null)}
+              />
+              {ageLine && (
+                <div style={{ marginTop: 6, color: "var(--text-dim)" }}>
+                  {ageLine}
+                </div>
+              )}
+              <div style={{ marginTop: 6, color: "var(--text-dim)" }}>
+                {caveat}
+              </div>
+            </>
+          ) : (
+            UNKNOWN_USAGE_TEXT
           )}
-          <div style={{ marginTop: 6, color: "var(--text-dim)" }}>{caveat}</div>
         </div>
       )}
     </span>

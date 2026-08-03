@@ -29,7 +29,10 @@ import {
 import { Character } from "../office/Character.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
-import { ExpandableTextarea } from "./ExpandableTextarea.tsx";
+import {
+  ExpandableTextarea,
+  isExpandedEditorOpen,
+} from "./ExpandableTextarea.tsx";
 import type {
   MoveAgentReq,
   SpawnReq,
@@ -95,6 +98,52 @@ function makeRandomOutfit(): AgentOutfit {
     beard: BEARDS[Math.floor(Math.random() * BEARDS.length)],
     accessory: ACCESSORIES[Math.floor(Math.random() * ACCESSORIES.length)],
   };
+}
+
+// Every value the dialog's form holds, flattened for the unsaved-changes check
+// (task 5a20e3f0). `outfit` is pre-serialized because the form replaces the
+// whole object on each swatch click, so identity says nothing.
+export interface AgentFormSnapshot {
+  name: string;
+  cwd: string;
+  outfit: string;
+  customInstructions: string;
+  targetEngine: AgentBackendType;
+  modelFamily: string;
+  effort: EffortLevel;
+  permissionMode: AgentInfo["permissionMode"];
+  codexSandbox: CodexSandboxMode;
+  privileged: boolean;
+}
+
+// Does the form hold edits that closing would throw away? Agent memory is
+// tracked separately by useMemoryEditor, so it comes in as its own flag.
+// The free-text fields are trim-compared for the same reason handleSave trims
+// before diffing: trailing whitespace the user can't see isn't a change worth
+// a confirmation prompt. Exported for tests.
+export function agentFormDirty(
+  current: AgentFormSnapshot,
+  baseline: AgentFormSnapshot,
+  memoryDirty: boolean,
+): boolean {
+  if (memoryDirty) return true;
+  const trimmed = ["name", "cwd", "customInstructions"] as const;
+  for (const k of trimmed) {
+    if (current[k].trim() !== baseline[k].trim()) return true;
+  }
+  const exact = [
+    "outfit",
+    "targetEngine",
+    "modelFamily",
+    "effort",
+    "permissionMode",
+    "codexSandbox",
+    "privileged",
+  ] as const;
+  for (const k of exact) {
+    if (current[k] !== baseline[k]) return true;
+  }
+  return false;
 }
 
 type EditAgentDialogProps = {
@@ -224,6 +273,97 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     authError: boolean;
   } | null>(null);
 
+  // What "unsaved" is measured against (task 5a20e3f0). Seeded from the same
+  // values the form state above is seeded from, so on open the dialog is clean
+  // in both spawn and edit mode. The two effects that re-seed the form
+  // PROGRAMMATICALLY - the Codex model-list default pick, and the engine-switch
+  // re-seed - re-stamp the affected entries: those aren't the user's edits, and
+  // counting them as unsaved changes would put a discard prompt in front of
+  // someone who has typed nothing.
+  const formSnapshot: AgentFormSnapshot = {
+    name,
+    cwd,
+    outfit: JSON.stringify(outfit),
+    customInstructions,
+    targetEngine,
+    modelFamily,
+    effort,
+    permissionMode,
+    codexSandbox,
+    privileged,
+  };
+  // Copied, not aliased: the effects below re-stamp individual baseline entries
+  // in place, and sharing the object with this render's snapshot would make
+  // those writes invisible to the very comparison they exist for.
+  const baselineRef = useRef<AgentFormSnapshot | null>(null);
+  if (baselineRef.current === null) baselineRef.current = { ...formSnapshot };
+
+  function isDirty(): boolean {
+    return agentFormDirty(formSnapshot, baselineRef.current!, mem.dirty);
+  }
+
+  // "Discard unsaved changes?" confirmation, same inline-strip convention as
+  // the user settings page. `after` runs once the close is committed, so a
+  // dismissal that also does something (Move to Room) can chain onto it.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const pendingDiscardActionRef = useRef<(() => void) | null>(null);
+
+  // Every dismissal path routes through here: backdrop, Cancel, Escape,
+  // Move to Room. Clean form closes immediately; dirty one asks first.
+  function requestClose(after?: () => void) {
+    if (isDirty()) {
+      pendingDiscardActionRef.current = after ?? null;
+      setConfirmDiscard(true);
+    } else {
+      onClose();
+      after?.();
+    }
+  }
+
+  function commitDiscard() {
+    const next = pendingDiscardActionRef.current;
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
+    onClose();
+    next?.();
+  }
+
+  function cancelDiscard() {
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
+  }
+
+  // Escape. App's own handler clears editAgent/spawnReady on Escape and knows
+  // nothing about unsaved edits (it doesn't even skip inputs, so Escape while
+  // typing in the memory box would drop it), so we claim the key in the CAPTURE
+  // phase and stop it there. No deps - re-registers every render so the closure
+  // sees fresh form state.
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      // An expanded textarea overlay collapses on Escape instead of closing
+      // this dialog; our capture listener runs first, so stand down for it.
+      if (isExpandedEditorOpen()) return;
+      e.stopPropagation();
+      if (saving) return;
+      if (confirmDiscard) cancelDiscard();
+      else requestClose();
+    }
+    window.addEventListener("keydown", handleKey, true);
+    return () => window.removeEventListener("keydown", handleKey, true);
+  });
+
+  // Tab close / reload is the one dismissal the app can't intercept - the
+  // browser's own prompt is the only guard available there.
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!isDirty()) return;
+      e.preventDefault();
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  });
+
   // Validate the existing cwd when the edit dialog opens, so the user sees
   // immediately if the stored directory is gone. Depend only on agent.id.
   useEffect(() => {
@@ -294,13 +434,18 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             visibleModels[0];
           if (def) {
             setModelFamily(def.id);
+            // A machine-chosen default, not an edit - move the unsaved-changes
+            // baseline with it (see baselineRef).
+            baselineRef.current!.modelFamily = def.id;
             // Keep Isomux's DEFAULT_EFFORT when the model supports it; only
             // adopt the model's own reported default when it doesn't.
             const supportsDefault = def.supportedEfforts.some(
               (o) => o.level === DEFAULT_EFFORT,
             );
-            if (!supportsDefault && def.defaultEffort)
+            if (!supportsDefault && def.defaultEffort) {
               setEffort(def.defaultEffort as EffortLevel);
+              baselineRef.current!.effort = def.defaultEffort as EffortLevel;
+            }
           }
         }
       })
@@ -336,35 +481,62 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     }
     // Synchronous re-seed in response to the engine flip - same intentional
     // pattern (and rule suppression) as the model/list effect above.
-    /* eslint-disable react-hooks/set-state-in-effect */
+    let seed: {
+      modelFamily: string;
+      effort: EffortLevel;
+      permissionMode: AgentInfo["permissionMode"];
+      codexSandbox?: CodexSandboxMode;
+    };
     if (targetEngine === agentType) {
-      setModelFamily(
-        agent?.modelFamily ??
+      seed = {
+        modelFamily:
+          agent?.modelFamily ??
           (agentType === "codex"
             ? CODEX_MODELS[0].value
             : MODEL_FAMILIES[0].family),
-      );
-      setEffort(agent?.effort ?? DEFAULT_EFFORT);
-      setPermissionMode(initialPermissionMode);
-      setCodexSandbox(agent?.codexSandbox ?? "workspace-write");
+        effort: agent?.effort ?? DEFAULT_EFFORT,
+        permissionMode: initialPermissionMode,
+        codexSandbox: agent?.codexSandbox ?? "workspace-write",
+      };
     } else if (targetEngine === "codex") {
-      setModelFamily(CODEX_MODELS[0].value);
-      setEffort(DEFAULT_EFFORT);
-      setPermissionMode("on-request");
-      setCodexSandbox("workspace-write");
+      seed = {
+        modelFamily: CODEX_MODELS[0].value,
+        effort: DEFAULT_EFFORT,
+        permissionMode: "on-request",
+        codexSandbox: "workspace-write",
+      };
     } else {
       const claudeDefault = MODEL_FAMILIES[0].family;
-      setModelFamily(claudeDefault);
-      setEffort(DEFAULT_EFFORT);
-      setPermissionMode(
-        claudeFamilySupportsAutoPermission(claudeDefault) ? "auto" : "default",
-      );
+      seed = {
+        modelFamily: claudeDefault,
+        effort: DEFAULT_EFFORT,
+        permissionMode: claudeFamilySupportsAutoPermission(claudeDefault)
+          ? "auto"
+          : "default",
+      };
     }
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setModelFamily(seed.modelFamily);
+    setEffort(seed.effort);
+    setPermissionMode(seed.permissionMode);
+    if (seed.codexSandbox !== undefined) setCodexSandbox(seed.codexSandbox);
     /* eslint-enable react-hooks/set-state-in-effect */
+    // These follow the engine the user picked rather than being edits of their
+    // own, so they move the baseline; `targetEngine` itself stays measured
+    // against the original, which is what keeps an engine switch "unsaved".
+    baselineRef.current!.modelFamily = seed.modelFamily;
+    baselineRef.current!.effort = seed.effort;
+    baselineRef.current!.permissionMode = seed.permissionMode;
+    if (seed.codexSandbox !== undefined)
+      baselineRef.current!.codexSandbox = seed.codexSandbox;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetEngine]);
 
   function handleSave() {
+    // Save supersedes an in-flight discard prompt: the user picked Save over
+    // Discard, so the stashed action must not be able to replay later.
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
     // name_taken routes under the Name input; everything else under cwd (the
     // prior agent_save_response.field === "name" routing, now keyed on the REST
     // ApiError.code).
@@ -530,7 +702,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   return (
     <div
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
       style={{
         position: "fixed",
@@ -1368,10 +1540,14 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       onClick={() => {
                         const targetRoomId = rooms[i]?.id;
                         if (!targetRoomId) return;
-                        apiFetch("POST", `/api/agents/${agent!.id}/move`, {
-                          targetRoomId,
-                        } satisfies MoveAgentReq).catch(() => {});
-                        onClose();
+                        // Moving closes the dialog without saving the rest of
+                        // the form, so it goes through the same discard gate as
+                        // any other dismissal; the move fires once that commits.
+                        requestClose(() => {
+                          apiFetch("POST", `/api/agents/${agent!.id}/move`, {
+                            targetRoomId,
+                          } satisfies MoveAgentReq).catch(() => {});
+                        });
                       }}
                       style={{
                         padding: "5px 12px",
@@ -1395,11 +1571,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             </>
           )}
         </div>
+        {/* Action footer. The discard prompt lives here rather than over the
+            form so it sits next to the buttons that trigger it, and so it can't
+            appear scrolled out of view. */}
         <div
           style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 8,
             padding: isMobile
               ? "16px 20px max(16px, env(safe-area-inset-bottom))"
               : "16px 28px",
@@ -1407,12 +1583,68 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             flexShrink: 0,
           }}
         >
-          <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
-            Cancel
-          </button>
-          <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
-            {saving ? "Saving…" : isSpawn ? "Spawn" : "Save"}
-          </button>
+          {confirmDiscard && (
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginBottom: 10,
+                padding: "8px 10px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg-input)",
+              }}
+            >
+              <span
+                style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}
+              >
+                Discard unsaved changes?
+              </span>
+              <button
+                onClick={commitDiscard}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  border: "1px solid var(--red)",
+                  background: "var(--red)",
+                  color: "var(--bg-base)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Discard
+              </button>
+              <button
+                onClick={cancelDiscard}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-primary)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button
+              onClick={() => requestClose()}
+              style={cancelBtnStyle}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
+              {saving ? "Saving…" : isSpawn ? "Spawn" : "Save"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

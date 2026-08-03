@@ -344,8 +344,8 @@ export interface SubscriptionWindowWire {
 // Account-scoped, NOT conversation-scoped: every agent signed in to the same
 // claude.ai account / CODEX_HOME reports the same figure, and it deliberately
 // survives /clear, fork and resume (the quota doesn't reset when a
-// conversation does). Absent/undefined => the pill is hidden entirely (API
-// key / Bedrock / Vertex Claude sessions, Codex before any rate-limit data
+// conversation does). Absent/undefined => the pill shows its unknown "?" state
+// (API key / Bedrock / Vertex Claude sessions, Codex before any rate-limit data
 // has arrived, right after a server restart).
 export interface SubscriptionUsageWire {
   // Backend-reported plan name ("max", "pro", "plus", ...), or null.

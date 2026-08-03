@@ -227,6 +227,46 @@ const OFFICE_CHARACTERS: {
   },
 ];
 
+// Plan-allowance reading for the demo's agents. Account-scoped in the real
+// server - every agent signed in to the same account reports the same figure -
+// so the demo hands the identical object to all of them rather than inventing a
+// per-agent number. Stamped at seed time so the popover's "resets in ..."
+// countdown ticks down realistically while someone is looking at it.
+function demoSubscriptionUsage(): AgentInfo["subscriptionUsage"] {
+  const now = Date.now();
+  return {
+    plan: "max",
+    windows: [
+      { label: "5-hour", usedPercent: 41, resetsAtMs: now + 2.25 * 3600_000 },
+      { label: "Weekly", usedPercent: 27, resetsAtMs: now + 4.1 * 86400_000 },
+    ],
+    // The 5-hour window is the closest to its limit, so it drives the number.
+    primaryIndex: 0,
+    sampledAtMs: now,
+  };
+}
+
+// Context fullness for the demo's agents. Unlike the plan allowance above this
+// is per-CONVERSATION, so a single shared figure would read as obviously fake -
+// the spread below is keyed on desk to give the office a plausible mix of fresh
+// and well-used sessions, including one in each color band.
+const DEMO_CONTEXT_PERCENT = [18, 34, 9, 52, 27, 61, 44, 76];
+const DEMO_CONTEXT_WINDOW = 1_000_000;
+
+function demoContextUsage(
+  desk: number,
+  model: ModelFamily,
+): AgentInfo["contextUsage"] {
+  const percentage = DEMO_CONTEXT_PERCENT[desk % DEMO_CONTEXT_PERCENT.length];
+  return {
+    model,
+    totalTokens: Math.round((DEMO_CONTEXT_WINDOW * percentage) / 100),
+    maxTokens: DEMO_CONTEXT_WINDOW,
+    percentage,
+    sampledAtMs: Date.now(),
+  };
+}
+
 function seedOffice() {
   const chars = embedMode
     ? OFFICE_CHARACTERS.filter((c) => c.room === 0)
@@ -258,6 +298,8 @@ function seedOffice() {
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
+      subscriptionUsage: demoSubscriptionUsage(),
+      contextUsage: demoContextUsage(char.desk, char.modelFamily),
     });
   }
 }
