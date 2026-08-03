@@ -13,7 +13,10 @@ Drop this prompt into one of your Isomux agents to get a systemd user service th
 ```
 Set up Isomux as an always-on server. Create a systemd user service
 that auto-rebuilds the UI on start and restarts on failure. Enable
-lingering so it survives logout.
+lingering so it survives logout. Put OOMPolicy=continue,
+StartLimitIntervalSec=0 and RestartSec=5s on the unit: one agent
+killed for memory should not restart the office, and a burst of
+kills should not leave it switched off for good.
 
 If you run into any issues with this setup, ask in the Isomux
 Discord: https://discord.gg/FrjEYyNvYs
@@ -38,7 +41,7 @@ sudo bash deploy/oom-protect.sh --dry-run   # print what would change
 sudo bash deploy/oom-protect.sh
 ```
 
-That installs [earlyoom](https://github.com/rfjakob/earlyoom) (kills one process while there is still memory left to act with), puts SSH and Tailscale last in the kill order, adds a 2 GB swap file if the box has none, and installs itself at `/usr/local/sbin/isomux-oom-protect`. It also sets up a small root timer that re-applies the office's own kill-order stamp within a minute of any office restart - a user-level service cannot hold that setting itself. Safe to run on a live office; nothing but earlyoom is restarted.
+That installs [earlyoom](https://github.com/rfjakob/earlyoom) (kills one process while there is still memory left to act with), puts SSH, Tailscale and the daemons the box needs to stay usable (DNS, networking) last in the kill order and makes them keep retrying if they are killed anyway, adds a swap file of up to 8 GB if the box has none, and installs itself at `/usr/local/sbin/isomux-oom-protect`. It also sets up a small root timer that re-applies the office's own kill-order stamp within a minute of any office restart - a user-level service cannot hold that setting itself. Safe to run on a live office; nothing but earlyoom is restarted, and swap the box already has is left alone.
 
 macOS and Windows get neither half - both mechanisms are Linux-specific.
 

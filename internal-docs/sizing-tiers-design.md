@@ -350,9 +350,11 @@ reached cgroup OOM, because the office thrashes rather than dies;
 `isomux.service` needs `OOMPolicy=continue`, *paired with* the `oom_score_adj`
 stamp, before a one-agent blast radius is possible at all; and the shipped 2 GiB
 swapfile is the worst of the tested options at load, which reverses the
-small-swap rationale above. Two things it did **not** settle and which the note
-is explicit about: the `MemorySwapMax` value to ship, and the 1 GiB reserve,
-which stays provisional. The spec of the run follows, unchanged.
+small-swap rationale above. One thing it did **not** settle and which the note
+is explicit about: the 1 GiB reserve, which stays provisional. The
+`MemorySwapMax` value it also left open was measured on 2026-08-03 in a
+follow-up arm (task 99d7f273), in the same note. The spec of the run follows,
+unchanged.
 
 **The benchmark that would make them real** (filed as task 6ce6b700). Run it on
 the idle-but-paid Contabo box 169.58.97.2, cancelled but paid through
@@ -498,17 +500,34 @@ holds an office, and it is RAM that runs out.
 3. **RULED: publish no concurrency numbers.** Public copy stays vague and
    capability-phrased, per the copy rules. The figures in this doc are for
    internal sizing only.
-4. **NARROWED by the benchmark, awaiting Nil's ruling.** What hurts is swap
+4. **RULED (Nil, 2026-08-02): the swapfile goes to 8 GiB.** What hurts is swap
    *exhaustion*, not swap size: at a load where 2 GiB is used to the last
    megabyte, p95 turn latency is 30.7 s against 3.4 s with 8 GiB under identical
    load. Keeping 2 GiB is the worst of the three tested options, and the question
    behind the decision is answered - leaning on disk instead of RAM is a
    usability problem at any size, since even 8 GiB runs ~12x the unloaded p95, so
-   swap is a safety net and not headroom to sell. What is **not** settled is the
-   `MemorySwapMax` value: every 8 GiB arm ran with cgroup swap unlimited, so the
-   natural pairing of a larger swapfile with a cgroup cap below it is untested
-   and could recreate the same cliff at a different threshold. See the results
-   note; the original framing follows.
+   swap is a safety net and not headroom to sell.
+
+   Shipped in task 99d7f273: `deploy/oom-protect.sh` makes an 8 GiB swapfile on
+   a box that has none, taking the largest whole GiB a small disk can hold
+   rather than nothing, floored at the 2 GiB boxes used to get.
+
+   **Swap a box already has is reported and left alone**, so an existing box
+   keeps its 2 GiB until an operator changes it - the run prints the commands.
+   Automatic replacement was written and then withdrawn in review: it needs a
+   `swapoff` and then a window where the old file is deleted and the new one is
+   not yet proven, and a failure in that window leaves a live box with no swap
+   at all. `/swapfile` is also the conventional path on Ubuntu and cloud images,
+   so its presence is no evidence isomux created it. Doing this automatically
+   needs an ownership marker and a rollback that re-enables the old file on
+   every failure path; that is a separate change from a size constant.
+
+   The `MemorySwapMax` value the benchmark could not settle was measured
+   separately - see "The MemorySwapMax cap, measured" in the results note. It
+   is an input to item 2 of the sequencing below, not something the swapfile
+   change ships on its own: a swap cap without the `MemoryMax` fence beside it
+   would change behaviour under global pressure in a regime nothing has
+   measured. The original framing follows.
 
    **OPEN. Hosted swap: keep 2 GiB, or go larger on the entry tier?** Larger
    swap lets an 8 GB box ride out a build spike instead of losing a process, at
@@ -535,7 +554,12 @@ reachability), per f057617f. Order:
    assumed, and every value read back from the kernel rather than trusted from
    config. The `oom_score_adj` stamp on agent processes belonged here too, but
    it was accepted (D4) and shipped ahead of the rest on 2026-08-01, as an
-   in-server sweep rather than at spawn time.
+   in-server sweep rather than at spawn time. `OOMPolicy=continue` followed it
+   on 2026-08-02 (task e05a5cd4) for the same reason and the opposite one: the
+   interaction is no longer assumed (it was measured, seven ways), and the
+   policy is worth nothing without the stamp the box already had. The cgroup
+   drop-in itself is what remains here, and `MemorySwapMax` now has a measured
+   value to use (decision 4).
 3. PSI and `memory.events.local` telemetry, and the "stopped under memory
    pressure" attribution in the agent's chat.
 4. Graceful degradation, once decision 2 is settled.

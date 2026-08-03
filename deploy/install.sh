@@ -1537,11 +1537,10 @@ configure_oom_protection() {
 #
 # This sets up the cheap version of the fix:
 #   - earlyoom kills ONE process while there is still memory left to act with,
-#   - the kill order is tiered so the things that keep the box reachable go
-#     last and agent processes go first,
-#   - swap is kept small and the kernel is told to prefer dropping file caches
-#     over swapping live memory, so pressure turns into a kill instead of
-#     hours of disk grinding.
+#   - the kill order is tiered so the things that keep the box reachable and
+#     usable go last and agent processes go first,
+#   - swap is sized not to run out mid-spike, and the kernel is told to prefer
+#     dropping file caches over swapping live memory.
 #
 # Losing one agent is a papercut; losing the box is an outage.
 #
@@ -1574,7 +1573,7 @@ TAG=isomux-oom-protect
 DRY_RUN=""
 RESTAMP=""
 SWAPFILE=/swapfile
-SWAP_SIZE_MIB=2048
+SWAP_SIZE_MIB=8192
 SYSCTL_CONF=/etc/sysctl.d/60-isomux-memory.conf
 # Where deploy/install.sh puts this tool, and what the re-stamp timer runs.
 OOM_TOOL_PATH=/usr/local/sbin/isomux-oom-protect
@@ -1584,6 +1583,10 @@ RESTAMP_UNIT=isomux-oom-restamp
 RESTAMP_INTERVAL=1min
 # What the office server is tiered at, on either install shape.
 OFFICE_SCORE=-500
+# How long a unit this tool protects waits before restarting. Paired with the
+# StartLimitIntervalSec=0 in the same drop-in: with the rate limit gone, a unit
+# that cannot start at all would otherwise retry as fast as the machine allows.
+RESTART_BACKOFF=5s
 # Where to read and write process state. A seam for deploy/oom-protect.test.ts,
 # which points it at a fake tree so the kill-order logic can be tested without
 # real pids to race against. Never changed in production.
@@ -1696,8 +1699,44 @@ EOF
 # Lower score = killed later. A best-effort bias, not a guarantee: the kernel
 # combines it with its own "roughly biggest" heuristic.
 #
-#   -900  ssh, tailscaled   keep the box reachable
-#   -500  isomux, caddy     keep the office up
+#   -900  ssh, tailscaled                    keep the box reachable
+#   -900  resolved, networkd, logind         keep it usable once reached
+#   -500  isomux, caddy                      keep the office up
+#
+# The second row is there because of a measured incident, not a theory. During
+# the capacity benchmark a box under global memory pressure had earlyoom kill
+# its way down the process table at about four kills a second - apparmor_parser,
+# rsyslogd, three agettys, systemd-resolved, systemd-timesyncd, systemd-logind -
+# and resolved never came back (see the restart note below). The box then
+# answered ssh and every liveness probe for three hours while no process on it
+# could resolve a hostname.
+#
+# Two things made that possible, and both are worth knowing before touching this
+# table. earlyoom ranks by the kernel's oom_score, which is (1000 + adj) * 2/3
+# for anything small: every idle daemon on the box sits at exactly 666,
+# regardless of how little memory it holds. So the ordering among small processes
+# is arbitrary, and the gap between a 5 MiB daemon and a 300 MB agent is only
+# about 20 points. On top of that, the earlyoom drop-in of the day had `bun` in
+# its --avoid list, which took 300 off every agent process and left the system
+# daemons as the highest-scoring candidates on the box. That part is already
+# fixed above; this table fixes the rest, by putting the daemons that must
+# survive far below the 666 floor rather than a nudge below it.
+#
+# --avoid alone would not do it: it is a 300-point bias applied by earlyoom, and
+# it does not exist for the kernel's own killer. A negative score is both.
+#
+# Two are left alone because Ubuntu 24.04 already ships them below the floor,
+# measured on a box: `systemd-journald.service` at -250, and `dbus.service` at
+# -900, which is exactly what this table would have written anyway. That says
+# nothing about `dbus-broker.service`, a different unit that some distributions
+# ship instead; it is not tiered here because no box isomux supports runs it.
+#
+# What this table does NOT fix, and what actually turned that incident into a
+# three-hour outage: a daemon that does get killed may not come back. resolved
+# was SIGKILLed five times in two seconds, hit systemd's default start limit of
+# five starts per ten seconds, logged "Start request repeated too quickly" and
+# stayed failed until someone noticed. Surviving the spike and recovering from
+# it are separate problems; this is the first one.
 #
 # Two facts worth remembering. A score is inherited at fork, so these tiers
 # would hand the office's own agents and builds the same protection as the
@@ -1753,8 +1792,18 @@ oom_tier() {
   local unit=$1 score=$2
   write_file "/etc/systemd/system/$unit.d/isomux-oom.conf" 644 <<EOF
 # Written by isomux-oom-protect.
+[Unit]
+# Being killed under memory pressure must not be permanent. systemd gives up
+# after 5 starts in 10 seconds and leaves the unit failed, and these daemons
+# restart at RestartSec=0 out of the box - measured, systemd-resolved spent all
+# five inside two seconds during an earlyoom cascade and then stayed dead for
+# three hours while the box went on answering ssh and every liveness probe.
+# Retry forever instead, with the backoff below so forever is not a spin.
+StartLimitIntervalSec=0
+
 [Service]
 OOMScoreAdjust=$score
+RestartSec=$RESTART_BACKOFF
 EOF
   # A unit file only takes effect at the next start, and restarting sshd or
   # tailscaled to pick it up is exactly the disruption this script exists to
@@ -1936,6 +1985,13 @@ configure_kill_order() {
   # to.
   oom_tier ssh.service -900
   oom_tier tailscaled.service -900
+  # A box that answers ssh but cannot resolve a hostname, configure its network,
+  # or start a user service is broken in a way nothing reports. Measured on an
+  # Ubuntu 24.04 box, all three of these run at 0 and are killed as readily as
+  # anything else. Inert where the unit does not exist, same as tailscaled above.
+  oom_tier systemd-resolved.service -900  # DNS. The one that actually went down.
+  oom_tier systemd-networkd.service -900  # addresses and routes
+  oom_tier systemd-logind.service -900    # ssh sessions, and `systemctl --user`
   oom_tier caddy.service -500
   oom_tier isomux.service "$OFFICE_SCORE"
   run systemctl daemon-reload
@@ -1956,46 +2012,155 @@ EOF
   run sysctl -q -p "$SYSCTL_CONF"
 }
 
-# A small swap file is a useful cushion for pages nothing has touched in days.
-# A large one is a trap: it lets the box keep allocating long past the point
-# where it can still respond. Existing swap is left alone - resizing it out
-# from under a running system is not this script's business.
+# Swap is a safety net, not capacity. An office that is swapping is already
+# degraded - measured, an entry-tier box swapping under load runs about 12x its
+# unloaded turn latency whatever the file size - so none of this buys headroom.
+# What the size decides is how the bad case ends.
+#
+# It used to be 2 GiB here, on the reasoning that a large swap file lets a box
+# keep allocating past the point where it can still respond. Measured, that is
+# not what happens: at one load, a 2 GiB file used to the last megabyte gave a
+# p95 of 30.7 s where 8 GiB under the identical load gave 3.4 s, with 2.2x the
+# throughput. The cliff is swap EXHAUSTION, not swap size - a file that runs out
+# mid-spike is worse than either a bigger one or none at all. Hence 8 GiB.
+# (internal-docs/sizing-tiers-benchmark-results.md, "Swap: decision 4".)
+SWAP_HEADROOM_MIB=4096
+# What a small disk falls back to: the size every box got before the measurement
+# above, so this change can only ever leave a box with more swap than it had.
+SWAP_MIN_SIZE_MIB=2048
+# How far under the target still counts as "already that size". mkswap spends a
+# page on its header and SwapTotal is reported in kB, so an 8192 MiB file comes
+# back as 8191 MiB - without this the tool would decide, on every single run,
+# that the swap file it made last time is too small and rebuild it.
+SWAP_SIZE_SLACK_MIB=64
+
+# How much swap the kernel currently has, in MiB, and where. Read through the
+# seam so deploy/oom-protect.test.ts can drive the decisions below against a box
+# it invents rather than the one it runs on.
+swap_total_mib() { awk '/^SwapTotal:/ { print int($2 / 1024) }' "$PROC_ROOT/meminfo"; }
+# Every swap device the kernel has on, one path per line.
+swap_devices() { awk 'NR > 1 { print $1 }' "$PROC_ROOT/swaps"; }
+
+# Free space on the filesystem holding the swapfile, in MiB.
+swap_fs_avail_mib() { df --output=avail -m "$(dirname "$SWAPFILE")" | tail -1 | tr -d ' '; }
+
 configure_swap() {
-  local total_kib
-  total_kib=$(awk '/^SwapTotal:/ { print $2 }' /proc/meminfo)
-  if [[ ${total_kib:-0} -gt 0 ]]; then
-    log "swap already set up: $((total_kib / 1024)) MiB"
-    if [[ $total_kib -gt $((4 * 1024 * 1024)) ]]; then
-      log "  that is on the large side; earlyoom ignores swap when deciding, so it still kills on time"
-    fi
+  local total_mib
+  total_mib=$(swap_total_mib)
+  if [[ ${total_mib:-0} -gt 0 ]]; then
+    report_existing_swap "$total_mib"
     return 0
   fi
-  local avail_mib
-  avail_mib=$(df --output=avail -m / | tail -1 | tr -d ' ')
-  if [[ ${avail_mib:-0} -lt $((SWAP_SIZE_MIB + 4096)) ]]; then
-    warn "not creating a swap file: only ${avail_mib:-0} MiB free on /"
-    return 0
-  fi
+  swap_size_for_disk || return 0
+  local size_mib=$SWAP_SIZE_CHOSEN
   if [[ -e $SWAPFILE ]]; then
     warn "$SWAPFILE already exists but is not in use; leaving it alone"
     return 0
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would create a ${SWAP_SIZE_MIB} MiB swap file at $SWAPFILE and add it to /etc/fstab"
+    log "DRY-RUN: would create a ${size_mib} MiB swap file at $SWAPFILE and add it to /etc/fstab"
     return 0
   fi
-  if ! fallocate -l "${SWAP_SIZE_MIB}M" "$SWAPFILE" 2>/dev/null; then
-    dd if=/dev/zero of="$SWAPFILE" bs=1M count="$SWAP_SIZE_MIB" status=none || {
+  if ! make_swapfile "$size_mib"; then
+    warn "could not create $SWAPFILE; continuing without swap"
+    return 0
+  fi
+  grep -qs "^$SWAPFILE " /etc/fstab || printf '%s none swap sw 0 0\n' "$SWAPFILE" >>/etc/fstab
+  log "created a ${size_mib} MiB swap file at $SWAPFILE"
+}
+
+# Sets SWAP_SIZE_CHOSEN to the biggest swap file this disk can take; non-zero
+# when the answer is "none". A global rather than stdout because this function
+# also has something to say to the operator, and a $(...) around it would
+# capture the explanation as part of the number.
+#
+# The full size plus its headroom asks for 12 GiB of disk where the old 2 GiB
+# default asked for 6, so on a small disk this change would otherwise turn a box
+# that used to get swap into one that gets none - the worst of the three
+# outcomes. Rather than that, take what fits, down to the size boxes used to get.
+SWAP_SIZE_CHOSEN=""
+swap_size_for_disk() {
+  local avail_mib fits
+  avail_mib=$(swap_fs_avail_mib)
+  fits=$(((${avail_mib:-0} - SWAP_HEADROOM_MIB) / 1024 * 1024)) # whole GiB
+  if [[ $fits -ge $SWAP_SIZE_MIB ]]; then
+    SWAP_SIZE_CHOSEN=$SWAP_SIZE_MIB
+    return 0
+  fi
+  if [[ $fits -lt $SWAP_MIN_SIZE_MIB ]]; then
+    warn "not creating a swap file: ${avail_mib:-0} MiB free on $(dirname "$SWAPFILE") leaves no room for one once ${SWAP_HEADROOM_MIB} MiB is kept back for the box itself"
+    return 1
+  fi
+  warn "only ${avail_mib} MiB free on $(dirname "$SWAPFILE"): making a ${fits} MiB swap file instead of ${SWAP_SIZE_MIB} MiB. A swap file that runs out mid-spike is the worst case measured, so give this box more disk if you can."
+  SWAP_SIZE_CHOSEN=$fits
+}
+
+# Allocate, format and enable $SWAPFILE at the given size in MiB. fallocate can
+# leave a hole-punched file behind on a filesystem that took the call but cannot
+# back it, so a failure removes the file rather than leaving a half-made one for
+# the next run to find and skip.
+make_swapfile() {
+  local size_mib=$1
+  if ! fallocate -l "${size_mib}M" "$SWAPFILE" 2>/dev/null; then
+    dd if=/dev/zero of="$SWAPFILE" bs=1M count="$size_mib" status=none || {
       rm -f "$SWAPFILE"
-      warn "could not create $SWAPFILE; continuing without swap"
-      return 0
+      return 1
     }
   fi
   chmod 600 "$SWAPFILE"
-  mkswap "$SWAPFILE" >/dev/null
-  swapon "$SWAPFILE"
-  grep -qs "^$SWAPFILE " /etc/fstab || printf '%s none swap sw 0 0\n' "$SWAPFILE" >>/etc/fstab
-  log "created a ${SWAP_SIZE_MIB} MiB swap file at $SWAPFILE"
+  mkswap "$SWAPFILE" >/dev/null || { rm -f "$SWAPFILE"; return 1; }
+  swapon "$SWAPFILE" || { rm -f "$SWAPFILE"; return 1; }
+  return 0
+}
+
+# A box installed before the size went up already has swap, so the branch above
+# never runs on the boxes that would most benefit from it. This tool does not
+# resize it for them, and the reason is worth writing down, because an earlier
+# draft did and it was wrong on two counts.
+#
+# Replacing live swap means `swapoff` first, which reads every swapped-out page
+# back into RAM, and then a window where the old file is gone and the new one is
+# not yet proven. fallocate, mkswap or swapon failing anywhere in that window
+# leaves a running box with no swap at all - a worse state than the small
+# swapfile it started with, arrived at unattended, during what is often an
+# installer run. Disk and memory prechecks narrow that window; they do not close
+# it.
+#
+# And "only resize the file we made" is not something this tool can actually
+# establish. /swapfile is the conventional path on Ubuntu and most cloud images:
+# finding swap there says nothing about who put it there or what they expect of
+# it. There is no ownership marker to check.
+#
+# So: existing swap is reported and left exactly as it is, with the command to
+# change it if the operator wants to, on their own timing and with the box in a
+# state they can see. Anything more needs an ownership marker and a rollback
+# that re-enables the old file on every failure path, which is a bigger change
+# than the size constant this task is about.
+report_existing_swap() {
+  local total_mib=$1
+  local devices
+  devices=$(swap_devices)
+  log "swap already set up: ${total_mib} MiB on $(printf '%s' "${devices:-an unreadable device list}" | tr '\n' ' ')"
+  if [[ $total_mib -ge $((SWAP_SIZE_MIB - SWAP_SIZE_SLACK_MIB)) ]]; then
+    return 0
+  fi
+  log "  that is under the ${SWAP_SIZE_MIB} MiB this tool makes on a box with no swap, and a swap"
+  log "  file that runs out mid-spike is the worst case measured. Resizing swap under a running"
+  log "  office is not something to do behind your back, so it is left as it is."
+  # The recipe below is only right for a box whose swap is exactly the file this
+  # tool would have made. Printing it anyway would tell someone running on a
+  # partition or a zram device to swapoff a path that is not their swap, and
+  # then to fallocate over whatever happens to be sitting there - the same
+  # unfounded assumption about /swapfile that kept the automatic version of this
+  # out of the tree, just aimed at the operator instead of the box.
+  if [[ $devices != "$SWAPFILE" ]]; then
+    log "  How to change that depends on how this box's swap is set up; the devices named above"
+    log "  are the ones to look at."
+    return 0
+  fi
+  log "  To do it yourself, on a quiet box:"
+  log "    swapoff $SWAPFILE && fallocate -l ${SWAP_SIZE_MIB}M $SWAPFILE &&"
+  log "      chmod 600 $SWAPFILE && mkswap $SWAPFILE && swapon $SWAPFILE"
 }
 
 # --- main -------------------------------------------------------------------
@@ -2037,8 +2202,8 @@ main() {
   if [[ -n $have_earlyoom ]]; then
     log "Out-of-memory protection is on: when free memory drops under 10%, one"
     log "agent process is killed instead of the whole box becoming unresponsive."
-    log "SSH and the office server are killed last (and Tailscale, if this box"
-    log "uses it). Re-kick the agent and carry on."
+    log "SSH, DNS, networking and the office server are killed last (and Tailscale,"
+    log "if this box uses it). Re-kick the agent and carry on."
   else
     log "Kill order and swap settings applied, but earlyoom is not installed, so"
     log "nothing steps in early under memory pressure."
@@ -2634,6 +2799,14 @@ install_service() {
 Description=Isomux server
 After=network-online.target
 Wants=network-online.target
+# Restart=always below stops meaning always after 5 starts in 10 seconds:
+# systemd's default gives up there and leaves the unit failed until a human
+# intervenes. A memory spike can spend that budget in seconds - measured on a
+# box under earlyoom pressure, systemd-resolved burned all five in two and
+# stayed dead for three hours - and an office that is permanently down is a
+# worse outcome than one that keeps trying. Retry forever; RestartSec below is
+# what keeps forever from being a spin.
+StartLimitIntervalSec=0
 
 [Service]
 User=$SERVICE_USER
@@ -2641,7 +2814,9 @@ Environment=HOME=$SERVICE_HOME
 WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/local/bin/bun run server/index.ts
 Restart=always
-RestartSec=2
+# Matches what isomux-oom-protect writes for the daemons it protects. Only
+# automatic restarts wait: `systemctl restart isomux` is not delayed by it.
+RestartSec=5
 Environment=PORT=4000
 # Best-effort kill-order bias under memory pressure: killed after everything
 # ordinary on the box, before only ssh/tailscaled (-900). Agents and builds
@@ -2649,6 +2824,18 @@ Environment=PORT=4000
 # agents - earlyoom does that steering; isomux-oom-protect sets the other
 # tiers and configures it.
 OOMScoreAdjust=-500
+# systemd's default is `stop`: ANY process in the unit being OOM-killed stops
+# the unit, and Restart=always then recycles every agent on the box because one
+# agent ran out of memory.
+#
+# Jointly necessary with the +300 stamp the server puts on its own descendants
+# (server/oom-stamp.ts), and worth nothing without it: a dead MainPID ends the
+# service whatever the policy says, so the stamp is what keeps the victim off
+# the server and this is what keeps the unit alive once it is. Both halves
+# measured in internal-docs/sizing-tiers-benchmark-results.md, "The blast
+# radius, measured" - the pairing is the only configuration of the seven tested
+# that cost one agent instead of all of them.
+OOMPolicy=continue
 
 [Install]
 WantedBy=multi-user.target

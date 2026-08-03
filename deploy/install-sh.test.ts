@@ -9,8 +9,16 @@
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { EMBEDDED, embed } from "../scripts/embed-deploy-scripts.ts";
+import { AGENT_OOM_SCORE_ADJ } from "../server/oom-stamp.ts";
 
 const SRC = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
+
+/** The isomux.service unit body the installer writes. */
+const serviceUnit = () =>
+  SRC.slice(
+    SRC.indexOf("write_file /etc/systemd/system/isomux.service 644"),
+    SRC.indexOf("run systemctl daemon-reload", SRC.indexOf("install_service")),
+  );
 const repoFile = (p: string) =>
   readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 
@@ -409,13 +417,36 @@ describe("install.sh: out-of-memory protection", () => {
   });
 
   it("puts the office server in the kill-last tier", () => {
-    const unit = SRC.slice(
-      SRC.indexOf("write_file /etc/systemd/system/isomux.service 644"),
-      SRC.indexOf(
-        "run systemctl daemon-reload",
-        SRC.indexOf("install_service"),
-      ),
-    );
-    expect(unit).toContain("OOMScoreAdjust=-500");
+    expect(serviceUnit()).toContain("OOMScoreAdjust=-500");
+  });
+
+  // Task e05a5cd4. Seven variants of a sacrificial unit shaped like the office
+  // were measured (internal-docs/sizing-tiers-benchmark-results.md, "The blast
+  // radius, measured"); exactly one contained an OOM kill to a single agent,
+  // and it needed BOTH of the halves pinned here. Either alone recycles the
+  // whole office, which is the incident this came from - so both live in one
+  // test, with the reason, rather than as two facts nobody connects.
+  it("survives one agent being OOM-killed, which needs the policy AND the stamp", () => {
+    // Half one: systemd must not stop the unit when a process inside it is
+    // OOM-killed. The default, `stop`, plus Restart=always recycles every
+    // agent on the box.
+    expect(serviceUnit()).toContain("OOMPolicy=continue");
+    expect(serviceUnit()).toContain("Restart=always");
+
+    // Half two: the server raises its own descendants ABOVE itself, so the
+    // kernel takes an agent and not the MainPID. `continue` cannot save a unit
+    // whose MainPID dies, so without a positive stamp the line above buys
+    // nothing.
+    expect(AGENT_OOM_SCORE_ADJ).toBeGreaterThan(0);
+  });
+
+  // The other way an OOM spike ends the office for good: Restart=always stops
+  // meaning always once systemd's default rate limit is hit, and a spike can
+  // spend five starts in seconds. Measured on a box under earlyoom pressure,
+  // systemd-resolved did exactly that and stayed failed for three hours.
+  it("keeps restarting after a burst, instead of giving up for good", () => {
+    expect(serviceUnit()).toContain("StartLimitIntervalSec=0");
+    // Unbounded retries need a backoff, or a unit that cannot start spins.
+    expect(serviceUnit()).toMatch(/^RestartSec=[1-9]/m);
   });
 });

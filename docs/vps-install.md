@@ -64,7 +64,7 @@ That command applies the SSH hardening and re-runs the check. It is a snapshot o
 
 A busy office can use up the box's memory. Left to the kernel that ends badly: the machine swaps until nothing responds, SSH included, and only a reboot from the provider's console brings it back.
 
-The installer sets up [earlyoom](https://github.com/rfjakob/earlyoom), which kills one process while there is still memory left to act with. The order is deliberate: agent processes go first, then the office server and Caddy, and SSH and Tailscale last. The office backs that up from its own side, marking every process it starts as a better candidate than itself, so a runaway build is much more likely to be the one picked than the office server is. A killed agent is a papercut - message it again and it comes back. It also creates a 2 GB swap file if the box has none, and tells the kernel to prefer dropping caches over swapping.
+The installer sets up [earlyoom](https://github.com/rfjakob/earlyoom), which kills one process while there is still memory left to act with. The order is deliberate: agent processes go first, then the office server and Caddy, and last of all what keeps the box reachable and usable at all - SSH, Tailscale, DNS, networking. The office backs that up from its own side, marking every process it starts as a better candidate than itself, so a runaway build is much more likely to be the one picked than the office server is, and it stays up when one of its agents is the one killed. A killed agent is a papercut - message it again and it comes back. Anything it does kill from that last group is set to keep retrying rather than give up, so a burst of kills can't leave DNS or the office switched off for good. It also gives the box a swap file of up to 8 GB if it has none, smaller only if the disk cannot hold that, and tells the kernel to prefer dropping caches over swapping. The size is deliberate too: swap that runs out mid-spike is worse for the office than swap that is simply large.
 
 To apply the same settings to a box installed before this existed, or to see what they'd change:
 
@@ -73,7 +73,7 @@ sudo isomux-oom-protect --dry-run
 sudo isomux-oom-protect
 ```
 
-Nothing but earlyoom is restarted, so it's safe to run on a live office.
+Nothing but earlyoom is restarted, so it's safe to run on a live office. Swap the box already has is left exactly as it is, even when it is smaller than a fresh install would get: replacing live swap means taking it offline first, which is not something to do to a running box on your behalf. The run prints the commands if you want to do it yourself.
 
 ## Parameters
 

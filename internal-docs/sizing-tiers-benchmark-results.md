@@ -339,6 +339,43 @@ hostname - which silently emptied the build load out of a later phase (see
 "Arms excluded" below). For a hosted product this is the more dangerous failure
 shape than a crash: nothing reports it.
 
+**Why it picked the daemons** (read out of the journal afterwards, task
+193b8d38). Not a misjudgement of size. earlyoom ranks by the kernel's
+`oom_score`, which for anything small is `(1000 + adj) * 2/3` = **666 whatever
+its footprint**, so every idle daemon on a box is tied at the top of the list and
+the order among them is arbitrary. What should have outranked them was the
+payload, and it did not: the earlyoom drop-in on that box was a revision with
+`bun` in its `--avoid` list, which took 300 off all 24 agent processes and put
+them *below* the daemons. earlyoom then worked down the tie at about four kills
+per second - `apparmor_parser`, `rsyslogd`, three `agetty`s, `systemd-resolved`,
+`systemd-timesyncd`, `systemd-logind` - each kill freeing a few MiB and
+immediately re-triggering. The `bun` shield was already fixed before this run was
+analysed; what was not fixed is that `--avoid` is only a 300-point bias and does
+not exist at all for the kernel's own killer, so a genuinely critical daemon had
+nothing but that nudge protecting it. `deploy/oom-protect.sh` now puts
+`systemd-resolved`, `systemd-networkd` and `systemd-logind` at -900, which is
+below the floor rather than a nudge under it, and applies to both killers.
+(Measured on Ubuntu 24.04: all three run at 0 out of the box. `dbus` already
+ships at -900 and `systemd-journald` at -250, so neither needs us.)
+
+**And why it never came back.** `systemd-resolved` was SIGKILLed five times in
+two seconds, hit systemd's default start limit of five starts per ten seconds,
+logged `Start request repeated too quickly` and stayed `failed` until a human
+noticed. It restarts at `RestartSec=0` out of the box, which is what made five
+starts so cheap to spend. Surviving the spike and recovering from it are separate
+problems, and this was the more expensive one: the kill cost seconds, the lockout
+cost three hours.
+
+Fixed alongside the tiers: the same drop-in now carries `StartLimitIntervalSec=0`
+and `RestartSec=5s`, so a protected unit retries indefinitely and slowly enough
+not to spin. `isomux.service` carries both in its own unit for the same reason -
+`Restart=always` quietly stops meaning always once the limit is hit, and an
+office that is permanently down is worse than one still trying. Verified on a
+test box: a throwaway unit that fails instantly goes `failed` after one burst
+under the default limit, and is still `active` after 44 restarts with
+`StartLimitIntervalSec=0`; `systemd-resolved` itself survives eight SIGKILLs in
+under a minute with no lockout.
+
 ## The blast radius, measured
 
 Sequencing item 2 asks for the actual `MemoryOOMGroup`/`OOMPolicy`/`Restart`
@@ -452,6 +489,75 @@ N=24 gives a p95 of 3.4 s against a ~290 ms unconstrained baseline - roughly
 a safety net, not capacity, and it should not be sold as headroom.
 
 What follows for the entry tier is in the recommendation below.
+
+## The MemorySwapMax cap, measured
+
+Run 2026-08-03 as task 99d7f273, after Nil ruled decision 4. The section above
+could not name a cap: every 8 GiB arm ran with cgroup swap unlimited and used up
+to 4235 MB, so a cap under that number was untested and might recreate the same
+exhaustion cliff at a different threshold.
+
+Same box and same load as above - N=24 with a concurrent cold build, cap
+6917/5879 MiB - with the swapfile fixed at 8 GiB so the file itself never binds,
+and only `MemorySwapMax` varied. Swap is the kernel's own `memory.swap.peak`,
+not a sample.
+
+| MemorySwapMax | p95 | p99 | worst turn | throughput | swap peak | PSI full | `high` events |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| infinity | 2 895 ms | 4 741 | 9 146 | 14.93 | 4354 MB | 35.1 | 22 851 |
+| 6 GiB | 2 597 | 4 278 | 7 114 | 15.27 | 3716 | 26.4 | 23 576 |
+| 4 GiB | 2 328 | 3 696 | 7 838 | 15.48 | 2927 | 25.1 | 23 917 |
+| 3 GiB | 2 435 | 3 459 | 5 535 | 15.41 | 2585 | 25.7 | 21 599 |
+| **2 GiB** | **21 099** | **38 772** | **70 870** | **7.55** | **2048 = the cap** | **84.6** | **217 908** |
+| infinity (repeat) | 3 182 | 4 950 | 8 949 | 14.80 | 4309 | 35.2 | 22 822 |
+
+Zero OOM kills in all six, all 24 agents alive in all six, and the `MemoryMax`
+fence fired in none of them (`max` events 0 throughout). Everything below is a
+swap effect.
+
+**A cap that binds recreates the cliff; a cap that does not is free.** 2 GiB is
+the only arm whose swap peak equals its cap exactly, and it is the only arm that
+falls over: 21.1 s p95 against 2.3-2.9 s, half the throughput, PSI full at 85%,
+and ten times the `high` events. That is the same shape as the exhausted 2 GiB
+*swapfile* from the section above (30.7 s, 6.59), which is the point - the office
+cannot tell whether the swap it is denied ran out globally or was capped away
+from it. Between 3 GiB and infinity there is no signal at all: 2 435, 2 328,
+2 597, 2 895 ms across a 3 GiB-to-unlimited range is noise, and not even
+monotonic.
+
+**Capping swap below demand does not force the workload into the cap gently.**
+Swap peak tracks the cap downward well before the cap binds - 4354 MB uncapped,
+3716 at 6 GiB, 2927 at 4 GiB, 2585 at 3 GiB - because the kernel's anon-versus-
+file reclaim balance scales with the swap allowance a cgroup has left. So a cap
+is not a hard ceiling the workload runs into; it is a dial on how much of the
+reclaim pressure lands on file pages instead. That is why the degradation is
+nothing, nothing, nothing, catastrophe rather than a slope: it is free until the
+workload cannot give up any more file cache, and then it is not.
+
+**What to set.** 6 GiB on an 8 GiB swapfile: about 1.4x the uncapped peak this
+load produces, which leaves the two-thirds margin over the observed cliff that
+the shape above argues for, and still holds 2 GiB of the file back for
+everything on the box that is not the office. 4 GiB also measured clean, but it
+sits within 1000 MB of the uncapped peak on the one load that was tested, and
+the cost of being wrong is a 9x latency cliff rather than a gradual squeeze.
+
+**Two caveats.** Each cap is one run, and the uncapped reference was run three
+times: 2 283, 2 895 and 3 182 ms p95. That 39% spread is the honest noise floor
+for this box, wider than the ~8% quoted elsewhere in this note, and it is why
+nothing above is claimed from a gap of a few hundred milliseconds. It is also
+nowhere near the 9x the 2 GiB arm shows. (Only two of the three have raw data
+kept: the harness's collision check was wrong, so the repeat overwrote the first
+one's directory - after its numbers had been read off it, which is why the
+reading survives. Fixed in `run-swap-cap-arm.sh`.) And a cap is only as good as the load that sized it; a
+heavier workload than N=24-with-a-build would push demand up and this
+recommendation with it, which is an argument for the margin rather than for the
+tightest cap that measured clean.
+
+**Where this ships.** Not with the swapfile change. `MemorySwapMax` only bounds
+a cgroup, and isomux ships no cgroup drop-in yet: setting it alone, without the
+`MemoryMax` fence it belongs to, would change behaviour under global pressure in
+a regime nothing here measured. It is an input to sequencing item 2 of
+`sizing-tiers-design.md`, not a shippable setting on its own.
 
 ## Sensitivity: how much the invented parameters matter
 
@@ -581,6 +687,8 @@ argues against shipping it. RAM binds; CPU never did, at any N tested.
 **2. Ship `OOMPolicy=continue` on `isomux.service`.** This is the highest-value
 line in the whole benchmark. isomux currently inherits systemd's default of
 `stop`, which means one OOM-killed agent restarts every agent on the box.
+**Shipped 2026-08-02, task e05a5cd4**, in the installer's unit and in the
+self-hosted doc's user-unit prompt.
 
    It only works **paired with the `oom_score_adj` stamp already shipped**, and
    the pairing is the point: the stamp keeps the victim off the server, and
@@ -593,8 +701,9 @@ detail of decision 4.** `MemoryMax` on its own bounds the cgroup's RAM - and
 keeps protecting the host reserve - but it does not bound the combined
 memory-plus-swap footprint and does not guarantee a kill at the cap: measured, a
 cgroup sat at an 800 MiB limit and paged its way past 1800 MiB of allocation.
-`MemorySwapMax` is what makes the limit bound total consumption. Its *value* is
-unmeasured; see 4.
+`MemorySwapMax` is what makes the limit bound total consumption. Its value was
+measured on 2026-08-03: **6 GiB on an 8 GiB swapfile**, see "The MemorySwapMax
+cap, measured".
 
 **4. On swap size (decision 4): do not keep 2 GiB as the entry-tier default.**
 It is the worst of the three configurations tested at load, because exhaustion is
@@ -602,8 +711,13 @@ catastrophic rather than graceful - a 30.7 s p95 against 3.4 s at 8 GiB under th
 same load. The small-swap rationale in the design - that large swap lets a box
 allocate past the point it can respond - is not what the measurements showed.
 
-   **8 GiB is the candidate, not a validated setting.** Both alternatives are
-   still unsatisfying and neither is ready to ship as-is:
+   **RULED by Nil 2026-08-02: 8 GiB. Shipped as task 99d7f273** in
+   `deploy/oom-protect.sh`, on boxes that have no swap, falling back to the
+   largest whole GiB a small disk can hold rather than to none. Existing swap is
+   left alone and the operator is told how to change it: replacing live swap
+   opens a window with the old file deleted and the new one unproven, and
+   `/swapfile` is no proof isomux made it. The reservations below stand: this is
+   the least bad of the tested options, not a good one.
 
    - 8 GiB with swap unlimited is far better than 2 GiB at the load that matters,
      but 3.4 s p95 is roughly 12x the unloaded baseline. That is survival, not
@@ -613,13 +727,17 @@ allocate past the point it can respond - is not what the measurements showed.
      anything doing file IO, because it protects agent anon by starving the
      build.
 
-   **What is missing is the cap value, and this benchmark did not measure it.**
+   **What was missing is the cap value, which this benchmark did not measure.**
    Every 8 GiB arm ran with `MemorySwapMax=infinity` and used up to 4235 MB, so
-   the obvious pairing - a larger swapfile with the cgroup capped below it - is
-   an untested configuration. A cap set below observed demand would recreate
-   exactly the exhaustion cliff this section is warning about, just at a
-   different threshold. Before shipping: benchmark explicit `MemorySwapMax`
-   values against a swapfile large enough not to bind, and pick from that.
+   the obvious pairing - a larger swapfile with the cgroup capped below it - was
+   untested, and a cap set below observed demand could recreate exactly the
+   exhaustion cliff this section warns about at a different threshold.
+
+   **Measured on 2026-08-03** (task 99d7f273, section above): the worry was
+   right, and the threshold is sharp. A 2 GiB cap on an 8 GiB file binds and
+   gives 21.1 s p95 against 2.3-3.2 s uncapped; 3, 4 and 6 GiB are
+   indistinguishable from uncapped. **6 GiB is the value**, and it ships with
+   the cgroup fence rather than with the swapfile.
 
 **5. Do not sell swap as headroom.** Even at 8 GiB, a swapping office runs ~12x
 its unloaded p95. Swap buys survival, not capacity. This is the direct answer to
@@ -648,6 +766,9 @@ not committed** to a public repo for a one-off run. It lives at:
   on the office box
 - `/home/ubuntu/bench/results/` on 169.58.97.2, which is paid through 2026-08-29
 
+The 2026-08-03 cap arm is the same shape, in `~/nil/capacity-benchmark-raw-cap/`
+on the office box and in the same results directory on 169.58.97.2.
+
 ## Reproducing
 
 Harness in `scripts/capacity-bench/`. On the box under test:
@@ -658,6 +779,7 @@ run-sweep.sh [duration]                               # coarse sweep
 run-refined.sh <build> <dur> <reps> <n>...            # refined, with baselines
 run-sensitivity.sh <n> <build> <dur>                  # touch/CPU axes
 run-swap-arm.sh <build> <dur> <n-below> <n-above>     # decision 4
+run-swap-cap-arm.sh <build> <dur> <n> <cap>...        # decision 4's MemorySwapMax
 oom-blast-radius.sh [out-dir]                         # OOMPolicy/oom.group
 ```
 

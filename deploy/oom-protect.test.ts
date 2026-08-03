@@ -465,6 +465,268 @@ describe("the re-stamp timer", () => {
   });
 });
 
+describe("the kill-order tiers", () => {
+  /**
+   * configure_kill_order with everything that touches the box stubbed out, so
+   * the tier table itself can be read off its output: which unit got a drop-in,
+   * and what score went into it.
+   */
+  async function tiers(): Promise<string> {
+    const root = mkdtempSync(join(dir, "proc-tiers-"));
+    const { out } = await run(
+      root,
+      [
+        // write_file's stdin is the drop-in body; label each line with its
+        // destination so unit and score can be asserted together.
+        `write_file() { local p=$1; sed "s|^|${"$"}{p}: |"; }`,
+        `systemctl() { echo 0; }`,
+        `run() { :; }`,
+        `configure_user_level_office() { :; }`,
+        `install_restamp_timer() { :; }`,
+        `configure_kill_order`,
+      ].join("; "),
+    );
+    return out;
+  }
+
+  it("keeps the box reachable: ssh and tailscaled last of all", async () => {
+    const out = await tiers();
+    expect(out).toContain(
+      "/etc/systemd/system/ssh.service.d/isomux-oom.conf: OOMScoreAdjust=-900",
+    );
+    expect(out).toContain(
+      "/etc/systemd/system/tailscaled.service.d/isomux-oom.conf: OOMScoreAdjust=-900",
+    );
+  });
+
+  // Task 193b8d38. During the capacity benchmark earlyoom killed systemd-resolved
+  // off a box under memory pressure and it never came back; the box answered ssh
+  // and every liveness probe for three hours while nothing on it could resolve a
+  // hostname. earlyoom's --avoid did not save it, and cannot: it is a 300-point
+  // bias, and every small daemon on a box sits at the same oom_score of 666, so
+  // the ordering among them is arbitrary. A negative score is what moves them
+  // off the list, and it applies to the kernel's own killer too.
+  it("keeps the box usable: the daemons whose death is silent", async () => {
+    const out = await tiers();
+    // Ubuntu already ships dbus at -900 and journald at -250, so neither is
+    // here; every unit below was measured running at 0 on a real box.
+    for (const unit of [
+      "systemd-resolved",
+      "systemd-networkd",
+      "systemd-logind",
+    ]) {
+      expect(out).toContain(
+        `/etc/systemd/system/${unit}.service.d/isomux-oom.conf: OOMScoreAdjust=-900`,
+      );
+    }
+  });
+
+  // The three-hour half of the same incident. resolved was killed five times in
+  // two seconds (it restarts at RestartSec=0), hit systemd's default limit of
+  // five starts per ten seconds, and stayed `failed` long after the pressure
+  // was gone. Protecting a daemon from being chosen while leaving it unable to
+  // come back fixes the cheaper half of the outage.
+  it("lets a unit it protects come back, however often it is killed", async () => {
+    const out = await tiers();
+    // Every unit oom_tier touches, so the invariant this test states is the one
+    // it pins: a later change that made the guard conditional on the tier, or
+    // skipped the units nobody thinks about, would otherwise pass here.
+    for (const unit of [
+      "ssh",
+      "tailscaled",
+      "systemd-resolved",
+      "systemd-networkd",
+      "systemd-logind",
+      "caddy",
+      "isomux",
+    ]) {
+      const file = `/etc/systemd/system/${unit}.service.d/isomux-oom.conf`;
+      expect(out).toContain(`${file}: StartLimitIntervalSec=0`);
+      // Retrying forever without a backoff would spin on a unit that cannot
+      // start at all, which is what the rate limit used to prevent.
+      expect(out).toContain(`${file}: RestartSec=5s`);
+    }
+  });
+
+  it("keeps the office above the agents it starts, not below them", async () => {
+    const out = await tiers();
+    expect(out).toContain(
+      "/etc/systemd/system/isomux.service.d/isomux-oom.conf: OOMScoreAdjust=-500",
+    );
+    expect(out).toContain(
+      "/etc/systemd/system/caddy.service.d/isomux-oom.conf: OOMScoreAdjust=-500",
+    );
+  });
+});
+
+describe("swap sizing", () => {
+  /**
+   * A box with a given swap situation, as /proc reports it. `devices` is what
+   * /proc/swaps lists; the sizes are MiB.
+   */
+  /**
+   * Where the tool's own swapfile lives for these tests: a path that does not
+   * exist, so the create branch cannot be short-circuited by whatever
+   * /swapfile the machine running the tests happens to have.
+   */
+  const swapPath = () => join(dir, "swapfile-under-test");
+
+  function fakeSwap(opts: {
+    totalMib: number;
+    usedMib?: number;
+    availMib?: number;
+    devices?: string[];
+  }): string {
+    const root = mkdtempSync(join(dir, "proc-swap-"));
+    const used = opts.usedMib ?? 0;
+    writeFileSync(
+      join(root, "meminfo"),
+      [
+        `MemTotal:       ${8 * 1024 * 1024} kB`,
+        `MemAvailable:   ${(opts.availMib ?? 6144) * 1024} kB`,
+        `SwapTotal:      ${opts.totalMib * 1024} kB`,
+        `SwapFree:       ${(opts.totalMib - used) * 1024} kB`,
+        "",
+      ].join("\n"),
+    );
+    const devices = opts.devices ?? (opts.totalMib > 0 ? [swapPath()] : []);
+    writeFileSync(
+      join(root, "swaps"),
+      ["Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority"]
+        .concat(
+          devices.map((d) => `${d}\tfile\t\t${opts.totalMib * 1024}\t0\t-2`),
+        )
+        .join("\n") + "\n",
+    );
+    return root;
+  }
+
+  /**
+   * configure_swap against that box, always dry: every case here is about the
+   * decision, and the do-it path runs swapoff and mkswap for real. `diskMib` is
+   * what the filesystem reports free, stubbed for the same reason /proc is -
+   * otherwise the answers would depend on the machine running the tests.
+   */
+  const decide = (root: string, diskMib = 40960, extra = "") =>
+    run(
+      root,
+      // Every command that could change this machine's swap is stubbed to
+      // announce itself instead of running. That is what makes "leaves it
+      // alone" testable as behaviour rather than as the absence of a word:
+      // the advice text below deliberately CONTAINS "swapoff" and "mkswap",
+      // so matching on the prose would prove nothing.
+      `DRY_RUN=1; SWAPFILE=${swapPath()}; swap_fs_avail_mib() { echo ${diskMib}; };` +
+        ` swapoff() { echo "RAN: swapoff $*"; }; swapon() { echo "RAN: swapon $*"; };` +
+        ` mkswap() { echo "RAN: mkswap $*"; }; fallocate() { echo "RAN: fallocate $*"; };` +
+        ` ${extra} configure_swap`,
+    );
+
+  it("creates 8 GiB on a box that has no swap at all", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 0 }));
+    expect(out).toContain("would create a 8192 MiB swap file");
+  });
+
+  // The load-bearing safety property, and the one an earlier draft of this got
+  // wrong. Replacing live swap means swapoff, then a window where the old file
+  // is deleted and the new one is not yet proven; a failure anywhere in it
+  // leaves a running box with NO swap, unattended, mid-install. And /swapfile
+  // is the conventional path on Ubuntu and cloud images, so finding swap there
+  // does not make it ours to replace. Every case below asserts the same thing
+  // from a different angle: existing swap is never touched.
+  const destructive = /^RAN: /m;
+  /** The advisory line the tool prints only when existing swap is undersized. */
+  const TOO_SMALL = "this tool makes on a box with no swap";
+
+  it("leaves the 2 GiB file an earlier install left behind exactly where it is", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 2048, usedMib: 100 }));
+    expect(out).toContain("swap already set up: 2048 MiB");
+    expect(out).not.toMatch(destructive);
+  });
+
+  // Left alone is not the same as unmentioned: 2 GiB exhausted is the worst
+  // configuration measured, so the operator is told what this tool would make
+  // and how to do it themselves when the box is quiet.
+  it("tells the operator how to change a swap file that is too small", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 2048 }));
+    expect(out).toContain(TOO_SMALL);
+    expect(out).toContain("8192 MiB");
+    expect(out).toContain(`swapoff ${swapPath()}`);
+    expect(out).toContain(`mkswap ${swapPath()}`);
+  });
+
+  it("says nothing about resizing when the box already has enough", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 16384 }));
+    expect(out).toContain("swap already set up: 16384 MiB");
+    expect(out).not.toContain(TOO_SMALL);
+  });
+
+  // What an 8192 MiB file actually reports, measured: mkswap takes a page for
+  // its header and SwapTotal is kB, so it comes back 1 MiB short. Compared
+  // exactly, the tool would nag about its own correctly-sized swap file on
+  // every single run.
+  it("does not nag about the file it made itself", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 8191 }));
+    expect(out).not.toContain(TOO_SMALL);
+  });
+
+  // The advice is only right for a box whose swap IS the file this tool would
+  // have made. Handing the swapfile recipe to someone running on a partition
+  // tells them to swapoff a path that is not their swap and then to fallocate
+  // over whatever is sitting there - the same unfounded /swapfile assumption
+  // that kept the automatic resize out, pointed at the operator instead.
+  it("leaves a swap partition alone, and does not prescribe a swapfile recipe", async () => {
+    const { out } = await decide(
+      fakeSwap({ totalMib: 2048, devices: ["/dev/sda2"] }),
+    );
+    expect(out).toContain("/dev/sda2");
+    expect(out).toContain("depends on how this box's swap is set up");
+    expect(out).not.toContain(`swapoff ${swapPath()}`);
+    expect(out).not.toContain(`fallocate`);
+    expect(out).not.toMatch(destructive);
+  });
+
+  // meminfo says there is swap and /proc/swaps lists nothing usable. The device
+  // list is then not $SWAPFILE either, so the same rule keeps a command that
+  // could target the wrong path from being printed on the strength of a number
+  // alone.
+  it("prescribes nothing when it cannot tell where the swap is", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 2048, devices: [] }));
+    expect(out).toContain("an unreadable device list");
+    expect(out).not.toContain(`swapoff ${swapPath()}`);
+    expect(out).not.toContain("fallocate");
+  });
+
+  it("says the same to a box with several swap devices", async () => {
+    const { out } = await decide(
+      fakeSwap({ totalMib: 2048, devices: [swapPath(), "/dev/zram0"] }),
+    );
+    expect(out).toContain("/dev/zram0");
+    expect(out).toContain("depends on how this box's swap is set up");
+    expect(out).not.toContain(`swapoff ${swapPath()}`);
+    expect(out).not.toMatch(destructive);
+  });
+
+  // 8 GiB plus the headroom asks for 12 GiB of disk where the old 2 GiB default
+  // asked for 6. Without a fallback this change would hand a small-disk box no
+  // swap at all, which is worse than the 2 GiB it used to get.
+  it("takes what fits when the disk is too small for the full size", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 0 }), 9000);
+    expect(out).toContain("would create a 4096 MiB swap file");
+    expect(out).toContain("instead of 8192 MiB");
+  });
+
+  it("creates nothing when not even the old size fits", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 0 }), 5000);
+    expect(out).toContain("not creating a swap file");
+  });
+
+  it("does not touch a box that has swap, whatever the disk looks like", async () => {
+    const { out } = await decide(fakeSwap({ totalMib: 2048 }), 5000);
+    expect(out).toContain("swap already set up");
+    expect(out).not.toMatch(destructive);
+  });
+});
+
 describe("the command line", () => {
   /** Run the real script (not the sourceable copy) as an unprivileged user. */
   async function runScript(
