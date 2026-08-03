@@ -110,7 +110,7 @@ export function renderStorageReport(
   // The in-root categories sum to exactly stateRootBytes (other-state is
   // derived by subtraction), so this subtotal is an identity, not a re-add.
   lines.push(
-    `| **Office state** | **${formatSize(usage.stateRootBytes)}** | |`,
+    `| **Total office state** | **${formatSize(usage.stateRootBytes)}** | |`,
   );
   for (const id of OUT_OF_ROOT_ORDER) row(id);
   lines.push(`| **Total** | **${formatSize(totalBytes)}** | |`);

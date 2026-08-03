@@ -454,6 +454,9 @@ billing UI of our own), and webhooks as the only writer of subscription state:
 dedupe by event id, treat the local row as a cache.
 
 **No trial** (ruling 1). Checkout collects a card and charges immediately.
+(Amended by Nil 2026-08-03: he may still hand out free boxes for feedback, so
+the hosted page's "we may have some free trials available - ask in Discord"
+line stands. Self-serve checkout has no trial; comps go through coupons.)
 
 **Coupons are the comped path.** A signup carrying a 100%-off coupon owes
 nothing at checkout, so the session sets `payment_method_collection` to

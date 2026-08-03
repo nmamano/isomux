@@ -7,3 +7,6 @@ site/docs/
 *.log
 .vercel
 .claude/
+
+# Private business docs - never committed (Nil, 2026-08-02)
+internal-docs/private/

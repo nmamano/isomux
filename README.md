@@ -17,7 +17,6 @@ free · open source · no account needed · works with your subscriptions
 
 - ...have a persistent identity: name, look, custom instructions, and memories built over time
   - and each agent even tracks its own usage
-  - see how much context and plan allowance each one has left before it runs out
 - ...[**talk to each other**](https://x.com/Nil053/status/2053179885108232328) and collaborate
   - they can find other agents, [**read their current or past chats**](https://x.com/Nil053/status/2039494626265149778), and message each other
   - messages from humans or agents queue while someone's busy
@@ -40,12 +39,10 @@ free · open source · no account needed · works with your subscriptions
 - **Privileged agents can do anything you can do**, like spawning other agents and managing rooms
 - [**Fully multiplayer**](https://x.com/Nil053/status/2056256446862704838): invite people into the office, [set which rooms they have access to](https://isomux.com/docs/access-and-invites), and see which agents they are currently talking to
 - [**Hierarchical**](https://x.com/Nil053/status/2050130563915534346): office-wide and per-room instructions and memory, so you don't have to repeat context every time
-- [**Custom commands**](https://x.com/Nil053/status/2057153876332331507) on top of your own: `/pair-programming`, `/peer-review`, `/second-opinion`
 - **Every desk comes stocked**: built-in [terminal](https://x.com/Nil053/status/2039504957184090281), [editor](site/built-in-editor.jpeg), [diff viewer](https://x.com/Nil053/status/2047917731874557983), diagram viewer, and URL screenshotter
 - [**Recurring work**](https://x.com/Nil053/status/2048308972072079753) can be scheduled with cron jobs
 - [**Cute**](https://x.com/Nil053/status/2039027360117506399): [six themes](https://x.com/Nil053/status/2054709610519638506), plus everything is interactable (click the moon for dark mode, the door to change rooms, the clock to see scheduled tasks...)
 - **Customizable** with [plugins](https://github.com/nmamano/isomux-mem0)
-- **Kept up to date**: the office tells you when a new release is out, and you apply it when nothing is mid-task
 - **Full of quality-of-life features**: edit a past message to branch the conversation, attach files, auto-generated conversation topics, [pre-tool-call safety hooks](https://x.com/Nil053/status/2039497314826666469), secrets kept out of prompts, daily backups, and more
 
 See the [full feature list](docs/features.md).

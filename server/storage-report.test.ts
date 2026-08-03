@@ -84,7 +84,7 @@ describe("renderStorageReport", () => {
     // state-root subtotal stays separate from it.
     expect(out).toContain("**500.0 MB total:**");
     expect(out).toContain("plus 400.0 MB in backups.");
-    expect(out).toContain("| **Office state** | **100.0 MB** | |");
+    expect(out).toContain("| **Total office state** | **100.0 MB** | |");
     expect(out).toContain("| **Total** | **500.0 MB** | |");
   });
 
