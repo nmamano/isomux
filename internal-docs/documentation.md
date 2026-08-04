@@ -44,6 +44,15 @@ Keep these consistent across all surfaces below.
 - **Related:** `api/chat.ts` carries a short "Hosted Isomux" section so the site chatbot doesn't invent details or imply it has launched.
 - **Deploy note:** static, served by Vercel with `cleanUrls`, so the file is served at `/hosted`. Moves to `cloud.isomux.com` if and when the control plane ships.
 
+## 2c. Legal pages (isomux.com/hosted-terms, isomux.com/hosted-privacy)
+
+- **Files:** `site/hosted-terms.html`, `site/hosted-privacy.html`.
+- **Audience:** Hosted customers before they pay, and anyone checking what the access guarantee means in writing.
+- **Status:** drafts. Not linked from any page, `noindex`, with a visible draft banner. Open decisions are marked with `<span class="pending">[NIL DECISION: ...]</span>`; the entity name is a placeholder until the LLC is filed. Strip the pending spans, the banner and the noindex tag before launch.
+- **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, governing law.
+- **Update when:** any hosted promise changes. These must agree with `site/hosted.html` sentence by sentence - it is the marketing statement of the same promises. Both trace back to the rulings in `internal-docs/control-plane-design.md`.
+- **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms` and `/hosted-privacy` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not isomux the open-source project.
+
 ## 3. Site chatbot system prompt
 
 - **File:** `api/chat.ts` - `SYSTEM_PROMPT` constant (around line 25).
