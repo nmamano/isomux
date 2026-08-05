@@ -331,15 +331,6 @@ export class JsonRpcLiteClient {
         reject,
       });
     });
-    // Defensive: attach a noop catch so Bun does not flag the rejection as
-    // unhandled in the window between Promise construction and the caller's
-    // await. Observed crash mode: write() succeeds, then child.on('error')
-    // fires async with ENOENT and failAllPending() rejects this promise; on
-    // Bun the rejection has shown up as "unhandled" and crashed the process
-    // even though bootstrap() / listModels() are awaiting it. The await chain
-    // still receives the rejection normally - catching here only suppresses
-    // the unhandled-rejection report, not the value seen by awaiters.
-    promise.catch(() => {});
     try {
       this.write(frame);
     } catch (err) {

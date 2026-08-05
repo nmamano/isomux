@@ -148,3 +148,63 @@ describe("JsonRpcLiteClient.close - real process reaping", () => {
     expect(gone).toBe(true);
   }, 10000);
 });
+
+// Regression guard for the 2026-05-12 boot crash (fixed by 0053e83).
+//
+// When spawn fails, child.pid is undefined, so write() throws synchronously and
+// request() rethrows before `return promise`. The pending entry MUST be dropped
+// from the map on that path: the promise created inside request() was never
+// returned, so nothing ever attaches a handler to it. If it stays registered,
+// the async child.on("error") that follows calls failAllPending() and rejects
+// it with no awaiter - Bun reports an unhandled rejection and kills the whole
+// server process. The caller's own rejection (request()'s async-function
+// promise) is a DIFFERENT object and is handled normally, which is why the
+// crash looked impossible from reading the await chain.
+//
+// SCOPE: this guards the observable symptom (a stray unhandled rejection), which
+// is the thing that actually killed the server. It does NOT independently pin
+// 0053e83's pending.delete, because the later 2a70478 added a noop
+// promise.catch() that suppresses the report without un-orphaning the promise -
+// with that in place, removing pending.delete keeps this test green. The
+// structural invariant cannot be asserted from outside either, since
+// failAllPending() clears the map on its way out and the error event's timing
+// relative to the caller's await is not deterministic. Verified by mutation:
+// green with either fix alone, RED with both removed.
+describe("JsonRpcLiteClient.request - spawn failure", () => {
+  it("rejects the caller without orphaning a rejected pending promise", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    // Installing this listener also suppresses Bun's default crash-on-unhandled
+    // -rejection, so a regression surfaces as a failed assertion here rather
+    // than as the test runner itself dying.
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const dir = mkdtempSync(join(tmpdir(), "codex-client-test-"));
+      tmpDirs.push(dir);
+      const client = new JsonRpcLiteClient({
+        codexBin: join(dir, "no-such-codex-binary"),
+        cwd: dir,
+        // Explicit CODEX_HOME so withIsomuxCodexHome() doesn't create state
+        // under the real ~/.isomux while tests run.
+        env: { ...process.env, CODEX_HOME: dir },
+      });
+      client.start();
+
+      // The caller sees a normal rejection carrying the actionable hint.
+      let rejection: unknown = null;
+      try {
+        await client.request("initialize", {});
+      } catch (err) {
+        rejection = err;
+      }
+      expect((rejection as Error | null)?.message).toMatch(/failed to launch/);
+
+      // child.on("error") is a macrotask; give it (and any unhandled-rejection
+      // report it triggers) time to land before asserting none appeared.
+      await new Promise((r) => setTimeout(r, 300));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  }, 10000);
+});
