@@ -296,3 +296,23 @@ describe("buildSystemPrompt - memory attribution copy", () => {
     );
   });
 });
+
+describe("buildSystemPrompt - inter-agent messaging copy", () => {
+  // Task 425facdd: the send ack now reports the queued/delivered outcome, so the
+  // prompt stops leaving agents to infer it from the rule alone.
+  it("documents the queued flag on the send ack", () => {
+    const p = build();
+    expect(p).toContain("The ack says which happened:");
+    expect(p).toContain(
+      '"queued":true means it waits until their current turn ends',
+    );
+  });
+
+  // Task 9389d4e5: an agent that asks a peer a blocking question and keeps
+  // working can never receive the answer - the queue only flushes between turns.
+  it("tells the sender to end the turn after a blocking question", () => {
+    expect(build()).toContain(
+      "Replies reach you only between your turns, and a peer may never answer. Before going idle to wait for one, schedule yourself a wake-up message: your estimate of their turnaround plus a safe margin.",
+    );
+  });
+});

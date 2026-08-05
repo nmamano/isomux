@@ -2498,7 +2498,16 @@ function buildExecutorDeps(): ExecutorDeps {
           text,
           clientMessageId,
         });
-        if (result.ok) return { ok: true, messageId: result.messageId };
+        if (result.ok)
+          return {
+            ok: true,
+            messageId: result.messageId,
+            // Surfaced so the sender knows whether the receiver reads this now or
+            // after their current turn (task 425facdd). A deduped retry touched
+            // no queue, so it reports nothing rather than the manager's default
+            // false - the accepted send already answered.
+            ...(result.deduped ? {} : { queued: result.queued }),
+          };
         // enqueueMessage's error code passes through verbatim ("agent not found"
         // 404 - normally pre-empted by the messageRecipientExists precondition;
         // agent_stopped / agent_error 409; queue_full 429; persist_failed 500

@@ -84,6 +84,9 @@ describe("agents.sendMessage REST - USER branch (Phase 3d slice 6a)", () => {
     expect(res.status).toBe(200);
     // The USER ack carries no queued id - the message echoes/streams over WS.
     expect((res.body as { messageId?: string }).messageId).toBe("");
+    // And no `queued` flag either (task 425facdd): this branch is fire-and-forget
+    // with no enqueue result to report, so it says nothing instead of guessing.
+    expect("queued" in (res.body as object)).toBe(false);
   });
 
   it("no auth -> 401 (the /api wall rejects before the handler)", async () => {

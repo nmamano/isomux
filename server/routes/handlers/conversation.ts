@@ -52,8 +52,12 @@ import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
 // queue_full) is preserved bit-for-bit. 500 persist_failed is new with durable
 // queues (task 9870b472): the durable write failed, the message was rolled
 // back, and the sender should retry.
+// `queued` (task 425facdd) is the enqueue outcome for THIS send: true = parked
+// behind the receiver's in-flight turn, false = handed straight to a turn.
+// Undefined when this call never learned the answer (a deduped retry acks the
+// original send), and the ack then omits the field rather than guessing false.
 export type SendAsAgentResult =
-  | { ok: true; messageId?: string }
+  | { ok: true; messageId?: string; queued?: boolean }
   | {
       ok: false;
       status: 400 | 404 | 409 | 429 | 500;
@@ -264,7 +268,11 @@ export function conversationHandlers(
           b.text,
           b.clientMessageId,
         );
-        if (r.ok) return ok({ messageId: r.messageId ?? "" });
+        if (r.ok)
+          return ok({
+            messageId: r.messageId ?? "",
+            ...(r.queued === undefined ? {} : { queued: r.queued }),
+          });
         return fail(r.status, r.code, r.message);
       }
       // USER path: fire-and-forget. Empty text is allowed when attachments carry

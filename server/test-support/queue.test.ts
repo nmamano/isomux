@@ -116,13 +116,15 @@ async function spawnAgent(
 
 interface PostResult {
   status: number;
-  // The unified agents.sendMessage route (3d.6a) returns MessageAck { messageId }
-  // on success or the standard error envelope { error: { code, message } } - not
-  // the raw EnqueueResult the legacy endpoint exposed. The queued / deduped /
-  // accept-then-flush semantics are now read off the live queue (queueOf) + state,
-  // not the HTTP body.
+  // The unified agents.sendMessage route (3d.6a) returns { messageId, queued } on
+  // success or the standard error envelope { error: { code, message } } - not the
+  // raw EnqueueResult the legacy endpoint exposed. `queued` came back with task
+  // 425facdd (true = parked behind the receiver's turn, false = handed straight
+  // to one, absent on a deduped retry); the rest of the EnqueueResult stays
+  // internal and is read off the live queue (queueOf) + state.
   body: {
     messageId?: string;
+    queued?: boolean;
     error?: { code: string; message: string };
   };
 }
@@ -282,8 +284,8 @@ describe("queue: entry points (Phase 1.4a)", () => {
     const r1 = await postAgentMessage(server, recv.id, sender.id, "first");
     expect(r1.status).toBe(200);
     expect(typeof r1.body.messageId).toBe("string");
-    // queued:false (immediate accept-then-flush) is now observable as the agent
-    // parking busy below, not an HTTP-body field.
+    // The ack says the message was handed straight to a turn (task 425facdd).
+    expect(r1.body.queued).toBe(false);
 
     // That flush parks the receiver busy (onSend pushed assistant_text).
     await waitUntil(
@@ -295,8 +297,29 @@ describe("queue: entry points (Phase 1.4a)", () => {
     // Busy receiver: the next POST queues.
     const r2 = await postAgentMessage(server, recv.id, sender.id, "second");
     expect(r2.status).toBe(200);
-    // queued:true is observable as the live queue holding the message.
+    // Both the ack and the live queue report the park.
+    expect(r2.body.queued).toBe(true);
     expect(queueOf(server, recv.id).length).toBe(1);
+  });
+
+  // Task 425facdd: the whole point of the flag is that a sender who cannot see
+  // the receiver's state can still tell "read now" from "read after their turn",
+  // so the two outcomes must DIFFER on the same receiver in one run.
+  it("the ack's queued flag flips with the receiver's state", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    const idle = await postAgentMessage(server, recv.id, sender.id, "one");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      2000,
+      "receiver busy",
+    );
+    const busy = await postAgentMessage(server, recv.id, sender.id, "two");
+    expect(idle.body.queued).toBe(false);
+    expect(busy.body.queued).toBe(true);
   });
 });
 
@@ -528,6 +551,11 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
       "cid-1",
     );
     expect(repeat.status).toBe(200);
+    expect(first.body.queued).toBe(true);
+    // A deduped retry never touched the queue, so it reports no queued/delivered
+    // answer at all rather than the misleading false the enqueue path defaults to
+    // (task 425facdd).
+    expect("queued" in repeat.body).toBe(false);
     // Dedupe is observable as the queue NOT growing on the repeated cid.
     expect(queueOf(server, recvA.id).length).toBe(1); // no second copy
 

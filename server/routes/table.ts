@@ -220,6 +220,14 @@ const bodyRoom = (name: string): Guard =>
 // Common no-content / small response shapes.
 type NoContent = void;
 type MessageAck = { messageId: string };
+// agents.sendMessage's own ack (task 425facdd). `queued` answers the question the
+// sender cannot otherwise see: true = the message is parked behind the receiver's
+// in-flight turn and lands when that turn ends; false = it went straight into a
+// turn. Optional because only the AGENT branch knows: the USER branch is
+// fire-and-forget (empty messageId, no enqueue result), and a deduped retry is an
+// ack for the ORIGINAL send, whose queued/delivered answer this call never
+// learned. A point-in-time fact about THIS send, not receiver state.
+type AgentMessageAck = { messageId: string; queued?: boolean };
 // Schedule-branch ack (agents.sendMessage with deliverAt): the scheduled-entry
 // handle plus the normalized (UTC RFC3339) delivery time - never a fake empty
 // messageId.
@@ -346,7 +354,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- Agents - conversation ------------------------------------------------
-  defineRoute<SendMessageReq, MessageAck | ScheduledAck>({
+  defineRoute<SendMessageReq, AgentMessageAck | ScheduledAck>({
     opId: "agents.sendMessage",
     method: "POST",
     path: "/api/agents/:id/messages",
