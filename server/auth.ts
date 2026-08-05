@@ -1827,10 +1827,34 @@ export async function _testSeedOwner(
   };
 }
 
-// Wipe both maps; intended for tests only. Does not touch disk.
+// Back-date (or extend) a live session's expiry stamps so tests can drive the
+// expiry branches of validateByHash - rolling expiry, the absolute cap, and the
+// refresh clamp - without a clock seam or a 30-day wait. Writes through to disk
+// so a cold reload sees the same stamps. Test-only; no production caller.
+export function _testSetSessionExpiry(
+  rawSessionId: string,
+  fields: { expiresAt?: number; absoluteExpiresAt?: number },
+): boolean {
+  ensureLoaded();
+  const session = sessions!.get(hashOf(rawSessionId));
+  if (!session) return false;
+  if (fields.expiresAt !== undefined) session.expiresAt = fields.expiresAt;
+  if (fields.absoluteExpiresAt !== undefined)
+    session.absoluteExpiresAt = fields.absoluteExpiresAt;
+  persistSessions();
+  return true;
+}
+
+// Drop the in-memory caches; intended for tests only. Does not touch disk.
+// Both maps go back to `null`, the not-yet-loaded sentinel, so the next
+// ensureLoaded() re-reads invites.json / sessions.json - matching what a real
+// process restart does, and mirroring users.ts's `loaded = false`. (Assigning
+// empty Maps instead would leave the module permanently "loaded" with nothing,
+// so a harness cold-restart over preserved state would silently serve an empty
+// auth state and reject every still-valid cookie.)
 export function _testResetState() {
-  invites = new Map();
-  sessions = new Map();
+  invites = null;
+  sessions = null;
   wsBySession.clear();
   // Repeated in-process harness boots must not inherit a prior run's mutex
   // chain, persist throttle, or cached origin/port. Reset them so each boot
