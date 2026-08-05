@@ -54,10 +54,51 @@ function wireClaudeConfigDir(): void {
 }
 
 // Touch the existence-only session file createSession checks on resume.
-function seedClaudeSession(cwd: string, sessionId: string): void {
+// `content` also feeds claudeSessionInterruptedByShutdown, which reads the
+// file's last line to decide whether the wake-up message may speak
+// categorically about the fake "user rejected" result (task e06b7e23).
+function seedClaudeSession(cwd: string, sessionId: string, content = ""): void {
   const dir = claudeProjectDir(cwd, { CLAUDE_CONFIG_DIR: claudeHome() });
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${sessionId}.jsonl`), "");
+  writeFileSync(join(dir, `${sessionId}.jsonl`), content);
+}
+
+// A transcript whose last entry carries the SIGTERM marker the Claude CLI
+// stamps when it cuts a turn short - the entry whose tool result claims the
+// user rejected the running tool.
+const SHUTDOWN_TRANSCRIPT =
+  JSON.stringify({ type: "user", interruptedByShutdown: false }) +
+  "\n" +
+  JSON.stringify({
+    type: "user",
+    interruptedByShutdown: true,
+    message: { content: [{ type: "tool_result", content: "user rejected" }] },
+  }) +
+  "\n";
+
+// Phrases the wake-up message is built from. Kept as constants so a reworded
+// message fails these tests loudly instead of silently passing a stale check.
+const WAKE_RESTART = "Resumed your session after the server restarted.";
+const WAKE_STREAM_END =
+  "Resumed your session after the backend ended unexpectedly.";
+const WAKE_PARTIAL =
+  "Any command that was in flight may have partially run; verify its effects before retrying.";
+const WAKE_HEDGED = "If a tool result just above says the user rejected";
+const WAKE_CATEGORICAL =
+  "came from the backend shutting down, not from a human";
+// The built-in envelope block runAgentTurn wraps the note in on its way to the
+// backend (plugin-hooks.ts). Its presence in a sent prompt is what proves the
+// AGENT was told, not just the isomux log.
+const WAKE_BLOCK_OPEN = "--- begin isomux: wake-notice ---";
+
+function logText(
+  mgr: ReturnType<typeof createAgentManager>,
+  id: string,
+): string {
+  return mgr
+    .getAgentLogs(id)
+    .map((e) => String(e.content ?? ""))
+    .join("\n");
 }
 
 // A FakeBackend whose every send auto-completes the turn. Lazy spawn means an
@@ -661,5 +702,349 @@ describe("skill dispatch on a dormant agent", () => {
     expect(fake.createSessionCount).toBe(createsBefore);
     expect(fake.resumeSessionCount).toBe(resumesBefore);
     expect(mgr.getAgent(id)?.dormant).toBe(true);
+  });
+});
+
+// Task e06b7e23. A SIGTERMed Claude CLI hands the resumed model hardcoded text
+// claiming the USER rejected the tool that was running, so the agent wakes up
+// believing its boss countermanded it (ad86462c: 18 occurrences, 16 of them our
+// own service restarts). The wake-up message has to say what actually happened.
+describe("idle eviction - truthful wake-up after a shutdown", () => {
+  // Boot lazy-restore with a persisted session id, i.e. the state every agent
+  // is in after `systemctl restart isomux`.
+  // Log entries are persisted per agent id and replayed by restoreAgents, so
+  // every case needs its own agent + session or it reads the previous case's
+  // wake-up message out of the shared store.
+  let seq = 0;
+
+  function restoredManager(fake: FakeBackend, agentId: string, sid: string) {
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-a") }),
+      initialRooms: [
+        {
+          id: "room-a",
+          name: "room-a",
+          prompt: null,
+          agents: [
+            {
+              id: agentId,
+              name: "Lazy",
+              desk: 0,
+              cwd: STATE_ROOT,
+              outfit: {
+                hat: "none" as const,
+                color: "#ffffff",
+                hair: "#000000",
+                hairStyle: "short" as const,
+                skin: "#ffffff",
+                beard: "none" as const,
+                accessory: null,
+              },
+              permissionMode: "default" as const,
+              modelFamily: "opus",
+              agentType: "claude" as const,
+              lastSessionId: sid,
+              topic: null,
+              customInstructions: null,
+              userId: null,
+              username: null,
+            },
+          ],
+        },
+      ],
+    });
+    mgr.configurePluginHooksDeps();
+    return mgr;
+  }
+
+  // Everything the woken session actually sent to the backend. This is the
+  // surface that matters: the agent reads the prompt, never the isomux log.
+  function sentText(fake: FakeBackend): string {
+    return (fake.lastSession?.sent ?? []).map((m) => m.text).join("\n");
+  }
+
+  async function wakeRestored(
+    transcript: string,
+  ): Promise<{ log: string; sent: string }> {
+    wireClaudeConfigDir();
+    const fake = makeFake();
+    const n = ++seq;
+    const agentId = `agent-test-shutdown-${n}`;
+    const sid = `fake-session-shutdown-${n}`;
+    const mgr = restoredManager(fake, agentId, sid);
+    await mgr.restoreAgents();
+    seedClaudeSession(STATE_ROOT, sid, transcript);
+    const r = mgr.enqueueMessage(agentId, {
+      sender: { kind: "user", username: "tester" },
+      text: "status?",
+    });
+    expect(r.ok).toBe(true);
+    await waitUntil(
+      () => (mgr.getAgent(agentId)?.dormant ?? false) === false,
+      "restored agent woke",
+    );
+    const out = { log: logText(mgr, agentId), sent: sentText(fake) };
+    fake.lastSession?.close();
+    return out;
+  }
+
+  it("restart wake: warns about partial effects and HEDGES the rejection", async () => {
+    // No shutdown marker on disk, so isomux cannot prove the rejection was
+    // synthetic - an unexpected end also covers crashes and transport failures,
+    // and a real denial could coincidentally precede one.
+    const { log, sent } = await wakeRestored('{"type":"user"}\n');
+    expect(log).toContain(WAKE_RESTART);
+    expect(log).toContain(WAKE_PARTIAL);
+    expect(log).toContain(WAKE_HEDGED);
+    expect(log).not.toContain(WAKE_CATEGORICAL);
+    // The whole point: the AGENT is told, not just the human reading the log.
+    expect(sent).toContain(WAKE_BLOCK_OPEN);
+    expect(sent).toContain(WAKE_RESTART);
+    expect(sent).toContain(WAKE_HEDGED);
+  });
+
+  it("restart wake: upgrades to CATEGORICAL when the transcript proves it", async () => {
+    const { log, sent } = await wakeRestored(SHUTDOWN_TRANSCRIPT);
+    expect(log).toContain(WAKE_RESTART);
+    expect(log).toContain(WAKE_PARTIAL);
+    expect(log).toContain(WAKE_CATEGORICAL);
+    expect(log).not.toContain(WAKE_HEDGED);
+    expect(sent).toContain(WAKE_CATEGORICAL);
+    expect(sent).not.toContain(WAKE_HEDGED);
+  });
+
+  it("restart wake: stays hedged when the transcript is unreadable", async () => {
+    // Best-effort means non-load-bearing: a truncated/garbage final line must
+    // fall back to wording that is true either way, never crash the wake.
+    const { log, sent } = await wakeRestored(
+      '{"type":"user"}\n{"interruptedBySh',
+    );
+    expect(log).toContain(WAKE_RESTART);
+    expect(log).toContain(WAKE_HEDGED);
+    expect(log).not.toContain(WAKE_CATEGORICAL);
+    expect(sent).toContain(WAKE_HEDGED);
+  });
+
+  it("restart wake: ignores a marker that is not on the LAST entry", async () => {
+    // The marker belongs to the entry the shutdown cut short. An older one
+    // describes a previous death the agent has already been told about.
+    const { log } = await wakeRestored(
+      JSON.stringify({ type: "user", interruptedByShutdown: true }) +
+        "\n" +
+        JSON.stringify({ type: "assistant" }) +
+        "\n",
+    );
+    expect(log).toContain(WAKE_HEDGED);
+    expect(log).not.toContain(WAKE_CATEGORICAL);
+  });
+
+  it("backend-death wake: same warning, worded for an unexpected end", async () => {
+    wireClaudeConfigDir();
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    const sid = mgr.getCurrentSessionId(id)!;
+    seedClaudeSession(STATE_ROOT, sid, SHUTDOWN_TRANSCRIPT);
+    // Clean stream end while idle - what an earlyoom SIGTERM looks like from
+    // here. Sets dormantReason "stream-ended".
+    fake.lastSession!.endStream();
+    await waitUntil(
+      () => (mgr.getAgent(id)?.dormant ?? false) === true,
+      "went dormant on stream end",
+    );
+    const r = mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "still there?",
+    });
+    expect(r.ok).toBe(true);
+    await waitUntil(
+      () => (mgr.getAgent(id)?.dormant ?? false) === false,
+      "woke after stream end",
+    );
+    const text = logText(mgr, id);
+    expect(text).toContain(WAKE_STREAM_END);
+    expect(text).toContain(WAKE_PARTIAL);
+    expect(text).toContain(WAKE_CATEGORICAL);
+    const sent = sentText(fake);
+    expect(sent).toContain(WAKE_BLOCK_OPEN);
+    expect(sent).toContain(WAKE_STREAM_END);
+    expect(sent).toContain(WAKE_CATEGORICAL);
+    fake.lastSession?.close();
+  });
+
+  // A backend that refuses any send carrying the wake block, so the notice is
+  // armed, attempted, and NOT consumed - the state in which a conversation
+  // boundary can strand it.
+  function makeBlockRefusingFake(): FakeBackend {
+    return new FakeBackend({
+      session: {
+        onSend: (text, _a, s) => {
+          if (text.includes(WAKE_BLOCK_OPEN))
+            throw new Error("backend refused the send");
+          s.completeTurn({ text: "ok" });
+        },
+      },
+    });
+  }
+
+  // Drive an agent to "wake notice armed, send failed, notice still in the
+  // slot". Returns the woken session so the caller can read what went out.
+  async function armThenFailSend(
+    mgr: ReturnType<typeof createAgentManager>,
+    fake: FakeBackend,
+    id: string,
+  ) {
+    const sid = mgr.getCurrentSessionId(id)!;
+    seedClaudeSession(STATE_ROOT, sid, SHUTDOWN_TRANSCRIPT);
+    const dead = fake.lastSession!;
+    dead.endStream();
+    await waitUntil(
+      () => (mgr.getAgent(id)?.dormant ?? false) === true,
+      "went dormant on stream end",
+    );
+    mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "first",
+    });
+    await waitUntil(() => fake.lastSession !== dead, "woke on a new session");
+    const woken = fake.lastSession!;
+    await waitUntil(() => woken.sent.length >= 1, "wake send attempted");
+    expect(woken.sent[0].text).toContain(WAKE_BLOCK_OPEN);
+    return woken;
+  }
+
+  it("a failed send RETAINS the note (never consumed before acceptance)", async () => {
+    wireClaudeConfigDir();
+    const fake = makeBlockRefusingFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    const woken = await armThenFailSend(mgr, fake, id);
+    // The backend never accepted it, so the agent was never told. The next
+    // attempt must still carry the warning. Goes through sendMessage (the
+    // human path) because the failed send parked the agent in "error", which
+    // flushQueue refuses to serve and only a human message auto-recovers.
+    void mgr.sendMessage(id, "retry", "tester").catch(() => {});
+    await waitUntil(() => woken.sent.length >= 2, "retry attempted");
+    expect(woken.sent[1].text).toContain(WAKE_BLOCK_OPEN);
+    woken.close();
+  });
+
+  it("/clear drops a retained note: the fresh conversation gets no wake block", async () => {
+    // The contextGen guard stops an OLD send from clearing a NEW generation's
+    // slot, but it cannot empty a slot whose notice was never consumed. Without
+    // the boundary cleanup in resetContextUsage, this stranded warning rides
+    // into a conversation whose transcript holds no rejection to warn about -
+    // and it says "just above". Found by Reviewer1 on fingerprint b92141d3.
+    wireClaudeConfigDir();
+    const fake = makeBlockRefusingFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    const stranded = await armThenFailSend(mgr, fake, id);
+
+    await mgr.newConversation(id);
+    mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "fresh start",
+    });
+    await waitUntil(
+      () => fake.lastSession !== stranded && fake.lastSession!.sent.length >= 1,
+      "fresh conversation sent",
+    );
+    const fresh = fake.lastSession!;
+    expect(fresh.sent[0].text).not.toContain(WAKE_BLOCK_OPEN);
+    expect(fresh.sent[0].text).not.toContain(WAKE_PARTIAL);
+    fresh.close();
+  });
+
+  it("textarea path (wakeSessionForSend) delivers the note too", async () => {
+    // The other delivery tests all wake through flushQueue's !session branch.
+    // sendMessage arms the note in a DIFFERENT function (wakeSessionForSend)
+    // and its caller does the send, so the two paths can regress apart.
+    wireClaudeConfigDir();
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    const sid = mgr.getCurrentSessionId(id)!;
+    seedClaudeSession(STATE_ROOT, sid, SHUTDOWN_TRANSCRIPT);
+    fake.lastSession!.endStream();
+    await waitUntil(
+      () => (mgr.getAgent(id)?.dormant ?? false) === true,
+      "went dormant on stream end",
+    );
+    await mgr.sendMessage(id, "you there?", "tester");
+    const woken = fake.lastSession!;
+    await waitUntil(() => woken.sent.length === 1, "textarea message sent");
+    expect(woken.sent[0].text).toContain(WAKE_BLOCK_OPEN);
+    expect(woken.sent[0].text).toContain(WAKE_STREAM_END);
+    expect(woken.sent[0].text).toContain(WAKE_CATEGORICAL);
+    // Still exactly once on this path.
+    await mgr.sendMessage(id, "again", "tester");
+    await waitUntil(() => woken.sent.length === 2, "second textarea message");
+    expect(woken.sent[1].text).not.toContain(WAKE_BLOCK_OPEN);
+    woken.close();
+  });
+
+  it("delivers the note ONCE: the next message carries no wake block", async () => {
+    wireClaudeConfigDir();
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    const sid = mgr.getCurrentSessionId(id)!;
+    seedClaudeSession(STATE_ROOT, sid, SHUTDOWN_TRANSCRIPT);
+    fake.lastSession!.endStream();
+    await waitUntil(
+      () => (mgr.getAgent(id)?.dormant ?? false) === true,
+      "went dormant on stream end",
+    );
+    mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "first",
+    });
+    await waitUntil(
+      () => (mgr.getAgent(id)?.dormant ?? false) === false,
+      "woke after stream end",
+    );
+    const woken = fake.lastSession!;
+    await waitUntil(() => woken.sent.length === 1, "first message sent");
+    expect(woken.sent[0].text).toContain(WAKE_BLOCK_OPEN);
+
+    // Second message on the SAME live session: the note was consumed, so the
+    // agent isn't re-told about a shutdown it already knows about.
+    mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "second",
+    });
+    await waitUntil(() => woken.sent.length === 2, "second message sent");
+    expect(woken.sent[1].text).not.toContain(WAKE_BLOCK_OPEN);
+    woken.close();
+  });
+
+  it("idle-eviction wake says nothing about shutdowns", async () => {
+    // The calm branch must not inherit the alarm: nothing was interrupted.
+    wireClaudeConfigDir();
+    const fake = makeFake();
+    const mgr = makeManager(fake);
+    const id = await spawnReady(mgr, "A");
+    const sid = mgr.getCurrentSessionId(id)!;
+    seedClaudeSession(STATE_ROOT, sid, SHUTDOWN_TRANSCRIPT);
+    expect(await mgr.demoteToLazy(id)).toBe(true);
+    const r = mgr.enqueueMessage(id, {
+      sender: { kind: "user", username: "tester" },
+      text: "back",
+    });
+    expect(r.ok).toBe(true);
+    await waitUntil(
+      () => (mgr.getAgent(id)?.dormant ?? false) === false,
+      "woke from idle demote",
+    );
+    const text = logText(mgr, id);
+    expect(text).toContain("released while idle");
+    expect(text).not.toContain(WAKE_PARTIAL);
+    expect(text).not.toContain(WAKE_HEDGED);
+    expect(text).not.toContain(WAKE_CATEGORICAL);
+    // And costs the agent no context: no block on the wire either, even though
+    // a shutdown-marked transcript is sitting on disk.
+    expect(sentText(fake)).not.toContain(WAKE_BLOCK_OPEN);
   });
 });

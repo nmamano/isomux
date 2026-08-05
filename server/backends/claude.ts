@@ -1071,20 +1071,29 @@ export function* translateSDKMessage(
 // Background-task lifecycle breadcrumbs (TaskBreadcrumbTracker)
 // ---------------------------------------------------------------------------
 // The SDK emits system/task_started, task_updated, and task_notification for
-// EVERY task-shaped thing - including ordinary foreground subagents, which
-// already render as Agent tool calls. Breadcrumbing all of them would double-
-// render every subagent, so this tracker only surfaces genuinely-background
-// work (verified against SDK 0.3.170 / binary 2.1.170 via a live probe):
+// EVERY task-shaped thing - including ordinary foreground Bash calls and
+// foreground subagents, which already render as their own tool calls.
+// Breadcrumbing all of them would double-render every shell command, so this
+// tracker only surfaces genuinely-background work:
 //
-//   task_type "local_bash"      - run_in_background Bash (born background)
+//   any tool_use launched with input.run_in_background === true - the ONLY
+//                                 signal that a Bash call or an Agent-tool
+//                                 subagent was born background; their
+//                                 task_started is otherwise identical to a
+//                                 foreground one's
 //   task_type "local_workflow"  - Workflow tool runs (return immediately,
-//                                 settle via task_notification)
-//   any tool_use launched with input.run_in_background === true - covers
-//                                 background Agent-tool subagents, whose
-//                                 task_started is otherwise indistinguishable
-//                                 from a foreground subagent's
+//                                 settle via task_notification). No
+//                                 run_in_background input to correlate
+//                                 against, and there is no foreground
+//                                 counterpart, so the task_type alone is safe.
 //   task_updated is_backgrounded - a foreground task backgrounded mid-run
 //                                 (Ctrl+B / auto-background on timeout)
+//
+// task_type "local_bash" is NOT a background signal (task 0c7945cd): the SDK
+// stamps it on every local shell task, foreground included. Trusting it made
+// ordinary Bash calls emit "Background task started" - measured at 217 of 227
+// breadcrumbs on one agent and 78 of 78 on another, which in turn made the
+// earlyoom incidents in the ad86462c diagnosis look like mid-run backgrounding.
 //
 // Settle breadcrumbs (task_notification) are emitted only for tasks tracked
 // at start, which both filters foreground-subagent noise and dedupes repeated
@@ -1145,7 +1154,6 @@ export class TaskBreadcrumbTracker {
 
     if (msg.subtype === "task_started") {
       const isBackground =
-        msg.task_type === "local_bash" ||
         msg.task_type === "local_workflow" ||
         (msg.tool_use_id !== undefined &&
           this.bgToolUseIds.has(msg.tool_use_id));

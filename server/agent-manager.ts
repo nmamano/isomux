@@ -75,6 +75,7 @@ import {
   resolveCwd,
   validateCwd,
   claudeSessionFileExists,
+  claudeSessionInterruptedByShutdown,
   claudeProjectDir,
   codexRolloutFileExists,
   codexRolloutHasHistory,
@@ -1405,6 +1406,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       firedUiThresholds: new Set(),
       memoryNotice: null,
       memoryNoticeFired: false,
+      wakeNotice: null,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -2423,6 +2425,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // whichever that is.
     managed.memoryNoticeFired = restore ? restore.memoryFired : false;
     armMemoryNotice(managed);
+    // Wake notice: DROP it, never restore it. It describes a specific
+    // interrupted transcript, so once the conversation boundary moves the
+    // warning is about a transcript the agent is no longer reading - and it
+    // says "just above". The contextGen guard in runAgentTurn stops an old
+    // send from clearing a new generation's slot, but it can't empty a slot
+    // whose notice was armed and then never consumed (send failed, then
+    // /clear), which is exactly how a stale warning would ride into a fresh
+    // conversation. Unconditional, including the edit-fork rollback path: at
+    // worst an agent loses a warning, which beats being handed a false one.
+    managed.wakeNotice = null;
     // Null the slot so nothing ever waits on an orphaned old-conversation
     // request (it still self-discards at commit via the gen check).
     managed.contextSampleInFlight = null;
@@ -3778,12 +3790,65 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Wake-message wording, accurate to WHY the agent was dormant: a sweep-demoted
   // agent was released for idleness; a lazy-restored one was released by a
   // server (re)start. A genuine crash uses each wake path's own wording.
-  function dormantWakeMessage(reason: ManagedAgent["dormantReason"]): string {
-    if (reason === "boot")
-      return "Resumed your session after the server restarted.";
-    if (reason === "stream-ended")
-      return "Resumed your session after the backend stream ended unexpectedly.";
-    return "Resumed your session (it was released while idle to save memory).";
+  //
+  // Both non-idle branches carry the ad86462c warning. When the Claude CLI is
+  // SIGTERMed mid-turn it hands the model hardcoded text claiming the USER
+  // rejected the tool that was running. The resumed agent can't tell that from
+  // a real denial, so it wakes up believing its boss countermanded it and
+  // abandons the work (18 occurrences since 2026-07-25; 16 were our own service
+  // restarts, 2 were earlyoom kills). It also can't tell whether the killed
+  // command had already done half its job.
+  //
+  // The rejection sentence is hedged by DEFAULT because an unexpected stream end
+  // also covers crashes, SIGKILL and transport failures, and a real denial could
+  // coincidentally sit just above one - asserting "that wasn't a human" would
+  // swap one false message for another.
+  // `claudeSessionInterruptedByShutdown` upgrades it to categorical only when
+  // the transcript actually carries the marker, and answers false on any doubt.
+  //
+  // Returns the SAME text on both surfaces: `log` for the isomux transcript
+  // (what the human reads) and `note` to arm managed.wakeNotice (what the AGENT
+  // reads, delivered once as a built-in block by runAgentTurn). isomux log
+  // entries are never fed back into a prompt, so a log-only message would miss
+  // every occurrence this task exists to fix - the agent is the one holding the
+  // false rejection. The calm idle wording has nothing to warn about, so it
+  // carries note: null and costs the agent no context.
+  function dormantWakeMessage(
+    managed: ManagedAgent,
+    reason: ManagedAgent["dormantReason"],
+    sessionId: string,
+  ): { log: string; note: string | null } {
+    if (reason !== "boot" && reason !== "stream-ended")
+      return {
+        log: "Resumed your session (it was released while idle to save memory).",
+        note: null,
+      };
+    const opener =
+      reason === "boot"
+        ? "Resumed your session after the server restarted."
+        : "Resumed your session after the backend ended unexpectedly.";
+    const text = `${opener} Any command that was in flight may have partially run; verify its effects before retrying. ${shutdownRejectionClause(managed, sessionId)}`;
+    return { log: text, note: text };
+  }
+
+  // The rejection half of the wake-up message above. Categorical only when the
+  // agent's own transcript proves the shutdown; hedged otherwise, including for
+  // every Codex agent (the marker is a Claude CLI artifact).
+  function shutdownRejectionClause(
+    managed: ManagedAgent,
+    sessionId: string,
+  ): string {
+    if (
+      managed.info.agentType === "claude" &&
+      claudeSessionInterruptedByShutdown(
+        managed.info.cwd,
+        sessionId,
+        envForHints(managed),
+      )
+    ) {
+      return "Any 'the user rejected this' tool result just above came from the backend shutting down, not from a human.";
+    }
+    return "If a tool result just above says the user rejected something, that may have come from the backend shutting down rather than from a human.";
   }
 
   // Synchronous guard: only demote a fully-quiescent, resumable live agent.
@@ -4290,6 +4355,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       firedUiThresholds: new Set(),
       memoryNotice: null,
       memoryNoticeFired: false,
+      wakeNotice: null,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -4852,13 +4918,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // logged nothing - so a "Started a fresh session…" note here would be
           // a NEW regression. Every other wake keeps its existing wording.
           if (sessionId) {
-            addLogEntry(
-              agentId,
-              "system",
-              wasDormant
-                ? dormantWakeMessage(dormantReason)
-                : "Resumed prior session before flushing queued messages.",
-            );
+            let wakeText =
+              "Resumed prior session before flushing queued messages.";
+            if (wasDormant) {
+              // Arms managed.wakeNotice as a side effect: the flush below is
+              // the very send that carries it to the agent.
+              const wake = dormantWakeMessage(
+                managed,
+                dormantReason,
+                sessionId,
+              );
+              managed.wakeNotice = wake.note;
+              wakeText = wake.log;
+            }
+            addLogEntry(agentId, "system", wakeText);
           } else if (!(wasDormant && dormantReason === "fresh")) {
             addLogEntry(
               agentId,
@@ -5174,13 +5247,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // window vanishingly rare, so we accept the cosmetic mismatch rather than
       // re-probe durability under the wake.
       if (sessionId) {
-        addLogEntry(
-          agentId,
-          "system",
-          wasDormant
-            ? dormantWakeMessage(dormantReason)
-            : "Resumed prior session after the previous one ended unexpectedly.",
-        );
+        let wakeText =
+          "Resumed prior session after the previous one ended unexpectedly.";
+        if (wasDormant) {
+          // Arms managed.wakeNotice as a side effect: our caller sends the
+          // message this wake serves, and runAgentTurn carries the note with it.
+          const wake = dormantWakeMessage(managed, dormantReason, sessionId);
+          managed.wakeNotice = wake.note;
+          wakeText = wake.log;
+        }
+        addLogEntry(agentId, "system", wakeText);
       } else if (!(wasDormant && dormantReason === "fresh")) {
         addLogEntry(
           agentId,

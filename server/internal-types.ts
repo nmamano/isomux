@@ -196,6 +196,17 @@ export interface ManagedAgent {
   // notice flag here - a server restart forgets it, and the next session start
   // may re-notice.
   memoryNoticeFired: boolean;
+  // --- Truthful wake-up notice (task e06b7e23).
+  // The wake-up line waiting to ride out on the next message, or null when the
+  // wake had nothing to warn about (idle eviction, fresh session). Armed by the
+  // two dormant-wake paths in agent-manager for a server restart or an
+  // unexpected backend death; consumed by the pre-send step in runAgentTurn on
+  // the same never-before-send rule as memoryNotice. Without it the warning
+  // reaches only the isomux log, and the agent - the one holding a tool result
+  // that falsely claims its boss rejected the running command - never sees it.
+  // No companion "fired" flag: every wake re-arms it, and there is nothing to
+  // suppress across a conversation.
+  wakeNotice: string | null;
   // --- Subscription-allowance usage (the pill next to the context battery).
   // Latest committed reading for the ACCOUNT this agent's backend is signed in
   // to, or null when there is none (Claude API-key/Bedrock/Vertex sessions,

@@ -11,8 +11,9 @@
  *   2. Running every enabled plugin's `beforeTurn` in parallel against the
  *      same context. Per-plugin 5s race; on throw or timeout the plugin
  *      contributes no prefix and the failure goes to plugins.jsonl.
- *   3. Assembling the outbound envelope: built-in blocks first (currently just
- *      the context-fullness notice - server coordination, NOT a plugin), then
+ *   3. Assembling the outbound envelope: built-in blocks first (the wake,
+ *      context-fullness and memory-size notices - server coordination, NOT
+ *      plugins), then
  *      per-plugin prefix blocks in alphabetical id order, each delimiter-
  *      wrapped, prepended to the outgoing text with a `User message:` separator.
  *      stripOutboundEnvelope is the exact inverse (used by edit-to-fork
@@ -200,8 +201,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
 
   // 4b. Built-in outbound blocks (server coordination, NOT plugins - no
   // enable/disable coupling, absent from plugin discovery + failure
-  // accounting): the context-fullness notice and the session-start memory-size
-  // notice. Computed after the plugin loop so the just-finished turn's
+  // accounting): the context-fullness notice, the session-start memory-size
+  // notice, and the wake notice. Computed after the plugin loop so the
+  // just-finished turn's
   // fire-and-forget sample has the most time to land; the bounded await inside
   // caps the added latency (~500ms worst case, and only on turns where a sample
   // is still in flight).
@@ -215,12 +217,26 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   const memoryNotice = managed.memoryNotice
     ? { block: managed.memoryNotice, gen: managed.contextGen }
     : null;
+  // Read in the same window and for the same reason. Armed by the dormant-wake
+  // paths when the previous session died to a restart or an unexpected backend
+  // death (task e06b7e23); this is the only way the warning reaches the agent,
+  // since isomux log entries never re-enter a prompt.
+  const wakeNotice = managed.wakeNotice
+    ? { block: managed.wakeNotice, gen: managed.contextGen }
+    : null;
 
   // 5. Assemble the outbound envelope: built-in blocks first, then plugin
   // blocks in sorted order, then the user payload. Built-ins get their own
   // reserved `isomux:` delimiter (NOT a fake plugin id) so stripOutboundEnvelope
   // round-trips them for edit-to-fork matching.
   const envelopeBlocks: string[] = [];
+  // First block: it describes the transcript the agent is about to read back,
+  // so it belongs ahead of the housekeeping notices.
+  if (wakeNotice) {
+    envelopeBlocks.push(
+      `--- begin isomux: wake-notice ---\n${wakeNotice.block}\n--- end isomux: wake-notice ---`,
+    );
+  }
   if (contextNotice) {
     envelopeBlocks.push(
       `--- begin isomux: context-check ---\n${contextNotice.block}\n--- end isomux: context-check ---`,
@@ -297,6 +313,13 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     if (memoryNotice && managed.contextGen === memoryNotice.gen) {
       managed.memoryNotice = null;
       managed.memoryNoticeFired = true;
+    }
+    // One-shot, and never before send: a failed send keeps the note so the
+    // retry still tells the agent what happened to its interrupted command.
+    // Same generation guard as above - if a /clear landed during the send, the
+    // slot we would clear may already hold the NEW conversation's wake note.
+    if (wakeNotice && managed.contextGen === wakeNotice.gen) {
+      managed.wakeNotice = null;
     }
     if (onSendAccepted) {
       try {
