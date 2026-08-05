@@ -4,7 +4,9 @@
 > Reviewer3. Task: 99023cdd.
 > Companion reading: `hosted-isomux-design.md` (the hosted product this must fit),
 > `deploy/install.sh` (Caddy + ufw setup), `server/preview-capture.ts` (the
-> existing non-interactive answer).
+> existing non-interactive answer), `agent-apps-design.md` (persistent named apps
+> built on this transport - it needs two of the rules below relaxed for its case,
+> flagged inline).
 
 ## Problem
 
@@ -114,6 +116,12 @@ for.
 The random label is defense in depth, not the auth boundary - capability URLs
 leak through history, chat logs and `Referer`. The handshake below is the
 boundary.
+
+`agent-apps-design.md` wants stable, human-chosen hostnames for registered apps,
+which is compatible with this rule but not with a naive reading of it: the
+hazard is pointing a hostname at an _unrelated_ app, so a name bound to one app
+for its whole life is fine, and deleting an app must retire its name rather than
+free it for reuse.
 
 ### TLS, which the hostname lifecycle decides
 
@@ -262,7 +270,9 @@ card should not show the URL until the share is enabled.
 ### Other invariants
 
 - Shares expire (hours, not days), are listed in the Access pane with a revoke
-  button, and die with the agent.
+  button, and die with the agent. This is right for the scratch-dev-app case
+  and wrong for a registered app, which is owned by the user and outlives its
+  author; see `agent-apps-design.md`. Both lifetimes should exist.
 - The office cookie should eventually get the `__Host-` prefix to foreclose
   cookie tossing from a sibling subdomain, but `__Host-` requires `Secure`, so
   it cannot be an unconditional rename - loopback HTTP installs would lose their
