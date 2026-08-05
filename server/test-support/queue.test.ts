@@ -26,7 +26,9 @@
 //   - agent (AGENT bearer) send -> always enqueueMessage, accepts-then-flushes when
 //     idle (queued:false) and queues when busy (queued:true).
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, setSystemTime } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
 import {
   startTestServer,
   type TestServer,
@@ -125,6 +127,11 @@ interface PostResult {
   body: {
     messageId?: string;
     queued?: boolean;
+    // Task 80b2bb08: present only when the send asked to steer. steered:true =
+    // an in-flight turn was interrupted for this message; steerDeclined = a
+    // guard rail refused and the message queued instead.
+    steered?: boolean;
+    steerDeclined?: string;
     error?: { code: string; message: string };
   };
 }
@@ -141,8 +148,11 @@ async function postAgentMessage(
   senderId: string | null,
   text: string | null,
   clientMessageId?: string,
+  // Extra body fields (steer, deliverAt, ...) for the tests that exercise the
+  // optional flags on the same route.
+  extra?: Record<string, unknown>,
 ): Promise<PostResult> {
-  const payload: Record<string, unknown> = {};
+  const payload: Record<string, unknown> = { ...extra };
   if (text !== null) payload.text = text;
   if (clientMessageId) payload.clientMessageId = clientMessageId;
   const headers: Record<string, string> = {
@@ -1182,6 +1192,515 @@ describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
       error?: { code: string };
     };
     expect(body.error?.code).toBe("send_now_not_supported");
+    expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
+      0,
+    );
+  });
+});
+
+// Agent-initiated steering (task 80b2bb08). "steer":true on the inter-agent send
+// enqueues AND interrupts in one request, so the receiver can't go idle between
+// an enqueue and a follow-up send-now and turn what the sender meant as a steer
+// into an ordinary delivery. Guard rails degrade to a plain queue - the message
+// is always accepted, only the interruption is refused - and the ack says which
+// of the three things happened.
+describe("queue: steer flag on agent send (task 80b2bb08)", () => {
+  const sawInterrupt = (sock: TestSocket, agentId: string): boolean =>
+    logEntriesFor(sock, agentId).some(
+      (e) => e.kind === "system" && e.content === "Agent interrupted.",
+    );
+
+  it("busy receiver: the ack reports steered and the message drains without the parked turn ending", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    // Codex receiver for the same reason as the send-now tests above: the
+    // slow-path abort reinstalls a session, and Codex fresh-starts instead of
+    // tripping Claude's resume preflight on the fake session id.
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      2000,
+      "busy",
+    );
+
+    const r = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "urgent",
+      undefined,
+      { steer: true },
+    );
+    expect(r.status).toBe(200);
+    expect(r.body.steered).toBe(true);
+    // queued:false - the receiver's turn is being cut short precisely so this
+    // message does NOT wait for it, which is what queued reports.
+    expect(r.body.queued).toBe(false);
+    expect("steerDeclined" in r.body).toBe(false);
+
+    await waitUntil(
+      () => sawInterrupt(sock, recv.id),
+      3000,
+      "interrupt logged",
+    );
+    // The parked FakeSession never completes its turn, so a drained queue and a
+    // backend delivery can only come from the interrupt this send issued.
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
+    await waitUntil(
+      () =>
+        server!.fakeBackend.sessions
+          .filter((s) => s.opts.agentId === recv.id)
+          .some((s) => s.sent.some((m) => m.text.includes("urgent"))),
+      3000,
+      "reached backend",
+    );
+  });
+
+  it("idle receiver: steer delivers now and interrupts nothing", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    const r = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "hello",
+      undefined,
+      { steer: true },
+    );
+    expect(r.body.queued).toBe(false);
+    // No guard rail refused; there was simply no turn to interrupt.
+    expect(r.body.steered).toBe(false);
+    expect("steerDeclined" in r.body).toBe(false);
+
+    await waitUntil(
+      () =>
+        (server!.fakeBackend.sessionForAgent(recv.id)?.sent ?? []).some((m) =>
+          m.text.includes("hello"),
+        ),
+      2000,
+      "sent",
+    );
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      2000,
+      "busy",
+    );
+    await sleep(100);
+    // The turn this send started is still running - an erroneous abort would
+    // have knocked it back to waiting_for_response and logged an interrupt.
+    expect(stateOf(server, recv.id)).toBe("thinking");
+    expect(sawInterrupt(sock, recv.id)).toBe(false);
+  });
+
+  it("receiver mid multi-step flow: steer degrades to a plain queue", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    // /model leaves the agent waiting on a pick, where the next message is read
+    // as the answer - the flow steering must refuse to interrupt.
+    await sendHuman(server, owner.rawSessionId, recv.id, "/model");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "waiting_for_response",
+      2000,
+      "pick pending",
+    );
+
+    const r = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "urgent",
+      undefined,
+      { steer: true },
+    );
+    expect(r.body.queued).toBe(true);
+    expect(r.body.steered).toBe(false);
+    expect(r.body.steerDeclined).toBe("multi_step_flow");
+
+    // Nothing aborted, and the message waits with the pick (flushQueue declines
+    // to run in a multi-step flow, so an abort would have cost a turn and still
+    // not delivered).
+    await sleep(200);
+    expect(queueOf(server, recv.id).length).toBe(1);
+    expect(sawInterrupt(sock, recv.id)).toBe(false);
+  });
+
+  it("rate limit: the fourth steer of one receiver inside the window queues instead", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+
+    const outcomes: (string | undefined)[] = [];
+    for (let i = 0; i < 4; i++) {
+      // Each round steers a DISTINCT turn: the previous steer's message has
+      // drained (queue empty) and the turn it started is parked (thinking).
+      await waitUntil(
+        () =>
+          stateOf(server!, recv.id) === "thinking" &&
+          queueOf(server!, recv.id).length === 0,
+        5000,
+        `turn ${i} running`,
+      );
+      const r = await postAgentMessage(
+        server,
+        recv.id,
+        sender.id,
+        `steer-${i}`,
+        undefined,
+        { steer: true },
+      );
+      outcomes.push(r.body.steered === true ? "steered" : r.body.steerDeclined);
+    }
+    expect(outcomes).toEqual(["steered", "steered", "steered", "rate_limited"]);
+    // The refused one is still accepted, just parked behind the running turn.
+    expect(queueOf(server, recv.id).length).toBe(1);
+  });
+
+  // The window is a ROLLING one, not a lifetime cap: an agent that spends its
+  // budget is steerable again a minute later. Pinned with a clock jump rather
+  // than a real wait. Safe in the harness: the queue watchdog interval is
+  // main-process only (isomux-office.ts), so nothing else is reading the clock
+  // in the background, and the jump happens between awaits.
+  it("the steer budget refills once the window passes", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    const steerOnce = async (label: string): Promise<string | undefined> => {
+      await waitUntil(
+        () =>
+          stateOf(server!, recv.id) === "thinking" &&
+          queueOf(server!, recv.id).length === 0,
+        5000,
+        `turn for ${label}`,
+      );
+      const r = await postAgentMessage(
+        server!,
+        recv.id,
+        sender.id,
+        label,
+        undefined,
+        { steer: true },
+      );
+      return r.body.steered === true ? "steered" : r.body.steerDeclined;
+    };
+
+    expect(await steerOnce("a")).toBe("steered");
+    expect(await steerOnce("b")).toBe("steered");
+    expect(await steerOnce("c")).toBe("steered");
+    await waitUntil(
+      () =>
+        stateOf(server!, recv.id) === "thinking" &&
+        queueOf(server!, recv.id).length === 0,
+      5000,
+      "turn for d",
+    );
+    // Without the jump this fourth one is the rate_limited case above.
+    setSystemTime(new Date(Date.now() + 61_000));
+    try {
+      const r = await postAgentMessage(
+        server,
+        recv.id,
+        sender.id,
+        "d",
+        undefined,
+        { steer: true },
+      );
+      expect(r.body.steered).toBe(true);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  // A steer landing while an earlier one's abort is still unwinding must not
+  // claim a second interruption or spend a second slot: the first abort already
+  // flipped the receiver out of busy, so there is nothing left to interrupt and
+  // the message simply rides the flush that abort triggered. hangOnClose holds
+  // the receiver in that window for the whole drain timeout, so the second send
+  // lands inside it deterministically.
+  it("a second steer during the first one's abort interrupts nothing", async () => {
+    server = await startTestServer({
+      fakeBackend: new FakeBackend({
+        session: {
+          onSend: (_t, _a, s) =>
+            s.push({ kind: "assistant_text", text: "..." }),
+          hangOnClose: true,
+        },
+      }),
+    });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    server.agentManager._testSetConsumerDrainTimeout(300);
+
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      2000,
+      "busy",
+    );
+
+    const first = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "first",
+      undefined,
+      { steer: true },
+    );
+    expect(first.body.steered).toBe(true);
+    // The abort ran to its first await inside this request, so the receiver is
+    // already out of busy by the time the ack is written.
+    expect(stateOf(server, recv.id)).toBe("waiting_for_response");
+
+    const second = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "second",
+      undefined,
+      { steer: true },
+    );
+    expect(second.body.steered).toBe(false);
+    expect(second.body.queued).toBe(false);
+    expect("steerDeclined" in second.body).toBe(false);
+
+    // Both messages ride the same recovery: the drain bound releases the
+    // replacement, and the flush delivers them together.
+    await waitUntil(
+      () =>
+        server!.fakeBackend.sessions
+          .filter((s) => s.opts.agentId === recv.id)
+          .some((s) =>
+            s.sent.some(
+              (m) => m.text.includes("first") && m.text.includes("second"),
+            ),
+          ),
+      5000,
+      "both delivered",
+    );
+
+    // ...and only ONE slot was spent. The budget is 3 per window, so if the
+    // second send had also counted, the second round below would decline.
+    const outcomes: (string | undefined)[] = [];
+    for (let i = 0; i < 2; i++) {
+      await waitUntil(
+        () =>
+          stateOf(server!, recv.id) === "thinking" &&
+          queueOf(server!, recv.id).length === 0,
+        5000,
+        `turn ${i} running`,
+      );
+      const r = await postAgentMessage(
+        server,
+        recv.id,
+        sender.id,
+        `more-${i}`,
+        undefined,
+        { steer: true },
+      );
+      outcomes.push(r.body.steered === true ? "steered" : r.body.steerDeclined);
+    }
+    expect(outcomes).toEqual(["steered", "steered"]);
+  });
+
+  // The durable write is transactional and happens BEFORE any steer decision,
+  // so a rejected send must leave the receiver's turn and its steer budget
+  // exactly as they were - otherwise a flaky disk would silently spend a
+  // sender's ability to interrupt.
+  it("a send that fails to persist neither interrupts nor spends a slot", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    // Human kickoff: an idle human send starts a turn without touching the
+    // store, so the path below is free to become a directory.
+    await sendHuman(server, owner.rawSessionId, recv.id, "kickoff");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      3000,
+      "busy",
+    );
+
+    // atomicWriteFileSync renames onto the store path, which cannot succeed
+    // while it is a non-empty directory (same trick as queue-reliability).
+    const store = join(server.stateRoot, "message-queues.json");
+    mkdirSync(store);
+    writeFileSync(join(store, "keep"), "x");
+    const failed = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "durable",
+      undefined,
+      { steer: true },
+    );
+    expect(failed.status).toBe(500);
+    expect(failed.body.error?.code).toBe("persist_failed");
+    await sleep(100);
+    expect(stateOf(server, recv.id)).toBe("thinking");
+    expect(sawInterrupt(sock, recv.id)).toBe(false);
+
+    rmSync(store, { recursive: true, force: true });
+    const outcomes: (string | undefined)[] = [];
+    for (let i = 0; i < 3; i++) {
+      await waitUntil(
+        () =>
+          stateOf(server!, recv.id) === "thinking" &&
+          queueOf(server!, recv.id).length === 0,
+        5000,
+        `turn ${i} running`,
+      );
+      const r = await postAgentMessage(
+        server,
+        recv.id,
+        sender.id,
+        `after-${i}`,
+        undefined,
+        { steer: true },
+      );
+      outcomes.push(r.body.steered === true ? "steered" : r.body.steerDeclined);
+    }
+    // A fourth would be rate_limited; all three interrupting proves the
+    // rejected send spent nothing.
+    expect(outcomes).toEqual(["steered", "steered", "steered"]);
+  });
+
+  it("a deduped retry never interrupts", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      2000,
+      "busy",
+    );
+
+    const first = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "same",
+      "cid-steer",
+    );
+    expect(first.body.queued).toBe(true);
+    const repeat = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "same",
+      "cid-steer",
+      { steer: true },
+    );
+    expect(repeat.status).toBe(200);
+    // The retry touched no queue, so it reports neither answer - and must not
+    // interrupt a turn on behalf of a message that was already accepted.
+    expect("queued" in repeat.body).toBe(false);
+    expect("steered" in repeat.body).toBe(false);
+    await sleep(200);
+    expect(stateOf(server, recv.id)).toBe("thinking");
+    expect(queueOf(server, recv.id).length).toBe(1);
+    expect(sawInterrupt(sock, recv.id)).toBe(false);
+  });
+
+  it("USER-scope steer -> 400 steer_not_supported", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const a = await spawnAgent(server, "Receiver", room.id);
+
+    const res = await server.http(`/api/agents/${a.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "x", steer: true }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: { code: string } };
+    expect(body.error?.code).toBe("steer_not_supported");
+    expect(server.fakeBackend.sessionForAgent(a.id)?.sent.length ?? 0).toBe(0);
+  });
+
+  it("steer with deliverAt -> 400 steer_with_deliver_at, nothing scheduled", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    const r = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "later",
+      undefined,
+      { steer: true, deliverAt: new Date(Date.now() + 3600_000).toISOString() },
+    );
+    expect(r.status).toBe(400);
+    expect(r.body.error?.code).toBe("steer_with_deliver_at");
+    const list = await server.http(
+      `/api/agents/${sender.id}/scheduled-messages`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${getAgentTokenRaw(sender.id)}` },
+      },
+    );
+    expect(((await list.json()) as { scheduled: unknown[] }).scheduled).toEqual(
+      [],
+    );
+  });
+
+  it("non-boolean steer -> 422 invalid_request", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    const r = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "x",
+      undefined,
+      { steer: "yes" },
+    );
+    expect(r.status).toBe(422);
+    expect(r.body.error?.code).toBe("invalid_request");
     expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
       0,
     );

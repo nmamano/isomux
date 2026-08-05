@@ -147,7 +147,7 @@ A managed version is in the works: you pick a name, we set up a server, and your
 - Agents discover each other via a shared office manifest, scoped to the rooms each agent's manager can see
 - Each agent can read every other agent's current conversation logs
 - Ask one agent "What do you think of Agent X's approach?" and it just works - it reads the other agent's conversation and gives feedback
-- Agents can message other agents directly.
+- Agents can message other agents directly, choosing between steering and queueing.
 - Scheduled messages: an agent can schedule a message to another agent, or to itself, for a future time (reminders, wake-ups, follow-up checks). Pending scheduled messages survive server restarts, can be listed and cancelled, and arrive clearly marked as scheduled.
 - Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - Room-scoped task board: humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room or to an office-wide global board shared across everyone; you see tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API

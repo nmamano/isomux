@@ -919,10 +919,15 @@ export function humanizeIsomuxRequest(
       const who = agentName(segs[1]);
       const sub = segs[2];
       if (segs.length === 3) {
-        if (sub === "messages" && m === "POST")
-          return field("deliverAt")
-            ? `Schedule a message to ${who}`
+        if (sub === "messages" && m === "POST") {
+          if (field("deliverAt")) return `Schedule a message to ${who}`;
+          // steer:true interrupts the receiver's turn, which is a different
+          // action to a reader watching the card - and "true" is matched
+          // exactly so an explicit steer:false reads as the plain send it is.
+          return field("steer") === "true"
+            ? `Interrupt ${who} with a message`
             : `Send a message to ${who}`;
+        }
         if (sub === "scheduled-messages" && m === "GET")
           return `List ${who}'s scheduled messages`;
         if (sub === "read-file" && m === "POST") return "Share a file to chat";

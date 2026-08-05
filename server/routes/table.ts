@@ -43,6 +43,7 @@ import {
   type Guard,
 } from "../identity/guards.ts";
 import type { EventId } from "../events/registry.ts";
+import type { SteerDeclineReason } from "../internal-types.ts";
 import type {
   AgentInfo,
   RoomWire,
@@ -227,7 +228,16 @@ type MessageAck = { messageId: string };
 // fire-and-forget (empty messageId, no enqueue result), and a deduped retry is an
 // ack for the ORIGINAL send, whose queued/delivered answer this call never
 // learned. A point-in-time fact about THIS send, not receiver state.
-type AgentMessageAck = { messageId: string; queued?: boolean };
+// `steered` / `steerDeclined` (task 80b2bb08) ride the same rule and appear only
+// when the send asked to steer: steered:true = an in-flight turn was interrupted
+// for this message; steered:false with no reason = there was no turn to
+// interrupt; steerDeclined = a guard rail refused, and the message is queued.
+type AgentMessageAck = {
+  messageId: string;
+  queued?: boolean;
+  steered?: boolean;
+  steerDeclined?: SteerDeclineReason;
+};
 // Schedule-branch ack (agents.sendMessage with deliverAt): the scheduled-entry
 // handle plus the normalized (UTC RFC3339) delivery time - never a fake empty
 // messageId.

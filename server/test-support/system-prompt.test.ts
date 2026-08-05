@@ -315,4 +315,16 @@ describe("buildSystemPrompt - inter-agent messaging copy", () => {
       "Replies reach you only between your turns, and a peer may never answer. Before going idle to wait for one, schedule yourself a wake-up message: your estimate of their turnaround plus a safe margin.",
     );
   });
+
+  // Task 80b2bb08. The flag ships with the protocol rule: steer threads you
+  // started, queue in threads they started.
+  it("documents the steer flag and the initiator/responder rule", () => {
+    const p = build();
+    expect(p).toContain(
+      'To interrupt their current turn instead of waiting, add "steer":true.',
+    );
+    expect(p).toContain(
+      "Steer every message in a thread you started; in a thread they started, leave it out.",
+    );
+  });
 });

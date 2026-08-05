@@ -1,7 +1,8 @@
 # Agent messaging: steering, queue control, lazy delivery, condition triggers
 
-> Status: DESIGN ONLY. No code in this slice. Covers tasks 80b2bb08, 0da22912, e17989e0, bca33c68.
-> Every API shape and policy below is a proposal; the numbered list at the end is what needs a ruling.
+> Status: §2.1 SHIPPED (task 80b2bb08, 2026-08-05); everything else is still design only.
+> Covers tasks 80b2bb08, 0da22912, e17989e0, bca33c68. Outside §2.1 every API shape and
+> policy below is a proposal; the numbered list at the end marks which decisions are ruled.
 
 ## 1. What exists today
 
@@ -40,6 +41,8 @@ invocations verbatim (`server/system-prompt.ts:170-171`). So the gap in task 0da
   already queued before your request still ride the same flush, as they should;
 - **is** any steering path at all for an ordinary agent.
 
+Both gaps closed in §2.1. The `sendNow` body flag is still user-scope-only; agents pass `steer` instead.
+
 **Queue reads.** There is no HTTP read of a queue. Users see it over WebSocket (`agent_updated.changes.queue`,
 plus `getAllAgents` splicing the live queue into `full_state`). The `GET /agents` discovery manifest agents use
 carries no queue and no state. So no agent can see its own pending messages, let alone anyone else's - and a
@@ -54,12 +57,44 @@ Self-send is allowed on this path and rejected (400 `self_send`) on the immediat
 
 ## 2. Proposals
 
-### 2.1 Agent-initiated steering
+### 2.1 Agent-initiated steering - SHIPPED
 
 Shape: `POST /api/agents/:id/messages` gains `"steer": true` - enqueue and `sendNow` in one request, closing the
 two-call window described above. The agent-scope rejection of the `sendNow` body flag is replaced by this field.
 The ack reports whether an abort actually happened (receiver busy) or the message simply delivered (receiver idle),
 so the sender can tell the two apart.
+
+**What shipped** (`enqueueMessage`'s `opts.steer`, `agent-manager.ts`). The decision is made inside the same
+synchronous block as the queue push, against the same `state` read that picks flush-vs-queue, so the receiver
+cannot go idle between the enqueue and the interrupt. The busy path calls the existing `sendNow` (abort, then
+flush), fire-and-forget, exactly as the composer's Ctrl/Cmd+Enter does.
+
+| Receiver at push time | Ack | Effect |
+|---|---|---|
+| Running a turn | `{queued:false, steered:true}` | turn aborted, message rides the post-abort flush |
+| Not running a turn | `{queued:false, steered:false}` | plain immediate delivery, nothing interrupted |
+| In a multi-step flow | `{queued:true, steered:false, steerDeclined:"multi_step_flow"}` | queued, pick untouched |
+| Over the steer rate limit | `{queued:true, steered:false, steerDeclined:"rate_limited"}` | queued |
+| Deduped retry | `{messageId}` only | nothing touched, nothing interrupted |
+
+`queued:false` on a steer is deliberate: `queued` answers "does this wait for their current turn", and a steer
+exists precisely so it does not. `steered:true` is asserted at interrupt-issue time, not delivery time.
+
+Permission: decision 1 = **B**. No guard is added - `steer` rides the send guard, which for an agent sender is
+`senderMustEqualTokenAgent` with no room check, so in practice any agent may steer any agent. The protocol that
+makes this safe is prompt copy, not code: steer what you initiate, plain-queue what you answer.
+
+Guard rails: decision 2 = both, degrading to a plain queue (never an error). Rate limit is
+`STEER_RATE_LIMIT = 3` per `STEER_RATE_WINDOW_MS = 60_000`, per RECEIVER across all senders (what it protects is
+the receiver's ability to finish a turn), counting only steers that actually interrupted something. Human "Send
+now" is neither counted nor limited.
+
+Refusals at the boundary, so no delivery-affecting flag is ever silently dropped: `steer` from a USER sender →
+400 `steer_not_supported` (users have `sendNow`); `steer` with `deliverAt` → 400 `steer_with_deliver_at`;
+non-boolean → 422. `sendNow` from an agent still 400s, now pointing at `steer`.
+
+Still open, deliberately not built here: a receiver-side opt-out (option C's allowlist), any steer surface for
+scheduled messages, and any UI affordance beyond the curl card's "Interrupt X with a message" label.
 
 Who may steer whom:
 
@@ -226,8 +261,8 @@ right to cancel another agent's outbox entry.
 **Slice 1 (read-only, no delivery-core changes).** `GET /api/agents/:id/queue` with its own guard. Scheduled-message
 chips + the `scheduled` WS field. Nothing in `agent-manager`'s delivery path is touched.
 
-**Slice 2 (steering as a first-class flag).** `steer: true` on the send, whichever permission rule wins decision 1,
-plus the guard rails from decision 2.
+**Slice 2 (steering as a first-class flag).** SHIPPED 2026-08-05 (task 80b2bb08): `steer: true` on the send under
+rule B, with both guard rails. See §2.1.
 
 **Slice 3 (lazy).** Separate store, built-in envelope block in `runAgentTurn`, consume-on-send-accept, self-send
 carve-out, cap + eviction.
@@ -250,12 +285,12 @@ bca33c68 (conditions) as separate tasks since they ship in different slices.
 
 ## 5. Decisions for Nil
 
-**Steering**
+**Steering** - RULED 2026-08-05, shipped; see §2.1.
 
-1. Permission rule: A (privileged only), B (any agent in the boss's rooms), C (per-receiver opt-in: global boolean /
-   sender allowlist / receiver-scoped capability), or D (same-room)? Recommendation: A now, C-with-allowlist later.
-2. Guard rails, if steering ships: (a) refuse to steer an agent in a multi-step flow, yes or no? (b) rate limit per
-   receiver, and if so what happens to the excess - degrade to a plain queue, or reject?
+1. ~~Permission rule~~ → **B**. Nil widened who may interrupt whom on purpose: the initiator/responder protocol
+   only works if ordinary workers can steer, so the recommendation of A was overruled.
+2. ~~Guard rails~~ → **both**, each degrading to a plain queue: (a) refuse to steer an agent in a multi-step flow;
+   (b) per-receiver rate limit, excess queues rather than erroring.
 
 **Queue access**
 

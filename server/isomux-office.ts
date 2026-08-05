@@ -2470,7 +2470,13 @@ function buildExecutorDeps(): ExecutorDeps {
           { sendNow },
         );
       },
-      sendAsAgent: (receiverId, senderAgentId, text, clientMessageId) => {
+      sendAsAgent: (
+        receiverId,
+        senderAgentId,
+        text,
+        clientMessageId,
+        steer,
+      ) => {
         if (senderAgentId === receiverId)
           return {
             ok: false,
@@ -2488,16 +2494,22 @@ function buildExecutorDeps(): ExecutorDeps {
             code: "unknown_sender",
             message: "Sender is not a known agent.",
           };
-        const result = agentManager.enqueueMessage(receiverId, {
-          sender: {
-            kind: "agent",
-            agentId: senderAgentId,
-            agentName: senderInfo.name,
-            roomName: senderInfo.roomName,
+        const result = agentManager.enqueueMessage(
+          receiverId,
+          {
+            sender: {
+              kind: "agent",
+              agentId: senderAgentId,
+              agentName: senderInfo.name,
+              roomName: senderInfo.roomName,
+            },
+            text,
+            clientMessageId,
           },
-          text,
-          clientMessageId,
-        });
+          // Enqueue and interrupt in one call (task 80b2bb08) - see
+          // enqueueMessage's opts for why this can't be a second request.
+          { steer },
+        );
         if (result.ok)
           return {
             ok: true,
@@ -2505,8 +2517,16 @@ function buildExecutorDeps(): ExecutorDeps {
             // Surfaced so the sender knows whether the receiver reads this now or
             // after their current turn (task 425facdd). A deduped retry touched
             // no queue, so it reports nothing rather than the manager's default
-            // false - the accepted send already answered.
+            // false - the accepted send already answered. The steer fields ride
+            // the same rule: absent unless this call asked to steer, and absent
+            // on a deduped retry, which interrupted nobody.
             ...(result.deduped ? {} : { queued: result.queued }),
+            ...(result.steered === undefined
+              ? {}
+              : { steered: result.steered }),
+            ...(result.steerDeclined === undefined
+              ? {}
+              : { steerDeclined: result.steerDeclined }),
           };
         // enqueueMessage's error code passes through verbatim ("agent not found"
         // 404 - normally pre-empted by the messageRecipientExists precondition;

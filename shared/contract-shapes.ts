@@ -140,9 +140,19 @@ export interface SendMessageReq {
   // a busy agent's queue, immediately trigger the same abort+flush that POST
   // /api/agents/:id/send-now performs. Everywhere else the flag is inert - an
   // idle agent gets a plain send, and slash commands / multi-step flows take
-  // their existing paths. Present on an AGENT-scope call → 400 (agents call
-  // the explicit /send-now endpoint instead).
+  // their existing paths. Present on an AGENT-scope call → 400 (agents pass
+  // `steer` below instead).
   sendNow?: boolean;
+  // AGENT branch only (task 80b2bb08): interrupt the receiver's in-flight turn
+  // so this message lands now instead of after it. Enqueue and interrupt happen
+  // in one request, decided against the same state read - the two-call
+  // enqueue-then-send-now sequence could have the receiver go idle in between,
+  // and report a plain delivery for what the sender meant as a steer. Degrades
+  // to a plain queue (never an error) when the receiver is mid multi-step flow
+  // or over the per-receiver steer rate limit; the ack says which happened.
+  // Present on a USER-scope call → 400 (users have sendNow); combined with
+  // deliverAt → 400 (a scheduled steer is not in this slice).
+  steer?: boolean;
 }
 
 export interface EditMessageReq {

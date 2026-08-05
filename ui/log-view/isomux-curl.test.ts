@@ -1209,6 +1209,21 @@ describe("humanizeIsomuxRequest", () => {
     );
   });
 
+  test("steer turns send into interrupt, and only when it is true", () => {
+    const say = (body: string) =>
+      humanizeIsomuxRequest(
+        parse(
+          `curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -d '${body}'`,
+        ),
+        () => "Todoer",
+      );
+    expect(say(`{"text":"hi","steer":true}`)).toBe(
+      "Interrupt Todoer with a message",
+    );
+    // An explicit steer:false is the plain send it says it is.
+    expect(say(`{"text":"hi","steer":false}`)).toBe("Send a message to Todoer");
+  });
+
   test("unresolved agent ids fall back to the raw id", () => {
     const req = parse(
       `curl -s -X POST localhost:4000/api/agents/agent-9/abort -d '{}'`,

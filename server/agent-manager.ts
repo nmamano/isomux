@@ -1423,6 +1423,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       flushInProgress: false,
       flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
+      recentSteers: [],
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
       dormantReason: opts.lazy ? "boot" : null,
@@ -4375,6 +4376,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       flushInProgress: false,
       flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
+      recentSteers: [],
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
       dormantReason: null,
@@ -4491,6 +4493,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   const QUEUE_MAX = 50;
   const QUEUE_DEDUPE_TTL_MS = 5 * 60_000;
+  // Agent-initiated steering (task 80b2bb08): how many times other agents may
+  // interrupt one receiver's turns within a rolling window before further
+  // steers degrade to a plain queue. Three per minute leaves room for a
+  // correction and a follow-up while stopping a pair of agents from steering
+  // each other in a loop, where every abort throws away in-flight work. The
+  // message is still accepted either way, so the limit only ever delays it to
+  // the receiver's next turn boundary.
+  const STEER_RATE_LIMIT = 3;
+  const STEER_RATE_WINDOW_MS = 60_000;
 
   function senderMeta(
     sender: QueuedMessage["sender"],
@@ -4722,6 +4733,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return s === "idle" || s === "waiting_for_response";
   }
 
+  // Steer rate limit (task 80b2bb08). Prunes the receiver's window in place and
+  // reports whether another interruption fits. Called only on the path that is
+  // about to interrupt, so the pruning cost is bounded by the limit itself.
+  function steerRateLimited(managed: ManagedAgent): boolean {
+    const cutoff = Date.now() - STEER_RATE_WINDOW_MS;
+    managed.recentSteers = managed.recentSteers.filter((t) => t > cutoff);
+    return managed.recentSteers.length >= STEER_RATE_LIMIT;
+  }
+
   function recordDedupe(managed: ManagedAgent, clientMessageId: string) {
     const now = Date.now();
     // Lazy prune only when the map has grown past a small threshold so the
@@ -4765,6 +4785,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // marks it as a handoff from the previous session (no reply-to-self).
       handoff?: boolean;
     },
+    // Agent-initiated steering (task 80b2bb08). Set by the inter-agent send
+    // route when the sender passed "steer":true. Deliberately an option on THIS
+    // call rather than a second request: the decision uses the same `state` read
+    // that picks flush-vs-queue below, in the same synchronous block as the
+    // queue push, so the receiver cannot go idle (and swallow the message into
+    // an ordinary flush) between the enqueue and the interrupt.
+    opts?: { steer?: boolean },
   ): EnqueueResult {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, error: "agent not found", status: 404 };
@@ -4823,6 +4850,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     emitQueueUpdate(agentId, managed);
 
+    const steerRequested = opts?.steer === true;
+
     // Idle/waiting_for_response with no multi-step in flight: kick off a flush
     // immediately. flushQueue is gated by flushInProgress and re-checks state
     // post-defer, so this is safe to call unconditionally.
@@ -4833,7 +4862,49 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           errMessage(err),
         );
       });
-      return { ok: true, queued: false, messageId: id };
+      // A steer at a receiver that wasn't running a turn interrupts nothing -
+      // reported as steered:false rather than declined, since no guard rail
+      // refused it and the message is being delivered now either way.
+      return {
+        ok: true,
+        queued: false,
+        messageId: id,
+        ...(steerRequested ? { steered: false } : {}),
+      };
+    }
+    if (steerRequested) {
+      // Guard rails, in refusal order. Both leave the message queued (the
+      // sender is told which one fired) rather than failing the send.
+      // Multi-step first: aborting an agent that is answering a pick would end
+      // its turn and still not deliver, since flushQueue declines to run there.
+      if (inMultiStepFlow(managed)) {
+        return {
+          ok: true,
+          queued: true,
+          messageId: id,
+          steered: false,
+          steerDeclined: "multi_step_flow",
+        };
+      }
+      if (steerRateLimited(managed)) {
+        return {
+          ok: true,
+          queued: true,
+          messageId: id,
+          steered: false,
+          steerDeclined: "rate_limited",
+        };
+      }
+      managed.recentSteers.push(Date.now());
+      // Same call the composer's Ctrl/Cmd+Enter makes (sendMessage's sendNow
+      // branch): abort the in-flight turn, then flush. Fire-and-forget, like
+      // both existing call sites - sendNow owns its own state handling, and the
+      // ack must not wait on a session replacement. The queue is non-empty (we
+      // just pushed), so sendNow's empty-queue no-op cannot fire.
+      void sendNow(agentId);
+      // queued:false: the receiver's current turn is being cut short precisely
+      // so this message does NOT wait for it, which is what queued reports.
+      return { ok: true, queued: false, messageId: id, steered: true };
     }
     return { ok: true, queued: true, messageId: id };
   }

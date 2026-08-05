@@ -289,6 +289,15 @@ export interface ManagedAgent {
   // adapter that ignores close/send teardown) escalates via logs instead of
   // replacing sessions every sweep.
   lastForcedRecoveryAt: number;
+  // Date.now() of each agent-initiated steer that actually interrupted a turn
+  // of THIS receiver (task 80b2bb08), newest last, pruned to the rate-limit
+  // window on each check. Per receiver across all senders: what the limit
+  // protects is this agent's ability to finish a turn, not any one sender's
+  // manners. Only real interruptions are recorded - a steer at an idle receiver
+  // costs it nothing. In-memory only; a restart starting a fresh window is
+  // correct (no turn survives it to be interrupted). Human "Send now" is not
+  // counted and not limited.
+  recentSteers: number[];
   // clientMessageId → expiresAtMs. Per-receiver dedup window for HTTP retries.
   // 5 min TTL; entries are pruned lazily inside enqueueMessage. Persisted with
   // the queue so a retry arriving after a restart still dedupes against a
@@ -418,8 +427,28 @@ export function inMultiStepFlow(managed: ManagedAgent): boolean {
   );
 }
 
+// Why a requested steer did not interrupt the receiver (task 80b2bb08). Both
+// reasons degrade to a plain queue rather than failing the send: the message is
+// always accepted, only the interruption is refused.
+//   multi_step_flow - the receiver is part-way through a permission / resume /
+//     model / effort pick, where the next message is read as the pick. Aborting
+//     there would kill a turn and still not deliver (flushQueue declines to run
+//     in a multi-step flow).
+//   rate_limited - too many interruptions of this receiver in the recent
+//     window; letting them through would keep it from ever finishing a turn.
+export type SteerDeclineReason = "multi_step_flow" | "rate_limited";
+
 // Result of enqueueMessage. `status` is the HTTP status the WS/HTTP layer
-// should forward for the failure case.
+// should forward for the failure case. `steered` / `steerDeclined` are present
+// only when the caller asked to steer (and never on a deduped retry, which
+// touched nothing).
 export type EnqueueResult =
-  | { ok: true; queued: boolean; deduped?: boolean; messageId?: string }
+  | {
+      ok: true;
+      queued: boolean;
+      deduped?: boolean;
+      messageId?: string;
+      steered?: boolean;
+      steerDeclined?: SteerDeclineReason;
+    }
   | { ok: false; error: string; status: number };

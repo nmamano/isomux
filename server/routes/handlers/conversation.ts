@@ -40,6 +40,7 @@ import type {
   NewConversationReq,
   HandoffReq,
 } from "../../../shared/contract-shapes.ts";
+import type { SteerDeclineReason } from "../../internal-types.ts";
 // Pure format parser (no state) - safe for a leaf handler module to import.
 import { parseDeliverAt } from "../../scheduled-messages.ts";
 import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
@@ -56,8 +57,17 @@ import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
 // behind the receiver's in-flight turn, false = handed straight to a turn.
 // Undefined when this call never learned the answer (a deduped retry acks the
 // original send), and the ack then omits the field rather than guessing false.
+// `steered` / `steerDeclined` (task 80b2bb08) answer the second question a
+// steering sender has - was a turn actually interrupted, and if not, which guard
+// rail refused. Both undefined unless this call asked to steer.
 export type SendAsAgentResult =
-  | { ok: true; messageId?: string; queued?: boolean }
+  | {
+      ok: true;
+      messageId?: string;
+      queued?: boolean;
+      steered?: boolean;
+      steerDeclined?: SteerDeclineReason;
+    }
   | {
       ok: false;
       status: 400 | 404 | 409 | 429 | 500;
@@ -104,6 +114,9 @@ export interface ConversationDeps {
     senderAgentId: string,
     text: string,
     clientMessageId: string | undefined,
+    // Interrupt the receiver's in-flight turn so this message lands now
+    // (task 80b2bb08). Enqueue + interrupt happen inside one manager call.
+    steer: boolean,
   ): SendAsAgentResult;
   // AGENT send with deliverAt: store a durable scheduled entry instead of
   // enqueueing now (fired later by scheduled-messages.ts). Self-send IS
@@ -186,6 +199,7 @@ function malformedSendFields(b: Record<string, unknown>): boolean {
   // schedule for 1970 (which would fire immediately and mask the bug).
   if (b.deliverAt !== undefined && typeof b.deliverAt !== "string") return true;
   if (b.sendNow !== undefined && typeof b.sendNow !== "boolean") return true;
+  if (b.steer !== undefined && typeof b.steer !== "boolean") return true;
   return false;
 }
 
@@ -206,18 +220,30 @@ export function conversationHandlers(
         return fail(
           422,
           "invalid_request",
-          "device, clientMessageId, and deliverAt must be strings; attachments must be an array of {filename, originalName, mediaType} strings plus a nonnegative integer size; sendNow must be a boolean",
+          "device, clientMessageId, and deliverAt must be strings; attachments must be an array of {filename, originalName, mediaType} strings plus a nonnegative integer size; sendNow and steer must be booleans",
         );
       }
       // sendNow is USER-branch only (the composer's Ctrl/Cmd+Enter). Rejected
       // loudly for agent senders - mirrors the deliverAt style below (never
-      // silently ignore a delivery-affecting flag); agents already have the
-      // explicit POST /api/agents/:id/send-now endpoint.
+      // silently ignore a delivery-affecting flag); agents pass steer instead
+      // (POST /api/agents/:id/send-now is privileged-only, so it was never the
+      // answer for an ordinary agent).
       if (b.sendNow !== undefined && ctx.identity.scope === "agent") {
         return fail(
           400,
           "send_now_not_supported",
-          "sendNow is only supported for user senders; agents can POST /api/agents/:id/send-now instead.",
+          "sendNow is only supported for user senders; agents pass steer:true instead.",
+        );
+      }
+      // steer is the mirror image: AGENT-branch only. A user with the same
+      // intent has sendNow, which is not rate-limited and not refused mid
+      // multi-step flow - a person deciding to interrupt their own agent is not
+      // the thing the steer guard rails protect against.
+      if (b.steer !== undefined && ctx.identity.scope !== "agent") {
+        return fail(
+          400,
+          "steer_not_supported",
+          "steer is only supported for agent (bearer-token) senders; user senders pass sendNow.",
         );
       }
       // Scheduling is AGENT-branch only. A USER-scope deliverAt is REJECTED,
@@ -238,6 +264,17 @@ export function conversationHandlers(
           return fail(400, "invalid_text", "text is required");
         }
         if (b.deliverAt !== undefined) {
+          // A scheduled steer would have to decide, minutes or days later,
+          // whether interrupting is still what the sender wanted. Out of this
+          // slice, so the combination is refused rather than silently dropping
+          // one of the two flags.
+          if (b.steer !== undefined) {
+            return fail(
+              400,
+              "steer_with_deliver_at",
+              "steer cannot be combined with deliverAt; a scheduled message is always delivered as a plain queue.",
+            );
+          }
           const deliverAtMs = parseDeliverAt(b.deliverAt);
           if (deliverAtMs === null) {
             return fail(
@@ -267,11 +304,16 @@ export function conversationHandlers(
           senderAgentId,
           b.text,
           b.clientMessageId,
+          b.steer === true,
         );
         if (r.ok)
           return ok({
             messageId: r.messageId ?? "",
             ...(r.queued === undefined ? {} : { queued: r.queued }),
+            ...(r.steered === undefined ? {} : { steered: r.steered }),
+            ...(r.steerDeclined === undefined
+              ? {}
+              : { steerDeclined: r.steerDeclined }),
           });
         return fail(r.status, r.code, r.message);
       }
