@@ -3827,13 +3827,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       reason === "boot"
         ? "Resumed your session after the server restarted."
         : "Resumed your session after the backend ended unexpectedly.";
-    const text = `${opener} Any command that was in flight may have partially run; verify its effects before retrying. ${shutdownRejectionClause(managed, sessionId)}`;
+    const base = `${opener} Any command that was in flight may have partially run; verify its effects before retrying.`;
+    const clause = shutdownRejectionClause(managed, sessionId);
+    const text = clause ? `${base} ${clause}` : base;
     return { log: text, note: text };
   }
 
-  // The rejection half of the wake-up message above. Categorical only when the
-  // agent's own transcript proves the shutdown; hedged otherwise, including for
-  // every Codex agent (the marker is a Claude CLI artifact).
+  // The rejection half of the wake-up message above. Present only when the
+  // agent's own transcript proves the shutdown forged a rejection result -
+  // explaining a rejection that may not exist reads as noise. Empty for every
+  // Codex agent (the marker is a Claude CLI artifact).
   function shutdownRejectionClause(
     managed: ManagedAgent,
     sessionId: string,
@@ -3846,9 +3849,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         envForHints(managed),
       )
     ) {
-      return "Any 'the user rejected this' tool result just above came from the backend shutting down, not from a human.";
+      return "The 'user rejected' result just above is from the shutdown, not a human.";
     }
-    return "If a tool result just above says the user rejected something, that may have come from the backend shutting down rather than from a human.";
+    return "";
   }
 
   // Synchronous guard: only demote a fully-quiescent, resumable live agent.

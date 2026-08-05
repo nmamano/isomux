@@ -83,9 +83,11 @@ const WAKE_STREAM_END =
   "Resumed your session after the backend ended unexpectedly.";
 const WAKE_PARTIAL =
   "Any command that was in flight may have partially run; verify its effects before retrying.";
-const WAKE_HEDGED = "If a tool result just above says the user rejected";
-const WAKE_CATEGORICAL =
-  "came from the backend shutting down, not from a human";
+// The rejection clause appears ONLY when the transcript proves the shutdown
+// (Nil 2026-08-05: do not explain a rejection that may not be there), so
+// unproven wakes must carry no rejection wording at all.
+const WAKE_REJECTION_TALK = "rejected";
+const WAKE_CATEGORICAL = "is from the shutdown, not a human";
 // The built-in envelope block runAgentTurn wraps the note in on its way to the
 // backend (plugin-hooks.ts). Its presence in a sent prompt is what proves the
 // AGENT was told, not just the isomux log.
@@ -789,19 +791,18 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
     return out;
   }
 
-  it("restart wake: warns about partial effects and HEDGES the rejection", async () => {
-    // No shutdown marker on disk, so isomux cannot prove the rejection was
-    // synthetic - an unexpected end also covers crashes and transport failures,
-    // and a real denial could coincidentally precede one.
+  it("restart wake: warns about partial effects, NO rejection clause unproven", async () => {
+    // No shutdown marker on disk, so isomux cannot prove a rejection was
+    // synthetic - and explaining a rejection that may not exist is noise.
     const { log, sent } = await wakeRestored('{"type":"user"}\n');
     expect(log).toContain(WAKE_RESTART);
     expect(log).toContain(WAKE_PARTIAL);
-    expect(log).toContain(WAKE_HEDGED);
-    expect(log).not.toContain(WAKE_CATEGORICAL);
+    expect(log).not.toContain(WAKE_REJECTION_TALK);
     // The whole point: the AGENT is told, not just the human reading the log.
     expect(sent).toContain(WAKE_BLOCK_OPEN);
     expect(sent).toContain(WAKE_RESTART);
-    expect(sent).toContain(WAKE_HEDGED);
+    expect(sent).toContain(WAKE_PARTIAL);
+    expect(sent).not.toContain(WAKE_REJECTION_TALK);
   });
 
   it("restart wake: upgrades to CATEGORICAL when the transcript proves it", async () => {
@@ -809,21 +810,19 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
     expect(log).toContain(WAKE_RESTART);
     expect(log).toContain(WAKE_PARTIAL);
     expect(log).toContain(WAKE_CATEGORICAL);
-    expect(log).not.toContain(WAKE_HEDGED);
     expect(sent).toContain(WAKE_CATEGORICAL);
-    expect(sent).not.toContain(WAKE_HEDGED);
   });
 
-  it("restart wake: stays hedged when the transcript is unreadable", async () => {
+  it("restart wake: no rejection clause when the transcript is unreadable", async () => {
     // Best-effort means non-load-bearing: a truncated/garbage final line must
-    // fall back to wording that is true either way, never crash the wake.
+    // fall back to the clause-free wording, never crash the wake.
     const { log, sent } = await wakeRestored(
       '{"type":"user"}\n{"interruptedBySh',
     );
     expect(log).toContain(WAKE_RESTART);
-    expect(log).toContain(WAKE_HEDGED);
-    expect(log).not.toContain(WAKE_CATEGORICAL);
-    expect(sent).toContain(WAKE_HEDGED);
+    expect(log).toContain(WAKE_PARTIAL);
+    expect(log).not.toContain(WAKE_REJECTION_TALK);
+    expect(sent).not.toContain(WAKE_REJECTION_TALK);
   });
 
   it("restart wake: ignores a marker that is not on the LAST entry", async () => {
@@ -835,8 +834,8 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
         JSON.stringify({ type: "assistant" }) +
         "\n",
     );
-    expect(log).toContain(WAKE_HEDGED);
-    expect(log).not.toContain(WAKE_CATEGORICAL);
+    expect(log).toContain(WAKE_PARTIAL);
+    expect(log).not.toContain(WAKE_REJECTION_TALK);
   });
 
   it("backend-death wake: same warning, worded for an unexpected end", async () => {
@@ -1041,8 +1040,7 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
     const text = logText(mgr, id);
     expect(text).toContain("released while idle");
     expect(text).not.toContain(WAKE_PARTIAL);
-    expect(text).not.toContain(WAKE_HEDGED);
-    expect(text).not.toContain(WAKE_CATEGORICAL);
+    expect(text).not.toContain(WAKE_REJECTION_TALK);
     // And costs the agent no context: no block on the wire either, even though
     // a shutdown-marked transcript is sitting on disk.
     expect(sentText(fake)).not.toContain(WAKE_BLOCK_OPEN);
