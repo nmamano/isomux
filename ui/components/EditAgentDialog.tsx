@@ -48,6 +48,7 @@ import {
   dialogSaveBtn,
   dialogChip,
 } from "./dialog-styles.ts";
+import { shortenCwd } from "../cwd-display.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -819,7 +820,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   }}
                   style={chipStyle}
                 >
-                  {c.replace(/^\/home\/[^/]+/, "~")}
+                  {shortenCwd(c)}
                 </button>
               ))}
             </div>

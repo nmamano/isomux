@@ -1,5 +1,6 @@
 import type { AgentState } from "../../shared/types.ts";
 import type { DeskProp } from "../model-styles.ts";
+import { shortenCwd } from "../cwd-display.ts";
 
 // Map our states to visual categories
 function visualState(
@@ -74,10 +75,6 @@ const MUG_VARIANTS: Array<[string, string, string, string]> = [
 const DESKS_WITHOUT_PLANT = new Set([1, 3, 6]);
 // Desks 0,1,3,4,6 get mugs; 2,5,7 don't (~37% empty, different set than plants)
 const DESKS_WITHOUT_MUG = new Set([2, 5, 7]);
-
-function shortenCwd(cwd: string): string {
-  return cwd.replace(/^\/home\/[^/]+/, "~");
-}
 
 const CWD_CHARS_PER_LINE = 12;
 

@@ -67,17 +67,12 @@ import type { SlideDeckRes } from "../../shared/contract-shapes.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import { SkillsPopover } from "./SkillsPopover.tsx";
+import { shortenCwd } from "../cwd-display.ts";
 
 const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
   tool_executing: "Running tool",
 };
-
-// Display only: `/home/nil/nil/isomux` reads as `~/nil/isomux`, matching the
-// desk nameplate (office/DeskSprite.tsx) and the cwd pickers.
-function shortenCwd(cwd: string): string {
-  return cwd.replace(/^\/home\/[^/]+/, "~");
-}
 
 // Slide Mode header toggle (design: internal-docs/slide-mode-design.md). Sits
 // next to the context battery; per-device-per-agent state (device-settings). SVG

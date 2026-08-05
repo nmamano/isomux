@@ -27,6 +27,7 @@ import {
   dialogSaveBtn,
   dialogChip,
 } from "./dialog-styles.ts";
+import { shortenCwd } from "../cwd-display.ts";
 
 const WEEKDAYS: { value: 0 | 1 | 2 | 3 | 4 | 5 | 6; label: string }[] = [
   { value: 0, label: "Sunday" },
@@ -525,7 +526,7 @@ export function CronjobDialog({
             >
               {recentCwdsFiltered.map((c) => (
                 <button key={c} onClick={() => setCwd(c)} style={chipStyle}>
-                  {c.replace(/^\/home\/[^/]+/, "~")}
+                  {shortenCwd(c)}
                 </button>
               ))}
             </div>

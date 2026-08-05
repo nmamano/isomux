@@ -8,6 +8,7 @@ import {
   type LogEntry,
 } from "../../shared/types.ts";
 import { getDevice } from "../device-settings.ts";
+import { shortenCwd } from "../cwd-display.ts";
 
 const STATUS_LABEL: Record<CronjobRun["status"], string> = {
   running: "Running",
@@ -483,9 +484,9 @@ export function CronjobRunView({
             <div
               style={{ marginTop: 8, fontSize: 10, color: "var(--text-ghost)" }}
             >
-              cwd: {run.cwdSnapshot} · model: {run.modelFamilySnapshot} ·
-              effort: {run.effortSnapshot} · permission:{" "}
-              {run.permissionModeSnapshot}
+              cwd: {shortenCwd(run.cwdSnapshot)} · model:{" "}
+              {run.modelFamilySnapshot} · effort: {run.effortSnapshot} ·
+              permission: {run.permissionModeSnapshot}
             </div>
             {run.errorReason && (
               <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>

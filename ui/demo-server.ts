@@ -380,6 +380,11 @@ function ensureSeeded() {
     "The Demo",
   );
   const now = Date.now();
+  // The board opens filtered to the room the visitor is standing in, so tasks
+  // seeded with no roomId (= office-global) left the demo's board reading "No
+  // tasks". Most of these sit in the first room; the audit stays global so the
+  // Global filter has something behind it too.
+  const firstRoomId = state.rooms[0]?.id;
   state.setTasksDirect([
     {
       id: "a1b2c3d4",
@@ -389,6 +394,7 @@ function ensureSeeded() {
       assignee: "Dwight",
       createdBy: "Jim",
       createdAt: now - 2 * 86400000,
+      roomId: firstRoomId,
     },
     {
       id: "e5f6a7b8",
@@ -399,6 +405,7 @@ function ensureSeeded() {
       assignee: "Pam",
       createdBy: "Stanley",
       createdAt: now - 5 * 3600000,
+      roomId: firstRoomId,
     },
     {
       id: "c9d0e1f2",
