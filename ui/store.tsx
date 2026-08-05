@@ -60,6 +60,18 @@ export interface AppState {
   agents: AgentInfo[];
   logs: Map<string, LogEntry[]>; // streamId → entries (streamId = agentId or cronrun-<runId>)
   logEntryIds: Map<string, Set<string>>; // streamId → set of seen entry ids (for O(1) dedupe)
+  // Reconnect replay window, or null outside one. Every WS (re)connect sends
+  // full_state and then replays each visible agent's cached transcript one
+  // log_entry frame at a time. While this is set those frames land HERE
+  // instead of in `logs`, so the view keeps showing the conversation it
+  // already had; the server's `log_replay_complete` fence swaps the buffer in
+  // atomically. See the full_state case for why the swap replaces rather than
+  // merges.
+  logsReplay: {
+    logs: Map<string, LogEntry[]>;
+    logEntryIds: Map<string, Set<string>>;
+    seq: number; // identifies the window (bumped when one opens)
+  } | null;
   // Slide Mode: agentId → (turn entryId → generated slide). Seeded by the
   // slides GET on deck open, updated live by `slide_ready` pushes, cleared for
   // an agent on a conversation-boundary clear_logs. See DeckView.
@@ -258,6 +270,11 @@ type Action =
       skills: SkillInfo[];
     }
   | { type: "clear_logs"; agentId: string; rollback?: boolean }
+  // Ends a reconnect replay window and swaps the buffered transcripts in. Sent
+  // by the server after the last replayed frame; StoreProvider also synthesizes
+  // one on a timeout, for the window where a fresh UI build is talking to a
+  // server old enough not to send it (UI builds go live before a restart).
+  | { type: "log_replay_complete" }
   | { type: "set_mobile"; isMobile: boolean }
   | { type: "toggle_mobile_view" }
   | {
@@ -332,6 +349,35 @@ function withoutFailure(
   return next;
 }
 
+// Silent fallback for a `log_replay_complete` that never arrives. The one case
+// that actually happens: a UI build goes live on main as soon as it is built,
+// while the server it talks to only picks up its own changes on restart - so
+// there is a window where a new client is talking to a server that does not
+// send the fence. Also covers a dropped frame. Runs from the moment the window
+// opens; when the fence does arrive this never fires.
+const LOG_REPLAY_FALLBACK_MS = 3000;
+
+// Apply a clear (or removal) of one stream to a replay buffer in flight, so
+// the eventual commit agrees with what already happened to the live logs.
+// Outside a replay window this is a no-op.
+function clearStreamInReplay(
+  replay: AppState["logsReplay"],
+  streamId: string,
+  mode: "clear" | "delete" = "clear",
+): AppState["logsReplay"] {
+  if (!replay) return replay;
+  const logs = new Map(replay.logs);
+  const logEntryIds = new Map(replay.logEntryIds);
+  if (mode === "delete") {
+    logs.delete(streamId);
+    logEntryIds.delete(streamId);
+  } else {
+    logs.set(streamId, []);
+    logEntryIds.set(streamId, new Set());
+  }
+  return { ...replay, logs, logEntryIds };
+}
+
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state": {
@@ -344,6 +390,34 @@ export function reducer(state: AppState, action: Action): AppState {
         action.rooms,
         state.currentRoomId,
       );
+      // Wiping `logs` here is what made the conversation blank out and rebuild
+      // on every mobile app switch: a backgrounded phone's socket freezes, the
+      // resume ping in ws.ts reconnects, and the server answers with
+      // full_state followed by a frame-per-entry replay of every visible
+      // agent's transcript. So when we already have entries, keep rendering
+      // them and buffer the replay instead (see AppState.logsReplay).
+      //
+      // The eventual swap REPLACES rather than merges, which is what the wipe
+      // was protecting: a client that was disconnected across a /clear, a
+      // resume, or an edit-fork never saw that clear_logs, and merging would
+      // concatenate two conversations. The replayed set is the server's, so
+      // taking it wholesale is correct in both cases.
+      //
+      // Only the FOCUSED agent's transcript is ever on screen (App.tsx renders
+      // logs.get(focusedAgent.id), and no other AGENT stream is rendered
+      // anywhere - CronjobRunView reads its own cronrun-<runId> stream, which
+      // the server's agent-only replay never covers either way), so that is the
+      // only one worth holding across the window. Every other
+      // stream is dropped right here as before, which keeps the transient
+      // double-hold to one conversation instead of every visible agent's -
+      // transcripts run to megabytes and phones are where this matters.
+      //
+      // Nothing cached for it (a genuinely fresh connect, or no agent open)
+      // means nothing to protect - stay on the straight-through path so a cold
+      // start paints as it goes.
+      const focusedId = state.focusedAgentId;
+      const heldLogs = focusedId ? state.logs.get(focusedId) : undefined;
+      const holding = focusedId != null && (heldLogs?.length ?? 0) > 0;
       return {
         ...state,
         agents: action.agents,
@@ -358,8 +432,23 @@ export function reducer(state: AppState, action: Action): AppState {
         rooms: action.rooms,
         killedAgents: action.killedAgents,
         currentRoomId,
-        logs: new Map(),
-        logEntryIds: new Map(),
+        logs:
+          holding && focusedId
+            ? new Map([[focusedId, heldLogs ?? []]])
+            : new Map(),
+        logEntryIds:
+          holding && focusedId
+            ? new Map([
+                [focusedId, state.logEntryIds.get(focusedId) ?? new Set()],
+              ])
+            : new Map(),
+        logsReplay: holding
+          ? {
+              logs: new Map(),
+              logEntryIds: new Map(),
+              seq: (state.logsReplay?.seq ?? 0) + 1,
+            }
+          : null,
         needsAttention: new Set(),
         slashCommands: new Map(),
         stateChangedAt: new Map(
@@ -397,6 +486,13 @@ export function reducer(state: AppState, action: Action): AppState {
       logs.delete(action.agentId);
       const logEntryIds = new Map(state.logEntryIds);
       logEntryIds.delete(action.agentId);
+      // Same reason as clear_logs: a buffered replay must not resurrect the
+      // transcript of an agent that is gone.
+      const logsReplay = clearStreamInReplay(
+        state.logsReplay,
+        action.agentId,
+        "delete",
+      );
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
       const sidePanels = new Map(state.sidePanels);
@@ -406,6 +502,7 @@ export function reducer(state: AppState, action: Action): AppState {
         agents: state.agents.filter((a) => a.id !== action.agentId),
         logs,
         logEntryIds,
+        logsReplay,
         needsAttention,
         sidePanels,
         focusedAgentId:
@@ -458,14 +555,25 @@ export function reducer(state: AppState, action: Action): AppState {
       // stays pure - future consumers comparing Set identity won't see
       // stale references. Set.add returns the Set, so the chained form
       // works for the new-Set case.
+      // Inside a reconnect replay window the entry goes to the buffer instead
+      // of the rendered logs, and stays invisible until the fence commits it.
+      const replay = state.logsReplay;
+      const srcLogs = replay ? replay.logs : state.logs;
+      const srcIds = replay ? replay.logEntryIds : state.logEntryIds;
       const streamId = action.entry.agentId;
-      const seen = state.logEntryIds.get(streamId);
+      const seen = srcIds.get(streamId);
       if (seen?.has(action.entry.id)) return state;
-      const logs = new Map(state.logs);
-      const logEntryIds = new Map(state.logEntryIds);
+      const logs = new Map(srcLogs);
+      const logEntryIds = new Map(srcIds);
       logEntryIds.set(streamId, new Set(seen).add(action.entry.id));
       const entries = logs.get(streamId) ?? [];
       logs.set(streamId, [...entries, action.entry]);
+      if (replay) {
+        return {
+          ...state,
+          logsReplay: { ...replay, logs, logEntryIds },
+        };
+      }
       return { ...state, logs, logEntryIds };
     }
     case "log_entries_batch": {
@@ -476,6 +584,11 @@ export function reducer(state: AppState, action: Action): AppState {
       // already-seen ids are skipped, so live entries that overlap the batch are
       // neither dropped nor duplicated. Render-time sorting (in the view) orders
       // the merged stream by timestamp.
+      // Inside a reconnect replay window the batch merges into the buffer, on
+      // the same terms as a single log_entry.
+      const replay = state.logsReplay;
+      const srcLogs = replay ? replay.logs : state.logs;
+      const srcIds = replay ? replay.logEntryIds : state.logEntryIds;
       const seenByStream = new Map<string, Set<string>>();
       const arrByStream = new Map<string, LogEntry[]>();
       let changed = false;
@@ -484,8 +597,8 @@ export function reducer(state: AppState, action: Action): AppState {
         let seen = seenByStream.get(streamId);
         let arr = arrByStream.get(streamId);
         if (seen === undefined || arr === undefined) {
-          seen = new Set(state.logEntryIds.get(streamId) ?? []);
-          arr = [...(state.logs.get(streamId) ?? [])];
+          seen = new Set(srcIds.get(streamId) ?? []);
+          arr = [...(srcLogs.get(streamId) ?? [])];
           seenByStream.set(streamId, seen);
           arrByStream.set(streamId, arr);
         }
@@ -495,11 +608,17 @@ export function reducer(state: AppState, action: Action): AppState {
         changed = true;
       }
       if (!changed) return state;
-      const logs = new Map(state.logs);
-      const logEntryIds = new Map(state.logEntryIds);
+      const logs = new Map(srcLogs);
+      const logEntryIds = new Map(srcIds);
       for (const [streamId, seen] of seenByStream)
         logEntryIds.set(streamId, seen);
       for (const [streamId, arr] of arrByStream) logs.set(streamId, arr);
+      if (replay) {
+        return {
+          ...state,
+          logsReplay: { ...replay, logs, logEntryIds },
+        };
+      }
       return { ...state, logs, logEntryIds };
     }
     case "slide_ready": {
@@ -620,6 +739,9 @@ export function reducer(state: AppState, action: Action): AppState {
       logs.set(action.agentId, []);
       const logEntryIds = new Map(state.logEntryIds);
       logEntryIds.set(action.agentId, new Set());
+      // Mirror into a replay buffer in flight, or the commit would put the
+      // just-cleared conversation back a moment later.
+      const logsReplay = clearStreamInReplay(state.logsReplay, action.agentId);
       // A conversation boundary (new-conversation/clear, resume, edit-fork)
       // retires the unread dot everywhere: the dot points at a turn that just
       // got wiped/replaced. Server-broadcast, so ALL connected clients clear
@@ -627,7 +749,7 @@ export function reducer(state: AppState, action: Action): AppState {
       // (via its own focus), and everyone else kept a stale dot. A rollback
       // clear (failed edit-fork restoring the PRIOR timeline) is not a
       // boundary - the old unseen result comes back, so the dot stays.
-      if (action.rollback) return { ...state, logs, logEntryIds };
+      if (action.rollback) return { ...state, logs, logEntryIds, logsReplay };
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
       // A new conversation replaces the deck: drop this agent's cached slides
@@ -641,9 +763,19 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         logs,
         logEntryIds,
+        logsReplay,
         needsAttention,
         slides,
         slideFailed,
+      };
+    }
+    case "log_replay_complete": {
+      if (!state.logsReplay) return state;
+      return {
+        ...state,
+        logs: state.logsReplay.logs,
+        logEntryIds: state.logsReplay.logEntryIds,
+        logsReplay: null,
       };
     }
     case "set_mobile":
@@ -883,6 +1015,7 @@ export const initialState: AppState = {
   agents: [],
   logs: new Map(),
   logEntryIds: new Map(),
+  logsReplay: null,
   slides: new Map(),
   slideFailed: new Map(),
   focusedAgentId: null,
@@ -1011,6 +1144,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
     );
   }, []);
+
+  // Nothing normally closes a replay window here - the server's
+  // `log_replay_complete` does, straight through the reducer. This is only the
+  // fallback for a server too old to send it (see LOG_REPLAY_FALLBACK_MS).
+  // Deps are the boolean and the window id, not `state.logsReplay` itself: the
+  // object is replaced on every buffered entry, which would restart the clock.
+  const replaying = state.logsReplay !== null;
+  const replaySeq = state.logsReplay?.seq ?? 0;
+  useEffect(() => {
+    if (!replaying) return;
+    const id = setTimeout(
+      () => dispatch({ type: "log_replay_complete" }),
+      LOG_REPLAY_FALLBACK_MS,
+    );
+    return () => clearTimeout(id);
+  }, [replaying, replaySeq]);
 
   // session_expired: the per-message WS recheck found the session revoked or
   // expired. Reload the page so the next navigation goes through the auth

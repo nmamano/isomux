@@ -112,6 +112,10 @@ export interface RegistryEvent {
 export interface EventPayloads {
   // Live agent / room stream (room-ACL)
   log_entry: { entry: LogEntry };
+  // Fence at the end of the connect-time transcript replay. Recipient-scoped
+  // rather than room-ACL despite following room-ACL'd log_entry frames: it
+  // terminates ONE socket's replay and carries nothing to project.
+  log_replay_complete: Record<string, never>;
   // Slide Mode: a turn's slide finished generating. Room-ACL on the agent, like
   // log_entry - anyone who can read the chat can receive its slides.
   slide_ready: {
@@ -237,6 +241,10 @@ export const EVENT_REGISTRY = {
   log_entry: {
     audience: "room-ACL",
     projectionKey: { kind: "agentLookup", path: ["entry", "agentId"] },
+  },
+  log_replay_complete: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
   },
   slide_ready: {
     audience: "room-ACL",

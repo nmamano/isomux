@@ -381,3 +381,196 @@ describe("reducer: task deltas", () => {
     expect(rehydrated.tasksLoaded).toBe(true);
   });
 });
+
+describe("reducer: reconnect replay window (full_state → log_replay_complete)", () => {
+  const A = "agent-1";
+  const B = "agent-2";
+
+  function fullState(): Extract<
+    Parameters<typeof reducer>[1],
+    { type: "full_state" }
+  > {
+    return {
+      type: "full_state",
+      agents: [],
+      recentCwds: [],
+      office: { prompt: null, name: null },
+      rooms: [],
+      killedAgents: [],
+    };
+  }
+
+  // Every WS reconnect sends full_state and then replays each visible agent's
+  // cached transcript one log_entry frame at a time. Clearing `logs` on
+  // full_state is what blanked the conversation on a mobile app switch.
+  // Focused, because only the focused agent's transcript is on screen and so
+  // only that one is held across the window.
+  function seeded() {
+    return {
+      ...reducer(initialState, { type: "log_entry", entry: entry("e1", A, 1) }),
+      focusedAgentId: A,
+    };
+  }
+
+  it("keeps rendering the cached transcript instead of blanking it", () => {
+    const after = reducer(seeded(), fullState());
+    expect((after.logs.get(A) ?? []).map((e) => e.id)).toEqual(["e1"]);
+    expect(after.logsReplay).not.toBeNull();
+  });
+
+  it("buffers the replay away from the rendered logs, then swaps atomically", () => {
+    let s = reducer(seeded(), fullState());
+    // The replay re-sends the entry we already have plus one that landed
+    // while we were disconnected.
+    s = reducer(s, { type: "log_entry", entry: entry("e1", A, 1) });
+    s = reducer(s, { type: "log_entry", entry: entry("e2", A, 2) });
+    // Mid-replay the view still shows exactly the pre-reconnect transcript.
+    expect((s.logs.get(A) ?? []).map((e) => e.id)).toEqual(["e1"]);
+    expect((s.logsReplay?.logs.get(A) ?? []).map((e) => e.id)).toEqual([
+      "e1",
+      "e2",
+    ]);
+    s = reducer(s, { type: "log_replay_complete" });
+    expect((s.logs.get(A) ?? []).map((e) => e.id)).toEqual(["e1", "e2"]);
+    expect(s.logsReplay).toBeNull();
+    // The dedupe map travels with the swap, so a later live entry with a
+    // replayed id is still recognized as a duplicate.
+    expect(s.logEntryIds.get(A)?.has("e2")).toBe(true);
+  });
+
+  it("REPLACES on commit, so entries the server no longer has are dropped", () => {
+    // The case the old wipe existed for: the client was away across a /clear
+    // and never saw the clear_logs, so a merge would concatenate the two
+    // conversations. The replayed set is the server's and wins outright.
+    let s = reducer(seeded(), fullState());
+    s = reducer(s, { type: "log_entry", entry: entry("fresh", A, 9) });
+    s = reducer(s, { type: "log_replay_complete" });
+    expect((s.logs.get(A) ?? []).map((e) => e.id)).toEqual(["fresh"]);
+    expect(s.logEntryIds.get(A)?.has("e1")).toBe(false);
+  });
+
+  it("commits an agent to empty when the replay carried nothing for it", () => {
+    let s = reducer(seeded(), fullState());
+    s = reducer(s, { type: "log_replay_complete" });
+    expect(s.logs.get(A) ?? []).toEqual([]);
+  });
+
+  it("opens no window when no agent is open (nothing on screen to protect)", () => {
+    const unfocused = {
+      ...reducer(initialState, { type: "log_entry", entry: entry("e1", A, 1) }),
+      focusedAgentId: null,
+    };
+    const after = reducer(unfocused, fullState());
+    expect(after.logsReplay).toBeNull();
+    expect(after.logs.size).toBe(0);
+  });
+
+  it("holds only the focused agent's transcript, not every visible agent's", () => {
+    // Transcripts run to megabytes; nothing renders the other streams, so
+    // holding them across the window would double the client's peak for free.
+    let s = reducer(seeded(), { type: "log_entry", entry: entry("b1", B, 2) });
+    s = reducer(s, fullState());
+    expect([...s.logs.keys()]).toEqual([A]);
+  });
+
+  it("opens no window on a cold connect (nothing cached to protect)", () => {
+    const after = reducer(initialState, fullState());
+    expect(after.logsReplay).toBeNull();
+    // …and entries then paint straight through, as before.
+    const painted = reducer(after, {
+      type: "log_entry",
+      entry: entry("e1", A, 1),
+    });
+    expect((painted.logs.get(A) ?? []).map((e) => e.id)).toEqual(["e1"]);
+  });
+
+  it("lets a clear_logs mid-replay stick instead of being undone by the commit", () => {
+    let s = reducer(seeded(), fullState());
+    s = reducer(s, { type: "log_entry", entry: entry("e1", A, 1) });
+    s = reducer(s, { type: "clear_logs", agentId: A });
+    s = reducer(s, { type: "log_replay_complete" });
+    expect(s.logs.get(A) ?? []).toEqual([]);
+  });
+
+  it("lets an agent_removed mid-replay stick instead of being undone", () => {
+    let s = reducer(seeded(), fullState());
+    s = reducer(s, { type: "log_entry", entry: entry("e1", A, 1) });
+    s = reducer(s, { type: "agent_removed", agentId: A, roomId: "r1" });
+    s = reducer(s, { type: "log_replay_complete" });
+    expect(s.logs.has(A)).toBe(false);
+  });
+
+  it("buffers a log_entries_batch too, and keeps streams separate", () => {
+    let s = reducer(seeded(), fullState());
+    s = reducer(s, {
+      type: "log_entries_batch",
+      entries: [entry("e1", A, 1), entry("b1", B, 5)],
+    });
+    expect((s.logs.get(B) ?? []).map((e) => e.id)).toEqual([]);
+    s = reducer(s, { type: "log_replay_complete" });
+    expect((s.logs.get(A) ?? []).map((e) => e.id)).toEqual(["e1"]);
+    expect((s.logs.get(B) ?? []).map((e) => e.id)).toEqual(["b1"]);
+  });
+
+  it("commit outside a window is a no-op, same state object", () => {
+    const before = seeded();
+    expect(reducer(before, { type: "log_replay_complete" })).toBe(before);
+  });
+
+  it("a second full_state mid-window starts a fresh buffer, not a merge", () => {
+    // Two reconnects in quick succession (flaky link). The second must not
+    // inherit the first's half-arrived replay, and must restart both deadlines
+    // (seq bumps, tick resets to 0).
+    let s = reducer(seeded(), fullState());
+    s = reducer(s, { type: "log_entry", entry: entry("partial", A, 7) });
+    const firstSeq = s.logsReplay?.seq ?? 0;
+    s = reducer(s, fullState());
+    expect(s.logsReplay?.logs.size).toBe(0);
+    expect(s.logsReplay?.seq).toBe(firstSeq + 1);
+    // The view still shows the pre-reconnect transcript, not the partial one.
+    expect((s.logs.get(A) ?? []).map((e) => e.id)).toEqual(["e1"]);
+  });
+
+  it("keeps a live entry that lands right behind the replay burst", () => {
+    // The server's send loop is synchronous, so a live emit follows the cached
+    // replay rather than interleaving with it. Both must survive the swap.
+    let s = reducer(seeded(), fullState());
+    s = reducer(s, { type: "log_entry", entry: entry("e1", A, 1) });
+    s = reducer(s, { type: "log_entry", entry: entry("live", A, 2) });
+    s = reducer(s, { type: "log_replay_complete" });
+    expect((s.logs.get(A) ?? []).map((e) => e.id)).toEqual(["e1", "live"]);
+  });
+
+  it("routes entries normally again once the window has closed", () => {
+    // Anything arriving after the fence must append to the rendered logs, not
+    // to a buffer that is no longer there.
+    let s = reducer(seeded(), fullState());
+    s = reducer(s, { type: "log_replay_complete" });
+    s = reducer(s, { type: "log_entry", entry: entry("after", A, 3) });
+    expect(s.logsReplay).toBeNull();
+    expect((s.logs.get(A) ?? []).map((e) => e.id)).toEqual(["after"]);
+    // A second commit can't resurrect the buffer it already consumed.
+    const settled = s;
+    expect(reducer(settled, { type: "log_replay_complete" })).toBe(settled);
+  });
+
+  it("drops a cron run transcript at commit, as full_state already did", () => {
+    // The server's reconnect replay is agent-only, so an open cron run's
+    // fetched transcript is never in the replayed set. The old full_state wipe
+    // dropped it outright; this drops it at the same point (the hold keeps only
+    // the focused agent's stream). Pinned here because it is a real gap, not an
+    // accident of this patch: CronjobRunView fetches once per run and does not
+    // refetch on reconnect, so a run view left open across one goes blank
+    // either way until it is closed and reopened.
+    const RUN = "cronrun-run1";
+    let s = reducer(seeded(), {
+      type: "log_entries_batch",
+      entries: [entry("r1", RUN, 4)],
+    });
+    s = reducer(s, fullState());
+    expect(s.logs.has(RUN)).toBe(false);
+    s = reducer(s, { type: "log_entry", entry: entry("e1", A, 1) });
+    s = reducer(s, { type: "log_replay_complete" });
+    expect(s.logs.has(RUN)).toBe(false);
+  });
+});

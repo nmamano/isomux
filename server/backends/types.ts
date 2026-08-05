@@ -30,8 +30,11 @@ export type BackendCapabilities = AgentCapabilities;
 // (server/attachment-prompt.ts) turns each spec into a path-notice prompt
 // line - bytes are never read or embedded.
 
-import type { Attachment } from "../../shared/types.ts";
+import type { Attachment, SubagentOrigin } from "../../shared/types.ts";
 export type AttachmentSpec = Attachment;
+// Re-exported so backend code can name it without reaching into shared/. The
+// wire/disk shape lives there because it travels as LogEntry.metadata.subagent.
+export type { SubagentOrigin };
 
 // ---------------------------------------------------------------------------
 // createSession / resumeSession options
@@ -103,12 +106,15 @@ export type NormalizedEvent =
   // Backend-originated file display. The orchestrator persists the attachment
   // row using the existing file-view log card.
   | { kind: "file_view"; title: string; attachments: AttachmentSpec[] }
-  // Tool call. Pairs with a tool_result by `toolUseId`.
+  // Tool call. Pairs with a tool_result by `toolUseId`. `subagent` is set when
+  // the call came from a subagent the agent spawned rather than from the agent
+  // itself - without it the two are indistinguishable in the transcript.
   | {
       kind: "tool_call";
       toolUseId: string;
       name: string;
       input: Record<string, unknown>;
+      subagent?: SubagentOrigin;
     }
   // Tool result. `toolUseId` matches the prior tool_call.
   | {
@@ -118,6 +124,7 @@ export type NormalizedEvent =
       attachments?: AttachmentSpec[];
       durationMs?: number;
       isError?: boolean;
+      subagent?: SubagentOrigin;
     }
   // Per-tool approval ask. Orchestrator's /resolve UX takes over. `suggestions`
   // are intentionally NOT exposed here - backends keep them internally and

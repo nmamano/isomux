@@ -3018,9 +3018,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed) {
           managed.toolCallTimestamps.set(ev.toolUseId, Date.now());
         }
+        // metadata.subagent marks a call the agent's SUBAGENT made rather than
+        // the agent itself. Absent for the agent's own calls, for Codex, and
+        // for every entry written before this field existed.
         addLogEntry(agentId, "tool_call", ev.name, {
           toolId: ev.toolUseId,
           input: ev.input,
+          ...(ev.subagent ? { subagent: ev.subagent } : {}),
         });
         break;
       }
@@ -3040,6 +3044,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             toolUseId: ev.toolUseId,
             ...(duration_ms != null ? { duration_ms } : {}),
             ...(ev.isError != null ? { isError: ev.isError } : {}),
+            ...(ev.subagent ? { subagent: ev.subagent } : {}),
           },
           ev.attachments,
         );

@@ -101,6 +101,7 @@ import type {
   NormalizedMessage,
   OneShotOptions,
   PermissionModeOption,
+  SubagentOrigin,
   SubscriptionUsageResult,
   SubscriptionUsageWindow,
   TokenUsage,
@@ -844,6 +845,35 @@ export type ImageSink = (args: {
   suggestedName: string;
 }) => Attachment | null;
 
+// Which loop produced an assistant/user message. The SDK sets
+// `parent_tool_use_id` to the Agent/Task tool_use id when the message comes
+// from a subagent, and null when it comes from the agent's own loop. Subagent
+// tool calls ride the SAME message stream as the parent's (the SDK forwards
+// tool_use/tool_result blocks from subagents unconditionally; only their text
+// is gated behind `forwardSubagentText`), so without this the transcript reads
+// as one flat run of tool calls with no way to tell who made them.
+//
+// `subagent_type` and `task_description` are model-authored free text, so they
+// go through the same one-line cap as the task breadcrumbs. Older SDKs omit
+// both; the parent id alone is still enough to mark the call.
+function subagentOriginOf(msg: {
+  parent_tool_use_id?: string | null;
+  subagent_type?: string;
+  task_description?: string;
+}): SubagentOrigin | undefined {
+  const parentToolUseId = msg.parent_tool_use_id;
+  if (!parentToolUseId) return undefined;
+  const type = msg.subagent_type ? sanitizeTaskLabel(msg.subagent_type) : "";
+  const description = msg.task_description
+    ? sanitizeTaskLabel(msg.task_description)
+    : "";
+  return {
+    parentToolUseId,
+    ...(type ? { type } : {}),
+    ...(description ? { description } : {}),
+  };
+}
+
 export function* translateSDKMessage(
   msg: SDKMessage,
   imageSink: ImageSink,
@@ -897,6 +927,7 @@ export function* translateSDKMessage(
       // things like usage-limit hits and queue-flush gaps. Map their text to
       // system breadcrumbs so they don't render as Claude-voice.
       const isSynthetic = message?.model === "<synthetic>";
+      const subagent = subagentOriginOf(msg);
       // Known divergence from the original message-level deriveState: when
       // text precedes tool_use in the same assistant message, state will
       // flip thinking → tool_executing rather than going straight to
@@ -916,6 +947,7 @@ export function* translateSDKMessage(
             toolUseId: block.id,
             name: block.name,
             input: (block.input ?? {}) as Record<string, unknown>,
+            ...(subagent ? { subagent } : {}),
           };
         } else if (block.type === "thinking" && block.thinking) {
           yield { kind: "thinking", text: block.thinking };
@@ -927,6 +959,7 @@ export function* translateSDKMessage(
     case "user": {
       const content = msg.message?.content;
       if (!Array.isArray(content)) break;
+      const subagent = subagentOriginOf(msg);
       for (const block of content) {
         if (block.type !== "tool_result") continue;
         const resultText =
@@ -988,6 +1021,7 @@ export function* translateSDKMessage(
           content: resultText,
           attachments,
           isError: block.is_error === true,
+          ...(subagent ? { subagent } : {}),
         };
       }
       break;

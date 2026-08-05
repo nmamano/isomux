@@ -3173,6 +3173,10 @@ function sendProjectedFullState(
         );
       }
     }
+    // Fence the burst so the client knows the replayed transcript is complete
+    // and can swap it in atomically. Inside the `if` deliberately: without
+    // replayLogsForVisible there is no replay to terminate.
+    ws.send(JSON.stringify({ type: "log_replay_complete" }));
   }
 }
 
@@ -4498,6 +4502,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             );
           }
         }
+        // Fence the burst: everything cached has now been replayed, so the
+        // client can swap the whole transcript in at once instead of guessing
+        // when the frames stopped. Sent even when nothing was replayed - "the
+        // replay is empty" is exactly the case a client cannot infer.
+        ws.send(JSON.stringify({ type: "log_replay_complete" }));
         // Live-avatars: send the current presence snapshot (filtered to
         // rooms this session can see) so the new client renders existing
         // ghosts immediately rather than waiting for the next

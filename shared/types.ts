@@ -530,6 +530,23 @@ export interface TerminalCommandPayload {
   command: string; // single-line shell command
 }
 
+// Which loop a tool call came from, when it was NOT the agent's own. A
+// subagent (Claude's Agent/Task tool) runs its own tool calls, and the SDK
+// forwards them on the same stream as the parent's - so an unmarked transcript
+// reads as one flat run with no way to tell who made a call. Rides as
+// `metadata.subagent` on tool_call / tool_result entries and is simply absent
+// on the agent's own calls, on Codex, and on entries written before it existed.
+//
+// `parentToolUseId` is the id of the Agent/Task call that spawned the
+// subagent - the join back to the parent card. `type` and `description` are
+// the SDK's labels for the subagent and its assignment (model-authored free
+// text, sanitized to one capped line by the backend); older SDKs omit both.
+export interface SubagentOrigin {
+  parentToolUseId: string;
+  type?: string;
+  description?: string;
+}
+
 // Log entry in the conversation view
 export interface LogEntry {
   id: string;
@@ -1179,6 +1196,16 @@ export type ServerMessage =
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   | { type: "log_entry"; entry: LogEntry }
+  // End of the transcript replay that follows full_state on every (re)connect.
+  // Without it the replay is an unterminated burst of log_entry frames, and a
+  // client that wants to swap the whole transcript in at once has to guess when
+  // the burst ended - a guess that shows either a blank conversation or a stale
+  // one. Sent per socket, right after the last replayed frame, by both replay
+  // sites (the WS open handler and the mid-session projected refresh). Carries
+  // no payload: the frames themselves are the content, this is only the fence
+  // at the end. A client that never receives it (old server, dropped frame)
+  // must still converge on its own.
+  | { type: "log_replay_complete" }
   // Slide Mode: a slide finished generating (or regenerating) for one turn.
   // Room-ACL scoped like log_entry - anyone who can see the chat gets it. The
   // client matches it into the open deck by agentId + entryId; sessionId is the

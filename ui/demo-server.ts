@@ -1553,6 +1553,9 @@ export function sendInitialState() {
     shimEmit({ type: "session_context", context: sessionContext });
   }
   seedLogs();
+  // The same fence the real server sends after its replay burst, so the demo
+  // exercises the transcript swap instead of leaning on the client's fallback.
+  shimEmit({ type: "log_replay_complete" });
   // Start Stephen's phone ghost cycle AFTER users_list + session_context
   // so the first presence_list emission lands with the user record
   // already in the client store (otherwise the ghost render would

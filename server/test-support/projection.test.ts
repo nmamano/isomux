@@ -550,6 +550,44 @@ describe("per-recipient event ACL - mid-session (Phase 1.2)", () => {
     expect(slashCommandsFor(ownerTab2, hid.id).length).toBeGreaterThan(0);
   });
 
+  it("fences the connect-time replay with log_replay_complete, after the last replayed frame", async () => {
+    // The client swaps the whole transcript in at once on this frame; without
+    // it the replay is an unterminated burst and the client has to guess when
+    // it ended (task 4a38a3f9). Position matters: a fence that arrived BEFORE
+    // the last log_entry would commit a partial transcript.
+    server = await boot();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const owner = await server.seedOwner("Boss");
+    const a = await spawnIn(server, "Vis", r1);
+
+    const first = await connectSettled(server, owner.rawSessionId);
+    await driveTurn(server, owner.rawSessionId, first, a.id, "replay-me");
+
+    const fresh = await connectSettled(server, owner.rawSessionId);
+    const msgs = bag(fresh);
+    const fenceAt = msgs.findIndex((m) => m.type === "log_replay_complete");
+    expect(fenceAt).toBeGreaterThan(-1);
+    const lastLogAt = msgs.reduce(
+      (acc, m, i) => (m.type === "log_entry" ? i : acc),
+      -1,
+    );
+    expect(lastLogAt).toBeGreaterThan(-1);
+    expect(fenceAt).toBeGreaterThan(lastLogAt);
+  });
+
+  it("fences an empty replay too - the case a client cannot infer", async () => {
+    // An office with nothing cached sends zero log_entry frames, so "the
+    // replay is over" is unobservable without the fence.
+    server = await boot();
+    const owner = await server.seedOwner("Boss");
+    const sock = await connectSettled(server, owner.rawSessionId);
+    const msgs = bag(sock);
+    expect(msgs.filter((m) => m.type === "log_entry")).toHaveLength(0);
+    expect(msgs.filter((m) => m.type === "log_replay_complete")).toHaveLength(
+      1,
+    );
+  });
+
   it("listSessions (GET) is allowed only for a requester with room access", async () => {
     // The per-WS sessions_list fan-out is retired (3d.6a). agents.listSessions is
     // now a guarded GET (office:read ∧ requiresRoomAccess(:id)) that returns ONLY
@@ -708,6 +746,19 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
       (e) => e.kind === "user_message" && e.content === "c1-history",
       sinceIdx,
     );
+    // The mid-session replay is fenced like the connect-time one, and the
+    // fence follows the frames it terminates. This is the second of the two
+    // replay sites; a fence on only one leaves the client guessing on the
+    // other (task 4a38a3f9).
+    const after = bag(memberSock).slice(sinceIdx);
+    const fenceAt = after.findIndex((m) => m.type === "log_replay_complete");
+    const lastLogAt = after.reduce(
+      (acc, m, i) => (m.type === "log_entry" ? i : acc),
+      -1,
+    );
+    expect(fenceAt).toBeGreaterThan(-1);
+    expect(lastLogAt).toBeGreaterThan(-1);
+    expect(fenceAt).toBeGreaterThan(lastLogAt);
   });
 
   it("visible→hidden: the agent drops out of the member's projected full_state", async () => {

@@ -27,6 +27,10 @@ import type { ServerMessage } from "../../shared/types.ts";
 const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // Live agent / room stream - room-ACL
   log_entry: "room-ACL",
+  // The fence at the end of ONE socket's connect-time replay: recipient-scoped
+  // even though it follows room-ACL'd log_entry frames, because it terminates a
+  // per-socket burst and carries nothing to project.
+  log_replay_complete: "recipient-scoped",
   slide_ready: "room-ACL",
   slide_failed: "room-ACL",
   clear_logs: "room-ACL",
