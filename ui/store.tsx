@@ -83,6 +83,14 @@ export interface AppState {
   slideFailed: Map<string, Set<string>>;
   focusedAgentId: string | null;
   connected: boolean;
+  // Bumped on every full_state, i.e. every time the store is rehydrated from
+  // scratch. This, not `connected`, is the reliable "everything you were
+  // holding was just dropped" signal: ws.ts's onVisible() reconnects a frozen
+  // mobile socket directly (dead socket, ping throw, pong timeout) without
+  // ever calling connHandler(false), so `connected` can stay true straight
+  // through a reconnect. Views that cache server data outside the replay set
+  // key their refetch on this (CronjobRunView).
+  hydrationEpoch: number;
   isMobile: boolean;
   mobileViewMode: "list" | "office"; // which view to show on mobile
   needsAttention: Set<string>; // agentIds with unread state changes
@@ -449,6 +457,7 @@ export function reducer(state: AppState, action: Action): AppState {
               seq: (state.logsReplay?.seq ?? 0) + 1,
             }
           : null,
+        hydrationEpoch: state.hydrationEpoch + 1,
         needsAttention: new Set(),
         slashCommands: new Map(),
         stateChangedAt: new Map(
@@ -1020,6 +1029,7 @@ export const initialState: AppState = {
   slideFailed: new Map(),
   focusedAgentId: null,
   connected: false,
+  hydrationEpoch: 0,
   isMobile: typeof window !== "undefined" ? window.innerWidth < 768 : false,
   mobileViewMode:
     typeof localStorage !== "undefined" &&

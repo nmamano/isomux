@@ -558,10 +558,10 @@ describe("reducer: reconnect replay window (full_state → log_replay_complete)"
     // The server's reconnect replay is agent-only, so an open cron run's
     // fetched transcript is never in the replayed set. The old full_state wipe
     // dropped it outright; this drops it at the same point (the hold keeps only
-    // the focused agent's stream). Pinned here because it is a real gap, not an
-    // accident of this patch: CronjobRunView fetches once per run and does not
-    // refetch on reconnect, so a run view left open across one goes blank
-    // either way until it is closed and reopened.
+    // the focused agent's stream). Pinned so the drop stays deliberate: the
+    // repair lives in CronjobRunView, which refetches the transcript on every
+    // hydration (task 461fe250) rather than once per mount, so the run view
+    // refills instead of staying blank. The bump it keys on is asserted below.
     const RUN = "cronrun-run1";
     let s = reducer(seeded(), {
       type: "log_entries_batch",
@@ -572,5 +572,19 @@ describe("reducer: reconnect replay window (full_state → log_replay_complete)"
     s = reducer(s, { type: "log_entry", entry: entry("e1", A, 1) });
     s = reducer(s, { type: "log_replay_complete" });
     expect(s.logs.has(RUN)).toBe(false);
+  });
+
+  it("bumps hydrationEpoch on every full_state", () => {
+    // The signal a view refetches on. It has to move on EVERY full_state, not
+    // just the ones preceded by a disconnect: ws.ts's onVisible() reconnects a
+    // frozen mobile socket without ever signalling `connected` false, so an
+    // edge on that flag is not something every reconnect produces.
+    let s = reducer(initialState, fullState());
+    expect(s.hydrationEpoch).toBe(1);
+    s = reducer(s, { type: "connected" });
+    s = reducer(s, fullState());
+    expect(s.hydrationEpoch).toBe(2);
+    // Still connected the whole way through - the epoch moved anyway.
+    expect(s.connected).toBe(true);
   });
 });

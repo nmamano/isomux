@@ -25,6 +25,19 @@ const STATUS_COLOR: Record<CronjobRun["status"], string> = {
   skipped: "var(--text-muted)",
 };
 
+// The transcript backfill guard, as a decision so it can be tested without a
+// React render harness (the UI has none). Epoch 0 means nothing has hydrated
+// yet: the full_state that is about to land would wipe whatever we fetched, so
+// wait for it rather than spending a request twice.
+export function transcriptFetchAction(
+  hydrationEpoch: number,
+  fetchedKey: string | null,
+  fetchKey: string,
+): "fetch" | "skip" {
+  if (hydrationEpoch === 0) return "skip";
+  return fetchedKey === fetchKey ? "skip" : "fetch";
+}
+
 // Cronjob runs are resumable: any boss can send follow-up turns into a past
 // run, and edit-to-fork lets them branch from any prior user message. The
 // server-side handlers live in cronjob-manager.ts (sendRunMessage,
@@ -39,7 +52,7 @@ export function CronjobRunView({
   runId: string;
   onClose: () => void;
 }) {
-  const { cronjobRunsByJob, isMobile, logs } = useAppState();
+  const { cronjobRunsByJob, isMobile, logs, hydrationEpoch } = useAppState();
   const dispatch = useDispatch();
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
@@ -72,17 +85,35 @@ export function CronjobRunView({
   // reused for a different run without unmounting. Today it is a per-run
   // overlay that always remounts, so the key comparison is belt-and-braces -
   // but it costs nothing and removes the latent trap.
-  const fetchKey = `${jobId}\u0000${runId}`;
+  //
+  // "Once" means once per HYDRATION, not once per mount: a WS reconnect sends
+  // full_state, which drops every log stream except the focused agent's, and
+  // the server's replay is agent-only - so this run's transcript is gone and
+  // nothing brings it back (pinned in store.test.ts). Folding hydrationEpoch
+  // into the key is what makes the next hydration refetch it.
+  //
+  // The epoch rather than `connected`: ws.ts's onVisible() reconnects a frozen
+  // mobile socket without ever flipping connected false (dead socket, ping
+  // throw, pong timeout), so a false->true edge is not something every
+  // reconnect produces. full_state always arrives.
+  const runKey = `${jobId}\u0000${runId}`;
+  const fetchKey = `${runKey}\u0000${hydrationEpoch}`;
   const fetchedKeyRef = useRef<string | null>(null);
   // The run as the server returned it, kept only as a header fallback for when
-  // the store has no copy (see `run` below). Keyed so a stale answer from a
-  // previous run can never be shown against this one.
+  // the store has no copy (see `run` below). Keyed by runKey, NOT fetchKey, so
+  // a hydration doesn't blank the header back to "Run #<id>" for the length of
+  // the refetch; a stale answer from a previous run still can't be shown.
   const [fetchedRun, setFetchedRun] = useState<{
     key: string;
     run: CronjobRun;
   } | null>(null);
   useEffect(() => {
-    if (fetchedKeyRef.current === fetchKey) return;
+    const action = transcriptFetchAction(
+      hydrationEpoch,
+      fetchedKeyRef.current,
+      fetchKey,
+    );
+    if (action === "skip") return;
     fetchedKeyRef.current = fetchKey;
     // Fetch the historical transcript and merge it into the run's log stream
     // (the same stream live `log_entry` events feed during an active run). The
@@ -96,7 +127,7 @@ export function CronjobRunView({
     )
       .then(({ run, entries }) => {
         dispatch({ type: "log_entries_batch", entries });
-        setFetchedRun({ key: fetchKey, run });
+        setFetchedRun({ key: runKey, run });
       })
       .catch(() => {
         // 404 (run gone) or transport error: leave the stream as-is. Matches the
@@ -104,7 +135,7 @@ export function CronjobRunView({
         // the view still shows "No log entries."; any live entries already in the
         // stream are preserved, and the header keeps its "Run #<id>" fallback.
       });
-  }, [jobId, runId, fetchKey, dispatch]);
+  }, [jobId, runId, runKey, fetchKey, hydrationEpoch, dispatch]);
 
   // Store first, fetched copy second. The store (cronjobRunsByJob) is the live
   // one: cron list queries seed it and `cronjob_run_updated` events keep it
@@ -115,7 +146,7 @@ export function CronjobRunView({
   // was deleted. Without it the header would read "Run #<id>" with no metadata.
   const run =
     runs.find((r) => r.id === runId) ??
-    (fetchedRun?.key === fetchKey ? fetchedRun.run : undefined);
+    (fetchedRun?.key === runKey ? fetchedRun.run : undefined);
 
   // ESC closes the view, unless the user is editing a message - then ESC
   // cancels the edit (handled inside EditableUserMessage).

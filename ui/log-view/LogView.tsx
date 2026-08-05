@@ -73,6 +73,12 @@ const STATE_LABELS: Partial<Record<AgentState, string>> = {
   tool_executing: "Running tool",
 };
 
+// Display only: `/home/nil/nil/isomux` reads as `~/nil/isomux`, matching the
+// desk nameplate (office/DeskSprite.tsx) and the cwd pickers.
+function shortenCwd(cwd: string): string {
+  return cwd.replace(/^\/home\/[^/]+/, "~");
+}
+
 // Slide Mode header toggle (design: internal-docs/slide-mode-design.md). Sits
 // next to the context battery; per-device-per-agent state (device-settings). SVG
 // icon, not a Unicode glyph, to dodge iOS auto-emoji recoloring.
@@ -2007,7 +2013,7 @@ export function LogView({
                   minWidth: 0,
                 }}
               >
-                {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
+                {shortenCwd(agent.cwd)}
               </span>
             </div>
           </div>
@@ -2168,7 +2174,7 @@ export function LogView({
                       flex: 1,
                     }}
                   >
-                    {agent.cwd}
+                    {shortenCwd(agent.cwd)}
                   </span>
                 </div>
               </div>
