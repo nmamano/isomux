@@ -41,15 +41,20 @@ accepted by the manager 2026-08-06.
   (port-proxy-design.md handshake).
 - No approval click on anything agents do; no arbitrary caps beyond sanity
   constants; no env-var knobs unless genuinely per-deployment.
+- URL shape is FLAT (Nil, 2026-08-06 evening): apps live at
+  `<label>.<office host>` - no `apps.` tier. Shorter wins; the reserved-name
+  list guards the office's own namespace. Known accepted consequence: an
+  apex-hosted office's wildcard record covers its whole domain.
 
 ## Manager-accepted defaults (reversible unless marked)
 
 1. Label shape: first registration of a name gets `<name>`, later ones get
    `<name>-g<N>`. Reversible only until S7 lands on a real domain.
 2. Ledger: `issuedLabels[]` in apps.json, never pruned, inside the backup set.
-3. Apps domain defaults to `apps.<office host>` derived from `publicOrigin`,
-   overridable by an installer-written key. Changing `publicOrigin` moves
-   every app URL - accepted.
+3. SUPERSEDED by Nil's flat-URL ruling above: the apps domain IS the office
+   host (derived from `publicOrigin`), apps at `<label>.<office host>`,
+   still overridable by an installer-written key. Changing `publicOrigin`
+   moves every app URL - accepted.
 4. Access: any signed-in office user.
 5. Effective name cap 59 chars on new registrations (room for `-g<N>`);
    existing names grandfathered.
@@ -122,9 +127,7 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
 - Manager settles: slice scope calls, naming, anything worker+reviewer
   deadlock on.
 - PARKED FOR NIL (end-of-batch, never decided in-loop):
-  - URL shape: `hello.apps.<office>` (working default) vs flat
-    `hello.<office>`. Cosmetic but needs answering BEFORE S7 lands on a real
-    domain.
+  - ~~URL shape~~ ANSWERED (Nil, 2026-08-06 evening): flat `hello.<office>`.
   - S2 touches session auth on his own box (dual-read keeps sessions alive,
     but it is his login path - flag, don't ask mid-loop).
   - DNS: a wildcard record for the test box; tailnet offices can never have
