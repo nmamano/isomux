@@ -35,6 +35,27 @@ currently tells agents to "pick an uncommon port and keep it" because several
 agents share a box and collide on 3000 and 5173. Allocation from one place ends
 that.
 
+**Prior art: portless** (`vercel-labs/portless`, Apache-2.0, a Vercel Labs
+experiment). It is this exact mechanism for local development: an HTTPS reverse
+proxy holding a hostname-to-port route table, allocating the port itself and
+passing it in as `$PORT`, so you open `https://myapp.localhost` and never think
+about a number. Worth reading before building this section, and the license lets
+us borrow from it with attribution. The detail most worth taking is flag
+injection - allocating the port is the easy half, and frameworks that ignore
+`$PORT` need a `--port` argument injected per framework, which is knowledge
+otherwise rediscovered one framework at a time.
+
+Reference rather than dependency, and the disqualifying reason is topological
+rather than a matter of taste: portless binds 443 with its own local CA, and on
+an isomux box Caddy owns 443 and terminates TLS for the office. Supporting
+reasons: it is CLI-only with no documented library API, it needs Node 24 where
+isomux runs Bun, and it is pre-1.0 with a state directory format its README says
+may change between releases, which is a poor foundation with self-hosters to keep
+working. Its TLS and naming model is also the half we cannot use at all: a
+`.localhost` name and a locally trusted CA resolve on the machine running the
+browser, and the problem this design exists to solve is a phone reaching a box in
+another country. That is what section 4 is for.
+
 ### 2. A supervisor, so apps outlive sessions
 
 Apps are systemd user units, generated and owned by isomux. Agents never write
@@ -129,22 +150,18 @@ isomux runs it, give the boss the URL. Per `documentation.md` this is guidance
 for every isomux deployment, so it belongs in `server/system-prompt.ts` rather
 than office memory.
 
+## Rulings (Nil, 2026-08-06)
+
+1. **Shelf.** Apps are private to one office. There is no ecosystem phase - no
+   template registry, no cross-office installs, and nothing here should be
+   built ahead of time on that assumption.
+2. **No approval click.** Registering an app installs and starts it with no
+   human confirm. Principle: anything humans can do, agents can do.
+3. **No app cap** beyond a sanity check, same as tasks, cronjobs, and rooms.
+
 ## Open questions
 
-1. **Shelf or ecosystem?** If apps stay private to one office, this is a personal
-   app shelf, which is worth building and is not an ecosystem. If an app one
-   person's agent built can be installed by another office, that is a second
-   product with a template registry, review, and a trust story in it. The fork
-   changes what gets built first, so it wants an answer before anything else.
-2. **Does an app need approval to exist?** The port-proxy design makes exposing a
-   share a deliberate human click, on the grounds that agents will publish
-   casually. A registered app is auth-gated and never public, so the argument is
-   weaker, but "an agent installed a permanent service on my box" still deserves
-   one confirmation.
-3. **How many apps, and who pays for the box?** Persistent processes are standing
-   memory and CPU. Hosted boxes are CPX-class. A cap on running apps per office
-   is probably a plan boundary rather than a technical one.
-4. **What happens on update?** Apps are agent-written code sitting outside the
+1. **What happens on update?** Apps are agent-written code sitting outside the
    isomux release. An isomux update must not break them, and there is no story
    yet for an app whose dependencies rot.
 
