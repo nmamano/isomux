@@ -92,9 +92,11 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
          cleans up fully. Live-office restart checkpoint after commit.
          (Isomuxer2/Reviewer2, 6 rounds, approved 9de2672f, committed with
          this edit. Restart checkpoint deferred to after S2b/S2c commit.)
-- [ ] S2b PATCH /api/apps/:name (command/cwd/description; name+port
+- [x] S2b PATCH /api/apps/:name (command/cwd/description; name+port
          immutable), unit regen + daemon-reload on change. Ruled by Nil via
-         least-surprise delegation. Lane: Isomuxer2/Reviewer2.
+         least-surprise delegation. Lane: Isomuxer2/Reviewer2, 3 rounds,
+         approved 4b6dbcc3, committed with this edit. Run state preserved:
+         running apps restart into the new command, stopped stay stopped.
 - [ ] S2c Installer compat: system-unit VPS installs (deploy/install.sh
          service user) have no linger / XDG_RUNTIME_DIR, so systemctl --user
          cannot run. Enable linger + supply user-manager env, with deploy/
@@ -359,3 +361,58 @@ until a real VPS install (and that 5a8e4b08 covers it).
 Locked: user-unit transport (no system-unit apps, no root), installer stays
 generic (no auntie-only or Hetzner-only branches), everything in Standing
 rails.
+
+## SLICE-3 PICKUP (authored after S2b's commit; baseline = that commit)
+
+What S2/S2b left for the UI (real, from their reports): every apps route
+declares `emits: []` today - no WS event exists, so a second browser tab
+never live-updates; S3 owns that wiring. AppWire: name, port, command, cwd,
+description?, userId, username, createdBy, createdAt, dataDir, state
+(running|starting|stopped|failed|unknown), restartCount, startError?.
+startError is IN-MEMORY only and vanishes on isomux restart - show it when
+present, but its absence proves nothing; `state` is the durable signal.
+Server-side app state is cached with a 1500ms TTL behind the supervisor
+seam, so reads are cheap but not free - the tab still should not hammer.
+Verbs that exist: POST /api/apps/:name/{start,stop,restart}, DELETE,
+PATCH (apps.update), GET /api/apps/:name/logs?lines=N.
+
+Goal: the Apps tab, beside Cronjobs, per the design doc surface: list with
+name, state, restart count, port, description, attribution; a logs view;
+start/stop/restart/delete actions; live-updating via WS. Visibility follows
+the ruled shape: own apps + office owner sees all.
+
+Load-bearing mechanics and traps:
+- Follow the Cronjobs tab as the structural precedent (route, store slice,
+  view component, WS flow). Add the WS event the routes now lack and make
+  the handlers emit it; decide with reviewer whether apps ride full_state
+  replay or fetch-on-view like cron run transcripts.
+- RECONNECT LESSON (room memory, Isomuxer4 2026-08-05): ui/ws.ts onVisible()
+  can reconnect WITHOUT the store's `connected` flag ever flipping false, so
+  any effect keyed on a false->true edge silently never re-runs. If the view
+  caches anything full_state drops, key the refetch on a hydration counter
+  bumped in the full_state reducer, not on `connected`.
+- Delete is PERMANENT (name retired forever) - the confirm affordance must
+  say so plainly. No approval gates on anything else (Nil's ruling).
+- iOS RULE (room memory): Safari emoji-renders glyphs like the black
+  triangles, overriding CSS color - no raw play/star glyphs on mobile
+  surfaces; use SVG or gate behind !mobile.
+- Register-from-UI form and edit-from-UI: NOT tonight; the tab is a viewer
+  plus verbs. Park both as morning options for Nil.
+- Visual verification per room recipes: demo bundle built WITHOUT
+  --splitting, demoApi needs an arm for EVERY new endpoint it touches,
+  serve a /tmp copy over http (file:// dies on CORS), drive with
+  playwright-core + channel:"chrome" (no browser download), and use
+  Emulation.setDeviceMetricsOverride for exact viewports. Delete harness
+  files before the fingerprint. Screenshots (desktop + mobile) saved under
+  /tmp for the morning report - list their paths in your report.
+- Server files are yours too this slice (events + full_state + emits) - no
+  parallel lane is running.
+
+Acceptance: screenshots showing the tab with real-shaped data (list, logs,
+a failed app with startError, mobile viewport); demo-driven verb clicks
+proven (fake-supervisor-backed isolated instance or demo bundle); always-run
+gates + test:systemd green (server files change); reviewer approve on final
+announced fingerprint; ALL UI strings quoted verbatim in the report.
+
+Locked: visibility shape (own + office owner), delete-retires-name wording
+must be truthful, S2's seam (no new systemd call sites), Standing rails.

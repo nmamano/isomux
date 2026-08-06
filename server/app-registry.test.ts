@@ -620,3 +620,153 @@ describe("app-registry: persistence failures are never reported as success", () 
     expect(make().retired()).toEqual([]);
   });
 });
+
+// --- update -----------------------------------------------------------------
+
+// PATCH exists because the alternative to fixing a mistyped command was
+// deleting the app, and a delete retires its name forever. So the tests below
+// care about two things above all: that the patchable fields really change and
+// persist, and that NOTHING ELSE does - the name, the port, the data directory
+// and the creation attribution are what the tombstone contract is written
+// against.
+describe("app-registry: update", () => {
+  it("changes command, cwd and description, and persists them", () => {
+    const reg = make();
+    reg.register(registerInput("hello", { description: "before" }));
+
+    const updated = reg.update("hello", {
+      command: "bun run other.ts",
+      cwd: "/srv/elsewhere",
+      description: "after",
+    });
+    expect(updated).toMatchObject({
+      command: "bun run other.ts",
+      cwd: "/srv/elsewhere",
+      description: "after",
+    });
+    // Through a SECOND registry over the same directory: the return value could
+    // be right while the file was not.
+    expect(make().get("hello")).toMatchObject({
+      command: "bun run other.ts",
+      cwd: "/srv/elsewhere",
+      description: "after",
+    });
+  });
+
+  it("leaves every field the patch does not name alone", () => {
+    const reg = make();
+    const original = reg.register(
+      registerInput("hello", { description: "keep me" }),
+    );
+
+    reg.update("hello", { command: "bun run other.ts" });
+
+    const after = make().get("hello")!;
+    // Identity, ownership, attribution, and the derived data directory: all of
+    // it survives, because all of it is what the app IS.
+    expect(after).toEqual({ ...original, command: "bun run other.ts" });
+  });
+
+  it("keeps the app's position in the file, so registration order still reads as registration order", () => {
+    const reg = make();
+    reg.register(registerInput("one"));
+    reg.register(registerInput("two"));
+    reg.register(registerInput("three"));
+
+    reg.update("two", { command: "bun run two.ts" });
+
+    expect(
+      make()
+        .list()
+        .map((a) => a.name),
+    ).toEqual(["one", "two", "three"]);
+  });
+
+  it("answers null for a name nobody registered, and writes nothing", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+
+    expect(reg.update("nope", { command: "x" })).toBeNull();
+    expect(make().get("hello")!.command).toBe("bun run serve.ts");
+  });
+
+  it("does not resurrect a retired app", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+    reg.remove("hello");
+
+    expect(reg.update("hello", { command: "x" })).toBeNull();
+    expect(make().list()).toEqual([]);
+    // The tombstone is untouched: update is not a way back in.
+    expect(
+      make()
+        .retired()
+        .map((r) => r.name),
+    ).toEqual(["hello"]);
+  });
+
+  it("applies the same refusals register does", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+
+    const refusals: [Record<string, unknown>, AppErrorCode][] = [
+      [{ command: "   " }, "invalid_command"],
+      [{ command: "x".repeat(MAX_APP_COMMAND_LENGTH + 1) }, "invalid_command"],
+      [{ cwd: "relative/path" }, "invalid_cwd"],
+      [{ description: "d".repeat(201) }, "invalid_description"],
+    ];
+    for (const [patch, code] of refusals) {
+      expect(() => reg.update("hello", patch)).toThrow(
+        expect.objectContaining({ code }),
+      );
+    }
+    // Every one of them was refused BEFORE anything was written.
+    expect(make().get("hello")!.command).toBe("bun run serve.ts");
+  });
+
+  it("treats absent, empty and null description as three different answers", () => {
+    const reg = make();
+    reg.register(registerInput("hello", { description: "original" }));
+
+    // Absent: untouched.
+    expect(reg.update("hello", { command: "a" })!.description).toBe("original");
+    // Empty string: a present, empty value - not the same as having none.
+    const emptied = reg.update("hello", { description: "" })!;
+    expect(emptied.description).toBe("");
+    expect("description" in emptied).toBe(true);
+    expect("description" in make().get("hello")!).toBe(true);
+    // Null: the field is gone, on the record and on disk.
+    const cleared = reg.update("hello", { description: null })!;
+    expect("description" in cleared).toBe(false);
+    expect("description" in make().get("hello")!).toBe(false);
+  });
+
+  it("refuses to update on a corrupt registry rather than writing over it", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+    writeFileSync(join(dir, "app-history.json"), "{ this is not json");
+
+    expect(() => reg.update("hello", { command: "x" })).toThrow(
+      expect.objectContaining({ code: "registry_corrupt" }),
+    );
+    // apps.json is intact: the update never got as far as writing.
+    expect(
+      JSON.parse(readFileSync(join(dir, "apps.json"), "utf-8"))[0].command,
+    ).toBe("bun run serve.ts");
+  });
+
+  it("raises persist_failed rather than reporting a change that was not written", () => {
+    if (!readOnlyIsEnforced(dir)) return; // running as root; see above
+    const reg = make();
+    reg.register(registerInput("hello"));
+    chmodSync(dir, 0o500);
+    try {
+      expect(() =>
+        reg.update("hello", { command: "bun run other.ts" }),
+      ).toThrow(expect.objectContaining({ code: "persist_failed" }));
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+    expect(make().get("hello")!.command).toBe("bun run serve.ts");
+  });
+});

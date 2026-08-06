@@ -1,5 +1,5 @@
 // Apps resource handlers - the agent-facing app registry (opIds
-// apps.{list,get,register,delete,logs,start,stop,restart}). See
+// apps.{list,get,register,update,delete,logs,start,stop,restart}). See
 // internal-docs/agent-apps-design.md.
 //
 // The verb is REGISTER, not create: the agent already built the app: isomux is
@@ -75,6 +75,12 @@ export interface AppsDeps {
     createdByAgentId?: string;
   }): AppRecord;
   remove(name: string): AppRecord | null;
+  // Apply a patch to a registered app. Returns the updated record, or null when
+  // the app is gone.
+  update(
+    name: string,
+    patch: { command?: string; cwd?: string; description?: string | null },
+  ): AppRecord | null;
   // Token-derived attribution, shared with the task board: createdBy is the
   // caller's display identity (agent name, or the human's name), username the
   // token's owning user.
@@ -96,6 +102,9 @@ export interface AppsDeps {
   // INSTALLED; an app that installs and then fails to run is a state, not an
   // error (see the register handler).
   install(record: AppRecord): void;
+  // Regenerate the app's unit from a changed record, preserving whether it was
+  // running. Throws when the machine could not be brought in line.
+  reinstall(record: AppRecord): void;
   // Stop the app and remove everything isomux generated for it. Throws if the
   // app survived, which is what keeps a failed teardown from tombstoning.
   teardown(name: string): void;
@@ -235,6 +244,128 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       }
     },
 
+    // The verb that stops a mistyped command from burning a name forever.
+    // Everything about it is shaped by one fact: the registry write is the
+    // commit point, and past it the update HAS happened.
+    "apps.update": (ctx) => {
+      const body = (ctx.body ?? {}) as Record<string, unknown>;
+      // Inside the try from the first registry touch onward, like every other
+      // handler here: a corrupt registry must answer `registry_corrupt`, not an
+      // unmapped 500.
+      try {
+        const before = deps.get(ctx.params.name);
+        if (!before) return fail(404, "not_found");
+
+        // The immutable fields. PRESENCE is what triggers the check, not type:
+        // testing `typeof body.name === "string"` first would let `{name: 7}`
+        // and `{name: null}` slip past as "not a rename" and be silently
+        // ignored, which is the same lie as accepting one.
+        //
+        // Present is then tolerated in exactly one case: the right type AND the
+        // value the app already has. Reading an app and PATCHing the object
+        // back with one field edited is the obvious way to use this route, and
+        // that body carries the app's own name and port; rejecting it would
+        // punish the natural pattern for asking for nothing. Anything else is
+        // asking for something this route will never do, and answering 200
+        // would leave the caller believing its app had been renamed.
+        if (Object.hasOwn(body, "name") && body.name !== before.name) {
+          return fail(
+            400,
+            "invalid_request",
+            "an app's name cannot be changed: it is the address people " +
+              "bookmark, and it is retired forever when the app is deleted",
+          );
+        }
+        if (Object.hasOwn(body, "port") && body.port !== before.port) {
+          return fail(
+            400,
+            "invalid_request",
+            "an app's port cannot be changed: isomux allocates it at " +
+              "registration and never reissues it",
+          );
+        }
+
+        if (body.command !== undefined && typeof body.command !== "string") {
+          return fail(400, "invalid_command", "command must be a string");
+        }
+        if (
+          body.cwd !== undefined &&
+          (typeof body.cwd !== "string" || body.cwd.trim() === "")
+        ) {
+          return fail(400, "invalid_cwd", "cwd must be a non-empty string");
+        }
+        if (
+          body.description !== undefined &&
+          body.description !== null &&
+          typeof body.description !== "string"
+        ) {
+          return fail(
+            400,
+            "invalid_description",
+            "description must be a string, or null to remove it",
+          );
+        }
+        // An empty patch is a caller mistake, not a no-op: answering 200 to a
+        // request that asked for nothing hides whatever built it.
+        if (
+          body.command === undefined &&
+          body.cwd === undefined &&
+          body.description === undefined
+        ) {
+          return fail(
+            400,
+            "invalid_request",
+            "nothing to update: send at least one of command, cwd, description",
+          );
+        }
+
+        let cwd: string | undefined;
+        if (body.cwd !== undefined) {
+          // Same resolution as register, so `~/` means the same thing on both
+          // routes and what is stored is absolute.
+          const resolved = deps.validateCwd(body.cwd);
+          if (!resolved.ok) return fail(400, "invalid_cwd", resolved.error);
+          cwd = resolved.resolved;
+        }
+
+        const after = deps.update(before.name, {
+          ...(body.command !== undefined ? { command: body.command } : {}),
+          ...(cwd !== undefined ? { cwd } : {}),
+          ...(body.description !== undefined
+            ? { description: body.description }
+            : {}),
+        });
+        // Deleted between the read and the write. Nothing was updated, so this
+        // is the same answer an unknown name gets.
+        if (!after) return fail(404, "not_found");
+
+        // The machine only hears about changes it can act on. A description
+        // edit - or a patch that sets a field to what it already held - leaves
+        // systemd alone entirely, so editing an app's blurb never bounces a
+        // running process.
+        if (after.command !== before.command || after.cwd !== before.cwd) {
+          try {
+            deps.reinstall(after);
+          } catch (err) {
+            // 200 EVEN SO, and for the same reason register answers 201 when
+            // the supervisor fails: the record has already changed, and a
+            // status that says otherwise would describe a resource that really
+            // was updated. The failure rides back on the body instead, as the
+            // app's truthful state plus `startError`. Every error, not just
+            // AppSupervisorError, so one unconverted throw cannot turn a
+            // committed update into a 500.
+            console.error(
+              `[apps] "${after.name}" updated but its unit was not brought in line:`,
+              err,
+            );
+          }
+        }
+        return ok(toWire(after, deps.states([after.name]).get(after.name)));
+      } catch (err) {
+        return renderRegistryError(err);
+      }
+    },
+
     "apps.delete": (ctx) => {
       try {
         // Existence is checked before anything is torn down, so an unknown name
@@ -254,8 +385,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     // The recovery verbs. Without them the only cure for an app that has come
     // to rest in `failed` is DELETE, which burns its name forever - a steep
     // price for a crash loop or a source file that has since been fixed.
-    // (A mistyped start COMMAND is still not curable here: changing a stored
-    // command needs an update verb, which does not exist yet.)
+    // (A mistyped start COMMAND is cured by apps.update instead, which
+    // rewrites the unit and restarts what was running.)
     "apps.start": actionHandler(deps, (name) => deps.start(name)),
     "apps.stop": actionHandler(deps, (name) => deps.stop(name)),
     "apps.restart": actionHandler(deps, (name) => deps.restart(name)),

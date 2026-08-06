@@ -109,6 +109,7 @@ import type {
   TaskClaimReq,
   AppLogsRes,
   AppRegisterReq,
+  AppUpdateReq,
   AppWire,
   MemoryCreateReq,
   MemoryReplaceReq,
@@ -993,6 +994,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     // an agent token can carry a null userId. See the guard for why an ownerless
     // app is worse than a refusal.
     auth: cap("app:write", and(authenticated, hasOwningUser)),
+    emits: [],
+  }),
+  // The only mutable fields are command, cwd and description. Name and port are
+  // the app's identity and its permanent tombstone, so there is no verb for
+  // them anywhere.
+  defineRoute<AppUpdateReq, AppWire>({
+    opId: "apps.update",
+    method: "PATCH",
+    path: "/api/apps/:name",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
     emits: [],
   }),
   defineRoute<void, NoContent>({

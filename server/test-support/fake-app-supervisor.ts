@@ -35,6 +35,7 @@ export interface FakeAppSupervisor extends AppSupervisor {
   // Set non-null to make the next call of that kind throw an
   // AppSupervisorError with this message.
   failInstall: string | null;
+  failReinstall: string | null;
   failTeardown: string | null;
   failAction: string | null;
   // Throw something that is NOT an AppSupervisorError - a raw fs error, say.
@@ -62,6 +63,7 @@ export function createFakeAppSupervisor(
     calls: [],
     installed: new Map(),
     failInstall: null,
+    failReinstall: null,
     failTeardown: null,
     failAction: null,
     throwRawOnInstall: null,
@@ -91,6 +93,41 @@ export function createFakeAppSupervisor(
       }
       fake.installed.set(app.name, app);
       runtimes.set(app.name, { ...fake.installedState });
+    },
+
+    // Models the real one's contract rather than its systemctl sequence: what
+    // was running is restarted into the new record, what was at rest stays at
+    // rest, and an app with no unit at all is installed. A test that wants the
+    // failure path sets failReinstall.
+    reinstall(app: AppRecord) {
+      fake.calls.push(`reinstall:${app.name}`);
+      if (fake.failReinstall) {
+        runtimes.set(app.name, {
+          state: runtimes.get(app.name)?.state ?? "unknown",
+          restartCount: runtimes.get(app.name)?.restartCount ?? 0,
+          startError: fake.failReinstall,
+        });
+        throw new AppSupervisorError("supervisor_failed", fake.failReinstall);
+      }
+      fake.installed.set(app.name, app);
+      const prior = runtimes.get(app.name);
+      if (!prior || prior.state === "unknown") {
+        runtimes.set(app.name, { ...fake.installedState });
+      } else if (prior.state === "running" || prior.state === "starting") {
+        // An explicit restart is a new activation, so systemd's NRestarts
+        // starts over - the same rule the header note gives for restart().
+        runtimes.set(app.name, { state: "running", restartCount: 0 });
+      } else {
+        // stopped / failed: the app is left where it was, but the REMEMBERED
+        // FAILURE still goes. The real supervisor clears startErrors on every
+        // successful reinstall, and a fake that kept one would let a test pass
+        // while production reported a stale reason for a call that worked.
+        // Rebuilt rather than mutated, so state and restartCount survive.
+        runtimes.set(app.name, {
+          state: prior.state,
+          restartCount: prior.restartCount,
+        });
+      }
     },
 
     teardown(name: string) {

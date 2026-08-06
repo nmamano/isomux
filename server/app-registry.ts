@@ -175,6 +175,43 @@ export function checkAppName(name: string): AppRegistryError | null {
   return null;
 }
 
+// The three mutable fields, checked identically by register and update - shared
+// rather than duplicated because a rule that held at registration and not at
+// update is a rule that can be walked around: PATCH would become the way to put
+// a blank command or a relative cwd into a record that could never have been
+// registered with one.
+
+export function assertCommand(command: string): void {
+  // The command is stored VERBATIM (locked in the pickup). Trimming is used only
+  // to decide whether it is blank; the length limit applies to what was actually
+  // submitted, and what is persisted is the caller's exact string - whitespace
+  // can be load-bearing inside a shell command.
+  if (command.trim().length === 0) {
+    throw new AppRegistryError("invalid_command", "command is required");
+  }
+  if (command.length > MAX_APP_COMMAND_LENGTH) {
+    throw new AppRegistryError(
+      "invalid_command",
+      `command must be at most ${MAX_APP_COMMAND_LENGTH} characters`,
+    );
+  }
+}
+
+export function assertCwd(cwd: string): void {
+  if (!isAbsolute(cwd)) {
+    throw new AppRegistryError("invalid_cwd", "cwd must be an absolute path");
+  }
+}
+
+export function assertDescription(description: string): void {
+  if (description.length > MAX_APP_DESCRIPTION_LENGTH) {
+    throw new AppRegistryError(
+      "invalid_description",
+      `description must be at most ${MAX_APP_DESCRIPTION_LENGTH} characters`,
+    );
+  }
+}
+
 // --- port allocation --------------------------------------------------------
 
 // Whether a port can actually be bound right now. Skips the two "somebody else
@@ -460,6 +497,15 @@ export interface RegisterAppInput {
   createdByAgentId?: string;
 }
 
+// A patch over the three fields an app may change. An absent key leaves the
+// field alone; `description: null` removes it (see AppUpdateReq for why absence
+// and the empty string are different answers).
+export interface UpdateAppInput {
+  command?: string;
+  cwd?: string;
+  description?: string | null;
+}
+
 export interface AppRegistry {
   // Every live app, registration order.
   list(): AppRecord[];
@@ -467,6 +513,10 @@ export interface AppRegistry {
   // Reserve a name + port, create the data dir, persist the record. Throws
   // AppRegistryError on any refusal or failure.
   register(input: RegisterAppInput): AppRecord;
+  // Change command, cwd and/or description on a registered app. Returns the
+  // updated record, or null when no live app has that name. Throws
+  // AppRegistryError on any refusal or failure.
+  update(name: string, patch: UpdateAppInput): AppRecord | null;
   // Retire an app: tombstone its name and port, then drop the record. Returns
   // the removed record, or null when no app has that name.
   remove(name: string): AppRecord | null;
@@ -515,34 +565,9 @@ export function createAppRegistry(
       const nameError = checkAppName(input.name);
       if (nameError) throw nameError;
 
-      // The command is stored VERBATIM (locked in the pickup). Trimming is used
-      // only to decide whether it is blank; the length limit applies to what
-      // was actually submitted, and what is persisted is the caller's exact
-      // string - whitespace can be load-bearing inside a shell command.
-      if (input.command.trim().length === 0) {
-        throw new AppRegistryError("invalid_command", "command is required");
-      }
-      if (input.command.length > MAX_APP_COMMAND_LENGTH) {
-        throw new AppRegistryError(
-          "invalid_command",
-          `command must be at most ${MAX_APP_COMMAND_LENGTH} characters`,
-        );
-      }
-      if (!isAbsolute(input.cwd)) {
-        throw new AppRegistryError(
-          "invalid_cwd",
-          "cwd must be an absolute path",
-        );
-      }
-      if (
-        input.description !== undefined &&
-        input.description.length > MAX_APP_DESCRIPTION_LENGTH
-      ) {
-        throw new AppRegistryError(
-          "invalid_description",
-          `description must be at most ${MAX_APP_DESCRIPTION_LENGTH} characters`,
-        );
-      }
+      assertCommand(input.command);
+      assertCwd(input.cwd);
+      if (input.description !== undefined) assertDescription(input.description);
 
       // The whole registry is read and validated BEFORE anything is written, so
       // a corrupt registry refuses the registration instead of half-applying it.
@@ -609,6 +634,47 @@ export function createAppRegistry(
       };
       writeStateFile(appsFile, [...apps.map(strip), persisted]);
       return { ...persisted, dataDir };
+    },
+
+    // The cure for a typo that would otherwise cost a name. Everything that
+    // makes the app THE app - name, port, data directory, ownership, creation
+    // attribution - is untouched by construction: only the three patchable
+    // fields are ever copied over, and the record keeps its position in the
+    // file so registration order still reads as registration order.
+    update(name, patch) {
+      // Validated BEFORE the snapshot, exactly as register does: a bad patch
+      // must be refused the same way whether or not the registry is readable,
+      // and a rejected patch must not have read anything to reject.
+      if (patch.command !== undefined) assertCommand(patch.command);
+      if (patch.cwd !== undefined) assertCwd(patch.cwd);
+      if (patch.description !== undefined && patch.description !== null) {
+        assertDescription(patch.description);
+      }
+
+      const { apps } = snapshot();
+      const index = apps.findIndex((a) => a.name === name);
+      if (index < 0) return null;
+
+      const updated: AppRecord = {
+        ...apps[index],
+        ...(patch.command !== undefined ? { command: patch.command } : {}),
+        ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
+      };
+      // Three-way: absent leaves it, a string sets it, null removes the key
+      // entirely. `delete` rather than assigning undefined, so what is written
+      // is a record with no description at all rather than one carrying an
+      // explicit `"description": undefined` that JSON.stringify would drop but
+      // every intermediate comparison would see.
+      if (patch.description === null) delete updated.description;
+      else if (patch.description !== undefined) {
+        updated.description = patch.description;
+      }
+
+      writeStateFile(
+        appsFile,
+        apps.map((a, i) => strip(i === index ? updated : a)),
+      );
+      return updated;
     },
 
     remove(name) {

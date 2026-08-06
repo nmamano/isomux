@@ -123,7 +123,7 @@ async function until<T>(
 }
 
 suite("app-supervisor against real systemd", () => {
-  it("installs, serves on the injected port, survives a kill, and cleans up", async () => {
+  it("installs, serves on the injected port, survives a kill, takes an updated command, and cleans up", async () => {
     const host = createSystemdHost();
     // The launcher lives in the temp root, not the real state dir - the only
     // thing this test writes outside its own directory is the unit file, and
@@ -235,11 +235,61 @@ suite("app-supervisor against real systemd", () => {
         (lines) => lines.some((l) => l.includes("probe listening on")),
       );
       expect(logs.join("\n")).toContain(String(port));
+
+      // 4. Its command is CHANGED, and the running app comes back on the new
+      //    one. Everything a fake can prove about reinstall stops at "we sent
+      //    the right strings": whether systemd actually picks up a rewritten
+      //    unit after a daemon-reload, and whether the restart lands on the new
+      //    launcher rather than the cached old one, is a claim about systemd.
+      writeFileSync(
+        join(cwd, "server2.js"),
+        `Bun.serve({\n` +
+          `  port: Number(process.env.PORT),\n` +
+          `  fetch: () => new Response("updated"),\n` +
+          `});\n`,
+      );
+      supervisor.reinstall({ ...app, command: "bun server2.js" });
+      const updated = await until(
+        "the app to answer with its NEW command's response",
+        20_000,
+        async () => {
+          try {
+            const res = await fetch(`http://127.0.0.1:${port}/`);
+            return await res.text();
+          } catch {
+            return null;
+          }
+        },
+        (text) => text === "updated",
+      );
+      expect(updated).toBe("updated");
+      expect(supervisor.states([APP_NAME]).get(APP_NAME)?.state).toBe(
+        "running",
+      );
+
+      // 5. And a stopped app is NOT started by a reinstall. The API's whole
+      //    promise here is that PATCH preserves activation intent, and this is
+      //    the half that would be silent if it broke: an app the user stopped
+      //    coming back to life on an unrelated edit.
+      supervisor.stop(APP_NAME);
+      await until(
+        "the app to come to rest",
+        15_000,
+        () => supervisor!.states([APP_NAME]).get(APP_NAME)!.state,
+        (state) => state === "stopped",
+      );
+      supervisor.reinstall({ ...app, command: "bun server.js" });
+      // Given a moment to be wrong in: a restart triggered by mistake would
+      // have systemd report `activating` or `active` well inside this window.
+      await sleep(2000);
+      expect(supervisor.states([APP_NAME]).get(APP_NAME)?.state).toBe(
+        "stopped",
+      );
     } finally {
       supervisor.teardown(APP_NAME);
     }
 
-    // 4. Nothing is left: no unit file, no launcher, and systemd has
+    // 6. Nothing is left: no unit file, no launcher, and systemd has
     //    forgotten the unit entirely.
     expect(
       existsSync(join(host.unitDir, `${UNIT_PREFIX}${APP_NAME}.service`)),

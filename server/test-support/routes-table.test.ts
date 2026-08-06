@@ -356,6 +356,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apps.list": { caps: ["app:read"], emits: [] },
   "apps.get": { caps: ["app:read"], emits: [] },
   "apps.register": { caps: ["app:write"], emits: [] },
+  "apps.update": { caps: ["app:write"], emits: [] },
   "apps.delete": { caps: ["app:write"], emits: [] },
   "apps.logs": { caps: ["app:read"], emits: [] },
   // The recovery verbs are app:write, not app:read: they change what is

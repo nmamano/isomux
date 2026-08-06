@@ -709,6 +709,26 @@ export interface AppRegisterReq {
   description?: string;
 }
 
+// PATCH /api/apps/:name. Any subset of the three mutable fields; an absent key
+// is a field left alone. `name` and `port` are deliberately NOT here: they are
+// the app's identity and its permanent tombstone, so a typo in either is a
+// mistake that has to be lived with rather than one that can be quietly
+// rewritten under whoever already bookmarked the old address.
+//
+// The verb exists for the opposite case. A mistyped COMMAND used to be curable
+// only by deleting the app, which retires its name forever - a steep price for
+// a missing `run`.
+//
+// `description` is three-way on purpose: absent leaves it alone, a string sets
+// it, and `null` removes it. An empty string is NOT the same as absence - it
+// persists as a present, empty value and reads back that way - so without null
+// there would be no way to undo a description at all.
+export interface AppUpdateReq {
+  command?: string;
+  cwd?: string;
+  description?: string | null;
+}
+
 // The `error.code` values the app routes answer with, as a closed union so the
 // registry (which raises them) and the handler (which maps them to statuses)
 // cannot drift. name_taken and name_retired stay DISTINCT because they are

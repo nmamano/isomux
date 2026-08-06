@@ -265,10 +265,11 @@ function unitQuoted(raw: string, what: string): string {
 //   - the directory of the runtime running isomux itself, which is where `bun`
 //     actually lives on a box that installed it the normal way (~/.bun/bin).
 //
-// Computed at REGISTRATION and baked into the unit, so a node_modules that
-// appears later is not picked up until the app is re-registered. Recomputing on
-// every start would need a unit rewrite per start; the trade is documented
-// rather than chased.
+// Computed whenever the unit is written - at registration, and again on an
+// update that changes the command or the working directory - and baked into the
+// unit. So a node_modules that appears later is not picked up until something
+// rewrites the unit. Recomputing on every start would need a unit rewrite per
+// start; the trade is documented rather than chased.
 export function computeAppPath(
   cwd: string,
   runtimeBinDir: string,
@@ -457,6 +458,13 @@ export interface AppSupervisor {
   // unit could not be INSTALLED; an app whose process fails to start is not an
   // error here - it is a state the caller can read.
   install(app: AppRecord): void;
+  // Regenerate an app's launcher and unit from a CHANGED record while
+  // preserving prior activation intent: what was running is restarted into the
+  // new command, what was at rest stays at rest, and what had no unit at all is
+  // installed. Throws when the generated files could not be converged on the
+  // record, or when the prior activation intent could not be established - see
+  // the implementation for why the second one is not a silent no-op.
+  reinstall(app: AppRecord): void;
   // Stop the app and remove everything isomux generated for it. Throws if the
   // app is still running afterwards, so a caller can safely treat a return as
   // "this app is gone".
@@ -616,6 +624,65 @@ export function createAppSupervisor(
     }
   };
 
+  // Put the generated files on disk for `app`, in the order install has always
+  // used them: the launcher first, because a unit whose ExecStart names a
+  // script that does not exist yet would fail on a daemon-reload that raced us.
+  // Shared by install and reinstall so the two can never generate differently -
+  // an app updated by PATCH gets byte-identical files to one registered with
+  // the same values, including a PATH recomputed from its (possibly new) cwd.
+  const writeGeneratedFiles = (app: AppRecord): void => {
+    const unit = unitName(app.name);
+    stage("the app's launcher script could not be written", () =>
+      host.writeFile(
+        launcherPath(app.name),
+        renderLauncher(app),
+        APP_LAUNCHER_MODE,
+      ),
+    );
+    stage("the app's unit file could not be written", () =>
+      host.writeFile(
+        unitPath(app.name),
+        renderUnit(app, {
+          launcherPath: launcherPath(app.name),
+          path: computeAppPath(app.cwd, runtimeBinDir),
+          unitName: unit,
+        }),
+      ),
+    );
+  };
+
+  // What systemd says about a unit RIGHT NOW, captured rather than thrown.
+  //
+  // reinstall needs this before it writes anything, and needs it as an answer
+  // it can hold onto rather than as control flow: the files must converge on
+  // the record whether or not the read succeeded, so the failure cannot be
+  // allowed to short-circuit the write. Returns the raw properties, never the
+  // mapped AppState - the mapping folds "no unit at all", "unparseable" and
+  // "unrecognised" together into `unknown`, and reinstall's whole branch
+  // decision turns on telling those apart.
+  const readUnitProps = (
+    appName: string,
+  ): { props: Map<string, string> } | { error: string } => {
+    const unit = unitName(appName);
+    const r = host.run(
+      systemctl(
+        "show",
+        unit,
+        "--property=Id,LoadState,ActiveState,SubState,NRestarts",
+      ),
+    );
+    if (r.code !== 0)
+      return { error: r.stderr || r.stdout || "no error output" };
+    const props = parseShowBlocks(r.stdout).get(unit);
+    // A successful `show` with no block for this exact unit is not an answer
+    // about the unit - real systemd always emits one, so this is a systemctl
+    // that answered about something else or output we cannot parse. Reading it
+    // as "nothing is running" would silently leave a running app on its old
+    // command.
+    if (!props) return { error: `systemd gave no answer for ${unit}` };
+    return { props };
+  };
+
   const readStates = (appNames: readonly string[]): Map<string, AppRuntime> => {
     const result = new Map<string, AppRuntime>();
     if (appNames.length === 0) return result;
@@ -643,25 +710,9 @@ export function createAppSupervisor(
     unitName,
 
     install(app) {
-      const launcher = launcherPath(app.name);
       const unit = unitName(app.name);
       remember(app.name, () => {
-        // Launcher first: a unit whose ExecStart names a script that does not
-        // exist yet would fail on a daemon-reload that raced us. 0600 because
-        // it holds code an agent wrote.
-        stage("the app's launcher script could not be written", () =>
-          host.writeFile(launcher, renderLauncher(app), APP_LAUNCHER_MODE),
-        );
-        stage("the app's unit file could not be written", () =>
-          host.writeFile(
-            unitPath(app.name),
-            renderUnit(app, {
-              launcherPath: launcher,
-              path: computeAppPath(app.cwd, runtimeBinDir),
-              unitName: unit,
-            }),
-          ),
-        );
+        writeGeneratedFiles(app);
         invalidate();
         must(systemctl("daemon-reload"), "systemd could not load the new unit");
         // enable, then start - deliberately NOT `enable --now`. Splitting them
@@ -679,6 +730,107 @@ export function createAppSupervisor(
             "the app's unit could not be started",
             started.stderr || started.stdout,
           );
+        }
+      });
+    },
+
+    // The app's record changed; make the machine agree with it again.
+    //
+    // TWO THINGS HAVE TO BE TRUE AT ONCE, and the order below is what makes
+    // them both true:
+    //
+    //   1. THE GENERATED FILES ALWAYS CONVERGE ON THE RECORD. The registry is
+    //      the source of truth, so a unit still holding a command the record no
+    //      longer has is the one outcome that must not survive this call - a
+    //      later `start` would silently run the OLD command. So the write
+    //      happens unconditionally, even when the state read before it failed.
+    //   2. ACTIVATION INTENT IS PRESERVED, NEVER INVENTED. What was running is
+    //      restarted into the new command; what the user stopped stays stopped;
+    //      what has come to rest in `failed` stays there until somebody asks
+    //      for it. Silently starting something that was deliberately not
+    //      running is the surprising branch, and PATCH is not the verb for it.
+    //
+    // WHY THE STATE IS READ FIRST. After the unit is written and reloaded, an
+    // app that never had a unit at all reads `loaded` + `inactive` - exactly
+    // what a deliberately stopped app reads. The distinction is destroyed by
+    // the very write this method has to make, so it has to be captured before.
+    //
+    // AND WHY "I COULD NOT TELL" IS AN ERROR RATHER THAN A NO-OP. Doing
+    // nothing is a legitimate outcome here (a stopped app), so an unreadable
+    // state falling into that branch would be indistinguishable from success:
+    // the caller would be told its running app was updated while the app went
+    // on serving the old command. It throws instead, which reaches the API as
+    // `startError` on an otherwise truthful 200, and the restart verb is the
+    // cure.
+    reinstall(app) {
+      remember(app.name, () => {
+        try {
+          const before = readUnitProps(app.name);
+          // Convergence first, whatever the read said.
+          writeGeneratedFiles(app);
+          must(
+            systemctl("daemon-reload"),
+            "systemd could not load the app's updated unit",
+          );
+          // Only now the retained read failure: a daemon-reload that refused
+          // supersedes it, because then the files did NOT converge and that is
+          // the more serious fact.
+          if ("error" in before) {
+            throw failed(
+              "the app's files were updated but systemd could not be asked whether it was running, so it was not restarted; restart it to pick up the change",
+              before.error,
+            );
+          }
+          const unit = unitName(app.name);
+          const load = before.props.get("LoadState");
+          const active = before.props.get("ActiveState");
+          if (load === "not-found") {
+            // No unit before this call: the app was registered and never
+            // installed, which is the case where a bad command left an app
+            // stranded. Bringing it up is the whole point of fixing it.
+            must(
+              systemctl("enable", unit),
+              "systemd could not enable the app's unit",
+            );
+            clearStartLimit(app.name);
+            must(
+              systemctl("start", unit),
+              "the app's updated unit could not be started",
+            );
+          } else if (
+            load === "loaded" &&
+            (active === "active" ||
+              active === "activating" ||
+              active === "reloading")
+          ) {
+            clearStartLimit(app.name);
+            must(
+              systemctl("restart", unit),
+              "the app could not be restarted into its updated command",
+            );
+          } else if (
+            load === "loaded" &&
+            (active === "inactive" ||
+              active === "deactivating" ||
+              active === "failed")
+          ) {
+            // At rest on purpose. The new files are in place and the next
+            // start - whenever somebody asks for one - uses them.
+          } else {
+            // Masked, errored, or an answer we do not recognise. Not
+            // classifiable as running or at rest, so it is reported rather
+            // than guessed at.
+            throw failed(
+              "the app's files were updated but its previous state could not be established, so it was not restarted; restart it to pick up the change",
+              `systemd said LoadState=${load ?? "?"} ActiveState=${active ?? "?"}`,
+            );
+          }
+        } finally {
+          // In a finally, and not only on the way out clean: every step above
+          // can change systemd and then throw, so a cached state from before
+          // the call is stale on the failure paths too - and the failure paths
+          // are exactly the ones whose 200 response has to tell the truth.
+          invalidate();
         }
       });
     },

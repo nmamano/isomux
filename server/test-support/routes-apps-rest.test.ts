@@ -1,6 +1,6 @@
 // Apps on the unified REST surface (opIds
-// apps.{list,get,register,delete,logs,start,stop,restart}) - the agent-facing
-// app registry and the supervisor behind it. See
+// apps.{list,get,register,update,delete,logs,start,stop,restart}) - the
+// agent-facing app registry and the supervisor behind it. See
 // internal-docs/agent-apps-design.md.
 //
 // What these pin that the registry and supervisor unit tests cannot: the auth
@@ -988,5 +988,282 @@ describe("routes/apps REST: registration validation", () => {
     const app = r.body as AppWire;
     expect(app.cwd.startsWith("~")).toBe(false);
     expect(app.cwd.startsWith("/")).toBe(true);
+  });
+});
+
+// PATCH is the verb that keeps a mistyped command from costing a name forever,
+// so what it must NOT do matters as much as what it does: it must not rename an
+// app, must not move its port, must not bounce a running process over a
+// description edit, and must not report a failed unit rewrite as a plain
+// success when the record has in fact already changed.
+describe("routes/apps REST: updating an app", () => {
+  // One registered, running app owned by an agent, plus the pieces a test needs
+  // to talk to it.
+  async function withApp(name = "hello", over: Record<string, unknown> = {}) {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, name, over),
+    });
+    expect(reg.status).toBe(201);
+    srv.appSupervisor.calls.length = 0; // only the PATCH's calls from here
+    return { srv, token, owner, app: reg.body as AppWire };
+  }
+
+  const patch = (
+    srv: TestServer,
+    name: string,
+    body: unknown,
+    bearer: string,
+  ) => api(srv, `/api/apps/${name}`, { method: "PATCH", bearer, body });
+
+  it("changes the command and brings the running app onto it", async () => {
+    const { srv, token, app } = await withApp();
+
+    const r = await patch(srv, "hello", { command: "bun run other.ts" }, token);
+    expect(r.status).toBe(200);
+    const updated = r.body as AppWire;
+    expect(updated.command).toBe("bun run other.ts");
+    // Identity untouched, which is the whole contract of this route.
+    expect(updated.name).toBe(app.name);
+    expect(updated.port).toBe(app.port);
+    expect(updated.dataDir).toBe(app.dataDir);
+    expect(updated.createdAt).toBe(app.createdAt);
+    // The machine was told.
+    expect(srv.appSupervisor.calls).toContain("reinstall:hello");
+    expect(updated.state).toBe("running");
+    // And it stuck: a fresh GET agrees.
+    const got = await api(srv, "/api/apps/hello", { bearer: token });
+    expect((got.body as AppWire).command).toBe("bun run other.ts");
+  });
+
+  it("leaves systemd alone for a description-only change", async () => {
+    const { srv, token } = await withApp("hello", { description: "before" });
+
+    const r = await patch(srv, "hello", { description: "after" }, token);
+    expect(r.status).toBe(200);
+    expect((r.body as AppWire).description).toBe("after");
+    // Not a single supervisor call beyond the state read the response needs.
+    // Editing a blurb must never bounce a running process.
+    expect(
+      srv.appSupervisor.calls.filter((c) => !c.startsWith("states:")),
+    ).toEqual([]);
+  });
+
+  it('removes a description with null, and keeps an empty one with ""', async () => {
+    const { srv, token } = await withApp("hello", { description: "before" });
+
+    const emptied = await patch(srv, "hello", { description: "" }, token);
+    expect((emptied.body as AppWire).description).toBe("");
+
+    const cleared = await patch(srv, "hello", { description: null }, token);
+    expect((cleared.body as AppWire).description).toBeUndefined();
+    const got = await api(srv, "/api/apps/hello", { bearer: token });
+    expect((got.body as AppWire).description).toBeUndefined();
+  });
+
+  it("does not touch systemd when the patch changes nothing that runs", async () => {
+    const { srv, token, app } = await withApp();
+
+    // Same command it already had. Nothing to reinstall, so nothing is
+    // restarted - an idempotent PATCH must not be a way to bounce an app.
+    const r = await patch(srv, "hello", { command: app.command }, token);
+    expect(r.status).toBe(200);
+    expect(srv.appSupervisor.calls).not.toContain("reinstall:hello");
+  });
+
+  it("refuses a rename or a port move, and changes nothing", async () => {
+    const { srv, token, app } = await withApp();
+
+    const bad = [
+      { name: "goodbye" },
+      { port: app.port + 1 },
+      // Malformed is refused too, not quietly ignored. Presence is what
+      // triggers the check: if it were a type test, each of these would slide
+      // past as "not a rename" and the app would be updated anyway.
+      { name: 7 },
+      { name: null },
+      { port: "21001" },
+      { port: null },
+    ];
+    for (const attempt of bad) {
+      const r = await patch(srv, "hello", { ...attempt, command: "x" }, token);
+      expect(r.status).toBe(400);
+      expect(errCode(r)).toBe("invalid_request");
+    }
+    // Refused BEFORE the registry write: the command it came with is intact.
+    const got = await api(srv, "/api/apps/hello", { bearer: token });
+    expect((got.body as AppWire).command).toBe(app.command);
+  });
+
+  it("accepts a body that echoes the app's own name and port back", async () => {
+    const { srv, token, app } = await withApp();
+    // The obvious way to use this route is GET, edit one field, PATCH the
+    // object back - and that body carries name and port. Rejecting it would
+    // punish the natural pattern for asking for nothing.
+    const r = await patch(
+      srv,
+      "hello",
+      { ...app, command: "bun run other.ts" },
+      token,
+    );
+    expect(r.status).toBe(200);
+    expect((r.body as AppWire).command).toBe("bun run other.ts");
+  });
+
+  it("refuses a patch that asks for nothing", async () => {
+    const { srv, token } = await withApp();
+    const r = await patch(srv, "hello", {}, token);
+    expect(r.status).toBe(400);
+    expect(errCode(r)).toBe("invalid_request");
+  });
+
+  it("applies register's validation to the fields it changes", async () => {
+    const { srv, token, app } = await withApp();
+
+    const refusals: [unknown, string][] = [
+      [{ command: 42 }, "invalid_command"],
+      [{ command: "   " }, "invalid_command"],
+      [{ cwd: "" }, "invalid_cwd"],
+      [{ cwd: "/nope/definitely/not/here" }, "invalid_cwd"],
+      [{ description: 7 }, "invalid_description"],
+      [{ description: "d".repeat(201) }, "invalid_description"],
+    ];
+    for (const [patchBody, code] of refusals) {
+      const r = await patch(srv, "hello", patchBody, token);
+      expect(r.status).toBe(400);
+      expect(errCode(r)).toBe(code);
+    }
+    const got = await api(srv, "/api/apps/hello", { bearer: token });
+    expect((got.body as AppWire).command).toBe(app.command);
+    expect(srv.appSupervisor.calls).not.toContain("reinstall:hello");
+  });
+
+  it("expands ~/ in a patched cwd, the same as registration does", async () => {
+    const { srv, token } = await withApp();
+    const r = await patch(srv, "hello", { cwd: "~" }, token);
+    expect(r.status).toBe(200);
+    expect((r.body as AppWire).cwd.startsWith("/")).toBe(true);
+  });
+
+  it("denies an unknown name rather than confirming it is free", async () => {
+    const { srv, token, owner } = await withApp();
+    // 403, not 404, and deliberately: names are permanently unique, so a 404
+    // here would answer "is this name still available" - a question only
+    // registration is meant to answer. Same rule the read and delete routes
+    // follow.
+    expect((await patch(srv, "nope", { command: "x" }, token)).status).toBe(
+      403,
+    );
+    // An office owner skips the owner lookup, so it reaches the handler and
+    // gets the honest answer.
+    expect(
+      (
+        await api(srv, "/api/apps/nope", {
+          method: "PATCH",
+          rawSessionId: owner.rawSessionId,
+          body: { command: "x" },
+        })
+      ).status,
+    ).toBe(404);
+  });
+
+  it("still answers 200 when the unit rewrite fails, and says why", async () => {
+    const { srv, token } = await withApp();
+    srv.appSupervisor.failReinstall =
+      "the app's files were updated but systemd could not be asked whether it was running";
+
+    const r = await patch(srv, "hello", { command: "bun run other.ts" }, token);
+    // NOT a 500: the record really did change, and a status saying otherwise
+    // would describe an update that did not happen. The failure rides on the
+    // body instead.
+    expect(r.status).toBe(200);
+    const updated = r.body as AppWire;
+    expect(updated.command).toBe("bun run other.ts");
+    expect(updated.startError).toContain("could not be asked");
+    // The registry kept the change, so a retry (or a restart) can finish it.
+    const got = await api(srv, "/api/apps/hello", { bearer: token });
+    expect((got.body as AppWire).command).toBe("bun run other.ts");
+  });
+
+  it("stops reporting a stale reason once an update succeeds", async () => {
+    const { srv, token } = await withApp();
+    // Stopped, so the successful reinstall below takes the leave-it-alone
+    // branch - the one where a remembered failure could most easily survive.
+    await api(srv, "/api/apps/hello/stop", { method: "POST", bearer: token });
+    srv.appSupervisor.failReinstall = "systemd could not be reached";
+
+    const failed = await patch(srv, "hello", { command: "bun a.ts" }, token);
+    expect((failed.body as AppWire).startError).toBe(
+      "systemd could not be reached",
+    );
+
+    srv.appSupervisor.failReinstall = null;
+    const fixed = await patch(srv, "hello", { command: "bun b.ts" }, token);
+    // The app is where it was, and the reason for a call that has since
+    // succeeded is gone rather than lingering on every later read.
+    expect((fixed.body as AppWire).state).toBe("stopped");
+    expect((fixed.body as AppWire).startError).toBeUndefined();
+  });
+
+  it("is app:write and owner-scoped, like every other change to an app", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const bob = await srv.seedMember("Bob");
+    const aliceId = getUserByName("Alice")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: mintAgentToken(bot.id, aliceId),
+      body: body(srv, "alice-app"),
+    });
+
+    // A different member: denied.
+    expect(
+      (
+        await api(srv, "/api/apps/alice-app", {
+          method: "PATCH",
+          rawSessionId: bob.rawSessionId,
+          body: { command: "bun run mine.ts" },
+        })
+      ).status,
+    ).toBe(403);
+    // A cron run holds neither app capability, so its token cannot either.
+    expect(
+      (
+        await api(srv, "/api/apps/alice-app", {
+          method: "PATCH",
+          bearer: mintRunToken("job-1", "run-1", aliceId),
+          body: { command: "bun run mine.ts" },
+        })
+      ).status,
+    ).toBe(403);
+    // The owner of record and an office owner both can.
+    expect(
+      (
+        await api(srv, "/api/apps/alice-app", {
+          method: "PATCH",
+          rawSessionId: alice.rawSessionId,
+          body: { description: "mine" },
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await api(srv, "/api/apps/alice-app", {
+          method: "PATCH",
+          rawSessionId: owner.rawSessionId,
+          body: { description: "seen by the office owner" },
+        })
+      ).status,
+    ).toBe(200);
   });
 });

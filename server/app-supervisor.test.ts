@@ -12,7 +12,14 @@
 // Zero LLM, zero subprocesses.
 
 import { describe, it, expect } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
@@ -491,6 +498,220 @@ describe("app-supervisor: install", () => {
 });
 
 // --- teardown ---------------------------------------------------------------
+
+// --- reinstall --------------------------------------------------------------
+
+// reinstall has to hold two things true at once: the generated files ALWAYS end
+// up matching the record, and the app's activation intent is preserved rather
+// than invented. The tests below are mostly about the second one, because it is
+// the half that can look like success while being wrong - a stopped app quietly
+// started, or a running app left serving the command it was just updated away
+// from.
+describe("app-supervisor: reinstall", () => {
+  // A host whose `show` answers with one scripted state for our unit, so each
+  // test states the PRIOR state of the app in one line.
+  const hostInState = (loadState: string, activeState: string) =>
+    fakeHost((argv) =>
+      argv[2] === "show"
+        ? {
+            code: 0,
+            stdout: showBlock(
+              "isomux-app-hello.service",
+              loadState,
+              activeState,
+            ),
+          }
+        : undefined,
+    );
+
+  const changed = record({ command: "bun run other.ts", cwd: "/srv/other" });
+
+  it("restarts an app that was running, into its new command", () => {
+    const host = hostInState("loaded", "active");
+    supervisor(host).reinstall(changed);
+    // The show comes FIRST and that is the whole design: after the write and
+    // the reload, a never-installed app is indistinguishable from a stopped one.
+    expect(verbs(host)).toEqual([
+      "show",
+      "daemon-reload",
+      "reset-failed",
+      "restart",
+    ]);
+    expect(host.files.get("/launchers/hello.sh")).toContain("bun run other.ts");
+    expect(host.files.get("/units/isomux-app-hello.service")).toContain(
+      "WorkingDirectory=/srv/other",
+    );
+  });
+
+  it("leaves a stopped app stopped, with the new files in place", () => {
+    const host = hostInState("loaded", "inactive");
+    supervisor(host).reinstall(changed);
+    // Nothing after the reload: starting something the user stopped is the
+    // surprising branch, and PATCH is not the verb for it.
+    expect(verbs(host)).toEqual(["show", "daemon-reload"]);
+    expect(host.files.get("/launchers/hello.sh")).toContain("bun run other.ts");
+  });
+
+  it("leaves a failed app failed - recovery stays an explicit verb", () => {
+    const host = hostInState("loaded", "failed");
+    supervisor(host).reinstall(changed);
+    expect(verbs(host)).toEqual(["show", "daemon-reload"]);
+  });
+
+  it("leaves an app that is still stopping alone rather than racing it", () => {
+    const host = hostInState("loaded", "deactivating");
+    supervisor(host).reinstall(changed);
+    expect(verbs(host)).toEqual(["show", "daemon-reload"]);
+  });
+
+  it("installs an app that never had a unit - the stranded-registration cure", () => {
+    // LoadState=not-found is what an app whose original install failed reads
+    // as. Fixing its command should bring it up, which is the entire reason
+    // this verb exists.
+    const host = hostInState("not-found", "inactive");
+    supervisor(host).reinstall(changed);
+    expect(verbs(host)).toEqual([
+      "show",
+      "daemon-reload",
+      "enable",
+      "reset-failed",
+      "start",
+    ]);
+  });
+
+  it("recomputes PATH from the new working directory", () => {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-reinstall-path-"));
+    try {
+      const bin = join(dir, "node_modules", ".bin");
+      mkdirSync(bin, { recursive: true });
+      const host = hostInState("loaded", "inactive");
+      supervisor(host).reinstall(record({ cwd: dir }));
+      expect(host.files.get("/units/isomux-app-hello.service")).toContain(
+        `PATH=${bin}:`,
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // The three ways "I could not tell what it was doing" arrives. All of them
+  // must converge the files and THEN throw: reading any of them as "nothing was
+  // running" would leave a running app serving its old command while the API
+  // reported the update as complete.
+  const unreadable: [
+    string,
+    (argv: string[]) => Partial<RunResult> | undefined,
+  ][] = [
+    [
+      "systemctl refused the query",
+      (argv) =>
+        argv[2] === "show"
+          ? { code: 1, stderr: "Failed to connect" }
+          : undefined,
+    ],
+    [
+      "the answer had no block for this unit",
+      (argv) => (argv[2] === "show" ? { code: 0, stdout: "" } : undefined),
+    ],
+    [
+      "the block was missing LoadState",
+      (argv) =>
+        argv[2] === "show"
+          ? { code: 0, stdout: "Id=isomux-app-hello.service\nNRestarts=0\n" }
+          : undefined,
+    ],
+  ];
+
+  for (const [why, script] of unreadable) {
+    it(`converges the files and then throws when ${why}`, () => {
+      const host = fakeHost(script);
+      const sup = supervisor(host);
+      expect(() => sup.reinstall(changed)).toThrow(AppSupervisorError);
+      // The files DID land, and systemd loaded them: the record is the source
+      // of truth, so a unit holding the old command must not survive the call.
+      expect(host.files.get("/launchers/hello.sh")).toContain(
+        "bun run other.ts",
+      );
+      expect(verbs(host)).toEqual(["show", "daemon-reload"]);
+      // And the reason is readable from the API, which is the only place the
+      // caller of a 200 can learn the restart did not happen.
+      expect(sup.states(["hello"]).get("hello")?.startError).toMatch(
+        /was not restarted; restart it to pick up the change/,
+      );
+    });
+  }
+
+  it("throws rather than guessing when systemd reports a state it cannot act on", () => {
+    const host = hostInState("masked", "inactive");
+    const sup = supervisor(host);
+    expect(() => sup.reinstall(changed)).toThrow(
+      /previous state could not be established/,
+    );
+    expect(sup.states(["hello"]).get("hello")?.startError).toContain(
+      "LoadState=masked",
+    );
+  });
+
+  it("reports a refused daemon-reload rather than the earlier read failure", () => {
+    // Both went wrong. The reload is the one that matters: the files did NOT
+    // converge, so the app is not merely un-restarted, it is un-updated.
+    const host = fakeHost((argv) => {
+      if (argv[2] === "show") return { code: 1, stderr: "Failed to connect" };
+      if (argv[2] === "daemon-reload")
+        return { code: 1, stderr: "Failed to reload daemon" };
+      return undefined;
+    });
+    expect(() => supervisor(host).reinstall(changed)).toThrow(
+      /could not load the app's updated unit.*Failed to reload daemon/s,
+    );
+  });
+
+  it("drops the cached state even when nothing was restarted", () => {
+    // The branch with no control command at all is where a stale cache would
+    // survive: `remember` only clears the cache when something throws, and this
+    // path succeeds. A reader right after the call would otherwise be answered
+    // from a snapshot taken before the unit was rewritten.
+    const host = hostInState("loaded", "inactive");
+    const sup = supervisor(host, () => 0); // clock frozen: the cache never ages out
+    sup.states(["hello"]);
+    const showsBefore = verbs(host).filter((v) => v === "show").length;
+    sup.reinstall(changed);
+    sup.states(["hello"]);
+    // Three: the priming read, reinstall's own pre-state read, and the read
+    // after - which only happens if the cache was dropped.
+    expect(verbs(host).filter((v) => v === "show").length).toBe(
+      showsBefore + 2,
+    );
+  });
+
+  it("clears a remembered failure once a reinstall succeeds", () => {
+    // ONE supervisor, failing and then succeeding. Recording the failure on a
+    // different instance would prove nothing: startErrors is per-supervisor, so
+    // the assertion would pass against a map that never had an entry.
+    let failNextShow = true;
+    const host = fakeHost((argv) => {
+      if (argv[2] !== "show") return undefined;
+      if (failNextShow) {
+        failNextShow = false;
+        return { code: 1, stderr: "Failed to connect" };
+      }
+      return {
+        code: 0,
+        stdout: showBlock("isomux-app-hello.service", "loaded", "inactive"),
+      };
+    });
+    const sup = supervisor(host);
+
+    expect(() => sup.reinstall(changed)).toThrow(AppSupervisorError);
+    // The reason is really there before the successful call clears it.
+    expect(sup.states(["hello"]).get("hello")?.startError).toContain(
+      "could not be asked",
+    );
+
+    sup.reinstall(changed);
+    expect(sup.states(["hello"]).get("hello")?.startError).toBeUndefined();
+  });
+});
 
 describe("app-supervisor: teardown", () => {
   it("stops, disables, removes both files, reloads, and clears the failed state", () => {
