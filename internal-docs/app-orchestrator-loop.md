@@ -109,8 +109,12 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
          S2c DONE first (Isomuxer3/Reviewer3, 1 round, no findings, approved
          21b4b3ae, committed while S2b still in flight). Linger-only cold-
          boot case unproven until a real VPS install - rides task 5a8e4b08.
-- [ ] S3  Apps tab UI beside Cronjobs + WS sync: list, state, restart count,
+- [x] S3  Apps tab UI beside Cronjobs + WS sync: list, state, restart count,
          logs, stop/delete. Restart checkpoint.
+         (Isomuxer3/Reviewer3, 3 rounds, approved 5625d69b, committed with
+         this edit. Fetch-on-open + 5s single-flight poll while open;
+         recipient-scoped app_upserted/app_deleted deltas; hydrationEpoch
+         refetch. Screenshots under /tmp/s3-shots/.)
 - [ ] S4  Conventions + docs: system-prompt guidance replaces "pick an
          uncommon port", ROUTE_LABELS entries, doc surfaces per
          internal-docs/documentation.md.
@@ -124,6 +128,13 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
 - Phase 3 (stable hostnames on the port-proxy transport) - hosted infra
   dependency, not tonight.
 - Update story for apps (design doc open question) - not tonight.
+- Doc nit from S3 round 3 (Reviewer3 said fix in a future pass, not the
+  frozen diff): shouldCommit docstring still lists "unmount" as a
+  generation example and one test label says "(unmount, delete)" - leftovers
+  from removing the unmount bump. Runtime logic correct.
+- Morning options for Nil from S3: register-from-UI / edit-from-UI forms;
+  whether the port stays plain text (honest on hosted where ports are
+  unreachable) or becomes a link on tailnet boxes.
 - PARKED FOR NIL: none open. Mid-loop rulings (Nil, 2026-08-06, from phone):
   restart/start/stop routes confirmed; remaining calls delegated to the
   manager under "whatever behavior is less surprising to our users",
@@ -416,3 +427,44 @@ announced fingerprint; ALL UI strings quoted verbatim in the report.
 
 Locked: visibility shape (own + office owner), delete-retires-name wording
 must be truthful, S2's seam (no new systemd call sites), Standing rails.
+
+## SLICE-4 PICKUP (authored after S3's commit; baseline = that commit)
+
+The feature is built (S1-S3 + S2b/S2c); S4 makes agents and docs know it
+exists. Pure copy + labels - no behavior changes. Everything you write is
+wordsmithed prose Nil signs off in the morning: quote ALL of it verbatim in
+your report, and draft SHORT - Nil strips the obvious parts of any draft
+(room memory: "notice the pattern, I always remove the obvious parts").
+
+Scope, in order of importance:
+1. server/system-prompt.ts - replace the "pick an uncommon port and keep
+   it" guidance with the register-an-app flow: register (name, command,
+   cwd) via POST /api/apps with your bearer token; isomux allocates $PORT,
+   runs it as a service that survives sessions, isomux restarts and
+   reboots; PATCH to fix command/cwd; start/stop/restart/logs verbs;
+   delete retires the name FOREVER (say it); data dir provided; the Apps
+   tab shows it to the boss. Mention what apps are for (something the boss
+   uses, not scratch experiments). Keep the existing per-engine structure
+   (claude vs codex arms) in mind - guidance for all isomux deployments
+   belongs here, not in office memory (room-memory rule).
+2. ROUTE_LABELS in ui/log-view/isomux-curl.ts - friendly cards for ALL
+   apps routes: register/list/get/patch/delete/start/stop/restart/logs
+   (the 2026-07-18 lesson: new agent-facing routes fall back to raw JSON
+   cards without this).
+3. Doc surfaces per internal-docs/documentation.md (read it - it is the
+   authoritative list; expect at least README features, docs/features.md,
+   api/chat.ts chatbot list). MARKETING RULES (room memory): describe by
+   user capability, never internal mechanism (no endpoints, no systemd, no
+   port numbers); no "single/simple/lightweight" small-signaling words; no
+   edge-case caveat clauses.
+4. docs/vps-install.md "What it does": S2c deferred its linger bullet here
+   deliberately - now the feature is visible, add it if documentation.md
+   says that surface needs it; keep it capability-level.
+5. AGENTS.md if documentation.md lists it (S2b noted it has no apps
+   mention at all).
+
+Gates: always-run set (bun test, build:ui, eslint on touched files; tsc if
+any ts changes). test:systemd only if server files change. Same
+announced-fingerprint diff-gate with your reviewer.
+
+Locked: no behavior changes, no new routes, rulings stand, Standing rails.

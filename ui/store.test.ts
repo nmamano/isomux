@@ -10,7 +10,12 @@
 
 import { describe, it, expect } from "bun:test";
 import { reducer, initialState } from "./store.tsx";
-import type { LogEntry, SlideRecord, TaskItem } from "../shared/types.ts";
+import type {
+  AppWire,
+  LogEntry,
+  SlideRecord,
+  TaskItem,
+} from "../shared/types.ts";
 
 function entry(id: string, agentId: string, timestamp: number): LogEntry {
   return { id, agentId, timestamp, kind: "text", content: `content-${id}` };
@@ -586,5 +591,159 @@ describe("reducer: reconnect replay window (full_state → log_replay_complete)"
     expect(s.hydrationEpoch).toBe(2);
     // Still connected the whole way through - the epoch moved anyway.
     expect(s.connected).toBe(true);
+  });
+});
+
+// --- Apps slice (S3) --------------------------------------------------------
+// The Apps tab holds server data that full_state does NOT replay, so two
+// invariants matter here: the deltas patch by NAME (an app has no other id),
+// and a rehydrate must not silently empty the list - the tab re-fetches on
+// hydrationEpoch instead.
+
+function appWire(name: string, over: Partial<AppWire> = {}): AppWire {
+  return {
+    name,
+    port: 21000,
+    command: "bun run serve.ts",
+    cwd: "/home/alice/app",
+    dataDir: `/state/apps/data/${name}`,
+    userId: "u-alice",
+    username: "alice",
+    createdBy: "Agent1",
+    createdAt: 1,
+    state: "running",
+    restartCount: 0,
+    ...over,
+  };
+}
+
+describe("reducer: apps", () => {
+  const seeded = reducer(initialState, {
+    type: "apps_loaded",
+    apps: [appWire("alpha"), appWire("beta")],
+    revision: 0,
+  });
+
+  it("apps_loaded REPLACES the slice, so a vanished app does not linger", () => {
+    // This is the poll result. A merge would keep showing an app somebody
+    // deleted from another tab if its delta was missed.
+    const next = reducer(seeded, {
+      type: "apps_loaded",
+      apps: [appWire("beta", { state: "stopped" })],
+      revision: seeded.appsRevision,
+    });
+    expect(next.apps.map((a) => a.name)).toEqual(["beta"]);
+    expect(next.apps[0].state).toBe("stopped");
+    expect(next.appsLoaded).toBe(true);
+  });
+
+  it("app_upserted REPLACES a known app in place, keyed by name", () => {
+    const next = reducer(seeded, {
+      type: "app_upserted",
+      app: appWire("alpha", { state: "failed", restartCount: 3 }),
+    });
+    expect(next.apps.map((a) => a.name)).toEqual(["alpha", "beta"]);
+    expect(next.apps[0].state).toBe("failed");
+    expect(next.apps[0].restartCount).toBe(3);
+  });
+
+  it("app_upserted APPENDS an app we have never seen", () => {
+    const next = reducer(seeded, {
+      type: "app_upserted",
+      app: appWire("gamma"),
+    });
+    expect(next.apps.map((a) => a.name)).toEqual(["alpha", "beta", "gamma"]);
+  });
+
+  it("app_upserted is idempotent - the same delta twice holds one row", () => {
+    const app = appWire("alpha", { state: "stopped" });
+    const once = reducer(seeded, { type: "app_upserted", app });
+    const twice = reducer(once, { type: "app_upserted", app });
+    expect(twice.apps.map((a) => a.name)).toEqual(["alpha", "beta"]);
+  });
+
+  it("app_deleted drops the app, and a repeat leaves the list alone", () => {
+    const gone = reducer(seeded, { type: "app_deleted", name: "alpha" });
+    expect(gone.apps.map((a) => a.name)).toEqual(["beta"]);
+    // A delta racing the tab's first fetch must not throw or clear the list.
+    // The rows are untouched, but the revision still moves - see the
+    // do-not-hold case below for why that is not an accident.
+    const again = reducer(gone, { type: "app_deleted", name: "alpha" });
+    expect(again.apps).toBe(gone.apps);
+    expect(again.appsRevision).toBe(gone.appsRevision + 1);
+  });
+
+  // THE RACE: a list GET is a snapshot of the moment it was issued. If a delta
+  // lands while it is in flight, the snapshot is older than what we hold, and
+  // applying it would undo the delta - resurrecting a deleted app or reverting
+  // a stopped one until the next poll.
+  it("refuses a list response that a delta overtook while it was in flight", () => {
+    const revisionAtRequest = seeded.appsRevision;
+    // The delta wins the race.
+    const afterDelta = reducer(seeded, {
+      type: "app_deleted",
+      name: "alpha",
+    });
+    expect(afterDelta.apps.map((a) => a.name)).toEqual(["beta"]);
+    // The older snapshot - which still lists alpha - now arrives.
+    const afterStale = reducer(afterDelta, {
+      type: "apps_loaded",
+      apps: [appWire("alpha"), appWire("beta")],
+      revision: revisionAtRequest,
+    });
+    expect(afterStale.apps.map((a) => a.name)).toEqual(["beta"]);
+    // Still counts as loaded: the fetch succeeded, and pinning the tab to its
+    // loading state over a won race would be its own bug.
+    expect(afterStale.appsLoaded).toBe(true);
+  });
+
+  it("refuses a stale snapshot that would revert an upsert", () => {
+    const revisionAtRequest = seeded.appsRevision;
+    const afterDelta = reducer(seeded, {
+      type: "app_upserted",
+      app: appWire("alpha", { state: "stopped" }),
+    });
+    const afterStale = reducer(afterDelta, {
+      type: "apps_loaded",
+      apps: [appWire("alpha", { state: "running" }), appWire("beta")],
+      revision: revisionAtRequest,
+    });
+    expect(afterStale.apps.find((a) => a.name === "alpha")!.state).toBe(
+      "stopped",
+    );
+  });
+
+  it("a delete for an app we do not hold still moves the revision", () => {
+    // Otherwise an in-flight GET that DOES carry that app would be accepted and
+    // resurrect it: the row is missing here, not everywhere.
+    const after = reducer(seeded, { type: "app_deleted", name: "ghost" });
+    expect(after.appsRevision).toBe(seeded.appsRevision + 1);
+    expect(after.apps.map((a) => a.name)).toEqual(["alpha", "beta"]);
+  });
+
+  it("accepts the snapshot once its revision is current again", () => {
+    const afterDelta = reducer(seeded, { type: "app_deleted", name: "alpha" });
+    const fresh = reducer(afterDelta, {
+      type: "apps_loaded",
+      apps: [appWire("beta"), appWire("gamma")],
+      revision: afterDelta.appsRevision,
+    });
+    expect(fresh.apps.map((a) => a.name)).toEqual(["beta", "gamma"]);
+  });
+
+  it("full_state leaves the apps slice untouched", () => {
+    // The reconnect trap: full_state does not carry apps, so if it cleared
+    // them the tab would go blank on a rehydrate. It re-fetches on
+    // hydrationEpoch instead, which this proves is the bumped signal.
+    const after = reducer(seeded, {
+      type: "full_state",
+      agents: [],
+      recentCwds: [],
+      office: { prompt: null, name: null },
+      rooms: [],
+      killedAgents: [],
+    } as never);
+    expect(after.apps.map((a) => a.name)).toEqual(["alpha", "beta"]);
+    expect(after.hydrationEpoch).toBe(seeded.hydrationEpoch + 1);
   });
 });

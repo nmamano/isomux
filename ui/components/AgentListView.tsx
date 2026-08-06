@@ -12,6 +12,7 @@ import {
   IsoIcon,
   DeviceIcon,
   ClockIcon,
+  AppsIcon,
   UserIcon,
 } from "./NavIcons.tsx";
 import { SunIcon, MoonIcon } from "./ThemeIcons.tsx";
@@ -29,6 +30,7 @@ export function AgentListView({
   onEditRoomSettings,
   onOpenTasks,
   onOpenCronjobs,
+  onOpenApps,
   onOpenUpdate,
   onToggleView,
   onSwipeLeft,
@@ -43,6 +45,7 @@ export function AgentListView({
   onEditRoomSettings?: () => void;
   onOpenTasks: () => void;
   onOpenCronjobs: () => void;
+  onOpenApps: () => void;
   onOpenUpdate: () => void;
   onToggleView: () => void;
   onSwipeLeft?: () => void;
@@ -69,6 +72,7 @@ export function AgentListView({
       label: "Cron jobs",
       onClick: onOpenCronjobs,
     },
+    { id: "apps", icon: AppsIcon, label: "Apps", onClick: onOpenApps },
     {
       id: "user",
       icon: UserIcon,

@@ -39,6 +39,7 @@ import type {
   PresenceInfo,
   OfficeWire,
   TaskItem,
+  AppWire,
   Cronjob,
   CronjobRun,
   InviteWire,
@@ -208,6 +209,11 @@ export interface EventPayloads {
   // per-recipient decisions - see server/events/task-delta.ts.
   task_upserted: { task: TaskItem };
   task_deleted: { taskId: string };
+  // Apps: ownership-scoped, so per-recipient like the task deltas. See
+  // server/events/app-delta.ts for the visibility rule and why a recipient who
+  // cannot see an app is told nothing rather than sent an empty frame.
+  app_upserted: { app: AppWire };
+  app_deleted: { name: string };
   cronjobs_state: { cronjobs: Cronjob[]; cronjobsPrompt: string | null };
   cronjob_added: { cronjob: Cronjob };
   cronjob_updated: { cronjob: Cronjob };
@@ -369,6 +375,19 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   task_deleted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  // Ownership-scoped board, same posture as the task deltas above: one mutation
+  // is an upsert for the app's owner and every office owner, and NOTHING for
+  // anyone else. Delivered by an explicit per-socket loop (pushAppDeltaToEachWs)
+  // over appDeltaFor - never a uniform `all` payload, which would put an app's
+  // command and cwd on an office-wide channel.
+  app_upserted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  app_deleted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },

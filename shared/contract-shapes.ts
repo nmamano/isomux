@@ -13,7 +13,6 @@ import type {
   UserRecord,
   AgentInfo,
   AgentBackendType,
-  AppRecord,
   TaskItem,
   Cronjob,
   Attachment,
@@ -649,47 +648,11 @@ export interface CronPromptReq {
 // Defined here rather than in server/app-registry.ts so the route table, the
 // registry, and the handler cannot drift.
 
-// What an app is doing. The registry persists NO state field: a stored
-// "running" is a lie the moment the box reboots, so state is DERIVED at read
-// time, by asking systemd.
-//
-// `unknown` is not a synonym for `stopped`, and the difference is the point of
-// having it: `stopped` means systemd is holding the app still on purpose, while
-// `unknown` means there is no unit at all, or systemd could not be asked. One
-// of those is a state somebody chose and the other is a fault.
-export type AppState =
-  | "running"
-  | "starting"
-  | "stopped"
-  | "failed"
-  | "unknown";
-
-export interface AppWire extends AppRecord {
-  state: AppState;
-  // AUTOMATIC restarts since the app was last activated (systemd's NRestarts).
-  // A number climbing on its own is the signal that an app is crash-looping
-  // rather than serving. It resets when the app is stopped and started again,
-  // which is the honest scope rather than a lifetime total: an explicit restart
-  // is a new activation, and counting across one would report a fixed app as
-  // still broken.
-  restartCount: number;
-  // Why the last install or start attempt failed, when one did. Absent means
-  // no attempt has failed since isomux started.
-  //
-  // It exists because registering an app answers 201 even when the app does not
-  // come up - the registration really did happen, and a 500 would invite a
-  // retry that can only ever be told the name is taken. That leaves `state` as
-  // the only signal, and `state` cannot say WHY. An agent has no access to the
-  // server log, and a failure to install the unit at all happens before there
-  // is anything in journald to read, so without this the reason is invisible
-  // to the API's main consumer.
-  //
-  // In memory only, so it does not survive an isomux restart. That is the
-  // honest scope: it describes an attempt this process made, and after a
-  // restart `state` still tells the truth while the next attempt regenerates
-  // the reason.
-  startError?: string;
-}
+// AppState + AppWire's canonical home is shared/types.ts (next to AppRecord and
+// ServerMessage, which carries AppWire on app_upserted). Re-exported here so
+// every route-table / handler / registry import site keeps taking its wire
+// shapes from one module, exactly as UserPublicWire does above.
+export type { AppState, AppWire } from "./types.ts";
 
 // GET /api/apps/:name/logs. Newest last, exactly as journald renders them - the
 // caller is a human reading a tail or an agent debugging its own app, and

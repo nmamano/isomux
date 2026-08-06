@@ -19,6 +19,7 @@ import type {
 } from "../shared/contract-shapes.ts";
 import type {
   AgentInfo,
+  AppWire,
   ClientCommand,
   InviteWire,
   LogEntry,
@@ -590,6 +591,63 @@ const DEMO_REPLY =
 const cronjobs: Cronjob[] = [];
 let cronjobsPrompt: string | null = null;
 
+// Agent-built apps. The demo has no systemd, so `state` is whatever the last
+// verb set it to - enough to exercise the Apps tab's list, verbs, log view and
+// the failed-app rendering.
+const demoApps: AppWire[] = [
+  {
+    name: "standup-board",
+    port: 21000,
+    command: "bun run serve.ts",
+    cwd: "/home/ricky/standup-board",
+    description: "Morning standup notes, one card per agent.",
+    dataDir: "/home/ricky/.isomux/apps/data/standup-board",
+    userId: "demo-user",
+    username: "Ricky",
+    createdBy: "Scout",
+    createdAt: Date.now() - 86_400_000,
+    state: "running",
+    restartCount: 0,
+  },
+  {
+    name: "cost-tracker",
+    port: 21001,
+    command: "bun run index.ts --watch",
+    cwd: "/home/ricky/cost-tracker",
+    description: "Token spend per room, refreshed hourly.",
+    dataDir: "/home/ricky/.isomux/apps/data/cost-tracker",
+    userId: "demo-user",
+    username: "Ricky",
+    createdBy: "Ledger",
+    createdAt: Date.now() - 3_600_000,
+    state: "failed",
+    restartCount: 4,
+    startError: "bun: command not found",
+  },
+];
+
+const DEMO_APP_LOG = [
+  "Listening on http://0.0.0.0:21000",
+  "GET / 200 3ms",
+  "GET /api/cards 200 11ms",
+];
+
+const DEMO_APP_FAILED_LOG = [
+  "Starting cost-tracker...",
+  "bun: command not found",
+  "Main process exited, code=exited, status=127/n/a",
+  "Scheduled restart job, restart counter is at 4.",
+];
+
+// Mutate one app and push the same delta the real server would.
+function demoAppSet(name: string, patch: Partial<AppWire>): AppWire {
+  const i = demoApps.findIndex((a) => a.name === name);
+  if (i === -1) throw new ApiError(404, "not_found", "No such app.");
+  demoApps[i] = { ...demoApps[i], ...patch };
+  shimEmit({ type: "app_upserted", app: demoApps[i] });
+  return demoApps[i];
+}
+
 function computeNextFireDemo(
   schedule: Schedule,
   anchor: number,
@@ -947,6 +1005,9 @@ export async function demoApi(
     case "PUT /api/office/access":
       // No-op in the demo (no bind/origin policy to persist).
       return { signInUrl: null, restartRequired: false };
+    // apps.list - the Apps tab fetches on open and polls while it is open.
+    case "GET /api/apps":
+      return [...demoApps];
     // cron.listAllRuns - demo cron jobs never fire, so there are no runs.
     case "GET /api/cron-runs":
       return { jobs: [] };
@@ -1133,6 +1194,39 @@ export async function demoApi(
     return { entries: [] };
   }
   // cron.listRuns - no runs in the demo.
+  // apps.logs / apps.{start,stop,restart} / apps.delete - the name is a path
+  // param, so these match by pattern like the cronjob run routes below.
+  const appLogsMatch = pathname.match(/^\/api\/apps\/([^/]+)\/logs$/);
+  if (appLogsMatch && method === "GET") {
+    const name = decodeURIComponent(appLogsMatch[1]);
+    const app = demoApps.find((a) => a.name === name);
+    if (!app) throw new ApiError(404, "not_found", "No such app.");
+    return {
+      name,
+      lines: app.state === "failed" ? DEMO_APP_FAILED_LOG : DEMO_APP_LOG,
+    };
+  }
+  const appVerbMatch = pathname.match(
+    /^\/api\/apps\/([^/]+)\/(start|stop|restart)$/,
+  );
+  if (appVerbMatch && method === "POST") {
+    const name = decodeURIComponent(appVerbMatch[1]);
+    const verb = appVerbMatch[2];
+    return demoAppSet(name, {
+      state: verb === "stop" ? "stopped" : "running",
+      ...(verb === "stop" ? {} : { restartCount: 0 }),
+    });
+  }
+  const appMatch = pathname.match(/^\/api\/apps\/([^/]+)$/);
+  if (appMatch && method === "DELETE") {
+    const name = decodeURIComponent(appMatch[1]);
+    const i = demoApps.findIndex((a) => a.name === name);
+    if (i === -1) throw new ApiError(404, "not_found", "No such app.");
+    demoApps.splice(i, 1);
+    shimEmit({ type: "app_deleted", name });
+    return undefined;
+  }
+
   if (method === "GET" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
     return { runs: [] };
   }

@@ -70,6 +70,10 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   tasks: "recipient-scoped",
   task_upserted: "recipient-scoped",
   task_deleted: "recipient-scoped",
+  // Ownership-scoped, delivered per socket: an app is visible to its owning
+  // user and to office owners, never to the office.
+  app_upserted: "recipient-scoped",
+  app_deleted: "recipient-scoped",
   cronjobs_state: "all",
   cronjob_added: "all",
   cronjob_updated: "all",

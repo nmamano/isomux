@@ -245,3 +245,22 @@ export const ClockIcon = (
     <polyline points="8 4.5 8 8 10.5 9.5" />
   </svg>
 );
+
+export const AppsIcon = (
+  <svg
+    width="15"
+    height="15"
+    viewBox="0 0 16 16"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.4"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    style={{ display: "block" }}
+  >
+    <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+    <line x1="2" y1="6" x2="14" y2="6" />
+    <circle cx="4.4" cy="4.25" r="0.55" fill="currentColor" stroke="none" />
+    <circle cx="6.4" cy="4.25" r="0.55" fill="currentColor" stroke="none" />
+  </svg>
+);

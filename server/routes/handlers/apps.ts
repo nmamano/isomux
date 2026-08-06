@@ -97,6 +97,22 @@ export interface AppsDeps {
   // the apps their user owns. Mirrors the cronjob rule.
   isOfficeOwner(identity: Identity): boolean;
 
+  // --- the wire seam -------------------------------------------------------
+  // Tell every socket that may see this app about it. Called with the SAME wire
+  // object the response carries, so what the caller is told and what the office
+  // is told cannot drift. Only ever called for an outcome that COMMITTED: a
+  // validation refusal, a 404, or a verb that threw announces nothing, because
+  // nothing changed. A register or update whose supervisor step failed DOES
+  // announce - the record really did change, and the fresh runtime in the wire
+  // is the truthful result of it.
+  //
+  // Never called anywhere its throw could change the response: see announced().
+  announce(wire: AppWire): void;
+  // Tell the same audience the app is gone. Takes the owner id because the
+  // record is already removed by the time this runs and visibility cannot be
+  // decided without it.
+  announceRemoved(app: { name: string; userId: string | null }): void;
+
   // --- the supervisor seam (server/app-supervisor.ts) ---
   // Write the unit and start the app. Throws only when the unit could not be
   // INSTALLED; an app that installs and then fails to run is a state, not an
@@ -236,9 +252,15 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             err,
           );
         }
-        return created(
-          toWire(record, deps.states([record.name]).get(record.name)),
+        // ONE wire object: announced and returned, so the office and the caller
+        // are told the same thing by construction. Built after install, so its
+        // state reflects whether the app actually came up.
+        const wire = toWire(
+          record,
+          deps.states([record.name]).get(record.name),
         );
+        announced(record.name, () => deps.announce(wire));
+        return created(wire);
       } catch (err) {
         return renderRegistryError(err);
       }
@@ -360,7 +382,9 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             );
           }
         }
-        return ok(toWire(after, deps.states([after.name]).get(after.name)));
+        const wire = toWire(after, deps.states([after.name]).get(after.name));
+        announced(after.name, () => deps.announce(wire));
+        return ok(wire);
       } catch (err) {
         return renderRegistryError(err);
       }
@@ -376,7 +400,13 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // Throws if the app survived; the tombstone below is then never
         // written, and a retried DELETE can finish the job.
         deps.teardown(record.name);
-        return deps.remove(record.name) ? noContent() : fail(404, "not_found");
+        if (!deps.remove(record.name)) return fail(404, "not_found");
+        // AFTER the removal committed, and from the record read before teardown:
+        // the registry no longer holds an owner to project the audience from.
+        announced(record.name, () =>
+          deps.announceRemoved({ name: record.name, userId: record.userId }),
+        );
+        return noContent();
       } catch (err) {
         return renderRegistryError(err);
       }
@@ -434,6 +464,28 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
   };
 }
 
+// Announce, and never let the telling of it change what was told.
+//
+// Every announce call site sits AFTER its commit point and inside the handler's
+// outer try, whose catch renders an HTTP failure. So a throw from the injected
+// wire seam - a send implementation that reports failure by throwing, a test
+// fake, a future fan-out that does real work - would answer 500 for a register
+// that really did register, or a delete that really did tombstone the name. The
+// caller's natural response to a 500 is a retry, and there is nothing left to
+// retry: the name is taken, or already gone.
+//
+// This is the same rule the handler already applies to install/reinstall, one
+// layer out. The announcement is the LAST thing that happens and the least
+// important: a socket that missed a frame re-converges on the Apps tab's next
+// poll, while a lie about whether the mutation happened does not heal.
+function announced(what: string, send: () => void): void {
+  try {
+    send();
+  } catch (err) {
+    console.error(`[apps] "${what}" changed but was not announced:`, err);
+  }
+}
+
 // start / stop / restart differ only in the verb. Each answers with the app's
 // FRESH state rather than 204, so the caller learns whether the thing it asked
 // for actually happened without a second round trip.
@@ -445,8 +497,12 @@ function actionHandler(
     try {
       const record = deps.get(ctx.params.name);
       if (!record) return fail(404, "not_found");
+      // A throw here escapes to renderRegistryError, so nothing is announced -
+      // a verb that failed changed nothing to tell anyone about.
       act(record.name);
-      return ok(toWire(record, deps.states([record.name]).get(record.name)));
+      const wire = toWire(record, deps.states([record.name]).get(record.name));
+      announced(record.name, () => deps.announce(wire));
+      return ok(wire);
     } catch (err) {
       return renderRegistryError(err);
     }

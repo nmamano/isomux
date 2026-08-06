@@ -20,6 +20,7 @@ import type {
   SlideFailureReason,
   SlideRecord,
   TaskItem,
+  AppWire,
   OfficeSettings,
   OfficeWire,
   RoomWire,
@@ -118,6 +119,20 @@ export interface AppState {
   rooms: RoomWire[];
   tasks: TaskItem[];
   tasksLoaded: boolean;
+  // Agent-built apps. Fetched by AppsView when the tab opens (an app list costs
+  // a systemd read on the server, so no session pays for a tab it never opens)
+  // and kept fresh by the app_upserted / app_deleted deltas. full_state does
+  // NOT carry apps and must never clear this slice - AppsView re-fetches on
+  // hydrationEpoch instead.
+  apps: AppWire[];
+  appsLoaded: boolean;
+  // Bumped by every app delta. A list GET is a snapshot of the moment it was
+  // ISSUED, so a slow one can land after a delta that supersedes it and
+  // resurrect an app somebody just deleted. AppsView captures this when it
+  // starts a fetch and hands it back on apps_loaded; a replacement whose
+  // revision has moved is refused. Ordering GETs against each other is not
+  // enough - the race is a GET against a DELTA.
+  appsRevision: number;
   cronjobs: Cronjob[];
   cronjobsLoaded: boolean;
   cronjobsPrompt: string | null;
@@ -293,6 +308,12 @@ type Action =
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "task_upserted"; task: TaskItem }
   | { type: "task_deleted"; taskId: string }
+  // CLIENT-LOCAL (not a ServerMessage): AppsView dispatches this after its REST
+  // apps.list fetch. The fetch REPLACES the slice, which is what converges the
+  // list after a missed delta or a state change systemd made on its own.
+  | { type: "apps_loaded"; apps: AppWire[]; revision: number }
+  | { type: "app_upserted"; app: AppWire }
+  | { type: "app_deleted"; name: string }
   | { type: "set_current_room"; roomId: string }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
@@ -828,6 +849,46 @@ export function reducer(state: AppState, action: Action): AppState {
         tasks: state.tasks.filter((t) => t.id !== action.taskId),
       };
     }
+    // Whole-list replace, not a merge: this is the poll/refetch result, so an
+    // app that has gone from it is gone, and stale rows must not survive.
+    //
+    // Unless a delta landed while it was in flight, in which case the snapshot
+    // is older than what we already hold and replacing would undo it. Refused,
+    // not merged - the deltas are authoritative and the next poll converges the
+    // rest. appsLoaded still flips: the fetch DID succeed, and leaving the tab
+    // on its loading state over a won race would be its own bug.
+    case "apps_loaded":
+      if (action.revision !== state.appsRevision) {
+        return { ...state, appsLoaded: true };
+      }
+      return { ...state, apps: action.apps, appsLoaded: true };
+    // Keyed by NAME - an app has no separate id, and a name is bound to one app
+    // forever. Same upsert reasoning as tasks: for a recipient this can be the
+    // first time they see the app, so replace-or-append rather than two events.
+    case "app_upserted": {
+      const idx = state.apps.findIndex((a) => a.name === action.app.name);
+      const apps =
+        idx === -1
+          ? [...state.apps, action.app]
+          : state.apps.map((a) =>
+              a.name === action.app.name ? action.app : a,
+            );
+      return { ...state, apps, appsRevision: state.appsRevision + 1 };
+    }
+    // Unknown names are a no-op: the server only tells recipients who could see
+    // the app, but a delta racing the tab's first fetch shouldn't break the list.
+    case "app_deleted": {
+      // The revision moves even for a name we do not hold: an in-flight list
+      // GET may well carry that app, and letting it land would resurrect it.
+      if (!state.apps.some((a) => a.name === action.name)) {
+        return { ...state, appsRevision: state.appsRevision + 1 };
+      }
+      return {
+        ...state,
+        apps: state.apps.filter((a) => a.name !== action.name),
+        appsRevision: state.appsRevision + 1,
+      };
+    }
     case "set_current_room":
       return { ...state, currentRoomId: action.roomId };
     case "room_created":
@@ -1048,6 +1109,9 @@ export const initialState: AppState = {
   rooms: [],
   tasks: [],
   tasksLoaded: false,
+  apps: [],
+  appsLoaded: false,
+  appsRevision: 0,
   cronjobs: [],
   cronjobsLoaded: false,
   cronjobsPrompt: null,

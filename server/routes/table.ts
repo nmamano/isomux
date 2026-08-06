@@ -971,7 +971,8 @@ export const API_ROUTES: readonly RouteDef[] = [
   // is the USER's, so reads/deletes are owner-or-office-owner - the cronjob
   // rule, cronjobs being the precedent for "a thing isomux runs that is not an
   // agent". apps.list has no :name to gate on and is filtered per-caller in the
-  // handler. No emits yet: the Apps tab and its WS event land with the UI.
+  // handler. The mutating routes emit a per-recipient app delta; the reads emit
+  // nothing, and the Apps tab fetches the list when it opens.
   defineRoute<void, AppWire[]>({
     opId: "apps.list",
     method: "GET",
@@ -994,7 +995,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // an agent token can carry a null userId. See the guard for why an ownerless
     // app is worse than a refusal.
     auth: cap("app:write", and(authenticated, hasOwningUser)),
-    emits: [],
+    emits: ["app_upserted"],
   }),
   // The only mutable fields are command, cwd and description. Name and port are
   // the app's identity and its permanent tombstone, so there is no verb for
@@ -1004,14 +1005,14 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/apps/:name",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
-    emits: [],
+    emits: ["app_upserted"],
   }),
   defineRoute<void, NoContent>({
     opId: "apps.delete",
     method: "DELETE",
     path: "/api/apps/:name",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
-    emits: [],
+    emits: ["app_deleted"],
   }),
   defineRoute<void, AppLogsRes>({
     opId: "apps.logs",
@@ -1028,21 +1029,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/apps/:name/start",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
-    emits: [],
+    emits: ["app_upserted"],
   }),
   defineRoute<void, AppWire>({
     opId: "apps.stop",
     method: "POST",
     path: "/api/apps/:name/stop",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
-    emits: [],
+    emits: ["app_upserted"],
   }),
   defineRoute<void, AppWire>({
     opId: "apps.restart",
     method: "POST",
     path: "/api/apps/:name/restart",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
-    emits: [],
+    emits: ["app_upserted"],
   }),
 
   // --- Memory (isomux-memory; durable shared facts) -------------------------

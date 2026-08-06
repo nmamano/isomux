@@ -19,6 +19,7 @@ import { DeviceSettingsModal } from "./components/DeviceSettingsModal.tsx";
 import { UserSettingsView } from "./components/UserSettingsView.tsx";
 import { TaskView } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
+import { AppsView } from "./components/AppsView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { CSS } from "./styles.ts";
@@ -119,6 +120,7 @@ export function App() {
   );
   const [tasksOpen, setTasksOpen] = useState(false);
   const [cronjobsOpen, setCronjobsOpen] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
 
   // Refresh persistence: reopen the same spot (room / agent chat / tasks /
@@ -174,6 +176,7 @@ export function App() {
     }
     if (saved.panel === "tasks") setTasksOpen(true);
     else if (saved.panel === "cronjobs") setCronjobsOpen(true);
+    else if (saved.panel === "apps") setAppsOpen(true);
     else if (saved.panel === "users") setUsersOpen(true);
   }, [
     persistEnabled,
@@ -197,7 +200,9 @@ export function App() {
           ? "tasks"
           : cronjobsOpen
             ? "cronjobs"
-            : null,
+            : appsOpen
+              ? "apps"
+              : null,
     });
   }, [
     persistEnabled,
@@ -207,6 +212,7 @@ export function App() {
     focusedAgentId,
     tasksOpen,
     cronjobsOpen,
+    appsOpen,
     usersOpen,
   ]);
 
@@ -360,7 +366,7 @@ export function App() {
     editingRoomSettings !== null ||
     updateOpen;
   const viewMode: "office" | "log" | "away" =
-    tasksOpen || cronjobsOpen || usersOpen || anyModalOpen
+    tasksOpen || cronjobsOpen || appsOpen || usersOpen || anyModalOpen
       ? "away"
       : focusedAgentId
         ? "log"
@@ -404,6 +410,7 @@ export function App() {
       // Safety fallback - shouldn't happen, but don't break if it does
       setTasksOpen(false);
       setCronjobsOpen(false);
+      setAppsOpen(false);
       setUsersOpen(false);
       setEditingUserId(null);
       dispatch({ type: "focus", agentId: null });
@@ -552,7 +559,11 @@ export function App() {
 
   // Sync history stack with view state
   const isDeep =
-    tasksOpen || cronjobsOpen || usersOpen || focusedAgentId !== null;
+    tasksOpen ||
+    cronjobsOpen ||
+    appsOpen ||
+    usersOpen ||
+    focusedAgentId !== null;
   useEffect(() => {
     if (isDeep && !deepRef.current) {
       window.history.pushState({ isomux: true }, "");
@@ -564,7 +575,7 @@ export function App() {
       // Returned to office - entry was consumed by history.back()
       deepRef.current = false;
     }
-  }, [isDeep, focusedAgentId, tasksOpen, cronjobsOpen, usersOpen]);
+  }, [isDeep, focusedAgentId, tasksOpen, cronjobsOpen, appsOpen, usersOpen]);
 
   useEffect(() => {
     function handlePopState() {
@@ -579,6 +590,7 @@ export function App() {
       }
       setTasksOpen(false);
       setCronjobsOpen(false);
+      setAppsOpen(false);
       setUsersOpen(false);
       setEditingUserId(null);
       dispatch({ type: "focus", agentId: null });
@@ -610,6 +622,8 @@ export function App() {
         />
       ) : cronjobsOpen ? (
         <CronjobsView onClose={goHome} />
+      ) : appsOpen ? (
+        <AppsView onClose={goHome} />
       ) : focusedAgent ? (
         <LogView
           key={focusedAgent.id}
@@ -635,6 +649,7 @@ export function App() {
           }}
           onOpenTasks={() => setTasksOpen(true)}
           onOpenCronjobs={() => setCronjobsOpen(true)}
+          onOpenApps={() => setAppsOpen(true)}
           onOpenUpdate={() => setUpdateOpen(true)}
           onToggleView={() => dispatch({ type: "toggle_mobile_view" })}
           onSwipeLeft={swipeRoomNext}
@@ -657,6 +672,7 @@ export function App() {
           }}
           onOpenTasks={() => setTasksOpen(true)}
           onOpenCronjobs={() => setCronjobsOpen(true)}
+          onOpenApps={() => setAppsOpen(true)}
           onOpenUpdate={() => setUpdateOpen(true)}
           onSwipeLeft={swipeRoomNext}
           onSwipeRight={swipeRoomPrev}

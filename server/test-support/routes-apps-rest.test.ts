@@ -20,13 +20,19 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { startTestServer, type TestServer } from "./harness.ts";
+import {
+  startTestServer,
+  type TestServer,
+  type TestSocket,
+} from "./harness.ts";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { APP_PORT_MIN, APP_PORT_MAX } from "../app-registry.ts";
 import { APP_LOG_LINES_DEFAULT } from "../app-supervisor.ts";
 import type { AppWire } from "../../shared/contract-shapes.ts";
-import type { AgentInfo } from "../../shared/types.ts";
+import type { AgentInfo, AppRecord } from "../../shared/types.ts";
+import { appsHandlers, type AppsDeps } from "../routes/handlers/apps.ts";
+import type { RouteHandlerContext } from "../routes/executor.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -1265,5 +1271,369 @@ describe("routes/apps REST: updating an app", () => {
         })
       ).status,
     ).toBe(200);
+  });
+});
+
+// --- The WS fan-out (S3) ----------------------------------------------------
+// A mutation announces the app to every socket that may see it and NOTHING to
+// the rest. The audience is ownership-based (the app's user, plus office
+// owners), so the negative assertions carry as much weight as the positive
+// ones: an app_deleted naming an app you were never entitled to see is the same
+// leak the REST 404 avoids.
+//
+// The rule itself is unit-tested exhaustively in server/events/app-delta.test.ts.
+// What these add is that the LOOP honors it over real sockets, and that the
+// announced payload is the one the caller was handed.
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function waitUntil(
+  pred: () => boolean,
+  timeoutMs = 2000,
+  label = "cond",
+) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (pred()) return;
+    if (Date.now() > deadline) throw new Error(`waitUntil timed out: ${label}`);
+    await sleep(10);
+  }
+}
+
+const appUpsertsOf = (s: TestSocket): AppWire[] =>
+  s.messages
+    .filter((m) => (m as { type?: string }).type === "app_upserted")
+    .map((m) => (m as { app: AppWire }).app);
+
+const appDeletesOf = (s: TestSocket): string[] =>
+  s.messages
+    .filter((m) => (m as { type?: string }).type === "app_deleted")
+    .map((m) => (m as { name: string }).name);
+
+describe("routes/apps REST: per-recipient WS fan-out", () => {
+  it("register announces to the owning user and to office owners, and to nobody else", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const bob = await srv.seedMember("Bob");
+    const ownerSock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    const aliceSock: TestSocket = await srv.connectWs(alice.rawSessionId);
+    const bobSock: TestSocket = await srv.connectWs(bob.rawSessionId);
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      rawSessionId: alice.rawSessionId,
+      body: body(srv, "alice-app"),
+    });
+    expect(reg.status).toBe(201);
+
+    await waitUntil(
+      () => appUpsertsOf(aliceSock).some((a) => a.name === "alice-app"),
+      2000,
+      "alice sees her own app",
+    );
+    await waitUntil(
+      () => appUpsertsOf(ownerSock).some((a) => a.name === "alice-app"),
+      2000,
+      "office owner sees every app",
+    );
+
+    // Bob hears nothing. Ordering is what makes this a real assertion rather
+    // than a race: the fan-out is ONE synchronous loop over the sockets, so by
+    // the time Alice's and the owner's frames have arrived, Bob's would have
+    // been sent too if the rule had produced one for him.
+    expect(appUpsertsOf(bobSock)).toHaveLength(0);
+    expect(appDeletesOf(bobSock)).toHaveLength(0);
+  });
+
+  it("announces the SAME wire object the caller was handed", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: body(srv, "twin", { description: "a demo" }),
+    });
+    await waitUntil(() => appUpsertsOf(sock).length > 0, 2000, "announced");
+    // Response body and wire payload are built from ONE `wire` const in the
+    // handler; this is what would catch a future refactor rebuilding either.
+    expect(appUpsertsOf(sock)[0]).toEqual(reg.body as AppWire);
+  });
+
+  it("start, stop and restart each announce the app's fresh state", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: body(srv, "verbs"),
+    });
+    await waitUntil(() => appUpsertsOf(sock).length === 1, 2000, "registered");
+
+    for (const verb of ["stop", "start", "restart"]) {
+      const before = appUpsertsOf(sock).length;
+      const res = await api(srv, `/api/apps/verbs/${verb}`, {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(res.status).toBe(200);
+      await waitUntil(
+        () => appUpsertsOf(sock).length === before + 1,
+        2000,
+        `${verb} announced`,
+      );
+      const announced = appUpsertsOf(sock).at(-1)!;
+      expect(announced.state).toBe((res.body as AppWire).state);
+    }
+    // stop -> stopped, start -> running, restart -> running: the announced
+    // state tracks the verb rather than repeating the registration snapshot.
+    const states = appUpsertsOf(sock).map((a) => a.state);
+    expect(states.slice(1)).toEqual(["stopped", "running", "running"]);
+  });
+
+  it("a description-only update announces, and delete announces just the name", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const bob = await srv.seedMember("Bob");
+    const ownerSock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    const aliceSock: TestSocket = await srv.connectWs(alice.rawSessionId);
+    const bobSock: TestSocket = await srv.connectWs(bob.rawSessionId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      rawSessionId: alice.rawSessionId,
+      body: body(srv, "alice-app"),
+    });
+    await waitUntil(() => appUpsertsOf(ownerSock).length === 1, 2000, "reg");
+
+    const patched = await api(srv, "/api/apps/alice-app", {
+      method: "PATCH",
+      rawSessionId: alice.rawSessionId,
+      body: { description: "now with a blurb" },
+    });
+    expect(patched.status).toBe(200);
+    await waitUntil(
+      () => appUpsertsOf(ownerSock).length === 2,
+      2000,
+      "patch announced",
+    );
+    expect(appUpsertsOf(ownerSock)[1].description).toBe("now with a blurb");
+
+    const del = await api(srv, "/api/apps/alice-app", {
+      method: "DELETE",
+      rawSessionId: alice.rawSessionId,
+    });
+    expect(del.status).toBe(204);
+    await waitUntil(
+      () => appDeletesOf(ownerSock).includes("alice-app"),
+      2000,
+      "delete announced to the office owner",
+    );
+    // And to the app's OWN user, which is the audience the delete announcement
+    // exists for: without it Alice's tab keeps showing an app that is gone.
+    await waitUntil(
+      () => appDeletesOf(aliceSock).includes("alice-app"),
+      2000,
+      "delete announced to the owning user",
+    );
+    // Bob was never entitled to the app, so he is not told it went away either
+    // - a delete naming it would be the oracle the whole rule exists to deny.
+    expect(appDeletesOf(bobSock)).toHaveLength(0);
+    expect(appUpsertsOf(bobSock)).toHaveLength(0);
+  });
+
+  it("announces nothing for a refusal: unknown names and a verb that threw", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: body(srv, "real"),
+    });
+    await waitUntil(() => appUpsertsOf(sock).length === 1, 2000, "registered");
+
+    // Unknown name on every shape of route.
+    for (const [path, method] of [
+      ["/api/apps/ghost/start", "POST"],
+      ["/api/apps/ghost", "DELETE"],
+      ["/api/apps/ghost", "PATCH"],
+    ] as const) {
+      const res = await api(srv, path, {
+        method,
+        rawSessionId: owner.rawSessionId,
+        ...(method === "PATCH" ? { body: { description: "x" } } : {}),
+      });
+      expect(res.status).toBe(404);
+    }
+    // A validation refusal on a real app.
+    expect(
+      (
+        await api(srv, "/api/apps/real", {
+          method: "PATCH",
+          rawSessionId: owner.rawSessionId,
+          body: {},
+        })
+      ).status,
+    ).toBe(400);
+
+    // A verb the machine refused: it changed nothing, so it announces nothing.
+    srv.appSupervisor.failAction = "systemd could not be reached";
+    expect(
+      (
+        await api(srv, "/api/apps/real/start", {
+          method: "POST",
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(500);
+    srv.appSupervisor.failAction = null;
+
+    // A later real mutation proves the socket was still listening throughout,
+    // so the silence above is silence and not a dead connection.
+    await api(srv, "/api/apps/real/stop", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+    });
+    await waitUntil(() => appUpsertsOf(sock).length === 2, 2000, "stop lands");
+    expect(appDeletesOf(sock)).toHaveLength(0);
+  });
+
+  it("a register whose supervisor failed still announces - the record committed", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    srv.appSupervisor.failInstall = "no systemd here";
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: body(srv, "doomed"),
+    });
+    // 201: the registration really happened. The office is told the truthful
+    // result - the app exists and is not running - rather than nothing at all,
+    // which would leave every other tab showing no app where one now exists.
+    expect(reg.status).toBe(201);
+    await waitUntil(() => appUpsertsOf(sock).length === 1, 2000, "announced");
+    const announced = appUpsertsOf(sock)[0];
+    expect(announced.name).toBe("doomed");
+    expect(announced.state).not.toBe("running");
+    expect(announced.startError).toBe("no systemd here");
+  });
+});
+
+// --- Announcing must never change what was announced (S3) -------------------
+// Every announce call site sits after its commit point and inside the handler's
+// outer try. If the injected wire seam throws, that catch would render an HTTP
+// failure for a mutation that REALLY HAPPENED - and the caller's natural
+// response to a 500 is a retry that can only ever be told the name is taken, or
+// already gone. Driven through appsHandlers directly, because the point is a
+// dependency the real server does not let you break.
+
+function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
+  const record: AppRecord = {
+    name: "hello",
+    port: 21000,
+    command: "bun run serve.ts",
+    cwd: "/tmp",
+    dataDir: "/tmp/data/hello",
+    userId: "u-alice",
+    username: "alice",
+    createdBy: "Agent1",
+    createdAt: 1,
+  };
+  const boom = () => {
+    throw new Error("the wire is on fire");
+  };
+  return {
+    list: () => [record],
+    get: () => record,
+    register: () => record,
+    remove: () => record,
+    update: () => record,
+    attributionFor: () => ({ createdBy: "Agent1", username: "alice" }),
+    validateCwd: (cwd) => ({ ok: true, resolved: cwd }),
+    isOfficeOwner: () => true,
+    announce: boom,
+    announceRemoved: boom,
+    install: () => {},
+    reinstall: () => {},
+    teardown: () => {},
+    start: () => {},
+    stop: () => {},
+    restart: () => {},
+    states: () => new Map(),
+    logs: () => [],
+    ...over,
+  };
+}
+
+const unitCtx = (
+  body: unknown = {},
+  params: Record<string, string> = { name: "hello" },
+): RouteHandlerContext => ({
+  identity: {
+    scope: "user",
+    userId: "u-alice",
+    role: "owner",
+  } as unknown as RouteHandlerContext["identity"],
+  params,
+  body,
+  rawBody: JSON.stringify(body ?? {}),
+  query: new URLSearchParams(),
+  req: new Request("http://localhost/"),
+});
+
+describe("routes/apps: a failed announcement never rewrites a committed answer", () => {
+  it("register still answers 201 with the app when announcing throws", async () => {
+    const handlers = appsHandlers(throwingDeps());
+    const res = await handlers["apps.register"](
+      unitCtx({ name: "hello", command: "bun run serve.ts", cwd: "/tmp" }, {}),
+    );
+    expect(res.kind).toBe("json");
+    if (res.kind !== "json") throw new Error("expected json");
+    expect(res.status).toBe(201);
+    expect((res.body as AppWire).name).toBe("hello");
+  });
+
+  it("update still answers 200 with the app when announcing throws", async () => {
+    const handlers = appsHandlers(throwingDeps());
+    const res = await handlers["apps.update"](unitCtx({ description: "x" }));
+    expect(res.kind).toBe("json");
+    if (res.kind !== "json") throw new Error("expected json");
+    expect(res.status ?? 200).toBe(200);
+    expect((res.body as AppWire).name).toBe("hello");
+  });
+
+  it("delete still answers 204 when announcing throws - the name IS retired", async () => {
+    // The worst of the four: a 500 here would invite a retry against a name the
+    // registry has already tombstoned.
+    const handlers = appsHandlers(throwingDeps());
+    const res = await handlers["apps.delete"](unitCtx());
+    expect(res.kind).toBe("noContent");
+  });
+
+  it("start still answers 200 with the app's state when announcing throws", async () => {
+    let started = 0;
+    const handlers = appsHandlers(
+      throwingDeps({
+        start: () => {
+          started++;
+        },
+      }),
+    );
+    const res = await handlers["apps.start"](unitCtx());
+    expect(res.kind).toBe("json");
+    if (res.kind !== "json") throw new Error("expected json");
+    expect(started).toBe(1);
+    expect((res.body as AppWire).name).toBe("hello");
   });
 });

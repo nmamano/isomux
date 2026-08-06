@@ -726,6 +726,52 @@ export interface AppRecord {
   createdAt: number;
 }
 
+// What an app is doing. The registry persists NO state field: a stored
+// "running" is a lie the moment the box reboots, so state is DERIVED at read
+// time, by asking systemd.
+//
+// `unknown` is not a synonym for `stopped`, and the difference is the point of
+// having it: `stopped` means systemd is holding the app still on purpose, while
+// `unknown` means there is no unit at all, or systemd could not be asked. One
+// of those is a state somebody chose and the other is a fault.
+export type AppState =
+  | "running"
+  | "starting"
+  | "stopped"
+  | "failed"
+  | "unknown";
+
+// An app as it goes over the wire: the record plus what only the supervisor
+// knows. Its canonical home is here rather than contract-shapes.ts because
+// ServerMessage carries it (app_upserted), and contract-shapes.ts imports from
+// this module - the same reason UserPublicWire lives here.
+export interface AppWire extends AppRecord {
+  state: AppState;
+  // AUTOMATIC restarts since the app was last activated (systemd's NRestarts).
+  // A number climbing on its own is the signal that an app is crash-looping
+  // rather than serving. It resets when the app is stopped and started again,
+  // which is the honest scope rather than a lifetime total: an explicit restart
+  // is a new activation, and counting across one would report a fixed app as
+  // still broken.
+  restartCount: number;
+  // Why the last install or start attempt failed, when one did. Absent means
+  // no attempt has failed since isomux started.
+  //
+  // It exists because registering an app answers 201 even when the app does not
+  // come up - the registration really did happen, and a 500 would invite a
+  // retry that can only ever be told the name is taken. That leaves `state` as
+  // the only signal, and `state` cannot say WHY. An agent has no access to the
+  // server log, and a failure to install the unit at all happens before there
+  // is anything in journald to read, so without this the reason is invisible
+  // to the API's main consumer.
+  //
+  // In memory only, so it does not survive an isomux restart. That is the
+  // honest scope: it describes an attempt this process made, and after a
+  // restart `state` still tells the truth while the next attempt regenerates
+  // the reason.
+  startError?: string;
+}
+
 // A retired app: the tombstone left behind by a delete. Both the name and the
 // port are burned permanently.
 export interface RetiredApp {
@@ -1326,6 +1372,16 @@ export type ServerMessage =
   // Drop this task from the board. Either it was deleted, or it was re-filed
   // into a room this recipient cannot access - from their seat both are "gone".
   | { type: "task_deleted"; taskId: string }
+  // Apps, per-recipient projected for the same reason the task deltas are: an
+  // app is visible to its owning user and to office owners, so one mutation is
+  // an upsert for some sockets and nothing at all for the rest. There is no
+  // whole-list event to match `tasks` - the Apps tab fetches GET /api/apps when
+  // it opens, because reading app state costs a systemd call and almost nobody
+  // opens the tab.
+  | { type: "app_upserted"; app: AppWire }
+  // The app is gone from this recipient's list. Only its name travels: an app
+  // this recipient could not see never produced a frame in the first place.
+  | { type: "app_deleted"; name: string }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }

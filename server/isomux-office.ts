@@ -197,6 +197,7 @@ import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { taskDeltaFor } from "./events/task-delta.ts";
+import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
 import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
 import { type Identity } from "./identity/index.ts";
@@ -1493,6 +1494,9 @@ function buildExecutorDeps(): ExecutorDeps {
       },
       isOfficeOwner: (identity) =>
         identity.scope === "user" && identity.role === "owner",
+      announce: (wire) => pushAppDeltaToEachWs({ kind: "upserted", app: wire }),
+      announceRemoved: ({ name, userId }) =>
+        pushAppDeltaToEachWs({ kind: "deleted", name, userId }),
     }),
   );
 
@@ -3317,6 +3321,27 @@ function pushTaskDeltaToEachWs(change: TaskChange) {
     const user = getUserById(ws.data.session.userId);
     const accessible = user ? accessibleRoomIdsFor(user) : new Set<string>();
     const delta = taskDeltaFor(change, accessible);
+    if (delta) ws.send(JSON.stringify(delta));
+  }
+}
+
+// --- Ownership-scoped apps fan-out (mirrors the task delta projection) ------
+// Push ONE app mutation to every socket as a per-recipient delta. Apps are
+// scoped by OWNERSHIP rather than room access - an app belongs to a user, and
+// office owners see them all - so the same mutation is an upsert for some
+// sockets and nothing at all for the rest. appDeltaFor owns the rule; see
+// server/events/app-delta.ts for why a recipient who cannot see an app is sent
+// no frame rather than an empty one.
+//
+// There is no whole-list counterpart to pushTasksToEachWs: an app list costs a
+// systemd read, so the Apps tab fetches GET /api/apps when it opens (and after
+// a rehydrate) instead of every session paying for a tab it never opens.
+function pushAppDeltaToEachWs(change: AppChange) {
+  for (const ws of browsers) {
+    const delta = appDeltaFor(change, {
+      userId: ws.data.session.userId,
+      isOfficeOwner: ws.data.session.role === "owner",
+    });
     if (delta) ws.send(JSON.stringify(delta));
   }
 }

@@ -28,6 +28,7 @@ import {
   ListIcon,
   DeviceIcon,
   ClockIcon,
+  AppsIcon,
   UserIcon,
 } from "../components/NavIcons.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
@@ -133,6 +134,7 @@ interface OfficeViewProps {
   onEditRoomSettings?: () => void;
   onOpenTasks: () => void;
   onOpenCronjobs: () => void;
+  onOpenApps: () => void;
   onOpenUpdate: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
@@ -149,6 +151,7 @@ export function OfficeView({
   onEditRoomSettings,
   onOpenTasks,
   onOpenCronjobs,
+  onOpenApps,
   onOpenUpdate,
   onSwipeLeft,
   onSwipeRight,
@@ -289,6 +292,7 @@ export function OfficeView({
       label: "Cron jobs",
       onClick: onOpenCronjobs,
     },
+    { id: "apps", icon: AppsIcon, label: "Apps", onClick: onOpenApps },
     {
       id: "user",
       icon: UserIcon,
