@@ -10,3 +10,6 @@ site/docs/
 
 # Private business docs - never committed (Nil, 2026-08-02)
 internal-docs/private/
+
+# holds a Stripe key; this repo is public
+.mcp.json
