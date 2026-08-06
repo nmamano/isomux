@@ -13,11 +13,17 @@
 
 import type { UserRole } from "../../shared/types.ts";
 
-// A token (or cookie) resolves to one of three identity scopes. Scope is
+// A token (or cookie) resolves to one of four identity scopes. Scope is
 // orthogonal to role: a USER identity additionally carries owner/member, which
-// guards consult; AGENT and CRON-RUN identities are non-user and never gate on
-// role (see Identity.role).
-export type TokenScope = "user" | "agent" | "cron-run";
+// guards consult; AGENT, CRON-RUN and APP identities are non-user and never
+// gate on role (see Identity.role).
+//
+// APP is the odd one out and deliberately so: it is the scope of a registered
+// app's own server process (server/app-tokens.ts), which is agent-AUTHORED code
+// running unattended, and it holds NO capabilities at all today. Adding it here
+// rather than off to one side is what makes every `switch (identity.scope)` in
+// the guard catalog fail to compile until it has decided about apps.
+export type TokenScope = "user" | "agent" | "cron-run" | "app";
 
 // The capability lattice. A capability gates a class of operations; the route
 // table's `requiredCapability` is checked against the identity's set before any
@@ -75,12 +81,21 @@ export interface Identity {
   scope: TokenScope;
   // The owning/acting user. For USER scope this is the human; for AGENT scope
   // the spawning user (drives token-derived attribution); for CRON-RUN scope
-  // the cronjob's creator (may be null for an unowned job).
+  // the cronjob's creator (may be null for an unowned job); for APP scope the
+  // user the app belongs to.
+  //
+  // On APP scope this field is TRUTHFUL, not an authority: an app is not its
+  // owner. Every guard that owner-matches on userId is scope-gated first, and
+  // the whole-table reachability test pins that an app identity authorizes
+  // nothing - carrying null here instead would make attribution dishonest and
+  // hide a missed scope check rather than prevent one.
   userId: string | null;
   // Present only on the corresponding scope.
   agentId?: string;
   cronjobId?: string;
   runId?: string;
+  // APP scope: the registered app's (permanent, unique) name.
+  appName?: string;
   // Role is meaningful ONLY for USER scope (owner-only routes are gated by the
   // officeOwner guard on a USER identity). For AGENT and CRON-RUN scope it is
   // an inert least-privilege filler ("member"). Authorization for non-user
@@ -202,6 +217,21 @@ export const RUN_CAPABILITIES: readonly Capability[] = [
   "task:write",
 ];
 
+// APP set: EMPTY, and that is the whole point of the scope today.
+//
+// A registered app gets a token so that it HAS an identity isomux can recognise
+// (server/app-tokens.ts); what it may DO with it is defined by the next slice,
+// which grants exactly one narrow capability - messaging the agent that built
+// it. Until then an app token authenticates and authorizes nothing: every
+// capability route denies it for want of a capability, and the two routes that
+// ask only for "some identity" deny it in the `authenticated` guard. A
+// contract test walks the whole route table and pins that.
+//
+// An empty set rather than no scope at all because the token must still be
+// distinguishable from a garbage one - a live app presenting its token gets a
+// 403 (I know who you are, you may do nothing), not a 401.
+export const APP_CAPABILITIES: readonly Capability[] = [];
+
 export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
   switch (scope) {
     case "user":
@@ -210,6 +240,8 @@ export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
       return AGENT_CAPABILITIES;
     case "cron-run":
       return RUN_CAPABILITIES;
+    case "app":
+      return APP_CAPABILITIES;
   }
 }
 

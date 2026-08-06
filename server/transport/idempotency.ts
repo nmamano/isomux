@@ -35,6 +35,8 @@ export function identitySubjectKey(identity: Identity): string {
       return `agent:${identity.agentId ?? ""}`;
     case "cron-run":
       return `cron-run:${identity.cronjobId ?? ""}:${identity.runId ?? ""}`;
+    case "app":
+      return `app:${identity.appName ?? ""}`;
   }
 }
 

@@ -121,8 +121,13 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
          (Isomuxer2/Reviewer2, 2 rounds, approved 041e4666, committed with
          this edit. External-repo surfaces of documentation.md §6-11 parked;
          humanizeIsomuxRequest apps arm parked as cheap follow-up.)
-- [ ] S5  (stretch) App tokens: hashed persistence per tokens.ts secrecy rule,
+- [x] S5  (stretch) App tokens: hashed persistence per tokens.ts secrecy rule,
          injected as ISOMUX_APP_TOKEN.
+         (Isomuxer3/Reviewer3, 4 rounds, approved 016ec33c, committed with
+         this edit. APP scope authorizes NOTHING yet - whole-table test pins
+         it; S6 edits that test deliberately. Boot reconciliation self-heals
+         token/unit pairs. Found+fixed in-slice: app tokens would have
+         inherited owner room access via hasRoomAccess.)
 - [ ] S6  (stretch) App-to-agent messaging: scoped capability, rate limit +
          daily cap constants, non-authority labelling.
 
@@ -138,7 +143,14 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
 - Morning options for Nil from S3: register-from-UI / edit-from-UI forms;
   whether the port stays plain text (honest on hosted where ports are
   unreachable) or becomes a link on tailnet boxes.
-- PARKED FOR NIL: none open. Mid-loop rulings (Nil, 2026-08-06, from phone):
+- PARKED FOR NIL (from S5): (1) the app token env file is the FIRST raw
+  credential isomux persists, and backup.ts tars the whole state root - so
+  backups now contain live app tokens. Mitigation available if wanted:
+  exclude apps/units from the backup; boot reconciliation already self-heals
+  and would rotate on restore. (2) rotation-on-demand route: deferred, needs
+  his sign-off as new API surface. (3) restated honestly: apps share one
+  Unix account - the token carries scope, not secrecy from sibling apps.
+- PARKED FOR NIL: none open from phase 1. Mid-loop rulings (Nil, 2026-08-06, from phone):
   restart/start/stop routes confirmed; remaining calls delegated to the
   manager under "whatever behavior is less surprising to our users",
   resolved as:
@@ -519,3 +531,56 @@ approve on announced fingerprint; all new strings verbatim.
 
 Locked: hashed-at-rest, no new agent-facing routes without manager signoff,
 S6 defines what the token can DO, Standing rails.
+
+## SLICE-6 PICKUP (stretch; authored after S5's commit; baseline = that commit)
+
+What S5 taught (real, from its report): TokenScope "app" exists with
+APP_CAPABILITIES = [] and a whole-table reachability test asserting NO route
+authorizes an app identity - S6's one deliberate breakage is editing that
+test to open exactly one route. Token resolution rides auth-middleware's
+resolveToken ?? appIdentityFromToken; Identity.appName carries the app;
+identity.userId is the owner (truthful, never authority). S5 deferred to S6:
+the registry-existence check on token resolution (the messaging route must
+load the app record anyway). EnvironmentFile is not quote-parsed; unit files
+land 0664; `systemctl show` never prints EnvironmentFile values.
+
+Goal: close the loop - an app can message the agent that built it. One new
+route, authorized ONLY by app scope, rate-limited, clearly labelled as
+non-authority. Plus the ISOMUX_APP_TOKEN prose that S5 deliberately left
+unwritten (an env var that authorizes nothing was not worth documenting;
+now it is).
+
+Load-bearing mechanics and traps:
+- Route shape: the token IS the app - no :name param to trust. Something
+  like POST /api/app/message (manager has pre-approved exactly ONE route;
+  final path is a decide-with-reviewer, announce in the plan-gate). Body:
+  {text}. New capability e.g. app:message, added to APP_CAPABILITIES only.
+- Target: the registry's creating agent. If that agent no longer exists,
+  fail with a clear, actionable error (retargeting is future work - park
+  it). Reuse the existing agent-message delivery path (queued vs immediate)
+  rather than inventing one.
+- LABELLING: the receiving agent must see app-origin messages as
+  non-authority, the same rule the system prompt states for agent-to-agent
+  messages - e.g. a distinct prefix carrying the app name. Wording is
+  Nil-signoff material: quote it verbatim.
+- RATE LIMIT: messages wake agents and burn model tokens (design section
+  5: "an app in a loop is a bill"). Per-app limit + daily cap, plain named
+  constants (no env vars), 429 with a message that tells the app WHEN to
+  retry. Persist enough to survive a restart honestly or state plainly
+  that limits reset on restart - decide with reviewer, don't pretend.
+- Registry-existence check on token resolution lands here (a token whose
+  app record is gone resolves to nothing).
+- PROSE (all verbatim in report): system-prompt addition telling agents
+  their apps can message them back via ISOMUX_APP_TOKEN + how to wire it;
+  keep it SHORT (Nil strips the obvious). Whether any doc surface mentions
+  it: check documentation.md, capability-level only.
+- Tests: the deliberate whole-table edit (one route, app scope only);
+  rate-limit matrix; dead-agent path; delivery labelling; mutation-check.
+
+Acceptance: isolated-instance demo - registered app POSTs with its token,
+the owning agent's queue shows the labelled message; second POST past the
+limit gets 429; deleted app's token gets 401; gates + test:systemd green;
+reviewer approve on announced fingerprint.
+
+Locked: ONE route, app scope only, APP_CAPABILITIES grows by exactly one,
+no UI work (tab surfacing of caps/limits parked), Standing rails.

@@ -46,6 +46,7 @@ function fakeHost(
     runs,
     removed,
     writeFile: () => {},
+    readFile: () => null,
     removeFile: (path) => {
       if (removeThrowsOn.includes(path)) {
         throw new Error(`EACCES removing ${path}`);

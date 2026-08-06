@@ -39,11 +39,21 @@
 // The launcher lives beside the registry state, NOT in the app's own data
 // directory: the app can write to its data directory, and a program that can
 // rewrite its own launcher is a program that can change what isomux starts as
-// it on the next boot.
+// it on the next boot. The app's token environment file sits beside it for the
+// same reason (server/app-tokens.ts owns the token itself).
+//
+// THREE GENERATED FILES PER APP, and they are regenerated on different
+// schedules, which is the detail to hold onto:
+//   - the launcher and the unit are rewritten whenever the record changes,
+//     because they are derived from it;
+//   - the token file is written ONCE, at registration, and never regenerated,
+//     because isomux keeps only the token's hash and could not reproduce its
+//     contents. That is exactly why an update preserves an app's token instead
+//     of rotating it on every edit.
 
 import { spawnSync } from "child_process";
 import { createHash } from "crypto";
-import { existsSync, mkdirSync, rmSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "fs";
 import { homedir } from "os";
 import { dirname, join } from "path";
 import { IS_DEFAULT_STATE_ROOT, STATE_ROOT } from "./config.ts";
@@ -64,6 +74,13 @@ import type { AppErrorCode, AppState } from "../shared/contract-shapes.ts";
 export const APP_MEMORY_MAX = "512M";
 // The launcher holds agent-authored code, so it is not world-readable.
 export const APP_LAUNCHER_MODE = 0o600;
+// The environment file holds the app's token in plaintext (see the token
+// section below), so it gets the same treatment.
+export const APP_TOKEN_ENV_MODE = 0o600;
+// Created for the directory that holds those two, when isomux creates it.
+export const APP_PRIVATE_DIR_MODE = 0o700;
+// The variable an app reads its own isomux token out of.
+export const APP_TOKEN_ENV_VAR = "ISOMUX_APP_TOKEN";
 export const APP_CPU_QUOTA = "100%";
 // Only AUTOMATIC restarts wait; an explicit restart through the API does not.
 export const APP_RESTART_SEC = 2;
@@ -132,9 +149,16 @@ export interface SupervisorHost {
   unitDir: string;
   // Where isomux keeps the generated launcher scripts.
   launcherDir: string;
-  // `mode` is honoured where the host has a filesystem; the launcher asks for
-  // 0600 because it holds agent-authored code.
+  // `mode` is honoured where the host has a filesystem; the launcher and the
+  // token environment file ask for 0600 because they hold agent-authored code
+  // and a live credential.
   writeFile(path: string, contents: string, mode?: number): void;
+  // Read a file isomux generated, or null when it is not there. Exists for ONE
+  // caller: reading an app's token environment file back, which is how boot
+  // reconciliation checks a stored hash against the plaintext the app is
+  // actually being given. A missing file is null rather than a throw - an app
+  // registered before tokens existed simply has none.
+  readFile(path: string): string | null;
   // Idempotent: removing a path that is not there is a success, because
   // teardown must be able to finish a delete that already half-happened.
   removeFile(path: string): void;
@@ -148,10 +172,25 @@ export function createSystemdHost(): SupervisorHost {
     unitDir: join(configHome, "systemd", "user"),
     launcherDir: join(STATE_ROOT, "apps", "units"),
     writeFile(path, contents, mode) {
-      mkdirSync(dirname(path), { recursive: true });
+      // A private file asks for a private directory. The file mode is what
+      // actually protects the contents; the directory mode keeps a listing of
+      // which apps exist and where their secrets live from being world-
+      // readable too. Only applies to a directory isomux CREATES - one that is
+      // already there keeps whatever mode it has.
+      mkdirSync(dirname(path), {
+        recursive: true,
+        ...(mode !== undefined ? { mode: APP_PRIVATE_DIR_MODE } : {}),
+      });
       // The mode is applied to the temp file BEFORE it is published, so the
       // launcher is never briefly world-readable at the ambient umask.
       atomicWriteFileSync(path, contents, mode);
+    },
+    readFile(path) {
+      try {
+        return readFileSync(path, "utf-8");
+      } catch {
+        return null;
+      }
     },
     removeFile(path) {
       rmSync(path, { force: true });
@@ -303,10 +342,45 @@ export function renderLauncher(app: AppRecord): string {
   ].join("\n");
 }
 
+// The app's token, as systemd's EnvironmentFile format: bare `KEY=value` lines,
+// no quoting, no `export`. The value is base64url by construction (asserted at
+// mint time), so it needs none of systemd's quoting rules - which is the point,
+// since a value systemd unquoted differently from what isomux hashed would be a
+// token that silently never works.
+export function renderTokenEnv(raw: string): string {
+  return `${APP_TOKEN_ENV_VAR}=${raw}\n`;
+}
+
+// Read a token back out of that file. Tolerant of what a person might have done
+// to it by hand (blank lines, other variables, a trailing newline or not) and
+// strict about what it returns: the first well-formed token line, or null -
+// never a partial or empty value dressed up as a token.
+export function parseTokenEnv(contents: string | null): string | null {
+  if (!contents) return null;
+  for (const line of contents.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith(`${APP_TOKEN_ENV_VAR}=`)) continue;
+    const value = trimmed.slice(APP_TOKEN_ENV_VAR.length + 1);
+    return value.length > 0 ? value : null;
+  }
+  return null;
+}
+
+// The one place the token directive's text lives, so the renderer and the check
+// that an installed unit carries it cannot drift apart.
+export const tokenEnvDirective = (tokenEnvPath: string): string =>
+  `EnvironmentFile=-${unitPathValue(tokenEnvPath, "the app's token file path")}`;
+
 export interface UnitRenderOpts {
   launcherPath: string;
   path: string;
   unitName: string;
+  // Where the app's token env file lives. Referenced by PATH, never by value:
+  // a unit file is not private (0664 at the usual umask, measured) and
+  // `systemctl show` prints every `Environment=` value straight back, while an
+  // EnvironmentFile shows only as its path. So the secret stays in a 0600 file
+  // isomux owns, and the unit says where to find it.
+  tokenEnvPath: string;
 }
 
 export function renderUnit(app: AppRecord, opts: UnitRenderOpts): string {
@@ -330,6 +404,15 @@ Environment=${unitQuoted(`PORT=${app.port}`, "the app's port")}
 Environment=${unitQuoted(`ISOMUX_APP_NAME=${app.name}`, "the app's name")}
 Environment=${unitQuoted(`ISOMUX_APP_DATA_DIR=${app.dataDir}`, "the app's data directory")}
 Environment=${unitQuoted(`PATH=${opts.path}`, "the app's PATH")}
+# The app's isomux token, by reference. The leading "-" makes the file optional:
+# an app that has no token (one registered before tokens existed, or one whose
+# token could not be provisioned) starts normally without ISOMUX_APP_TOKEN set,
+# rather than refusing to start over a credential it may never need.
+# Unquoted, like WorkingDirectory and NOT like Environment: measured on systemd
+# 255, a quoted path here is read with the quotes as part of the filename and -
+# because of that same leading "-" - fails SILENTLY, leaving the app running
+# with no token and nothing said about it.
+${tokenEnvDirective(opts.tokenEnvPath)}
 ExecStart=/bin/sh ${unitQuoted(opts.launcherPath, "the app's launcher path")}
 Restart=on-failure
 RestartSec=${APP_RESTART_SEC}
@@ -458,6 +541,41 @@ export interface AppSupervisor {
   // unit could not be INSTALLED; an app whose process fails to start is not an
   // error here - it is a state the caller can read.
   install(app: AppRecord): void;
+  // Write an app's token into the environment file its unit reads, replacing
+  // any earlier one. Called at registration (and by boot reconciliation)
+  // immediately after the hash is persisted, so the pair is written together;
+  // throws if the file could not be written, which is the caller's signal to
+  // revoke the hash rather than leave one behind with no plaintext.
+  //
+  // A RUNNING app does not see a new token until it restarts - a process's
+  // environment is fixed at exec. Nothing here restarts anything.
+  provisionToken(appName: string, raw: string): void;
+  // The token currently in an app's environment file, or null. The integrity
+  // half of reconciliation: a hash means nothing without the plaintext the app
+  // is actually being handed.
+  readToken(appName: string): string | null;
+  // Remove an app's token file. Best effort and idempotent - used when
+  // provisioning half-happened, so that what is left behind is an app with no
+  // token rather than one holding a plaintext nothing recognises.
+  removeToken(appName: string): void;
+  // Does the app's INSTALLED unit actually reference its token file? The third
+  // fact reconciliation needs, and the one neither the hash nor the plaintext
+  // can answer: a unit written before app tokens existed - or one whose write
+  // failed after the token was provisioned - injects nothing, and a healthy
+  // hash-plus-file pair sitting behind it would otherwise look like a working
+  // token forever.
+  unitInjectsToken(appName: string): boolean;
+  // Make systemd re-read its unit files. No activation, no file writes: the
+  // one thing an on-disk unit cannot tell you is whether the long-lived user
+  // manager ever loaded it, and a unit written by a previous isomux run whose
+  // daemon-reload failed is invisible to systemd until somebody asks for one.
+  reloadUnits(): void;
+  // Converge an app's generated files on its record - launcher, unit,
+  // daemon-reload - and DO NOTHING ELSE. No enable, no start, no restart.
+  // Reinstall's file half without its activation half, for the one caller that
+  // must not change what is running: boot reconciliation, which fixes files
+  // under apps that are serving traffic.
+  regenerate(app: AppRecord): void;
   // Regenerate an app's launcher and unit from a CHANGED record while
   // preserving prior activation intent: what was running is restarted into the
   // new command, what was at rest stays at rest, and what had no unit at all is
@@ -500,6 +618,13 @@ export function createAppSupervisor(
   const unitPath = (appName: string) => join(host.unitDir, unitName(appName));
   const launcherPath = (appName: string) =>
     join(host.launcherDir, `${appName}.sh`);
+  // Beside the launcher, NOT in the app's own data directory: the data
+  // directory is the one place the app itself writes, and a program that can
+  // rewrite the file holding its own credential can hand isomux a token of its
+  // choosing. (It is also in the backup set, and a live secret in a backup
+  // tarball is a different problem.)
+  const tokenEnvPath = (appName: string) =>
+    join(host.launcherDir, `${appName}.env`);
 
   const cache = new Map<string, AppRuntime>();
   let cachedAt = 0;
@@ -646,9 +771,18 @@ export function createAppSupervisor(
           launcherPath: launcherPath(app.name),
           path: computeAppPath(app.cwd, runtimeBinDir),
           unitName: unit,
+          tokenEnvPath: tokenEnvPath(app.name),
         }),
       ),
     );
+  };
+
+  // Write the files and tell systemd about them, without touching activation.
+  // Shared by regenerate and reinstall so the two can never diverge on what
+  // "the files agree with the record" means.
+  const convergeFiles = (app: AppRecord, what: string): void => {
+    writeGeneratedFiles(app);
+    must(systemctl("daemon-reload"), what);
   };
 
   // What systemd says about a unit RIGHT NOW, captured rather than thrown.
@@ -709,6 +843,69 @@ export function createAppSupervisor(
   return {
     unitName,
 
+    provisionToken(appName, raw) {
+      // Refused rather than written: a value carrying a line break would put a
+      // second variable in the file, and one carrying a `#` or leading space
+      // would come back through systemd's parser as something other than what
+      // isomux hashed. The mint side already guarantees base64url; this is the
+      // check that says so at the point where it matters.
+      if (!/^[A-Za-z0-9_-]+$/.test(raw)) {
+        throw new AppSupervisorError(
+          "supervisor_failed",
+          "the app's token contains characters that cannot be written to an environment file",
+        );
+      }
+      stage("the app's token file could not be written", () =>
+        host.writeFile(
+          tokenEnvPath(appName),
+          renderTokenEnv(raw),
+          APP_TOKEN_ENV_MODE,
+        ),
+      );
+    },
+
+    readToken(appName) {
+      return parseTokenEnv(host.readFile(tokenEnvPath(appName)));
+    },
+
+    removeToken(appName) {
+      host.removeFile(tokenEnvPath(appName));
+    },
+
+    unitInjectsToken(appName) {
+      const unit = host.readFile(unitPath(appName));
+      if (!unit) return false;
+      // Line by line, and EXACT - not `includes`. A substring search says yes
+      // to a commented-out `# EnvironmentFile=-...` and to a directive whose
+      // path merely starts with this one (`...hello.env.backup`), and both of
+      // those are units that inject nothing. Only leading and trailing
+      // whitespace is forgiven, which is the one thing systemd itself ignores.
+      const wanted = tokenEnvDirective(tokenEnvPath(appName));
+      return unit.split("\n").some((line) => line.trim() === wanted);
+    },
+
+    reloadUnits() {
+      try {
+        must(
+          systemctl("daemon-reload"),
+          "systemd could not reload the app units",
+        );
+      } finally {
+        // systemd's view of every app just changed; a cached read predates it.
+        invalidate();
+      }
+    },
+
+    regenerate(app) {
+      try {
+        convergeFiles(app, "systemd could not load the app's regenerated unit");
+      } finally {
+        // The unit changed under a possibly-running app, so any cached read of
+        // its state is from before that.
+        invalidate();
+      }
+    },
+
     install(app) {
       const unit = unitName(app.name);
       remember(app.name, () => {
@@ -766,12 +963,11 @@ export function createAppSupervisor(
       remember(app.name, () => {
         try {
           const before = readUnitProps(app.name);
-          // Convergence first, whatever the read said.
-          writeGeneratedFiles(app);
-          must(
-            systemctl("daemon-reload"),
-            "systemd could not load the app's updated unit",
-          );
+          // Convergence first, whatever the read said. The token file is NOT
+          // among the regenerated files: isomux holds only its hash, so there
+          // is nothing to rewrite it from, and leaving it alone is what makes
+          // an update preserve the app's token instead of quietly rotating it.
+          convergeFiles(app, "systemd could not load the app's updated unit");
           // Only now the retained read failure: a daemon-reload that refused
           // supersedes it, because then the files did NOT converge and that is
           // the more serious fact.
@@ -870,6 +1066,10 @@ export function createAppSupervisor(
         stage("the app's generated files could not be removed", () => {
           host.removeFile(unitPath(appName));
           host.removeFile(launcherPath(appName));
+          // The token's plaintext goes with them. Its hash is revoked by the
+          // delete handler; removing the file here is what makes the pair
+          // disappear together even if that revoke is retried.
+          host.removeFile(tokenEnvPath(appName));
         });
         must(
           systemctl("daemon-reload"),

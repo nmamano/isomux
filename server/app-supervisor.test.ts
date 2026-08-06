@@ -77,6 +77,7 @@ function fakeHost(
       files.set(path, contents);
       modes.set(path, mode);
     },
+    readFile: (path) => files.get(path) ?? null,
     removeFile: (path) => void files.delete(path),
     run: (argv) => {
       runs.push(argv);
@@ -195,6 +196,7 @@ describe("app-supervisor: unit generation", () => {
       launcherPath: "/launchers/hello.sh",
       path: "/p:/q",
       unitName: "isomux-app-hello.service",
+      tokenEnvPath: "/launchers/hello.env",
     });
     expect(directives(unit)).toEqual([
       "[Unit]",
@@ -213,6 +215,10 @@ describe("app-supervisor: unit generation", () => {
       'Environment="ISOMUX_APP_NAME=hello"',
       'Environment="ISOMUX_APP_DATA_DIR=/state/apps/data/hello"',
       'Environment="PATH=/p:/q"',
+      // NOT quoted, for the same reason as WorkingDirectory - and the failure
+      // mode is worse: a quoted path here is tolerated by the leading "-" and
+      // the app silently runs with no token (measured on systemd 255).
+      "EnvironmentFile=-/launchers/hello.env",
       'ExecStart=/bin/sh "/launchers/hello.sh"',
       "Restart=on-failure",
       "RestartSec=2",
@@ -231,6 +237,7 @@ describe("app-supervisor: unit generation", () => {
       launcherPath: "/launchers/hello.sh",
       path: "/p",
       unitName: "isomux-app-hello.service",
+      tokenEnvPath: "/launchers/hello.env",
     });
     expect(unit).not.toContain("bun run dev");
     expect(renderLauncher(app)).toContain("bun run dev --host");
@@ -258,6 +265,7 @@ describe("app-supervisor: unit generation", () => {
         launcherPath: `/launchers/50% "q"\\hello.sh`,
         path: "/p",
         unitName: "isomux-app-hello.service",
+        tokenEnvPath: `/launchers/50% "q"\\hello.env`,
       },
     );
     // WorkingDirectory takes the rest of the line as a literal path: the space
@@ -285,6 +293,7 @@ describe("app-supervisor: unit generation", () => {
         launcherPath: "/launchers/hello.sh",
         path: "/p",
         unitName: "isomux-app-hello.service",
+        tokenEnvPath: "/launchers/hello.env",
       }),
     ).toThrow(AppSupervisorError);
   });
@@ -374,6 +383,24 @@ describe("app-supervisor: install", () => {
       const host = createSystemdHost();
       host.writeFile(target, "#!/bin/sh\necho hi\n", 0o600);
       expect(statSync(target).mode & 0o777).toBe(0o600);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("creates the directory for a private file 0700, and an ordinary one at the umask", () => {
+    // The file mode is what protects the contents; the directory mode keeps a
+    // listing of which apps exist - and where their token files are - from
+    // being world-readable next to them. Only for a directory isomux CREATES:
+    // one that is already there keeps whatever mode it has, which is stated in
+    // the report rather than silently chmod-ed under a user's feet.
+    const dir = mkdtempSync(join(tmpdir(), "isomux-private-dir-"));
+    try {
+      const host = createSystemdHost();
+      host.writeFile(join(dir, "secret", "hello.env"), "X=1\n", 0o600);
+      expect(statSync(join(dir, "secret")).mode & 0o777).toBe(0o700);
+      host.writeFile(join(dir, "plain", "hello.service"), "[Unit]\n");
+      expect(statSync(join(dir, "plain")).mode & 0o777).not.toBe(0o700);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -886,6 +913,200 @@ describe("app-supervisor: teardown", () => {
 });
 
 // --- state ------------------------------------------------------------------
+
+// --- app tokens: provisioning, reading back, preserving ---------------------
+
+describe("app-supervisor: the app's token file", () => {
+  const tokenPath = "/launchers/hello.env";
+
+  it("writes the token as an environment file systemd can parse, at 0600", () => {
+    const host = fakeHost();
+    supervisor(host).provisionToken("hello", "tok_ABC-123");
+    // Bare KEY=value, one trailing newline, no quoting and no `export`: that is
+    // the whole of systemd's EnvironmentFile format.
+    expect(host.files.get(tokenPath)).toBe("ISOMUX_APP_TOKEN=tok_ABC-123\n");
+    expect(host.modes.get(tokenPath)).toBe(0o600);
+  });
+
+  it("refuses a token that an environment file could not hold", () => {
+    // Belt and braces with the mint-side alphabet check. A value with a space,
+    // a quote or a line break would come back through systemd's parser as
+    // something other than what isomux hashed - a token that silently never
+    // works.
+    const host = fakeHost();
+    for (const bad of ['has "quotes"', "has space", "two\nlines", ""]) {
+      expect(() => supervisor(host).provisionToken("hello", bad)).toThrow(
+        AppSupervisorError,
+      );
+    }
+    expect(host.files.has(tokenPath)).toBe(false);
+  });
+
+  it("reads a token back, and answers null when there is none", () => {
+    const host = fakeHost();
+    const sup = supervisor(host);
+    expect(sup.readToken("hello")).toBeNull();
+    sup.provisionToken("hello", "tok_ABC-123");
+    expect(sup.readToken("hello")).toBe("tok_ABC-123");
+  });
+
+  it("reads a token out of a file somebody has edited by hand", () => {
+    const host = fakeHost();
+    host.writeFile(
+      tokenPath,
+      "# added by hand\n\nOTHER=1\nISOMUX_APP_TOKEN=tok_ABC-123\n",
+      0o600,
+    );
+    expect(supervisor(host).readToken("hello")).toBe("tok_ABC-123");
+    // ...and refuses to invent one from a blank or absent value.
+    host.writeFile(tokenPath, "ISOMUX_APP_TOKEN=\n", 0o600);
+    expect(supervisor(host).readToken("hello")).toBeNull();
+  });
+
+  it("install writes the unit that REFERENCES the token file, and no token", () => {
+    // The token is provisioned by its own verb, before install, so that the
+    // app's first start already has it - a process's environment is fixed at
+    // exec, so a token written after the start would not reach it.
+    const host = fakeHost();
+    supervisor(host).install(record());
+    expect(host.files.has(tokenPath)).toBe(false);
+    expect(host.files.get("/units/isomux-app-hello.service")).toContain(
+      `EnvironmentFile=-${tokenPath}`,
+    );
+  });
+
+  it("PRESERVES the token across an update - the whole reason it is a separate file", () => {
+    // isomux keeps only the hash, so it could not rewrite this file if it
+    // wanted to. An update that regenerated it would rotate the token on every
+    // edit; one that rewrote the launcher with the token inside it could not
+    // survive an isomux restart at all.
+    const host = fakeHost((argv) =>
+      isRun(argv, "systemctl", "--user", "show")
+        ? {
+            code: 0,
+            stdout: showBlock("isomux-app-hello.service", "loaded", "active"),
+          }
+        : undefined,
+    );
+    const sup = supervisor(host);
+    sup.install(record());
+    sup.provisionToken("hello", "tok_ABC-123");
+    sup.reinstall(record({ command: "bun run other.ts" }));
+    expect(host.files.get(tokenPath)).toBe("ISOMUX_APP_TOKEN=tok_ABC-123\n");
+    // ...while the launcher really did change, so this is not a vacuous pass.
+    expect(host.files.get("/launchers/hello.sh")).toContain("bun run other.ts");
+  });
+
+  it("says whether the INSTALLED unit actually reads the token file", () => {
+    // A hash and a plaintext can both be perfect while the unit injects
+    // nothing - a unit written before tokens existed, or one whose write failed
+    // after the token was provisioned. Boot reconciliation needs this as its
+    // own fact, since neither half of the pair can answer it.
+    const host = fakeHost();
+    const sup = supervisor(host);
+    expect(sup.unitInjectsToken("hello")).toBe(false); // no unit at all
+    sup.install(record());
+    expect(sup.unitInjectsToken("hello")).toBe(true);
+
+    // A unit that is there but predates tokens.
+    host.writeFile(
+      "/units/isomux-app-hello.service",
+      "[Service]\nExecStart=/bin/sh /launchers/hello.sh\n",
+    );
+    expect(sup.unitInjectsToken("hello")).toBe(false);
+
+    // ...and a unit pointing at somebody ELSE's token file does not count.
+    host.writeFile(
+      "/units/isomux-app-hello.service",
+      "[Service]\nEnvironmentFile=-/launchers/other.env\n",
+    );
+    expect(sup.unitInjectsToken("hello")).toBe(false);
+  });
+
+  it("unitInjectsToken matches the directive LINE, not a substring of the file", () => {
+    // Two units that inject nothing and would both pass a substring search: a
+    // commented-out directive, and one whose path merely starts with this
+    // app's. Neither is hypothetical once a person has edited a unit by hand.
+    const host = fakeHost();
+    const sup = supervisor(host);
+    for (const unit of [
+      "[Service]\n# EnvironmentFile=-/launchers/hello.env\n",
+      "[Service]\nEnvironmentFile=-/launchers/hello.env.backup\n",
+      "[Service]\nEnvironmentFile=-/launchers/hello.envelope\n",
+    ]) {
+      host.writeFile("/units/isomux-app-hello.service", unit);
+      expect(sup.unitInjectsToken("hello")).toBe(false);
+    }
+    // Indentation IS forgiven - systemd ignores it too.
+    host.writeFile(
+      "/units/isomux-app-hello.service",
+      "[Service]\n  EnvironmentFile=-/launchers/hello.env  \n",
+    );
+    expect(sup.unitInjectsToken("hello")).toBe(true);
+  });
+
+  it("reloadUnits tells systemd to re-read, and does nothing else", () => {
+    const host = fakeHost();
+    supervisor(host).reloadUnits();
+    expect(verbs(host)).toEqual(["daemon-reload"]);
+    expect(host.files.size).toBe(0); // no writes: this is not a regeneration
+  });
+
+  it("reloadUnits throws when systemd refuses, rather than reporting success", () => {
+    const host = fakeHost((argv) =>
+      isRun(argv, "systemctl", "--user", "daemon-reload")
+        ? { code: 1, stderr: "no user manager" }
+        : undefined,
+    );
+    expect(() => supervisor(host).reloadUnits()).toThrow(AppSupervisorError);
+  });
+
+  it("removeToken drops the file, and does not mind it being gone already", () => {
+    const host = fakeHost();
+    const sup = supervisor(host);
+    sup.provisionToken("hello", "tok_ABC-123");
+    sup.removeToken("hello");
+    expect(host.files.has(tokenPath)).toBe(false);
+    expect(() => sup.removeToken("hello")).not.toThrow();
+  });
+
+  it("teardown removes the token with the unit and the launcher", () => {
+    const host = fakeHost();
+    const sup = supervisor(host);
+    sup.install(record());
+    sup.provisionToken("hello", "tok_ABC-123");
+    sup.teardown("hello");
+    expect(host.files.has(tokenPath)).toBe(false);
+    expect(host.files.has("/launchers/hello.sh")).toBe(false);
+    expect(host.files.has("/units/isomux-app-hello.service")).toBe(false);
+  });
+});
+
+describe("app-supervisor: regenerate", () => {
+  it("converges the files and tells systemd, and starts NOTHING", () => {
+    // Boot reconciliation calls this under apps that are serving traffic. A
+    // start, restart or enable here would be isomux bouncing every app at boot,
+    // which is the behaviour systemd units exist to avoid.
+    const host = fakeHost();
+    supervisor(host).regenerate(record({ command: "bun run new.ts" }));
+    expect(verbs(host)).toEqual(["daemon-reload"]);
+    expect(host.files.get("/launchers/hello.sh")).toContain("bun run new.ts");
+    expect(host.files.get("/units/isomux-app-hello.service")).toContain(
+      "EnvironmentFile=-/launchers/hello.env",
+    );
+  });
+
+  it("throws when systemd will not load the regenerated unit", () => {
+    const host = fakeHost((argv) =>
+      isRun(argv, "systemctl", "--user", "daemon-reload")
+        ? { code: 1, stderr: "no" }
+        : undefined,
+    );
+    expect(() => supervisor(host).regenerate(record())).toThrow(
+      AppSupervisorError,
+    );
+  });
+});
 
 describe("app-supervisor: reading state", () => {
   it("parses blocks whatever order the properties arrive in", () => {

@@ -25,7 +25,11 @@ import {
   type TestServer,
   type TestSocket,
 } from "./harness.ts";
+import { readFileSync, rmSync, writeFileSync } from "fs";
+import { join } from "path";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
+import { createAppTokenStore } from "../app-tokens.ts";
+import { STATE_ROOT } from "../config.ts";
 import { getUserByName } from "../users.ts";
 import { APP_PORT_MIN, APP_PORT_MAX } from "../app-registry.ts";
 import { APP_LOG_LINES_DEFAULT } from "../app-supervisor.ts";
@@ -1530,6 +1534,365 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
   });
 });
 
+// --- App tokens (S5) --------------------------------------------------------
+//
+// End to end, because the properties only exist end to end: the token is minted
+// where the app is registered, delivered through the supervisor's environment
+// file, persisted as a hash that outlives the process, and it must reach NO
+// route in the office. The supervisor is the harness fake, so `tokenFiles`
+// stands in for <launcherDir>/<name>.env.
+
+describe("routes/apps REST: app tokens", () => {
+  // The office's own store, over the harness STATE_ROOT the server booted on.
+  const officeTokens = () =>
+    createAppTokenStore({ dir: join(STATE_ROOT, "apps") });
+
+  async function registerApp(
+    srv: TestServer,
+    name = "hello",
+  ): Promise<{ bearer: string; app: AppWire; raw: string }> {
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const bearer = mintAgentToken(bot.id, ownerId);
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer,
+      body: body(srv, name),
+    });
+    expect(reg.status).toBe(201);
+    const raw = srv.appSupervisor.tokenFiles.get(name);
+    if (!raw) throw new Error("the app was registered without a token");
+    return { bearer, app: reg.body as AppWire, raw };
+  }
+
+  it("registering an app delivers a token to it and persists only the hash", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const { app, raw } = await registerApp(srv);
+
+    // Delivered as the environment file the unit reads...
+    expect(raw.length).toBeGreaterThan(20);
+    // ...persisted as a hash, and NEVER as the plaintext.
+    const stored = readFileSync(
+      join(STATE_ROOT, "apps", "app-tokens.json"),
+      "utf-8",
+    );
+    expect(stored).not.toContain(raw);
+    expect(officeTokens().lookup(raw)?.appName).toBe("hello");
+
+    // ...and nothing about it is on the wire, to the caller or to the office.
+    expect(JSON.stringify(app)).not.toContain(raw);
+    expect(Object.keys(app).some((k) => /token/i.test(k))).toBe(false);
+  });
+
+  it("the token is provisioned BEFORE the app starts", async () => {
+    // A process's environment is fixed at exec, so a token written after the
+    // start would not reach the app until something restarted it.
+    const srv = await startTestServer();
+    server = srv;
+    await registerApp(srv);
+    const calls = srv.appSupervisor.calls;
+    expect(calls.indexOf("provisionToken:hello")).toBeLessThan(
+      calls.indexOf("install:hello"),
+    );
+  });
+
+  it("SURVIVES an isomux restart, without rotating or rewriting anything", async () => {
+    // The property agent tokens do not have and app tokens must: an app keeps
+    // running across a restart, so the token it was started with has to keep
+    // working. A rotation here would mean rewriting every unit at boot - the
+    // exact thing persistence exists to avoid.
+    let srv = await startTestServer();
+    server = srv;
+    const { raw } = await registerApp(srv);
+
+    // The supervisor instance is carried across the restart on purpose (systemd
+    // outlives isomux), so what the reboot did is everything AFTER this mark.
+    const before = srv.appSupervisor.calls.length;
+    srv = await srv.restart(); // real cold boot against the same state dir
+    server = srv;
+
+    expect(officeTokens().lookup(raw)?.appName).toBe("hello");
+    // Still the same plaintext in the app's environment file, and boot touched
+    // nothing: reconciliation hashed it, found the pair healthy, and left it.
+    expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
+    // Only the boot reload: the pair was healthy and the unit wired, so
+    // nothing was rewritten, rotated or activated.
+    expect(srv.appSupervisor.calls.slice(before)).toEqual(["reloadUnits"]);
+  });
+
+  it("gives a token at boot to an app that has none, without restarting it", async () => {
+    // The pre-token app: a record on disk whose unit has no reference to an
+    // environment file at all. Simulated by taking both halves away from a
+    // registered app - the state a self-hoster who upgrades mid-flight has.
+    let srv = await startTestServer();
+    server = srv;
+    await registerApp(srv);
+    rmSync(join(STATE_ROOT, "apps", "app-tokens.json"), { force: true });
+    srv.appSupervisor.tokenFiles.clear();
+    // ...and its unit predates tokens too, so it references no token file. All
+    // three facts absent is what a self-hoster who upgrades mid-flight has.
+    srv.appSupervisor.unitsInjectingToken.clear();
+
+    const before = srv.appSupervisor.calls.length;
+    srv = await srv.restart();
+    server = srv;
+
+    const raw = srv.appSupervisor.tokenFiles.get("hello");
+    expect(raw).toBeTruthy();
+    expect(officeTokens().lookup(raw!)?.appName).toBe("hello");
+    // The unit is rewritten so it REFERENCES the new file - a pre-token unit
+    // would otherwise inject nothing and look healthy forever after - and
+    // nothing is started, stopped or restarted: a running app keeps serving
+    // and picks the token up on its next restart.
+    const did = srv.appSupervisor.calls.slice(before);
+    expect(did).toEqual([
+      "reloadUnits",
+      "regenerate:hello",
+      "provisionToken:hello",
+    ]);
+  });
+
+  it("drops the token of an app that was deleted while isomux was down", async () => {
+    let srv = await startTestServer();
+    server = srv;
+    const { raw } = await registerApp(srv);
+    // The delete's own revoke is what normally does this; here the record goes
+    // and the hash is left behind, which is what a delete that died midway
+    // leaves on disk.
+    writeFileSync(join(STATE_ROOT, "apps", "apps.json"), "[]");
+
+    srv = await srv.restart();
+    server = srv;
+    expect(officeTokens().lookup(raw)).toBeNull();
+  });
+
+  it("recovers the unit of an app whose install failed, keeping the SAME token", async () => {
+    // The sharp edge: registration provisions the token BEFORE it installs (a
+    // process's environment is fixed at exec), and an install failure keeps the
+    // token on purpose. That leaves a perfectly healthy hash-plus-file pair
+    // behind a unit that was never written - and if boot reconciliation trusted
+    // the pair alone, the app would stay stranded until somebody PATCHed it.
+    let srv = await startTestServer();
+    server = srv;
+    srv.appSupervisor.failInstall = "no systemd here";
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const bearer = mintAgentToken(bot.id, ownerId);
+    expect(
+      (
+        await api(srv, "/api/apps", {
+          method: "POST",
+          bearer,
+          body: body(srv, "hello"),
+        })
+      ).status,
+    ).toBe(201);
+    const raw = srv.appSupervisor.tokenFiles.get("hello")!;
+    expect(srv.appSupervisor.unitInjectsToken("hello")).toBe(false);
+
+    srv.appSupervisor.failInstall = null; // the transient failure is over
+    const before = srv.appSupervisor.calls.length;
+    srv = await srv.restart();
+    server = srv;
+
+    // The unit is written, and NOTHING else: no install, no enable, no start.
+    expect(srv.appSupervisor.calls.slice(before)).toEqual([
+      "reloadUnits",
+      "regenerate:hello",
+    ]);
+    expect(srv.appSupervisor.unitInjectsToken("hello")).toBe(true);
+    // The token that was already good is preserved, not rotated - the app's
+    // running process (if it had one) would still hold a valid one.
+    expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
+    expect(officeTokens().lookup(raw)?.appName).toBe("hello");
+  });
+
+  it("reloads systemd at boot when an install died at the daemon-reload stage", async () => {
+    // The stage the other test cannot reach: the launcher and unit ARE written
+    // (so the unit references the token file) and the install then fails at
+    // daemon-reload. Every on-disk fact is now perfect and systemd has never
+    // read the unit - so the pair check, the wired check, and any amount of
+    // regenerating would all agree the app is fine. The only thing that fixes
+    // it is asking systemd to re-read, which is why boot does that first.
+    let srv = await startTestServer();
+    server = srv;
+    srv.appSupervisor.failInstallAfterFiles = "daemon-reload refused";
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const bearer = mintAgentToken(bot.id, ownerId);
+    expect(
+      (
+        await api(srv, "/api/apps", {
+          method: "POST",
+          bearer,
+          body: body(srv, "hello"),
+        })
+      ).status,
+    ).toBe(201);
+    const raw = srv.appSupervisor.tokenFiles.get("hello")!;
+    expect(srv.appSupervisor.unitInjectsToken("hello")).toBe(true);
+
+    const before = srv.appSupervisor.calls.length;
+    srv = await srv.restart();
+    server = srv;
+
+    // Exactly the reload: no rotation, no regeneration, and nothing activated.
+    expect(srv.appSupervisor.calls.slice(before)).toEqual(["reloadUnits"]);
+    expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
+    expect(officeTokens().lookup(raw)?.appName).toBe("hello");
+  });
+
+  it("an update preserves the token; a delete revokes it", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const { bearer, raw } = await registerApp(srv);
+
+    const patched = await api(srv, "/api/apps/hello", {
+      method: "PATCH",
+      bearer,
+      body: { command: "bun run other.ts" },
+    });
+    expect(patched.status).toBe(200);
+    expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
+    expect(officeTokens().lookup(raw)?.appName).toBe("hello");
+
+    const deleted = await api(srv, "/api/apps/hello", {
+      method: "DELETE",
+      bearer,
+    });
+    expect(deleted.status).toBe(204);
+    expect(officeTokens().lookup(raw)).toBeNull();
+    expect(srv.appSupervisor.tokenFiles.has("hello")).toBe(false);
+  });
+
+  it("registration succeeds even when the token cannot be delivered - and leaves no half-token", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    srv.appSupervisor.failProvisionToken = "no room on the disk";
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const bearer = mintAgentToken(bot.id, ownerId);
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer,
+      body: body(srv, "hello"),
+    });
+    // The app is what the caller asked for; a token it could not be given is
+    // one missing capability, not a failed registration.
+    expect(reg.status).toBe(201);
+    expect((reg.body as AppWire).state).toBe("running");
+    // And the hash was taken back rather than left behind: isomux cannot
+    // reproduce a plaintext it does not keep, so a hash with no file is an app
+    // that can never authenticate AND cannot be repaired.
+    expect(officeTokens().names()).toEqual([]);
+  });
+
+  it("keeps the token when the app itself fails to install", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    srv.appSupervisor.failInstall = "no systemd here";
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const bearer = mintAgentToken(bot.id, ownerId);
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer,
+      body: body(srv, "hello"),
+    });
+    expect(reg.status).toBe(201);
+    // The pair is intact - the token is fine, the app simply is not running,
+    // and the start verb is the cure. Revoking here would punish a healthy
+    // credential for an unrelated failure.
+    const raw = srv.appSupervisor.tokenFiles.get("hello")!;
+    expect(officeTokens().lookup(raw)?.appName).toBe("hello");
+  });
+});
+
+describe("routes/apps REST: an app token reaches nothing", () => {
+  async function appToken(srv: TestServer): Promise<string> {
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const agentToken = mintAgentToken(bot.id, ownerId);
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: agentToken,
+      body: body(srv, "hello"),
+    });
+    expect(reg.status).toBe(201);
+    return srv.appSupervisor.tokenFiles.get("hello")!;
+  }
+
+  it("is a REAL identity - 403 where a garbage token gets 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const raw = await appToken(srv);
+    // The distinction is the whole evidence that the token resolved: isomux
+    // knows whose it is and allows it nothing.
+    expect((await api(srv, "/api/apps", { bearer: raw })).status).toBe(403);
+    expect(
+      (await api(srv, "/api/apps", { bearer: "not-a-real-token" })).status,
+    ).toBe(401);
+  });
+
+  it("is denied on its own app, on the task board, and on a route asking only for an identity", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const raw = await appToken(srv);
+    for (const path of [
+      "/api/apps/hello", // its own app - ownership is not authority
+      "/api/tasks",
+      "/api/version", // `authenticated`, no capability: the guard is the gate
+      "/api/memory?scope=office",
+    ]) {
+      expect((await api(srv, path, { bearer: raw })).status).toBe(403);
+    }
+  });
+
+  it("cannot read an agent's instructions, though it carries its owner's user id", async () => {
+    // The confused-deputy case: GuardDeps.hasRoomAccess keys on userId, and an
+    // app's userId is its owner's, so without the scope check in
+    // requiresRoomAccess this route would answer 200.
+    const srv = await startTestServer();
+    server = srv;
+    const raw = await appToken(srv);
+    const bot = srv.agentManager.getAllAgents()[0];
+    expect(
+      (await api(srv, `/api/agents/${bot.id}/instructions`, { bearer: raw }))
+        .status,
+    ).toBe(403);
+  });
+
+  it("is walled off the whole legacy surface, in one place", async () => {
+    // Everything below the /api dispatcher gates on "is there an identity"
+    // alone: the agent manifest (live and killed), the legacy file handlers,
+    // the static UI.
+    const srv = await startTestServer();
+    server = srv;
+    const raw = await appToken(srv);
+    for (const path of [
+      "/agents",
+      "/agents?killed=1",
+      "/api/files/anything",
+      "/api/nonexistent-route",
+      "/",
+    ]) {
+      const res = await srv.http(path, {
+        headers: { Authorization: `Bearer ${raw}` },
+      });
+      expect({ path, status: res.status }).toEqual({ path, status: 403 });
+    }
+  });
+});
+
 // --- Announcing must never change what was announced (S3) -------------------
 // Every announce call site sits after its commit point and inside the handler's
 // outer try. If the injected wire seam throws, that catch would render an HTTP
@@ -1564,6 +1927,8 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     isOfficeOwner: () => true,
     announce: boom,
     announceRemoved: boom,
+    provisionToken: () => true,
+    revokeToken: () => {},
     install: () => {},
     reinstall: () => {},
     teardown: () => {},

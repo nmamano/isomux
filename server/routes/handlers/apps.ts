@@ -113,6 +113,21 @@ export interface AppsDeps {
   // decided without it.
   announceRemoved(app: { name: string; userId: string | null }): void;
 
+  // --- the token seam (server/app-tokens.ts + the supervisor) --------------
+  // Provision the app's token: mint it, persist its hash, and write the
+  // plaintext into the environment file its unit reads. Returns whether the app
+  // ended up with one. NEVER throws - an app that could not be given a token is
+  // an app that runs without one, not a failed registration.
+  //
+  // The two halves are a PAIR: the hash is worthless without the plaintext (an
+  // app that can never authenticate and cannot be repaired), so a failure to
+  // write the file revokes the hash again rather than leaving one behind.
+  provisionToken(app: AppRecord): boolean;
+  // Drop an app's token when the app is deleted. Throws if the hash could not
+  // be removed, which fails the delete before the name is tombstoned - a
+  // credential outliving the thing it names is worth a retry.
+  revokeToken(name: string): void;
+
   // --- the supervisor seam (server/app-supervisor.ts) ---
   // Write the unit and start the app. Throws only when the unit could not be
   // INSTALLED; an app that installs and then fails to run is a state, not an
@@ -232,6 +247,13 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             ? { createdByAgentId: ctx.identity.agentId }
             : {}),
         });
+        // The token BEFORE the install, so the unit's first start already has
+        // it: a process's environment is fixed at exec, so an app started
+        // before its token file exists would run tokenless until something
+        // restarted it. Never throws (see AppsDeps.provisionToken) - an app
+        // without a token is a working app with one capability missing, and
+        // failing the registration over it would be the wrong trade.
+        deps.provisionToken(record);
         // THE RECORD IS COMMITTED, SO THE ANSWER IS 201 - whatever the
         // supervisor then does. A 500 here would describe a resource that
         // really was created, and the natural response to a 500 is a retry,
@@ -400,6 +422,12 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // Throws if the app survived; the tombstone below is then never
         // written, and a retried DELETE can finish the job.
         deps.teardown(record.name);
+        // Between the teardown and the tombstone: the app is provably not
+        // running, so its token has nothing left to authenticate, and the
+        // registry still holds the record that would let a retry finish the
+        // job if this throws. Revoking after the record was gone would be a
+        // credential whose owner nothing can look up.
+        deps.revokeToken(record.name);
         if (!deps.remove(record.name)) return fail(404, "not_found");
         // AFTER the removal committed, and from the record read before teardown:
         // the registry no longer holds an owner to project the audience from.

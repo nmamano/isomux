@@ -55,6 +55,17 @@ describe("idempotency: identitySubjectKey is stable and token-free", () => {
         capabilities: [],
       }),
     ).toBe("cron-run:j1:r1");
+    // An app keys on its own (permanent, unique) name, NOT on the owner it
+    // shares with its user - two apps of one owner must not share a cache key.
+    expect(
+      identitySubjectKey({
+        scope: "app",
+        userId: "u1",
+        appName: "hello",
+        role: "member",
+        capabilities: [],
+      }),
+    ).toBe("app:hello");
   });
 });
 

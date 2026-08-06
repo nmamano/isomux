@@ -19,11 +19,14 @@ import {
 } from "../routes/table.ts";
 import { isEventId, type EventId } from "../events/registry.ts";
 import { authorize } from "../identity/dispatch.ts";
+import { runAuthorize } from "../routes/executor.ts";
 import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
+  APP_CAPABILITIES,
   type Capability,
+  type Identity,
 } from "../identity/index.ts";
 import type { GuardDeps } from "../identity/guards.ts";
 
@@ -31,6 +34,9 @@ const ALL_CAPS = new Set<Capability>([
   ...USER_CAPABILITIES,
   ...AGENT_CAPABILITIES,
   ...RUN_CAPABILITIES,
+  // Empty today; listed so a capability added to the APP set has to be a real
+  // Capability, and so this union does not quietly go stale.
+  ...APP_CAPABILITIES,
 ]);
 
 function capsOf(auth: RouteAuth): readonly Capability[] {
@@ -459,5 +465,73 @@ describe("route table: typed preconditions are pinned (Phase 3 can't forget)", (
       const expected = SPEC_PRECONDITIONS[r.opId] ?? [];
       expect(new Set(r.preconditions ?? [])).toEqual(new Set(expected));
     }
+  });
+});
+
+// --- APP scope reaches nothing (app tokens) ---------------------------------
+//
+// The one invariant that makes an app token safe to hand out before anything
+// authorizes it: NO route in the table lets an app identity through. Walked
+// over the whole table rather than asserted per route, so a route added later -
+// or an existing one whose guard is loosened - trips this without anyone
+// remembering to think about apps.
+//
+// The next slice (app-to-agent messaging) will deliberately break this test for
+// exactly ONE route. That is the point: opening a route to apps should require
+// editing this list on purpose, not slip in.
+
+describe("route table: an APP identity authorizes nothing", () => {
+  // Maximally permissive deps: every room accessible, every ownership lookup
+  // answering with the app's own owner. Anything that gets through here got
+  // through on scope, which is the only thing that should ever gate an app.
+  const generousDeps: GuardDeps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: () => "u-owner",
+    cronjobCreatorUserId: () => "u-owner",
+    appOwnerUserId: () => "u-owner",
+    agentManagerUserId: () => "u-owner",
+    killedAgentManagerUserId: () => "u-owner",
+  };
+  const appIdentity: Identity = {
+    scope: "app",
+    userId: "u-owner",
+    appName: "hello",
+    role: "member",
+    capabilities: APP_CAPABILITIES,
+  };
+
+  it("denies every API route, capability and authenticated alike", () => {
+    const allowed: string[] = [];
+    for (const r of API_ROUTES) {
+      if (r.auth.kind === "public") continue;
+      const outcome = runAuthorize(
+        r.auth,
+        appIdentity,
+        {
+          id: "a-1",
+          name: "hello",
+          username: "alice",
+          roomId: "r1",
+          sessionPrefix: "abc",
+          cronjobId: "j1",
+          runId: "run-1",
+          taskId: "t1",
+          scheduledId: "s1",
+        },
+        { senderAgentId: "a-1", roomId: "r1" },
+        generousDeps,
+      );
+      if (outcome.ok) allowed.push(r.opId);
+    }
+    // Named in the failure rather than counted, so a break says WHICH route.
+    expect(allowed).toEqual([]);
+  });
+
+  it("is denied for the RIGHT reason - 403, not 401 (isomux knows whose token it is)", () => {
+    const someRoute = API_ROUTES.find((r) => r.opId === "apps.list")!;
+    expect(
+      runAuthorize(someRoute.auth, appIdentity, {}, undefined, generousDeps),
+    ).toEqual({ ok: false, status: 403, code: "forbidden" });
   });
 });

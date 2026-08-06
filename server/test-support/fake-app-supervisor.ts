@@ -45,6 +45,22 @@ export interface FakeAppSupervisor extends AppSupervisor {
   throwRawOnInstall: Error | null;
   // Force a runtime for an app (a crash loop, a failed start, a missing unit).
   setRuntime(name: string, runtime: AppRuntime): void;
+  // The token environment files this supervisor "wrote", by app name. Stands in
+  // for <launcherDir>/<name>.env, so a test can assert an app was handed a
+  // token - and, more to the point, that an update did NOT hand it a new one.
+  tokenFiles: Map<string, string>;
+  // Apps whose installed unit references their token file. Modelled rather than
+  // implied, because the state that matters most is the one where a healthy
+  // token sits behind a unit that does not read it - a test has to be able to
+  // construct that.
+  unitsInjectingToken: Set<string>;
+  failProvisionToken: string | null;
+  failRegenerate: string | null;
+  // Model an install that gets as far as WRITING the unit and then fails (the
+  // daemon-reload stage). The files are on disk and reference the token; what
+  // systemd holds is another matter - which is the whole reason boot
+  // reconciliation reloads.
+  failInstallAfterFiles: string | null;
   // What an app's state is right after a successful install. Default running;
   // set it to `failed` to model a unit that installed fine and whose process
   // then died - the case that must still be a 201.
@@ -70,6 +86,11 @@ export function createFakeAppSupervisor(
     installedState: { state: "running", restartCount: 0 },
     logLines: [],
     lastLogRequest: null,
+    tokenFiles: new Map(),
+    unitsInjectingToken: new Set(),
+    failProvisionToken: null,
+    failRegenerate: null,
+    failInstallAfterFiles: null,
 
     setRuntime(name, runtime) {
       runtimes.set(name, runtime);
@@ -77,9 +98,62 @@ export function createFakeAppSupervisor(
 
     unitName: (name) => unitNameFor(unitPrefix, name),
 
+    provisionToken(name: string, raw: string) {
+      fake.calls.push(`provisionToken:${name}`);
+      if (fake.failProvisionToken) {
+        throw new AppSupervisorError(
+          "supervisor_failed",
+          fake.failProvisionToken,
+        );
+      }
+      fake.tokenFiles.set(name, raw);
+    },
+
+    // Deliberately NOT recorded in `calls`: reconciliation reads every app's
+    // token and unit at boot, and a read is not an effect a test should have to
+    // allow for when asserting a call sequence.
+    readToken: (name: string) => fake.tokenFiles.get(name) ?? null,
+
+    unitInjectsToken: (name: string) => fake.unitsInjectingToken.has(name),
+
+    reloadUnits() {
+      fake.calls.push("reloadUnits");
+    },
+
+    removeToken(name: string) {
+      fake.calls.push(`removeToken:${name}`);
+      fake.tokenFiles.delete(name);
+    },
+
+    regenerate(app: AppRecord) {
+      fake.calls.push(`regenerate:${app.name}`);
+      if (fake.failRegenerate) {
+        throw new AppSupervisorError("supervisor_failed", fake.failRegenerate);
+      }
+      // Files only: activation is deliberately untouched, so an app that was
+      // not running does not become running (the property the real one has and
+      // the reason reconciliation is allowed to call it).
+      fake.installed.set(app.name, app);
+      fake.unitsInjectingToken.add(app.name);
+    },
+
     install(app: AppRecord) {
       fake.calls.push(`install:${app.name}`);
       if (fake.throwRawOnInstall) throw fake.throwRawOnInstall;
+      if (fake.failInstallAfterFiles) {
+        // Files written (so the unit references the token), then the failure -
+        // the app is NOT installed as far as systemd is concerned.
+        fake.unitsInjectingToken.add(app.name);
+        runtimes.set(app.name, {
+          state: "unknown",
+          restartCount: 0,
+          startError: fake.failInstallAfterFiles,
+        });
+        throw new AppSupervisorError(
+          "supervisor_failed",
+          fake.failInstallAfterFiles,
+        );
+      }
       if (fake.failInstall) {
         // Records the reason before throwing, exactly as the real supervisor
         // does - the register route answers 201 and this is the only place the
@@ -92,6 +166,7 @@ export function createFakeAppSupervisor(
         throw new AppSupervisorError("supervisor_failed", fake.failInstall);
       }
       fake.installed.set(app.name, app);
+      fake.unitsInjectingToken.add(app.name);
       runtimes.set(app.name, { ...fake.installedState });
     },
 
@@ -110,6 +185,9 @@ export function createFakeAppSupervisor(
         throw new AppSupervisorError("supervisor_failed", fake.failReinstall);
       }
       fake.installed.set(app.name, app);
+      // The unit is rewritten, so it carries the token directive again even if
+      // it was written before tokens existed.
+      fake.unitsInjectingToken.add(app.name);
       const prior = runtimes.get(app.name);
       if (!prior || prior.state === "unknown") {
         runtimes.set(app.name, { ...fake.installedState });
@@ -137,6 +215,9 @@ export function createFakeAppSupervisor(
       }
       fake.installed.delete(name);
       runtimes.delete(name);
+      // The real teardown removes the token file with the unit and launcher.
+      fake.tokenFiles.delete(name);
+      fake.unitsInjectingToken.delete(name);
     },
 
     start(name: string) {

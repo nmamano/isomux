@@ -22,6 +22,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "fs";
@@ -157,10 +158,15 @@ suite("app-supervisor against real systemd", () => {
     writeFileSync(
       join(cwd, "server.js"),
       // Reads PORT from the environment - never a literal - so a unit that
-      // failed to inject it cannot pass this test.
+      // failed to inject it cannot pass this test. Same for the token, which
+      // arrives by a DIFFERENT systemd mechanism (an EnvironmentFile, with its
+      // own quoting rules) and whose absence is tolerated by design - so the
+      // only honest check is asking the running process what it got.
       `Bun.serve({\n` +
         `  port: Number(process.env.PORT),\n` +
-        `  fetch: () => new Response(process.env.ISOMUX_APP_DATA_DIR ?? "no-data-dir"),\n` +
+        `  fetch: () => new Response(\n` +
+        `    (process.env.ISOMUX_APP_DATA_DIR ?? "no-data-dir") + "|" +\n` +
+        `    (process.env.ISOMUX_APP_TOKEN ?? "no-token")),\n` +
         `});\n` +
         `console.log("probe listening on " + process.env.PORT);\n`,
     );
@@ -179,7 +185,12 @@ suite("app-supervisor against real systemd", () => {
       createdAt: Date.now(),
     };
 
+    // The token, provisioned BEFORE the install exactly as the register route
+    // does it - a process's environment is fixed at exec.
+    const token = "tok_live-ABC_123";
+
     try {
+      supervisor.provisionToken(APP_NAME, token);
       supervisor.install(app);
 
       // 1. It actually serves, on the port isomux chose, with the data dir
@@ -197,7 +208,12 @@ suite("app-supervisor against real systemd", () => {
         },
         (text) => text !== null,
       );
-      expect(body).toBe(dataDir);
+      // The data dir AND the token: both injected, both read back out of the
+      // running process. The launcher directory here has a space and a percent
+      // sign in it, so this is also the proof that the EnvironmentFile path is
+      // escaped by the right rule (unquoted, like WorkingDirectory).
+      expect(body).toBe(`${dataDir}|${token}`);
+      expect(supervisor.readToken(APP_NAME)).toBe(token);
       expect(supervisor.states([APP_NAME]).get(APP_NAME)).toEqual({
         state: "running",
         restartCount: 0,
@@ -245,7 +261,7 @@ suite("app-supervisor against real systemd", () => {
         join(cwd, "server2.js"),
         `Bun.serve({\n` +
           `  port: Number(process.env.PORT),\n` +
-          `  fetch: () => new Response("updated"),\n` +
+          `  fetch: () => new Response("updated|" + (process.env.ISOMUX_APP_TOKEN ?? "no-token")),\n` +
           `});\n`,
       );
       supervisor.reinstall({ ...app, command: "bun server2.js" });
@@ -260,12 +276,41 @@ suite("app-supervisor against real systemd", () => {
             return null;
           }
         },
-        (text) => text === "updated",
+        (text) => text?.startsWith("updated") ?? false,
       );
-      expect(updated).toBe("updated");
+      // The SAME token after an update: the file is not among the regenerated
+      // ones, so a PATCH cannot rotate what isomux could never rewrite (it
+      // holds only the hash).
+      expect(updated).toBe(`updated|${token}`);
       expect(supervisor.states([APP_NAME]).get(APP_NAME)?.state).toBe(
         "running",
       );
+
+      // 4b. A unit file changed on disk WITHOUT a reload is not what systemd
+      //     is running - the fact no on-disk check can establish, and the
+      //     reason boot reconciliation reloads before it trusts one. Written
+      //     through the host directly, because that is exactly the state an
+      //     install that died at daemon-reload leaves behind.
+      const unitFile = join(host.unitDir, `${UNIT_PREFIX}${APP_NAME}.service`);
+      const onDisk = readFileSync(unitFile, "utf-8");
+      host.writeFile(unitFile, onDisk + "\n# touched without a reload\n");
+      const needsReload = () =>
+        host
+          .run([
+            "systemctl",
+            "--user",
+            "show",
+            supervisor!.unitName(APP_NAME),
+            "--property=NeedDaemonReload",
+            "--value",
+          ])
+          .stdout.trim();
+      expect(needsReload()).toBe("yes"); // systemd knows it is behind
+      supervisor.reloadUnits();
+      expect(needsReload()).toBe("no"); // ...and now it is not
+      expect(supervisor.states([APP_NAME]).get(APP_NAME)?.state).toBe(
+        "running",
+      ); // a reload activates nothing and stops nothing
 
       // 5. And a stopped app is NOT started by a reinstall. The API's whole
       //    promise here is that PATCH preserves activation intent, and this is
@@ -295,6 +340,7 @@ suite("app-supervisor against real systemd", () => {
       existsSync(join(host.unitDir, `${UNIT_PREFIX}${APP_NAME}.service`)),
     ).toBe(false);
     expect(existsSync(join(launcherDir, `${APP_NAME}.sh`))).toBe(false);
+    expect(existsSync(join(launcherDir, `${APP_NAME}.env`))).toBe(false);
     expect(supervisor.states([APP_NAME]).get(APP_NAME)?.state).toBe("unknown");
     const listed = host.run([
       "systemctl",

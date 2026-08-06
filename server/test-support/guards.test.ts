@@ -44,8 +44,11 @@ import {
   appOwnerOrOfficeOwner,
   hasOwningUser,
   messageSend,
+  scheduledMessagesOwner,
   conversationReset,
   logSearchAccess,
+  killedAgentLogAccess,
+  taskDelete,
   and,
   or,
   type GuardDeps,
@@ -56,6 +59,7 @@ import {
   AGENT_CAPABILITIES,
   PRIVILEGED_AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
+  APP_CAPABILITIES,
   type Identity,
 } from "../identity/index.ts";
 
@@ -98,6 +102,17 @@ const run: Identity = {
   role: "member",
   capabilities: RUN_CAPABILITIES,
 };
+// A registered app's own server process. Its userId is its OWNER's - truthful
+// attribution, deliberately the same id every owner-matching fixture below uses
+// - so every denial here is proof the guard keyed on scope and not on a
+// matching userId it could have inherited.
+const app: Identity = {
+  scope: "app",
+  userId: "u-owner",
+  appName: "hello",
+  role: "member",
+  capabilities: APP_CAPABILITIES,
+};
 
 const OK = { ok: true } as const;
 const DENY = { ok: false, status: 403, code: "forbidden" } as const;
@@ -134,10 +149,16 @@ describe("guard: public", () => {
 });
 
 describe("guard: authenticated", () => {
-  it("allows any resolved identity (the 401 is the dispatcher's null check)", () => {
+  it("allows any resolved OFFICE identity (the 401 is the dispatcher's null check)", () => {
     expect(authenticated(ctx(userOwner))).toEqual(OK);
     expect(authenticated(ctx(agent))).toEqual(OK);
     expect(authenticated(ctx(run))).toEqual(OK);
+  });
+  it("denies an APP - on the routes that ask only for an identity, this IS the gate", () => {
+    // system.version and sessions.logout carry no capability, so an app token
+    // would reach them on the strength of existing. An app opts in to a route
+    // deliberately; nothing has opted it in yet.
+    expect(authenticated(ctx(app))).toEqual(DENY);
   });
 });
 
@@ -922,5 +943,116 @@ describe("guard: logSearchAccess", () => {
     expect(
       logSearchAccess(ctx(run, { id: "a-dead" }, undefined, killedByRunUser)),
     ).toEqual(DENY);
+  });
+});
+
+// --- APP scope: the guard catalog, from the outside -------------------------
+//
+// One block rather than a clause in each guard's describe, because the property
+// is about the CATALOG, not about any one guard: an app token authorizes
+// nothing. The fixtures are deliberately generous - every dep answers the way
+// it would for the app's own owner - so a guard that merely forgot to check
+// scope fails here rather than passing on a technicality.
+
+describe("guard catalog: an APP identity is denied everywhere", () => {
+  // As permissive as the guard deps can be: the app's userId owns everything,
+  // every room is accessible, and every lookup answers with a match.
+  const generous = makeDeps({
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r-1",
+    userIdForUsername: () => "u-owner",
+    cronjobCreatorUserId: () => "u-owner",
+    appOwnerUserId: () => "u-owner",
+    agentManagerUserId: () => "u-owner",
+    killedAgentManagerUserId: () => "u-owner",
+  });
+  const appCtx = ctx(
+    app,
+    { id: "a-1", name: "hello", username: "alice", roomId: "r-1" },
+    { senderAgentId: "a-1", roomId: "r-1" },
+    generous,
+  );
+
+  // Guards an app must never satisfy. Each one is scope-keyed, so the generous
+  // deps above (which hand it its owner's every match) change nothing.
+  const scopeGated: Array<[string, (c: GuardContext) => unknown]> = [
+    ["authenticated", authenticated],
+    ["officeOwner", officeOwner],
+    ["userScope", userScope],
+    ["selfUser", selfUser],
+    ["selfOrOwner", selfOrOwner],
+    ["agentParamMustEqualTokenAgent", agentParamMustEqualTokenAgent],
+    ["senderMustEqualTokenAgent", senderMustEqualTokenAgent],
+    ["runParamMustEqualTokenRun", runParamMustEqualTokenRun],
+    ["appOwnerOrOfficeOwner", appOwnerOrOfficeOwner()],
+    ["cronjobOwnerOrOfficeOwner", cronjobOwnerOrOfficeOwner()],
+    ["messageSend", messageSend],
+    ["scheduledMessagesOwner", scheduledMessagesOwner],
+    ["conversationReset", conversationReset],
+    ["logSearchAccess", logSearchAccess],
+    ["taskDelete", taskDelete],
+  ];
+
+  for (const [name, guard] of scopeGated) {
+    it(`${name} denies`, () => {
+      expect(guard(appCtx)).toEqual(DENY);
+    });
+  }
+
+  // The three COMPOSE-ONLY helpers, asserted as what they are rather than bent
+  // to fit. Each answers one narrow question about the caller and is documented
+  // as never standing alone; an app answers those questions the same way a cron
+  // run does, so singling the app out here would be inventing a promise the
+  // catalog does not make. What actually gates each one is named beside it, and
+  // pinned where it lives.
+  const composeOnly: Array<[string, (c: GuardContext) => unknown, string]> = [
+    [
+      "hasOwningUser",
+      hasOwningUser,
+      "asks only whether the caller has an owning user, and an app does; apps.register composes it with app:write, which an app does not hold",
+    ],
+    [
+      "agentManagerMatch",
+      agentManagerMatch(),
+      "keys on userId alone by design; its only route wraps it in and(userScope, ...)",
+    ],
+    [
+      "killedAgentLogAccess",
+      killedAgentLogAccess,
+      "keys on userId alone; reached only from inside logSearchAccess (which denies an app) behind the log:read capability (which an app lacks)",
+    ],
+  ];
+
+  for (const [name, guard, why] of composeOnly) {
+    it(`${name} allows in isolation - ${why}`, () => {
+      expect(guard(appCtx)).toEqual(OK);
+      // Same answer for a cron run: this is a property of the helper, not a
+      // hole that opened when app scope arrived.
+      expect(
+        guard(
+          ctx(
+            { ...run, userId: "u-owner" },
+            { id: "a-1", name: "hello" },
+            undefined,
+            generous,
+          ),
+        ),
+      ).toEqual(OK);
+    });
+  }
+
+  it("requiresRoomAccess denies even when the room-access dep says yes to everything", () => {
+    // The dep CANNOT express this: hasRoomAccess keys on identity.userId, and
+    // an app's userId is its owner's - so with the office's real adapter an app
+    // would inherit every room its owner can reach. The scope check in the
+    // guard is what closes it, which is why the fixture here hands the guard a
+    // dep that says yes.
+    for (const ref of [
+      { kind: "paramRoomId", name: "roomId" },
+      { kind: "paramAgentId", name: "id" },
+      { kind: "bodyRoomId", name: "roomId" },
+    ] as const) {
+      expect(requiresRoomAccess(ref)(appCtx)).toEqual(DENY);
+    }
   });
 });

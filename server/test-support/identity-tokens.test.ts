@@ -17,6 +17,7 @@ import {
   AGENT_CAPABILITIES,
   PRIVILEGED_AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
+  APP_CAPABILITIES,
   agentCapabilities,
   capabilitiesForScope,
   identityHasCapability,
@@ -154,10 +155,19 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect(agentCapabilities(true)).toBe(PRIVILEGED_AGENT_CAPABILITIES);
   });
 
+  it("APP scope holds NOTHING - a token that authenticates and authorizes nothing", () => {
+    // The next slice grants exactly one capability (messaging the agent that
+    // built the app). Until then this staying empty is what makes an app token
+    // inert, and the whole-table reachability test in routes-table.test.ts is
+    // what proves the emptiness reaches every route.
+    expect([...APP_CAPABILITIES]).toEqual([]);
+  });
+
   it("capabilitiesForScope maps scope -> set", () => {
     expect(capabilitiesForScope("user")).toBe(USER_CAPABILITIES);
     expect(capabilitiesForScope("agent")).toBe(AGENT_CAPABILITIES);
     expect(capabilitiesForScope("cron-run")).toBe(RUN_CAPABILITIES);
+    expect(capabilitiesForScope("app")).toBe(APP_CAPABILITIES);
   });
 
   it("identityHasCapability checks membership", () => {

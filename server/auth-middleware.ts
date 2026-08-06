@@ -25,6 +25,7 @@ import {
   type Identity,
 } from "./identity/index.ts";
 import { resolveToken } from "./identity/tokens.ts";
+import { appIdentityFromToken } from "./app-tokens.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -260,7 +261,12 @@ export function resolveIdentityForRequest(
 // implementation - no drift between the live gate and the unit-tested helper.
 function resolveBearerIdentity(req: Request): Identity | null {
   const bearer = readBearerToken(req);
-  return bearer ? resolveToken(bearer) : null;
+  if (!bearer) return null;
+  // In-memory tokens (agent, cron-run) first, then the persisted app-token
+  // store. The two spaces cannot collide - 256 bits of entropy each - so the
+  // order is about cost, not precedence: an agent token resolves from a map,
+  // an app token reads a file.
+  return resolveToken(bearer) ?? appIdentityFromToken(bearer);
 }
 
 // ---------------------------------------------------------------------------

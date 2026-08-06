@@ -193,7 +193,11 @@ export function errorResponse(
 // two-stage authorize(); `authenticated` skips stage 1 (no capability gate) and
 // runs only the resource guard against the already-non-null identity; `public`
 // is unreachable here (served around the dispatcher) but kept total.
-function runAuthorize(
+//
+// Exported for the route-table contract tests, which walk EVERY route with a
+// given identity and would otherwise have to restate this mapping - and a test
+// that restates the thing it is checking stops checking it.
+export function runAuthorize(
   auth: RouteAuth,
   identity: Identity,
   params: Record<string, string>,

@@ -154,6 +154,8 @@ import {
   appSupervisor as productionAppSupervisor,
   type AppSupervisor,
 } from "./app-supervisor.ts";
+import { appTokens } from "./app-tokens.ts";
+import { reconcileAppTokens } from "./app-token-reconcile.ts";
 import { memoryHandlers } from "./routes/handlers/memory.ts";
 import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
@@ -1192,6 +1194,39 @@ function migrateOwnersToRuleBasedAccess(): void {
   }
 }
 
+// One-time-per-boot convergence of app tokens (server/app-token-reconcile.ts):
+// every registered app ends up with a token whose hash and environment file
+// agree, and hashes for apps that no longer exist are dropped. Nothing is
+// started, stopped or restarted - a running app picks its token up on its next
+// restart.
+//
+// ADVISORY: a failure here must never stop the office from booting, so the
+// whole pass is caught. It is also the reason an app registered before tokens
+// existed converges without anyone doing anything by hand.
+function reconcileAppTokensAtBoot(): void {
+  try {
+    const report = reconcileAppTokens({
+      list: () => appRegistry.list(),
+      tokens: appTokens,
+      readToken: (name) => appSupervisor.readToken(name),
+      removeToken: (name) => appSupervisor.removeToken(name),
+      reloadUnits: () => appSupervisor.reloadUnits(),
+      unitInjectsToken: (name) => appSupervisor.unitInjectsToken(name),
+      provisionToken: (name, raw) => appSupervisor.provisionToken(name, raw),
+      regenerate: (record) => appSupervisor.regenerate(record),
+    });
+    const touched =
+      report.provisioned.length + report.rewired.length + report.pruned.length;
+    if (touched > 0) {
+      console.log(
+        `[app-tokens] boot: provisioned ${report.provisioned.length}, rewired ${report.rewired.length}, pruned ${report.pruned.length}`,
+      );
+    }
+  } catch (err) {
+    console.error("[app-tokens] boot reconciliation failed:", err);
+  }
+}
+
 // Production GuardDeps adapter (Phase 2.3, deferred from 2.2). Wires the guard
 // catalog's injected office-state seam to today's materialized-allowedRooms
 // predicates + the live managers. Built at boot and exposed (dormant) on the
@@ -1396,7 +1431,15 @@ function attributionFor(identity: Identity): {
 // the retired loopback /tasks surface. Same empty set for a token whose user is
 // gone.
 function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
-  if (identity.scope === "cron-run") return new Set<string>();
+  // Only a human and an agent inherit a user's rooms. Written as an allowlist
+  // rather than "everything except cron-run": an APP identity also carries a
+  // userId (the app's owner), so the fallthrough would have handed a registered
+  // app every room its owner can reach - and with it every room-gated read.
+  // A scope that should see no rooms must be the default, not an exception
+  // somebody remembers to add.
+  if (identity.scope !== "user" && identity.scope !== "agent") {
+    return new Set<string>();
+  }
   const user = identity.userId ? getUserById(identity.userId) : null;
   return user ? accessibleRoomIdsFor(user) : new Set<string>();
 }
@@ -1476,6 +1519,38 @@ function buildExecutorDeps(): ExecutorDeps {
       register: (input) => appRegistry.register(input),
       remove: (name) => appRegistry.remove(name),
       update: (name, patch) => appRegistry.update(name, patch),
+      // The token and its environment file, written together. A failure to
+      // write the file takes the hash back, so an app either has a usable
+      // token or has none - never a hash whose plaintext was lost, which is
+      // unrepairable (isomux cannot reproduce a token it does not keep).
+      provisionToken: (record) => {
+        let minted: string;
+        try {
+          minted = appTokens.mint(record.name, record.userId);
+        } catch (err) {
+          console.error(`[apps] "${record.name}" got no token:`, err);
+          return false;
+        }
+        try {
+          appSupervisor.provisionToken(record.name, minted);
+          return true;
+        } catch (err) {
+          console.error(
+            `[apps] "${record.name}" token could not be delivered, revoking it:`,
+            err,
+          );
+          try {
+            appTokens.revoke(record.name);
+          } catch (revokeErr) {
+            console.error(
+              `[apps] "${record.name}" token could not be revoked either:`,
+              revokeErr,
+            );
+          }
+          return false;
+        }
+      },
+      revokeToken: (name) => appTokens.revoke(name),
       install: (record) => appSupervisor.install(record),
       reinstall: (record) => appSupervisor.reinstall(record),
       teardown: (name) => appSupervisor.teardown(name),
@@ -4230,6 +4305,27 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       const auth = authenticate(req, { officeName });
       if (auth.kind === "rejected") return auth.response;
 
+      // APP tokens stop here, before any of it.
+      //
+      // Everything below this line predates the capability model and gates on
+      // "is there an identity" alone: the agent manifest (live and killed), the
+      // legacy upload/file/image handlers, the static UI. A registered app -
+      // agent-authored code, often serving strangers - would otherwise inherit
+      // all of it the moment it had a token, which is the opposite of the
+      // narrow scope the token exists to express. On the /api surface above,
+      // the route table decides instead, and an app holds no capability that
+      // opens anything there.
+      //
+      // ONE check for the whole surface rather than per-handler, so a legacy
+      // route added later cannot forget it. 403, not 401: the token is real and
+      // isomux knows whose it is.
+      if (auth.identity.scope === "app") {
+        return new Response(JSON.stringify({ error: "forbidden" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
       // Agent discovery manifest - GET /agents. Serves the live manifest with
       // the same entry shape as ~/.isomux/agents-summary.json (still written
       // alongside for existing file-based readers). Identity REQUIRED (bearer
@@ -4954,6 +5050,10 @@ export async function startServer(
   // (lazy load) ready. Fresh-install owners are created later via /auth/claim
   // and seeded grants=[] directly (auth.ts), so this is a no-op for them.
   migrateOwnersToRuleBasedAccess();
+  // After the managers (the supervisor is assigned in createManagers) and
+  // before the listener: an app's token should be settled before anything can
+  // present one.
+  reconcileAppTokensAtBoot();
   executorDeps = buildExecutorDeps();
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The

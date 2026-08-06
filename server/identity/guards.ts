@@ -144,10 +144,21 @@ function resolveRoomId(
 // dispatcher intentionally maps a null identity to 401 before any guard runs.
 export const publicGuard: Guard = () => ALLOW;
 
-// Any resolved identity satisfies it. (The dispatcher already converted "no
-// identity" into 401 before stage 2; this is the explicit "any authenticated
-// caller, no object-level restriction" marker.)
-export const authenticated: Guard = () => ALLOW;
+// Any resolved OFFICE identity satisfies it - a human, an agent, a cron run.
+// (The dispatcher already converted "no identity" into 401 before stage 2; this
+// is the explicit "any authenticated caller, no object-level restriction"
+// marker.)
+//
+// APP scope is the exception, and it is the reason this is no longer a bare
+// `() => ALLOW`. On a capability route the exclusion is redundant - an app
+// token holds no capabilities and never clears stage 1 - but on the handful of
+// `authenticated`-kind routes (system.version, sessions.logout) this guard IS
+// the whole gate, and "any identity at all" would quietly hand those to a
+// registered app the moment app tokens existed. An app is agent-authored code
+// serving strangers; it opts IN to a route deliberately, one route at a time,
+// and nothing has opted it in yet.
+export const authenticated: Guard = ({ identity }) =>
+  identity.scope === "app" ? FORBIDDEN : ALLOW;
 
 // The caller has an OWNING USER. Composed onto routes that create something a
 // user must own afterwards - today apps.register.
@@ -271,6 +282,13 @@ export function agentManagerMatch(idParamName = "id"): Guard {
 // identical FORBIDDEN envelope - the guard never reveals which.
 export function requiresRoomAccess(ref: RoomRef): Guard {
   return ({ identity, params, body, deps }) => {
+    // An APP reaches no room, and this is checked HERE rather than left to the
+    // dep because the dep cannot express it: hasRoomAccess keys on the
+    // identity's userId, and an app's userId is its OWNER's. Without this line
+    // a registered app would inherit every room its owner can reach - and with
+    // it every room-gated route that asks for no capability, which is exactly
+    // the confused deputy an app token must never become.
+    if (identity.scope === "app") return FORBIDDEN;
     const roomId = resolveRoomId(ref, params, body, deps);
     if (roomId === null) return FORBIDDEN;
     return deps.hasRoomAccess(identity, roomId) ? ALLOW : FORBIDDEN;
@@ -386,10 +404,16 @@ export const messageSend: Guard = (ctx) => {
       return senderMustEqualTokenAgent(ctx);
     case "cron-run":
       return FORBIDDEN;
+    // An app messaging its agent is the NEXT slice's feature, and it arrives as
+    // its own capability and its own guard - not as an app slipping through the
+    // route agents use to message each other, where the sender authority is a
+    // token agentId an app does not have.
+    case "app":
+      return FORBIDDEN;
   }
 };
 
-// Task DELETE: any scope EXCEPT cron-run.
+// Task DELETE: USER or AGENT only.
 //
 // A cron run holds task:read + task:write so it can file and complete tasks the
 // way its system prompt describes. But `task:write` is one coarse capability
@@ -397,9 +421,12 @@ export const messageSend: Guard = (ctx) => {
 // retired loopback /tasks route) answered DELETE with a 405 wall - so granting a
 // run the board would otherwise hand it a delete power it never had, over any
 // office-global task. Nothing about an unattended scheduled run wants that.
-// USER and AGENT are unaffected: both keep delete, as before.
+// USER and AGENT are unaffected: both keep delete, as before. An APP holds no
+// task capability at all, so it never reaches this guard through the dispatcher
+// - named here anyway, because a guard whose deny list is "everything except
+// the scopes I happened to know about" is one new scope away from being wrong.
 export const taskDelete: Guard = ({ identity }) =>
-  identity.scope === "cron-run" ? FORBIDDEN : ALLOW;
+  identity.scope === "user" || identity.scope === "agent" ? ALLOW : FORBIDDEN;
 
 // Scheduled-message OUTBOX guard (agents.listScheduledMessages /
 // agents.cancelScheduledMessage). `:id` here is the SENDER whose pending
@@ -420,6 +447,8 @@ export const scheduledMessagesOwner: Guard = (ctx) => {
     case "agent":
       return agentParamMustEqualTokenAgent(ctx);
     case "cron-run":
+      return FORBIDDEN;
+    case "app": // no outbox, and no agent id to bind one to
       return FORBIDDEN;
   }
 };
@@ -449,6 +478,8 @@ export const conversationReset: Guard = (ctx) => {
         ? messageSendUserGuard(ctx)
         : agentParamMustEqualTokenAgent(ctx);
     case "cron-run":
+      return FORBIDDEN;
+    case "app": // an app has no session of its own, and none over an agent
       return FORBIDDEN;
   }
 };
@@ -520,6 +551,11 @@ export const logSearchAccess: Guard = (ctx) => {
         ? ALLOW
         : killedAgentLogAccess(ctx);
     case "cron-run":
+      return FORBIDDEN;
+    // An app reads no conversations. Its owning user's id is on the identity
+    // for attribution, and killedAgentLogAccess own-matches on exactly that -
+    // so this branch is what stops a truthful field from becoming an authority.
+    case "app":
       return FORBIDDEN;
   }
 };
