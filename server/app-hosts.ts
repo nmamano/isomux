@@ -18,8 +18,10 @@
 //                         server, and none of those names may reach the
 //                         office's own surface.
 //
-// This slice serves only fail-closed placeholders. There is no auth (slice 4)
-// and no relay to the app (slice 5) yet, so nothing here can return app bytes.
+// Since slice 4 the arm also runs the sign-in handshake (server/app-auth.ts):
+// a caller with a live app session reaches the placeholder, everyone else is
+// either sent through the office to get one or refused. There is still no relay
+// to the app (slice 5), so nothing here can return app bytes.
 //
 // WHERE THE DOMAIN COMES FROM: publicOrigin, and nothing else. No config key,
 // no override, no installer-written state - if the office has an HTTPS public
@@ -33,6 +35,17 @@
 import { appRegistry as productionRegistry } from "./app-registry.ts";
 import type { AppRegistry } from "./app-registry.ts";
 import { buildPublicOrigin } from "./auth.ts";
+import {
+  APP_AUTH_PATH,
+  appHostAuthGate,
+  handleAppAuthRedeem,
+} from "./app-auth.ts";
+import {
+  NOT_READY_BODY,
+  neutral,
+  neutralNotFound,
+} from "./app-host-responses.ts";
+import type { AppRecord } from "../shared/types.ts";
 
 // --- hostname grammar (pure) ------------------------------------------------
 
@@ -212,28 +225,15 @@ export function matchAppHost(
 
 // --- the arm ----------------------------------------------------------------
 
-// Reserved on every app host from day one: slice 4 mounts the auth handshake
-// here, and the relay must never be able to serve or shadow it. Structural, so
-// the check cannot be forgotten later - the relay, when it exists, plugs in
-// BELOW this branch.
+// Reserved on every app host from day one: the auth handshake mounts here
+// (slice 4), and the relay must never be able to serve or shadow it.
+// Structural, so the check cannot be forgotten later - the relay, when it
+// exists, plugs in BELOW this branch.
 export const APP_RESERVED_PATH = "/__isomux";
 
-// The only two bodies this module can produce. Constants, with nothing from
-// the request in them: no host, no label, no path, so there is no reflection
-// surface at all, and nothing varies with who is asking (there is no "who"
-// until slice 4).
-const NOT_FOUND_BODY = "not found\n";
-const NOT_READY_BODY = "this app is not reachable yet\n";
-
-function neutral(status: number, body: string): Response {
-  return new Response(body, {
-    status,
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-  });
-}
+// Every body this arm can produce lives in app-host-responses.ts, shared with
+// the handshake, so "externally indistinguishable" is one set of bytes rather
+// than two literals that could drift.
 
 function isWebSocketUpgrade(req: Request): boolean {
   return req.headers.get("upgrade")?.toLowerCase() === "websocket";
@@ -245,8 +245,7 @@ function isWebSocketUpgrade(req: Request): boolean {
 //   null      -> not an app host. Fall through to the office, unchanged.
 //   Response  -> diverted. The office handler must not run.
 //
-// The order of the checks below is load-bearing and each step is a seam a
-// later slice replaces:
+// The order of the checks below is load-bearing:
 //
 //   1. multi-label host               -> 404
 //   2. no live app with that label    -> the SAME 404, whether the label was
@@ -256,9 +255,20 @@ function isWebSocketUpgrade(req: Request): boolean {
 //   3. WebSocket upgrade              -> refused HERE, deliberately (slice 6
 //      relays it). Refusing by falling through would hand a diverted host to
 //      the office's own /ws handler, which is the one thing that must be
-//      impossible.
-//   4. reserved path                  -> 404 (slice 4 mounts the handshake)
-//   5. anything else                  -> the not-ready placeholder
+//      impossible. Refused BEFORE the auth gate, and identically with or
+//      without a session: an upgrade cannot follow a redirect, so bouncing one
+//      into the handshake would only turn a clear refusal into a broken one.
+//   4. the handshake's own path       -> redeem a sign-in code. Everything
+//      else under the reserved prefix, including any other method on this
+//      path, is the 404: an app never sees a reserved path, and the relay
+//      (slice 5) plugs in below this branch.
+//   5. no live app session            -> a request that could complete the
+//      handshake is sent through the office to get one; anything else is
+//      refused (mayInitiateHandshake). Runs AFTER the label
+//      and reserved checks so an anonymous caller cannot learn anything about
+//      a label from the shape of the auth response.
+//   6. authenticated                  -> the not-ready placeholder, which is
+//      the seam slice 5 replaces with the app's own bytes.
 export function handleAppHostRequest(
   req: Request,
   registry: AppRegistry = productionRegistry,
@@ -273,18 +283,21 @@ export function handleAppHostRequest(
   if (match === null) return null;
 
   // Everything below here is DIVERTED. No office handler sees this request.
-  if (match.kind === "under") return neutral(404, NOT_FOUND_BODY);
+  if (match.kind === "under") return neutralNotFound();
 
-  let live = false;
+  // The app record, not just a boolean: the handshake binds a session to the
+  // app's issuance TUPLE (label + generation), which is what the registry
+  // treats as an app's identity.
+  let app: AppRecord | null = null;
   try {
-    live = registry.list().some((app) => app.hostLabel === match.label);
+    app = registry.list().find((a) => a.hostLabel === match.label) ?? null;
   } catch (err) {
     // A registry that cannot be read cannot vouch for a label. Fail closed:
     // the same 404 an unknown label gets, never an app.
     console.error("[app-hosts] app registry unreadable; refusing host:", err);
-    return neutral(404, NOT_FOUND_BODY);
+    return neutralNotFound();
   }
-  if (!live) return neutral(404, NOT_FOUND_BODY);
+  if (app === null) return neutralNotFound();
 
   if (isWebSocketUpgrade(req)) return neutral(503, NOT_READY_BODY);
 
@@ -293,8 +306,14 @@ export function handleAppHostRequest(
     pathname === APP_RESERVED_PATH ||
     pathname.startsWith(`${APP_RESERVED_PATH}/`)
   ) {
-    return neutral(404, NOT_FOUND_BODY);
+    if (pathname === APP_AUTH_PATH && req.method === "GET") {
+      return handleAppAuthRedeem(req, { host, app });
+    }
+    return neutralNotFound();
   }
+
+  const gate = appHostAuthGate(req, { host, app });
+  if (gate !== null) return gate;
 
   return neutral(503, NOT_READY_BODY);
 }

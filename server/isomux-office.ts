@@ -151,7 +151,12 @@ import {
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry } from "./app-registry.ts";
-import { freezeAppHostDomain, handleAppHostRequest } from "./app-hosts.ts";
+import {
+  appHostDomain,
+  freezeAppHostDomain,
+  handleAppHostRequest,
+} from "./app-hosts.ts";
+import { APP_MINT_PATH, handleAppMintRequest } from "./app-auth.ts";
 import {
   appSupervisor as productionAppSupervisor,
   type AppSupervisor,
@@ -4404,6 +4409,43 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           status: 403,
           headers: { "Content-Type": "application/json" },
         });
+      }
+
+      // GET /auth/app?app=<label>&r=<path> - mint a single-use code for one of
+      // this office's app hostnames and redirect the browser to it. The
+      // handshake itself lives in server/app-auth.ts; this is only the mount.
+      //
+      // Mounted HERE, behind the wall, rather than in tryHandleAuthRoute: the
+      // route needs a signed-in office user, and the wall has already answered
+      // an unauthenticated visitor with the login page (or a 401 for a fetch),
+      // so the handshake adds no pre-auth surface. What the wall does NOT bring
+      // is a CSRF check - authenticate() checks Origin on unsafe methods only,
+      // and this is a GET; handleAppMintRequest explains why that is accepted
+      // rather than patched here.
+      //
+      // A bearer identity gets nothing: an agent token has no office session
+      // for a code to be bound to (and an app token already stopped above).
+      if (url.pathname === APP_MINT_PATH) {
+        if (!auth.session) {
+          return new Response(JSON.stringify({ error: "forbidden" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        const mintRes = handleAppMintRequest(req, url, auth.session, {
+          appHostDomain: appHostDomain(),
+        });
+        // The `__Host-` migration rides this response like it rides a page load
+        // or a safe /api GET. It matters MORE here than on those: this is the
+        // door into the app origins, and slice 2's whole point was to close
+        // cookie shadowing from a sibling subdomain BEFORE one exists. A user
+        // who reached an app while still holding only the legacy, shadowable
+        // office cookie would be exactly the case the prerequisite was for.
+        // Restricted to GET for the same reason the /api path restricts it to
+        // safe methods - and any other method here is a neutral 404 anyway.
+        return req.method === "GET"
+          ? withCookieMigration(mintRes, req, auth.session)
+          : mintRes;
       }
 
       // Agent discovery manifest - GET /agents. Serves the live manifest with

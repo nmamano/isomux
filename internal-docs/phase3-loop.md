@@ -182,7 +182,21 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          case-fold attack on labels. PARKED, pre-existing: malformed Host
          (space) -> uncaught TypeError at new URL() -> connection reset;
          predates this slice, queued for Nil as a task candidate.)
-- [ ] S4  Auth handshake (single-use code, app cookie; no app bytes yet).
+- [x] S4  Auth handshake (single-use code, app cookie; no app bytes yet).
+         (Isomuxer2/Reviewer2, 3 rounds total, approved cfb86d89, committed
+         with this edit. Callback carries the CODE ONLY - return path is
+         server-side state per port-proxy-design.md:203, overriding the
+         pickup's &r=. No persisted state: codes + app sessions in memory,
+         restart costs one invisible redirect. Bounce predicate final: GET
+         AND ([navigate+document] OR zero Sec-Fetch headers); HEAD out.
+         Round-1 finds: mint response skipped S2's cookie migration
+         (shadowable-cookie window S2 exists to close); present-but-empty
+         app cookie never cleared. S5 MUST strip __Host-isomux_app before
+         forwarding - nothing in S4 enforces it. Accepted consequences for
+         Nil's list: GET /auth/app CSRF shape (bounded, SSO-standard);
+         codes visible ~45s in the terminator's access log; headerless
+         clients bounce (keeps old browsers able to sign in). Manager
+         edited one stale test describe label post-approval.)
 - [ ] S5  HTTP relay (first slice where a real app answers).
 - [ ] S6  WebSocket relay.
 - [ ] S7  Caddy + DNS (GATED ON NIL: domain + URL-shape answer; only slice
@@ -451,3 +465,74 @@ storage internals, exact placeholder wording (flagged for Nil's pass).
 
 Locked: access = any signed-in office user; cookie binding incl.
 generation; r is a path; fail-closed everywhere; Standing rails.
+
+## SLICE-5 PICKUP (authored after S4's commit; baseline = that commit)
+
+What S4 taught (real, from its report): `server/app-auth.ts` owns the
+handshake and per-request app-session validation; `server/
+app-host-responses.ts` owns every body/response the app-host surface emits
+- add relay errors THERE, not inline. The arm's authenticated branch ends
+at the placeholder line - that line is what S5 replaces with the relay.
+Codes/app sessions are in-memory by design. The office's cookie migration
+wraps mint responses (GET only). Login has no return-path plumbing; a
+fresh visitor clicks the app twice - accepted.
+
+Goal: an authenticated request on an app host gets the app's actual bytes.
+`server/app-proxy.ts`: relay to `127.0.0.1:<port>`, streamed both ways.
+After this slice a registered app is genuinely usable through its hostname
+(minus WebSockets, S6) on a box with DNS+Caddy (S7).
+
+Load-bearing mechanics and traps:
+- SECURITY HANDOFF FROM S4 (load-bearing, their words): strip
+  `__Host-isomux_app` from the forwarded Cookie header. The app must never
+  see the credential that admits to it. The app's own cookies pass through
+  untouched, both directions.
+- Refuse before connecting: unit not active (supervisor seam, cached state
+  ok) -> 503, NO connection attempt - a stopped app's port can be squatted
+  by any local process. Named body in app-host-responses.ts.
+- Header hygiene: hop-by-hop headers stripped per RFC 7230 (Connection and
+  everything it names, Keep-Alive, TE, Transfer-Encoding, Upgrade,
+  Proxy-*); relay SETS Host (the app-host value), X-Forwarded-Proto
+  (https), X-Forwarded-For (peer address), X-Forwarded-Host - never
+  passing through client-supplied values for headers the relay owns.
+- Redirects: `redirect: "manual"` - 3xx from the app passes to the browser
+  untouched, never followed by the relay.
+- Streaming: request and response bodies stream (uploads and SSE both
+  work); client abort cancels the upstream fetch (AbortController wired to
+  the request signal); backpressure via the streams, no buffering of
+  bodies. Response TTFB timeout + an idle/stall guard as plain named
+  constants - do NOT cap total duration (SSE lives long by design) -
+  decide exact values with reviewer.
+- Caps as plain named constants: concurrent relayed requests per app (with
+  a shared-total sanity bound), request body size consistent with the
+  office's own maxRequestBodySize story. 429/503 with named bodies.
+- Connection errors (refused, reset mid-stream): a named 502 body; if
+  bytes already streamed, terminate the stream honestly (no way to
+  retroactively 502 - state this in a comment).
+- The app answers plain HTTP on loopback; it may set its own cookies -
+  pass Set-Cookie through untouched (its `__Host-` cookies are its
+  problem; the browser scopes them to the app host, which is the design).
+- WS refusal from S3/S4 stays exactly where it is (S6's seam).
+- Tests: byte-exact passthrough (binary bodies both directions), streaming
+  (chunked/SSE with client abort killing upstream - observe via a test
+  server that records), cookie strip in, Set-Cookie out, header hygiene
+  matrix, 3xx not followed, stopped-app 503 with zero connection attempts
+  (assert via listener that must NOT be hit), caps, 502 shapes. Real HTTP
+  through the harness with a real scratch upstream server on a loopback
+  port (NOT a registered app's production port range - keep the fake
+  supervisor authoritative about state). Mutation-check and say so.
+
+Acceptance: isolated-instance demo transcript: register a real tiny app,
+authenticate per S4's flow, then through the app HOST: GET the app's page
+byte-exact, POST a body and get it echoed, an SSE stream ticking, client
+abort observed upstream, app's Set-Cookie landing in the jar and NOT the
+app-session cookie in the app's request log, stop the app -> 503 without
+connection, delete -> S3's 404. Always-run gates green; test:systemd only
+if supervisor files touched; reviewer approve on final announced
+fingerprint; all new user-visible strings verbatim.
+
+Decide with reviewer: timeout/stall constants, cap values, 502/503/429
+wording (flagged for Nil's pass), internal structure.
+
+Locked: cookie strip (S4 handoff), no-connect-when-inactive, manual
+redirects, streaming with abort propagation, Standing rails.

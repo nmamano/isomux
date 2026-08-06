@@ -36,6 +36,7 @@ import { _testResetTokens } from "../identity/tokens.ts";
 import { _testResetSkillUsage } from "../skill-usage.ts";
 import { _testResetAppMessageLimits } from "../app-message-limits.ts";
 import { _testResetAppHostDomain } from "../app-hosts.ts";
+import { _testResetAppAuth } from "../app-auth.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";
 
@@ -158,6 +159,12 @@ async function bootTestServer(
     // stale domain sitting in the module while no server is up is exactly the
     // kind of thing a later test would trip over.
     _testResetAppHostDomain();
+    // App sign-in codes and app sessions live in memory and die with the
+    // office process, so a boot - INCLUDING a no-wipe restart(), which models
+    // exactly that - starts with empty tables. Carrying them across would let
+    // a test prove a cookie survives a restart when the product says it does
+    // not.
+    _testResetAppAuth();
     registerProductionCronjobManagerForModuleReads(null);
 
     const fakeBackend =

@@ -24,21 +24,24 @@
 // open through a 101.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { connect } from "net";
-import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
-import { startTestServer, type TestServer } from "./harness.ts";
-import { STATE_ROOT } from "../config.ts";
-import { appRegistry } from "../app-registry.ts";
-import { buildPublicOrigin } from "../auth.ts";
-import { mintAgentToken } from "../identity/tokens.ts";
-import { getUserByName } from "../users.ts";
-import type { AgentInfo } from "../../shared/types.ts";
-
-// The office's public host in the HTTPS-shaped tests, and therefore - the flat
-// shape - its app-host domain too.
-const OFFICE_HOST = "office.example";
-const HTTPS_ORIGIN = `https://${OFFICE_HOST}`;
+import { type TestServer } from "./harness.ts";
+import { startTestServer } from "./harness.ts";
+import {
+  HTTPS_ORIGIN,
+  NAVIGATION_HEADERS,
+  expectBounce,
+  NOT_FOUND,
+  NOT_READY,
+  OFFICE_HOST,
+  WS_UPGRADE_HEADERS,
+  anAgentToken,
+  deleteApp,
+  expectPlaceholder,
+  patchOfficeConfig,
+  raw,
+  registerApp,
+  startFlatOffice as bootFlatOffice,
+} from "./app-host-test-kit.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -46,246 +49,14 @@ afterEach(async () => {
   server = null;
 });
 
-function patchOfficeConfig(patch: Record<string, unknown>): void {
-  const file = join(STATE_ROOT, "office-config.json");
-  let current: Record<string, unknown> = {};
-  try {
-    current = JSON.parse(readFileSync(file, "utf-8"));
-  } catch {
-    current = {};
-  }
-  writeFileSync(file, JSON.stringify({ ...current, ...patch }, null, 2));
-}
-
-// An office reachable at https://office.example - which, under the flat shape,
-// is all it takes for its children to become app hostnames. The signal is
-// boot-frozen, so it goes to disk through the real Access route and a cold
-// restart picks it up: the same mechanism auth-host-cookie.test.ts uses for
-// the HTTPS cookie arm.
-async function startFlatOffice(): Promise<TestServer> {
-  const first = await startTestServer();
-  server = first;
-  const owner = await first.seedOwner("Boss");
-  const r = await first.http("/api/office/access", {
-    method: "PUT",
-    rawSessionId: owner.rawSessionId,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ externalAccess: true, publicOrigin: HTTPS_ORIGIN }),
+// The rig lives in app-host-test-kit.ts, shared with the handshake tests
+// (slice 4) so both files boot the same office and compare against the same
+// placeholder bytes. This wrapper keeps the local afterEach in charge of
+// whichever server is live.
+function startFlatOffice(): Promise<TestServer> {
+  return bootFlatOffice((srv) => {
+    server = srv;
   });
-  if (r.status !== 200) throw new Error(`access PUT failed: ${r.status}`);
-  const srv = await first.restart();
-  server = srv;
-  if (buildPublicOrigin().origin !== HTTPS_ORIGIN) {
-    throw new Error(`expected ${HTTPS_ORIGIN} after restart`);
-  }
-  return srv;
-}
-
-interface RawResponse {
-  // The full response as received, headers and body, verbatim.
-  raw: string;
-  status: number;
-  // Everything but the Date header, which changes every second.
-  stable: string;
-  // Lowercased header names -> value, and the body on its own, so a contract
-  // can be asserted by EQUALITY. "contains the right text" would survive
-  // appending the host, the label or session material to a body this slice
-  // promises is a constant.
-  headers: Record<string, string>;
-  body: string;
-}
-
-// One raw HTTP/1.1 request with a Host of our choosing. Resolves when the
-// server closes the connection, or - so a wrongly-returned 101 fails as an
-// assertion instead of hanging - shortly after it goes idle.
-function raw(
-  port: number,
-  opts: {
-    host: string;
-    path?: string;
-    method?: string;
-    headers?: Record<string, string>;
-  },
-): Promise<RawResponse> {
-  return new Promise((resolve) => {
-    let out = "";
-    const extra = opts.headers ?? {};
-    const keepOpen = Object.keys(extra).some(
-      (k) => k.toLowerCase() === "connection",
-    );
-    const socket = connect(port, "127.0.0.1", () => {
-      socket.write(
-        [
-          `${opts.method ?? "GET"} ${opts.path ?? "/"} HTTP/1.1`,
-          `Host: ${opts.host}`,
-          ...Object.entries(extra).map(([k, v]) => `${k}: ${v}`),
-          ...(keepOpen ? [] : ["Connection: close"]),
-          "",
-          "",
-        ].join("\r\n"),
-      );
-    });
-    const done = () => {
-      socket.destroy();
-      resolve(parseRaw(out));
-    };
-    socket.setEncoding("utf8");
-    socket.on("data", (chunk: string | Buffer) => {
-      out += chunk.toString();
-    });
-    socket.on("end", done);
-    socket.setTimeout(500, done);
-    // A malformed Host makes the office's own URL parse throw and Bun resets
-    // the connection, so "no response" is a real, comparable outcome here
-    // rather than a test-harness failure. Resolving with a marker keeps it
-    // comparable across two boots; a genuinely dead server surfaces as the
-    // baseline sanity assertion failing instead.
-    socket.on("error", (err) => {
-      socket.destroy();
-      const code = (err as { code?: string }).code ?? "ERR";
-      resolve({
-        raw: out,
-        status: 0,
-        stable: `<socket ${code}>`,
-        headers: {},
-        body: "",
-      });
-    });
-  });
-}
-
-function parseRaw(out: string): RawResponse {
-  const split = out.indexOf("\r\n\r\n");
-  const head = split === -1 ? out : out.slice(0, split);
-  const body = split === -1 ? "" : out.slice(split + 4);
-  const lines = head.split("\r\n");
-  const headers: Record<string, string> = {};
-  for (const line of lines.slice(1)) {
-    const colon = line.indexOf(":");
-    if (colon > 0) {
-      headers[line.slice(0, colon).toLowerCase()] = line
-        .slice(colon + 1)
-        .trim();
-    }
-  }
-  return {
-    raw: out,
-    status: parseInt(lines[0]?.split(" ")[1] ?? "0", 10),
-    stable: out
-      .split("\r\n")
-      .filter((line) => !/^date:/i.test(line))
-      .join("\r\n"),
-    headers,
-    body,
-  };
-}
-
-// The exact contract for each of the two placeholder responses. Status, both
-// headers and the body compared by equality: nothing from the request may
-// appear in any of them.
-const NOT_FOUND = {
-  status: 404,
-  body: "not found\n",
-  contentType: "text/plain; charset=utf-8",
-  cacheControl: "no-store",
-};
-const NOT_READY = {
-  status: 503,
-  body: "this app is not reachable yet\n",
-  contentType: "text/plain; charset=utf-8",
-  cacheControl: "no-store",
-};
-
-function expectPlaceholder(
-  res: RawResponse,
-  want: typeof NOT_FOUND,
-  where: string,
-): void {
-  expect({
-    where,
-    status: res.status,
-    body: res.body,
-    contentType: res.headers["content-type"],
-    cacheControl: res.headers["cache-control"],
-  }).toEqual({
-    where,
-    status: want.status,
-    body: want.body,
-    contentType: want.contentType,
-    cacheControl: want.cacheControl,
-  });
-}
-
-const WS_UPGRADE_HEADERS = {
-  Upgrade: "websocket",
-  Connection: "Upgrade",
-  "Sec-WebSocket-Version": "13",
-  "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
-};
-
-async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
-  const roomId = srv.agentManager.getRooms()[0].id;
-  const info = await srv.agentManager.spawn(
-    name,
-    srv.stateRoot,
-    "default",
-    undefined,
-    undefined,
-    roomId,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    "claude",
-  );
-  if (!info) throw new Error(`spawn ${name} returned null`);
-  return info;
-}
-
-// An agent bearer token, seeding the owner first if this office has none.
-async function anAgentToken(srv: TestServer): Promise<string> {
-  if (!getUserByName("Boss")) await srv.seedOwner("Boss");
-  const ownerId = getUserByName("Boss")!.id;
-  const bot = await spawnAgent(srv, `AppBot-${Math.random()}`.slice(0, 20));
-  return mintAgentToken(bot.id, ownerId);
-}
-
-// Register an app through the real REST route and return its hostname label.
-async function registerApp(
-  srv: TestServer,
-  bearer: string,
-  name: string,
-): Promise<string> {
-  const res = await srv.http("/api/apps", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${bearer}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      name,
-      command: "bun run serve.ts",
-      cwd: srv.stateRoot,
-    }),
-  });
-  if (res.status !== 201) {
-    throw new Error(`register ${name}: ${res.status} ${await res.text()}`);
-  }
-  const label = appRegistry.get(name)?.hostLabel;
-  if (!label) throw new Error(`no label for ${name}`);
-  return label;
-}
-
-async function deleteApp(
-  srv: TestServer,
-  bearer: string,
-  name: string,
-): Promise<void> {
-  const res = await srv.http(`/api/apps/${name}`, {
-    method: "DELETE",
-    headers: { Authorization: `Bearer ${bearer}` },
-  });
-  if (res.status !== 204) throw new Error(`delete ${name}: ${res.status}`);
 }
 
 describe("app hosts: the office is untouched", () => {
@@ -484,14 +255,21 @@ describe("app hosts: the office is untouched", () => {
 });
 
 describe("app hosts: the arm", () => {
-  it("answers a live label with the not-ready placeholder", async () => {
+  it("sends an anonymous caller on a live label into the handshake", async () => {
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);
     const label = await registerApp(srv, token, "hello");
     expect(label).toBe("hello");
 
-    const res = await raw(srv.port, { host: `${label}.${OFFICE_HOST}` });
-    expectPlaceholder(res, NOT_READY, "live label");
+    // Slice 4 moved the not-ready placeholder BEHIND the sign-in handshake:
+    // reaching it now needs an app session (app-auth-handshake.test.ts drives
+    // the whole flow). What this file still pins is that the request was
+    // diverted - the answer comes from the arm, not from any office handler.
+    const res = await raw(srv.port, {
+      host: `${label}.${OFFICE_HOST}`,
+      headers: NAVIGATION_HEADERS,
+    });
+    expectBounce(res, { label, path: "/" }, "live label");
   });
 
   it("gives an unknown and a RETIRED label the same answer, byte for byte", async () => {
@@ -519,8 +297,13 @@ describe("app hosts: the arm", () => {
     expect(label).not.toBe("hello");
 
     expect(
-      (await raw(srv.port, { host: `${label}.${OFFICE_HOST}` })).status,
-    ).toBe(503);
+      (
+        await raw(srv.port, {
+          host: `${label}.${OFFICE_HOST}`,
+          headers: NAVIGATION_HEADERS,
+        })
+      ).status,
+    ).toBe(302);
     expect((await raw(srv.port, { host: `hello.${OFFICE_HOST}` })).status).toBe(
       404,
     );
@@ -561,15 +344,22 @@ describe("app hosts: the arm", () => {
     const token = await anAgentToken(srv);
     const label = await registerApp(srv, token, "hello");
     const host = `${label}.${OFFICE_HOST}`;
-    // Reserved: 404 now (slice 4 mounts the handshake here), and NOT the
-    // not-ready placeholder - the reservation sits ahead of it.
-    for (const path of ["/__isomux", "/__isomux/", "/__isomux/auth?c=x"]) {
+    // Reserved: everything under the prefix except the handshake's own GET is
+    // the neutral 404, and NOT the not-ready placeholder - the reservation sits
+    // ahead of it. `/__isomux/auth` with a bogus code belongs to the handshake
+    // and answers its own way, so it is asserted in the slice-4 file.
+    for (const path of ["/__isomux", "/__isomux/", "/__isomux/other"]) {
       expectPlaceholder(await raw(srv.port, { host, path }), NOT_FOUND, path);
     }
-    // A path that merely starts with the same characters is NOT reserved.
-    expectPlaceholder(
-      await raw(srv.port, { host, path: "/__isomuxer" }),
-      NOT_READY,
+    // A path that merely starts with the same characters is NOT reserved: it is
+    // an ordinary app path, so an anonymous caller is sent to sign in.
+    expectBounce(
+      await raw(srv.port, {
+        host,
+        path: "/__isomuxer",
+        headers: NAVIGATION_HEADERS,
+      }),
+      { label, path: "/__isomuxer" },
       "/__isomuxer",
     );
   });
@@ -619,11 +409,13 @@ describe("app hosts: the arm", () => {
       path: "/api/apps",
       headers: { Authorization: `Bearer ${token}` },
     });
-    expectPlaceholder(api, NOT_READY, "/api/apps on an app host");
-    // Even the unauthenticated office routes are gone.
-    expectPlaceholder(
+    // Both are sent into the handshake (no Sec-Fetch metadata, so the
+    // compatibility arm applies) - and that is still the whole point: the
+    // answer comes from the arm, and the office's own handler never ran.
+    expectBounce(api, { label, path: "/api/apps" }, "/api/apps on an app host");
+    expectBounce(
       await raw(srv.port, { host, path: "/readyz" }),
-      NOT_READY,
+      { label, path: "/readyz" },
       "/readyz on an app host",
     );
   });
@@ -639,7 +431,13 @@ describe("app hosts: the arm", () => {
       `${label}.${OFFICE_HOST}.`,
       `${label}.${OFFICE_HOST}.:8443`,
     ]) {
-      expectPlaceholder(await raw(srv.port, { host }), NOT_READY, host);
+      // Every spelling reaches the same app AND mints the same canonical
+      // handshake URL: the normalized label, never the one as typed.
+      expectBounce(
+        await raw(srv.port, { host, headers: NAVIGATION_HEADERS }),
+        { label, path: "/" },
+        host,
+      );
     }
   });
 });
