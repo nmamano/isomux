@@ -51,10 +51,17 @@ accepted by the manager 2026-08-06.
 1. Label shape: first registration of a name gets `<name>`, later ones get
    `<name>-g<N>`. Reversible only until S7 lands on a real domain.
 2. Ledger: `issuedLabels[]` in apps.json, never pruned, inside the backup set.
-3. SUPERSEDED by Nil's flat-URL ruling above: the apps domain IS the office
-   host (derived from `publicOrigin`), apps at `<label>.<office host>`,
-   still overridable by an installer-written key. Changing `publicOrigin`
-   moves every app URL - accepted.
+3. (Amended twice 2026-08-06 evening.) Flat shape per Nil's ruling: apps at
+   `<label>.<office host>`. NO derivation from publicOrigin: the app-host
+   arm exists only when an explicit office-config key is set, and the key
+   holds the parent domain (normally the office host; installer-written at
+   opt-in, S7). No key -> feature inert. Rationale: under the flat shape,
+   derivation would have hijacked every single-label subdomain of any https
+   office - a self-hoster with `www.<office>` aliased at the box would get
+   404s with no config change (found by Isomuxer1 in S3). Additionally,
+   reserved labels (RESERVED_APP_NAMES) fall through to the office even
+   when opted in - they can never be app labels, and www-style aliases are
+   real. Manager ruling; Nil informed, veto open.
 4. Access: any signed-in office user.
 5. Effective name cap 59 chars on new registrations (room for `-g<N>`);
    existing names grandfathered.
