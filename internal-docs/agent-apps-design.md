@@ -62,11 +62,27 @@ Apps are systemd user units, generated and owned by isomux. Agents never write
 unit files; they call an API and isomux writes, starts, and enables the unit.
 
 Systemd over an isomux-managed child process because it brings restart policy,
-journald logs, reboot survival, and cgroup resource limits for free, and isomux
-is already a user service installed this way, so nothing new appears in the
-install path. Resource limits are not a nicety: on hosted, one customer's runaway
-app is the failure mode, and `MemoryMax` plus `CPUQuota` per app is the answer
-already used for the daemon itself.
+journald logs, reboot survival, and cgroup resource limits for free. Resource
+limits are not a nicety: on hosted, one customer's runaway app is the failure
+mode, and `MemoryMax` plus `CPUQuota` per app is the answer already used for the
+daemon itself.
+
+User units are not free on every install, which is the one thing this transport
+costs. A tailnet box that runs isomux itself with `systemctl --user` already has
+everything. A box built by `deploy/install.sh` does not: isomux runs there as a
+system unit under a service account nobody logs into, so logind never starts
+that account's user manager and `systemctl --user` has no bus to reach. The
+installer therefore enables linger for the account and gives the service
+`XDG_RUNTIME_DIR=/run/user/<uid>` through a drop-in, then checks the bus answers
+before reporting success; the dependency sync the updater runs from the target
+release applies the same to boxes installed before apps existed.
+
+Linger is also where the boundary really sits. "Agents never write unit files"
+above is the API, not an enforced rule: agents run as the account the units
+belong to and can write `~/.config/systemd/user` themselves, and with linger on
+whatever they put there survives logout and reboot exactly like a registered app
+does. Enforcing the sentence would take a separate Unix identity for the
+supervisor, which the user-unit transport does not have.
 
 Surface: an Apps tab beside Cronjobs - name, state, restart count, logs, stop and
 delete. Cronjobs are the precedent for "a thing isomux runs that is not an

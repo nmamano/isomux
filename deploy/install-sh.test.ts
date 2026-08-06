@@ -450,3 +450,89 @@ describe("install.sh: out-of-memory protection", () => {
     expect(serviceUnit()).toMatch(/^RestartSec=[1-9]/m);
   });
 });
+
+// Agents' apps run as systemd USER units of the service account, and this
+// installer builds the one environment where `systemctl --user` cannot work at
+// all: a service account nobody logs into, so no user manager and no bus. What
+// is pinned here is the recipe that fixes it - linger, the bus address in the
+// service's environment, and a check that refuses to call it done on faith.
+describe("install.sh: the systemd user manager agents' apps run on", () => {
+  const fnBody = (name: string) => {
+    const start = SRC.indexOf(`${name}() {`);
+    expect(start).toBeGreaterThan(-1);
+    return SRC.slice(start, SRC.indexOf("\n}\n", start));
+  };
+
+  it("enables linger, so the account has a user manager with nobody logged in", () => {
+    expect(fnBody("configure_user_manager")).toContain(
+      'loginctl enable-linger "$SERVICE_USER"',
+    );
+  });
+
+  it("hands the service the address of that account's bus", () => {
+    // A system unit inherits no XDG_RUNTIME_DIR, and systemd's bus client
+    // derives the user bus from it. Without this line every app operation ends
+    // at "Failed to connect to bus".
+    expect(SRC).toContain(
+      "USER_MANAGER_DROPIN=/etc/systemd/system/isomux.service.d/10-user-manager.conf",
+    );
+    const fn = fnBody("configure_user_manager");
+    expect(fn).toContain('uid=$(id -u "$SERVICE_USER")');
+    expect(fn).toContain(
+      'install -d -m 755 "$(dirname "$USER_MANAGER_DROPIN")"',
+    );
+    expect(fn).toContain('write_file "$USER_MANAGER_DROPIN" 644');
+    expect(fn).toContain("Environment=XDG_RUNTIME_DIR=/run/user/$uid");
+    // systemd reads a new drop-in only after a reload.
+    expect(fn.indexOf("systemctl daemon-reload")).toBeGreaterThan(
+      fn.indexOf('write_file "$USER_MANAGER_DROPIN"'),
+    );
+  });
+
+  it("adds a drop-in and never rewrites the service unit", () => {
+    // deps_only runs this on a live box mid-update. A rewrite there would
+    // discard whatever the operator had edited into the unit, and would leave
+    // two copies of the environment contract free to drift apart.
+    expect(fnBody("configure_user_manager")).not.toContain(
+      "write_file /etc/systemd/system/isomux.service ",
+    );
+    expect(serviceUnit()).not.toContain("XDG_RUNTIME_DIR");
+  });
+
+  it("proves the bus answers from the service's environment, not root's", () => {
+    // Root runs the installer with a working bus of its own, so a probe that
+    // inherited root's environment would pass on a box where the service -
+    // which inherits neither XDG_RUNTIME_DIR nor DBUS_SESSION_BUS_ADDRESS -
+    // cannot connect. `env -i` is what makes the check mean anything.
+    const probe = fnBody("user_manager_reachable");
+    expect(probe).toContain('runuser -u "$SERVICE_USER" -- env -i');
+    expect(probe).toContain('"XDG_RUNTIME_DIR=/run/user/$1"');
+    expect(probe).toContain("/usr/bin/systemctl --user show-environment");
+    expect(probe).not.toContain("DBUS_SESSION_BUS_ADDRESS");
+  });
+
+  it("stops the run rather than report success with an unreachable bus", () => {
+    // Not the browser's warn-and-carry-on: this is the transport a shipped
+    // feature runs on, so a box that reported success with it broken would
+    // fail every app operation with nothing in the install output that said
+    // so. enable-linger returns before logind has finished bringing the user
+    // manager up, hence a bounded wait rather than one check.
+    const fn = fnBody("configure_user_manager");
+    expect(SRC).toMatch(/^USER_MANAGER_TIMEOUT_S=\d+$/m);
+    expect(fn).toContain("until user_manager_reachable");
+    expect(fn).toMatch(/\(\(waited < USER_MANAGER_TIMEOUT_S\)\) \|\|\s+die /);
+  });
+
+  it("runs before the service starts, and converges boxes that predate apps", () => {
+    expect(stepIndex("create_service_user")).toBeLessThan(
+      stepIndex("configure_user_manager"),
+    );
+    expect(stepIndex("configure_user_manager")).toBeLessThan(
+      stepIndex("install_service"),
+    );
+    // An existing install has neither linger nor the drop-in, and nobody is
+    // going to run a manual step on every box: the dependency sync the updater
+    // runs from the target release is the one root-run path that reaches them.
+    expect(fnBody("deps_only")).toContain("\n  configure_user_manager\n");
+  });
+});

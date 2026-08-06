@@ -103,6 +103,11 @@ USERNS_RESTRICT_SYSCTL=/proc/sys/kernel/apparmor_restrict_unprivileged_userns
 BASE_URL=http://127.0.0.1:4000
 ADMIN_SOCK=$SERVICE_HOME/.isomux/admin.sock
 HEALTH_TIMEOUT_S=180
+# Where the isomux service is told how to reach the service account's systemd
+# user manager - the transport the app supervisor runs agents' apps on. A
+# drop-in rather than lines in the unit itself; see configure_user_manager.
+USER_MANAGER_DROPIN=/etc/systemd/system/isomux.service.d/10-user-manager.conf
+USER_MANAGER_TIMEOUT_S=15
 CADDY_MARKER="# Managed by the isomux installer"
 # Where dpkg keeps package config files. A constant because apt_install scans
 # it to report the operator's files it kept, and the tests point that scan at a
@@ -2276,6 +2281,81 @@ create_service_user() {
   fi
 }
 
+# True when a process holding only the isomux service's environment can reach
+# the service account's systemd user manager. `env -i` rather than a plain
+# call: root's own XDG_RUNTIME_DIR or DBUS_SESSION_BUS_ADDRESS leaking in would
+# let this pass while the service - which inherits neither - still cannot
+# connect. `show-environment` exits 0 only on a working bus connection.
+user_manager_reachable() {
+  runuser -u "$SERVICE_USER" -- env -i "HOME=$SERVICE_HOME" \
+    "XDG_RUNTIME_DIR=/run/user/$1" /usr/bin/systemctl --user show-environment \
+    >/dev/null 2>&1
+}
+
+# Agents' apps run as systemd USER units of the service account: the office's
+# app supervisor speaks `systemctl --user` and nothing else. A box built by this
+# installer cannot do that as it stands - nobody ever logs in as that account,
+# so logind never starts its user manager and there is no bus to reach ("Failed
+# to connect to bus: No medium found"). Two things fix it, and both need root,
+# which is why they belong here and not in the server:
+#
+#   1. Linger. `enable-linger` starts user@<uid>.service without a login, brings
+#      it back at boot, and creates /run/user/<uid>.
+#   2. The address of that bus, in the isomux service's own environment - a
+#      system unit inherits none. XDG_RUNTIME_DIR is the whole recipe: with
+#      DBUS_SESSION_BUS_ADDRESS unset, systemd's bus client falls back to
+#      $XDG_RUNTIME_DIR/bus. Measured from a scrubbed environment on the
+#      supported target (Ubuntu 24.04, systemd 255) rather than read off a man
+#      page.
+#
+# A drop-in rather than lines in isomux.service, because this same function is
+# what converges boxes installed before apps existed: deps_only runs it during
+# an update, on a live box, where rewriting the unit would throw away whatever
+# the operator had edited into it. Additive also keeps one definition of the
+# environment contract instead of a fresh-install copy and an update copy free
+# to drift apart.
+#
+# Linger widens what the service account can do, and the wider grant is not the
+# apps: agents already run as this account and can write its
+# ~/.config/systemd/user, so a user manager that outlives logout and reboot
+# means units an agent writes by hand do too. That comes with running apps as
+# user units at all - isomux generating the unit files is an API, not a
+# boundary, and a boundary would take a separate Unix identity. Written down in
+# internal-docs/agent-apps-design.md rather than papered over here.
+configure_user_manager() {
+  step configure-user-manager
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would enable linger for $SERVICE_USER, write $USER_MANAGER_DROPIN, and check that the account's systemd user manager answers"
+    return 0
+  fi
+  local uid
+  uid=$(id -u "$SERVICE_USER") ||
+    die "no $SERVICE_USER account on this box, so linger cannot be enabled for it"
+  loginctl enable-linger "$SERVICE_USER"
+  install -d -m 755 "$(dirname "$USER_MANAGER_DROPIN")"
+  write_file "$USER_MANAGER_DROPIN" 644 <<EOF
+# Written by the isomux installer. Isomux runs agents' apps as systemd user
+# units of the $SERVICE_USER account; this is where that account's user bus
+# lives, and a system unit does not inherit it.
+[Service]
+Environment=XDG_RUNTIME_DIR=/run/user/$uid
+EOF
+  systemctl daemon-reload
+  # Verify rather than assume: enable-linger returns before logind has finished
+  # bringing the user manager up. Fatal, where the browser step only warns -
+  # this is the transport a shipped feature runs on, not an optional extra, and
+  # an install (or an update) that reports success with an unreachable bus
+  # leaves every app operation failing with nothing in the output that said so.
+  local waited=0
+  until user_manager_reachable "$uid"; do
+    ((waited < USER_MANAGER_TIMEOUT_S)) ||
+      die "the $SERVICE_USER account's systemd user manager did not become reachable within ${USER_MANAGER_TIMEOUT_S}s, so isomux could not run agents' apps. Check: loginctl show-user $SERVICE_USER (wants Linger=yes), ls -ld /run/user/$uid, systemctl status user@$uid.service"
+    sleep 1
+    waited=$((waited + 1))
+  done
+  log "the $SERVICE_USER account's systemd user manager answers; agents' apps can run"
+}
+
 # A Chrome-family browser is what backs the agents' page-preview cards
 # (POST /api/agents/:id/preview-url). Without one the server answers
 # `no_browser` while the agent system prompt advertises the capability, so
@@ -3104,7 +3184,14 @@ report() {
 #     box (release-design.md, "Bun invariant" - the updater warns about a pin
 #     change instead, and its rollback has to run on the installed bun).
 #   - NOT the service, Caddy, the owner claim, or the invite: nothing about
-#     this box's identity changes during an update.
+#     this box's identity changes during an update. configure_user_manager is
+#     the one deliberate exception, and a narrow one: it enables linger and
+#     adds a drop-in naming the service account's user bus, which is what a box
+#     installed before apps existed needs before it can run any. It changes the
+#     service's runtime environment rather than the box's identity, adds
+#     without rewriting the unit or restarting anything, and the updater's own
+#     restart is what picks it up. Without it that convergence would be a
+#     manual step on every existing install.
 deps_only() {
   step preflight-deps
   [[ $EUID -eq 0 ]] || die "ISOMUX_DEPS_ONLY needs root (it installs system packages)"
@@ -3122,6 +3209,7 @@ deps_only() {
     die "installed the system dependencies but could not restore caddy to active=${CADDY_PRIOR_ACTIVE:-no} enabled=${CADDY_PRIOR_ENABLED:-no}; the office's public URL may be down. Check: systemctl status caddy"
   install_browser
   configure_codex_sandbox
+  configure_user_manager
   step report
   [[ -z $FAILURE_SENTINEL ]] || rm -f "$FAILURE_SENTINEL"
   log "system dependencies are up to date"
@@ -3141,6 +3229,7 @@ main() {
   enable_auto_updates
   configure_oom_protection
   create_service_user
+  configure_user_manager
   check_root_reachability
   install_browser
   configure_codex_sandbox

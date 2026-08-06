@@ -104,6 +104,9 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
          S2b touches server/ + shared/, S2c touches deploy/ (+docs) - fully
          disjoint files, separate reviewers, separate commits, both from the
          S2 commit baseline. Any overlap discovered -> S2c yields and waits.
+         S2c DONE first (Isomuxer3/Reviewer3, 1 round, no findings, approved
+         21b4b3ae, committed while S2b still in flight). Linger-only cold-
+         boot case unproven until a real VPS install - rides task 5a8e4b08.
 - [ ] S3  Apps tab UI beside Cronjobs + WS sync: list, state, restart count,
          logs, stop/delete. Restart checkpoint.
 - [ ] S4  Conventions + docs: system-prompt guidance replaces "pick an

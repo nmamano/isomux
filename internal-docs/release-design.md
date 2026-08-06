@@ -104,9 +104,10 @@ updater copy the same way.
 2b. Then, still before the checkout, install the system dependencies the
    target needs by
    running THAT release's `deploy/install.sh` with `ISOMUX_DEPS_ONLY=1`
-   (`install_packages` + `install_browser` only - not the firewall, SSH
-   hardening, unattended upgrades, bun, or anything that decides the box's
-   identity). A checkout-only updater cannot deliver a dependency a release
+   (packages, the browser, the codex sandbox, and the user-manager setup
+   agents' apps run on - not the firewall, SSH hardening, unattended upgrades,
+   bun, or anything that decides the box's identity). A checkout-only updater
+   cannot deliver a dependency a release
    starts requiring: boxes installed before the Node.js step kept a dead
    terminal panel through every update. The release's own installer is the
    single declaration of what it needs, and the bytes come from the
