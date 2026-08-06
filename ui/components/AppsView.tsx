@@ -378,9 +378,23 @@ export function AppsView({ onClose }: { onClose: () => void }) {
                     }}
                   >
                     <StateDot state={app.state} />
-                    <span style={{ fontSize: 14, fontWeight: 600 }}>
+                    {/* Apps listen on plain HTTP on their own port, so the
+                        link is the office's host with the app's port. On a
+                        firewalled box (VPS installs) this is unreachable
+                        until the phase-3 hostname transport. */}
+                    <a
+                      href={`http://${window.location.hostname}:${app.port}/`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Open the app"
+                      style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: "var(--text-primary)",
+                      }}
+                    >
                       {app.name}
-                    </span>
+                    </a>
                     <span
                       style={{
                         fontSize: 11,
