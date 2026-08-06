@@ -1,10 +1,18 @@
-// Apps on the unified REST surface (opIds apps.{list,get,register,delete}) -
-// the agent-facing app registry. See internal-docs/agent-apps-design.md.
+// Apps on the unified REST surface (opIds
+// apps.{list,get,register,delete,logs,start,stop,restart}) - the agent-facing
+// app registry and the supervisor behind it. See
+// internal-docs/agent-apps-design.md.
 //
-// What these pin that the registry unit tests cannot: the auth matrix (an
-// ordinary AGENT token is enough, a cron-run token is not), ownership derived
-// from the TOKEN rather than the body, and the wire shape an agent actually
-// reads the allocated port out of.
+// What these pin that the registry and supervisor unit tests cannot: the auth
+// matrix (an ordinary AGENT token is enough, a cron-run token is not),
+// ownership derived from the TOKEN rather than the body, the wire shape an
+// agent actually reads the allocated port out of, and - the load-bearing one -
+// the ORDER between the registry and the supervisor, since each has a step that
+// cannot be undone.
+//
+// The supervisor is a FAKE (harness default). systemd is machine-global, so a
+// test that reached the real one would write unit files on whatever box the
+// suite runs on. Real-systemd coverage is the gated app-supervisor.live test.
 //
 // The harness wipes STATE_ROOT on every boot and the registry holds no
 // in-memory cache, so each test starts with an empty registry.
@@ -16,6 +24,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { APP_PORT_MIN, APP_PORT_MAX } from "../app-registry.ts";
+import { APP_LOG_LINES_DEFAULT } from "../app-supervisor.ts";
 import type { AppWire } from "../../shared/contract-shapes.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
@@ -112,7 +121,11 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
     expect(app.port).toBeGreaterThanOrEqual(APP_PORT_MIN);
     expect(app.port).toBeLessThanOrEqual(APP_PORT_MAX);
     expect(app.dataDir.startsWith(srv.stateRoot)).toBe(true);
-    expect(app.state).toBe("registered");
+    // Registering STARTS the app - no second call, no human confirm (the
+    // design's "no approval click" ruling) - so the state it answers with is
+    // the supervisor's, not a placeholder.
+    expect(app.state).toBe("running");
+    expect(app.restartCount).toBe(0);
     expect(app.name).toBe("hello");
     expect(app.description).toBe("a demo");
 
@@ -211,6 +224,465 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
       ports.push((r.body as AppWire).port);
     }
     expect(new Set(ports).size).toBe(3);
+  });
+});
+
+describe("routes/apps REST: the registry and the supervisor, in order", () => {
+  it("registering installs the app under its allocated port and data dir", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    const app = reg.body as AppWire;
+    const installed = srv.appSupervisor.installed.get("hello");
+    // The supervisor is handed the RECORD, so the port it puts in the unit is
+    // the one the registry allocated and told the agent about - a second
+    // allocation anywhere in this path would hand the agent a dead URL.
+    expect(installed?.port).toBe(app.port);
+    expect(installed?.dataDir).toBe(app.dataDir);
+    expect(installed?.command).toBe("bun run serve.ts");
+  });
+
+  it("an app that installs and then dies is still registered, and says so", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    // systemd took the unit; the app's own process did not survive.
+    srv.appSupervisor.installedState = { state: "failed", restartCount: 0 };
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    // 201, not an error: the registration really did happen, and `state` is
+    // where the agent learns the app is not serving. Answering 500 here would
+    // tell it the app does not exist while the name is taken forever.
+    expect(reg.status).toBe(201);
+    expect((reg.body as AppWire).state).toBe("failed");
+  });
+
+  it("a supervisor that refuses is still a 201, and says why on the record", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    srv.appSupervisor.failInstall = "systemd is not available";
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    // 201, not 500. The record is the commit point - undoing it would retire
+    // the name forever - so the resource really was created, and answering 500
+    // would invite a retry that can only ever be told the name is taken.
+    expect(reg.status).toBe(201);
+    const app = reg.body as AppWire;
+    expect(app.state).not.toBe("running");
+    // `state` alone cannot say WHY, and an agent cannot read the server log -
+    // for an INSTALL failure there is not even a journald line yet - so the
+    // reason rides on the record.
+    expect(app.startError).toContain("systemd is not available");
+    const list = await api(srv, "/api/apps", { bearer: token });
+    expect((list.body as AppWire[])[0].startError).toContain(
+      "systemd is not available",
+    );
+  });
+
+  it("even a RAW filesystem failure stays a 201 with the app retained", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    // Not an AppSupervisorError: a plain fs error, the kind an unwritable unit
+    // directory or a full disk produces. If it escapes as itself it becomes a
+    // bare 500 for an app that WAS created, and the retry gets name_taken.
+    srv.appSupervisor.throwRawOnInstall = new Error(
+      "ENOSPC: no space left on device",
+    );
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    expect(reg.status).toBe(201);
+    expect((reg.body as AppWire).state).not.toBe("running");
+    const list = await api(srv, "/api/apps", { bearer: token });
+    expect((list.body as AppWire[]).map((a) => a.name)).toEqual(["hello"]);
+  });
+
+  it("a healthy app carries no startError at all", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+
+    const reg = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    // Absent, not empty-string: the field means "an attempt failed", and a
+    // present-but-blank value would read as a failure with no reason.
+    expect((reg.body as AppWire).startError).toBeUndefined();
+  });
+
+  it("a delete that cannot stop the app does NOT retire its name", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    srv.appSupervisor.failTeardown = "the app is still running";
+
+    const del = await api(srv, "/api/apps/hello", {
+      method: "DELETE",
+      bearer: token,
+    });
+    expect(del.status).toBe(500);
+    expect(errCode(del)).toBe("supervisor_failed");
+    // Still there, and still THE SAME registration: re-registering the name is
+    // refused as taken, not as retired. The distinction is the whole test - a
+    // tombstone written before the app was actually stopped would leave a live
+    // process holding a port under a name nothing can reach any more.
+    expect((await api(srv, "/api/apps/hello", { bearer: token })).status).toBe(
+      200,
+    );
+    const again = await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    expect(errCode(again)).toBe("name_taken");
+  });
+
+  it("a successful delete stops the app before the record goes", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+
+    expect(
+      (await api(srv, "/api/apps/hello", { method: "DELETE", bearer: token }))
+        .status,
+    ).toBe(204);
+    expect(srv.appSupervisor.calls).toContain("teardown:hello");
+    expect(srv.appSupervisor.installed.has("hello")).toBe(false);
+  });
+
+  it("state and restart count come from the supervisor on every read", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    // The app has been crash-looping since it was registered.
+    srv.appSupervisor.setRuntime("hello", { state: "failed", restartCount: 7 });
+
+    const got = await api(srv, "/api/apps/hello", { bearer: token });
+    expect(got.body).toMatchObject({ state: "failed", restartCount: 7 });
+    const list = await api(srv, "/api/apps", { bearer: token });
+    expect((list.body as AppWire[])[0]).toMatchObject({
+      state: "failed",
+      restartCount: 7,
+    });
+  });
+
+  it("an app the supervisor knows nothing about reads unknown, not stopped", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    // Somebody removed the unit by hand.
+    srv.appSupervisor.installed.delete("hello");
+    srv.appSupervisor.setRuntime("hello", {
+      state: "unknown",
+      restartCount: 0,
+    });
+    expect(
+      (await api(srv, "/api/apps/hello", { bearer: token })).body,
+    ).toMatchObject({ state: "unknown" });
+  });
+
+  it("keeps running across an isomux restart, with nothing re-installed", async () => {
+    let srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: mintAgentToken(bot.id, ownerId),
+      body: body(srv, "hello"),
+    });
+
+    // A real cold boot against the state this run persisted. The supervisor
+    // survives it the way systemd survives an isomux restart.
+    srv = await srv.restart();
+    server = srv;
+    // Read as the OWNER: agent tokens are in-memory and die with the process,
+    // which is exactly the asymmetry this test is about - the token did not
+    // survive the restart and the app did.
+    const after = await api(srv, "/api/apps/hello", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(after.status).toBe(200);
+    expect((after.body as AppWire).state).toBe("running");
+    // The point of using systemd at all: the app was never re-injected,
+    // re-started, or re-installed by the boot.
+    expect(
+      srv.appSupervisor.calls.filter((c) => c.startsWith("install:")),
+    ).toEqual(["install:hello"]);
+  });
+});
+
+describe("routes/apps REST: the recovery verbs", () => {
+  const seed = async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    return { srv, token, owner };
+  };
+
+  it("stop, start and restart each answer with the app's fresh state", async () => {
+    const { srv, token } = await seed();
+
+    const stopped = await api(srv, "/api/apps/hello/stop", {
+      method: "POST",
+      bearer: token,
+    });
+    expect(stopped.status).toBe(200);
+    // The fresh state, not 204: the caller asked for a change and the answer
+    // is whether it happened, without a second round trip.
+    expect((stopped.body as AppWire).state).toBe("stopped");
+
+    const started = await api(srv, "/api/apps/hello/start", {
+      method: "POST",
+      bearer: token,
+    });
+    expect((started.body as AppWire).state).toBe("running");
+
+    const restarted = await api(srv, "/api/apps/hello/restart", {
+      method: "POST",
+      bearer: token,
+    });
+    expect((restarted.body as AppWire).state).toBe("running");
+    expect(srv.appSupervisor.calls).toContain("restart:hello");
+  });
+
+  it("recovers an app that came to rest in failed", async () => {
+    // The reason these verbs exist: without them the only cure for a crash
+    // loop is DELETE, which retires the app's name permanently.
+    const { srv, token } = await seed();
+    srv.appSupervisor.setRuntime("hello", { state: "failed", restartCount: 5 });
+
+    const restarted = await api(srv, "/api/apps/hello/restart", {
+      method: "POST",
+      bearer: token,
+    });
+    expect((restarted.body as AppWire).state).toBe("running");
+  });
+
+  it("surfaces a refusal rather than reporting a change that did not happen", async () => {
+    const { srv, token } = await seed();
+    srv.appSupervisor.failAction = "Job for isomux-app-hello.service failed";
+
+    const r = await api(srv, "/api/apps/hello/restart", {
+      method: "POST",
+      bearer: token,
+    });
+    expect(r.status).toBe(500);
+    expect(errCode(r)).toBe("supervisor_failed");
+  });
+
+  it("are closed to another member, and never say whether a name exists", async () => {
+    const { srv, owner } = await seed();
+    const bob = await srv.seedMember("Bob");
+    for (const verb of ["start", "stop", "restart"]) {
+      expect(
+        (
+          await api(srv, `/api/apps/hello/${verb}`, {
+            method: "POST",
+            rawSessionId: bob.rawSessionId,
+          })
+        ).status,
+      ).toBe(403);
+      // Identical refusal for a name that was never registered: names are
+      // permanently unique, so "is this one taken" is a question a denial must
+      // not answer. The office owner is the one who gets a 404.
+      expect(
+        (
+          await api(srv, `/api/apps/nope/${verb}`, {
+            method: "POST",
+            rawSessionId: bob.rawSessionId,
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await api(srv, `/api/apps/nope/${verb}`, {
+            method: "POST",
+            rawSessionId: owner.rawSessionId,
+          })
+        ).status,
+      ).toBe(404);
+    }
+    // Nothing moved.
+    expect(srv.appSupervisor.calls).not.toContain("stop:hello");
+  });
+});
+
+describe("routes/apps REST: logs", () => {
+  it("returns the app's journald tail, and defaults the line count", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+    srv.appSupervisor.logLines = ["boot", "listening on 21000"];
+
+    const r = await api(srv, "/api/apps/hello/logs", { bearer: token });
+    expect(r.status).toBe(200);
+    expect(r.body).toEqual({
+      name: "hello",
+      lines: ["boot", "listening on 21000"],
+    });
+    expect(srv.appSupervisor.lastLogRequest?.lines).toBe(APP_LOG_LINES_DEFAULT);
+
+    await api(srv, "/api/apps/hello/logs?lines=5", { bearer: token });
+    expect(srv.appSupervisor.lastLogRequest?.lines).toBe(5);
+  });
+
+  it("refuses a nonsense line count rather than quietly using the default", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: token,
+      body: body(srv, "hello"),
+    });
+
+    // A junk SUFFIX is the one that a parseInt-based check waves through: it
+    // reads 5 out of "5junk" and answers as if the caller had asked for 5.
+    for (const bad of ["banana", "5junk", "-5", "0", "1.5", "", " 5"]) {
+      const r = await api(
+        srv,
+        `/api/apps/hello/logs?lines=${encodeURIComponent(bad)}`,
+        { bearer: token },
+      );
+      // Silently answering with the default would hide the bug in whatever
+      // built the URL.
+      expect(r.status).toBe(400);
+      expect(errCode(r)).toBe("invalid_request");
+    }
+    // Too big is NOT nonsense: it is clamped inside the supervisor, which is
+    // where the ceiling lives.
+    const big = await api(srv, "/api/apps/hello/logs?lines=999999", {
+      bearer: token,
+    });
+    expect(big.status).toBe(200);
+  });
+
+  it("are readable by the app's owner and an office owner, nobody else", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const bob = await srv.seedMember("Bob");
+    const aliceId = getUserByName("Alice")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: mintAgentToken(bot.id, aliceId),
+      body: body(srv, "alice-app"),
+    });
+
+    expect(
+      (
+        await api(srv, "/api/apps/alice-app/logs", {
+          rawSessionId: alice.rawSessionId,
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await api(srv, "/api/apps/alice-app/logs", {
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(200);
+    // An app's logs are its output: a member who cannot see the app must not
+    // read what it printed.
+    expect(
+      (
+        await api(srv, "/api/apps/alice-app/logs", {
+          rawSessionId: bob.rawSessionId,
+        })
+      ).status,
+    ).toBe(403);
   });
 });
 

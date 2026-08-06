@@ -107,6 +107,7 @@ import type {
   TaskCreateReq,
   TaskUpdateReq,
   TaskClaimReq,
+  AppLogsRes,
   AppRegisterReq,
   AppWire,
   MemoryCreateReq,
@@ -998,6 +999,37 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "apps.delete",
     method: "DELETE",
     path: "/api/apps/:name",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: [],
+  }),
+  defineRoute<void, AppLogsRes>({
+    opId: "apps.logs",
+    method: "GET",
+    path: "/api/apps/:name/logs",
+    auth: cap("app:read", appOwnerOrOfficeOwner("name")),
+    emits: [],
+  }),
+  // The recovery verbs. app:write rather than app:read because they change what
+  // is running on the box, and an app that has come to rest in `failed` has no
+  // other cure than DELETE, which retires its name forever.
+  defineRoute<void, AppWire>({
+    opId: "apps.start",
+    method: "POST",
+    path: "/api/apps/:name/start",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: [],
+  }),
+  defineRoute<void, AppWire>({
+    opId: "apps.stop",
+    method: "POST",
+    path: "/api/apps/:name/stop",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: [],
+  }),
+  defineRoute<void, AppWire>({
+    opId: "apps.restart",
+    method: "POST",
+    path: "/api/apps/:name/restart",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
     emits: [],
   }),

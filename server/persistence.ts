@@ -3,6 +3,7 @@ import { STATE_ROOT } from "./config.ts";
 import {
   mkdirSync,
   appendFileSync,
+  chmodSync,
   readFileSync,
   writeFileSync,
   existsSync,
@@ -41,7 +42,17 @@ const AGENT_HISTORY_FILE = join(ISOMUX_DIR, "agent-history.json");
 // atomic on the same filesystem, so a concurrent reader (notably the backup
 // tarball) sees either the previous contents or the new contents, never a
 // half-written file. JSONL appends are line-tolerant and skip this.
-export function atomicWriteFileSync(path: string, data: string | Buffer) {
+// `mode`, when given, is applied to the TEMP file before the rename, so the
+// file is never readable at the ambient umask even for the instant between
+// creation and publication. It is chmod'd explicitly rather than passed to
+// writeFileSync because that option only takes effect when the file is
+// CREATED - a stale .tmp left by an interrupted write would otherwise keep its
+// old, laxer permissions.
+export function atomicWriteFileSync(
+  path: string,
+  data: string | Buffer,
+  mode?: number,
+) {
   // Ensure the target directory exists. This is the single choke point for
   // every top-level state-file write (agents/tasks/office config, users,
   // invites/sessions, cronjob config), so creating dirname here is what lets
@@ -49,7 +60,8 @@ export function atomicWriteFileSync(path: string, data: string | Buffer) {
   // exists on the first write. Recursive mkdir is a no-op once it exists.
   mkdirSync(dirname(path), { recursive: true });
   const tmp = path + ".tmp";
-  writeFileSync(tmp, data);
+  writeFileSync(tmp, data, mode !== undefined ? { mode } : undefined);
+  if (mode !== undefined) chmodSync(tmp, mode);
   renameSync(tmp, path);
 }
 

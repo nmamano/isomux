@@ -150,6 +150,10 @@ import {
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry } from "./app-registry.ts";
+import {
+  appSupervisor as productionAppSupervisor,
+  type AppSupervisor,
+} from "./app-supervisor.ts";
 import { memoryHandlers } from "./routes/handlers/memory.ts";
 import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
@@ -293,6 +297,14 @@ function bootPrelude(): void {
 let agentManager: AgentManager;
 let cronjobManager: CronjobManager;
 let scheduledMessageManager: ScheduledMessageManager;
+// The app supervisor is injectable for one specific reason: systemd is
+// MACHINE-GLOBAL. Every other collaborator a test injects is about determinism
+// or cost; this one is about a test run being unable to write a unit file, stop
+// a service, or reach the office's own apps on the box it happens to run on.
+// `bun test` boots the real server through the harness, and the harness passes
+// a fake here - that default is what makes "the test suite never touches
+// systemd" a property of the wiring rather than a promise.
+let appSupervisor: AppSupervisor;
 
 function createManagers(startOpts: StartServerOpts): void {
   // createProductionAgentManager() loads the persisted office/agents snapshot
@@ -300,6 +312,7 @@ function createManagers(startOpts: StartServerOpts): void {
   // office env-file provider. createProductionCronjobManager() wires the real
   // backend/env/user/persistence + clock/timers. Tests pass a pre-built manager
   // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
+  appSupervisor = startOpts.appSupervisor ?? productionAppSupervisor;
   agentManager =
     startOpts.agentManager ??
     createProductionAgentManager({ resolveBackend: startOpts.resolveBackend });
@@ -1461,6 +1474,13 @@ function buildExecutorDeps(): ExecutorDeps {
       get: (name) => appRegistry.get(name),
       register: (input) => appRegistry.register(input),
       remove: (name) => appRegistry.remove(name),
+      install: (record) => appSupervisor.install(record),
+      teardown: (name) => appSupervisor.teardown(name),
+      start: (name) => appSupervisor.start(name),
+      stop: (name) => appSupervisor.stop(name),
+      restart: (name) => appSupervisor.restart(name),
+      states: (names) => appSupervisor.states(names),
+      logs: (name, lines) => appSupervisor.logs(name, lines),
       attributionFor,
       validateCwd: (cwd) => {
         try {
@@ -4817,6 +4837,10 @@ export interface StartServerOpts {
   // Override the backend resolver for both factories (tests pass a FakeBackend
   // resolver). Ignored when agentManager/cronjobManager are supplied directly.
   resolveBackend?: typeof getBackend;
+  // Inject the app supervisor. Tests MUST pass a fake: the production one
+  // writes systemd unit files and runs systemctl against the real user manager,
+  // which is shared with whatever office is running on the same box.
+  appSupervisor?: AppSupervisor;
   // Background-job skips. Tests set these so `bun test` does no timers, no
   // network (update checker), no daily backup, and no admin socket.
   skipSchedulers?: boolean;

@@ -18,6 +18,10 @@ import {
 } from "../isomux-office.ts";
 import { STATE_ROOT } from "../config.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import {
+  createFakeAppSupervisor,
+  type FakeAppSupervisor,
+} from "./fake-app-supervisor.ts";
 import { assertSafeToDelete, removeStateDir } from "./temp-state.ts";
 import {
   COOKIE_NAME,
@@ -54,6 +58,9 @@ export interface TestSocket {
 export interface TestServer extends ServerHandle {
   stateRoot: string;
   fakeBackend: FakeBackend;
+  // The supervisor the server was booted with - so an apps test can assert what
+  // was installed, script a systemd failure, or force an app's state.
+  appSupervisor: FakeAppSupervisor;
   baseUrl: string;
   // Seed the office's first owner (real mint+accept). Returns the cookie value.
   seedOwner(displayName?: string): Promise<SeededIdentity>;
@@ -79,6 +86,10 @@ export interface StartTestServerOpts {
   // Inject a pre-configured FakeBackend (e.g. a custom onSend / auth-error
   // predicate). Default: a FakeBackend that auto-completes each turn on send.
   fakeBackend?: FakeBackend;
+  // Inject a pre-configured fake app supervisor. Default: a fresh one. There is
+  // deliberately no way to ask for the REAL supervisor here - see the field on
+  // TestServer.
+  appSupervisor?: FakeAppSupervisor;
   // Extra startServer opts merged over the harness defaults. Rarely needed.
   startServer?: Partial<StartServerOpts>;
 }
@@ -139,10 +150,15 @@ async function bootTestServer(
       new FakeBackend({
         session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
       });
+    // ALWAYS a fake, and never optional: the real supervisor writes systemd
+    // unit files and drives the box's own user manager, which the office
+    // running on that box shares. See fake-app-supervisor.ts.
+    const appSupervisor = opts.appSupervisor ?? createFakeAppSupervisor();
 
     const handle = await startServer({
       port: 0,
       resolveBackend: () => fakeBackend,
+      appSupervisor,
       skipSchedulers: true,
       skipBackups: true,
       skipAdminSocket: true,
@@ -320,13 +336,17 @@ async function bootTestServer(
       // persisted - exercising the real boot path (incl. boot migrations)
       // against real on-disk state. Returns the fresh TestServer.
       await stop();
-      return bootTestServer(opts, { wipe: false });
+      // The supervisor is carried across deliberately: systemd outlives the
+      // isomux process, so a restart that forgot which apps were running would
+      // model the opposite of the property apps are supposed to have.
+      return bootTestServer({ ...opts, appSupervisor }, { wipe: false });
     }
 
     return {
       ...handle,
       stateRoot: STATE_ROOT,
       fakeBackend,
+      appSupervisor,
       baseUrl,
       seedOwner,
       seedMember,

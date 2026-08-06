@@ -651,12 +651,53 @@ export interface CronPromptReq {
 
 // What an app is doing. The registry persists NO state field: a stored
 // "running" is a lie the moment the box reboots, so state is DERIVED at read
-// time. Until a supervisor exists, nothing runs and every app reads
-// "registered".
-export type AppState = "registered";
+// time, by asking systemd.
+//
+// `unknown` is not a synonym for `stopped`, and the difference is the point of
+// having it: `stopped` means systemd is holding the app still on purpose, while
+// `unknown` means there is no unit at all, or systemd could not be asked. One
+// of those is a state somebody chose and the other is a fault.
+export type AppState =
+  | "running"
+  | "starting"
+  | "stopped"
+  | "failed"
+  | "unknown";
 
 export interface AppWire extends AppRecord {
   state: AppState;
+  // AUTOMATIC restarts since the app was last activated (systemd's NRestarts).
+  // A number climbing on its own is the signal that an app is crash-looping
+  // rather than serving. It resets when the app is stopped and started again,
+  // which is the honest scope rather than a lifetime total: an explicit restart
+  // is a new activation, and counting across one would report a fixed app as
+  // still broken.
+  restartCount: number;
+  // Why the last install or start attempt failed, when one did. Absent means
+  // no attempt has failed since isomux started.
+  //
+  // It exists because registering an app answers 201 even when the app does not
+  // come up - the registration really did happen, and a 500 would invite a
+  // retry that can only ever be told the name is taken. That leaves `state` as
+  // the only signal, and `state` cannot say WHY. An agent has no access to the
+  // server log, and a failure to install the unit at all happens before there
+  // is anything in journald to read, so without this the reason is invisible
+  // to the API's main consumer.
+  //
+  // In memory only, so it does not survive an isomux restart. That is the
+  // honest scope: it describes an attempt this process made, and after a
+  // restart `state` still tells the truth while the next attempt regenerates
+  // the reason.
+  startError?: string;
+}
+
+// GET /api/apps/:name/logs. Newest last, exactly as journald renders them - the
+// caller is a human reading a tail or an agent debugging its own app, and
+// re-structuring log lines into fields would only lose what journald already
+// formatted.
+export interface AppLogsRes {
+  name: string;
+  lines: string[];
 }
 
 // POST /api/apps. The port is NOT here and never will be: allocating it is the
@@ -683,9 +724,21 @@ export type AppErrorCode =
   | "name_retired"
   | "app_limit_reached"
   | "no_port_available"
-  // The two server-side failures. Neither is ever reported as success.
+  // The three server-side failures. Where one of these is the error CODE, the
+  // request genuinely failed - none of them is ever dressed up as a success.
   | "registry_corrupt"
-  | "persist_failed";
+  | "persist_failed"
+  // The machine refused: systemd could not install, load or control the app's
+  // unit. Distinct from the registry failures because the registry is fine -
+  // the record exists and the name is spoken for - and the caller's next move
+  // is different.
+  //
+  // One deliberate asymmetry: this code is NOT used when registration commits
+  // and the supervisor then fails. That answers 201, because the app really was
+  // created, and the same diagnosis rides on the success body as `startError`.
+  // The code is for the control routes and delete, where nothing was created
+  // and a failure is simply a failure.
+  | "supervisor_failed";
 
 // --- Storage retention (task 2366ccb0) --------------------------------------
 // The wire contract for the disk-usage breakdown and the manual pruner. Defined

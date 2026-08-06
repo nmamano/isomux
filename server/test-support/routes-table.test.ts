@@ -357,6 +357,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apps.get": { caps: ["app:read"], emits: [] },
   "apps.register": { caps: ["app:write"], emits: [] },
   "apps.delete": { caps: ["app:write"], emits: [] },
+  "apps.logs": { caps: ["app:read"], emits: [] },
+  // The recovery verbs are app:write, not app:read: they change what is
+  // running on the box.
+  "apps.start": { caps: ["app:write"], emits: [] },
+  "apps.stop": { caps: ["app:write"], emits: [] },
+  "apps.restart": { caps: ["app:write"], emits: [] },
   // Cronjobs
   "cron.list": { caps: ["cron:read"], emits: [] },
   "cron.get": { caps: ["cron:read"], emits: [] },

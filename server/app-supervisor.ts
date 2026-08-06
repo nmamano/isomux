@@ -1,0 +1,838 @@
+// The app supervisor - the ONE place isomux touches systemd. Unit generation,
+// start/stop/enable, state reads, and journald logs for the apps the registry
+// holds. See internal-docs/agent-apps-design.md section 2.
+//
+// The registry (server/app-registry.ts) owns names, ports and persistence and
+// runs nothing; this module runs things and persists nothing. The only state it
+// keeps is a short-lived cache of what systemd last said.
+//
+// THE ISOLATION RAIL is what shapes this module. systemd is MACHINE-GLOBAL:
+// there is one user manager per box, and a unit name is a global identifier
+// shared by every process that speaks to it. So an office running against a
+// throwaway state root - a test, an isolated instance - could stop, restart or
+// delete the units of the REAL office running on the same box. Two mechanisms
+// keep that from being possible rather than merely unlikely:
+//
+//   1. ONE SEAM. Every systemctl invocation, every journalctl invocation and
+//      every unit-file write or removal goes through `SupervisorHost`. Nothing
+//      else in the tree shells out to systemd. A test injects a fake host and
+//      is then structurally incapable of reaching the machine, rather than
+//      being trusted not to.
+//   2. THE UNIT NAMESPACE FOLLOWS THE STATE ROOT. `isomux-app-<name>.service`
+//      is the production namespace and belongs to the office on the default
+//      state root. Any other state root gets its own prefix (see
+//      unitPrefixFor). That is not a testing affordance bolted on: two offices
+//      on one box with different ISOMUX_HOMEs hold two different apps.json,
+//      and sharing a unit namespace between them means one office's delete
+//      stops the other office's app. The isolated-instance demo can therefore
+//      boot the REAL server and still be unable to name a production unit.
+//
+// WHY THE COMMAND NEVER APPEARS IN ExecStart. An app's start command is stored
+// verbatim as a free-form shell string ("bun run dev", "npm start && tail -f
+// x"), because that is what an agent types. systemd does its OWN unquoting of
+// ExecStart - C-style escapes, quote removal, and `%` specifier expansion - so
+// interpolating that string would mean escaping it correctly through systemd's
+// parser, and any mistake silently mangles the command instead of failing. So
+// isomux writes the command, byte for byte, into a launcher script it owns, and
+// ExecStart names only that script. There is no escaping to get wrong.
+//
+// The launcher lives beside the registry state, NOT in the app's own data
+// directory: the app can write to its data directory, and a program that can
+// rewrite its own launcher is a program that can change what isomux starts as
+// it on the next boot.
+
+import { spawnSync } from "child_process";
+import { createHash } from "crypto";
+import { existsSync, mkdirSync, rmSync } from "fs";
+import { homedir } from "os";
+import { dirname, join } from "path";
+import { IS_DEFAULT_STATE_ROOT, STATE_ROOT } from "./config.ts";
+import { atomicWriteFileSync } from "./persistence.ts";
+import type { AppRecord } from "../shared/types.ts";
+import type { AppErrorCode, AppState } from "../shared/contract-shapes.ts";
+
+// --- constants --------------------------------------------------------------
+
+// Resource limits. Plain named constants, not per-deployment configuration:
+// the point is a ceiling low enough that one runaway app cannot take the box
+// (and with it the office) down, which is the failure mode the design doc names
+// for hosted. An app that exceeds MemoryMax is killed and restarted by systemd,
+// so hitting it reads as a restart count climbing rather than as silence.
+// 512M rather than a rounder 1G: on a 2G VPS - the common hosted size - a 1G
+// ceiling lets a single broken app take half the box before its cgroup limit
+// does anything, which is the failure the limit exists to prevent.
+export const APP_MEMORY_MAX = "512M";
+// The launcher holds agent-authored code, so it is not world-readable.
+export const APP_LAUNCHER_MODE = 0o600;
+export const APP_CPU_QUOTA = "100%";
+// Only AUTOMATIC restarts wait; an explicit restart through the API does not.
+export const APP_RESTART_SEC = 2;
+export const APP_STOP_TIMEOUT_SEC = 10;
+
+// When to stop trying. An app whose command is simply broken must come to REST
+// in `failed`, where its state says so and the restart verb can pick it back
+// up - not spin forever burning CPU and filling the journal.
+//
+// These are set explicitly rather than left to systemd's defaults, and that is
+// a correction rather than a preference: the defaults (5 starts per 10 seconds)
+// are borderline against RestartSec=2, so a permanently broken app was measured
+// still looping past 15 restarts instead of giving up. Five attempts in a
+// minute is unambiguous, while a healthy app that crashes once in a while never
+// approaches it.
+export const APP_START_LIMIT_INTERVAL_SEC = 60;
+export const APP_START_LIMIT_BURST = 5;
+
+// How long a systemd state read stays good. Reads are per-request and the Apps
+// tab will poll, so the alternative is a subprocess per app per render. Short
+// enough that a state change is visible on the next refresh, long enough that a
+// burst of reads costs one `systemctl show`.
+export const APP_STATE_CACHE_MS = 1500;
+
+export const APP_LOG_LINES_DEFAULT = 100;
+export const APP_LOG_LINES_MAX = 1000;
+
+// systemd user units inherit a minimal environment, so PATH is built rather
+// than borrowed. This is the tail of it - the bit every Linux box has.
+const SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin";
+
+// --- errors -----------------------------------------------------------------
+
+// A supervisor failure carries the same wire vocabulary as a registry failure,
+// so the route handler maps one exhaustive table of codes to statuses. Distinct
+// CLASS, though, not a subclass of AppRegistryError: "the registry refused" and
+// "the machine refused" are different diagnoses and the handler treats them so.
+export class AppSupervisorError extends Error {
+  constructor(
+    public readonly code: AppErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "AppSupervisorError";
+  }
+}
+
+const failed = (what: string, detail: string): AppSupervisorError =>
+  new AppSupervisorError(
+    "supervisor_failed",
+    `${what}: ${detail.trim() || "no error output"}`,
+  );
+
+// --- the seam ---------------------------------------------------------------
+
+export interface RunResult {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+// Everything that touches the machine. See the isolation rail in the header:
+// this interface is the whole surface, so a fake here is a complete fake.
+export interface SupervisorHost {
+  // Where systemd reads user units from. Production: ~/.config/systemd/user.
+  unitDir: string;
+  // Where isomux keeps the generated launcher scripts.
+  launcherDir: string;
+  // `mode` is honoured where the host has a filesystem; the launcher asks for
+  // 0600 because it holds agent-authored code.
+  writeFile(path: string, contents: string, mode?: number): void;
+  // Idempotent: removing a path that is not there is a success, because
+  // teardown must be able to finish a delete that already half-happened.
+  removeFile(path: string): void;
+  run(argv: string[]): RunResult;
+}
+
+export function createSystemdHost(): SupervisorHost {
+  const configHome =
+    process.env.XDG_CONFIG_HOME?.trim() || join(homedir(), ".config");
+  return {
+    unitDir: join(configHome, "systemd", "user"),
+    launcherDir: join(STATE_ROOT, "apps", "units"),
+    writeFile(path, contents, mode) {
+      mkdirSync(dirname(path), { recursive: true });
+      // The mode is applied to the temp file BEFORE it is published, so the
+      // launcher is never briefly world-readable at the ambient umask.
+      atomicWriteFileSync(path, contents, mode);
+    },
+    removeFile(path) {
+      rmSync(path, { force: true });
+    },
+    run(argv) {
+      // NEVER through a shell: every argument here is a unit name or a flag,
+      // and a shell would put an app name (agent-chosen) in front of a parser.
+      const r = spawnSync(argv[0], argv.slice(1), {
+        encoding: "utf-8",
+        timeout: 30_000,
+      });
+      if (r.error) {
+        // ENOENT (no systemctl at all) and a timeout land here. Reported as a
+        // non-zero run rather than thrown, so one failure shape reaches callers.
+        return { code: 127, stdout: "", stderr: r.error.message };
+      }
+      return {
+        code: r.status ?? 1,
+        stdout: r.stdout ?? "",
+        stderr: r.stderr ?? "",
+      };
+    },
+  };
+}
+
+// --- the unit namespace -----------------------------------------------------
+
+// The unit-name prefix for an office on `stateRoot`.
+//
+// The production office (default state root) gets the bare `isomux-app-`
+// namespace, which is the locked production naming. Every other state root gets
+// a namespace of its own, derived from the root's path, for the reason in the
+// header: two offices on one box must not be able to name each other's units.
+// The digest is what makes it derived rather than configured - there is no knob
+// to set wrong, and an isolated instance cannot opt back into production.
+//
+// THE DOT IS THE WHOLE ISOLATION ARGUMENT. An app name cannot contain `.` (the
+// grammar is `[a-z0-9-]`, because the name has to survive as a DNS label), so
+// no production app - however it is named, and whoever names it - can render to
+// a unit name in this namespace. Without it the separation would rest on a
+// digest being hard to guess, which is not a property anyone should have to
+// rely on: the state root is not a secret, so a name that collides is something
+// an app author could construct on purpose. A forbidden character makes the two
+// namespaces disjoint by construction instead. systemd accepts a `.` inside a
+// unit name (verified with systemd-analyze; it splits the type suffix off the
+// LAST dot), and the result still matches the `isomux-app-test-*` glob the
+// standing rail asks test units to be findable under.
+//
+// The full digest, not a prefix of it, for the same reason: truncating to eight
+// hex characters would squeeze every state root on the box into a 32-bit space
+// for no saving that matters.
+export function unitPrefixFor(stateRoot: string, isDefault: boolean): string {
+  if (isDefault) return "isomux-app-";
+  const digest = createHash("sha256").update(stateRoot).digest("hex");
+  return `isomux-app-test-.${digest}-`;
+}
+
+export const unitNameFor = (prefix: string, appName: string): string =>
+  `${prefix}${appName}.service`;
+
+// --- unit + launcher rendering (pure) ---------------------------------------
+
+// Interpolating a value into a unit file, and systemd's rules are NOT uniform
+// across directives - which is the sort of thing only a real systemd finds out.
+//
+// What every directive shares: `%` starts a specifier, so a literal one has to
+// be doubled, and a newline ends the directive, so there is no way to express
+// one and it is refused rather than silently truncating the unit.
+//
+// What they do NOT share is quoting. `Environment=` and `ExecStart=` are
+// parsed with shell-like quoting, so a value with a space must be quoted.
+// `WorkingDirectory=` is not: it takes the rest of the line as a literal path,
+// and quoting it makes systemd read the leading `"` as part of the path and
+// refuse the whole unit with "path is not absolute". Hence two helpers rather
+// than one - the single-helper version passed its golden-file test and was
+// rejected by systemd on the first real start.
+function unitSafe(raw: string, what: string): string {
+  // A newline ends the directive and a NUL truncates the value at the C-string
+  // boundary. Neither has an escape that means what the caller wanted, so both
+  // are refused rather than silently producing a different unit.
+  if (/[\r\n\0]/.test(raw)) {
+    throw new AppSupervisorError(
+      "supervisor_failed",
+      `${what} contains a line break or NUL, which cannot be expressed in a systemd unit file`,
+    );
+  }
+  return raw.replace(/%/g, "%%");
+}
+
+// For a directive that is NOT quote-parsed: a bare path, spaces and all.
+const unitPathValue = (raw: string, what: string): string =>
+  unitSafe(raw, what);
+
+// For a directive that IS quote-parsed (Environment, ExecStart): quoted, so a
+// space cannot split the value, with the quote and backslash escaped.
+function unitQuoted(raw: string, what: string): string {
+  const escaped = unitSafe(raw, what)
+    .replace(/\\/g, "\\\\")
+    .replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+// PATH for the app's unit. systemd hands a user unit a minimal environment, so
+// `bun run dev` - by far the likeliest command an agent registers - would not
+// even resolve `bun` without this.
+//
+// Two sources, in the order a developer's shell would find them:
+//   - every node_modules/.bin from the app's own directory upward, nearest
+//     first, which is how `vite` or `next` resolve without a package-manager
+//     wrapper (the trick portless landed on for the same problem);
+//   - the directory of the runtime running isomux itself, which is where `bun`
+//     actually lives on a box that installed it the normal way (~/.bun/bin).
+//
+// Computed at REGISTRATION and baked into the unit, so a node_modules that
+// appears later is not picked up until the app is re-registered. Recomputing on
+// every start would need a unit rewrite per start; the trade is documented
+// rather than chased.
+export function computeAppPath(
+  cwd: string,
+  runtimeBinDir: string,
+  exists: (path: string) => boolean = existsSync,
+): string {
+  const dirs: string[] = [];
+  let dir = cwd;
+  for (;;) {
+    const bin = join(dir, "node_modules", ".bin");
+    if (exists(bin)) dirs.push(bin);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  if (runtimeBinDir) dirs.push(runtimeBinDir);
+  return [...dirs, SYSTEM_PATH].join(":");
+}
+
+// The launcher script: isomux's own file, holding the agent's command verbatim.
+// No `exec` in front of it - `exec a && b` would change what a compound command
+// means, and the shell's own exit status is already the app's.
+export function renderLauncher(app: AppRecord): string {
+  return [
+    "#!/bin/sh",
+    `# Generated by isomux for the app "${app.name}". Do not edit: this file is`,
+    "# rewritten when the app is registered and removed when it is deleted.",
+    "# Below is the start command exactly as it was registered.",
+    "",
+    app.command,
+    "",
+  ].join("\n");
+}
+
+export interface UnitRenderOpts {
+  launcherPath: string;
+  path: string;
+  unitName: string;
+}
+
+export function renderUnit(app: AppRecord, opts: UnitRenderOpts): string {
+  const base = opts.unitName.replace(/\.service$/, "");
+  return `# Generated by isomux. Do not edit: this file is rewritten when the app
+# is registered and removed when it is deleted.
+[Unit]
+Description=Isomux app ${app.name}
+After=network.target
+# Give up after ${APP_START_LIMIT_BURST} restarts in ${APP_START_LIMIT_INTERVAL_SEC}s: a broken command should come
+# to rest in the failed state, where it says so and the restart verb can pick
+# it back up, rather than loop forever. Set explicitly because systemd's
+# defaults are borderline against RestartSec=${APP_RESTART_SEC} and were measured NOT tripping.
+StartLimitIntervalSec=${APP_START_LIMIT_INTERVAL_SEC}
+StartLimitBurst=${APP_START_LIMIT_BURST}
+
+[Service]
+Type=simple
+WorkingDirectory=${unitPathValue(app.cwd, "the app's working directory")}
+Environment=${unitQuoted(`PORT=${app.port}`, "the app's port")}
+Environment=${unitQuoted(`ISOMUX_APP_NAME=${app.name}`, "the app's name")}
+Environment=${unitQuoted(`ISOMUX_APP_DATA_DIR=${app.dataDir}`, "the app's data directory")}
+Environment=${unitQuoted(`PATH=${opts.path}`, "the app's PATH")}
+ExecStart=/bin/sh ${unitQuoted(opts.launcherPath, "the app's launcher path")}
+Restart=on-failure
+RestartSec=${APP_RESTART_SEC}
+TimeoutStopSec=${APP_STOP_TIMEOUT_SEC}
+MemoryMax=${APP_MEMORY_MAX}
+CPUQuota=${APP_CPU_QUOTA}
+SyslogIdentifier=${base}
+
+[Install]
+WantedBy=default.target
+`;
+}
+
+// --- reading systemd's answer (pure) ----------------------------------------
+
+export interface AppRuntime {
+  state: AppState;
+  restartCount: number;
+  // Why the last install or start attempt failed, when one did. IN MEMORY ONLY
+  // and deliberately so: it is a fact about an attempt this process made, not a
+  // property of the app, and a persisted one would outlive its own truth.
+  //
+  // It exists because `state` alone is not enough for the API's main consumer.
+  // An agent cannot read the server log, and an INSTALL failure (a unit that
+  // could not be written, a daemon-reload that refused) happens before journald
+  // has a single line to show - so without this the reason for a dead app is
+  // invisible from the outside. After a restart the field is gone and `state`
+  // still reads failed or unknown, which is truthful; the next start attempt
+  // regenerates it.
+  startError?: string;
+}
+
+export const UNKNOWN_RUNTIME: AppRuntime = {
+  state: "unknown",
+  restartCount: 0,
+};
+
+// Parse `systemctl show <unit>... --property=...`. Units come back as blocks
+// separated by a blank line, and the properties inside a block arrive in an
+// ARBITRARY order (measured: NRestarts before Id), so a block is read into a
+// map and identified by its own Id - never by position.
+export function parseShowBlocks(
+  stdout: string,
+): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>();
+  for (const block of stdout.split(/\n\s*\n/)) {
+    const props = new Map<string, string>();
+    for (const line of block.split("\n")) {
+      const eq = line.indexOf("=");
+      if (eq > 0) props.set(line.slice(0, eq), line.slice(eq + 1));
+    }
+    const id = props.get("Id");
+    if (!id) continue;
+    out.set(id, props);
+  }
+  return out;
+}
+
+export function parseSystemctlShow(stdout: string): Map<string, AppRuntime> {
+  const out = new Map<string, AppRuntime>();
+  for (const [id, props] of parseShowBlocks(stdout)) {
+    out.set(id, {
+      state: stateFrom(props.get("LoadState"), props.get("ActiveState")),
+      restartCount: Number.parseInt(props.get("NRestarts") ?? "", 10) || 0,
+    });
+  }
+  return out;
+}
+
+// Is this systemd answer PROOF that nothing is running? Deliberately separate
+// from the wire mapping above, and deliberately a whitelist.
+//
+// The wire mapping is lossy in ways that are fine for a status badge and unsafe
+// for a permanent decision: it folds a missing block, an unparseable one and an
+// unrecognised state all into `unknown`, and it calls `deactivating` stopped.
+// Reading any of those as "nothing is running" is how a delete tombstones a
+// name whose process is still alive - `deactivating` in particular means the
+// stop is still IN PROGRESS.
+//
+// So only two answers count, and both require systemd to have said something
+// explicit: the unit is not there at all, or it is loaded and definitely at
+// rest.
+export function isProvablyNotRunning(
+  props: Map<string, string> | undefined,
+): boolean {
+  if (!props) return false; // no block for this unit: not an answer
+  const load = props.get("LoadState");
+  if (load === "not-found") return true;
+  if (load !== "loaded") return false; // missing, masked, error, anything else
+  const active = props.get("ActiveState");
+  return active === "inactive" || active === "failed";
+}
+
+// systemd's vocabulary mapped to the wire's. `not-found` is the load-bearing
+// one: a registered app with no unit file is NOT "stopped" - nothing is
+// arranged to run it at all - and calling that `unknown` keeps the difference
+// visible instead of implying isomux is holding it stopped on purpose.
+function stateFrom(
+  loadState: string | undefined,
+  activeState: string | undefined,
+): AppState {
+  if (loadState !== "loaded") return "unknown";
+  switch (activeState) {
+    case "active":
+      return "running";
+    case "activating":
+    case "reloading":
+      return "starting";
+    case "failed":
+      return "failed";
+    case "inactive":
+    case "deactivating":
+      return "stopped";
+    default:
+      return "unknown";
+  }
+}
+
+// --- the supervisor ---------------------------------------------------------
+
+export interface AppSupervisor {
+  // The unit name an app maps to. Exposed because the logs route and the tests
+  // both need to name a unit without rebuilding the prefix rule.
+  unitName(appName: string): string;
+  // Write the unit + launcher, load them, and start the app. Throws when the
+  // unit could not be INSTALLED; an app whose process fails to start is not an
+  // error here - it is a state the caller can read.
+  install(app: AppRecord): void;
+  // Stop the app and remove everything isomux generated for it. Throws if the
+  // app is still running afterwards, so a caller can safely treat a return as
+  // "this app is gone".
+  teardown(appName: string): void;
+  start(appName: string): void;
+  stop(appName: string): void;
+  restart(appName: string): void;
+  // Runtime state for a set of apps, in ONE systemctl call, cached briefly.
+  states(appNames: readonly string[]): Map<string, AppRuntime>;
+  logs(appName: string, lines: number): string[];
+}
+
+export interface AppSupervisorOptions {
+  host?: SupervisorHost;
+  unitPrefix?: string;
+  // Where the runtime running isomux lives, prepended to the app's PATH.
+  runtimeBinDir?: string;
+  now?: () => number;
+  cacheMs?: number;
+}
+
+export function createAppSupervisor(
+  options: AppSupervisorOptions = {},
+): AppSupervisor {
+  const host = options.host ?? createSystemdHost();
+  const prefix =
+    options.unitPrefix ?? unitPrefixFor(STATE_ROOT, IS_DEFAULT_STATE_ROOT);
+  const runtimeBinDir = options.runtimeBinDir ?? dirname(process.execPath);
+  const now = options.now ?? (() => Date.now());
+  const cacheMs = options.cacheMs ?? APP_STATE_CACHE_MS;
+
+  const unitName = (appName: string) => unitNameFor(prefix, appName);
+  const unitPath = (appName: string) => join(host.unitDir, unitName(appName));
+  const launcherPath = (appName: string) =>
+    join(host.launcherDir, `${appName}.sh`);
+
+  const cache = new Map<string, AppRuntime>();
+  let cachedAt = 0;
+  const invalidate = () => {
+    cache.clear();
+    cachedAt = 0;
+  };
+
+  // Last failed install/start per app. Survives the state cache (which is a
+  // 1.5-second read cache) and not a process restart - see AppRuntime.
+  const startErrors = new Map<string, string>();
+  // Record and rethrow: the caller still gets the error, and a later read can
+  // still say why. Every throwing path in install/start/restart goes through
+  // this, so there is one place the field is written.
+  const remember = <T>(appName: string, act: () => T): T => {
+    try {
+      const value = act();
+      startErrors.delete(appName);
+      return value;
+    } catch (err) {
+      if (err instanceof AppSupervisorError)
+        startErrors.set(appName, err.message);
+      invalidate();
+      throw err;
+    }
+  };
+
+  // Run one step of an install or teardown, turning ANY failure into an
+  // AppSupervisorError tagged with the stage it happened in.
+  //
+  // This is what keeps the 201-after-commit contract honest. A raw filesystem
+  // error - an unwritable unit directory, a full disk - would otherwise escape
+  // as a plain Error, be missed by the recorder and by the register handler's
+  // catch, and surface as a 500 for an app that HAD already been registered:
+  // exactly the retry trap (retry -> name_taken) the contract exists to
+  // prevent, and with no startError to explain it either.
+  const stage = <T>(what: string, act: () => T): T => {
+    try {
+      return act();
+    } catch (err) {
+      if (err instanceof AppSupervisorError) throw err;
+      throw failed(what, err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  // A systemctl call whose failure is the caller's problem.
+  const must = (argv: string[], what: string): RunResult => {
+    const r = host.run(argv);
+    if (r.code !== 0) throw failed(what, r.stderr || r.stdout);
+    return r;
+  };
+  // A systemctl call whose failure is tolerable - teardown's stop/disable on a
+  // unit that was never installed, and reset-failed on a unit that never
+  // failed. The end-state check at the bottom of teardown is what actually
+  // decides whether the delete worked.
+  const tolerate = (argv: string[]): RunResult => host.run(argv);
+
+  const systemctl = (...args: string[]) => ["systemctl", "--user", ...args];
+
+  // systemd's way of saying the unit is not there. Matched narrowly and only
+  // where absence is genuinely fine (tearing down an install that never got as
+  // far as writing a unit); anything else is a real failure.
+  const isMissingUnit = (r: RunResult): boolean =>
+    /(does not exist|not loaded|no such file|not found)/i.test(
+      `${r.stderr} ${r.stdout}`,
+    );
+
+  // Clear a spent start-limit before trying to start. WITHOUT THIS THE
+  // RECOVERY VERBS DO NOT RECOVER ANYTHING, which is the whole reason they
+  // exist: once an app has burned its StartLimitBurst, systemd refuses every
+  // subsequent start with "start request repeated too quickly" until the
+  // counter is reset - measured, and it is exactly the state a crash-looping
+  // app comes to rest in. Tolerated, because a unit that never failed answers
+  // non-zero and that is not an error here.
+  const clearStartLimit = (appName: string): void => {
+    const r = host.run(systemctl("reset-failed", unitName(appName)));
+    // NOT must(): measured on systemd 255, reset-failed exits 1 with "not
+    // loaded" for a unit that is merely stopped, and a stopped app is exactly
+    // what `start` is for - so a strict check here would break the normal path
+    // before it ever tried to start anything. Anything OTHER than not-loaded
+    // does propagate, because proceeding with the rate-limit counter still set
+    // would report a start that systemd is about to refuse.
+    if (r.code !== 0 && !isMissingUnit(r)) {
+      throw failed(
+        "the app's failed state could not be cleared",
+        r.stderr || r.stdout,
+      );
+    }
+  };
+
+  // PROVE the app is not running, or throw. The query itself failing is a
+  // throw, not an `unknown`: teardown's caller tombstones a name permanently on
+  // the strength of this, and "systemd did not answer" is not the same fact as
+  // "systemd says nothing is running". A SUCCESSFUL not-found is safe - that is
+  // what a removed unit looks like.
+  const assertNotRunning = (
+    appName: string,
+    what: string,
+    detail: string,
+  ): void => {
+    const r = host.run(
+      systemctl(
+        "show",
+        unitName(appName),
+        "--property=Id,LoadState,ActiveState,SubState,NRestarts",
+      ),
+    );
+    if (r.code !== 0) {
+      throw failed(
+        `${what}, and systemd could not be asked whether it is still running`,
+        r.stderr || r.stdout,
+      );
+    }
+    const props = parseShowBlocks(r.stdout).get(unitName(appName));
+    if (!isProvablyNotRunning(props)) {
+      // Says what systemd actually answered rather than a mapped state, since
+      // the whole point here is that the mapping loses the distinctions.
+      const said = props
+        ? `LoadState=${props.get("LoadState") ?? "?"} ActiveState=${props.get("ActiveState") ?? "?"}`
+        : "no answer for this unit";
+      throw failed(what, `systemd said ${said}; ${detail}`);
+    }
+  };
+
+  const readStates = (appNames: readonly string[]): Map<string, AppRuntime> => {
+    const result = new Map<string, AppRuntime>();
+    if (appNames.length === 0) return result;
+    const units = appNames.map(unitName);
+    const r = host.run(
+      systemctl(
+        "show",
+        ...units,
+        "--property=Id,LoadState,ActiveState,SubState,NRestarts",
+      ),
+    );
+    // A failed read is reported as `unknown`, never as `stopped`: "I could not
+    // ask systemd" and "systemd says it is not running" are different facts,
+    // and only one of them should look like a deliberate state on the Apps tab.
+    const byUnit = r.code === 0 ? parseSystemctlShow(r.stdout) : new Map();
+    for (const appName of appNames) {
+      const runtime = byUnit.get(unitName(appName)) ?? UNKNOWN_RUNTIME;
+      const startError = startErrors.get(appName);
+      result.set(appName, startError ? { ...runtime, startError } : runtime);
+    }
+    return result;
+  };
+
+  return {
+    unitName,
+
+    install(app) {
+      const launcher = launcherPath(app.name);
+      const unit = unitName(app.name);
+      remember(app.name, () => {
+        // Launcher first: a unit whose ExecStart names a script that does not
+        // exist yet would fail on a daemon-reload that raced us. 0600 because
+        // it holds code an agent wrote.
+        stage("the app's launcher script could not be written", () =>
+          host.writeFile(launcher, renderLauncher(app), APP_LAUNCHER_MODE),
+        );
+        stage("the app's unit file could not be written", () =>
+          host.writeFile(
+            unitPath(app.name),
+            renderUnit(app, {
+              launcherPath: launcher,
+              path: computeAppPath(app.cwd, runtimeBinDir),
+              unitName: unit,
+            }),
+          ),
+        );
+        invalidate();
+        must(systemctl("daemon-reload"), "systemd could not load the new unit");
+        // enable, then start - deliberately NOT `enable --now`. Splitting them
+        // is diagnostics, not control flow: the route answers 201 either way
+        // (the registration has already committed), and this is what lets the
+        // recorded reason say WHICH step refused.
+        must(
+          systemctl("enable", unit),
+          "systemd could not enable the app's unit",
+        );
+        const started = host.run(systemctl("start", unit));
+        invalidate();
+        if (started.code !== 0) {
+          throw failed(
+            "the app's unit could not be started",
+            started.stderr || started.stdout,
+          );
+        }
+      });
+    },
+
+    // Returning from here licenses the caller to tombstone the app's name
+    // FOREVER, so every step is written to make "I could not tell" an error
+    // rather than a pass. The distinction that matters throughout: a query that
+    // SUCCEEDS and reports nothing running is proof; a query that FAILS is not
+    // evidence of anything, and must never be read as one.
+    teardown(appName) {
+      const unit = unitName(appName);
+      try {
+        // 1. Stop. A failure is survivable only if we can then PROVE the app
+        //    is not running - after an install that never wrote a unit, stop
+        //    legitimately fails and there is nothing to stop.
+        const stopped = host.run(systemctl("stop", unit));
+        if (stopped.code !== 0) {
+          assertNotRunning(
+            appName,
+            "the app could not be stopped",
+            stopped.stderr || stopped.stdout,
+          );
+        }
+        // 2. Disable. Only the narrow "there is no such unit" case is
+        //    tolerated. Any other failure leaves an enabled symlink behind, and
+        //    deleting the unit file under it gives systemd a dangling wants/
+        //    entry to complain about on every reload from then on.
+        const disabled = host.run(systemctl("disable", unit));
+        if (disabled.code !== 0 && !isMissingUnit(disabled)) {
+          throw failed(
+            "the app's unit could not be disabled",
+            disabled.stderr || disabled.stdout,
+          );
+        }
+        // 3. Only now, with the app known not to be running, remove what
+        //    isomux generated.
+        stage("the app's generated files could not be removed", () => {
+          host.removeFile(unitPath(appName));
+          host.removeFile(launcherPath(appName));
+        });
+        must(
+          systemctl("daemon-reload"),
+          "systemd could not unload the app's unit",
+        );
+        // A unit that came to rest in `failed` stays listed until its state is
+        // reset, so without this the app lingers in `systemctl --user
+        // list-units` after its files are gone - the exact thing the delete is
+        // supposed to have finished. A unit that never failed answers non-zero
+        // here, which is why it is tolerated.
+        tolerate(systemctl("reset-failed", unit));
+        // 4. The promise, restated after everything: a SUCCESSFUL query saying
+        //    not-found or not-running. `unknown` from a failed query does not
+        //    reach this - assertNotRunning refuses to read it that way.
+        assertNotRunning(
+          appName,
+          "the app is still running after its unit was removed",
+          "the app was NOT deleted",
+        );
+        // Only on the way out clean: the app is gone, so its remembered
+        // failure has nothing left to describe. Names are never reused, so
+        // nothing would ever overwrite this entry - without the delete it
+        // would sit in the map for the life of the process.
+        startErrors.delete(appName);
+      } finally {
+        // On every exit, including the throwing ones: systemd may well have
+        // changed before the step that failed, so a cached read from before is
+        // stale either way.
+        invalidate();
+      }
+    },
+
+    start(appName) {
+      remember(appName, () => {
+        try {
+          clearStartLimit(appName);
+          must(
+            systemctl("start", unitName(appName)),
+            "the app could not be started",
+          );
+        } finally {
+          // In a finally, not after the call: systemctl can change state and
+          // still exit non-zero, so a cached read is stale on the failure path
+          // exactly as much as on the success path.
+          invalidate();
+        }
+      });
+    },
+
+    // NOT wrapped in remember: a stop is something somebody asked for, so it
+    // neither produces a start error nor clears one. An app that failed and was
+    // then stopped on purpose should still be able to say why it failed.
+    stop(appName) {
+      try {
+        must(
+          systemctl("stop", unitName(appName)),
+          "the app could not be stopped",
+        );
+      } finally {
+        invalidate();
+      }
+    },
+
+    restart(appName) {
+      remember(appName, () => {
+        try {
+          clearStartLimit(appName);
+          must(
+            systemctl("restart", unitName(appName)),
+            "the app could not be restarted",
+          );
+        } finally {
+          invalidate();
+        }
+      });
+    },
+
+    states(appNames) {
+      const fresh = now() - cachedAt < cacheMs;
+      if (fresh && appNames.every((n) => cache.has(n))) {
+        const hit = new Map<string, AppRuntime>();
+        for (const n of appNames) hit.set(n, cache.get(n)!);
+        return hit;
+      }
+      const read = readStates(appNames);
+      // Replaces rather than merges: entries read at different moments are not
+      // one snapshot, and the cache is meant to be one.
+      cache.clear();
+      for (const [n, runtime] of read) cache.set(n, runtime);
+      cachedAt = now();
+      return read;
+    },
+
+    logs(appName, lines) {
+      const n = Math.max(1, Math.min(APP_LOG_LINES_MAX, Math.trunc(lines)));
+      const r = host.run([
+        "journalctl",
+        "--user",
+        "-u",
+        unitName(appName),
+        "-n",
+        String(n),
+        "--no-pager",
+        "--output=short-iso",
+      ]);
+      if (r.code !== 0) {
+        throw failed("the app's logs could not be read", r.stderr || r.stdout);
+      }
+      const out = r.stdout.split("\n");
+      while (out.length > 0 && out[out.length - 1] === "") out.pop();
+      return out;
+    },
+  };
+}
+
+// Production singleton. Constructing it touches nothing: no directory is
+// created and no subprocess runs until an app is actually installed.
+export const appSupervisor: AppSupervisor = createAppSupervisor();
