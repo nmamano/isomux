@@ -1,5 +1,6 @@
 // Apps resource handlers - the agent-facing app registry (opIds
-// apps.{list,get,register,update,delete,logs,start,stop,restart}). See
+// apps.{list,get,register,update,delete,logs,start,stop,restart}) plus the one
+// route the APP itself calls (apps.sendMessage). See
 // internal-docs/agent-apps-design.md.
 //
 // The verb is REGISTER, not create: the agent already built the app: isomux is
@@ -52,6 +53,10 @@ import {
   UNKNOWN_RUNTIME,
   type AppRuntime,
 } from "../../app-supervisor.ts";
+import {
+  APP_MESSAGE_MAX_CHARS,
+  type AppMessageLimiter,
+} from "../../app-message-limits.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { AppRecord } from "../../../shared/types.ts";
 import type {
@@ -146,6 +151,32 @@ export interface AppsDeps {
   // app. A name the supervisor cannot speak for is simply absent.
   states(names: readonly string[]): Map<string, AppRuntime>;
   logs(name: string, lines: number): string[];
+
+  // --- the messaging seam (apps.sendMessage) --------------------------------
+  // Deliver a message from `appName` to `targetAgentId`. The SENDER is built
+  // server-side by the wiring, from the app name the token resolved to - so
+  // nothing a caller writes can appear as the sender, and no app can speak as
+  // another app, an agent, or a boss. Never steers: an app must not be able to
+  // interrupt a turn in progress.
+  sendAsApp(
+    appName: string,
+    targetAgentId: string,
+    text: string,
+  ): // messageId is optional for the same reason it is on the inter-agent send:
+    // the manager's dedupe branch acks an EARLIER send whose id this call never
+    // learned. Unreachable here (no clientMessageId is ever passed), but the
+    // shape follows the manager rather than the current call site.
+    | { ok: true; messageId?: string; queued?: boolean }
+    | {
+        ok: false;
+        status: HandlerErrorStatus;
+        code: string;
+        message: string;
+      };
+  // Rate limits (server/app-message-limits.ts). Two calls rather than one
+  // because the two limits are spent at different moments - see the module
+  // header and the handler.
+  limiter: AppMessageLimiter;
 }
 
 // The ONE place a record becomes wire. `state` and `restartCount` are derived
@@ -448,6 +479,105 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     "apps.start": actionHandler(deps, (name) => deps.start(name)),
     "apps.stop": actionHandler(deps, (name) => deps.stop(name)),
     "apps.restart": actionHandler(deps, (name) => deps.restart(name)),
+
+    // The loop closed: an app messaging the agent that built it. The only route
+    // an app token reaches, and the only handler here whose caller is the app
+    // rather than its owner.
+    //
+    // NOTHING ABOUT THE MESSAGE IS THE CALLER'S TO CHOOSE except the text. Which
+    // app is speaking comes from the token, who hears it comes from the registry,
+    // and how it is labelled comes from the app's registered name. A body field
+    // for any of those would be a field to lie in.
+    "apps.sendMessage": (ctx) => {
+      // appScope proved both the scope and the presence of appName.
+      const appName = ctx.identity.appName ?? "";
+      const body = (ctx.body ?? {}) as { text?: unknown };
+      if (typeof body.text !== "string" || body.text.trim() === "") {
+        // trim, not length: a whitespace-only message wakes an agent and burns
+        // model tokens on nothing, which is precisely the shape of an unattended
+        // caller's bug.
+        return fail(400, "invalid_text", "text is required");
+      }
+      if (body.text.length > APP_MESSAGE_MAX_CHARS) {
+        return fail(
+          400,
+          "text_too_long",
+          `text must be at most ${APP_MESSAGE_MAX_CHARS} characters`,
+        );
+      }
+
+      // THE BURST SLOT IS TAKEN HERE, before this handler's registry read -
+      // deliberately earlier than the delivery attempt. (Authentication has
+      // already looked the app record up to resolve the token, so this is not
+      // the first read of the request; it is the first one the handler can
+      // decide not to do.) Everything below this line costs isomux something
+      // else, and a caller that hammers a request which always fails would
+      // otherwise pay nothing for it. So a syntactically valid request spends a
+      // burst slot whatever its outcome, while the DAILY budget - the one that
+      // stands for model spend - is spent at the bottom, only on a delivery the
+      // receiver accepted.
+      const limit = deps.limiter.takeBurst(appName);
+      if (!limit.ok) {
+        return fail(
+          429,
+          limit.kind === "burst" ? "rate_limited" : "daily_cap_reached",
+          limit.kind === "burst"
+            ? `too many messages: retry in ${limit.retryAfterSec}s`
+            : `daily message limit reached: retry in ${limit.retryAfterSec}s`,
+          // Machine-readable alongside the sentence, so a caller can back off
+          // without parsing prose.
+          { retryAfterSec: limit.retryAfterSec },
+        );
+      }
+
+      try {
+        // Token resolution already refused a token whose app is gone, so this is
+        // the narrow race where the app was deleted between the two.
+        const record = deps.get(appName);
+        if (!record) {
+          return fail(404, "not_found", "this app is no longer registered");
+        }
+        // Apps registered by a PERSON have no agent attached. Nothing to do
+        // about it from here: naming a different target would be exactly the
+        // body-supplied recipient this route refuses to have.
+        if (!record.createdByAgentId) {
+          return fail(
+            409,
+            "no_target",
+            "this app was not registered by an agent, so there is no agent to message",
+          );
+        }
+        const sent = deps.sendAsApp(
+          appName,
+          record.createdByAgentId,
+          body.text,
+        );
+        if (!sent.ok) {
+          // The agent that built the app is gone. Reported as its own code with
+          // an answer to "so what do I do", because the raw delivery error
+          // ("agent not found") reads like a bad parameter - and there is no
+          // parameter.
+          if (sent.status === 404) {
+            return fail(
+              404,
+              "target_gone",
+              "the agent that registered this app no longer exists, so there is nobody to message; pointing an app at a different agent is not supported yet",
+            );
+          }
+          return fail(sent.status, sent.code, sent.message);
+        }
+        // ACCEPTED, so the day's budget moves. A stopped, missing or full
+        // receiver never reaches this line: it woke nobody, so it costs the app
+        // nothing but its burst slot.
+        deps.limiter.commitDaily(appName);
+        return ok({
+          messageId: sent.messageId ?? "",
+          ...(sent.queued === undefined ? {} : { queued: sent.queued }),
+        });
+      } catch (err) {
+        return renderRegistryError(err);
+      }
+    },
 
     "apps.logs": (ctx) => {
       try {

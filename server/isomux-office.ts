@@ -155,6 +155,7 @@ import {
   type AppSupervisor,
 } from "./app-supervisor.ts";
 import { appTokens } from "./app-tokens.ts";
+import { appMessageLimiter } from "./app-message-limits.ts";
 import { reconcileAppTokens } from "./app-token-reconcile.ts";
 import { memoryHandlers } from "./routes/handlers/memory.ts";
 import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
@@ -1551,6 +1552,30 @@ function buildExecutorDeps(): ExecutorDeps {
         }
       },
       revokeToken: (name) => appTokens.revoke(name),
+      // The app-to-agent message. The SENDER is constructed here from the app
+      // name the token resolved to - the same rule the inter-agent branch
+      // follows above, and for the same reason: a body-trusted sender is an
+      // identity spoof and a prefix-injection vector into the receiver's prompt.
+      // No steer option is passed or accepted; an app cannot interrupt a turn.
+      sendAsApp: (appName, targetAgentId, text) => {
+        const result = agentManager.enqueueMessage(targetAgentId, {
+          sender: { kind: "app", appName },
+          text,
+        });
+        if (result.ok)
+          return {
+            ok: true,
+            messageId: result.messageId,
+            ...(result.deduped ? {} : { queued: result.queued }),
+          };
+        return {
+          ok: false,
+          status: result.status as 400 | 404 | 409 | 429 | 500,
+          code: result.error,
+          message: result.error,
+        };
+      },
+      limiter: appMessageLimiter,
       install: (record) => appSupervisor.install(record),
       reinstall: (record) => appSupervisor.reinstall(record),
       teardown: (name) => appSupervisor.teardown(name),

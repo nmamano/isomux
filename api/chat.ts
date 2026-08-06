@@ -211,6 +211,7 @@ A managed version is in the works: you pick a name, we set up a server, and your
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it survives the conversation that built it, isomux restarts, and reboots.
 - The Apps tab lists every app available to you with its state, restart count, and recent output, and lets you start, stop, restart, or delete it.
 - Each app gets its own storage on the server, included in the daily backup.
+- An app can message the agent that built it, so it can report an event and have an agent act on it.
 
 ### Other
 - Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.

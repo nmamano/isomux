@@ -342,6 +342,45 @@ function DurationLabel({ ms, isMobile }: { ms: number; isMobile?: boolean }) {
   );
 }
 
+// Who sent a `user_message`, from the metadata the server stamped on it - and
+// whether that sender is a HUMAN, which is what the styling and the edit
+// affordance key on.
+//
+// A user_message is not always a person. Three kinds of sender reach an agent
+// through the same queue and land in the same log: a boss typing, another agent
+// (sender_agent_*), and one of the agent's own apps (sender_app_name). The
+// authority distinction has to survive the chip becoming a log entry, because
+// the log is what anyone reads afterwards - and editing someone else's message
+// is a human affordance, so a non-human sender's message is not editable.
+//
+// Exported for its own test: the UI has no React render harness, so the mapping
+// is pinned as a pure function (same pattern as ContextBattery's bandColor).
+export function describeMessageSender(
+  metadata: Record<string, unknown> | undefined,
+): { label: string | undefined; fromHuman: boolean } {
+  const senderAgentName = metadata?.sender_agent_name as string | undefined;
+  const senderAgentRoom = metadata?.sender_agent_room as string | undefined;
+  const senderAppName = metadata?.sender_app_name as string | undefined;
+  if (senderAgentName) {
+    return {
+      label: `${senderAgentName} · agent${senderAgentRoom ? ` · Room "${senderAgentRoom}"` : ""}`,
+      fromHuman: false,
+    };
+  }
+  // An app messaging the agent that built it. Same treatment as an agent sender,
+  // for a stronger reason: an app is unattended code, so a reader scrolling back
+  // must never take its message for the boss asking for something.
+  if (senderAppName) {
+    return { label: `${senderAppName} · app`, fromHuman: false };
+  }
+  const username = metadata?.username as string | undefined;
+  const device = metadata?.device as string | undefined;
+  return {
+    label: formatIdentity({ username, device }) || undefined,
+    fromHuman: true,
+  };
+}
+
 export const LogEntryCard = memo(function LogEntryCard({
   entry,
   isLastInTurn,
@@ -369,21 +408,9 @@ export const LogEntryCard = memo(function LogEntryCard({
 }) {
   switch (entry.kind) {
     case "user_message": {
-      const username = entry.metadata?.username as string | undefined;
-      const device = entry.metadata?.device as string | undefined;
-      const senderAgentName = entry.metadata?.sender_agent_name as
-        | string
-        | undefined;
-      const senderAgentRoom = entry.metadata?.sender_agent_room as
-        | string
-        | undefined;
-      // Agent-sender flushed messages carry sender_agent_* metadata; display
-      // them with a different label and styling from human bosses so the
-      // authority distinction stays visible after the chip lands in the log.
-      const senderLabel = senderAgentName
-        ? `${senderAgentName} · agent${senderAgentRoom ? ` · Room "${senderAgentRoom}"` : ""}`
-        : formatIdentity({ username, device }) || undefined;
-      const fromAgent = !!senderAgentName;
+      const { label: senderLabel, fromHuman } = describeMessageSender(
+        entry.metadata,
+      );
       if (isEditing) {
         return (
           <EditableUserMessage
@@ -401,10 +428,10 @@ export const LogEntryCard = memo(function LogEntryCard({
           content={entry.content}
           isMobile={isMobile}
           username={senderLabel}
-          fromAgent={fromAgent}
+          fromNonHuman={!fromHuman}
           attachments={entry.attachments}
           agentId={entry.agentId}
-          canEdit={canEdit && !fromAgent}
+          canEdit={canEdit && fromHuman}
           onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined}
         />
       );
@@ -573,7 +600,7 @@ function UserMessage({
   content,
   isMobile,
   username,
-  fromAgent,
+  fromNonHuman,
   attachments,
   agentId,
   canEdit,
@@ -582,7 +609,10 @@ function UserMessage({
   content: string;
   isMobile?: boolean;
   username?: string;
-  fromAgent?: boolean;
+  // Sender is not a person: another agent, or one of this agent's apps. Drives
+  // the muted/dashed/italic treatment that keeps a non-human message from
+  // reading like the boss.
+  fromNonHuman?: boolean;
   attachments?: Attachment[];
   agentId?: string;
   canEdit?: boolean;
@@ -590,7 +620,7 @@ function UserMessage({
 }) {
   const getText = useCallback(() => content, [content]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  const accentColor = fromAgent ? "var(--text-muted)" : "var(--accent)";
+  const accentColor = fromNonHuman ? "var(--text-muted)" : "var(--accent)";
   return (
     <div
       style={{
@@ -599,7 +629,7 @@ function UserMessage({
         paddingRight: 40,
         borderRadius: 10,
         background: "var(--user-msg-bg)",
-        borderLeft: `3px ${fromAgent ? "dashed" : "solid"} ${accentColor}`,
+        borderLeft: `3px ${fromNonHuman ? "dashed" : "solid"} ${accentColor}`,
         position: "relative",
       }}
     >
@@ -611,7 +641,7 @@ function UserMessage({
           marginBottom: 4,
           textTransform: "uppercase",
           letterSpacing: "0.05em",
-          fontStyle: fromAgent ? "italic" : "normal",
+          fontStyle: fromNonHuman ? "italic" : "normal",
         }}
       >
         {(username ?? "You").toUpperCase()}

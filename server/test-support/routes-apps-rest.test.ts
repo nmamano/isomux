@@ -29,6 +29,7 @@ import { readFileSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { createAppTokenStore } from "../app-tokens.ts";
+import { createAppMessageLimiter } from "../app-message-limits.ts";
 import { STATE_ROOT } from "../config.ts";
 import { getUserByName } from "../users.ts";
 import { APP_PORT_MIN, APP_PORT_MAX } from "../app-registry.ts";
@@ -1937,6 +1938,8 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     restart: () => {},
     states: () => new Map(),
     logs: () => [],
+    sendAsApp: () => ({ ok: true, messageId: "m-1" }),
+    limiter: createAppMessageLimiter(),
     ...over,
   };
 }

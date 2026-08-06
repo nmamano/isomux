@@ -203,10 +203,20 @@ describe("app-tokens: a corrupt store denies and refuses to be overwritten", () 
 // --- the identity -----------------------------------------------------------
 
 describe("app-tokens: the identity a token resolves to", () => {
-  it("is APP scope, carries the app name and its owner, and holds NO capabilities", () => {
+  // Which apps exist, stated explicitly - the resolver is injected precisely so
+  // a token's meaning never depends on the production registry.
+  const registered =
+    (owners: Record<string, string | null>) => (name: string) =>
+      name in owners ? { userId: owners[name] } : null;
+
+  it("is APP scope, carries the app name and its owner, and holds only app:message", () => {
     const s = store();
     const raw = s.mint("hello", "u-alice");
-    const identity = appIdentityFromToken(raw, s)!;
+    const identity = appIdentityFromToken(
+      raw,
+      s,
+      registered({ hello: "u-alice" }),
+    )!;
 
     expect(identity.scope).toBe("app");
     expect(identity.appName).toBe("hello");
@@ -215,7 +225,6 @@ describe("app-tokens: the identity a token resolves to", () => {
     expect(identity.userId).toBe("u-alice");
     expect(identity.role).toBe("member");
     expect(identity.capabilities).toEqual(APP_CAPABILITIES);
-    expect(identity.capabilities.length).toBe(0);
     expect(identity.agentId).toBeUndefined();
   });
 
@@ -223,8 +232,50 @@ describe("app-tokens: the identity a token resolves to", () => {
     const s = store();
     const raw = s.mint("hello", "u-alice");
     s.revoke("hello");
-    expect(appIdentityFromToken(raw, s)).toBeNull();
-    expect(appIdentityFromToken("garbage", s)).toBeNull();
+    expect(
+      appIdentityFromToken(raw, s, registered({ hello: "u-alice" })),
+    ).toBeNull();
+    expect(
+      appIdentityFromToken("garbage", s, registered({ hello: "u-alice" })),
+    ).toBeNull();
+  });
+
+  // TWO facts are required, and the store can only supply one of them. A hash
+  // that outlived its app is not an identity: there is no such app to be, and a
+  // caller isomux recognises but cannot describe is worse than a 401.
+  it("is null when the hash matches but the app is no longer registered", () => {
+    const s = store();
+    const raw = s.mint("hello", "u-alice");
+    // The store still holds the hash - this is not a revoke.
+    expect(s.matches("hello", raw)).toBe(true);
+    expect(appIdentityFromToken(raw, s, registered({}))).toBeNull();
+  });
+
+  // The OWNER is the live record's, not the token file's. Ownership is not
+  // mutable today, so this pins intent rather than a reachable transition: the
+  // identity's userId is documented as truthful attribution, and a mint-time
+  // snapshot cannot promise that.
+  it("takes the owner from the live app record, not from the stored snapshot", () => {
+    const s = store();
+    const raw = s.mint("hello", "u-alice");
+    const identity = appIdentityFromToken(
+      raw,
+      s,
+      registered({ hello: "u-someone-else" }),
+    )!;
+    expect(identity.userId).toBe("u-someone-else");
+  });
+
+  // A registry that cannot answer must not become an authorization decision of
+  // the wrong sign - the same fail-closed posture the token store itself takes.
+  it("is null when the registry throws (corrupt state denies, never resolves)", () => {
+    const s = store();
+    const raw = s.mint("hello", "u-alice");
+    expect(
+      appIdentityFromToken(raw, s, () => {
+        throw new Error("registry is corrupt");
+      }),
+    ).toBeNull();
   });
 });
 

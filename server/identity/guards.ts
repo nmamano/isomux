@@ -150,15 +150,28 @@ export const publicGuard: Guard = () => ALLOW;
 // marker.)
 //
 // APP scope is the exception, and it is the reason this is no longer a bare
-// `() => ALLOW`. On a capability route the exclusion is redundant - an app
-// token holds no capabilities and never clears stage 1 - but on the handful of
-// `authenticated`-kind routes (system.version, sessions.logout) this guard IS
-// the whole gate, and "any identity at all" would quietly hand those to a
-// registered app the moment app tokens existed. An app is agent-authored code
+// `() => ALLOW`. On a capability route the exclusion is mostly redundant - an
+// app token holds one capability that no other route asks for - but on the
+// handful of `authenticated`-kind routes (system.version, sessions.logout) this
+// guard IS the whole gate, and "any identity at all" would quietly hand those to
+// a registered app the moment app tokens existed. An app is agent-authored code
 // serving strangers; it opts IN to a route deliberately, one route at a time,
-// and nothing has opted it in yet.
+// through appScope below, never by being merely authenticated.
 export const authenticated: Guard = ({ identity }) =>
   identity.scope === "app" ? FORBIDDEN : ALLOW;
+
+// APP-scope gate: the opt-in half of the rule above, and the ONLY guard that
+// admits an app. Paired with the app:message capability on the one route an app
+// reaches (apps.sendMessage), which is belt and braces on purpose: the
+// capability alone already excludes every other scope, but then a future edit to
+// a capability SET would be the only thing standing between an agent token and
+// this route. Two independent facts have to change for that to happen.
+//
+// `appName` is required rather than assumed. It is what the handler resolves the
+// app record from, so an app identity without one is a bug upstream, and the
+// safe reading of a bug here is "not this app's route".
+export const appScope: Guard = ({ identity }) =>
+  identity.scope === "app" && !!identity.appName ? ALLOW : FORBIDDEN;
 
 // The caller has an OWNING USER. Composed onto routes that create something a
 // user must own afterwards - today apps.register.

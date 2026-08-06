@@ -263,7 +263,14 @@ export interface QueuedMessage {
   id: string; // 8-char hex; UI uses this to cancel
   sender:
     | { kind: "user"; username?: string; device?: string }
-    | { kind: "agent"; agentId: string; agentName: string; roomName: string };
+    | { kind: "agent"; agentId: string; agentName: string; roomName: string }
+    // A registered app messaging the agent that built it (POST /api/app/message).
+    // Only the NAME is carried, and it comes from the app's token rather than its
+    // request: an app cannot claim to be another app, an agent, or a boss. The
+    // name is also the reason nothing here needs escaping - app names are
+    // [a-z0-9-] by registration, so no name can forge the prefix delimiters the
+    // flush text uses.
+    | { kind: "app"; appName: string };
   text: string; // what we show in chat (raw user input)
   // What we send to the SDK in place of `text`. Set when the queued item is a
   // pre-expanded slash command (e.g. /subagent-review → full skill prompt).

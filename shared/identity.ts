@@ -41,6 +41,16 @@ export function formatAgentSenderPrefix(
   return `"${agentName}" (agent id: ${agentId}) from Room "${roomName}"`;
 }
 
+// Sender prefix for a message from a registered app (POST /api/app/message).
+// Distinct from both the human `[Name]` form and the agent form above, because
+// an app is neither: it is code the receiving agent wrote, running unattended.
+// No id, unlike the agent prefix - an app has no inbox, so there is nothing to
+// reply to; the name is what the agent manages it by.
+// Format: `[App "habits"]`.
+export function formatAppSenderPrefix(appName: string): string {
+  return `[App "${appName}"]`;
+}
+
 // Lowercase key used for users.json lookup. Display case is whatever the
 // client sent; the key only normalizes for matching.
 export function lowercaseKey(name: string): string {

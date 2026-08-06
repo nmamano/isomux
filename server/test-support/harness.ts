@@ -34,6 +34,7 @@ import {
 import { _testResetUsers } from "../users.ts";
 import { _testResetTokens } from "../identity/tokens.ts";
 import { _testResetSkillUsage } from "../skill-usage.ts";
+import { _testResetAppMessageLimits } from "../app-message-limits.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";
 
@@ -143,6 +144,11 @@ async function bootTestServer(
     _testResetUsers();
     _testResetTokens();
     _testResetSkillUsage();
+    // App-message rate limits live in memory and reset when isomux restarts, so
+    // a boot - INCLUDING a no-wipe restart(), which models exactly that - has to
+    // clear them. Skipping it on restart would make the harness carry a budget
+    // across a restart the product says empties it.
+    _testResetAppMessageLimits();
     registerProductionCronjobManagerForModuleReads(null);
 
     const fakeBackend =

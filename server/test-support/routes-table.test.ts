@@ -23,6 +23,7 @@ import { runAuthorize } from "../routes/executor.ts";
 import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
+  PRIVILEGED_AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
   APP_CAPABILITIES,
   type Capability,
@@ -34,8 +35,8 @@ const ALL_CAPS = new Set<Capability>([
   ...USER_CAPABILITIES,
   ...AGENT_CAPABILITIES,
   ...RUN_CAPABILITIES,
-  // Empty today; listed so a capability added to the APP set has to be a real
-  // Capability, and so this union does not quietly go stale.
+  // One entry today (app:message); listed so a capability added to the APP set
+  // has to be a real Capability, and so this union does not quietly go stale.
   ...APP_CAPABILITIES,
 ]);
 
@@ -370,6 +371,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apps.start": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.stop": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.restart": { caps: ["app:write"], emits: ["app_upserted"] },
+  // The app-SELF route. app:message is held by APP scope alone, so this is the
+  // one line in this table whose capability no human and no agent carries.
+  "apps.sendMessage": { caps: ["app:message"], emits: ["log_entry"] },
   // Cronjobs
   "cron.list": { caps: ["cron:read"], emits: [] },
   "cron.get": { caps: ["cron:read"], emits: [] },
@@ -468,19 +472,22 @@ describe("route table: typed preconditions are pinned (Phase 3 can't forget)", (
   });
 });
 
-// --- APP scope reaches nothing (app tokens) ---------------------------------
+// --- APP scope reaches EXACTLY ONE route ------------------------------------
 //
-// The one invariant that makes an app token safe to hand out before anything
-// authorizes it: NO route in the table lets an app identity through. Walked
+// The invariant that bounds what an app token is worth: of every route in the
+// table, an app identity authorizes one - the app-self message route. Walked
 // over the whole table rather than asserted per route, so a route added later -
 // or an existing one whose guard is loosened - trips this without anyone
 // remembering to think about apps.
 //
-// The next slice (app-to-agent messaging) will deliberately break this test for
-// exactly ONE route. That is the point: opening a route to apps should require
-// editing this list on purpose, not slip in.
+// The allowlist below is the ONLY place a route becomes reachable by an app, and
+// editing it is meant to feel like a decision. It grew from [] to one entry when
+// app-to-agent messaging landed; anything joining it should have as much
+// argument behind it as that did.
 
-describe("route table: an APP identity authorizes nothing", () => {
+const APP_REACHABLE_OPIDS = ["apps.sendMessage"];
+
+describe("route table: an APP identity authorizes exactly the app-self route", () => {
   // Maximally permissive deps: every room accessible, every ownership lookup
   // answering with the app's own owner. Anything that gets through here got
   // through on scope, which is the only thing that should ever gate an app.
@@ -500,8 +507,45 @@ describe("route table: an APP identity authorizes nothing", () => {
     role: "member",
     capabilities: APP_CAPABILITIES,
   };
+  // Every OTHER scope, each carrying its real capability set and the SAME owner
+  // id the app has - so a pass below could only ever come from scope or
+  // capability, not from an ownership coincidence.
+  const ownerIdentity: Identity = {
+    scope: "user",
+    userId: "u-owner",
+    role: "owner",
+    capabilities: USER_CAPABILITIES,
+  };
+  const memberIdentity: Identity = {
+    scope: "user",
+    userId: "u-owner",
+    role: "member",
+    capabilities: USER_CAPABILITIES,
+  };
+  const agentIdentity: Identity = {
+    scope: "agent",
+    userId: "u-owner",
+    agentId: "a-1",
+    role: "member",
+    capabilities: AGENT_CAPABILITIES,
+  };
+  const privilegedAgentIdentity: Identity = {
+    scope: "agent",
+    userId: "u-owner",
+    agentId: "a-1",
+    role: "member",
+    capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+  };
+  const runIdentity: Identity = {
+    scope: "cron-run",
+    userId: "u-owner",
+    cronjobId: "j1",
+    runId: "run-1",
+    role: "member",
+    capabilities: RUN_CAPABILITIES,
+  };
 
-  it("denies every API route, capability and authenticated alike", () => {
+  it("denies every API route but the app-self message route", () => {
     const allowed: string[] = [];
     for (const r of API_ROUTES) {
       if (r.auth.kind === "public") continue;
@@ -525,7 +569,37 @@ describe("route table: an APP identity authorizes nothing", () => {
       if (outcome.ok) allowed.push(r.opId);
     }
     // Named in the failure rather than counted, so a break says WHICH route.
-    expect(allowed).toEqual([]);
+    expect(allowed).toEqual(APP_REACHABLE_OPIDS);
+  });
+
+  // The other half of the same invariant, and the reason the list above is not
+  // just "whatever the table happens to allow": the app-self route must be
+  // reachable by an app and by NOTHING else. A capability set edited to hand
+  // app:message to agents (or the guard swapped for `authenticated`) passes the
+  // test above and fails here.
+  it("and that route is reachable by an app identity ONLY", () => {
+    const route = API_ROUTES.find((r) => r.opId === "apps.sendMessage")!;
+    for (const other of [
+      { label: "office owner", identity: ownerIdentity },
+      { label: "member", identity: memberIdentity },
+      { label: "agent", identity: agentIdentity },
+      { label: "privileged agent", identity: privilegedAgentIdentity },
+      { label: "cron run", identity: runIdentity },
+    ]) {
+      expect({
+        label: other.label,
+        outcome: runAuthorize(
+          route.auth,
+          other.identity,
+          {},
+          undefined,
+          generousDeps,
+        ),
+      }).toEqual({
+        label: other.label,
+        outcome: { ok: false, status: 403, code: "forbidden" },
+      });
+    }
   });
 
   it("is denied for the RIGHT reason - 403, not 401 (isomux knows whose token it is)", () => {

@@ -25,7 +25,11 @@ import {
   generateRoomId,
   isClaudeFamily,
 } from "../shared/types.ts";
-import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
+import {
+  formatPrefix,
+  formatAgentSenderPrefix,
+  formatAppSenderPrefix,
+} from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
 import { isValidDesk } from "../shared/desks.ts";
 import {
@@ -4515,6 +4519,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           sender_agent_name: sender.agentName,
           sender_agent_room: sender.roomName,
         };
+      case "app":
+        return { sender_app_name: sender.appName };
       default: {
         const _exhaustive: never = sender;
         throw new Error(
@@ -4533,6 +4539,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         });
       case "agent":
         return `${formatAgentSenderPrefix(sender.agentId, sender.agentName, sender.roomName)} `;
+      // An app the receiving agent registered, speaking with its own token. The
+      // name is all the label needs: the system prompt carries the rule about
+      // what an app's message is worth, exactly where it carries the same rule
+      // for agent-to-agent messages.
+      case "app":
+        return `${formatAppSenderPrefix(sender.appName)} `;
       default: {
         const _exhaustive: never = sender;
         throw new Error(
@@ -4620,6 +4632,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         typeof s.agentName === "string" &&
         typeof s.roomName === "string"
       );
+    // An app's message survives a restart like any other queued item. This arm
+    // is the persistence boundary: without it a queued app message would be
+    // dropped as malformed on boot replay, silently, which is why it is tested
+    // through a real reload rather than only against the live queue.
+    if (s.kind === "app") return typeof s.appName === "string";
     return false;
   }
 

@@ -128,8 +128,23 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
          it; S6 edits that test deliberately. Boot reconciliation self-heals
          token/unit pairs. Found+fixed in-slice: app tokens would have
          inherited owner room access via hasRoomAccess.)
-- [ ] S6  (stretch) App-to-agent messaging: scoped capability, rate limit +
+- [x] S6  (stretch) App-to-agent messaging: scoped capability, rate limit +
          daily cap constants, non-authority labelling.
+         (Isomuxer3/Reviewer3, 2 rounds, approved 69ddc073 pre-format /
+         9f950b42 post-prettier formatting-only delta, committed with this
+         edit. One route POST /api/app/message, app scope only; 5/min burst
+         + 50/rolling-24h daily, day spent only on accepted delivery;
+         [App "name"] labelling end to end incl. boot replay.)
+
+## LOOP COMPLETE (2026-08-06, ~06:00 PT)
+
+All six slices plus S2b/S2c landed: phase 1 AND phase 2 of
+agent-apps-design.md are committed, gated, adversarially reviewed, and (as
+of the final restart) live. Every slice: worker-implemented,
+counterpart-reviewed on announced fingerprints, mutation-checked, committed
+by the manager. Nothing pushed. Morning items: Nil's copy sign-off (S4 + S6
+prose), the parked queue above, board flip of f86bb897 + phase-3 follow-up
+task. This file can be archived or deleted once the morning pass is done.
 
 ## Deferred / parked
 

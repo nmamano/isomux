@@ -672,6 +672,14 @@ export interface AppRegisterReq {
   description?: string;
 }
 
+// POST /api/app/message - the app-SELF surface, and the only route an app token
+// reaches. There is no recipient field and no app field: the token says which app
+// is speaking, and the registry says which agent built it. Both are things a
+// caller could otherwise lie about, so neither is a parameter.
+export interface AppMessageReq {
+  text: string;
+}
+
 // PATCH /api/apps/:name. Any subset of the three mutable fields; an absent key
 // is a field left alone. `name` and `port` are deliberately NOT here: they are
 // the app's identity and its permanent tombstone, so a typo in either is a

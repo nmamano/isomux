@@ -26,8 +26,9 @@
 // store, and the whole office state directory. Cross-app secrecy is NOT
 // enforceable at this layer and nothing here claims it is. What the token
 // carries is SCOPE: an identity that is neither its owner nor the agent that
-// built it, holding no capabilities at all until the messaging slice grants it
-// one. That is the property this module exists to keep true.
+// built it, holding exactly one capability - messaging the agent that built it,
+// rate-limited, with no say in who hears it. That is the property this module
+// exists to keep true.
 
 import { existsSync, mkdirSync, readFileSync } from "fs";
 import { join, resolve } from "path";
@@ -35,6 +36,7 @@ import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { APP_CAPABILITIES, type Identity } from "./identity/index.ts";
+import { appRegistry } from "./app-registry.ts";
 
 // --- constants --------------------------------------------------------------
 
@@ -68,7 +70,12 @@ export class AppTokenError extends Error {
 
 interface StoredAppToken {
   hash: string; // sha256(raw) hex
-  userId: string | null; // the app's owning user, for the resolved identity
+  // The app's owning user AS OF MINT TIME. Kept for diagnostics (and because
+  // removing a validated field would invalidate every token file already on
+  // disk), but deliberately NOT what the resolved identity carries: the app
+  // registry holds the live owner, and a snapshot here could disagree with it.
+  // See appIdentityFromToken.
+  userId: string | null;
   mintedAt: number;
 }
 
@@ -259,28 +266,63 @@ export const appTokens: AppTokenStore = createAppTokenStore();
 // Resolve a bearer to an APP identity, or null. Wired into the ONE bearer
 // resolution point (auth-middleware), after the in-memory agent/cron-run store.
 //
-// The identity carries no capabilities (APP_CAPABILITIES), so it authenticates
-// and authorizes nothing; `role` is the same inert least-privilege filler the
-// other non-user scopes use.
+// TWO FACTS ARE REQUIRED, NOT ONE: a hash that matches, and an app record that
+// still exists. The token store alone cannot answer the second - a hash is just
+// a name and some bytes - so the live registry is consulted here. A token whose
+// app is gone resolves to NOTHING (401), which is the truthful answer: there is
+// no such app to be. The alternative, a valid identity for a deleted app, would
+// be a caller isomux recognises and cannot describe.
 //
-// DELIBERATELY NOT CHECKED HERE: whether the app is still registered. In this
-// slice an app identity can reach no route at all, so a hash that outlived its
-// app is a valid-but-powerless identity rather than a hole - and the two paths
-// that could leave one behind are both closed (delete revokes; boot
-// reconciliation prunes hashes with no app). The slice that grants the token an
-// actual capability is the one that must resolve the app RECORD anyway, to know
-// which agent it may message, and that is where existence gets enforced.
+// The OWNER comes from that live record too, never from the token file. A
+// stored owner is a mint-time snapshot, and `Identity.userId` is documented as
+// truthful attribution; deriving it from a record that still exists is what
+// makes that documentation true rather than probable.
+//
+// FAIL CLOSED, INCLUDING ON FAILURE TO ASK. A registry that throws (corrupt or
+// unreadable state) denies rather than resolves, logged without token material -
+// the same posture the token store itself takes, and the same reason: a state
+// failure must not turn into an authorization decision of the wrong sign.
 export function appIdentityFromToken(
   raw: string,
   store: AppTokenStore = appTokens,
+  resolveApp: AppOwnerResolver = liveAppOwner,
 ): Identity | null {
   const found = store.lookup(raw);
   if (!found) return null;
+  let app: { userId: string | null } | null;
+  try {
+    app = resolveApp(found.appName);
+  } catch (err) {
+    // The catch lives HERE rather than only in the production resolver, so the
+    // fail-closed guarantee belongs to identity resolution itself and holds for
+    // whatever resolver is injected. Logged without token material.
+    console.error(
+      `[app-tokens] cannot resolve "${found.appName}", registry unavailable:`,
+      err,
+    );
+    return null;
+  }
+  if (!app) return null;
   return {
     scope: "app",
-    userId: found.userId,
+    userId: app.userId,
     appName: found.appName,
     role: "member",
     capabilities: APP_CAPABILITIES,
   };
 }
+
+// Look up a registered app's live owner, or null when there is no such app.
+// Injectable so tests state which records exist instead of depending on the
+// production registry.
+export type AppOwnerResolver = (
+  appName: string,
+) => { userId: string | null } | null;
+
+// Production resolver over the app registry. May throw (the registry refuses
+// every operation on a corrupt view); appIdentityFromToken turns that into a
+// denial.
+const liveAppOwner: AppOwnerResolver = (appName) => {
+  const record = appRegistry.get(appName);
+  return record ? { userId: record.userId } : null;
+};

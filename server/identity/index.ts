@@ -64,6 +64,11 @@ export type Capability =
   // sees all) is the appOwnerOrOfficeOwner guard's job, not the capability's.
   | "app:read"
   | "app:write"
+  // APP-identity only, and the ONLY capability an app token holds: a registered
+  // app messaging the agent that built it. Deliberately absent from USER and
+  // AGENT - a human has the chat box and an agent has agents.sendMessage, so
+  // granting it anywhere else would only widen what a stolen token reaches.
+  | "app:message"
   // Shared by USER and AGENT - reading conversation logs (history search and
   // session retrieval, GET /api/agents/:id/logs). DELIBERATELY NOT office:read:
   // an ordinary agent token does not carry office:read, and widening that
@@ -105,7 +110,8 @@ export interface Identity {
   capabilities: readonly Capability[];
 }
 
-// USER (browser) set: every capability except the two agent-identity ones.
+// USER (browser) set: every capability except the two agent-identity ones and
+// app:message (a person messages an agent by typing in its chat).
 // Owner vs member is NOT expressed here - both humans hold this full set and
 // owner-only routes are blocked for members by the officeOwner guard, not by a
 // missing capability.
@@ -217,20 +223,23 @@ export const RUN_CAPABILITIES: readonly Capability[] = [
   "task:write",
 ];
 
-// APP set: EMPTY, and that is the whole point of the scope today.
+// APP set: ONE capability, and the narrowness is the whole point of the scope.
 //
-// A registered app gets a token so that it HAS an identity isomux can recognise
-// (server/app-tokens.ts); what it may DO with it is defined by the next slice,
-// which grants exactly one narrow capability - messaging the agent that built
-// it. Until then an app token authenticates and authorizes nothing: every
-// capability route denies it for want of a capability, and the two routes that
-// ask only for "some identity" deny it in the `authenticated` guard. A
-// contract test walks the whole route table and pins that.
+// An app may message the agent that built it. That is the entire surface: it
+// cannot read the office, list its siblings, touch the task board or shared
+// memory, or manage even ITS OWN registry record - app:read and app:write are
+// the owner's capabilities, not the app's, so an app cannot rename, restart or
+// delete itself, nor read another app's port. The route this one capability
+// reaches carries no recipient parameter either (the registry decides who hears
+// it), so the widest thing a stolen app token can do is wake one agent, rate-
+// limited, with a message labelled as coming from an app.
 //
-// An empty set rather than no scope at all because the token must still be
-// distinguishable from a garbage one - a live app presenting its token gets a
-// 403 (I know who you are, you may do nothing), not a 401.
-export const APP_CAPABILITIES: readonly Capability[] = [];
+// A single-entry set rather than no scope at all because the token must still be
+// distinguishable from a garbage one - an app presenting its token for anything
+// else gets a 403 (I know who you are, you may not do that), not a 401. The
+// whole-table reachability test in routes-table.test.ts walks every route and
+// pins that the one is exactly one.
+export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
 
 export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
   switch (scope) {

@@ -424,14 +424,18 @@ function QueueChips({
         }}
       >
         {queue.map((msg) => {
-          const isAgent = msg.sender.kind === "agent";
+          // Not-from-a-human, which is what the styling below distinguishes: an
+          // agent or one of this agent's own apps.
+          const isAgent = msg.sender.kind !== "user";
           const label =
             msg.sender.kind === "agent"
               ? `${msg.sender.agentName} · agent · Room "${msg.sender.roomName}"`
-              : formatIdentity({
-                  username: msg.sender.username,
-                  device: msg.sender.device,
-                }) || "You";
+              : msg.sender.kind === "app"
+                ? `${msg.sender.appName} · app`
+                : formatIdentity({
+                    username: msg.sender.username,
+                    device: msg.sender.device,
+                  }) || "You";
           const attachmentCount = msg.attachments?.length ?? 0;
           return (
             <div

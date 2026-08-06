@@ -155,12 +155,28 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect(agentCapabilities(true)).toBe(PRIVILEGED_AGENT_CAPABILITIES);
   });
 
-  it("APP scope holds NOTHING - a token that authenticates and authorizes nothing", () => {
-    // The next slice grants exactly one capability (messaging the agent that
-    // built the app). Until then this staying empty is what makes an app token
-    // inert, and the whole-table reachability test in routes-table.test.ts is
-    // what proves the emptiness reaches every route.
-    expect([...APP_CAPABILITIES]).toEqual([]);
+  it("APP scope holds app:message and NOTHING else - and no other scope holds it", () => {
+    // The narrowest set in the lattice, and the reason an app token is safe to
+    // write into a file agent-authored code reads: one capability, reaching one
+    // route (pinned end to end by the whole-table test in routes-table.test.ts).
+    expect([...APP_CAPABILITIES]).toEqual(["app:message"]);
+    // An app manages nothing, INCLUDING itself: app:read/app:write are the
+    // owner's capabilities over the registry, not the app's.
+    expect(APP_CAPABILITIES).not.toContain("app:read" as Capability);
+    expect(APP_CAPABILITIES).not.toContain("app:write" as Capability);
+    // And the capability does not leak the other way. A human types in the chat
+    // box and an agent has agents.sendMessage; nobody else needs this.
+    for (const [label, set] of [
+      ["USER", USER_CAPABILITIES],
+      ["AGENT", AGENT_CAPABILITIES],
+      ["PRIVILEGED_AGENT", PRIVILEGED_AGENT_CAPABILITIES],
+      ["RUN", RUN_CAPABILITIES],
+    ] as const) {
+      expect({ label, has: set.includes("app:message") }).toEqual({
+        label,
+        has: false,
+      });
+    }
   });
 
   it("capabilitiesForScope maps scope -> set", () => {

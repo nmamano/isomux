@@ -42,6 +42,7 @@ import {
   requiresRoomAccess,
   cronjobOwnerOrOfficeOwner,
   appOwnerOrOfficeOwner,
+  appScope,
   hasOwningUser,
   messageSend,
   scheduledMessagesOwner,
@@ -157,8 +158,29 @@ describe("guard: authenticated", () => {
   it("denies an APP - on the routes that ask only for an identity, this IS the gate", () => {
     // system.version and sessions.logout carry no capability, so an app token
     // would reach them on the strength of existing. An app opts in to a route
-    // deliberately; nothing has opted it in yet.
+    // deliberately, through appScope, never by being merely authenticated.
     expect(authenticated(ctx(app))).toEqual(DENY);
+  });
+});
+
+// --- appScope ---------------------------------------------------------------
+
+describe("guard: appScope", () => {
+  it("allows an APP identity carrying its name", () => {
+    expect(appScope(ctx(app))).toEqual(OK);
+  });
+  it("denies every other scope - including the owner the app belongs to", () => {
+    // The app's userId IS userOwner's id in these fixtures, so a guard that
+    // owner-matched instead of scope-gating would pass here.
+    expect(appScope(ctx(userOwner))).toEqual(DENY);
+    expect(appScope(ctx(userMember))).toEqual(DENY);
+    expect(appScope(ctx(agent))).toEqual(DENY);
+    expect(appScope(ctx(privilegedAgent))).toEqual(DENY);
+    expect(appScope(ctx(run))).toEqual(DENY);
+  });
+  it("denies an APP identity with no appName - the handler has nothing to resolve", () => {
+    expect(appScope(ctx({ ...app, appName: undefined }))).toEqual(DENY);
+    expect(appScope(ctx({ ...app, appName: "" }))).toEqual(DENY);
   });
 });
 

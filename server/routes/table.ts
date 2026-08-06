@@ -37,6 +37,7 @@ import {
   logSearchAccess,
   cronjobOwnerOrOfficeOwner,
   appOwnerOrOfficeOwner,
+  appScope,
   hasOwningUser,
   runParamMustEqualTokenRun,
   taskDelete,
@@ -108,6 +109,7 @@ import type {
   TaskUpdateReq,
   TaskClaimReq,
   AppLogsRes,
+  AppMessageReq,
   AppRegisterReq,
   AppUpdateReq,
   AppWire,
@@ -1044,6 +1046,26 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/apps/:name/restart",
     auth: cap("app:write", appOwnerOrOfficeOwner("name")),
     emits: ["app_upserted"],
+  }),
+
+  // --- The app-SELF surface (an app speaking for itself) --------------------
+  // Singular `/api/app` on purpose: everything under /api/apps/:name is the
+  // OWNER's management surface, and this is the one route the app itself
+  // reaches. It carries no :name and no recipient - the token says which app is
+  // speaking and the registry says which agent built it, so neither is a
+  // parameter a caller could lie about.
+  //
+  // The ONLY route an app identity authorizes, pinned by the whole-table
+  // reachability test in routes-table.test.ts.
+  defineRoute<AppMessageReq, AgentMessageAck>({
+    opId: "apps.sendMessage",
+    method: "POST",
+    path: "/api/app/message",
+    // app:message is held by APP scope alone, so the capability already excludes
+    // every other caller; appScope is the second, independent fact (see the
+    // guard).
+    auth: cap("app:message", appScope),
+    emits: ["log_entry"],
   }),
 
   // --- Memory (isomux-memory; durable shared facts) -------------------------
