@@ -273,10 +273,12 @@ card should not show the URL until the share is enabled.
   button, and die with the agent. This is right for the scratch-dev-app case
   and wrong for a registered app, which is owned by the user and outlives its
   author; see `agent-apps-design.md`. Both lifetimes should exist.
-- The office cookie should eventually get the `__Host-` prefix to foreclose
-  cookie tossing from a sibling subdomain, but `__Host-` requires `Secure`, so
-  it cannot be an unconditional rename - loopback HTTP installs would lose their
-  session. Gate the new name on HTTPS and carry both for a release.
+- The office cookie carries the `__Host-` prefix on HTTPS deployments, which
+  forecloses cookie tossing from a sibling subdomain. Since `__Host-` requires
+  `Secure` it could not be an unconditional rename: both names are read, the
+  new one is written where the deployment can carry it, and an existing session
+  migrates onto it before the old name is cleared. Loopback HTTP installs are
+  unchanged.
 
 ### Self-hosted vs hosted
 

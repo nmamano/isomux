@@ -1192,6 +1192,11 @@ export interface SessionLookup {
   username: string;
   role: UserRole;
   needsRolling: boolean; // caller should persist a refreshed lastSeenAt+expiresAt
+  // The session's ABSOLUTE cap (not the rolling expiresAt), so a caller
+  // re-issuing the cookie under a different name anchors Max-Age to the same
+  // moment the original cookie was anchored to - a migration must never
+  // extend a session's life.
+  absoluteExpiresAt: number;
 }
 
 // Validate a raw session cookie value. Returns null if the cookie is missing,
@@ -1272,6 +1277,7 @@ function validateByHash(hash: string): SessionLookup | null {
     username: user.name,
     role: user.role,
     needsRolling,
+    absoluteExpiresAt: session.absoluteExpiresAt,
   };
 }
 
@@ -1586,6 +1592,18 @@ export function resolveSessionHashByPrefix(prefix: string): string | null {
 
 export const COOKIE_NAME = "isomux_session";
 
+// The `__Host-` name. The prefix is browser-enforced: a cookie carrying it is
+// only accepted with `Secure`, `Path=/`, and NO `Domain` attribute - so a page
+// on a sibling subdomain (an app origin under the office host) cannot write a
+// cookie the office will read. That is the whole point: it forecloses cookie
+// shadowing before app hostnames exist.
+//
+// Because the prefix requires `Secure`, the name is only WRITABLE on an HTTPS
+// deployment. Both names are READ everywhere (readSessionCookies), so no
+// existing session is logged out and a loopback-HTTP install behaves exactly
+// as it did before.
+export const HOST_COOKIE_NAME = "__Host-isomux_session";
+
 // Precedence: process.env.ISOMUX_PUBLIC_ORIGIN > office-config.json's
 // `publicOrigin` (registered via setPublicOriginFallback at boot) >
 // localhost fallback. Both env and config are operator-authored; we never
@@ -1730,20 +1748,25 @@ export function buildPublicOrigin(): {
   return { origin: fallback, isHttps: false, source: "localhost" };
 }
 
-// Build the Set-Cookie header value. Caller picks Max-Age (we anchor to the
-// absolute cap so the cookie naturally expires when the session can't be
-// rolled any further).
-export function setCookieHeader(
-  rawSessionId: string,
-  absoluteExpiresAt: number,
+// The name a freshly written cookie carries. `__Host-` only on HTTPS - the
+// same `isHttps` that adds `Secure` picks the name, so the server is
+// structurally incapable of writing the prefixed name without the attributes
+// the prefix demands (a browser would silently drop such a cookie, which on
+// the login path means a session that never starts).
+function cookieWriteName(isHttps: boolean): string {
+  return isHttps ? HOST_COOKIE_NAME : COOKIE_NAME;
+}
+
+// Attribute order is load-bearing only in that the plain-HTTP arm must stay
+// byte-for-byte what it was before the `__Host-` work; keep it as-is.
+function cookieLine(
+  name: string,
+  value: string,
+  maxAgeSec: number,
+  isHttps: boolean,
 ): string {
-  const { isHttps } = buildPublicOrigin();
-  const maxAgeSec = Math.max(
-    0,
-    Math.floor((absoluteExpiresAt - Date.now()) / 1000),
-  );
   const attrs = [
-    `${COOKIE_NAME}=${rawSessionId}`,
+    `${name}=${value}`,
     `Path=/`,
     `HttpOnly`,
     `SameSite=Lax`,
@@ -1753,35 +1776,134 @@ export function setCookieHeader(
   return attrs.join("; ");
 }
 
-export function clearCookieHeader(): string {
-  const { isHttps } = buildPublicOrigin();
-  const attrs = [
-    `${COOKIE_NAME}=`,
-    `Path=/`,
-    `HttpOnly`,
-    `SameSite=Lax`,
-    `Max-Age=0`,
-  ];
-  if (isHttps) attrs.push("Secure");
-  return attrs.join("; ");
+function maxAgeUntil(absoluteExpiresAt: number): number {
+  return Math.max(0, Math.floor((absoluteExpiresAt - Date.now()) / 1000));
 }
 
-// Parse the `Cookie` request header and return the raw session cookie value,
-// or null if absent. Multi-cookie strings ("a=1; b=2") parsed without bringing
-// in a dependency.
-export function readSessionCookie(req: Request): string | null {
+// Build the Set-Cookie header value. Caller picks Max-Age (we anchor to the
+// absolute cap so the cookie naturally expires when the session can't be
+// rolled any further).
+export function setCookieHeader(
+  rawSessionId: string,
+  absoluteExpiresAt: number,
+): string {
+  const { isHttps } = buildPublicOrigin();
+  return cookieLine(
+    cookieWriteName(isHttps),
+    rawSessionId,
+    maxAgeUntil(absoluteExpiresAt),
+    isHttps,
+  );
+}
+
+// Sign-out clears BOTH names, on every deployment. Not just the one this
+// office would write today: an office that has been on HTTPS and then went
+// back to loopback (external access turned off) leaves browsers holding a
+// `__Host-` cookie, which is still dual-read - so a sign-out that skipped it
+// would revoke the session server-side and leave the cookie sitting in the
+// browser. The `__Host-` clear carries `Secure` because the prefix rules apply
+// to a deletion too; browsers treat localhost as trustworthy, so it lands on a
+// loopback office as well.
+export function clearCookieHeaders(): string[] {
+  const { isHttps } = buildPublicOrigin();
+  return [
+    cookieLine(COOKIE_NAME, "", 0, isHttps),
+    cookieLine(HOST_COOKIE_NAME, "", 0, true),
+  ];
+}
+
+// Both session cookies as they arrived, plus which one the request is
+// claiming. `null` means ABSENT; a present cookie with an empty value is `""`.
+// The distinction matters: `__Host-isomux_session=` is present, so it blocks
+// the legacy fallback and the request fails closed rather than being rescued
+// by a legacy cookie alongside it.
+export interface SessionCookies {
+  hostRaw: string | null;
+  legacyRaw: string | null;
+  // Name precedence, decided by PRESENCE and never by validity: the `__Host-`
+  // cookie wins whenever it arrives at all. An injected or stale legacy cookie
+  // therefore cannot displace the authoritative one, in either header order.
+  selected: string | null;
+}
+
+// Parse the `Cookie` request header. Multi-cookie strings ("a=1; b=2") parsed
+// without bringing in a dependency.
+export function readSessionCookies(req: Request): SessionCookies {
+  let hostRaw: string | null = null;
+  let legacyRaw: string | null = null;
   const header = req.headers.get("cookie");
-  if (!header) return null;
-  const parts = header.split(";");
-  for (const part of parts) {
-    const idx = part.indexOf("=");
-    if (idx <= 0) continue;
-    const name = part.slice(0, idx).trim();
-    if (name !== COOKIE_NAME) continue;
-    const value = part.slice(idx + 1).trim();
-    return value || null;
+  if (header) {
+    for (const part of header.split(";")) {
+      const idx = part.indexOf("=");
+      if (idx <= 0) continue;
+      const name = part.slice(0, idx).trim();
+      const value = part.slice(idx + 1).trim();
+      // First occurrence wins per name: RFC 6265 has the browser send the
+      // more specific match first, and a later duplicate under the same name
+      // must never overwrite it.
+      if (name === HOST_COOKIE_NAME) {
+        if (hostRaw === null) hostRaw = value;
+      } else if (name === COOKIE_NAME) {
+        if (legacyRaw === null) legacyRaw = value;
+      }
+    }
   }
-  return null;
+  return {
+    hostRaw,
+    legacyRaw,
+    selected: hostRaw !== null ? hostRaw : legacyRaw,
+  };
+}
+
+// The raw session id to validate, or null when there is nothing to validate.
+// An empty selected value is "nothing to validate" - and because selection
+// already happened, an empty `__Host-` cookie lands here as null instead of
+// falling back to a legacy cookie on the same request.
+export function readSessionCookie(req: Request): string | null {
+  return readSessionCookies(req).selected || null;
+}
+
+// The two-step migration onto the `__Host-` name, as Set-Cookie lines (never
+// more than one - the steps must land in DIFFERENT responses).
+//
+// PURE: it re-reads no request and re-validates nothing. Callers pass the
+// cookies they already parsed plus the SessionLookup that already
+// authenticated, so this can never select a different identity than the one
+// the caller authorized.
+//
+//   1. UPGRADE - the request authenticated through the legacy cookie and
+//      carries no `__Host-` cookie at all. Re-issue the SAME raw session id
+//      under the new name and leave the legacy cookie alone.
+//   2. RETIRE - a `__Host-` cookie came back from the browser (so it accepted
+//      the upgrade, and by name precedence it is what authenticated this
+//      request) while a legacy cookie is still around. Clear the legacy name.
+//
+// Splitting the steps is what makes the migration incapable of signing anyone
+// out: nothing is ever cleared until its replacement has been OBSERVED. A
+// browser that refuses the new cookie (an office declaring HTTPS while its
+// terminator actually serves plain HTTP) just keeps the old one forever.
+export function sessionCookieMigrationHeaders(
+  cookies: Pick<SessionCookies, "hostRaw" | "legacyRaw">,
+  lookup: SessionLookup,
+): string[] {
+  const { isHttps } = buildPublicOrigin();
+  if (!isHttps) return [];
+  if (cookies.hostRaw === null && cookies.legacyRaw !== null) {
+    // The value re-issued is the raw id that was just validated - the only
+    // cookie on this request that could have produced `lookup`.
+    return [
+      cookieLine(
+        HOST_COOKIE_NAME,
+        cookies.legacyRaw,
+        maxAgeUntil(lookup.absoluteExpiresAt),
+        true,
+      ),
+    ];
+  }
+  if (cookies.hostRaw !== null && cookies.legacyRaw !== null) {
+    return [cookieLine(COOKIE_NAME, "", 0, true)];
+  }
+  return [];
 }
 
 // Echoing-prevention: don't allow log lines to leak raw cookies/tokens. The

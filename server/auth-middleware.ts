@@ -9,7 +9,7 @@ import {
   buildPublicOrigin,
   isLoopbackOrigin,
   claimOwnership,
-  clearCookieHeader,
+  clearCookieHeaders,
   logoutBySessionHash,
   peekInvite,
   readSessionCookie,
@@ -402,14 +402,13 @@ export async function handleLogout(
   if (lookup) {
     await logoutBySessionHash(lookup.sessionIdHash);
   }
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: "/",
-      "Set-Cookie": clearCookieHeader(),
-      ...securityHeaders(),
-    },
-  });
+  // Both names, as independent Set-Cookie lines (an object literal can only
+  // carry one). Clearing the name that did NOT authenticate this request is
+  // client-side cleanup only - the session revoked above is the one the
+  // request actually selected.
+  const headers = new Headers({ Location: "/", ...securityHeaders() });
+  for (const line of clearCookieHeaders()) headers.append("Set-Cookie", line);
+  return new Response(null, { status: 302, headers });
 }
 
 function renderLockoutBlocked(

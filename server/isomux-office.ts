@@ -111,8 +111,9 @@ import {
   logoutBySessionHash,
   mintInvite,
   noteSessionDeviceByHash,
-  readSessionCookie,
+  readSessionCookies,
   registerSocket,
+  sessionCookieMigrationHeaders,
   resolveSessionHashByPrefix,
   revalidateByHash,
   revokeActiveSessionByPrefixForUserId,
@@ -4148,7 +4149,10 @@ function escapeHtml(s: string): string {
 // Serve index.html with the office name substituted into the <title>. The UI
 // has `<title>__OFFICE_TITLE__</title>`; we replace that placeholder per-request
 // so the tab title is correct before the WS connects (and on the auth page).
-async function serveIndexHtml(): Promise<Response> {
+async function serveIndexHtml(
+  req?: Request,
+  session?: SessionLookup,
+): Promise<Response> {
   // A missing bundle (ui/dist not built yet) must be a clean 503, not an
   // unhandled ENOENT that resets the socket mid-response - that crash shape
   // surfaced as CI-only ECONNRESET failures when tests ran before the UI
@@ -4164,13 +4168,29 @@ async function serveIndexHtml(): Promise<Response> {
   const officeName = agentManager.getOfficeSettings().name;
   const title = officeName ? `${escapeHtml(officeName)} | Isomux` : "Isomux";
   const html = raw.replace("__OFFICE_TITLE__", title);
-  return new Response(html, {
+  const res = new Response(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-cache",
       ...securityHeaders(),
     },
   });
+  return req && session ? withCookieMigration(res, req, session) : res;
+}
+
+// Attach the session-cookie migration lines (if any) to an already-built
+// response. `session` is the caller's ALREADY-VALIDATED cookie session -
+// nothing here re-validates, and nothing here re-decides who the caller is.
+// A bearer caller has no session and never migrates: an incidental cookie
+// sitting in an agent's jar is not what authenticated the request.
+function withCookieMigration(
+  res: Response,
+  req: Request,
+  session: SessionLookup,
+): Response {
+  const lines = sessionCookieMigrationHeaders(readSessionCookies(req), session);
+  for (const line of lines) res.headers.append("Set-Cookie", line);
+  return res;
 }
 
 const PORT = parseInt(process.env.PORT || "4000");
@@ -4199,8 +4219,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // carries the session into ws.data so per-message handlers can attribute
       // writes without trusting client-supplied username fields.
       if (url.pathname === "/ws") {
-        const wsCookie = readSessionCookie(req);
-        const wsSession = validateSession(wsCookie);
+        const wsCookies = readSessionCookies(req);
+        const wsSession = validateSession(wsCookies.selected || null);
         if (!wsSession) {
           return new Response("unauthenticated", { status: 401 });
         }
@@ -4212,8 +4232,19 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             status: 403,
           });
         }
+        // The cookie migration rides the 101. This is the seam that reaches an
+        // already-open tab: a running SPA can reconnect its socket for days
+        // without ever loading a page again, so a page-load-only migration
+        // would leave exactly the population this hardening is for. Verified
+        // in real Chrome that a Set-Cookie on an upgrade response is committed
+        // and returned on the next request. Multi-value MUST go through
+        // Headers.append - an array passed in the plain object is dropped.
+        const wsMigration = sessionCookieMigrationHeaders(wsCookies, wsSession);
+        const wsHeaders = new Headers();
+        for (const line of wsMigration) wsHeaders.append("Set-Cookie", line);
         const upgraded = server.upgrade(req, {
           data: { session: wsSession, connectionId: nextConnectionId() },
+          ...(wsMigration.length > 0 ? { headers: wsHeaders } : {}),
         });
         if (upgraded) return;
         return new Response("WebSocket upgrade failed", { status: 400 });
@@ -4301,7 +4332,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               : errorResponse(401, "unauthenticated", "unauthenticated");
           }
           try {
-            return await executeRoute(
+            const apiRes = await executeRoute(
               apiMatch,
               req,
               apiAuth.identity,
@@ -4311,6 +4342,15 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               // caller's session WITHOUT re-validating the cookie in the seam.
               { callerSessionIdHash: apiAuth.session?.sessionIdHash },
             );
+            // Cookie migration rides SAFE methods only. A GET/HEAD cannot
+            // revoke the session it would re-issue; DELETE
+            // /api/sessions/current is exactly that hazard, and a
+            // self-targeted revoke is the same shape. A signed-in SPA makes
+            // plenty of GETs, so nothing is lost by the restriction.
+            const safeMethod = req.method === "GET" || req.method === "HEAD";
+            return safeMethod && apiAuth.session
+              ? withCookieMigration(apiRes, req, apiAuth.session)
+              : apiRes;
           } catch (err) {
             console.error("[/api] uncaught executor error:", err);
             return errorResponse(500, "internal", "internal");
@@ -4615,10 +4655,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         });
       }
 
-      // Static file serving
+      // Static file serving. The shell carries the cookie migration (the seam
+      // for a plain page load or reload); `auth.session` is set only on the
+      // cookie path, so a bearer-authenticated shell request migrates nothing.
       const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
       if (filePath === "/index.html") {
-        return serveIndexHtml();
+        return serveIndexHtml(req, auth.session);
       }
       const file = Bun.file(join(UI_DIST, filePath));
       if (await file.exists()) {
@@ -4627,7 +4669,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         });
       }
       // SPA fallback
-      return serveIndexHtml();
+      return serveIndexHtml(req, auth.session);
     },
     websocket: {
       open(ws) {

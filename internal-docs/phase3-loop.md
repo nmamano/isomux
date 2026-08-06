@@ -145,7 +145,17 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          bans one exact string as a future NAME (clean error over silent
          -g2-g2 walk); grandfathered 60-63 char names cannot re-register
          after delete; a 59-char name exhausts generations at g100.)
-- [ ] S2  Office cookie `__Host-` hardening (independent; before S5).
+- [x] S2  Office cookie `__Host-` hardening (independent; before S5).
+         (Isomuxer2/Reviewer2, plan-gate 2 rounds, diff-gate approved
+         d4f52f15 round 2, committed with this edit. Two-step migration:
+         re-issue under __Host- first, clear legacy only after the new
+         cookie is SEEN coming back - nothing cleared before its
+         replacement is observed. HTTPS signal: buildPublicOrigin().isHttps,
+         never a request header. Round-1 blocker: logout must clear BOTH
+         names on EVERY deployment (browsers hold cookies from the office's
+         past arms). 14 mutations killed. Inert on this office (no https
+         publicOrigin). Parked: recover_owner_session's Secure-cookie-to-
+         127.0.0.1 curl dependency predates the slice - queued for Nil.)
 - [ ] S3  Apps domain config + Host matching (dark until configured).
 - [ ] S4  Auth handshake (single-use code, app cookie; no app bytes yet).
 - [ ] S5  HTTP relay (first slice where a real app answers).
@@ -283,3 +293,67 @@ Decide with reviewer: HTTPS signal, re-issue timing, legacy-cookie clearing.
 
 Locked: no logout of existing sessions anywhere, dual-read for at least one
 release, everything in Standing rails.
+
+## SLICE-3 PICKUP (authored after S2's commit; baseline = that commit)
+
+What S1/S2 taught (real, from their reports): the registry's ledger is the
+label authority (issuedLabels tuples; live apps carry hostLabel/hostGen).
+The deployment-arm signal is `buildPublicOrigin().isHttps` - operator-
+authored, boot-frozen, NEVER a request header (X-Forwarded-Proto is
+client-settable because the office socket is directly reachable). Bun trap:
+multi-value Set-Cookie on `server.upgrade()` must go through
+Headers.append - an array in a plain headers object is silently dropped.
+
+Goal: the office learns to tell request hosts apart. A request whose Host
+is `<label>.<apps domain>` routes to a new app-host arm (which serves only
+fail-closed placeholders this slice - no app bytes, no auth yet); every
+other request behaves byte-identically to today. Dark: with no apps domain
+resolvable the feature cannot be reached.
+
+Load-bearing mechanics and traps:
+- New `server/app-hosts.ts`: host normalization (lowercase, strip one
+  trailing dot, strip :port, punycode/IDN - decide the honest scope with
+  the reviewer and TEST the weird forms) + label lookup against the
+  registry (live label -> the app; issued-but-retired or unknown -> both
+  the SAME neutral 404, externally indistinguishable).
+- Dispatch: the Host check runs AHEAD of pathname dispatch in the
+  isomux-office.ts fetch handler (~4200). THE REGRESSION SURFACE IS EVERY
+  EXISTING ROUTE: only a Host that positively matches `<label>.<apps
+  domain>` diverts; the office host, bare IPs, localhost, tailnet names,
+  garbage Hosts - all fall through to today's path untouched. Pin that
+  with tests (office dispatch with apps domain configured, weird Hosts).
+- Apps domain resolution: `apps.<office host>` derived from publicOrigin,
+  overridable by an explicit office-config key (installer-written later;
+  name it with the reviewer). Loopback/no-publicOrigin -> no apps domain ->
+  arm unreachable. Boot-frozen like isHttps.
+- `/__isomux/*` is RESERVED on app hosts from day one (S4 mounts auth
+  there). On the app-host arm this slice, every path including those
+  returns the fail-closed placeholder responses - but the reservation must
+  be structural (the app relay, when it exists, never sees /__isomux/*).
+- WS upgrades on an app host: refuse this slice (S6's job) - but refuse
+  DELIBERATELY, not by falling through to the office WS handler. A
+  diverted host must never reach office handlers.
+- Live label placeholder: decide the exact response with the reviewer
+  (neutral 503-ish "not ready" vs same 404) - constraints: no app bytes,
+  no office HTML, no session material, no redirect to the office, nothing
+  that distinguishes an authenticated caller (auth is S4). State the
+  choice + why in the report.
+- The apps-domain suffix itself and non-label subdomains
+  (`a.b.apps.<office>`, bare `apps.<office>`) -> neutral 404.
+- Tests: normalization matrix; dispatch fall-through pins; label hit /
+  retired / unknown; reserved path; WS refusal; inert-without-config;
+  mutation-check and say so.
+
+Acceptance: isolated-instance demo transcript driven with `curl -H "Host:
+..."` against loopback: office host unchanged, app label hits the arm,
+retired and unknown labels indistinguishable, bare apps domain 404,
+office-behavior regression demo (a normal route works identically with the
+feature configured); always-run gates green; reviewer approve on the final
+announced fingerprint; any new user-visible strings (the placeholder
+bodies!) quoted verbatim.
+
+Decide with reviewer: config key name, normalization scope, placeholder
+response shape, internal structure of the app-host arm.
+
+Locked: fail-closed posture (doubt -> neutral 404), no office handler
+reachable from a diverted host, boot-frozen config, Standing rails.

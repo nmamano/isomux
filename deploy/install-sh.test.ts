@@ -536,3 +536,57 @@ describe("install.sh: the systemd user manager agents' apps run on", () => {
     expect(fnBody("deps_only")).toContain("\n  configure_user_manager\n");
   });
 });
+
+// The one piece of install.sh that reads the office's session cookie. It runs
+// the REAL awk program out of the source against synthetic jars, because the
+// property that matters is a behavior (which name wins), not a substring.
+describe("install.sh - session cookie jar parse", () => {
+  const awkProgram = (() => {
+    const start = SRC.indexOf("raw=$(awk '");
+    expect(start).toBeGreaterThan(-1);
+    const from = start + "raw=$(awk '".length;
+    const end = SRC.indexOf("'", from);
+    expect(end).toBeGreaterThan(from);
+    return SRC.slice(from, end);
+  })();
+
+  async function runAwk(jar: string): Promise<string> {
+    const path = `${process.env.TMPDIR ?? "/tmp"}/isomux-cookiejar-${Bun.hash(jar)}.txt`;
+    await Bun.write(path, jar);
+    const proc = Bun.spawn(["awk", awkProgram, path], { stdout: "pipe" });
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    return out.trim();
+  }
+
+  // Netscape jar rows: domain, flag, path, secure, expiry, NAME, VALUE.
+  const row = (name: string, value: string) =>
+    `#HttpOnly_127.0.0.1\tFALSE\t/\tTRUE\t9999999999\t${name}\t${value}`;
+  const HOST = "__Host-isomux_session";
+  const LEGACY = "isomux_session";
+
+  it("prefers the __Host- name over the legacy one, in either row order", async () => {
+    // curl writes both when a jar outlives the office's move to HTTPS. The
+    // prefix that wins here has to be the one the server itself selects, or
+    // the installer resolves the wrong session and mints an invite for the
+    // wrong user.
+    expect(
+      await runAwk(`${row(HOST, "HOSTVAL")}\n${row(LEGACY, "OLDVAL")}\n`),
+    ).toBe("HOSTVAL");
+    expect(
+      await runAwk(`${row(LEGACY, "OLDVAL")}\n${row(HOST, "HOSTVAL")}\n`),
+    ).toBe("HOSTVAL");
+  });
+
+  it("still reads a legacy-only jar - every pre-HTTPS install has one", async () => {
+    expect(await runAwk(`${row(LEGACY, "OLDVAL")}\n`)).toBe("OLDVAL");
+  });
+
+  it("reads a __Host--only jar", async () => {
+    expect(await runAwk(`${row(HOST, "HOSTVAL")}\n`)).toBe("HOSTVAL");
+  });
+
+  it("is empty when the jar holds no session cookie, so the caller can die", async () => {
+    expect(await runAwk(`${row("other_cookie", "X")}\n`)).toBe("");
+  });
+});

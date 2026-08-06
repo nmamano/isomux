@@ -217,6 +217,7 @@ describe("auth-middleware: resolveIdentityForRequest precedence (Phase 2.1)", ()
     username: "Carol",
     role: "owner",
     needsRolling: false,
+    absoluteExpiresAt: Date.now() + 365 * 24 * 60 * 60 * 1000,
   };
   const reqWith = (headers: Record<string, string>) =>
     new Request("http://localhost/x", { headers });

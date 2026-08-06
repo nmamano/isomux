@@ -151,7 +151,7 @@ Invite acceptance persists the invite-consumed flag **before** the session (`acc
 
 ### 5.6 Cookie attribute set
 
-`setCookieHeader` (`server/auth.ts`) emits `HttpOnly; Path=/; SameSite=Lax`, with `Secure` when the resolved public origin is HTTPS, and no `Domain` attribute (host-only).
+`setCookieHeader` (`server/auth.ts`) emits `HttpOnly; Path=/; SameSite=Lax`, with `Secure` when the resolved public origin is HTTPS, and no `Domain` attribute (host-only). On an HTTPS origin the cookie is named `__Host-isomux_session`: the prefix is browser-enforced to require `Secure`, `Path=/`, and no `Domain`, so a page on a subdomain of the office cannot set a cookie the office will read. Both names are read, the prefixed one wins whenever it is present, and an existing session is re-issued under it on its next page load, WebSocket connection, or read-only API request - the legacy name is only cleared once the new cookie has been seen coming back. Signing out clears both names.
 
 ### 5.7 Origin allowlist construction
 

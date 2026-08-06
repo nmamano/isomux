@@ -73,7 +73,10 @@ export interface TestServer extends ServerHandle {
     init?: RequestInit & { rawSessionId?: string },
   ): Promise<Response>;
   // Open a real authenticated WebSocket (cookie + matching Origin).
-  connectWs(rawSessionId: string): Promise<TestSocket>;
+  connectWs(
+    rawSessionId: string,
+    opts?: { cookieHeader?: string },
+  ): Promise<TestSocket>;
   // COLD-RELOAD this server WITHOUT wiping STATE_ROOT: stops the current
   // instance and re-runs the real boot path against the on-disk state this run
   // persisted. Returns a FRESH TestServer (new port + handle); the old one is
@@ -233,14 +236,20 @@ async function bootTestServer(
       }
     }
 
-    async function connectWs(rawSessionId: string): Promise<TestSocket> {
+    async function connectWs(
+      rawSessionId: string,
+      opts?: { cookieHeader?: string },
+    ): Promise<TestSocket> {
       // Bun's WebSocket client accepts a { headers } options object so the
       // upgrade carries the auth cookie + matching Origin. The DOM lib types
       // only the (url, protocols) overload, so cast through unknown; this is
       // runtime-correct under Bun.
+      //
+      // cookieHeader replaces the whole Cookie header, for tests that need to
+      // send several session cookies at once (the __Host- dual-read matrix).
       const ws = new WebSocket(`ws://127.0.0.1:${handle.port}/ws`, {
         headers: {
-          Cookie: `${COOKIE_NAME}=${rawSessionId}`,
+          Cookie: opts?.cookieHeader ?? `${COOKIE_NAME}=${rawSessionId}`,
           Origin: buildPublicOrigin().origin,
         },
       } as unknown as string[]);

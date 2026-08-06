@@ -179,7 +179,7 @@ All three files are written atomically (temp + rename) and serialized under a si
 
 ## Cookie semantics
 
-- Name: `isomux_session`
+- Name: `__Host-isomux_session`, or `isomux_session` on `http://localhost*`, which cannot carry the `Secure` the prefix requires. The prefix is browser-enforced to be host-only, so a page on a subdomain of the office cannot write the cookie the office reads. Both names are accepted; an existing session moves onto the prefixed name on its next page load, WebSocket connection, or read-only API request.
 - Attributes: `HttpOnly; Path=/; SameSite=Lax`
 - `Secure` set when the configured Public URL is `https://`, omitted when the server is on `http://localhost*` (pre-claim, or post-claim with external access off).
 - Rolling expiry: 30 days, refreshed on activity.
