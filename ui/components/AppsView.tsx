@@ -462,16 +462,19 @@ export function AppsView({ onClose }: { onClose: () => void }) {
                       flexWrap: "wrap",
                     }}
                   >
-                    {(["start", "stop", "restart"] as const).map((verb) => (
-                      <button
-                        key={verb}
-                        disabled={isBusy}
-                        onClick={() => void act(app.name, verb)}
-                        style={btnStyle(false, isBusy)}
-                      >
-                        {verb}
-                      </button>
-                    ))}
+                    {(["start", "stop", "restart"] as const).map((verb) => {
+                      const inert = isBusy || verbInert(verb, app.state);
+                      return (
+                        <button
+                          key={verb}
+                          disabled={inert}
+                          onClick={() => void act(app.name, verb)}
+                          style={btnStyle(false, inert)}
+                        >
+                          {verb}
+                        </button>
+                      );
+                    })}
                     <button
                       disabled={isBusy}
                       onClick={() => void toggleLogs(app.name)}
@@ -576,6 +579,28 @@ export function AppsView({ onClose }: { onClose: () => void }) {
       )}
     </div>
   );
+}
+
+// A verb that cannot change the app's current state renders disabled: "start"
+// on a running app reads as a bug even though systemd would no-op it. State
+// can be up to one poll (5s) stale, so this is an affordance, not a guard -
+// "unknown" leaves every verb enabled. "restart" stays enabled on a failed
+// app because it is the recovery verb.
+function verbInert(
+  verb: "start" | "stop" | "restart",
+  state: AppState,
+): boolean {
+  switch (state) {
+    case "running":
+    case "starting":
+      return verb === "start";
+    case "stopped":
+      return verb !== "start";
+    case "failed":
+      return verb === "stop";
+    case "unknown":
+      return false;
+  }
 }
 
 function btnStyle(danger: boolean, disabled: boolean): React.CSSProperties {
