@@ -115,9 +115,12 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
          this edit. Fetch-on-open + 5s single-flight poll while open;
          recipient-scoped app_upserted/app_deleted deltas; hydrationEpoch
          refetch. Screenshots under /tmp/s3-shots/.)
-- [ ] S4  Conventions + docs: system-prompt guidance replaces "pick an
+- [x] S4  Conventions + docs: system-prompt guidance replaces "pick an
          uncommon port", ROUTE_LABELS entries, doc surfaces per
          internal-docs/documentation.md.
+         (Isomuxer2/Reviewer2, 2 rounds, approved 041e4666, committed with
+         this edit. External-repo surfaces of documentation.md §6-11 parked;
+         humanizeIsomuxRequest apps arm parked as cheap follow-up.)
 - [ ] S5  (stretch) App tokens: hashed persistence per tokens.ts secrecy rule,
          injected as ISOMUX_APP_TOKEN.
 - [ ] S6  (stretch) App-to-agent messaging: scoped capability, rate limit +
@@ -468,3 +471,51 @@ any ts changes). test:systemd only if server files change. Same
 announced-fingerprint diff-gate with your reviewer.
 
 Locked: no behavior changes, no new routes, rulings stand, Standing rails.
+
+## SLICE-5 PICKUP (stretch; authored after S4's commit; baseline = that commit)
+
+Phase 1 is landed and live; Nil's condition for phase 2 ("if phase 1 is
+ready and solid, feel free to continue") is met. S5 is the first phase-2
+slice: app tokens. S6 (the messaging route they authorize) follows only if
+S5 lands clean; S5 alone must be inert-but-harmless (a minted token whose
+capabilities S6 defines is fine; nothing may widen).
+
+Goal: every registered app gets a scoped token, injected as
+ISOMUX_APP_TOKEN, that SURVIVES an isomux restart - the first token scope
+that must, since apps outlive the isomux process (design doc section 5).
+
+Load-bearing mechanics and traps:
+- Read server/identity/tokens.ts FIRST: the secrecy rule (hashed at rest)
+  is stated there and the design doc names it as the constraint. Plaintext
+  exists only at mint time, injected into the app's environment; isomux
+  persists only the hash.
+- Identity: a new APP scope in the identity model with capabilities
+  defined but EMPTY-of-routes until S6 (mirror how CRON-RUN scope denies
+  app routes today). An app token must NOT pass agent guards anywhere -
+  extend the routes-table contract tests that pin capability sets.
+- Injection point: the launcher script (0600) is where secrets already
+  live; the unit file is not. BUT be honest about the boundary (S2c's doc
+  paragraph): every app runs as the same Unix account, so cross-app secret
+  isolation is not enforceable at this layer - the token's value is its
+  narrow SCOPE, not its secrecy from sibling apps. State this in code
+  comments and the report, don't oversell.
+- Lifecycle: mint at register, re-inject on reinstall (PATCH), revoke +
+  delete hash on app delete. Restart of isomux must NOT rotate tokens (that
+  would need unit rewrites - the exact thing persistence exists to avoid).
+  Decide rotation-on-demand (POST .../rotate-token?) with me BEFORE
+  building it - it is new API surface.
+- Registry stores the hash alongside the app record (or sibling file -
+  match house style with reviewer); corruption posture: fail-closed like
+  everything else, but a missing hash for an existing app must not brick
+  the app - define and test the degraded behavior.
+- Tests: identity guard matrix, persistence round-trip, launcher content
+  (golden), reinstall preserves token, delete revokes. Mutation-check.
+- test:systemd extended or verified still green (launcher changes).
+
+Acceptance: isolated-instance demo - register app, its env carries a token,
+isomux restarted (isolated instance only!), token still valid (hash
+verifies), PATCH preserves it, delete revokes it; gates green; reviewer
+approve on announced fingerprint; all new strings verbatim.
+
+Locked: hashed-at-rest, no new agent-facing routes without manager signoff,
+S6 defines what the token can DO, Standing rails.

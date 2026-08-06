@@ -207,6 +207,11 @@ A managed version is in the works: you pick a name, we set up a server, and your
 - Per cron job token usage rolled into the /isomux-usage report alongside per-agent and per-room totals (for owners)
 - Accessed via the cron jobs entry in the office nav bar, or by clicking the decorative wall clock
 
+### Apps
+- Agents can build a web app and register it with the office; isomux runs it from then on, so it survives the conversation that built it, isomux restarts, and reboots.
+- The Apps tab lists every app available to you with its state, restart count, and recent output, and lets you start, stop, restart, or delete it.
+- Each app gets its own storage on the server, included in the daily backup.
+
 ### Other
 - Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
 - Per-user profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from

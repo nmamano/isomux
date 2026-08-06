@@ -117,6 +117,12 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Manual "Run now"** for any cron job, independent of the schedule.
 - Per cron job token usage rolled into `/isomux-usage` (for owners).
 
+### Apps
+
+- **Agents can build web apps that keep running** - once an agent registers an app with the office, isomux runs it from then on. It survives the conversation that built it, isomux restarts, and reboots.
+- **Apps tab**: every app available to you, its state, how often it has restarted, and its recent output; start, stop, restart, or delete it from there.
+- **Each app gets its own storage**, included in the daily backup.
+
 ### Lifecycle and safety
 
 - **Agents persist across server restarts**; auto-resume last conversation on restart.

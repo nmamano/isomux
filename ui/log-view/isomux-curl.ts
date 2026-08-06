@@ -770,6 +770,16 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["POST", "/api/memory", "Append memory"],
   ["PUT", "/api/memory", "Replace memory"],
   ["GET", "/api/cronjobs", "List cronjobs"],
+  // Agent-built apps (internal-docs/agent-apps-design.md).
+  ["GET", "/api/apps", "List apps"],
+  ["POST", "/api/apps", "Register app"],
+  ["GET", "/api/apps/*", "Read app"],
+  ["PATCH", "/api/apps/*", "Update app"],
+  ["DELETE", "/api/apps/*", "Delete app"],
+  ["GET", "/api/apps/*/logs", "Read app logs"],
+  ["POST", "/api/apps/*/start", "Start app"],
+  ["POST", "/api/apps/*/stop", "Stop app"],
+  ["POST", "/api/apps/*/restart", "Restart app"],
   // Per-user Sk-menu counters (reachable by privileged agent tokens).
   ["GET", "/api/skill-usage", "Read skill-use counts"],
   // Deployment version identity (reachable by privileged agent tokens).
