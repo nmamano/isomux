@@ -105,6 +105,18 @@ Never two slices in flight. Never start N+1 with N uncommitted.
 - `bun run test:systemd` when launcher/unit/supervisor files change.
 - New/changed tests must FAIL when the feature is reverted (mutation-check;
   state how you know in the report).
+- MEMORY SANDBOX (mandatory after the 2026-08-06 incident): any test run
+  during a mutation cycle that touches resource-bound code (caps, ceilings,
+  backpressure, buffers, limits) runs inside
+  `systemd-run --user --scope -p MemoryMax=2G --quiet bun test <files>` -
+  a mutation that removes a cap turns the test into an unbounded
+  allocator, and the sandbox makes it fail fast instead of taking the box
+  down (five earlyoom kill waves came from one disabled ceiling + a flood
+  test). If unsure whether code is resource-bound, sandbox it.
+- A mutation cycle must restore the pristine file BEFORE running anything
+  else, and restoration must be verified (diff against the pristine copy)
+  as the FIRST action after any interruption - an interrupted cycle leaves
+  the mutation live on disk.
 
 Manager-only, before any live-office restart: full `bun run ci` green AND the
 isolated boot smoke green AND a wake-up message scheduled to self (~2.5 min
