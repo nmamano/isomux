@@ -211,7 +211,18 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          5m, 128/app, 512 total; request size rides the listener's 512MB.
          For Nil's list: apps cannot see the visitor IP (XFF = terminator
          peer; real fix needs an authenticated Caddy boundary, not now).)
-- [ ] S6  WebSocket relay.
+- [ ] S6a WebSocket upstream: frame codec + in-house WS client over a raw
+         TCP socket, pure and wired into nothing. SPLIT from S6 by manager
+         ruling after a measured finding (Isomuxer2/Reviewer2): Bun's WS
+         client reports bufferedAmount 0 unconditionally (0 after 120MB
+         queued, RSS 211MB), so the browser->app leg would buffer
+         unboundedly in the office process; a raw socket reports real
+         write backpressure with drain (RSS flat). Codec bar: split-at-
+         every-byte decode corpus, strict length arithmetic, capped
+         reassembly; the app is untrusted input at the parser level.
+- [ ] S6b WebSocket relay: wiring S6a into the app-host arm, office
+         plumbing (WsData union), lifecycle/auth per the S6 pickup,
+         end-to-end tests. Baseline = S6a's commit.
 - [ ] S7  Caddy + DNS (GATED ON NIL: domain + URL-shape answer; only slice
          needing a real box; installer site block + tls-ask; update path
          deliberately does NOT rewrite the Caddyfile - enabling app
