@@ -35,6 +35,7 @@ import { _testResetUsers } from "../users.ts";
 import { _testResetTokens } from "../identity/tokens.ts";
 import { _testResetSkillUsage } from "../skill-usage.ts";
 import { _testResetAppMessageLimits } from "../app-message-limits.ts";
+import { _testResetAppHostDomain } from "../app-hosts.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";
 
@@ -152,6 +153,11 @@ async function bootTestServer(
     // clear them. Skipping it on restart would make the harness carry a budget
     // across a restart the product says empties it.
     _testResetAppMessageLimits();
+    // App hostnames are boot-frozen (bootPrelude re-freezes them on every
+    // start), so this only matters between stop() and the next start - but a
+    // stale domain sitting in the module while no server is up is exactly the
+    // kind of thing a later test would trip over.
+    _testResetAppHostDomain();
     registerProductionCronjobManagerForModuleReads(null);
 
     const fakeBackend =

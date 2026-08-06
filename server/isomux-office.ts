@@ -151,6 +151,7 @@ import {
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry } from "./app-registry.ts";
+import { freezeAppHostDomain, handleAppHostRequest } from "./app-hosts.ts";
 import {
   appSupervisor as productionAppSupervisor,
   type AppSupervisor,
@@ -293,6 +294,11 @@ function bootPrelude(): void {
     setPublicOriginFallback(cfg.publicOrigin);
     freezeBootState({ externalAccess });
   }
+
+  // App hostnames ride the same freeze, and must come after it: they are
+  // derived from buildPublicOrigin, which only answers for this boot once the
+  // boot state is locked.
+  freezeAppHostDomain();
 } // end bootPrelude
 
 // AgentManager / CronjobManager instances. Module-level `let` (not top-level
@@ -4213,6 +4219,15 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
     maxRequestBodySize: 512 * 1024 * 1024, // 512MB
     ...(BIND_LOOPBACK_ONLY ? { hostname: "127.0.0.1" } : {}),
     async fetch(req, server) {
+      // Registered-app hostnames divert here, ahead of EVERYTHING - before the
+      // URL is even parsed, let alone dispatched. A request whose Host is a
+      // strict child of the office host must never reach an office handler, so
+      // the classification cannot sit behind any pathname check. Returns null
+      // on every other Host, including the office's own - and on every request
+      // of every install with no app-host domain resolved.
+      const appHostResponse = handleAppHostRequest(req);
+      if (appHostResponse) return appHostResponse;
+
       const url = new URL(req.url);
 
       // WebSocket upgrade - authenticated and origin-checked. The upgrade

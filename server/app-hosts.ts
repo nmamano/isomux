@@ -1,0 +1,300 @@
+// Host-based dispatch for registered apps (phase 3, slice 3).
+//
+// An office serves one hostname today. Once registered apps get stable
+// origins, a second class of hostname arrives: the URL shape is FLAT, so an
+// app called `hello` on an office at `office.example` answers at
+// `hello.office.example`. The office and its apps are one namespace, parent
+// and children, and the first thing the request handler must do is decide
+// which it is looking at - because the two get entirely different treatment:
+//
+//   - the office's own host, or anything outside it
+//                      -> return null, and the office dispatches exactly as it
+//                         always has. Every existing route is downstream of
+//                         this, so the fall-through is the load-bearing half.
+//   - a strict child   -> this module answers, and NO office handler ever sees
+//                         the request. That containment is the security
+//                         property: app hostnames sit under a wildcard record,
+//                         so anyone can point any name under it at this
+//                         server, and none of those names may reach the
+//                         office's own surface.
+//
+// This slice serves only fail-closed placeholders. There is no auth (slice 4)
+// and no relay to the app (slice 5) yet, so nothing here can return app bytes.
+//
+// WHERE THE DOMAIN COMES FROM: publicOrigin, and nothing else. No config key,
+// no override, no installer-written state - if the office has an HTTPS public
+// origin at a real DNS name, its children are app hostnames. The consequence,
+// accepted deliberately: an operator who has some other record pointed at this
+// office under that name (`www.`, `staging.`) stops getting the office there
+// and gets a neutral 404, because an unknown label cannot be allowed to fall
+// through to the office. Loopback and plain-HTTP offices - every dev box - get
+// no app-host domain at all and are byte-identical to before this existed.
+
+import { appRegistry as productionRegistry } from "./app-registry.ts";
+import type { AppRegistry } from "./app-registry.ts";
+import { buildPublicOrigin } from "./auth.ts";
+
+// --- hostname grammar (pure) ------------------------------------------------
+
+// RFC 1035 label and name ceilings. The label pattern is the one the app
+// registry holds app names to (server/app-registry.ts), because an app's name
+// becomes its hostname label.
+const MAX_HOST_LABEL_LENGTH = 63;
+const MAX_HOSTNAME_LENGTH = 253;
+const HOST_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+function isHostLabel(label: string): boolean {
+  return (
+    label.length > 0 &&
+    label.length <= MAX_HOST_LABEL_LENGTH &&
+    HOST_LABEL_PATTERN.test(label)
+  );
+}
+
+// A lowercase LDH hostname: one or more valid labels, no trailing dot, within
+// the name ceiling. `minLabels` lets a caller demand a dotted name.
+export function isHostname(host: string, minLabels = 1): boolean {
+  if (host.length === 0 || host.length > MAX_HOSTNAME_LENGTH) return false;
+  const labels = host.split(".");
+  if (labels.length < minLabels) return false;
+  return labels.every(isHostLabel);
+}
+
+// Every code point a hostname may carry before any structural check. Anything
+// outside printable ASCII - C0 controls, DEL (0x7f), and all non-ASCII
+// including IDN - is refused here rather than sneaking into a label test.
+// Deliberately NOT doing IDNA conversion: a non-ASCII Host can never equal an
+// ASCII office host, and A-labels (`xn--...`) are already ASCII and match
+// literally.
+function isPrintableAscii(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x20 || code > 0x7e) return false;
+  }
+  return true;
+}
+
+// The `Host` request header, reduced to something comparable with the office
+// host. Returns null when the header is absent or cannot be a hostname we
+// route on - which for the dispatcher means "not ours", i.e. today's office
+// behavior, never a refusal.
+export function normalizeRequestHost(
+  raw: string | null | undefined,
+): string | null {
+  if (typeof raw !== "string" || raw.length === 0) return null;
+  if (!isPrintableAscii(raw)) return null;
+  // Host is case-insensitive and the office host is stored lowercase, so the
+  // fold happens here, once, before anything compares strings.
+  let host = raw.toLowerCase();
+  // An IPv6 literal arrives bracketed (`[::1]:4000`). It can never be an app
+  // host, and its colons would confuse the port split below.
+  if (host.startsWith("[")) return null;
+  const colon = host.indexOf(":");
+  if (colon !== -1) {
+    const port = host.slice(colon + 1);
+    host = host.slice(0, colon);
+    // Syntax only - the port's VALUE is irrelevant, we route on the name. An
+    // empty port, a non-numeric one, or a second colon is a malformed Host.
+    if (!/^[0-9]+$/.test(port)) return null;
+  }
+  // Exactly one trailing dot (the FQDN form). `name..` keeps an empty label
+  // and is rejected by isHostname.
+  if (host.endsWith(".")) host = host.slice(0, -1);
+  return isHostname(host) ? host : null;
+}
+
+// --- the app-host domain (pure) -------------------------------------------------
+
+// Hostnames app hostnames cannot hang off: loopback names (a `.localhost`
+// suffix is loopback by RFC 6761, not just the bare name) and address
+// literals. `URL.hostname` exposes an IPv6 literal bracketed.
+function isLoopbackOrLiteral(hostname: string): boolean {
+  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
+  if (hostname.startsWith("[")) return true;
+  if (/^[0-9]+(?:\.[0-9]+){3}$/.test(hostname)) return true;
+  return false;
+}
+
+// The office's own hostname, and therefore the domain its apps hang off.
+// Null means this office has no app hostnames at all.
+//
+// Gated on HTTPS because that is what an office reachable at a real name looks
+// like: app hostnames need a wildcard DNS record and a certificate, and
+// neither exists for `localhost`, a bare address, or a plain-HTTP dev bind.
+// `URL` lowercases the host but KEEPS a trailing dot, so it is stripped here -
+// this value is compared against normalized request Hosts on every request.
+export function deriveAppHostDomain(
+  officeOrigin: string,
+  isHttps: boolean,
+): string | null {
+  if (!isHttps) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(officeOrigin);
+  } catch {
+    return null;
+  }
+  let host = parsed.hostname.toLowerCase();
+  if (host.endsWith(".")) host = host.slice(0, -1);
+  if (!host || isLoopbackOrLiteral(host)) return null;
+  // Dotted name required: a single-label office host is an intranet name that
+  // cannot carry a public wildcard record.
+  return isHostname(host, 2) ? host : null;
+}
+
+// --- the boot-frozen value --------------------------------------------------
+
+let frozenDomain: string | null = null;
+let frozen = false;
+
+// Called from bootPrelude, after freezeBootState (which is what makes
+// buildPublicOrigin answer for this boot). Frozen for the process lifetime
+// like the origin it reads: editing office-config.json under a running office
+// changes nothing until the next restart, so routing cannot shift mid-flight.
+export function freezeAppHostDomain(): void {
+  const { origin, isHttps } = buildPublicOrigin();
+  frozenDomain = deriveAppHostDomain(origin, isHttps);
+  frozen = true;
+}
+
+export function appHostDomain(): string | null {
+  // Deliberately NOT a lazy freeze. Resolving on demand would look like a
+  // harmless fallback and is the opposite: before freezeBootState runs,
+  // buildPublicOrigin answers with its strict pre-boot default (loopback, not
+  // HTTPS), so an accidental early call would cache `null` for the life of the
+  // process and silently turn app hostnames off on a deployment that has them
+  // - healthy-looking, and wrong. There is one legal lifecycle and the only
+  // production caller is downstream of bootPrelude, so a violation is a bug in
+  // the boot order and should say so.
+  if (!frozen) {
+    throw new Error(
+      "appHostDomain() called before freezeAppHostDomain(); the app-host " +
+        "domain is resolved in bootPrelude, after the boot state is frozen",
+    );
+  }
+  return frozenDomain;
+}
+
+export function _testResetAppHostDomain(): void {
+  frozenDomain = null;
+  frozen = false;
+}
+
+// --- host matching (pure) ---------------------------------------------------
+
+export type AppHostMatch =
+  // Exactly one label below the office host: a candidate app.
+  | { kind: "label"; label: string }
+  // More than one label below it. Diverted like any other app host - it is
+  // inside the wildcard - but it can never name an app.
+  | { kind: "under" };
+
+// `host` must already be through normalizeRequestHost: everything compared
+// here is a canonical lowercase name with no port and no trailing dot.
+export function matchAppHost(
+  host: string,
+  domain: string,
+): AppHostMatch | null {
+  // ONLY strict children divert. That single test is also what keeps the
+  // office reachable: the office host IS the domain, and a string never ends
+  // with a longer string, so the office can never match here. There is no
+  // separate exemption for it because there is nothing to exempt - which is
+  // worth knowing before anyone adds one back and assumes it is load-bearing.
+  if (!host.endsWith(`.${domain}`)) return null;
+  const label = host.slice(0, host.length - domain.length - 1);
+  if (label.length === 0 || label.includes(".")) return { kind: "under" };
+  // No exception list here, deliberately. A name that cannot be REGISTERED as
+  // an app (the registry's reserved list) does not therefore route to the
+  // office: registry refusal and HTTP routing are separate invariants, and an
+  // unknown label reaching the office is the hole this arm exists to close.
+  return { kind: "label", label };
+}
+
+// --- the arm ----------------------------------------------------------------
+
+// Reserved on every app host from day one: slice 4 mounts the auth handshake
+// here, and the relay must never be able to serve or shadow it. Structural, so
+// the check cannot be forgotten later - the relay, when it exists, plugs in
+// BELOW this branch.
+export const APP_RESERVED_PATH = "/__isomux";
+
+// The only two bodies this module can produce. Constants, with nothing from
+// the request in them: no host, no label, no path, so there is no reflection
+// surface at all, and nothing varies with who is asking (there is no "who"
+// until slice 4).
+const NOT_FOUND_BODY = "not found\n";
+const NOT_READY_BODY = "this app is not reachable yet\n";
+
+function neutral(status: number, body: string): Response {
+  return new Response(body, {
+    status,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+function isWebSocketUpgrade(req: Request): boolean {
+  return req.headers.get("upgrade")?.toLowerCase() === "websocket";
+}
+
+// The office's request entry point calls this FIRST, before the URL is parsed
+// and before any route runs.
+//
+//   null      -> not an app host. Fall through to the office, unchanged.
+//   Response  -> diverted. The office handler must not run.
+//
+// The order of the checks below is load-bearing and each step is a seam a
+// later slice replaces:
+//
+//   1. multi-label host               -> 404
+//   2. no live app with that label    -> the SAME 404, whether the label was
+//      never issued or was retired. Those two must be indistinguishable: a
+//      retired label is a name somebody used to have, and the difference is
+//      not the internet's business.
+//   3. WebSocket upgrade              -> refused HERE, deliberately (slice 6
+//      relays it). Refusing by falling through would hand a diverted host to
+//      the office's own /ws handler, which is the one thing that must be
+//      impossible.
+//   4. reserved path                  -> 404 (slice 4 mounts the handshake)
+//   5. anything else                  -> the not-ready placeholder
+export function handleAppHostRequest(
+  req: Request,
+  registry: AppRegistry = productionRegistry,
+): Response | null {
+  const domain = appHostDomain();
+  if (domain === null) return null;
+
+  const host = normalizeRequestHost(req.headers.get("host"));
+  if (host === null) return null;
+
+  const match = matchAppHost(host, domain);
+  if (match === null) return null;
+
+  // Everything below here is DIVERTED. No office handler sees this request.
+  if (match.kind === "under") return neutral(404, NOT_FOUND_BODY);
+
+  let live = false;
+  try {
+    live = registry.list().some((app) => app.hostLabel === match.label);
+  } catch (err) {
+    // A registry that cannot be read cannot vouch for a label. Fail closed:
+    // the same 404 an unknown label gets, never an app.
+    console.error("[app-hosts] app registry unreadable; refusing host:", err);
+    return neutral(404, NOT_FOUND_BODY);
+  }
+  if (!live) return neutral(404, NOT_FOUND_BODY);
+
+  if (isWebSocketUpgrade(req)) return neutral(503, NOT_READY_BODY);
+
+  const { pathname } = new URL(req.url);
+  if (
+    pathname === APP_RESERVED_PATH ||
+    pathname.startsWith(`${APP_RESERVED_PATH}/`)
+  ) {
+    return neutral(404, NOT_FOUND_BODY);
+  }
+
+  return neutral(503, NOT_READY_BODY);
+}

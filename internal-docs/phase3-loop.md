@@ -51,17 +51,19 @@ accepted by the manager 2026-08-06.
 1. Label shape: first registration of a name gets `<name>`, later ones get
    `<name>-g<N>`. Reversible only until S7 lands on a real domain.
 2. Ledger: `issuedLabels[]` in apps.json, never pruned, inside the backup set.
-3. (Amended twice 2026-08-06 evening.) Flat shape per Nil's ruling: apps at
-   `<label>.<office host>`. NO derivation from publicOrigin: the app-host
-   arm exists only when an explicit office-config key is set, and the key
-   holds the parent domain (normally the office host; installer-written at
-   opt-in, S7). No key -> feature inert. Rationale: under the flat shape,
-   derivation would have hijacked every single-label subdomain of any https
-   office - a self-hoster with `www.<office>` aliased at the box would get
-   404s with no config change (found by Isomuxer1 in S3). Additionally,
-   reserved labels (RESERVED_APP_NAMES) fall through to the office even
-   when opted in - they can never be app labels, and www-style aliases are
-   real. Manager ruling; Nil informed, veto open.
+3. (Settled by Nil, 2026-08-06 evening, after two manager amendments both
+   overridden - FINAL.) Flat shape, PURE DERIVATION, no config: the parent
+   domain IS the office host from `publicOrigin` whenever it is https; no
+   appsDomain key, no installer-written state, no override knob. Arm inert
+   when publicOrigin is absent or plain-http. The exact canonical office
+   host is the ONLY structural fall-through; every other single-label host
+   under it is the app arm; no reserved-label fall-through. Known accepted
+   consequence (Nil's explicit call - "cleanest, not the most backward
+   compatible"): an operator who aliased another subdomain at their office
+   box gets neutral 404s there after updating; S10 documents it in one
+   sentence. History for the record: Isomuxer1 found the alias breakage,
+   manager ruled opt-in key + reserved fall-through, Reviewer1 killed the
+   fall-through, Nil killed the key.
 4. Access: any signed-in office user.
 5. Effective name cap 59 chars on new registrations (room for `-g<N>`);
    existing names grandfathered.
@@ -121,8 +123,9 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
 - Security posture is fail-closed everywhere: unknown/retired label -> 404,
   no session -> login, doubt -> refuse. Auth/proxy code gets the strictest
   review; assume a hostile app and a hostile network.
-- Nothing outward-facing turns on by default: with no apps domain configured
-  the whole feature is inert.
+- Nothing outward-facing turns on by default: without an https publicOrigin
+  the app-host arm is inert, and nothing is reachable from outside until the
+  operator adds DNS + the Caddy site block (S7).
 - No new dependencies without queueing for Nil.
 - Scope fence: policy or API-surface choices not covered by the design docs,
   the accepted defaults above, or this file go to the manager, not into code.
@@ -166,7 +169,19 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          past arms). 14 mutations killed. Inert on this office (no https
          publicOrigin). Parked: recover_owner_session's Secure-cookie-to-
          127.0.0.1 curl dependency predates the slice - queued for Nil.)
-- [ ] S3  Apps domain config + Host matching (dark until configured).
+- [x] S3  Host matching, pure-derivation shape (dark without https origin).
+         (Isomuxer1/Reviewer1, 3 mid-flight ruling changes absorbed, diff-
+         gate approved ac34bb4d round 2, committed with this edit. Host
+         classified before URL parse/auth/ws; strict single-label child of
+         the office host diverts and can NEVER reach office handlers;
+         office host itself protected structurally (suffix can't equal the
+         whole). Round-1 P1s: pre-boot appHostDomain() read would have
+         silently disabled the feature - now throws; office-Host tests
+         didn't send the office Host; placeholder assertions were
+         contains-weak. 13 mutations killed incl. U+212A Kelvin-sign
+         case-fold attack on labels. PARKED, pre-existing: malformed Host
+         (space) -> uncaught TypeError at new URL() -> connection reset;
+         predates this slice, queued for Nil as a task candidate.)
 - [ ] S4  Auth handshake (single-use code, app cookie; no app bytes yet).
 - [ ] S5  HTTP relay (first slice where a real app answers).
 - [ ] S6  WebSocket relay.
@@ -367,3 +382,72 @@ response shape, internal structure of the app-host arm.
 
 Locked: fail-closed posture (doubt -> neutral 404), no office handler
 reachable from a diverted host, boot-frozen config, Standing rails.
+
+## SLICE-4 PICKUP (authored after S3's commit; baseline = that commit)
+
+What S3 taught (real, from its report): `server/app-hosts.ts` classifies
+the Host before URL parse, auth, and /ws; its arm has commented seams -
+`/__isomux/*` is structurally reserved for THIS slice, the WS branch is a
+deliberate refusal (S6's seam), and the live-label placeholder ("this app
+is not reachable yet\n") is what S4/S5 progressively replace. The derived
+domain is boot-frozen; appHostDomain() before freeze THROWS. Host
+normalization already handles case (incl. the U+212A Kelvin trap), ports,
+trailing dots; a malformed Host (embedded space) still hits a PRE-EXISTING
+uncaught TypeError upstream - do not fix it, do not regress it, it is
+queued for Nil. Bun trap from S2 still applies: multi-value Set-Cookie
+needs Headers.append.
+
+Goal: the auth handshake from port-proxy-design.md, ending at an
+authenticated placeholder page on the app host. After this slice: an
+office user who hits `https://<label>.<office>/...` with no app cookie is
+bounced through the office, comes back with a single-use code, and lands
+authenticated (placeholder body - relay is S5); everyone else gets
+fail-closed refusals. No app bytes move.
+
+Load-bearing mechanics and traps:
+- New `server/app-auth.ts`: single-use code store (in-memory; codes are
+  30-60s, one redemption, bound to app id + generation + user session +
+  exact target host). Mint and redeem rate limits as plain named constants.
+- Office-origin route `/auth/app?app=<label>&r=<path>`: requires a live
+  office session (no session -> the existing office login flow -> back to
+  the requested app path after login - reuse the office's existing
+  login-return machinery if it exists; decide shape with reviewer). Mints
+  the code, 302 to `https://<label>.<office>/__isomux/auth?code=...&r=...`.
+- App-host route `/__isomux/auth` (mounting into S3's reserved seam):
+  validates code (single-use, TTL, binding), sets the app cookie, 302 to
+  `r`.
+- App cookie `__Host-isomux_app` per the design doc: Secure, HttpOnly,
+  SameSite=Lax, Path=/, bound to app id + GENERATION + user session. It
+  must die with: app delete, name re-registration (generation bump - the
+  cookie of gen N never authenticates gen N+1), and office session
+  logout/revocation (decide the liveness-check mechanism with reviewer;
+  fail-closed if the session cannot be verified).
+- `r` is a PATH, never a URL: reject `//evil`, backslashes, control chars,
+  anything not starting with a single `/`; it must never appear reflected
+  in a response body and the code must never appear in a Referer
+  (Referrer-Policy: no-referrer on every response that carries either;
+  Cache-Control: no-store).
+- Access ruling (accepted default #4): ANY signed-in office user may open
+  any app. No per-app ACL this loop.
+- The unauthenticated placeholder on a live label changes from S3's 503-ish
+  body to the redirect flow; the NOT-live cases stay byte-identical to S3
+  (neutral 404s - pin that nothing about auth leaks which labels exist...
+  beyond what the redirect itself necessarily reveals for live ones).
+- Tests: full handshake happy path through the REAL server (harness, fake
+  supervisor); code single-use/expiry/wrong-host/wrong-session/wrong-gen
+  matrix; r-validation matrix; cookie attribute pins; death-on-delete,
+  death-on-regeneration, death-on-logout; rate-limit behavior; S3
+  regression suite untouched and green; mutation-check and say so.
+
+Acceptance: isolated-instance demo transcript (curl with a real office
+session cookie: app host -> 302 office -> mint -> 302 back -> Set-Cookie ->
+authenticated placeholder; then the same code again -> refused; logout ->
+app cookie dead); always-run gates green; reviewer approve on the final
+announced fingerprint; ALL new user-visible strings (placeholder body,
+any error bodies) verbatim in the report.
+
+Decide with reviewer: login-return shape, session-liveness mechanism, code
+storage internals, exact placeholder wording (flagged for Nil's pass).
+
+Locked: access = any signed-in office user; cookie binding incl.
+generation; r is a path; fail-closed everywhere; Standing rails.
