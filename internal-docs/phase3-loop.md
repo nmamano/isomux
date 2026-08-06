@@ -211,17 +211,22 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          5m, 128/app, 512 total; request size rides the listener's 512MB.
          For Nil's list: apps cannot see the visitor IP (XFF = terminator
          peer; real fix needs an authenticated Caddy boundary, not now).)
-- CUT S6a/S6b (WebSocket relay) - removed from the loop by Nil directly
-         (2026-08-07 early): web apps generally do not use WS, SSE already
-         rides the S5 relay, not critical path. The upgrade refusal from
-         S3/S5 stays as the shipped behavior; S10 documents it. Preserved
-         for a possible future batch: Bun's WS client buffers the
-         browser->app leg unboundedly (bufferedAmount pinned 0; 120MB
-         queued, RSS 211MB - measured by Isomuxer2, blocked by Reviewer2),
-         so the upstream leg must be either an in-house client over a raw
-         TCP socket (prototype existed, handshake + codec verified) or the
-         battle-tested ws dependency - that choice is NIL'S when the work
-         resumes. Loop order is now S8 -> S9 -> S7 -> S10.
+- [ ] S6a WebSocket upstream: frame codec + in-house WS client over a raw
+         TCP socket, pure, wired into nothing. Split from S6 after a
+         measured finding (Bun's WS client buffers browser->app
+         unboundedly: bufferedAmount pinned 0 with 120MB queued, RSS
+         211MB; raw socket reports real backpressure). Codec bar:
+         split-at-every-byte decode corpus, strict length arithmetic,
+         capped reassembly; the app is untrusted input at the parser
+         level. HISTORY: Nil cut WS from the loop (not critical path),
+         then REINSTATED it within the hour on principle - "we don't want
+         an artificial restriction that a non-managed app wouldn't have";
+         a port app can speak WS, so the managed transport must too. The
+         S6a implementation predated the cut and resumes unchanged.
+- [ ] S6b WebSocket relay: wiring S6a into the app-host arm, office
+         plumbing, lifecycle/auth per the SLICE-6 pickup (which is BACK in
+         force). Baseline = S6a's commit.
+         Loop order: S6a -> S6b -> S8 -> S9 -> S7 -> S10.
 - [ ] S7  Caddy + DNS (GATED ON NIL: domain + URL-shape answer; only slice
          needing a real box; installer site block + tls-ask; update path
          deliberately does NOT rewrite the Caddyfile - enabling app
