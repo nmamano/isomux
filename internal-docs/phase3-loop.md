@@ -211,18 +211,17 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          5m, 128/app, 512 total; request size rides the listener's 512MB.
          For Nil's list: apps cannot see the visitor IP (XFF = terminator
          peer; real fix needs an authenticated Caddy boundary, not now).)
-- [ ] S6a WebSocket upstream: frame codec + in-house WS client over a raw
-         TCP socket, pure and wired into nothing. SPLIT from S6 by manager
-         ruling after a measured finding (Isomuxer2/Reviewer2): Bun's WS
-         client reports bufferedAmount 0 unconditionally (0 after 120MB
-         queued, RSS 211MB), so the browser->app leg would buffer
-         unboundedly in the office process; a raw socket reports real
-         write backpressure with drain (RSS flat). Codec bar: split-at-
-         every-byte decode corpus, strict length arithmetic, capped
-         reassembly; the app is untrusted input at the parser level.
-- [ ] S6b WebSocket relay: wiring S6a into the app-host arm, office
-         plumbing (WsData union), lifecycle/auth per the S6 pickup,
-         end-to-end tests. Baseline = S6a's commit.
+- CUT S6a/S6b (WebSocket relay) - removed from the loop by Nil directly
+         (2026-08-07 early): web apps generally do not use WS, SSE already
+         rides the S5 relay, not critical path. The upgrade refusal from
+         S3/S5 stays as the shipped behavior; S10 documents it. Preserved
+         for a possible future batch: Bun's WS client buffers the
+         browser->app leg unboundedly (bufferedAmount pinned 0; 120MB
+         queued, RSS 211MB - measured by Isomuxer2, blocked by Reviewer2),
+         so the upstream leg must be either an in-house client over a raw
+         TCP socket (prototype existed, handshake + codec verified) or the
+         battle-tested ws dependency - that choice is NIL'S when the work
+         resumes. Loop order is now S8 -> S9 -> S7 -> S10.
 - [ ] S7  Caddy + DNS (GATED ON NIL: domain + URL-shape answer; only slice
          needing a real box; installer site block + tls-ask; update path
          deliberately does NOT rewrite the Caddyfile - enabling app
@@ -638,4 +637,57 @@ policy + cap constants, permit-pool question.
 
 Locked: auth before upgrade, the three-cookie strip via S5's helper,
 prove-active before the upstream dial, office /ws untouched, Standing
+rails.
+
+## SLICE-8 PICKUP (authored after the S6 cut; baseline = its commit; the
+SLICE-6 PICKUP above is VOID - historical record only)
+
+What the relay slices left for you: an app's public URL is
+`https://<hostLabel>.<office host>` exactly when `buildPublicOrigin().
+isHttps` (S3's derivation, boot-frozen); hostLabel/hostGen live on
+AppRecord (S1). `renderUnit` (server/app-supervisor.ts:386) writes the
+unit env; `server/app-token-reconcile.ts` is the boot-reconcile precedent
+(self-heals token/unit pairs, restarts at most once, idempotent).
+
+Goal: apps learn their own address. `ISOMUX_APP_URL` is present in the
+app's environment exactly when a public URL exists, and the API tells the
+UI the same URL (S9 consumes it).
+
+Load-bearing mechanics and traps:
+- `renderUnit` gains ISOMUX_APP_URL when the derived domain exists;
+  ABSENT (not empty, not wrong) when it does not - an app must be able to
+  test `if (process.env.ISOMUX_APP_URL)`.
+- The URL uses hostLabel, NOT name (a -g2 generation's URL differs from
+  its name - that is the whole point of the ledger).
+- Boot reconcile modeled on app-token-reconcile: if the unit on disk
+  disagrees with what renderUnit would write NOW (domain appeared,
+  changed with publicOrigin, or vanished), re-render + daemon-reload +
+  restart THE RUNNING apps at most once each; stopped apps get the new
+  file and stay stopped; failed stay failed (S2b's least-surprise rule).
+  Idempotent: a second boot with no change restarts nothing - pin that.
+- `AppWire` gains `url?: string` (same present-iff rule). Fixture files
+  will need the field - S1's report says 8 of them carry AppRecord/
+  AppWire literals; expect similar.
+- No new persisted state: the URL is DERIVED, never written to apps.json.
+- This slice touches supervisor files: `bun run test:systemd` REQUIRED.
+- Tests: unit-render matrix (domain present/absent/changed x running/
+  stopped/failed), reconcile idempotence, restart-at-most-once, URL uses
+  hostLabel, wire field presence rule; golden unit files; mutation-check
+  and say so.
+
+Acceptance: isolated-instance demo transcript: register app on a plain
+office -> env has no ISOMUX_APP_URL; enable https origin, reboot instance
+-> unit re-rendered, app restarted once, env carries the URL, GET
+/api/apps shows the same url; second reboot -> no restarts (idempotence
+proven from the supervisor call log or unit mtimes); stopped app across
+the same transition stays stopped with the new file. Always-run gates +
+test:systemd green; reviewer approve on final announced fingerprint; any
+new strings verbatim (expect none user-visible).
+
+Decide with reviewer: reconcile structure (extend the token reconcile vs
+sibling pass), detection mechanism (compare rendered bytes vs stored
+domain marker), test seam details.
+
+Locked: present-iff-URL-exists env semantics, hostLabel not name, derived
+never persisted, restart-at-most-once + run-state preservation, Standing
 rails.
