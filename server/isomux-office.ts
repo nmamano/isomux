@@ -4230,8 +4230,16 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // the classification cannot sit behind any pathname check. Returns null
       // on every other Host, including the office's own - and on every request
       // of every install with no app-host domain resolved.
-      const appHostResponse = handleAppHostRequest(req);
-      if (appHostResponse) return appHostResponse;
+      // The relay (slice 5) makes the diverted path asynchronous; the office's
+      // own path is not, so only the promise this can hand back is awaited.
+      const appHostResponse = handleAppHostRequest(req, {
+        supervisor: appSupervisor,
+        // A thunk, not a value: reading the peer is only worth doing for a
+        // request that is actually being relayed, and this runs in front of
+        // every request the office serves.
+        peer: () => server.requestIP(req)?.address ?? null,
+      });
+      if (appHostResponse) return await appHostResponse;
 
       const url = new URL(req.url);
 

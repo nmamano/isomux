@@ -197,7 +197,20 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          codes visible ~45s in the terminator's access log; headerless
          clients bounce (keeps old browsers able to sign in). Manager
          edited one stale test describe label post-approval.)
-- [ ] S5  HTTP relay (first slice where a real app answers).
+- [x] S5  HTTP relay (first slice where a real app answers).
+         (Isomuxer1/Reviewer1, diff-gate approved bae2fc55 round 2,
+         committed with this edit. Cookie strip WIDENED beyond the design
+         text with reviewer endorsement: all three isomux credentials
+         (__Host-isomux_app, __Host-isomux_session, isomux_session) are
+         stripped, exact case-sensitive names only. Prove-active-before-
+         connect demonstrated against a literal port squatter. Content-
+         Encoding rewrite mirrors Bun's MEASURED decoder set, not the RFC -
+         the RFC form corrupts bytes; a canary test fails loudly if a Bun
+         upgrade widens the decoder. 27 mutations killed (4 first-pass
+         survivors were weak tests, rewritten). Constants: TTFB 30s, stall
+         5m, 128/app, 512 total; request size rides the listener's 512MB.
+         For Nil's list: apps cannot see the visitor IP (XFF = terminator
+         peer; real fix needs an authenticated Caddy boundary, not now).)
 - [ ] S6  WebSocket relay.
 - [ ] S7  Caddy + DNS (GATED ON NIL: domain + URL-shape answer; only slice
          needing a real box; installer site block + tls-ask; update path
@@ -536,3 +549,82 @@ wording (flagged for Nil's pass), internal structure.
 
 Locked: cookie strip (S4 handoff), no-connect-when-inactive, manual
 redirects, streaming with abort propagation, Standing rails.
+
+## SLICE-6 PICKUP (authored after S5's commit; baseline = that commit)
+
+What S5 taught (real, from its report): `server/app-proxy.ts` owns the
+relay; `handleAppHostRequest` is deliberately NOT async (office path stays
+synchronous; only the diverted path returns a promise). The WS refusal in
+app-hosts.ts is the LAST placeholder seam - its body "this app is not
+reachable yet\n" exists only there now. Relay order is prove-active ->
+permit -> connect; concurrency is keyed by issuance (hostLabel#hostGen),
+never the reusable name. The relay strips ALL THREE isomux credential
+cookies (exact names) - the app never sees what admits to it. Bun 1.3.11
+measured behaviors matter: fetch decodes only exact lowercase gzip/
+deflate/br/zstd; multi-value headers need append; RelayContext carries
+test-only override seams.
+
+Goal: WebSocket apps work through the app host. The refusal seam becomes
+a real bidirectional frame relay: authenticated upgrade on
+`wss://<label>.<office>/...` connects to `ws://127.0.0.1:<port>/...` and
+frames flow both ways until either side closes.
+
+Load-bearing mechanics and traps:
+- AUTH BEFORE UPGRADE: the app-session check (S4's per-request
+  validation, incl. generation binding and office-session liveness) runs
+  before `server.upgrade`. No session -> the neutral refusal (an upgrade
+  cannot bounce through a login redirect; a browser app's page loads
+  first via S5, so the session exists in practice - state this honestly
+  in a comment).
+- ORIGIN CHECK, decide exact policy with reviewer and state it: a
+  browser upgrade carries Origin - require it to be exactly
+  `https://<app host>` when present; decide absent-Origin handling
+  fail-closed vs non-browser-client parity with S4's metadata-less arm,
+  and SAY WHICH in the report. The office /ws Origin logic is precedent
+  (isomux-office.ts) but its answer need not be the same.
+- Cookie strip on the upgrade request: same three exact names as S5, same
+  helper - do not reimplement it.
+- Prove-active-before-connect applies to the upstream WS dial exactly
+  like S5's fetch (squattable port, same argument, same 503-equivalent
+  refusal pre-upgrade).
+- Frame relay: text/binary passthrough without inspection; close-code AND
+  reason propagate BOTH directions (including abnormal closes mapping
+  honestly - decide the 1006-ish mapping with reviewer); ping/pong -
+  decide who answers pings (Bun auto-pong?) by MEASURING, not assuming,
+  and pin the measured behavior.
+- Backpressure: a slow browser must not balloon memory when the app
+  floods (and vice versa). Measure what Bun's ws send() returns
+  (backpressure signal) and wire it; decide a bounded-buffer policy with
+  the reviewer, plain named constants.
+- Lifecycle accounting: WS connections are long-lived - decide with
+  reviewer whether they share S5's permit pool or get their own cap
+  (lean: own cap, named constant); either way a dropped/closed socket
+  MUST release exactly once (S5's release-on-cancel lessons apply).
+- App deleted / name re-registered / office session revoked MID-CONNECTION:
+  decide honest behavior (immediate close on next validation opportunity
+  vs ride-until-close) with reviewer, state it, test what is testable.
+- The office's own /ws stays byte-identical and unreachable from app
+  hosts (S3 pin stays green).
+- Upstream dial failure after upgrade already accepted: close with a
+  sensible code/reason - the HTTP-shaped refusal is impossible post-101.
+  Decide the code with reviewer.
+- Tests: echo both ways (text + binary), close propagation matrix, Origin
+  matrix, unauthenticated refusal, stopped-app refusal pre-upgrade,
+  strip-on-upgrade, office /ws regression, both-sides-flood sanity,
+  release-exactly-once; mutation-check and say so. Real WS end-to-end in
+  the harness with a scratch WS app.
+
+Acceptance: isolated-instance demo transcript: register a real WS echo
+app, sign in per S4, wss:// echo through the app host (binary too), app's
+close code arrives at the client, client's close arrives at the app, stop
+the app -> refusal pre-upgrade, squatter untouched; office /ws still
+works. Always-run gates green; reviewer approve on final announced
+fingerprint; all new user-visible strings verbatim; locked constraints
+quoted back in the report.
+
+Decide with reviewer: Origin policy details, close-code mappings, buffer
+policy + cap constants, permit-pool question.
+
+Locked: auth before upgrade, the three-cookie strip via S5's helper,
+prove-active before the upstream dial, office /ws untouched, Standing
+rails.

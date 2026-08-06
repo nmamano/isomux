@@ -32,16 +32,23 @@ import {
   NOT_FOUND,
   NOT_READY,
   OFFICE_HOST,
+  RELAY_UNREACHABLE,
   WS_UPGRADE_HEADERS,
-  anAgentToken,
+  anOfficeWithAnApp as bootOfficeWithAnApp,
+  appHost,
   bounceLocation,
+  codeFromMint,
+  cookieValue,
   deleteApp,
   expectAuthRequired,
   expectBounce,
   expectPlaceholder,
+  mint,
   raw,
+  redeem,
   registerApp,
-  startFlatOffice as bootFlatOffice,
+  signIn,
+  withAppCookie,
   type RawResponse,
 } from "./app-host-test-kit.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -69,98 +76,13 @@ afterEach(async () => {
   server = null;
 });
 
-function startFlatOffice(): Promise<TestServer> {
-  return bootFlatOffice((srv) => {
+// The rig - booting the office, signing in, speaking raw HTTP to an app host -
+// lives in app-host-test-kit.ts, shared with the relay tests (slice 5). This
+// wrapper keeps the local afterEach in charge of whichever server is live.
+function anOfficeWithAnApp(name = "hello") {
+  return bootOfficeWithAnApp((srv) => {
     server = srv;
-  });
-}
-
-// An office with one registered app and a signed-in member. A MEMBER rather
-// than the owner on purpose: the accepted access rule is "any signed-in office
-// user may open any app", and the owner's session is the one the lockout guard
-// protects from sign-out.
-async function anOfficeWithAnApp(name = "hello"): Promise<{
-  srv: TestServer;
-  label: string;
-  rawSessionId: string;
-  token: string;
-}> {
-  const srv = await startFlatOffice();
-  const token = await anAgentToken(srv);
-  const label = await registerApp(srv, token, name);
-  const member = await srv.seedMember("Member");
-  return { srv, label, rawSessionId: member.rawSessionId, token };
-}
-
-function appHost(label: string): string {
-  return `${label}.${OFFICE_HOST}`;
-}
-
-// The office's mint endpoint, without following the redirect.
-function mint(
-  srv: TestServer,
-  query: string,
-  init: { rawSessionId?: string; headers?: Record<string, string> } = {},
-): Promise<Response> {
-  return srv.http(`/auth/app${query}`, { ...init, redirect: "manual" });
-}
-
-function codeFromMint(res: Response): string {
-  const location = res.headers.get("location");
-  if (!location) throw new Error("mint response carried no Location");
-  const url = new URL(location);
-  const code = url.searchParams.get("code");
-  if (!code) throw new Error(`mint Location carried no code: ${location}`);
-  return code;
-}
-
-// Redeem a code on the app host, over a raw socket so the Host header and the
-// response bytes are ours to choose and to compare.
-function redeem(
-  srv: TestServer,
-  label: string,
-  code: string,
-): Promise<RawResponse> {
-  return raw(srv.port, {
-    host: appHost(label),
-    path: `/__isomux/auth?code=${encodeURIComponent(code)}`,
-    headers: NAVIGATION_HEADERS,
-  });
-}
-
-function cookieValue(res: RawResponse): string {
-  const line = res.setCookies.find((c) => c.startsWith(`${APP_COOKIE_NAME}=`));
-  if (!line)
-    throw new Error(`no ${APP_COOKIE_NAME} in ${res.setCookies.join(" | ")}`);
-  const value = line.slice(APP_COOKIE_NAME.length + 1).split(";")[0];
-  if (!value) throw new Error(`empty app cookie: ${line}`);
-  return value;
-}
-
-// Bounce -> mint -> redeem, returning the app cookie value. The individual hops
-// are asserted in the first test; this is for the cases that need a signed-in
-// app session to start from.
-async function signIn(
-  srv: TestServer,
-  label: string,
-  rawSessionId: string,
-  path = "/",
-): Promise<string> {
-  const minted = await mint(
-    srv,
-    `?app=${encodeURIComponent(label)}&r=${encodeURIComponent(path)}`,
-    { rawSessionId },
-  );
-  if (minted.status !== 302) {
-    throw new Error(`mint: ${minted.status} ${await minted.text()}`);
-  }
-  const res = await redeem(srv, label, codeFromMint(minted));
-  if (res.status !== 302) throw new Error(`redeem: ${res.status} ${res.body}`);
-  return cookieValue(res);
-}
-
-function withAppCookie(value: string): Record<string, string> {
-  return { Cookie: `${APP_COOKIE_NAME}=${value}` };
+  }, name);
 }
 
 describe("app-host handshake: the whole round trip", () => {
@@ -216,15 +138,15 @@ describe("app-host handshake: the whole round trip", () => {
         `Max-Age=${APP_SESSION_TTL_MS / 1000}; Secure`,
     ]);
 
-    // 4. With the cookie, the app host answers for the app itself - the
-    //    placeholder today, the app's own bytes in slice 5.
+    // 4. With the cookie, the request is past the gate and into the relay -
+    //    which, with no process bound to this app's port, finds nobody home.
     expectPlaceholder(
       await raw(srv.port, {
         host,
         path: "/dashboard?tab=1",
         headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
       }),
-      NOT_READY,
+      RELAY_UNREACHABLE,
       "authenticated",
     );
 
@@ -275,7 +197,7 @@ describe("app-host handshake: the whole round trip", () => {
         host,
         headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
       }),
-      NOT_READY,
+      RELAY_UNREACHABLE,
       "before sign-out",
     );
 

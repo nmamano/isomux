@@ -19,9 +19,10 @@
 //                         office's own surface.
 //
 // Since slice 4 the arm also runs the sign-in handshake (server/app-auth.ts):
-// a caller with a live app session reaches the placeholder, everyone else is
-// either sent through the office to get one or refused. There is still no relay
-// to the app (slice 5), so nothing here can return app bytes.
+// a caller with a live app session reaches the app, everyone else is either
+// sent through the office to get one or refused. Since slice 5 the
+// authenticated branch ends in the relay (server/app-proxy.ts), so this is the
+// point at which an app's own bytes finally reach a browser.
 //
 // WHERE THE DOMAIN COMES FROM: publicOrigin, and nothing else. No config key,
 // no override, no installer-written state - if the office has an HTTPS public
@@ -34,6 +35,9 @@
 
 import { appRegistry as productionRegistry } from "./app-registry.ts";
 import type { AppRegistry } from "./app-registry.ts";
+import { appSupervisor as productionSupervisor } from "./app-supervisor.ts";
+import type { AppSupervisor } from "./app-supervisor.ts";
+import { relayToApp } from "./app-proxy.ts";
 import { buildPublicOrigin } from "./auth.ts";
 import {
   APP_AUTH_PATH,
@@ -239,6 +243,19 @@ function isWebSocketUpgrade(req: Request): boolean {
   return req.headers.get("upgrade")?.toLowerCase() === "websocket";
 }
 
+// What the arm needs from the process around it. The SUPERVISOR is the reason
+// this is an object rather than a bare registry argument: systemd is
+// machine-global, so the arm has to use the instance the server was started
+// with (a fake, under `bun test`) and never the production singleton.
+export interface AppHostDeps {
+  registry?: AppRegistry;
+  supervisor?: AppSupervisor;
+  // The TCP peer of the office's listener, for X-Forwarded-For, read only if a
+  // request is actually relayed. See the relay for why that is the only address
+  // it can honestly claim.
+  peer?: () => string | null | undefined;
+}
+
 // The office's request entry point calls this FIRST, before the URL is parsed
 // and before any route runs.
 //
@@ -267,12 +284,16 @@ function isWebSocketUpgrade(req: Request): boolean {
 //      refused (mayInitiateHandshake). Runs AFTER the label
 //      and reserved checks so an anonymous caller cannot learn anything about
 //      a label from the shape of the auth response.
-//   6. authenticated                  -> the not-ready placeholder, which is
-//      the seam slice 5 replaces with the app's own bytes.
+//   6. authenticated                  -> the relay (slice 5): the app's own
+//      bytes, or one of its three refusals.
+//
+// DELIBERATELY NOT `async`. Only the diverted path returns a promise; the
+// office's own path - every request of every install without app hostnames -
+// stays synchronous, and the caller awaits what it gets back.
 export function handleAppHostRequest(
   req: Request,
-  registry: AppRegistry = productionRegistry,
-): Response | null {
+  deps: AppHostDeps = {},
+): Response | Promise<Response> | null {
   const domain = appHostDomain();
   if (domain === null) return null;
 
@@ -285,18 +306,23 @@ export function handleAppHostRequest(
   // Everything below here is DIVERTED. No office handler sees this request.
   if (match.kind === "under") return neutralNotFound();
 
-  // The app record, not just a boolean: the handshake binds a session to the
-  // app's issuance TUPLE (label + generation), which is what the registry
-  // treats as an app's identity.
-  let app: AppRecord | null = null;
+  // ONE snapshot, used for both questions asked of the registry: which app owns
+  // this label, and (in the relay) which names to ask the supervisor about. A
+  // second read would be a second answer.
+  const registry = deps.registry ?? productionRegistry;
+  let apps: readonly AppRecord[];
   try {
-    app = registry.list().find((a) => a.hostLabel === match.label) ?? null;
+    apps = registry.list();
   } catch (err) {
     // A registry that cannot be read cannot vouch for a label. Fail closed:
     // the same 404 an unknown label gets, never an app.
     console.error("[app-hosts] app registry unreadable; refusing host:", err);
     return neutralNotFound();
   }
+  // The app record, not just a boolean: the handshake binds a session to the
+  // app's issuance TUPLE (label + generation), which is what the registry
+  // treats as an app's identity.
+  const app = apps.find((a) => a.hostLabel === match.label) ?? null;
   if (app === null) return neutralNotFound();
 
   if (isWebSocketUpgrade(req)) return neutral(503, NOT_READY_BODY);
@@ -315,5 +341,11 @@ export function handleAppHostRequest(
   const gate = appHostAuthGate(req, { host, app });
   if (gate !== null) return gate;
 
-  return neutral(503, NOT_READY_BODY);
+  return relayToApp(req, {
+    app,
+    host,
+    apps,
+    supervisor: deps.supervisor ?? productionSupervisor,
+    peer: deps.peer,
+  });
 }

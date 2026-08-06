@@ -52,6 +52,23 @@ export const MINT_LIMITED_BODY =
 // caller is a signed-in office user who can act on it.
 export const BAD_REQUEST_BODY = "bad request\n";
 
+// The three relay refusals (slice 5). Unlike everything above, these are only
+// reachable by a caller who already holds a live app session, so they may say
+// what is actually wrong: the person reading them is a signed-in office user
+// looking at their own app, not an anonymous caller probing which labels exist.
+
+// The app is registered but nothing is running behind it - stopped, failed, or
+// still starting. Sent WITHOUT touching its port: a stopped app's port is just
+// a free port, and whatever might be listening there is not the app.
+export const APP_STOPPED_BODY = "this app is not running\n";
+
+// The app is running and the relay could not get a response out of it: the
+// connection was refused or reset, or no headers arrived in time.
+export const APP_UNREACHABLE_BODY = "this app did not respond\n";
+
+// Too many requests already in flight to this app, or to all apps together.
+export const APP_BUSY_BODY = "this app is busy; try again\n";
+
 // --- responses --------------------------------------------------------------
 
 // The plain refusal, exactly as slice 3 shipped it. Byte-for-byte frozen:
