@@ -12,26 +12,27 @@
 // that runs it. Registration goes registry-then-supervisor and deletion goes
 // supervisor-then-registry, and neither order is arbitrary:
 //
-//   - REGISTER commits to the registry FIRST because a registration cannot be
-//     rolled back. Undoing one means calling remove(), which TOMBSTONES the
-//     name permanently - so "install failed, let me undo the record" would burn
-//     the agent's chosen name over a transient systemd error. The record is the
-//     commit point; if the unit does not install, the app exists and reads as
-//     not running, which is recoverable.
-//   - DELETE tears the unit down FIRST because the tombstone is the point of no
-//     return in the other direction. Tombstoning and then failing to stop the
-//     app leaves a live process holding a port under a name the registry has
-//     forgotten, which nothing in isomux can clean up afterwards.
+//   - REGISTER commits to the registry FIRST, and a failed install does NOT
+//     undo it. An app whose unit did not install is a registered app that
+//     start/ update can still fix, while undoing the record would also throw
+//     away its data directory and its token - so 201 plus `startError` is the
+//     truthful answer, and a 500 would invite a retry of something that already
+//     happened.
+//   - DELETE tears the unit down FIRST because removing the record is the point
+//     of no return in the other direction: it frees the name and the port, and
+//     doing that while the process is still alive leaves it holding a port
+//     under a name the registry has forgotten - which nothing in isomux can
+//     clean up afterwards, and which the next registration could be handed.
 //
 // [ownership] userId/username/createdBy come from the TOKEN identity, never the
 // body - the app belongs to the registering agent's MANAGER, so that it
 // survives the agent (design doc section 3). A body-supplied owner would let
 // any caller register an app onto someone else.
 //
-// [addressing] The path parameter is a NAME, not an id. Names are unique across
-// live and retired apps forever, so they are already a permanent key. The name
-// reaches the filesystem (the data directory now, a unit name later), so it is
-// validated at registration and a lookup is an exact match against the
+// [addressing] The path parameter is a NAME, not an id. A name is unique across
+// LIVE apps and never changes while one exists, so it is already the key. The
+// name reaches the filesystem (the data directory now, a unit name later), so
+// it is validated at registration and a lookup is an exact match against the
 // registry: an unregistered `../x` matches nothing and 404s like any other
 // unknown name.
 //
@@ -129,8 +130,8 @@ export interface AppsDeps {
   // write the file revokes the hash again rather than leaving one behind.
   provisionToken(app: AppRecord): boolean;
   // Drop an app's token when the app is deleted. Throws if the hash could not
-  // be removed, which fails the delete before the name is tombstoned - a
-  // credential outliving the thing it names is worth a retry.
+  // be removed, which fails the delete before the name is freed - a credential
+  // outliving the thing it names is worth a retry.
   revokeToken(name: string): void;
 
   // --- the supervisor seam (server/app-supervisor.ts) ---
@@ -202,7 +203,6 @@ const STATUS_BY_CODE: Record<AppErrorCode, HandlerErrorStatus> = {
   invalid_cwd: 400,
   invalid_description: 400,
   name_taken: 409,
-  name_retired: 409,
   app_limit_reached: 409,
   no_port_available: 409,
   registry_corrupt: 500,
@@ -319,9 +319,9 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       }
     },
 
-    // The verb that stops a mistyped command from burning a name forever.
-    // Everything about it is shaped by one fact: the registry write is the
-    // commit point, and past it the update HAS happened.
+    // The verb that stops a mistyped command from costing an app its address
+    // and its data. Everything about it is shaped by one fact: the registry
+    // write is the commit point, and past it the update HAS happened.
     "apps.update": (ctx) => {
       const body = (ctx.body ?? {}) as Record<string, unknown>;
       // Inside the try from the first registry touch onward, like every other
@@ -348,7 +348,8 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             400,
             "invalid_request",
             "an app's name cannot be changed: it is the address people " +
-              "bookmark, and it is retired forever when the app is deleted",
+              "bookmark. To use a different name, delete the app and " +
+              "register it again",
           );
         }
         if (Object.hasOwn(body, "port") && body.port !== before.port) {
@@ -356,7 +357,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             400,
             "invalid_request",
             "an app's port cannot be changed: isomux allocates it at " +
-              "registration and never reissues it",
+              "registration and it stays with the app for its whole life",
           );
         }
 
@@ -450,16 +451,24 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // never there.
         const record = deps.get(ctx.params.name);
         if (!record) return fail(404, "not_found");
-        // Throws if the app survived; the tombstone below is then never
-        // written, and a retried DELETE can finish the job.
+        // Throws if the app survived; the record below is then never removed,
+        // its name and port stay spoken for, and a retried DELETE can finish
+        // the job.
         deps.teardown(record.name);
-        // Between the teardown and the tombstone: the app is provably not
+        // Between the teardown and the removal: the app is provably not
         // running, so its token has nothing left to authenticate, and the
         // registry still holds the record that would let a retry finish the
         // job if this throws. Revoking after the record was gone would be a
         // credential whose owner nothing can look up.
         deps.revokeToken(record.name);
         if (!deps.remove(record.name)) return fail(404, "not_found");
+        // The name is free from this line on, so the message budget attached to
+        // it has to go with the old app. Otherwise the next app to take the
+        // name - which can belong to a different user - inherits whatever the
+        // previous one had already spent, up to a full day's cap. AFTER the
+        // removal committed and non-throwing, because forgetting a rate limit
+        // is not worth failing a delete that already happened.
+        deps.limiter.forget(record.name);
         // AFTER the removal committed, and from the record read before teardown:
         // the registry no longer holds an owner to project the audience from.
         announced(record.name, () =>
@@ -472,8 +481,9 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     },
 
     // The recovery verbs. Without them the only cure for an app that has come
-    // to rest in `failed` is DELETE, which burns its name forever - a steep
-    // price for a crash loop or a source file that has since been fixed.
+    // to rest in `failed` is DELETE, which costs it its port and its data
+    // directory - a steep price for a crash loop or a source file that has
+    // since been fixed.
     // (A mistyped start COMMAND is cured by apps.update instead, which
     // rewrites the unit and restarts what was running.)
     "apps.start": actionHandler(deps, (name) => deps.start(name)),
@@ -628,7 +638,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
 // outer try, whose catch renders an HTTP failure. So a throw from the injected
 // wire seam - a send implementation that reports failure by throwing, a test
 // fake, a future fan-out that does real work - would answer 500 for a register
-// that really did register, or a delete that really did tombstone the name. The
+// that really did register, or a delete that really did remove the record. The
 // caller's natural response to a 500 is a retry, and there is nothing left to
 // retry: the name is taken, or already gone.
 //

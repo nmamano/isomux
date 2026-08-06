@@ -120,10 +120,13 @@ room, and there is no public-app story in this direction.
 
 **Second contradiction with `port-proxy-design.md`**: it forbids recycling
 hostnames, because a retired origin leaves service workers and storage behind
-that would attack whatever lands there next. Stable app names are compatible with
-that rule as long as a name is bound to one app for good - so deleting an app
-must retire its name rather than free it, or the hostname carries a generation
-label.
+that would attack whatever lands there next. Resolved the other way: deleting an
+app frees its name and port immediately, and the hostname carries a generation
+label so a reused name never lands on the previous app's origin (task f51fe505).
+The filesystem half of the same problem is settled in the registry rather than
+the transport - a delete moves the app's data directory to
+`apps/data/.retired/<name>-<deletedAt>`, so the data is kept and the next app to
+take the name starts with an empty one.
 
 ### 5. Apps message their agent
 

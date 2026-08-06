@@ -379,6 +379,40 @@ describe("POST /api/app/message: the rate limit", () => {
     expect(errOf(over)?.retryAfterSec).toBeGreaterThan(0);
     expect(errOf(over)?.message).toContain("retry in");
   });
+
+  it("does not follow the NAME to the next app that takes it", async () => {
+    // Deleting an app frees its name, so a budget keyed by name outlives the app
+    // that spent it. Since anyone can register a freed name, an inherited budget
+    // is one user's app denying another user's app for up to a day.
+    const srv = await startTestServer({ fakeBackend: parkingBackend() });
+    server = srv;
+    const { appToken, agentToken } = await seedApp(srv, "reused-name");
+    for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++) {
+      await post(srv, "/api/app/message", appToken, { text: `msg ${i}` });
+    }
+    expect(
+      (await post(srv, "/api/app/message", appToken, { text: "over" })).status,
+    ).toBe(429);
+
+    const del = await srv.http("/api/apps/reused-name", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${agentToken}` },
+    });
+    expect(del.status).toBe(204);
+    const reg = await post(srv, "/api/apps", agentToken, {
+      name: "reused-name",
+      command: "bun run serve.ts",
+      cwd: srv.stateRoot,
+    });
+    expect(reg.status).toBe(201);
+
+    // A different app under the same name, with its own token and its own
+    // budget - the clock has not moved, so an inherited one would still block.
+    const reborn = srv.appSupervisor.tokenFiles.get("reused-name")!;
+    expect(
+      (await post(srv, "/api/app/message", reborn, { text: "hi" })).status,
+    ).toBe(200);
+  });
 });
 
 describe("POST /api/app/message: nobody to message", () => {
@@ -455,6 +489,10 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
         commitDaily: (name) => {
           calls.push(`daily:${name}`);
           inner.commitDaily(name);
+        },
+        forget: (name) => {
+          calls.push(`forget:${name}`);
+          inner.forget(name);
         },
       },
     };

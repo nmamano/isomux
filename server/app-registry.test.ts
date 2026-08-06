@@ -15,6 +15,7 @@ import {
   mkdtempSync,
   mkdirSync,
   existsSync,
+  readdirSync,
   readFileSync,
   writeFileSync,
   chmodSync,
@@ -264,62 +265,127 @@ describe("app-registry: registration", () => {
   });
 });
 
-describe("app-registry: tombstones (the permanent-retirement invariant)", () => {
-  it("delete retires the name for good, across a cold reload", () => {
-    make().register(registerInput("hello"));
-    const removed = make().remove("hello");
-    expect(removed?.name).toBe("hello");
+describe("app-registry: delete frees the name and the port", () => {
+  it("the name is registerable again, across a cold reload", () => {
+    const first = make().register(registerInput("hello"));
+    expect(make().remove("hello")?.name).toBe("hello");
     expect(make().list()).toEqual([]);
 
     // Not just in memory: a registry that has never seen the delete happen
-    // still refuses the name.
-    expect(() => make().register(registerInput("hello"))).toThrow(
-      expect.objectContaining({ code: "name_retired" }),
-    );
-    expect(make().retired()).toEqual([
-      { name: "hello", port: APP_PORT_MIN, retiredAt: 1_700_000_000_000 },
-    ]);
+    // accepts the name, and the port comes back with it (it is the lowest
+    // free one again).
+    const second = make().register(registerInput("hello"));
+    expect(second.name).toBe("hello");
+    expect(second.port).toBe(first.port);
+    expect(
+      make()
+        .list()
+        .map((a) => a.name),
+    ).toEqual(["hello"]);
   });
 
-  it("a retired port is never re-issued - the gap stays a gap", () => {
+  it("a deleted app's port is re-issued - the gap closes", () => {
     const reg = make();
     reg.register(registerInput("alpha")); // 21000
     reg.register(registerInput("beta")); // 21001
-    reg.remove("alpha"); // frees nothing
+    reg.remove("alpha");
 
-    // The naive "lowest free" would hand 21000 straight back to gamma, pointing
-    // a stale bookmark for alpha at somebody else's app.
-    const gamma = reg.register(registerInput("gamma"));
-    expect(gamma.port).toBe(APP_PORT_MIN + 2);
+    // Lowest free, and 21000 is free again. This is the half of the ruling the
+    // name test cannot see: allocation reads LIVE ports only.
+    expect(reg.register(registerInput("gamma")).port).toBe(APP_PORT_MIN);
   });
 
-  it("removing an unknown name is a no-op, and tombstones nothing", () => {
+  it("removing an unknown name is a no-op", () => {
     const reg = make();
+    reg.register(registerInput("hello"));
     expect(reg.remove("ghost")).toBeNull();
-    expect(reg.retired()).toEqual([]);
+    expect(reg.list().map((a) => a.name)).toEqual(["hello"]);
   });
 
-  it("the tombstone is derived from the stored record, not the caller's string", () => {
-    // The stored record is the only authority for what gets retired: a lookup
-    // that ever matched loosely (case, whitespace) must still burn exactly the
-    // name and port that were registered.
-    const reg = make();
-    const app = reg.register(registerInput("hello"));
-    reg.remove("hello");
-    expect(reg.retired()).toEqual([
-      { name: app.name, port: app.port, retiredAt: 1_700_000_000_000 },
-    ]);
-  });
-
-  it("delete leaves the app's data directory on disk", () => {
+  it("keeps the data directory, and the next app of the same name does NOT inherit it", () => {
+    // The data is kept because a delete that silently destroys what the app
+    // wrote is unrecoverable. It is MOVED because dataDir is derived from the
+    // name and names are claimable by anyone, so leaving it in place would hand
+    // one user's files to the next user's app.
     const reg = make();
     const app = reg.register(registerInput("hello"));
     writeFileSync(join(app.dataDir, "state.json"), '{"kept":true}');
     reg.remove("hello");
-    // Deleting a registration must not destroy what the app wrote; the name is
-    // never reused, so nothing can land on top of it.
-    expect(existsSync(join(app.dataDir, "state.json"))).toBe(true);
+
+    const archived = join(
+      dir,
+      "data",
+      ".retired",
+      `hello-${1_700_000_000_000}`,
+      "state.json",
+    );
+    expect(readFileSync(archived, "utf-8")).toBe('{"kept":true}');
+    expect(existsSync(join(app.dataDir, "state.json"))).toBe(false);
+
+    const reborn = reg.register(registerInput("hello"));
+    expect(reborn.dataDir).toBe(app.dataDir); // same derived path...
+    expect(existsSync(reborn.dataDir)).toBe(true);
+    expect(existsSync(join(reborn.dataDir, "state.json"))).toBe(false); // ...empty
   });
+
+  it("a second delete of the same name never lands on the first archive", () => {
+    // The clock is injected and does not move here, which is exactly the case
+    // the unique-suffix walk exists for: renaming onto a non-empty directory
+    // throws, and onto an empty one it silently replaces kept data.
+    const reg = make();
+    const app = reg.register(registerInput("hello"));
+    writeFileSync(join(app.dataDir, "state.json"), '{"gen":1}');
+    reg.remove("hello");
+
+    const again = reg.register(registerInput("hello"));
+    writeFileSync(join(again.dataDir, "state.json"), '{"gen":2}');
+    reg.remove("hello");
+
+    const retiredRoot = join(dir, "data", ".retired");
+    const stamp = 1_700_000_000_000;
+    expect(
+      readFileSync(join(retiredRoot, `hello-${stamp}`, "state.json"), "utf-8"),
+    ).toBe('{"gen":1}');
+    expect(
+      readFileSync(
+        join(retiredRoot, `hello-${stamp}-2`, "state.json"),
+        "utf-8",
+      ),
+    ).toBe('{"gen":2}');
+  });
+
+  it("removing an app that never wrote anything is not an error", () => {
+    // The archive step has to tolerate a missing directory: it is also the
+    // state a retried delete finds after the first attempt moved it.
+    const reg = make();
+    const app = reg.register(registerInput("hello"));
+    rmSync(app.dataDir, { recursive: true, force: true });
+    expect(reg.remove("hello")?.name).toBe("hello");
+    expect(make().list()).toEqual([]);
+  });
+});
+
+describe("app-registry: a legacy app-history.json is ignored", () => {
+  // Deletes used to write tombstones there. The file is never read, never
+  // written and never deleted, so an office that upgrades into this ruling just
+  // gets its old names and ports back.
+  for (const [why, contents] of [
+    ["a well-formed tombstone", '{"hello":{"port":21000,"retiredAt":1}}'],
+    // The load-bearing case: anything that PARSED it - even to reject it -
+    // would fail here rather than register.
+    ["bytes that are not JSON at all", "{not json"],
+  ] as const) {
+    it(`${why}: the name and the port are both available`, () => {
+      writeFileSync(join(dir, "app-history.json"), contents);
+      const app = make().register(registerInput("hello"));
+      expect(app.name).toBe("hello");
+      expect(app.port).toBe(APP_PORT_MIN);
+      // And it is left exactly as it was found.
+      expect(readFileSync(join(dir, "app-history.json"), "utf-8")).toBe(
+        contents,
+      );
+    });
+  }
 });
 
 describe("app-registry: corruption fails LOUD, never empty", () => {
@@ -356,24 +422,6 @@ describe("app-registry: corruption fails LOUD, never empty", () => {
     ["apps.json", "a missing createdBy", good({ createdBy: undefined })],
     ["apps.json", "a NaN createdAt", good({ createdAt: null })],
     ["apps.json", "a non-string description", good({ description: 7 })],
-    ["app-history.json", "not JSON at all", "{not json"],
-    ["app-history.json", "an array where an object belongs", "[]"],
-    [
-      "app-history.json",
-      "a non-numeric port",
-      '{"hello":{"port":"nope","retiredAt":1}}',
-    ],
-    [
-      "app-history.json",
-      "a port outside the window",
-      '{"hello":{"port":80,"retiredAt":1}}',
-    ],
-    [
-      "app-history.json",
-      "a traversal name",
-      '{"../etc":{"port":21000,"retiredAt":1}}',
-    ],
-    ["app-history.json", "a missing retiredAt", '{"hello":{"port":21000}}'],
   ];
 
   for (const [file, why, contents] of cases) {
@@ -382,14 +430,11 @@ describe("app-registry: corruption fails LOUD, never empty", () => {
       const reg = make();
       const corruptCode = expect.objectContaining({ code: "registry_corrupt" });
 
-      // EVERY public operation, for EITHER file - no conditional on which file
-      // this case damaged. Reading one file per operation is the subtle version
-      // of failing open: a list() answered off a valid apps.json while the
-      // history is unreadable is a worldview the registry cannot vouch for, and
+      // EVERY public operation, reads included. Answering a read off a file the
+      // registry cannot vouch for is the subtle version of failing open, and
       // "you have no apps" is the most convincing wrong answer it can give.
       expect(() => reg.list()).toThrow(corruptCode);
       expect(() => reg.get("hello")).toThrow(corruptCode);
-      expect(() => reg.retired()).toThrow(corruptCode);
       expect(() => reg.register(registerInput("hello"))).toThrow(corruptCode);
       expect(() => reg.remove("hello")).toThrow(corruptCode);
 
@@ -403,9 +448,9 @@ describe("app-registry: corruption fails LOUD, never empty", () => {
     // The message is recovery INSTRUCTIONS, so its content is load-bearing:
     // "move it aside" is the reflex for a corrupt state file and is exactly
     // wrong here, because a missing file reads as a fresh registry - it would
-    // free every retired name and port at once. Pinned so a later tidy-up of
-    // the wording cannot quietly reintroduce the advice.
-    writeFileSync(join(dir, "app-history.json"), "{not json");
+    // hand out names and ports that live apps are still serving on. Pinned so a
+    // later tidy-up of the wording cannot quietly reintroduce the advice.
+    writeFileSync(join(dir, "apps.json"), "{not json");
     let message = "";
     try {
       make().list();
@@ -434,7 +479,6 @@ describe("app-registry: corruption fails LOUD, never empty", () => {
   it("a MISSING file is legitimately empty (a fresh office is not corrupt)", () => {
     const reg = make();
     expect(reg.list()).toEqual([]);
-    expect(reg.retired()).toEqual([]);
     expect(reg.get("hello")).toBeNull();
   });
 
@@ -467,94 +511,6 @@ describe("app-registry: corruption fails LOUD, never empty", () => {
       JSON.stringify([rec("one", 21000), rec("two", 21000)]),
     );
     expect(() => make().list()).toThrow(corruptCode);
-
-    // Two retired names holding the same port.
-    writeFileSync(join(dir, "apps.json"), "[]");
-    writeFileSync(
-      join(dir, "app-history.json"),
-      JSON.stringify({
-        gone: { port: 21000, retiredAt: 1 },
-        alsogone: { port: 21000, retiredAt: 2 },
-      }),
-    );
-    expect(() => make().retired()).toThrow(corruptCode);
-
-    // A live app sitting on a port retired under a DIFFERENT name - the exact
-    // recycling this registry exists to prevent.
-    writeFileSync(join(dir, "apps.json"), JSON.stringify([rec("live", 21000)]));
-    writeFileSync(
-      join(dir, "app-history.json"),
-      JSON.stringify({ gone: { port: 21000, retiredAt: 1 } }),
-    );
-    expect(() => make().list()).toThrow(corruptCode);
-
-    // The same name live on one port and retired on another.
-    writeFileSync(
-      join(dir, "apps.json"),
-      JSON.stringify([rec("hello", 21000)]),
-    );
-    writeFileSync(
-      join(dir, "app-history.json"),
-      JSON.stringify({ hello: { port: 21001, retiredAt: 1 } }),
-    );
-    expect(() => make().list()).toThrow(corruptCode);
-  });
-
-  it("the partial-delete state (same name, same port, both files) LOADS, and a retry finishes it", () => {
-    // This is the state a delete leaves behind when the tombstone write lands
-    // and the record removal does not. It is the deliberate fail-closed
-    // outcome, so it must stay loadable - otherwise the recovery path (just
-    // delete again) would itself be blocked by a corruption error.
-    writeFileSync(
-      join(dir, "apps.json"),
-      JSON.stringify([
-        {
-          name: "hello",
-          port: 21000,
-          command: "x",
-          cwd: "/tmp",
-          userId: "u",
-          username: "Nil",
-          createdBy: "Isomuxer2",
-          createdAt: 1,
-        },
-      ]),
-    );
-    writeFileSync(
-      join(dir, "app-history.json"),
-      JSON.stringify({ hello: { port: 21000, retiredAt: 1 } }),
-    );
-
-    const reg = make();
-    expect(reg.list().map((a) => a.name)).toEqual(["hello"]);
-    // The name is refused while the half-deleted app sits there - as
-    // name_taken, because the live record is still there and that check runs
-    // first. Which of the two refusals fires is incidental; that the name
-    // cannot be re-registered in this state is the property.
-    expect(() => reg.register(registerInput("hello"))).toThrow(
-      expect.objectContaining({ code: "name_taken" }),
-    );
-    // And the retry completes the delete.
-    expect(reg.remove("hello")?.name).toBe("hello");
-    expect(make().list()).toEqual([]);
-    // Now the refusal is the permanent one.
-    expect(() => make().register(registerInput("hello"))).toThrow(
-      expect.objectContaining({ code: "name_retired" }),
-    );
-    expect(make().retired()).toEqual([
-      { name: "hello", port: 21000, retiredAt: 1_700_000_000_000 },
-    ]);
-  });
-
-  it("a corrupt history cannot let a retired name be re-registered", () => {
-    // The scenario the whole posture exists for, end to end.
-    const reg = make();
-    reg.register(registerInput("hello"));
-    reg.remove("hello");
-    writeFileSync(join(dir, "app-history.json"), "{corrupted");
-    expect(() => make().register(registerInput("hello"))).toThrow(
-      expect.objectContaining({ code: "registry_corrupt" }),
-    );
   });
 });
 
@@ -597,10 +553,14 @@ describe("app-registry: persistence failures are never reported as success", () 
     expect(make().list()).toEqual([]);
   });
 
-  it("delete raises persist_failed rather than dropping a record with no tombstone", () => {
+  it("delete raises persist_failed rather than reporting a delete that did not happen, and the retry converges", () => {
     if (!readOnlyIsEnforced(dir)) return; // running as root; see above
     const reg = make();
-    reg.register(registerInput("hello"));
+    const app = reg.register(registerInput("hello"));
+    writeFileSync(join(app.dataDir, "state.json"), '{"kept":true}');
+    // Locking the registry dir fails the apps.json write while leaving data/
+    // writable, which lands us in the ONE window delete-side archiving creates:
+    // the directory has already moved and the record has not gone.
     chmodSync(dir, 0o500);
     try {
       expect(() => reg.remove("hello")).toThrow(
@@ -609,26 +569,78 @@ describe("app-registry: persistence failures are never reported as success", () 
     } finally {
       chmodSync(dir, 0o700);
     }
-    // Fail CLOSED. The tombstone is written FIRST, so a write failure leaves
-    // the app still registered - its name and port still accounted for. The
-    // reverse order would have dropped the record and freed both forever.
+    // Fail CLOSED: the app is still registered, its name and port still
+    // accounted for, and the delete is retryable.
     expect(
       make()
         .list()
         .map((a) => a.name),
     ).toEqual(["hello"]);
-    expect(make().retired()).toEqual([]);
+    // The archive DID happen, and nothing was lost with it - this is the state
+    // the window is defended on, so it is asserted rather than assumed.
+    const archived = join(
+      dir,
+      "data",
+      ".retired",
+      `hello-${1_700_000_000_000}`,
+      "state.json",
+    );
+    expect(readFileSync(archived, "utf-8")).toBe('{"kept":true}');
+    expect(existsSync(join(app.dataDir, "state.json"))).toBe(false);
+
+    // And the retry gets all the way out: archiveDataDir returns early now that
+    // the source is gone, so the second attempt reaches the record write
+    // instead of tripping over its own first attempt. That early return is the
+    // whole recovery mechanism.
+    expect(reg.remove("hello")?.name).toBe("hello");
+    expect(make().list()).toEqual([]);
+    // Not re-archived into a second directory, and not overwritten: the one
+    // copy still holds the data.
+    expect(readFileSync(archived, "utf-8")).toBe('{"kept":true}');
+    expect(readdirSync(join(dir, "data", ".retired"))).toEqual([
+      `hello-${1_700_000_000_000}`,
+    ]);
+  });
+
+  it("a delete whose archive step fails does not remove the record", () => {
+    if (!readOnlyIsEnforced(dir)) return; // running as root; see above
+    const reg = make();
+    const app = reg.register(registerInput("hello"));
+    writeFileSync(join(app.dataDir, "state.json"), '{"kept":true}');
+    // The data ROOT is what the rename needs to write to (both the source entry
+    // and the new .retired parent live in it), so locking it fails the archive
+    // while apps.json itself is still writable - the ordering case: everything
+    // that can fail happens while the app is still registered.
+    const dataRoot = join(dir, "data");
+    chmodSync(dataRoot, 0o500);
+    try {
+      expect(() => reg.remove("hello")).toThrow(
+        expect.objectContaining({ code: "persist_failed" }),
+      );
+    } finally {
+      chmodSync(dataRoot, 0o700);
+    }
+    expect(
+      make()
+        .list()
+        .map((a) => a.name),
+    ).toEqual(["hello"]);
+    // Nothing was lost, and the retry converges.
+    expect(readFileSync(join(app.dataDir, "state.json"), "utf-8")).toBe(
+      '{"kept":true}',
+    );
+    expect(reg.remove("hello")?.name).toBe("hello");
+    expect(make().list()).toEqual([]);
   });
 });
 
 // --- update -----------------------------------------------------------------
 
 // PATCH exists because the alternative to fixing a mistyped command was
-// deleting the app, and a delete retires its name forever. So the tests below
-// care about two things above all: that the patchable fields really change and
-// persist, and that NOTHING ELSE does - the name, the port, the data directory
-// and the creation attribution are what the tombstone contract is written
-// against.
+// deleting the app, which costs it its port and sets its data directory aside.
+// So the tests below care about two things above all: that the patchable fields
+// really change and persist, and that NOTHING ELSE does - the name, the port,
+// the data directory and the creation attribution are the app's identity.
 describe("app-registry: update", () => {
   it("changes command, cwd and description, and persists them", () => {
     const reg = make();
@@ -690,19 +702,14 @@ describe("app-registry: update", () => {
     expect(make().get("hello")!.command).toBe("bun run serve.ts");
   });
 
-  it("does not resurrect a retired app", () => {
+  it("does not resurrect a deleted app", () => {
     const reg = make();
     reg.register(registerInput("hello"));
     reg.remove("hello");
 
+    // Update is not a way back in: re-registering is.
     expect(reg.update("hello", { command: "x" })).toBeNull();
     expect(make().list()).toEqual([]);
-    // The tombstone is untouched: update is not a way back in.
-    expect(
-      make()
-        .retired()
-        .map((r) => r.name),
-    ).toEqual(["hello"]);
   });
 
   it("applies the same refusals register does", () => {
@@ -744,15 +751,15 @@ describe("app-registry: update", () => {
   it("refuses to update on a corrupt registry rather than writing over it", () => {
     const reg = make();
     reg.register(registerInput("hello"));
-    writeFileSync(join(dir, "app-history.json"), "{ this is not json");
+    const damaged = "{ this is not json";
+    writeFileSync(join(dir, "apps.json"), damaged);
 
     expect(() => reg.update("hello", { command: "x" })).toThrow(
       expect.objectContaining({ code: "registry_corrupt" }),
     );
-    // apps.json is intact: the update never got as far as writing.
-    expect(
-      JSON.parse(readFileSync(join(dir, "apps.json"), "utf-8"))[0].command,
-    ).toBe("bun run serve.ts");
+    // The damaged bytes are still there for a human to look at, rather than
+    // replaced by a one-record file built from a worldview that never loaded.
+    expect(readFileSync(join(dir, "apps.json"), "utf-8")).toBe(damaged);
   });
 
   it("raises persist_failed rather than reporting a change that was not written", () => {

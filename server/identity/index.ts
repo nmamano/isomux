@@ -99,7 +99,7 @@ export interface Identity {
   agentId?: string;
   cronjobId?: string;
   runId?: string;
-  // APP scope: the registered app's (permanent, unique) name.
+  // APP scope: the registered app's name (unique, and fixed for its whole life).
   appName?: string;
   // Role is meaningful ONLY for USER scope (owner-only routes are gated by the
   // officeOwner guard on a USER identity). For AGENT and CRON-RUN scope it is

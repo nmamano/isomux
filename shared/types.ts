@@ -701,17 +701,19 @@ export function generateUserId(existing?: string[]): string {
 // section 3). See internal-docs/agent-apps-design.md.
 //
 // There is no separate id: the NAME is the key. A name is bound to one app for
-// good - deleting an app retires the name rather than freeing it - so a second
+// that app's whole life and there is no verb that changes it, so a second
 // identifier would be dead weight and one more thing to disagree with itself.
 // Everything derived from a name (the data directory, and the unit name once a
-// supervisor exists) therefore has a permanently stable value.
+// supervisor exists) therefore has a stable value for as long as the app lives.
+// Deleting an app frees the name for the next one.
 export interface AppRecord {
-  // Hostname label, unique across live AND retired apps, forever. Lowercase
-  // [a-z0-9-], never starting or ending with a hyphen, at most 63 chars (one
-  // DNS label), so it can become a hostname later without changing.
+  // Hostname label, unique across LIVE apps. Lowercase [a-z0-9-], never
+  // starting or ending with a hyphen, at most 63 chars (one DNS label), so it
+  // can become a hostname later without changing.
   name: string;
-  // Allocated by isomux at registration and never recycled - a freed port under
-  // a stale bookmark is the same trap as a recycled hostname.
+  // Allocated by isomux at registration and fixed for the app's whole life:
+  // moving a live app's port would break every bookmark pointing at it. A
+  // deleted app's port returns to the pool.
   port: number;
   // Start command and working directory, stored verbatim / resolved. Whether
   // the command actually runs is the supervisor's problem, not the registry's.
@@ -720,7 +722,9 @@ export interface AppRecord {
   description?: string;
   // Absolute path isomux created and handed over, so app state lands somewhere
   // known (and inside the backup set) instead of wherever the agent felt like
-  // writing.
+  // writing. Derived from the name, and always empty at registration: deleting
+  // an app keeps its data by setting the directory aside, so a later app of the
+  // same name never inherits it.
   dataDir: string;
   // OWNER: the user the app belongs to - for an agent caller, its manager. The
   // app survives the agent, so ownership can never be the agent.
@@ -777,14 +781,6 @@ export interface AppWire extends AppRecord {
   // restart `state` still tells the truth while the next attempt regenerates
   // the reason.
   startError?: string;
-}
-
-// A retired app: the tombstone left behind by a delete. Both the name and the
-// port are burned permanently.
-export interface RetiredApp {
-  name: string;
-  port: number;
-  retiredAt: number;
 }
 
 // ---------------------------------------------------------------------------

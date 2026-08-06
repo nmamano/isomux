@@ -488,8 +488,8 @@ export function parseSystemctlShow(stdout: string): Map<string, AppRuntime> {
 // The wire mapping is lossy in ways that are fine for a status badge and unsafe
 // for a permanent decision: it folds a missing block, an unparseable one and an
 // unrecognised state all into `unknown`, and it calls `deactivating` stopped.
-// Reading any of those as "nothing is running" is how a delete tombstones a
-// name whose process is still alive - `deactivating` in particular means the
+// Reading any of those as "nothing is running" is how a delete frees a name and
+// port whose process is still alive - `deactivating` in particular means the
 // stop is still IN PROGRESS.
 //
 // So only two answers count, and both require systemd to have said something
@@ -716,7 +716,7 @@ export function createAppSupervisor(
   };
 
   // PROVE the app is not running, or throw. The query itself failing is a
-  // throw, not an `unknown`: teardown's caller tombstones a name permanently on
+  // throw, not an `unknown`: teardown's caller frees the app's name and port on
   // the strength of this, and "systemd did not answer" is not the same fact as
   // "systemd says nothing is running". A SUCCESSFUL not-found is safe - that is
   // what a removed unit looks like.
@@ -1031,8 +1031,9 @@ export function createAppSupervisor(
       });
     },
 
-    // Returning from here licenses the caller to tombstone the app's name
-    // FOREVER, so every step is written to make "I could not tell" an error
+    // Returning from here licenses the caller to drop the app's record and free
+    // its name and port for the next app, so every step is written to make "I
+    // could not tell" an error
     // rather than a pass. The distinction that matters throughout: a query that
     // SUCCEEDS and reports nothing running is proof; a query that FAILS is not
     // evidence of anything, and must never be read as one.

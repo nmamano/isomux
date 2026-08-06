@@ -156,7 +156,7 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
     expect((await api(srv, "/api/apps", { bearer: token })).body).toEqual([]);
   });
 
-  it("a deleted app's name is refused forever, with a distinct code", async () => {
+  it("a delete frees the name AND the port for the next registration", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -173,25 +173,16 @@ describe("routes/apps REST: the register -> list -> get -> delete lifecycle", ()
     const port = (first.body as AppWire).port;
     await api(srv, "/api/apps/hello", { method: "DELETE", bearer: token });
 
+    // The same name, end to end through the route: 201, not a refusal.
     const again = await api(srv, "/api/apps", {
       method: "POST",
       bearer: token,
       body: body(srv, "hello"),
     });
-    // 409, and NOT the same code a live collision gives: "somebody has it" and
-    // "nobody can ever have it again" are different facts and the agent is
-    // meant to act differently on them.
-    expect(again.status).toBe(409);
-    expect(errCode(again)).toBe("name_retired");
-
-    // The retired PORT is burned too - a fresh app must not land on it.
-    const next = await api(srv, "/api/apps", {
-      method: "POST",
-      bearer: token,
-      body: body(srv, "second"),
-    });
-    expect(next.status).toBe(201);
-    expect((next.body as AppWire).port).not.toBe(port);
+    expect(again.status).toBe(201);
+    // ...on the same port, because the gap the delete left is the lowest free
+    // one. The port going back in the pool is the half a name check cannot see.
+    expect((again.body as AppWire).port).toBe(port);
   });
 
   it("a live name collision is 409 name_taken", async () => {
@@ -279,7 +270,7 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
     });
     // 201, not an error: the registration really did happen, and `state` is
     // where the agent learns the app is not serving. Answering 500 here would
-    // tell it the app does not exist while the name is taken forever.
+    // tell it the app does not exist while the name is taken.
     expect(reg.status).toBe(201);
     expect((reg.body as AppWire).state).toBe("failed");
   });
@@ -298,9 +289,9 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
       bearer: token,
       body: body(srv, "hello"),
     });
-    // 201, not 500. The record is the commit point - undoing it would retire
-    // the name forever - so the resource really was created, and answering 500
-    // would invite a retry that can only ever be told the name is taken.
+    // 201, not 500. The record is the commit point, so the resource really was
+    // created, and answering 500 would invite a retry that can only ever be
+    // told the name is taken.
     expect(reg.status).toBe(201);
     const app = reg.body as AppWire;
     expect(app.state).not.toBe("running");
@@ -357,7 +348,7 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
     expect((reg.body as AppWire).startError).toBeUndefined();
   });
 
-  it("a delete that cannot stop the app does NOT retire its name", async () => {
+  it("a delete that cannot stop the app does NOT free its name", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -378,9 +369,9 @@ describe("routes/apps REST: the registry and the supervisor, in order", () => {
     expect(del.status).toBe(500);
     expect(errCode(del)).toBe("supervisor_failed");
     // Still there, and still THE SAME registration: re-registering the name is
-    // refused as taken, not as retired. The distinction is the whole test - a
-    // tombstone written before the app was actually stopped would leave a live
-    // process holding a port under a name nothing can reach any more.
+    // refused as taken. That is the whole test - a record removed before the
+    // app was actually stopped would leave a live process holding a port under
+    // a name the registry has forgotten, and hand both to whoever asks next.
     expect((await api(srv, "/api/apps/hello", { bearer: token })).status).toBe(
       200,
     );
@@ -536,7 +527,7 @@ describe("routes/apps REST: the recovery verbs", () => {
 
   it("recovers an app that came to rest in failed", async () => {
     // The reason these verbs exist: without them the only cure for a crash
-    // loop is DELETE, which retires the app's name permanently.
+    // loop is DELETE, which costs the app its port and its data directory.
     const { srv, token } = await seed();
     srv.appSupervisor.setRuntime("hello", { state: "failed", restartCount: 5 });
 
@@ -572,8 +563,8 @@ describe("routes/apps REST: the recovery verbs", () => {
         ).status,
       ).toBe(403);
       // Identical refusal for a name that was never registered: names are
-      // permanently unique, so "is this one taken" is a question a denial must
-      // not answer. The office owner is the one who gets a 404.
+      // unique across the office, so "is this one taken" is a question a denial
+      // must not answer. The office owner is the one who gets a 404.
       expect(
         (
           await api(srv, `/api/apps/nope/${verb}`, {
@@ -862,8 +853,8 @@ describe("routes/apps REST: who can see and delete an app", () => {
     const free = await api(srv, "/api/apps/never-registered", {
       rawSessionId: bob.rawSessionId,
     });
-    // Byte-identical: names are permanently unique, so "is this name taken" is
-    // a question a denial must not answer.
+    // Byte-identical: names are unique across the office, so "is this name
+    // taken" is a question a denial must not answer.
     expect(taken.status).toBe(free.status);
     expect(errCode(taken)).toBe(errCode(free));
     // The office owner is the one who can tell them apart.
@@ -1002,7 +993,8 @@ describe("routes/apps REST: registration validation", () => {
   });
 });
 
-// PATCH is the verb that keeps a mistyped command from costing a name forever,
+// PATCH is the verb that keeps a mistyped command from costing an app its
+// address and its data,
 // so what it must NOT do matters as much as what it does: it must not rename an
 // app, must not move its port, must not bounce a running process over a
 // description edit, and must not report a failed unit rewrite as a plain
@@ -1165,7 +1157,7 @@ describe("routes/apps REST: updating an app", () => {
 
   it("denies an unknown name rather than confirming it is free", async () => {
     const { srv, token, owner } = await withApp();
-    // 403, not 404, and deliberately: names are permanently unique, so a 404
+    // 403, not 404, and deliberately: names are unique office-wide, so a 404
     // here would answer "is this name still available" - a question only
     // registration is meant to answer. Same rule the read and delete routes
     // follow.
@@ -1981,9 +1973,9 @@ describe("routes/apps: a failed announcement never rewrites a committed answer",
     expect((res.body as AppWire).name).toBe("hello");
   });
 
-  it("delete still answers 204 when announcing throws - the name IS retired", async () => {
-    // The worst of the four: a 500 here would invite a retry against a name the
-    // registry has already tombstoned.
+  it("delete still answers 204 when announcing throws - the app IS gone", async () => {
+    // The worst of the four: a 500 here would invite a retry against a record
+    // the registry has already removed.
     const handlers = appsHandlers(throwingDeps());
     const res = await handlers["apps.delete"](unitCtx());
     expect(res.kind).toBe("noContent");

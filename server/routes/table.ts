@@ -1000,8 +1000,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: ["app_upserted"],
   }),
   // The only mutable fields are command, cwd and description. Name and port are
-  // the app's identity and its permanent tombstone, so there is no verb for
-  // them anywhere.
+  // the app's address for as long as it lives, so there is no verb for them
+  // anywhere.
   defineRoute<AppUpdateReq, AppWire>({
     opId: "apps.update",
     method: "PATCH",
@@ -1025,7 +1025,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
   // The recovery verbs. app:write rather than app:read because they change what
   // is running on the box, and an app that has come to rest in `failed` has no
-  // other cure than DELETE, which retires its name forever.
+  // other cure than DELETE, which costs it its port and its data directory.
   defineRoute<void, AppWire>({
     opId: "apps.start",
     method: "POST",

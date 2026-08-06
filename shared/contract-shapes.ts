@@ -682,13 +682,12 @@ export interface AppMessageReq {
 
 // PATCH /api/apps/:name. Any subset of the three mutable fields; an absent key
 // is a field left alone. `name` and `port` are deliberately NOT here: they are
-// the app's identity and its permanent tombstone, so a typo in either is a
-// mistake that has to be lived with rather than one that can be quietly
-// rewritten under whoever already bookmarked the old address.
+// the app's address, so a typo in either is fixed by deleting and registering
+// again rather than quietly rewritten under whoever already bookmarked it.
 //
 // The verb exists for the opposite case. A mistyped COMMAND used to be curable
-// only by deleting the app, which retires its name forever - a steep price for
-// a missing `run`.
+// only by deleting the app, which costs it its data directory and its port - a
+// steep price for a missing `run`.
 //
 // `description` is three-way on purpose: absent leaves it alone, a string sets
 // it, and `null` removes it. An empty string is NOT the same as absence - it
@@ -702,9 +701,7 @@ export interface AppUpdateReq {
 
 // The `error.code` values the app routes answer with, as a closed union so the
 // registry (which raises them) and the handler (which maps them to statuses)
-// cannot drift. name_taken and name_retired stay DISTINCT because they are
-// different facts: "someone else has this name" versus "nobody can ever have
-// this name again".
+// cannot drift.
 export type AppErrorCode =
   | "invalid_name"
   | "reserved_name"
@@ -712,7 +709,6 @@ export type AppErrorCode =
   | "invalid_cwd"
   | "invalid_description"
   | "name_taken"
-  | "name_retired"
   | "app_limit_reached"
   | "no_port_available"
   // The three server-side failures. Where one of these is the error CODE, the

@@ -5,7 +5,7 @@
 // Two things are pinned harder than the rest, because both are the kind of bug
 // that looks like success:
 //   - the ORDER of the calls install and teardown make, since teardown's whole
-//     contract is "the caller may now tombstone the name", and
+//     contract is "the caller may now free the name and port", and
 //   - the difference between "systemd refused" and "the app's own process
 //     died", which the register route turns into a 500 or a 201.
 //
@@ -794,9 +794,9 @@ describe("app-supervisor: teardown", () => {
     // The subtle version of the same failure, and the one that reads as
     // success: stop fails, the files are deleted anyway, and the state query
     // ALSO fails. Collapsing that query failure into `unknown` would pass the
-    // not-running check and let the caller tombstone the name while the process
+    // not-running check and let the caller free the name while the process
     // is possibly still alive and holding its port - unrecoverable, because
-    // nothing in isomux can reach an app whose name the registry has retired.
+    // nothing in isomux can reach an app whose record the registry has dropped.
     // "I could not tell" must never be evidence of "it is stopped".
     const host = fakeHost((argv) =>
       argv[2] === "stop"
@@ -842,7 +842,7 @@ describe("app-supervisor: teardown", () => {
 
   it("accepts ONLY an explicit systemd answer as proof that nothing runs", () => {
     // The whitelist, branch by branch. Everything not on it must refuse,
-    // because the caller tombstones a name permanently on the strength of it.
+    // because the caller frees a name and a port on the strength of it.
     const safe = [
       ["not-found", "inactive"], // no unit at all - what a removed one looks like
       ["loaded", "inactive"],
@@ -896,8 +896,8 @@ describe("app-supervisor: teardown", () => {
     }
   });
 
-  it("REFUSES when the app is still running, so its name is not tombstoned", () => {
-    // The load-bearing failure. The delete route tombstones only after this
+  it("REFUSES when the app is still running, so its name is not freed", () => {
+    // The load-bearing failure. The delete route removes the record only after this
     // returns; a teardown that reported success while the process lived would
     // strand a live app holding a port under a name the registry has forgotten,
     // and nothing in isomux could ever clean it up.

@@ -155,6 +155,37 @@ describe("app-message limits: the daily budget", () => {
   });
 });
 
+describe("app-message limits: forget", () => {
+  // A name outlives its app now that deleting one frees the name, so the budget
+  // has to go when the app does. Otherwise the next app to take the name - which
+  // can belong to a different user - inherits a spent day.
+  it("clears both budgets, so a reused name starts fresh", () => {
+    const { limiter } = limiterAt();
+    for (let i = 0; i < APP_MESSAGE_DAILY_CAP; i++)
+      limiter.commitDaily("hello");
+    expect(limiter.takeBurst("hello").ok).toBe(false);
+
+    limiter.forget("hello");
+
+    // The full burst budget as well as the day: nothing is left over.
+    for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++) {
+      expect(limiter.takeBurst("hello").ok).toBe(true);
+    }
+  });
+
+  it("leaves other apps alone, and forgetting an unknown name is a no-op", () => {
+    const { limiter } = limiterAt();
+    for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++)
+      limiter.takeBurst("noisy");
+
+    limiter.forget("never-registered");
+    limiter.forget("quiet");
+
+    expect(limiter.takeBurst("noisy").ok).toBe(false);
+    expect(limiter.takeBurst("quiet").ok).toBe(true);
+  });
+});
+
 describe("app-message limits: when BOTH budgets block", () => {
   // The whole reason both waits are computed. Telling a caller "retry in 60s"
   // while the rolling day blocks for another 23 hours is advice that produces

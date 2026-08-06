@@ -325,9 +325,9 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
 //
 // An unknown name denies exactly like another user's app, so a denial is never
 // an oracle for which names are taken. That matters more here than elsewhere:
-// names are permanently unique, so "is this name free" is a real question a
-// caller might want answered, and registration is the only place it gets an
-// answer.
+// names are unique across the whole office, so "is this name free" is a real
+// question a caller might want answered, and registration is the only place it
+// gets an answer.
 //
 // The officeOwner branch requires scope==="user" + owner, so an agent can never
 // reach office-wide app powers - only its own user's.

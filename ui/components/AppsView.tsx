@@ -4,7 +4,7 @@
 //
 // A VIEWER PLUS VERBS: no register form and no edit form here. Agents register
 // apps through the API, and this tab is where a human watches them and takes
-// them in hand - start, stop, restart, read the log, retire one.
+// them in hand - start, stop, restart, read the log, delete one.
 //
 // TWO SOURCES OF TRUTH, DELIBERATELY. The app_upserted / app_deleted deltas
 // carry anything isomux itself did, immediately. But systemd restarting a
@@ -566,8 +566,7 @@ export function AppsView({ onClose }: { onClose: () => void }) {
             }}
           >
             <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-              Delete {confirmDelete.name}? Its name and port will be retired
-              permanently. Its data directory will be kept.
+              Delete {confirmDelete.name}? Its data directory will be kept.
             </div>
             <div
               style={{

@@ -1,44 +1,49 @@
-// The app registry - the leaf module behind /api/apps. Names, ports,
-// tombstones, per-app data directories, and the two JSON files that hold them.
-// See internal-docs/agent-apps-design.md.
+// The app registry - the leaf module behind /api/apps. Names, ports, per-app
+// data directories, and the JSON file that holds them. See
+// internal-docs/agent-apps-design.md.
 //
 // Nothing here starts a process. Registration allocates a port and reserves a
 // name; running the app is the supervisor's job, and the registry deliberately
 // persists no runtime state (see AppState in shared/contract-shapes.ts).
 //
-// THE PERMANENT-TOMBSTONE INVARIANT is what shapes the rest of this module. A
-// name is bound to one app for good and a port is never recycled, because both
-// outlive the app in places isomux cannot reach: a bookmark on someone's phone,
-// a service worker and localStorage under a retired origin. Handing either one
-// to a NEW app is the failure this registry exists to prevent. Two consequences
-// that read as over-caution until you connect them to that invariant:
+// THE INVARIANT IS WHOLE-LIFE, NOT FOREVER. A name and a port are bound to one
+// app for as long as that app exists, and there is no verb that rewrites either
+// - both outlive isomux's reach the moment somebody bookmarks the address, so
+// moving a live app's address is the failure this registry exists to prevent.
+// Deleting an app frees both for reuse (Nil's ruling, 2026-08-06); safe reuse of
+// an ORIGIN is the transport's problem, and the hostname carries a generation
+// label so a reused name never lands on the previous app's storage (design doc
+// section 4). Two consequences that read as over-caution until you connect them
+// to the invariant:
 //
 //   1. CORRUPTION FAILS LOUD, NEVER EMPTY. Every public operation - reads
-//      included - starts from a validated snapshot of BOTH files, so a
-//      malformed apps.json or app-history.json raises `registry_corrupt` and
-//      nothing proceeds. Reading one file per operation would be the subtle
-//      version of the same bug: a list() answered off a valid apps.json while
-//      the history was unreadable is a worldview the registry cannot vouch for.
-//      The tempting alternative - the load-time catch-and-return-[] used for
-//      cronjobs and tasks - is actively unsafe here: an empty worldview would
-//      re-issue a retired name, duplicate a live registration, and then persist
-//      the truncated view over the file that still held the truth. Cronjobs can
-//      afford it (a lost row is a job that stops firing); this cannot.
-//      Validation is per-record AND cross-record (unique live names and ports,
-//      unique retired ports, no live app on a retired port), because a set of
-//      individually well-formed records can still be an impossible one.
+//      included - starts from a validated snapshot, so a malformed apps.json
+//      raises `registry_corrupt` and nothing proceeds. The tempting
+//      alternative - the load-time catch-and-return-[] used for cronjobs and
+//      tasks - is actively unsafe here: an empty worldview would duplicate a
+//      live registration, hand a second app a port that is already serving, and
+//      then persist the truncated view over the file that still held the truth.
+//      Cronjobs can afford it (a lost row is a job that stops firing); this
+//      cannot. Validation is per-record AND cross-record (unique names, unique
+//      ports), because a set of individually well-formed records can still be
+//      an impossible one.
 //   2. PERSISTENCE FAILURES PROPAGATE. saveCronjobs-style catch-and-log would
-//      report a registration that was never written, or a delete whose
-//      tombstone never landed. Every write here throws `persist_failed` and the
-//      caller answers 500 rather than pretending.
+//      report a registration that was never written, or a delete that did not
+//      happen. Every write here throws `persist_failed` and the caller answers
+//      500 rather than pretending.
 //
 // Write ORDER carries the same reasoning. Registration creates the data
 // directory and then writes the record: a crash between them leaves an orphan
-// directory, which is recoverable. Deletion writes the TOMBSTONE first and then
-// removes the live record: a crash between them leaves an app both live and
-// tombstoned, which is a visible, fixable inconsistency - whereas
-// record-removal-first would free the name and port permanently if the
-// tombstone write failed, which is exactly the unrecoverable case.
+// directory, which is recoverable. Deletion is one write, and the caller
+// sequences the rest: the route tears the unit down and revokes the token
+// BEFORE calling remove(), so a name is only freed once the app is provably
+// down (see routes/handlers/apps.ts).
+//
+// A NOTE FOR OLD OFFICES: deletes used to write tombstones to app-history.json,
+// which no longer exists as a concept. A leftover file is IGNORED - never read,
+// never written, never deleted. Reading it would resurrect the retirement it
+// records; deleting it would put a write on a read path (and fail on a
+// read-only state dir) to clean up a file that costs nothing.
 //
 // CONCURRENCY: every operation is fully synchronous, including the bind probe
 // (Bun.listen throws synchronously on EADDRINUSE). A register() therefore runs
@@ -50,11 +55,11 @@
 // point at a temp dir and script the port probe, while production uses the
 // default singleton over STATE_ROOT/apps - the shape memory-store.ts uses.
 
-import { existsSync, mkdirSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, renameSync } from "fs";
 import { isAbsolute, join, resolve } from "path";
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
-import type { AppRecord, RetiredApp } from "../shared/types.ts";
+import type { AppRecord } from "../shared/types.ts";
 import type { AppErrorCode } from "../shared/contract-shapes.ts";
 
 // --- constants --------------------------------------------------------------
@@ -128,10 +133,9 @@ export class AppRegistryError extends Error {
 
 // The recovery advice matters as much as the diagnosis. "Move it aside" is the
 // reflex for a corrupt state file and it is exactly wrong here: a MISSING file
-// reads as a fresh registry, so moving app-history.json aside would free every
-// retired name and port at once, and moving apps.json aside would let live
-// registrations be duplicated. The error must not recommend the one action that
-// destroys the invariant it is explaining.
+// reads as a fresh registry, so moving apps.json aside would hand out names and
+// ports that live apps are still serving on. The error must not recommend the
+// one action that destroys the invariant it is explaining.
 const corrupt = (file: string, why: string): AppRegistryError =>
   new AppRegistryError(
     "registry_corrupt",
@@ -234,8 +238,9 @@ export function bindProbe(port: number): boolean {
   }
 }
 
-// Lowest free port in the window: not held by a live app, not tombstoned, and
-// actually bindable.
+// Lowest free port in the window: not held by a live app, and actually
+// bindable. A deleted app's port goes straight back in the pool, so the gap it
+// left is the next one handed out.
 //
 // TOCTOU: the probe closes its socket immediately and the app binds the port
 // much later (when a supervisor starts it), so something else can take the port
@@ -259,8 +264,6 @@ export function allocatePort(
 
 // --- persistence ------------------------------------------------------------
 
-type AppHistory = Record<string, { port: number; retiredAt: number }>;
-
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -268,7 +271,8 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 // office); anything present but unparseable is corrupt. An empty or truncated
 // file is deliberately NOT special-cased as missing - JSON.parse rejects it and
 // that is the correct answer, since a truncated write is exactly the case where
-// treating the file as empty would burn a retired name.
+// treating the file as empty would hand a live app's name and port to a second
+// one.
 // Returns `undefined` for a missing file (never a valid JSON value, so it is an
 // unambiguous "absent" signal).
 function readStateFile(file: string): unknown {
@@ -287,9 +291,9 @@ function readStateFile(file: string): unknown {
 }
 
 // What actually goes in apps.json. `dataDir` is NOT persisted: it is a pure
-// function of the registry directory and the app's (permanent) name, so storing
-// it would be denormalization whose only possible contribution is disagreeing
-// with the truth. It is derived on load instead, which means a hand-edited
+// function of the registry directory and the app's name, which never changes
+// while the app exists, so storing it would be denormalization whose only
+// possible contribution is disagreeing with the truth. It is derived on load instead, which means a hand-edited
 // `"dataDir": "/etc"` cannot exist - there is no such field to edit - and the
 // path survives the state root moving (a restore, an ISOMUX_HOME override)
 // instead of turning every record into corruption.
@@ -354,19 +358,6 @@ function isPersistedApp(value: unknown): value is PersistedApp {
   );
 }
 
-function isPersistedTombstone(
-  value: unknown,
-): value is { port: number; retiredAt: number } {
-  if (!isPlainObject(value)) return false;
-  return (
-    typeof value.port === "number" &&
-    Number.isInteger(value.port) &&
-    value.port >= APP_PORT_MIN &&
-    value.port <= APP_PORT_MAX &&
-    isFiniteNumber(value.retiredAt)
-  );
-}
-
 function loadApps(file: string, dataRoot: string): AppRecord[] {
   const parsed = readStateFile(file);
   if (parsed === undefined) return [];
@@ -384,36 +375,10 @@ function loadApps(file: string, dataRoot: string): AppRecord[] {
   }));
 }
 
-function loadHistory(file: string): AppHistory {
-  const parsed = readStateFile(file);
-  if (parsed === undefined) return {};
-  if (!isPlainObject(parsed)) throw corrupt(file, "not a JSON object");
-  for (const [name, tombstone] of Object.entries(parsed)) {
-    if (
-      !APP_NAME_PATTERN.test(name) ||
-      name.length > MAX_APP_NAME_LENGTH ||
-      !isPersistedTombstone(tombstone)
-    ) {
-      throw corrupt(file, `contains an invalid tombstone for "${name}"`);
-    }
-  }
-  return parsed as AppHistory;
-}
-
-// Cross-record invariants, checked over BOTH files together. Each record can be
-// individually well-formed while the set of them is impossible, and an
-// impossible set is exactly the state in which a name or port gets handed out
-// twice.
-//
-// The one overlap that is NOT corruption: the same name holding the same port
-// in both files. That is the deliberate fail-closed outcome of a delete whose
-// tombstone landed and whose record removal did not, and it must stay loadable
-// so a retried delete can finish the job.
-function assertConsistent(
-  apps: AppRecord[],
-  history: AppHistory,
-  where: string,
-): void {
+// Cross-record invariants. Each record can be individually well-formed while
+// the set of them is impossible, and an impossible set is exactly the state in
+// which two LIVE apps end up sharing a name or a port.
+function assertConsistent(apps: AppRecord[], where: string): void {
   const bad = (why: string) => {
     throw corrupt(where, why);
   };
@@ -428,32 +393,6 @@ function assertConsistent(
     }
     liveByPort.set(app.port, app.name);
   }
-  const retiredByPort = new Map<number, string>();
-  for (const [name, tombstone] of Object.entries(history)) {
-    const clash = retiredByPort.get(tombstone.port);
-    if (clash !== undefined) {
-      bad(
-        `retired names "${clash}" and "${name}" both hold port ${tombstone.port}`,
-      );
-    }
-    retiredByPort.set(tombstone.port, name);
-    const live = apps.find((a) => a.name === name);
-    if (live && live.port !== tombstone.port) {
-      bad(
-        `"${name}" is live on port ${live.port} but retired on port ${tombstone.port}`,
-      );
-    }
-  }
-  for (const [port, liveName] of liveByPort) {
-    const retiredName = retiredByPort.get(port);
-    // Same name, same port = the partial-delete state (allowed). Anything else
-    // means a live app is sitting on a permanently retired port.
-    if (retiredName !== undefined && retiredName !== liveName) {
-      bad(
-        `live app "${liveName}" holds port ${port}, retired by "${retiredName}"`,
-      );
-    }
-  }
 }
 
 // Drop the derived field on the way back to disk, so apps.json never carries a
@@ -467,11 +406,11 @@ function writeStateFile(file: string, value: unknown): void {
   try {
     atomicWriteFileSync(file, JSON.stringify(value, null, 2));
   } catch (err) {
-    // Never swallowed: a registration or a tombstone that was not written did
-    // not happen, and the caller must hear about it.
+    // Never swallowed: a registration or a removal that was not written did not
+    // happen, and the caller must hear about it.
     console.error(`[app-registry] failed to write ${file}:`, err);
-    // Deliberately does NOT promise that nothing changed: a delete writes the
-    // tombstone before it removes the record, so the second write failing means
+    // Deliberately does NOT promise that nothing changed: a delete sets the
+    // data directory aside before it removes the record, so this failing means
     // something DID change. The file and the underlying error are in the server
     // log; the caller gets the honest version.
     throw new AppRegistryError(
@@ -479,6 +418,39 @@ function writeStateFile(file: string, value: unknown): void {
       "the app registry could not complete the write; inspect server logs and retry",
     );
   }
+}
+
+// Set a deleted app's data directory aside, so the next app to take the name
+// starts with an empty one.
+//
+// The data is KEPT, not destroyed: a delete that silently burns whatever the
+// app wrote is unrecoverable. But `dataDir` is derived from the name, so
+// leaving it in place would hand the previous app's files to the next
+// registration - and since names are claimable by anyone, that next
+// registration can belong to a different user. Moving it is what keeps "the
+// data survives" and "the next app starts clean" from being in tension.
+//
+// `.retired` cannot collide with an app's own directory: a name must start with
+// a letter or digit, so no app is ever called `.retired`.
+function archiveDataDir(dataRoot: string, name: string, at: number): void {
+  const from = join(dataRoot, name);
+  // Never created, or already moved by a delete that got this far and then
+  // failed on the record write. Both mean there is nothing to set aside, and a
+  // retried delete has to be able to get past this line.
+  if (!existsSync(from)) return;
+  const retiredRoot = join(dataRoot, ".retired");
+  mkdirSync(retiredRoot, { recursive: true });
+  // The timestamp alone is not unique: register/delete twice inside one
+  // millisecond - or under an injected clock that does not move - and the
+  // second rename would land on the first archive. Renaming a directory onto an
+  // existing one either throws (non-empty) or silently replaces it (empty), and
+  // silently replacing kept data is the worse of the two, so the suffix walks
+  // until the path is free.
+  let to = join(retiredRoot, `${name}-${at}`);
+  for (let n = 2; existsSync(to); n++) {
+    to = join(retiredRoot, `${name}-${at}-${n}`);
+  }
+  renameSync(from, to);
 }
 
 // --- the registry -----------------------------------------------------------
@@ -517,11 +489,10 @@ export interface AppRegistry {
   // updated record, or null when no live app has that name. Throws
   // AppRegistryError on any refusal or failure.
   update(name: string, patch: UpdateAppInput): AppRecord | null;
-  // Retire an app: tombstone its name and port, then drop the record. Returns
-  // the removed record, or null when no app has that name.
+  // Delete an app: set its data directory aside, then drop the record, freeing
+  // its name and port for reuse. Returns the removed record, or null when no
+  // app has that name.
   remove(name: string): AppRecord | null;
-  // The tombstones, for tests and (later) the Apps tab.
-  retired(): RetiredApp[];
 }
 
 export interface AppRegistryOptions {
@@ -537,28 +508,25 @@ export function createAppRegistry(
 ): AppRegistry {
   const dir = resolve(options.dir ?? join(STATE_ROOT, "apps"));
   const appsFile = join(dir, "apps.json");
-  const historyFile = join(dir, "app-history.json");
   const dataRoot = join(dir, "data");
   const now = options.now ?? (() => Date.now());
   const probePort = options.probePort ?? bindProbe;
 
-  // The ONE way any operation reads state: both files, each validated, then
-  // checked against each other. Every public method starts here - including the
-  // reads. A list() that answered from a valid apps.json while app-history.json
-  // was unreadable would be reporting a worldview it cannot vouch for, and the
-  // module's whole claim is that it never does that.
-  const snapshot = (): { apps: AppRecord[]; history: AppHistory } => {
+  // The ONE way any operation reads state: the file, validated per-record and
+  // then as a set. Every public method starts here - including the reads,
+  // because a read answered off a file the registry cannot vouch for is the
+  // most convincing wrong answer it can give.
+  const snapshot = (): AppRecord[] => {
     const apps = loadApps(appsFile, dataRoot);
-    const history = loadHistory(historyFile);
-    assertConsistent(apps, history, `${appsFile} + ${historyFile}`);
-    return { apps, history };
+    assertConsistent(apps, appsFile);
+    return apps;
   };
 
   return {
-    list: () => snapshot().apps,
+    list: () => snapshot(),
 
     get(name) {
-      return snapshot().apps.find((a) => a.name === name) ?? null;
+      return snapshot().find((a) => a.name === name) ?? null;
     },
 
     register(input) {
@@ -571,7 +539,7 @@ export function createAppRegistry(
 
       // The whole registry is read and validated BEFORE anything is written, so
       // a corrupt registry refuses the registration instead of half-applying it.
-      const { apps, history } = snapshot();
+      const apps = snapshot();
 
       if (apps.length >= MAX_REGISTERED_APPS) {
         throw new AppRegistryError(
@@ -585,23 +553,14 @@ export function createAppRegistry(
           `an app named "${input.name}" is already registered`,
         );
       }
-      if (history[input.name]) {
-        throw new AppRegistryError(
-          "name_retired",
-          `the name "${input.name}" belonged to a deleted app and cannot be reused; pick another`,
-        );
-      }
-
-      // Live ports AND retired ports are both off limits.
-      const used = new Set<number>([
-        ...apps.map((a) => a.port),
-        ...Object.values(history).map((h) => h.port),
-      ]);
-      const port = allocatePort(used, probePort);
+      // Only LIVE ports are off limits. A deleted app's port is free the moment
+      // its record goes, so the lowest gap is the next port handed out.
+      const port = allocatePort(new Set(apps.map((a) => a.port)), probePort);
 
       // Data dir first, record second: an orphan directory after a failed
       // record write is recoverable, a record pointing at a directory that was
-      // never created is not.
+      // never created is not. It is empty even when the name has been used
+      // before, because delete sets the old one aside (see archiveDataDir).
       const dataDir = join(dataRoot, input.name);
       try {
         mkdirSync(dataDir, { recursive: true });
@@ -636,11 +595,12 @@ export function createAppRegistry(
       return { ...persisted, dataDir };
     },
 
-    // The cure for a typo that would otherwise cost a name. Everything that
-    // makes the app THE app - name, port, data directory, ownership, creation
-    // attribution - is untouched by construction: only the three patchable
-    // fields are ever copied over, and the record keeps its position in the
-    // file so registration order still reads as registration order.
+    // The cure for a typo that would otherwise cost the app its address.
+    // Everything that makes the app THE app - name, port, data directory,
+    // ownership, creation attribution - is untouched by construction: only the
+    // three patchable fields are ever copied over, and the record keeps its
+    // position in the file so registration order still reads as registration
+    // order.
     update(name, patch) {
       // Validated BEFORE the snapshot, exactly as register does: a bad patch
       // must be refused the same way whether or not the registry is readable,
@@ -651,7 +611,7 @@ export function createAppRegistry(
         assertDescription(patch.description);
       }
 
-      const { apps } = snapshot();
+      const apps = snapshot();
       const index = apps.findIndex((a) => a.name === name);
       if (index < 0) return null;
 
@@ -678,35 +638,37 @@ export function createAppRegistry(
     },
 
     remove(name) {
-      const { apps, history } = snapshot();
+      const apps = snapshot();
       const record = apps.find((a) => a.name === name);
       if (!record) return null;
 
-      // Tombstone FIRST, from the STORED record's own name and port - never
-      // from the caller's string. The worst outcome of a failure between these
-      // two writes is an app that is both live and tombstoned, which is
-      // visible and fixable; the reverse order can free a name and port
-      // forever, which is not.
-      writeStateFile(historyFile, {
-        ...history,
-        [record.name]: { port: record.port, retiredAt: now() },
-      });
+      // The data directory is set aside BEFORE the record goes, and always from
+      // the STORED record's own name - never from the caller's string. Order
+      // matters the same way it did when this wrote a tombstone: everything
+      // that can fail happens while the app is still registered, so any failure
+      // leaves a delete that is incomplete and RETRYABLE rather than one that
+      // committed and lost track of the data it was supposed to keep. (By this
+      // point the route has already torn the unit down, so the app in that
+      // window is stopped and unstartable - the retry is the only path out of
+      // it, and it converges: the archive step is a no-op once the directory
+      // has moved.)
+      try {
+        archiveDataDir(dataRoot, record.name, now());
+      } catch (err) {
+        console.error(
+          `[app-registry] failed to set aside the data directory for "${record.name}":`,
+          err,
+        );
+        throw new AppRegistryError(
+          "persist_failed",
+          `the app's data directory could not be set aside, so "${record.name}" was not deleted; inspect server logs and retry`,
+        );
+      }
       writeStateFile(
         appsFile,
         apps.filter((a) => a.name !== record.name).map(strip),
       );
-      // The data directory is deliberately left on disk. A delete that silently
-      // destroys whatever the app wrote is unrecoverable, and since the name is
-      // never reused nothing can ever land on top of it.
       return record;
-    },
-
-    retired() {
-      return Object.entries(snapshot().history).map(([name, t]) => ({
-        name,
-        port: t.port,
-        retiredAt: t.retiredAt,
-      }));
     },
   };
 }

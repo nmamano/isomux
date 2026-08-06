@@ -60,6 +60,11 @@ export interface AppMessageLimiter {
   // Spend one of the app's daily messages. Called after a delivery the receiver
   // accepted, never before.
   commitDaily(appName: string): void;
+  // Drop everything recorded against a name, because the app that spent it is
+  // gone. Called by the delete route once the record is removed. NEVER throws:
+  // it runs after the delete has committed, and a rate-limit counter is not
+  // worth failing a delete that already happened.
+  forget(appName: string): void;
 }
 
 export interface AppMessageLimiterOptions {
@@ -96,9 +101,13 @@ function buildLimiter(options: AppMessageLimiterOptions): {
   clear: () => void;
 } {
   const now = options.now ?? (() => Date.now());
-  // Keyed by app name, which is unique across live AND retired apps forever, so
-  // a deleted app's counters can never be inherited by a later one. An entry
-  // costs two small arrays; the registry's own app cap bounds how many exist.
+  // Keyed by app name, which is unique across LIVE apps - so an entry is only
+  // unambiguous while its app exists, and delete calls forget() to keep it that
+  // way. Without that, an app deleted and re-registered under the same name
+  // would inherit the previous one's spent budget, and since names are
+  // claimable by anyone that is one user's app denying another user's app for
+  // up to a day. An entry costs two small arrays; the registry's own app cap
+  // bounds how many exist.
   const counters = new Map<string, AppCounters>();
 
   const countersFor = (appName: string): AppCounters => {
@@ -146,6 +155,12 @@ function buildLimiter(options: AppMessageLimiterOptions): {
       const t = now();
       prune(c.daily, t, APP_MESSAGE_DAILY_WINDOW_MS);
       c.daily.push(t);
+    },
+
+    // Deliberately not countersFor(): forgetting an unknown name must not
+    // CREATE an entry for it.
+    forget(appName) {
+      counters.delete(appName);
     },
   };
 
