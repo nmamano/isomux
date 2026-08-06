@@ -19,6 +19,8 @@ const ANON: AppViewer = { userId: null, isOfficeOwner: false };
 function app(overrides: Partial<AppWire> = {}): AppWire {
   return {
     name: "hello",
+    hostLabel: "hello",
+    hostGen: 1,
     port: 21000,
     command: "bun run start",
     cwd: "/home/alice/hello",

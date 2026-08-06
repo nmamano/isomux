@@ -175,6 +175,8 @@ suite("app-supervisor against real systemd", () => {
     mkdirSync(dataDir, { recursive: true });
     const app: AppRecord = {
       name: APP_NAME,
+      hostLabel: APP_NAME,
+      hostGen: 1,
       port,
       command: "bun server.js",
       cwd,

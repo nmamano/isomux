@@ -711,6 +711,18 @@ export interface AppRecord {
   // starting or ending with a hyphen, at most 63 chars (one DNS label), so it
   // can become a hostname later without changing.
   name: string;
+  // The app's hostname label, and which generation of the name it is. `hostGen`
+  // 1 means the name had never been used, and `hostLabel` is the name itself;
+  // generation N > 1 appends `-g<N>`, so the second app ever called `hello`
+  // lives at `hello-g2`.
+  //
+  // The name is what a human types; the LABEL is what a browser keys security
+  // state to. A deleted app frees its name, and a browser that once talked to
+  // the old app can still be holding its service worker, caches and storage for
+  // that origin - so the successor must never land on it. The registry keeps
+  // every label it has ever issued and hands the next one out from there.
+  hostLabel: string;
+  hostGen: number;
   // Allocated by isomux at registration and fixed for the app's whole life:
   // moving a live app's port would break every bookmark pointing at it. A
   // deleted app's port returns to the pool.

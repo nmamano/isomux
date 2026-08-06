@@ -597,6 +597,8 @@ let cronjobsPrompt: string | null = null;
 const demoApps: AppWire[] = [
   {
     name: "standup-board",
+    hostLabel: "standup-board",
+    hostGen: 1,
     port: 21000,
     command: "bun run serve.ts",
     cwd: "/home/ricky/standup-board",
@@ -611,6 +613,8 @@ const demoApps: AppWire[] = [
   },
   {
     name: "cost-tracker",
+    hostLabel: "cost-tracker",
+    hostGen: 1,
     port: 21001,
     command: "bun run index.ts --watch",
     cwd: "/home/ricky/cost-tracker",

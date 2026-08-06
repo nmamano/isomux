@@ -203,6 +203,8 @@ const STATUS_BY_CODE: Record<AppErrorCode, HandlerErrorStatus> = {
   invalid_cwd: 400,
   invalid_description: 400,
   name_taken: 409,
+  origin_retired: 409,
+  no_label_available: 409,
   app_limit_reached: 409,
   no_port_available: 409,
   registry_corrupt: 500,

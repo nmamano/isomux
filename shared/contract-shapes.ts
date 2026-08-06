@@ -709,6 +709,15 @@ export type AppErrorCode =
   | "invalid_cwd"
   | "invalid_description"
   | "name_taken"
+  // The requested name is an ORIGIN some other app already held. Not
+  // `name_taken`: no live app has the name, and no app ever will - the label
+  // ledger keeps a retired origin spoken for forever, so the address cannot be
+  // handed to unrelated code. Permanent, which is why it is not `name_taken`'s
+  // "come back after a delete".
+  | "origin_retired"
+  // The name has been recycled so many times that the next generation label
+  // would no longer fit in a DNS label. Register under a different name.
+  | "no_label_available"
   | "app_limit_reached"
   | "no_port_available"
   // The three server-side failures. Where one of these is the error CODE, the

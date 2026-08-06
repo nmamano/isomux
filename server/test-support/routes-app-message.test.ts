@@ -462,6 +462,8 @@ describe("POST /api/app/message: nobody to message", () => {
 describe("routes/apps: the burst is spent on every attempt, the day only on delivery", () => {
   const record: AppRecord = {
     name: "habits",
+    hostLabel: "habits",
+    hostGen: 1,
     port: 21000,
     command: "bun run serve.ts",
     cwd: "/tmp",

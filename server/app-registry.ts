@@ -2,19 +2,22 @@
 // data directories, and the JSON file that holds them. See
 // internal-docs/agent-apps-design.md.
 //
-// Nothing here starts a process. Registration allocates a port and reserves a
-// name; running the app is the supervisor's job, and the registry deliberately
-// persists no runtime state (see AppState in shared/contract-shapes.ts).
+// Nothing here starts a process. Registration allocates a port, reserves a name
+// and issues a hostname label; running the app is the supervisor's job, and the
+// registry deliberately persists no runtime state (see AppState in
+// shared/contract-shapes.ts).
 //
 // THE INVARIANT IS WHOLE-LIFE, NOT FOREVER. A name and a port are bound to one
 // app for as long as that app exists, and there is no verb that rewrites either
 // - both outlive isomux's reach the moment somebody bookmarks the address, so
 // moving a live app's address is the failure this registry exists to prevent.
-// Deleting an app frees both for reuse (Nil's ruling, 2026-08-06); safe reuse of
-// an ORIGIN is the transport's problem, and the hostname carries a generation
-// label so a reused name never lands on the previous app's storage (design doc
-// section 4). Two consequences that read as over-caution until you connect them
-// to the invariant:
+// Deleting an app frees both for reuse (Nil's ruling, 2026-08-06). What is
+// NEVER freed is the app's hostname label: the ledger in apps.json records every
+// label ever issued, so a reused name lands on a fresh generation label and can
+// never be served at the previous app's origin - which is where a browser still
+// keeps that app's service worker, caches and storage (design doc section 4).
+// Two consequences that read as over-caution until you connect them to the
+// invariant:
 //
 //   1. CORRUPTION FAILS LOUD, NEVER EMPTY. Every public operation - reads
 //      included - starts from a validated snapshot, so a malformed apps.json
@@ -81,8 +84,18 @@ export const APP_PORT_MAX = 21999;
 export const MAX_REGISTERED_APPS = 100;
 
 // One DNS label. The name becomes a hostname later, so the limit is RFC 1035's,
-// not a taste call.
+// not a taste call. This is the ceiling for what may EXIST - a stored record, a
+// generation label - which is why it stays 63 even though new registrations are
+// held to less (below).
 export const MAX_APP_NAME_LENGTH = 63;
+
+// What a NEW registration may use. Shorter than the label ceiling by exactly
+// `-g99`, so a name registered today still fits a DNS label after 98 recycles.
+// Names registered before this limit existed are grandfathered: they load, they
+// run, and they keep their labels. The one consequence, stated because it is
+// invisible otherwise - a legacy 60-63 character name that gets deleted cannot
+// be registered again.
+export const MAX_NEW_APP_NAME_LENGTH = 59;
 export const MAX_APP_COMMAND_LENGTH = 4096;
 export const MAX_APP_DESCRIPTION_LENGTH = 200;
 
@@ -157,10 +170,12 @@ export function checkAppName(name: string): AppRegistryError | null {
   if (name.length === 0) {
     return new AppRegistryError("invalid_name", "name is required");
   }
-  if (name.length > MAX_APP_NAME_LENGTH) {
+  if (name.length > MAX_NEW_APP_NAME_LENGTH) {
     return new AppRegistryError(
       "invalid_name",
-      `name must be at most ${MAX_APP_NAME_LENGTH} characters (one hostname label)`,
+      `name must be at most ${MAX_NEW_APP_NAME_LENGTH} characters (a hostname ` +
+        `label is 63, and the rest is reserved for the generation suffix a ` +
+        `re-registered name gets)`,
     );
   }
   if (!APP_NAME_PATTERN.test(name)) {
@@ -262,6 +277,53 @@ export function allocatePort(
   );
 }
 
+// --- label allocation -------------------------------------------------------
+
+// One issued hostname label, kept forever. `label` is the origin; `name` and
+// `gen` say which app generation it was minted for, and are what makes the
+// reverse collision rule below expressible - a bare list of strings cannot tell
+// `foo` generation 2 apart from an app literally named `foo-g2`.
+export interface IssuedLabel {
+  label: string;
+  name: string;
+  gen: number;
+  issuedAt: number;
+}
+
+// The label an app of this name and generation gets. Generation 1 is the bare
+// name, so a first registration reads as the address the human asked for and
+// only recycled names carry a suffix.
+export function labelFor(name: string, gen: number): string {
+  return gen === 1 ? name : `${name}-g${gen}`;
+}
+
+// The next unissued label for a name. The LEDGER decides, not the live apps: a
+// label whose app was deleted years ago is still spoken for, because the
+// browsers that talked to it are what the generation counter exists to protect.
+//
+// The walk terminates on the DNS ceiling rather than on an invented generation
+// cap (there is no product limit here to pick). Length is checked BEFORE the
+// ledger, so an over-long candidate is never proposed and never returned - the
+// only way past the check is a name that has genuinely been recycled ~100
+// times, and the honest answer there is "use a different name".
+export function allocateLabel(
+  name: string,
+  issued: ReadonlySet<string>,
+): { label: string; gen: number } {
+  for (let gen = 1; ; gen++) {
+    const label = labelFor(name, gen);
+    if (label.length > MAX_APP_NAME_LENGTH) {
+      throw new AppRegistryError(
+        "no_label_available",
+        `"${name}" has been registered and deleted so many times that the next ` +
+          `hostname for it would be longer than a DNS label allows; register ` +
+          `under a different name`,
+      );
+    }
+    if (!issued.has(label)) return { label, gen };
+  }
+}
+
 // --- persistence ------------------------------------------------------------
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
@@ -299,6 +361,27 @@ function readStateFile(file: string): unknown {
 // instead of turning every record into corruption.
 type PersistedApp = Omit<AppRecord, "dataDir">;
 
+// What apps.json holds: the live records AND the ledger of every label ever
+// issued, in ONE file. Two files would be the tidier shape and the wrong one -
+// a crash between the two writes could leave a live app whose label the ledger
+// does not know about, and the next registration would hand that origin out
+// again. One file is one atomic write, so the records and the ledger can never
+// disagree.
+interface AppsFile {
+  apps: PersistedApp[];
+  issuedLabels: IssuedLabel[];
+}
+
+// The shape every released version wrote: a bare array of records, no labels,
+// no ledger. Still read (see loadState), never written again.
+type LegacyPersistedApp = Omit<PersistedApp, "hostLabel" | "hostGen">;
+
+// Records plus ledger, as every operation sees them.
+interface RegistryState {
+  apps: AppRecord[];
+  issuedLabels: IssuedLabel[];
+}
+
 const isOptionalString = (v: unknown, max: number): boolean =>
   v === undefined || (typeof v === "string" && v.length <= max);
 const isNullableString = (v: unknown): boolean =>
@@ -315,7 +398,7 @@ const isFiniteNumber = (v: unknown): boolean =>
 // migration, because existing records would fall outside it. That is the right
 // trade - the alternative is a hand-edited or damaged record pointing an app at
 // port 22, which S2 would faithfully turn into a unit.
-function isPersistedApp(value: unknown): value is PersistedApp {
+function isLegacyPersistedApp(value: unknown): value is LegacyPersistedApp {
   if (!isPlainObject(value)) return false;
   const {
     name,
@@ -358,33 +441,149 @@ function isPersistedApp(value: unknown): value is PersistedApp {
   );
 }
 
-function loadApps(file: string, dataRoot: string): AppRecord[] {
+// A generation counter: a whole number of registrations, so 0, 1.5 and 2^53 are
+// all impossible answers rather than merely unlikely ones.
+const isGeneration = (v: unknown): v is number =>
+  typeof v === "number" && Number.isSafeInteger(v) && v >= 1;
+
+// A record from an envelope, where the host fields are REQUIRED. Absence is a
+// legacy-array-only condition; inside an envelope it means the file was written
+// by something that did not understand labels, and guessing on its behalf is
+// how a live app quietly changes origin.
+function isPersistedApp(value: unknown): value is PersistedApp {
+  if (!isLegacyPersistedApp(value)) return false;
+  const { hostLabel, hostGen } = value as Record<string, unknown>;
+  return (
+    typeof hostLabel === "string" &&
+    hostLabel.length > 0 &&
+    hostLabel.length <= MAX_APP_NAME_LENGTH &&
+    APP_NAME_PATTERN.test(hostLabel) &&
+    isGeneration(hostGen)
+  );
+}
+
+// One ledger row. `label` is re-derived from `name` and `gen` rather than
+// trusted, so a hand-edited row cannot claim `foo` generation 2 is called
+// `bar`, which is the one lie that would let an origin be reissued.
+function isIssuedLabel(value: unknown): value is IssuedLabel {
+  if (!isPlainObject(value)) return false;
+  const { label, name, gen, issuedAt } = value;
+  return (
+    typeof name === "string" &&
+    name.length > 0 &&
+    name.length <= MAX_APP_NAME_LENGTH &&
+    APP_NAME_PATTERN.test(name) &&
+    isGeneration(gen) &&
+    typeof label === "string" &&
+    label.length <= MAX_APP_NAME_LENGTH &&
+    label === labelFor(name, gen) &&
+    isFiniteNumber(issuedAt)
+  );
+}
+
+// Read apps.json in either shape it can have on disk.
+//
+// LEGACY (a bare array, what every released version wrote): the records carry
+// no labels, so generation-1 labels are hydrated in memory - `hostLabel` is the
+// name, `hostGen` is 1 - and the ledger is seeded from the live apps, each row
+// dated from the app's own `createdAt` (the best surviving evidence of when the
+// origin started being used). Nothing is written: this is a read path, it has
+// to work on a read-only state directory, and the first registration, update or
+// delete persists the envelope anyway. Labels of apps deleted BEFORE this
+// existed are unrecoverable - nothing ever recorded them - so a legacy office
+// starts its ledger from what is still live, which is the most it can know.
+//
+// ENVELOPE: read as written, with no such generosity. An envelope missing its
+// ledger is corruption, not a legacy file to be helpfully seeded: no released
+// version ever wrote one, so the only way to get one is damage or a hand edit,
+// and seeding it from the live apps would silently forget every retired origin.
+function loadState(file: string, dataRoot: string): RegistryState {
   const parsed = readStateFile(file);
-  if (parsed === undefined) return [];
-  if (!Array.isArray(parsed)) throw corrupt(file, "not a JSON array");
-  for (const record of parsed) {
+  if (parsed === undefined) return { apps: [], issuedLabels: [] };
+
+  const hydrate = (apps: PersistedApp[]): AppRecord[] =>
+    // Hydrate the derived path. This is the ONLY place an app's data directory
+    // comes from, so it is always the registry's own.
+    apps.map((app) => ({ ...app, dataDir: join(dataRoot, app.name) }));
+
+  if (Array.isArray(parsed)) {
+    for (const record of parsed) {
+      if (!isLegacyPersistedApp(record)) {
+        throw corrupt(file, "contains an entry that is not a valid app record");
+      }
+    }
+    const apps = (parsed as LegacyPersistedApp[]).map((app) => ({
+      ...app,
+      hostLabel: app.name,
+      hostGen: 1,
+    }));
+    return {
+      apps: hydrate(apps),
+      issuedLabels: apps.map((app) => ({
+        label: app.hostLabel,
+        name: app.name,
+        gen: app.hostGen,
+        issuedAt: app.createdAt,
+      })),
+    };
+  }
+
+  if (!isPlainObject(parsed)) {
+    throw corrupt(file, "neither a JSON array nor an object");
+  }
+  const { apps, issuedLabels } = parsed;
+  if (!Array.isArray(apps)) throw corrupt(file, '"apps" is not an array');
+  if (!Array.isArray(issuedLabels)) {
+    throw corrupt(file, '"issuedLabels" is not an array');
+  }
+  for (const record of apps) {
     if (!isPersistedApp(record)) {
       throw corrupt(file, "contains an entry that is not a valid app record");
     }
   }
-  // Hydrate the derived path. This is the ONLY place an app's data directory
-  // comes from, so it is always the registry's own.
-  return (parsed as PersistedApp[]).map((app) => ({
-    ...app,
-    dataDir: join(dataRoot, app.name),
-  }));
+  for (const entry of issuedLabels) {
+    if (!isIssuedLabel(entry)) {
+      throw corrupt(file, "contains an entry that is not a valid issued label");
+    }
+  }
+  return {
+    apps: hydrate(apps as PersistedApp[]),
+    issuedLabels: issuedLabels as IssuedLabel[],
+  };
 }
 
 // Cross-record invariants. Each record can be individually well-formed while
 // the set of them is impossible, and an impossible set is exactly the state in
 // which two LIVE apps end up sharing a name or a port.
-function assertConsistent(apps: AppRecord[], where: string): void {
+// A whole issuance as one comparable key. Serialized rather than concatenated
+// with a separator, so there is no character to pick that a part might one day
+// be allowed to contain.
+const tupleKey = (label: string, name: string, gen: number): string =>
+  JSON.stringify([label, name, gen]);
+
+function assertConsistent(state: RegistryState, where: string): void {
   const bad = (why: string) => {
     throw corrupt(where, why);
   };
+  // The ledger first, because the app checks below are answered out of it.
+  // Keyed by the WHOLE tuple, not by the label: `foo-g2` is an ambiguous
+  // string - it is what `foo` generation 2 is called and also what an app
+  // literally named `foo-g2` would be called - and an app matched against the
+  // wrong one of those is an app sharing an origin with its predecessor.
+  const issuedTuples = new Set<string>();
+  const issuedLabels = new Set<string>();
+  for (const entry of state.issuedLabels) {
+    if (issuedLabels.has(entry.label)) {
+      bad(`the label "${entry.label}" is recorded as issued twice`);
+    }
+    issuedLabels.add(entry.label);
+    issuedTuples.add(tupleKey(entry.label, entry.name, entry.gen));
+  }
+
   const liveNames = new Set<string>();
   const liveByPort = new Map<number, string>();
-  for (const app of apps) {
+  const liveByLabel = new Map<string, string>();
+  for (const app of state.apps) {
     if (liveNames.has(app.name)) bad(`two live apps named "${app.name}"`);
     liveNames.add(app.name);
     const clash = liveByPort.get(app.port);
@@ -392,6 +591,22 @@ function assertConsistent(apps: AppRecord[], where: string): void {
       bad(`"${clash}" and "${app.name}" both claim port ${app.port}`);
     }
     liveByPort.set(app.port, app.name);
+    const sameLabel = liveByLabel.get(app.hostLabel);
+    if (sameLabel !== undefined) {
+      bad(`"${sameLabel}" and "${app.name}" both answer to "${app.hostLabel}"`);
+    }
+    liveByLabel.set(app.hostLabel, app.name);
+    if (app.hostLabel !== labelFor(app.name, app.hostGen)) {
+      bad(
+        `"${app.name}" generation ${app.hostGen} cannot be called "${app.hostLabel}"`,
+      );
+    }
+    // A live app whose exact issuance is missing means the ledger has lost
+    // track of an origin that is in use, and the next registration could
+    // reissue it.
+    if (!issuedTuples.has(tupleKey(app.hostLabel, app.name, app.hostGen))) {
+      bad(`"${app.hostLabel}" is in use by "${app.name}" but never issued`);
+    }
   }
 }
 
@@ -490,8 +705,9 @@ export interface AppRegistry {
   // AppRegistryError on any refusal or failure.
   update(name: string, patch: UpdateAppInput): AppRecord | null;
   // Delete an app: set its data directory aside, then drop the record, freeing
-  // its name and port for reuse. Returns the removed record, or null when no
-  // app has that name.
+  // its name and port for reuse. Its hostname label is NOT freed - it stays in
+  // the ledger forever, so the next app to take the name is served somewhere
+  // else. Returns the removed record, or null when no app has that name.
   remove(name: string): AppRecord | null;
 }
 
@@ -516,17 +732,24 @@ export function createAppRegistry(
   // then as a set. Every public method starts here - including the reads,
   // because a read answered off a file the registry cannot vouch for is the
   // most convincing wrong answer it can give.
-  const snapshot = (): AppRecord[] => {
-    const apps = loadApps(appsFile, dataRoot);
-    assertConsistent(apps, appsFile);
-    return apps;
+  const snapshot = (): RegistryState => {
+    const state = loadState(appsFile, dataRoot);
+    assertConsistent(state, appsFile);
+    return state;
   };
 
+  // The one way state goes back to disk: records and ledger together, always.
+  const persist = (state: RegistryState): void =>
+    writeStateFile(appsFile, {
+      apps: state.apps.map(strip),
+      issuedLabels: state.issuedLabels,
+    } satisfies AppsFile);
+
   return {
-    list: () => snapshot(),
+    list: () => snapshot().apps,
 
     get(name) {
-      return snapshot().find((a) => a.name === name) ?? null;
+      return snapshot().apps.find((a) => a.name === name) ?? null;
     },
 
     register(input) {
@@ -539,7 +762,8 @@ export function createAppRegistry(
 
       // The whole registry is read and validated BEFORE anything is written, so
       // a corrupt registry refuses the registration instead of half-applying it.
-      const apps = snapshot();
+      const state = snapshot();
+      const apps = state.apps;
 
       if (apps.length >= MAX_REGISTERED_APPS) {
         throw new AppRegistryError(
@@ -553,9 +777,32 @@ export function createAppRegistry(
           `an app named "${input.name}" is already registered`,
         );
       }
+      // The reverse collision: the requested name is a hostname some OTHER app
+      // has already held. Refused rather than suffixed - the allocation walk
+      // below would keep it safe by landing on `<name>-g2`, but an app whose
+      // address is the corpse of an unrelated app's address, spelled twice over,
+      // is a confusion worth refusing outright. A name colliding with its OWN
+      // earlier generations is the ordinary recycle path and passes through
+      // here; a name a LIVE app holds was refused as `name_taken` above.
+      const foreignOrigin = state.issuedLabels.find(
+        (e) => e.label === input.name && e.name !== input.name,
+      );
+      if (foreignOrigin) {
+        throw new AppRegistryError(
+          "origin_retired",
+          `"${input.name}" was the address of the app "${foreignOrigin.name}", ` +
+            `so it stays retired and cannot be taken as a name; choose another`,
+        );
+      }
       // Only LIVE ports are off limits. A deleted app's port is free the moment
       // its record goes, so the lowest gap is the next port handed out.
       const port = allocatePort(new Set(apps.map((a) => a.port)), probePort);
+      // Labels, unlike ports, are never freed: the ledger is what a deleted
+      // app's origin stays spoken for in.
+      const { label, gen } = allocateLabel(
+        input.name,
+        new Set(state.issuedLabels.map((e) => e.label)),
+      );
 
       // Data dir first, record second: an orphan directory after a failed
       // record write is recoverable, a record pointing at a directory that was
@@ -572,8 +819,14 @@ export function createAppRegistry(
         );
       }
 
+      // ONE clock reading for the record and its issuance, so the ledger row
+      // and the app it belongs to are dated the same moment rather than two
+      // milliseconds that happen to be adjacent.
+      const at = now();
       const persisted: PersistedApp = {
         name: input.name,
+        hostLabel: label,
+        hostGen: gen,
         port,
         command: input.command,
         cwd: input.cwd,
@@ -589,9 +842,18 @@ export function createAppRegistry(
         ...(input.createdByAgentId
           ? { createdByAgentId: input.createdByAgentId }
           : {}),
-        createdAt: now(),
+        createdAt: at,
       };
-      writeStateFile(appsFile, [...apps.map(strip), persisted]);
+      // Record and issuance in the same write: a registration that landed
+      // without its ledger row would leave the next one free to reissue this
+      // app's own address.
+      persist({
+        apps: [...apps, { ...persisted, dataDir }],
+        issuedLabels: [
+          ...state.issuedLabels,
+          { label, name: input.name, gen, issuedAt: at },
+        ],
+      });
       return { ...persisted, dataDir };
     },
 
@@ -611,7 +873,8 @@ export function createAppRegistry(
         assertDescription(patch.description);
       }
 
-      const apps = snapshot();
+      const state = snapshot();
+      const apps = state.apps;
       const index = apps.findIndex((a) => a.name === name);
       if (index < 0) return null;
 
@@ -630,15 +893,18 @@ export function createAppRegistry(
         updated.description = patch.description;
       }
 
-      writeStateFile(
-        appsFile,
-        apps.map((a, i) => strip(i === index ? updated : a)),
-      );
+      // The ledger goes back untouched: nothing an update can change affects
+      // which origins have been handed out.
+      persist({
+        apps: apps.map((a, i) => (i === index ? updated : a)),
+        issuedLabels: state.issuedLabels,
+      });
       return updated;
     },
 
     remove(name) {
-      const apps = snapshot();
+      const state = snapshot();
+      const apps = state.apps;
       const record = apps.find((a) => a.name === name);
       if (!record) return null;
 
@@ -664,10 +930,13 @@ export function createAppRegistry(
           `the app's data directory could not be set aside, so "${record.name}" was not deleted; inspect server logs and retry`,
         );
       }
-      writeStateFile(
-        appsFile,
-        apps.filter((a) => a.name !== record.name).map(strip),
-      );
+      // The record goes, the ISSUANCE stays. That asymmetry is the whole point:
+      // the name and the port come back to the pool, and the address does not,
+      // so whoever takes the name next is served somewhere this app never was.
+      persist({
+        apps: apps.filter((a) => a.name !== record.name),
+        issuedLabels: state.issuedLabels,
+      });
       return record;
     },
   };

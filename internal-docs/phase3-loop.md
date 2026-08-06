@@ -135,7 +135,16 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
 
 ## Slice plan (accepted 2026-08-06; details in each pickup as authored)
 
-- [ ] S1  Hostname ledger + label allocation (registry only, dark).
+- [x] S1  Hostname ledger + label allocation (registry only, dark).
+         (Isomuxer1/Reviewer1, plan-gate 7 adjustments, diff-gate approved
+         3cb361eb first round, committed with this edit. apps.json is now an
+         envelope {apps, issuedLabels} - one file so a crash cannot separate
+         a live app from its ledger row; legacy array files migrate LAZILY
+         on read, no write on the read path. 11 mutations, all killed.
+         Product-visible notes for Nil's pass: origin_retired permanently
+         bans one exact string as a future NAME (clean error over silent
+         -g2-g2 walk); grandfathered 60-63 char names cannot re-register
+         after delete; a 59-char name exhausts generations at g100.)
 - [ ] S2  Office cookie `__Host-` hardening (independent; before S5).
 - [ ] S3  Apps domain config + Host matching (dark until configured).
 - [ ] S4  Auth handshake (single-use code, app cookie; no app bytes yet).
@@ -213,3 +222,64 @@ migration mechanics.
 
 Locked: label shape default (manager-accepted, reversible until S7), the
 registry's fail-closed posture, everything in Standing rails.
+
+## SLICE-2 PICKUP (authored after S1's commit; baseline = that commit)
+
+What S1 taught (real, from its report): apps.json is an envelope
+{apps, issuedLabels}; ledger rows are {label, name, gen, issuedAt} and the
+registry's invariants match live apps against the exact issuance TUPLE, not
+the label. New AppErrorCodes origin_retired and no_label_available (both
+409). A NUL byte in any source file breaks grep/ripgrep and trips
+source-hygiene.test.ts - pick separators that are printable or use
+JSON.stringify keys.
+
+Goal: the office session cookie gets the `__Host-` prefix wherever the
+deployment can carry it, WITHOUT logging anyone out anywhere. This closes
+the cookie-shadowing hole (an app page on a subdomain setting a
+`Domain=<office>` cookie that shadows the office session) BEFORE any app is
+reachable; port-proxy-design.md:276 filed it as eventual cleanup, S5 makes
+it load-bearing.
+
+Load-bearing mechanics and traps:
+- `server/auth.ts:1587` COOKIE_NAME ("isomux_session") and every read/write
+  path in auth.ts + auth-middleware.ts. Grep for other cookie touchpoints
+  (login flow, logout, WS upgrade auth) before planning - the plan-gate
+  should list every site that reads or writes the cookie.
+- `__Host-` rules (browser-enforced): requires Secure, no Domain attribute,
+  Path=/. So the new name is only WRITABLE on HTTPS deployments.
+- HOW THE SERVER KNOWS IT IS HTTPS: the office server sits on loopback
+  behind a terminator (Caddy, tailscale serve), so the request itself is
+  plain HTTP. Decide the signal with the reviewer (publicOrigin scheme is
+  the honest deployment-level signal; do NOT trust a client-supplied
+  X-Forwarded-Proto without establishing why it is trustworthy here).
+  State the chosen signal and its failure mode in the report.
+- DUAL-READ, one release: accept BOTH cookie names on every auth path
+  (HTTP + WS). Writes use the new name on HTTPS, the legacy name otherwise.
+  An existing session under the legacy name keeps working; decide with the
+  reviewer whether/when it is re-issued under the new name (e.g. on next
+  successful auth touch) and whether the legacy cookie is then cleared.
+  Logout clears BOTH names.
+- SHADOWING TEST: the point of the slice - prove that when both a
+  `__Host-isomux_session` and a Domain-set `isomux_session` arrive, the
+  `__Host-` one wins on HTTPS deployments, and a bogus injected legacy
+  cookie cannot displace an authenticated `__Host-` session.
+- Loopback-HTTP installs (dev, plain localhost): behavior byte-identical to
+  today. Feature-inert there, like everything in this loop.
+- This is Nil's own login path (flagged in PARKED FOR NIL): dual-read is
+  the no-logout guarantee - test it hard. Fail toward "existing sessions
+  keep working"; fail-closed only against cookies that violate the rules.
+- Tests: cookie-attribute pins for both arms; dual-read acceptance matrix
+  (HTTP + WS upgrade); shadowing; logout clears both; mutation-check and
+  say so.
+
+Acceptance: isolated-instance demo transcript for BOTH arms (an HTTPS-shaped
+instance - publicOrigin https - sets and accepts `__Host-isomux_session`;
+a plain-HTTP instance is byte-identical to today); the shadowing proof;
+always-run gates green (test:systemd not expected - no supervisor files);
+reviewer approve on the final announced fingerprint; all new prose (there
+should be none user-visible) confirmed absent or quoted.
+
+Decide with reviewer: HTTPS signal, re-issue timing, legacy-cookie clearing.
+
+Locked: no logout of existing sessions anywhere, dual-read for at least one
+release, everything in Standing rails.

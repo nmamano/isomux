@@ -603,6 +603,8 @@ describe("reducer: reconnect replay window (full_state → log_replay_complete)"
 function appWire(name: string, over: Partial<AppWire> = {}): AppWire {
   return {
     name,
+    hostLabel: name,
+    hostGen: 1,
     port: 21000,
     command: "bun run serve.ts",
     cwd: "/home/alice/app",

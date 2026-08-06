@@ -44,6 +44,8 @@ afterEach(() => {
 
 const record = (over: Partial<AppRecord> = {}): AppRecord => ({
   name: "hello",
+  hostLabel: "hello",
+  hostGen: 1,
   port: 21000,
   command: "bun run serve.ts",
   cwd: "/srv/hello",

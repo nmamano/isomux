@@ -1897,6 +1897,8 @@ describe("routes/apps REST: an app token reaches nothing", () => {
 function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
   const record: AppRecord = {
     name: "hello",
+    hostLabel: "hello",
+    hostGen: 1,
     port: 21000,
     command: "bun run serve.ts",
     cwd: "/tmp",

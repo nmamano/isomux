@@ -33,7 +33,10 @@ import {
   APP_PORT_MIN,
   MAX_REGISTERED_APPS,
   MAX_APP_NAME_LENGTH,
+  MAX_NEW_APP_NAME_LENGTH,
   MAX_APP_COMMAND_LENGTH,
+  labelFor,
+  allocateLabel,
   RESERVED_APP_NAMES,
   type AppRegistry,
 } from "./app-registry.ts";
@@ -86,7 +89,7 @@ describe("app-registry: name validation", () => {
       "my-app",
       "app2",
       "a-b-c",
-      "x".repeat(MAX_APP_NAME_LENGTH),
+      "x".repeat(MAX_NEW_APP_NAME_LENGTH),
     ]) {
       expect(checkAppName(good)).toBeNull();
     }
@@ -98,7 +101,10 @@ describe("app-registry: name validation", () => {
       ["trail-", "invalid_name"],
       ["has space", "invalid_name"],
       ["dot.name", "invalid_name"], // one LABEL, not a hostname
-      ["x".repeat(MAX_APP_NAME_LENGTH + 1), "invalid_name"],
+      // A new name stops SHORT of the DNS ceiling, so there is room to append a
+      // generation suffix later without outgrowing a hostname label.
+      ["x".repeat(MAX_NEW_APP_NAME_LENGTH + 1), "invalid_name"],
+      ["x".repeat(MAX_APP_NAME_LENGTH), "invalid_name"],
       ["../etc", "invalid_name"],
       ["www", "reserved_name"],
       ["api", "reserved_name"],
@@ -365,6 +371,220 @@ describe("app-registry: delete frees the name and the port", () => {
   });
 });
 
+// The slice-1 subject: a name is what a human types, a LABEL is what a browser
+// keys security state to, and those two have to come apart the moment a name is
+// reused. Every test below is written against the consequence - the successor
+// never lands on the predecessor's address - rather than against the mechanism.
+describe("app-registry: hostname labels and the issuance ledger", () => {
+  // The ledger as it sits on disk. Read directly rather than through the
+  // registry, because "what a future process will believe" is the actual claim.
+  const ledgerOnDisk = () =>
+    JSON.parse(readFileSync(join(dir, "apps.json"), "utf-8")).issuedLabels;
+
+  it("derives generation labels: gen 1 is the bare name, later ones are suffixed", () => {
+    expect(labelFor("hello", 1)).toBe("hello");
+    expect(labelFor("hello", 2)).toBe("hello-g2");
+    expect(labelFor("hello", 17)).toBe("hello-g17");
+  });
+
+  it("walks to the first label the ledger has never issued", () => {
+    expect(allocateLabel("hello", new Set())).toEqual({
+      label: "hello",
+      gen: 1,
+    });
+    expect(allocateLabel("hello", new Set(["hello"]))).toEqual({
+      label: "hello-g2",
+      gen: 2,
+    });
+    // A candidate can be taken for an unrelated reason - here `hello-g2` was
+    // issued to an app literally NAMED that - and the walk simply steps over it.
+    expect(allocateLabel("hello", new Set(["hello", "hello-g2"]))).toEqual({
+      label: "hello-g3",
+      gen: 3,
+    });
+  });
+
+  it("refuses rather than emitting a label too long to be a hostname", () => {
+    // A name at the registration limit survives 98 recycles; the 99th has
+    // nowhere left to go inside one DNS label, and the honest answer is to say
+    // so rather than hand out an address that cannot resolve.
+    const name = "x".repeat(MAX_NEW_APP_NAME_LENGTH);
+    const issued = new Set<string>([name]);
+    for (let gen = 2; gen <= 99; gen++) issued.add(labelFor(name, gen));
+    expect(labelFor(name, 99).length).toBe(MAX_APP_NAME_LENGTH);
+    expect(() => allocateLabel(name, issued)).toThrow(
+      expect.objectContaining({ code: "no_label_available" }),
+    );
+  });
+
+  it("stamps a first registration with its own name and generation 1", () => {
+    const app = make().register(registerInput("hello"));
+    expect([app.hostLabel, app.hostGen]).toEqual(["hello", 1]);
+    // Through disk, and dated the same instant as the record itself rather than
+    // a clock reading of its own.
+    expect(ledgerOnDisk()).toEqual([
+      { label: "hello", name: "hello", gen: 1, issuedAt: app.createdAt },
+    ]);
+    expect(make().get("hello")!.hostLabel).toBe("hello");
+  });
+
+  it("a re-registered name gets a DIFFERENT address, and the old one stays spoken for", () => {
+    // The whole point of the slice. A browser that talked to the first `hello`
+    // can still be holding its service worker and storage for that origin; the
+    // second `hello` must not be served there.
+    const reg = make();
+    const first = reg.register(registerInput("hello"));
+    reg.remove("hello");
+    const second = reg.register(registerInput("hello"));
+
+    expect(second.name).toBe("hello"); // the NAME came back...
+    expect(second.hostLabel).toBe("hello-g2"); // ...the ADDRESS did not
+    expect(second.hostGen).toBe(2);
+    expect(second.hostLabel).not.toBe(first.hostLabel);
+    // And a third generation keeps walking rather than reusing either.
+    reg.remove("hello");
+    expect(reg.register(registerInput("hello")).hostLabel).toBe("hello-g3");
+
+    // Both retired addresses are still on record, so no future registration -
+    // in this process or any later one - can be handed them.
+    expect(ledgerOnDisk().map((e: { label: string }) => e.label)).toEqual([
+      "hello",
+      "hello-g2",
+      "hello-g3",
+    ]);
+  });
+
+  it("the ledger outlives the process, not just the registry object", () => {
+    make().register(registerInput("hello"));
+    make().remove("hello");
+    // A COLD registry over the same directory: the label walk is answered from
+    // the file, so it cannot depend on anything held in memory.
+    expect(make().register(registerInput("hello")).hostLabel).toBe("hello-g2");
+  });
+
+  it("deleting an app never prunes its issuance, and an update never touches the ledger", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+    const before = ledgerOnDisk();
+    reg.update("hello", { command: "bun run other.ts" });
+    expect(ledgerOnDisk()).toEqual(before);
+    reg.remove("hello");
+    expect(ledgerOnDisk()).toEqual(before);
+  });
+
+  it("refuses a name that is some OTHER app's retired address", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+    reg.remove("hello");
+    reg.register(registerInput("hello")); // now `hello-g2` is issued, to `hello`
+
+    expect(() => reg.register(registerInput("hello-g2"))).toThrow(
+      expect.objectContaining({ code: "origin_retired" }),
+    );
+    // Nothing was written by the refusal.
+    expect(reg.list().map((a) => a.name)).toEqual(["hello"]);
+    expect(existsSync(join(dir, "data", "hello-g2"))).toBe(false);
+  });
+
+  it("a name colliding with its OWN earlier generations is the ordinary recycle path", () => {
+    // The refusal above must be narrow: `hello`'s gen-1 label IS `hello`, so a
+    // rule phrased as "any previously issued label" would make a name
+    // unusable after its first delete - the exact case this feature is for.
+    const reg = make();
+    reg.register(registerInput("hello"));
+    reg.remove("hello");
+    expect(() => reg.register(registerInput("hello"))).not.toThrow();
+  });
+
+  it("a live app's name is still refused as name_taken, not origin_retired", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+    expect(() => reg.register(registerInput("hello"))).toThrow(
+      expect.objectContaining({ code: "name_taken" }),
+    );
+  });
+
+  it("a name at the registration limit still fits a suffix at the DNS ceiling", () => {
+    const name = "x".repeat(MAX_NEW_APP_NAME_LENGTH);
+    const reg = make();
+    reg.register(registerInput(name));
+    reg.remove(name);
+    const second = reg.register(registerInput(name));
+    expect(second.hostLabel).toBe(`${name}-g2`);
+    expect(second.hostLabel.length).toBeLessThanOrEqual(MAX_APP_NAME_LENGTH);
+  });
+
+  it("hydrates a label-less apps.json without writing to it", () => {
+    // What every office out there has: an array of records, no labels, no
+    // ledger. It loads as generation 1, seeded from what is still live - the
+    // most a file that never recorded a deletion can know.
+    const legacy = JSON.stringify([
+      {
+        name: "old",
+        port: APP_PORT_MIN,
+        command: "bun run serve.ts",
+        cwd: "/tmp",
+        userId: "u-owner",
+        username: "Nil",
+        createdBy: "Isomuxer2",
+        createdAt: 4242,
+      },
+    ]);
+    writeFileSync(join(dir, "apps.json"), legacy);
+
+    const app = make().get("old")!;
+    expect([app.hostLabel, app.hostGen]).toEqual(["old", 1]);
+    // A READ wrote nothing: this has to work on a read-only state directory,
+    // and reading twice has to give the same answer.
+    expect(readFileSync(join(dir, "apps.json"), "utf-8")).toBe(legacy);
+    expect(make().get("old")).toEqual(app);
+
+    // The first WRITE persists the envelope, and the hydrated issuance is dated
+    // from the app's own creation - the best surviving evidence of when that
+    // address started being used.
+    make().register(registerInput("new"));
+    expect(ledgerOnDisk()).toEqual([
+      { label: "old", name: "old", gen: 1, issuedAt: 4242 },
+      {
+        label: "new",
+        name: "new",
+        gen: 1,
+        issuedAt: make().get("new")!.createdAt,
+      },
+    ]);
+    // ...and the legacy app kept its address across the rewrite.
+    expect(make().get("old")!.hostLabel).toBe("old");
+  });
+
+  it("a grandfathered over-long name loads, runs, and cannot be re-registered", () => {
+    // 63 characters was legal before this slice. Such a record must keep
+    // working; what it cannot do is come back after a delete, because a new
+    // registration has to leave room for a generation suffix.
+    const name = "y".repeat(MAX_APP_NAME_LENGTH);
+    writeFileSync(
+      join(dir, "apps.json"),
+      JSON.stringify([
+        {
+          name,
+          port: APP_PORT_MIN,
+          command: "bun run serve.ts",
+          cwd: "/tmp",
+          userId: "u-owner",
+          username: "Nil",
+          createdBy: "Isomuxer2",
+          createdAt: 1,
+        },
+      ]),
+    );
+    const reg = make();
+    expect(reg.get(name)!.hostLabel).toBe(name);
+    expect(reg.remove(name)?.name).toBe(name);
+    expect(() => reg.register(registerInput(name))).toThrow(
+      expect.objectContaining({ code: "invalid_name" }),
+    );
+  });
+});
+
 describe("app-registry: a legacy app-history.json is ignored", () => {
   // Deletes used to write tombstones there. The file is never read, never
   // written and never deleted, so an office that upgrades into this ruling just
@@ -405,9 +625,110 @@ describe("app-registry: corruption fails LOUD, never empty", () => {
       },
     ]);
 
+  // The same record in the CURRENT shape, with the ledger alongside it, so the
+  // envelope-only damage cases can be written as one-field mutations too.
+  const envelope = (over: Record<string, unknown> = {}, ledger?: unknown) =>
+    JSON.stringify({
+      apps: [
+        {
+          name: "hello",
+          hostLabel: "hello",
+          hostGen: 1,
+          port: APP_PORT_MIN,
+          command: "bun run serve.ts",
+          cwd: "/tmp",
+          userId: "u-owner",
+          username: "Nil",
+          createdBy: "Isomuxer2",
+          createdAt: 1,
+          ...over,
+        },
+      ],
+      issuedLabels:
+        ledger === undefined
+          ? [{ label: "hello", name: "hello", gen: 1, issuedAt: 1 }]
+          : ledger,
+    });
+
   const cases: [string, string, string][] = [
     ["apps.json", "not JSON at all", "{not json"],
-    ["apps.json", "an object where an array belongs", '{"apps":[]}'],
+    ["apps.json", "neither an array nor an object", "42"],
+    // An envelope with no ledger is DAMAGE, not an old file to be helpfully
+    // seeded: no released version ever wrote one, and inventing a ledger for it
+    // would forget every origin a deleted app used to hold.
+    ["apps.json", "an envelope with no ledger", '{"apps":[]}'],
+    ["apps.json", "an envelope with no apps key", '{"issuedLabels":[]}'],
+    [
+      "apps.json",
+      "an envelope whose ledger is not an array",
+      envelope({}, { hello: 1 }),
+    ],
+    // Inside an envelope the host fields are REQUIRED - absence there is not an
+    // old file, it is a record something wrote without understanding labels.
+    [
+      "apps.json",
+      "an envelope record with no hostLabel",
+      envelope({ hostLabel: undefined }),
+    ],
+    [
+      "apps.json",
+      "an envelope record with no hostGen",
+      envelope({ hostGen: undefined }),
+    ],
+    [
+      "apps.json",
+      "a generation that is not a whole number",
+      envelope({ hostGen: 1.5 }),
+    ],
+    ["apps.json", "a generation of zero", envelope({ hostGen: 0 })],
+    // The label has to be the one the name and generation DERIVE, or the record
+    // is claiming an address that belongs to some other app's lineage.
+    [
+      "apps.json",
+      "a label that is not the one the name and generation derive",
+      envelope({ hostLabel: "elsewhere" }),
+    ],
+    [
+      "apps.json",
+      "a ledger row whose label contradicts its own name and generation",
+      envelope({}, [{ label: "wat", name: "hello", gen: 1, issuedAt: 1 }]),
+    ],
+    [
+      "apps.json",
+      "a ledger row with a non-integer generation",
+      envelope({}, [{ label: "hello", name: "hello", gen: 1.5, issuedAt: 1 }]),
+    ],
+    [
+      "apps.json",
+      "a ledger row with no issuedAt",
+      envelope({}, [{ label: "hello", name: "hello", gen: 1 }]),
+    ],
+    [
+      "apps.json",
+      "the same label recorded as issued twice",
+      envelope({}, [
+        { label: "hello", name: "hello", gen: 1, issuedAt: 1 },
+        { label: "hello", name: "hello", gen: 1, issuedAt: 2 },
+      ]),
+    ],
+    // A live app whose issuance is missing: the ledger has lost track of an
+    // address that is in use, and the next registration could hand it out.
+    [
+      "apps.json",
+      "a live app that was never issued its label",
+      envelope({}, []),
+    ],
+    // The ambiguity the ledger tuple exists to resolve: `foo-g2` is BOTH what
+    // `foo` generation 2 is called and what an app literally named `foo-g2`
+    // would be called. Matching a live app on the label alone would accept this
+    // file, and it describes an app serving on another lineage's address.
+    [
+      "apps.json",
+      "a live app matching an issued LABEL but not its issuance",
+      envelope({ name: "foo-g2", hostLabel: "foo-g2", hostGen: 1 }, [
+        { label: "foo-g2", name: "foo", gen: 2, issuedAt: 1 },
+      ]),
+    ],
     ["apps.json", "truncated write (NOT the same as absent)", ""],
     ["apps.json", "record missing everything but a name", '[{"name":"hello"}]'],
     ["apps.json", "a name that is a path traversal", good({ name: "../etc" })],
