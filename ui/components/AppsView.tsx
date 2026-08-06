@@ -467,6 +467,7 @@ export function AppsView({ onClose }: { onClose: () => void }) {
                       return (
                         <button
                           key={verb}
+                          title={VERB_TITLES[verb]}
                           disabled={inert}
                           onClick={() => void act(app.name, verb)}
                           style={btnStyle(false, inert)}
@@ -476,6 +477,7 @@ export function AppsView({ onClose }: { onClose: () => void }) {
                       );
                     })}
                     <button
+                      title="Show the app's recent output"
                       disabled={isBusy}
                       onClick={() => void toggleLogs(app.name)}
                       style={btnStyle(false, isBusy)}
@@ -483,6 +485,7 @@ export function AppsView({ onClose }: { onClose: () => void }) {
                       {openLogs === app.name ? "hide log" : "log"}
                     </button>
                     <button
+                      title="Remove the app"
                       disabled={isBusy}
                       onClick={() => setConfirmDelete(app)}
                       style={btnStyle(true, isBusy)}
@@ -580,6 +583,12 @@ export function AppsView({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
+
+const VERB_TITLES = {
+  start: "Run the app",
+  stop: "Shut the app down (its data is kept)",
+  restart: "Stop the app and start it again",
+} as const;
 
 // A verb that cannot change the app's current state renders disabled: "start"
 // on a running app reads as a bug even though systemd would no-op it. State
