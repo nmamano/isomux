@@ -57,6 +57,11 @@ describe("identity: capability sets (Phase 2.1)", () => {
           // capability rather than office:read, which an agent token does not
           // carry - see the Capability union.
           "log:read",
+          // The app registry. BASELINE, not a privileged extra: an ordinary
+          // agent registering the app it just built is the whole feature. Who
+          // may touch WHICH app is the appOwnerOrOfficeOwner guard's job.
+          "app:read",
+          "app:write",
         ] as Capability[]
       ).sort(),
     );
@@ -66,7 +71,8 @@ describe("identity: capability sets (Phase 2.1)", () => {
     // task:read/task:write are here because the cron system prompt hands a run
     // the office-global board; it reached it over the retired loopback /tasks
     // route before. Nothing else: a run cannot spawn, converse, or read cron -
-    // and NOT log:read either: a run has no room, no chat, and no history.
+    // and NOT log:read either: a run has no room, no chat, and no history. Nor
+    // app:read/app:write: a run has nobody to hand a URL to.
     expect([...RUN_CAPABILITIES]).toEqual([
       "self:affordance",
       "task:read",

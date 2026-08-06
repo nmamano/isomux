@@ -69,6 +69,10 @@ export interface GuardDeps {
   userIdForUsername(username: string): string | null;
   // The creator userId of `cronjobId`, or null if unknown / unowned.
   cronjobCreatorUserId(cronjobId: string): string | null;
+  // The OWNER userId of the app registered under `name`, or null if no such app
+  // exists / it has no owner. Unknown and unowned collapse into the same null,
+  // so a caller cannot use a denial to probe which names are taken.
+  appOwnerUserId(name: string): string | null;
   // The MANAGER userId of `agentId` - the spawning user (AgentInfo.userId) - or
   // null if the agent is unknown / unowned. Gates agents.setPrivileged: a member
   // may toggle privilege only on agents they manage.
@@ -144,6 +148,20 @@ export const publicGuard: Guard = () => ALLOW;
 // identity" into 401 before stage 2; this is the explicit "any authenticated
 // caller, no object-level restriction" marker.)
 export const authenticated: Guard = () => ALLOW;
+
+// The caller has an OWNING USER. Composed onto routes that create something a
+// user must own afterwards - today apps.register.
+//
+// This is an identity SEMANTIC, not body validation, which is why it is a guard
+// rather than a check in the handler: `userId` is null for an agent token minted
+// without a spawning user (mintAgentToken's second parameter is nullable), and
+// an app registered by such a token would belong to nobody. It would then be
+// invisible and undeletable to the very agent that created it - appOwnerUserId
+// returns null, which owner-matches nothing - leaving an office owner as the
+// only party who could clean it up. Refusing at the door is the difference
+// between "you cannot do that" and a resource nobody can reach.
+export const hasOwningUser: Guard = ({ identity }) =>
+  identity.userId ? ALLOW : FORBIDDEN;
 
 // USER-only owner gate. `scope === "user"` is REQUIRED so a non-user identity
 // can never be authorized via role - role is an inert "member" filler for AGENT
@@ -256,6 +274,47 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
     const roomId = resolveRoomId(ref, params, body, deps);
     if (roomId === null) return FORBIDDEN;
     return deps.hasRoomAccess(identity, roomId) ? ALLOW : FORBIDDEN;
+  };
+}
+
+// App read/delete: the USER who OWNS the app, OR an office owner, OR an agent
+// whose spawning user owns it. Reached by apps.get and apps.delete; apps.list
+// is filtered per-caller in the handler instead (there is no :name to gate on).
+//
+// Shaped like cronjobOwnerOrOfficeOwner, with ONE semantic difference that is
+// easy to miss when reading them side by side. There, `cron:manage` is the
+// PRIVILEGE signal: an ordinary agent does not hold it, so only a deliberately
+// privileged one reaches the owner-match. Here `app:read` is BASELINE for every
+// agent - an agent managing the apps its user owns is the entire feature, not
+// an escalation. What keeps that safe is the owner match itself, which binds an
+// agent to its own manager's apps and nobody else's; the capability check
+// remains as the participation signal that denies a CRON-RUN identity (which
+// holds neither app capability) even when this guard is contract-tested in
+// isolation with no stage 1 above it.
+//
+// An unknown name denies exactly like another user's app, so a denial is never
+// an oracle for which names are taken. That matters more here than elsewhere:
+// names are permanently unique, so "is this name free" is a real question a
+// caller might want answered, and registration is the only place it gets an
+// answer.
+//
+// The officeOwner branch requires scope==="user" + owner, so an agent can never
+// reach office-wide app powers - only its own user's.
+export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
+  return (ctx) => {
+    const { identity, params, deps } = ctx;
+    const participates =
+      identity.scope === "user" ||
+      (identity.scope === "agent" &&
+        identityHasCapability(identity, "app:read"));
+    if (!participates) return FORBIDDEN;
+    if (officeOwner(ctx).ok) return ALLOW;
+    const name = params[nameParamName];
+    if (!name) return FORBIDDEN;
+    const ownerUserId = deps.appOwnerUserId(name);
+    return ownerUserId !== null && ownerUserId === identity.userId
+      ? ALLOW
+      : FORBIDDEN;
   };
 }
 

@@ -41,6 +41,7 @@ const deps: GuardDeps = {
   roomIdForAgent: () => "r-1",
   userIdForUsername: () => null,
   cronjobCreatorUserId: () => null,
+  appOwnerUserId: () => null,
   agentManagerUserId: () => null,
   killedAgentManagerUserId: () => null,
 };

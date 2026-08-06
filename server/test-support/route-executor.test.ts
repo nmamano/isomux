@@ -38,6 +38,7 @@ const NOOP_GUARD_DEPS: GuardDeps = {
   roomIdForAgent: () => null,
   userIdForUsername: () => null,
   cronjobCreatorUserId: () => null,
+  appOwnerUserId: () => null,
   agentManagerUserId: () => null,
   killedAgentManagerUserId: () => null,
 };

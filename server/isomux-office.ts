@@ -148,6 +148,8 @@ import {
   type HandlerErrorStatus,
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
+import { appsHandlers } from "./routes/handlers/apps.ts";
+import { appRegistry } from "./app-registry.ts";
 import { memoryHandlers } from "./routes/handlers/memory.ts";
 import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
@@ -1200,6 +1202,7 @@ function buildLiveGuardDeps(): GuardDeps {
       agentManager.killedAgentManagerUserId(agentId),
     getUserByName: (username) => getUserByName(username) ?? null,
     listCronjobs: () => cronjobManager.listCronjobs(),
+    listApps: () => appRegistry.list(),
   };
   return buildProductionGuardDeps(readers);
 }
@@ -1444,6 +1447,30 @@ function buildExecutorDeps(): ExecutorDeps {
       attributionFor,
       accessibleRoomIds: accessibleRoomIdsForIdentity,
       defaultCreateRoomId: defaultCreateRoomIdForIdentity,
+    }),
+  );
+
+  // Apps (agent-built web apps). Ownership + attribution come from the token:
+  // the app belongs to the caller's USER so it outlives the agent that built
+  // it. Registry errors (including a corrupt or unwritable registry) surface as
+  // themselves - nothing here converts a failure into a success or an empty
+  // list.
+  register(
+    appsHandlers({
+      list: () => appRegistry.list(),
+      get: (name) => appRegistry.get(name),
+      register: (input) => appRegistry.register(input),
+      remove: (name) => appRegistry.remove(name),
+      attributionFor,
+      validateCwd: (cwd) => {
+        try {
+          return { ok: true, resolved: agentManager.validateCwd(cwd) };
+        } catch (err) {
+          return { ok: false, error: errMessage(err, "Invalid directory") };
+        }
+      },
+      isOfficeOwner: (identity) =>
+        identity.scope === "user" && identity.role === "owner",
     }),
   );
 

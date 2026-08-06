@@ -289,6 +289,7 @@ describe("prefs.update - agent tokens are locked out", () => {
     roomIdForAgent: () => "r-1",
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => "u-1",
+    appOwnerUserId: () => null,
     agentManagerUserId: () => "u-1",
     killedAgentManagerUserId: () => null,
   };

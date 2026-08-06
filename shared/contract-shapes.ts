@@ -13,6 +13,7 @@ import type {
   UserRecord,
   AgentInfo,
   AgentBackendType,
+  AppRecord,
   TaskItem,
   Cronjob,
   Attachment,
@@ -642,6 +643,49 @@ export interface CronRunMessageReq {
 export interface CronPromptReq {
   value: string | null;
 }
+
+// --- Agent-built apps -------------------------------------------------------
+// The wire contract for the app registry (internal-docs/agent-apps-design.md).
+// Defined here rather than in server/app-registry.ts so the route table, the
+// registry, and the handler cannot drift.
+
+// What an app is doing. The registry persists NO state field: a stored
+// "running" is a lie the moment the box reboots, so state is DERIVED at read
+// time. Until a supervisor exists, nothing runs and every app reads
+// "registered".
+export type AppState = "registered";
+
+export interface AppWire extends AppRecord {
+  state: AppState;
+}
+
+// POST /api/apps. The port is NOT here and never will be: allocating it is the
+// point of the registry. cwd may use `~/`; the response carries it resolved.
+export interface AppRegisterReq {
+  name: string;
+  command: string;
+  cwd: string;
+  description?: string;
+}
+
+// The `error.code` values the app routes answer with, as a closed union so the
+// registry (which raises them) and the handler (which maps them to statuses)
+// cannot drift. name_taken and name_retired stay DISTINCT because they are
+// different facts: "someone else has this name" versus "nobody can ever have
+// this name again".
+export type AppErrorCode =
+  | "invalid_name"
+  | "reserved_name"
+  | "invalid_command"
+  | "invalid_cwd"
+  | "invalid_description"
+  | "name_taken"
+  | "name_retired"
+  | "app_limit_reached"
+  | "no_port_available"
+  // The two server-side failures. Neither is ever reported as success.
+  | "registry_corrupt"
+  | "persist_failed";
 
 // --- Storage retention (task 2366ccb0) --------------------------------------
 // The wire contract for the disk-usage breakdown and the manual pruner. Defined

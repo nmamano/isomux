@@ -41,6 +41,8 @@ import {
   runParamMustEqualTokenRun,
   requiresRoomAccess,
   cronjobOwnerOrOfficeOwner,
+  appOwnerOrOfficeOwner,
+  hasOwningUser,
   messageSend,
   conversationReset,
   logSearchAccess,
@@ -106,6 +108,7 @@ function makeDeps(over: Partial<GuardDeps> = {}): GuardDeps {
     roomIdForAgent: () => null,
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => null,
+    appOwnerUserId: () => null,
     agentManagerUserId: () => null,
     killedAgentManagerUserId: () => null,
     ...over,
@@ -434,6 +437,115 @@ describe("guard: requiresRoomAccess (bodyRoomId)", () => {
     expect(guard(ctx(userMember, {}, null, deps))).toEqual(DENY);
     expect(guard(ctx(userMember, {}, "nope", deps))).toEqual(DENY);
     expect(guard(ctx(userMember, {}, {}, deps))).toEqual(DENY);
+  });
+});
+
+// --- hasOwningUser ----------------------------------------------------------
+
+describe("guard: hasOwningUser", () => {
+  it("allows any identity that has an owning user", () => {
+    expect(hasOwningUser(ctx(userOwner, {}, undefined, makeDeps()))).toEqual(
+      OK,
+    );
+    expect(hasOwningUser(ctx(userMember, {}, undefined, makeDeps()))).toEqual(
+      OK,
+    );
+    expect(hasOwningUser(ctx(agent, {}, undefined, makeDeps()))).toEqual(OK);
+  });
+  it("denies an agent token minted with a NULL userId", () => {
+    // mintAgentToken's userId parameter is nullable, so this identity is real,
+    // not hypothetical. An app registered by it would belong to nobody and be
+    // unreachable to its own creator, so registration is refused at the door.
+    const ownerless: Identity = { ...agent, userId: null };
+    expect(hasOwningUser(ctx(ownerless, {}, undefined, makeDeps()))).toEqual(
+      DENY,
+    );
+  });
+});
+
+// --- appOwnerOrOfficeOwner --------------------------------------------------
+// Written as a deliberate CONTRAST to cronjobOwnerOrOfficeOwner below, because
+// the two guards look alike and are not: `cron:manage` is a privileged extra,
+// so a narrow agent is denied there, while `app:read` is BASELINE, so an
+// ordinary agent IS allowed here on an owner match. That difference is the
+// feature (an agent must manage the apps it registers for its user), and the
+// owner match is what keeps it from being a confused deputy. Copying the cron
+// guard without re-deriving this is exactly the mistake these cases catch.
+
+describe("guard: appOwnerOrOfficeOwner", () => {
+  const guard = appOwnerOrOfficeOwner("name");
+  it("allows an office owner regardless of who owns the app", () => {
+    const deps = makeDeps({ appOwnerUserId: () => "someone-else" });
+    expect(guard(ctx(userOwner, { name: "hello" }, undefined, deps))).toEqual(
+      OK,
+    );
+  });
+  it("allows the owning USER (member)", () => {
+    const deps = makeDeps({ appOwnerUserId: () => "u-mem" });
+    expect(guard(ctx(userMember, { name: "hello" }, undefined, deps))).toEqual(
+      OK,
+    );
+  });
+  it("denies a member who does not own it", () => {
+    const deps = makeDeps({ appOwnerUserId: () => "u-x" });
+    expect(guard(ctx(userMember, { name: "hello" }, undefined, deps))).toEqual(
+      DENY,
+    );
+  });
+  it("denies an unknown app and an unowned one identically (no existence oracle)", () => {
+    const unknown = guard(
+      ctx(
+        userMember,
+        { name: "never-registered" },
+        undefined,
+        makeDeps({ appOwnerUserId: () => null }),
+      ),
+    );
+    const notMine = guard(
+      ctx(
+        userMember,
+        { name: "hello" },
+        undefined,
+        makeDeps({ appOwnerUserId: () => "u-x" }),
+      ),
+    );
+    expect(unknown).toEqual(DENY);
+    expect(unknown).toEqual(notMine);
+    // A missing :name param denies too, rather than falling through.
+    expect(guard(ctx(userMember, {}, undefined, makeDeps()))).toEqual(DENY);
+  });
+  it("allows an ORDINARY agent on an owner match - app:* is baseline, not a privilege", () => {
+    const deps = makeDeps({ appOwnerUserId: () => "u-spawn" }); // == agent.userId
+    expect(guard(ctx(agent, { name: "hello" }, undefined, deps))).toEqual(OK);
+    expect(
+      guard(ctx(privilegedAgent, { name: "hello" }, undefined, deps)),
+    ).toEqual(OK);
+  });
+  it("denies an agent whose MANAGER does not own the app", () => {
+    const deps = makeDeps({ appOwnerUserId: () => "u-other" });
+    expect(guard(ctx(agent, { name: "hello" }, undefined, deps))).toEqual(DENY);
+  });
+  it("denies a CRON-RUN even on a userId match (it holds no app capability)", () => {
+    // run.userId is "u-cron"; make the app owned by exactly that user, so the
+    // ONLY thing standing between the run and the app is the capability check.
+    const deps = makeDeps({ appOwnerUserId: () => "u-cron" });
+    expect(guard(ctx(run, { name: "hello" }, undefined, deps))).toEqual(DENY);
+  });
+  it("gives an agent NO office-owner shortcut: it only ever owner-matches", () => {
+    // officeOwner requires scope==="user" + owner, so an agent spawned by the
+    // office owner still reaches only the apps that owner owns - never the
+    // office-wide branch.
+    const ownerAgent: Identity = { ...agent, userId: "u-owner" };
+    expect(
+      guard(
+        ctx(
+          ownerAgent,
+          { name: "hello" },
+          undefined,
+          makeDeps({ appOwnerUserId: () => "someone-else" }),
+        ),
+      ),
+    ).toEqual(DENY);
   });
 });
 

@@ -38,6 +38,10 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
       { id: "j1", userId: "u7" },
       { id: "jNull", userId: null },
     ],
+    listApps: () => [
+      { name: "hello", userId: "u7" },
+      { name: "orphan", userId: null },
+    ],
   };
   const deps = buildProductionGuardDeps(readers);
 
@@ -62,6 +66,23 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     expect(deps.cronjobCreatorUserId("j1")).toBe("u7");
     expect(deps.cronjobCreatorUserId("jNull")).toBeNull();
     expect(deps.cronjobCreatorUserId("ghost")).toBeNull();
+  });
+  it("appOwnerUserId resolves the app's owner, null for unknown/unowned", () => {
+    expect(deps.appOwnerUserId("hello")).toBe("u7");
+    expect(deps.appOwnerUserId("orphan")).toBeNull(); // unowned
+    expect(deps.appOwnerUserId("never-registered")).toBeNull(); // unknown
+  });
+  it("appOwnerUserId lets a corrupt registry THROW rather than answering null", () => {
+    // Reading "no app has an owner" out of an unreadable registry would deny
+    // every caller their own apps while looking like a permission decision.
+    // The throw reaches the executor, which logs it and answers 500.
+    const boom = buildProductionGuardDeps({
+      ...readers,
+      listApps: () => {
+        throw new Error("registry_corrupt");
+      },
+    });
+    expect(() => boom.appOwnerUserId("hello")).toThrow("registry_corrupt");
   });
   it("agentManagerUserId resolves the agent's manager, null for unknown/unowned", () => {
     expect(deps.agentManagerUserId("a1")).toBe("u1");

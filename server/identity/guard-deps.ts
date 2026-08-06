@@ -48,6 +48,10 @@ export interface GuardDepsLiveReaders {
   getUserByName(username: string): { id: string } | null;
   // The live cronjob list; id → creator userId. cronjobManager.listCronjobs.
   listCronjobs(): readonly { id: string; userId?: string | null }[];
+  // The registered apps; name → owner userId. appRegistry.list. A corrupt
+  // registry THROWS here rather than reading as an empty list - see the
+  // adapter below for why the guard lets that through.
+  listApps(): readonly { name: string; userId?: string | null }[];
 }
 
 export function buildProductionGuardDeps(
@@ -80,6 +84,17 @@ export function buildProductionGuardDeps(
     cronjobCreatorUserId(cronjobId: string): string | null {
       const job = live.listCronjobs().find((j) => j.id === cronjobId);
       return job?.userId ?? null;
+    },
+
+    appOwnerUserId(name: string): string | null {
+      // Deliberately NOT wrapped in a try/catch. A corrupt app registry must
+      // not degrade into "no app has an owner", which would answer 403 for
+      // every app including the caller's own; the throw propagates to the
+      // executor, which logs it and answers 500 - a loud failure, which is the
+      // registry's whole posture (see server/app-registry.ts).
+      const app = live.listApps().find((a) => a.name === name);
+      // Unknown app collapses with unowned into the same null (non-leak deny).
+      return app?.userId ?? null;
     },
 
     agentManagerUserId(agentId: string): string | null {

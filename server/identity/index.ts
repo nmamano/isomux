@@ -52,6 +52,12 @@ export type Capability =
   // Shared by USER and AGENT - isomux-memory (durable shared facts).
   | "memory:read"
   | "memory:write"
+  // Shared by USER and AGENT - the app registry. BASELINE for an ordinary
+  // agent, not a privileged extra: an agent registering the app it just built
+  // is the entire feature. Object-level scoping (your own apps; an office owner
+  // sees all) is the appOwnerOrOfficeOwner guard's job, not the capability's.
+  | "app:read"
+  | "app:write"
   // Shared by USER and AGENT - reading conversation logs (history search and
   // session retrieval, GET /api/agents/:id/logs). DELIBERATELY NOT office:read:
   // an ordinary agent token does not carry office:read, and widening that
@@ -110,13 +116,16 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "memory:read",
   "memory:write",
   "log:read",
+  "app:read",
+  "app:write",
 ];
 
-// AGENT set: the loopback surface plus the global task board and isomux-memory.
-// An agent can message as itself, use the task board and shared memory, read
-// conversation logs it can reach, and use the self-affordances on its own chat.
-// It cannot spawn/kill, touch settings, mint invites, mutate cronjobs, or read
-// cronjob transcripts - those capabilities are simply absent.
+// AGENT set: the loopback surface plus the global task board, isomux-memory,
+// and the app registry. An agent can message as itself, use the task board and
+// shared memory, register and manage its user's apps, read conversation logs it
+// can reach, and use the self-affordances on its own chat. It cannot spawn/kill,
+// touch settings, mint invites, mutate cronjobs, or read cronjob transcripts -
+// those capabilities are simply absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
   "agent:send-as-self",
   "task:read",
@@ -124,6 +133,8 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
   "memory:read",
   "memory:write",
   "log:read",
+  "app:read",
+  "app:write",
   "self:affordance",
 ];
 
@@ -180,6 +191,11 @@ export function agentCapabilities(privileged: boolean): readonly Capability[] {
 // board, and it reached it over the (now retired) loopback /tasks route. The
 // board a run sees is office-GLOBAL only: accessibleRoomIdsForIdentity returns
 // the empty set for cron-run scope, and a create with no roomId files global.
+//
+// `app:read` / `app:write` are DELIBERATELY absent for the same reason as
+// log:read. A run is a fresh session with no chat and nobody to hand a URL to;
+// registering a long-lived service from an unattended job is not something
+// anyone has asked for, and granting it later is one line.
 export const RUN_CAPABILITIES: readonly Capability[] = [
   "self:affordance",
   "task:read",

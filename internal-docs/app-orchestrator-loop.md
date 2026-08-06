@@ -83,9 +83,10 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
 
 ## Slice plan
 
-- [ ] S1  Registry core: data model, persistence, port allocation, name
+- [x] S1  Registry core: data model, persistence, port allocation, name
          validation + tombstones, per-app data dir, agent HTTP API
          (register/list/get/delete), tests. No systemd yet.
+         (Isomuxer2/Reviewer2, 3 review rounds, committed with this edit.)
 - [ ] S2  Supervisor: unit generation, start/stop/enable, $PORT injection,
          journald log surfacing, restart counts, MemoryMax/CPUQuota, delete
          cleans up fully. Live-office restart checkpoint after commit.
@@ -104,7 +105,14 @@ Restart authorization for tonight granted by Nil (2026-08-06, this session).
 - Phase 3 (stable hostnames on the port-proxy transport) - hosted infra
   dependency, not tonight.
 - Update story for apps (design doc open question) - not tonight.
-- PARKED FOR NIL: (queue grows during the loop; empty at kickoff)
+- PARKED FOR NIL: (queue grows during the loop)
+  - S1: DELETE removes the registry record and tombstones name+port but does
+    NOT purge the per-app data dir (a silent purge is unrecoverable; the name
+    is never reused so nothing lands on top). Confirm or flip.
+  - S1: registry visibility defaulted to the cronjob authz rule (own apps +
+    office owner sees all). Tension: the design doc's access line reads
+    room-scoped ("office users who can already see the agent's room").
+    Nil picks the final shape; S3's Apps tab follows it.
 
 ## Resources
 
@@ -168,4 +176,71 @@ error-shape of API responses (match existing routes), exact port range.
 
 Locked: everything in Standing rails; route base path `/api/apps`.
 
-(SLICE-2 PICKUP is authored after S1 commits, folding in what S1 taught.)
+## SLICE-2 PICKUP (authored after S1's commit; baseline = that commit)
+
+What S1 taught (real, from its report):
+- `server/app-registry.ts`: pure helpers + injectable
+  `createAppRegistry({dir, now, probePort})`, production singleton over
+  `STATE_ROOT/apps`. State: `apps.json` + `app-history.json` (tombstones) +
+  `data/<name>/`. Nothing derived is persisted: no `state`, no `dataDir`
+  (derived from root + name). Corruption fails CLOSED - every operation
+  refuses on an unreadable/inconsistent view; do not weaken this in S2.
+- Port window 21000-21999 is LOAD-BEARING (records validated against it on
+  load); changing it is a migration. Registration currently returns
+  `state: "registered"` hardcoded; S2 makes state real.
+- `server/routes/handlers/apps.ts` has an exhaustive AppErrorCode -> HTTP
+  table (new code without a status fails to compile). Guard:
+  `appOwnerOrOfficeOwner`; `app:read`/`app:write` are baseline agent caps.
+- Test shapes to extend: `server/app-registry.test.ts` (50 tests),
+  `server/test-support/routes-apps-rest.test.ts` (13, real HTTP + real
+  minted tokens). Mutation-check new tests and SAY SO in the report.
+
+Goal: registered apps actually run. Register writes + starts + enables an
+`isomux-app-<name>.service` user unit; delete stops, disables, removes the
+unit (daemon-reload), keeping S1's tombstone semantics; registry reads return
+real state (running/failed/stopped + restart count); recent logs reachable
+via the API from journald. An app keeps running across an isomux restart with
+nothing re-injected.
+
+Load-bearing mechanics and traps:
+- THE ISOLATION HAZARD (rail, non-negotiable): systemd is machine-global.
+  An isolated instance (tmp ISOMUX_HOME) or a test must NEVER create, touch,
+  or list-manage the production `isomux-app-<name>` namespace. Put every
+  systemctl/journalctl/unit-file operation behind ONE injectable seam
+  (testing-guide.md seam-map style): unit tests use a fake; the ONE gated
+  live-systemd test uses `isomux-app-test-*` names with cleanup that runs
+  even on failure. How the isolated-instance demo avoids the production
+  prefix is a decide-with-reviewer design point - no env-var knob unless
+  genuinely unavoidable (Nil's rule), prefer deriving from injected deps.
+- Unit content: ExecStart from stored command, WorkingDirectory from cwd,
+  Environment=PORT=<port> + ISOMUX_APP_DATA_DIR=<data dir>,
+  Restart=on-failure, MemoryMax + CPUQuota as plain named constants.
+- systemd env is MINIMAL - `bun run dev` style commands need PATH (portless
+  walked node_modules/.bin up from cwd; see /tmp/portless-lessons.md §3).
+  Decide the PATH story with the reviewer and state it in the report.
+- daemon-reload after unit file writes/removals. Verify linger for
+  reboot-survival of user units (loginctl show-user); report the finding -
+  it feeds the hosted story.
+- State reads: never shell out per app per read; cache/TTL or interval
+  refresh, reviewer call. Health note from portless: a listening port is
+  not app identity.
+- Flag injection beyond $PORT (portless framework table): nice-to-have; if
+  it exceeds ~30 lines of table+plumbing, park it for Nil instead.
+- Journald: last N lines per app behind the same seam; S3 consumes it.
+
+Acceptance:
+- Isolated-instance demo transcript: register a tiny real server (e.g. a
+  bun one-liner), curl it on its allocated port, kill its process and show
+  the restart count rise, delete and show `systemctl --user list-units
+  'isomux-app-*'` untouched by the whole run (isolation hazard proven) and
+  the test-prefix units gone.
+- Gated live-systemd test green; unit-file generation golden-file tests;
+  always-run gates green; reviewer approve on final fingerprint; explicit
+  cleanup proof (no stray units).
+
+Decide with reviewer: state-refresh mechanism, unit template contents,
+resource-limit constants, PATH story, isolated-demo prefix mechanism.
+
+Locked: systemd user units (no hand-rolled supervisor), unit naming
+`isomux-app-<name>` in production, S1's corruption posture and port window,
+everything in Standing rails.

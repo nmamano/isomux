@@ -36,6 +36,8 @@ import {
   conversationReset,
   logSearchAccess,
   cronjobOwnerOrOfficeOwner,
+  appOwnerOrOfficeOwner,
+  hasOwningUser,
   runParamMustEqualTokenRun,
   taskDelete,
   and,
@@ -105,6 +107,8 @@ import type {
   TaskCreateReq,
   TaskUpdateReq,
   TaskClaimReq,
+  AppRegisterReq,
+  AppWire,
   MemoryCreateReq,
   MemoryReplaceReq,
   MemoryReadRes,
@@ -958,6 +962,44 @@ export const API_ROUTES: readonly RouteDef[] = [
     // a cron run holds it only for the create/complete affordance in its prompt.
     auth: cap("task:write", taskDelete),
     emits: ["tasks"],
+  }),
+
+  // --- Apps (agent-built web apps isomux runs) ------------------------------
+  // The registry: register an app by name, isomux allocates the port. Ownership
+  // is the USER's, so reads/deletes are owner-or-office-owner - the cronjob
+  // rule, cronjobs being the precedent for "a thing isomux runs that is not an
+  // agent". apps.list has no :name to gate on and is filtered per-caller in the
+  // handler. No emits yet: the Apps tab and its WS event land with the UI.
+  defineRoute<void, AppWire[]>({
+    opId: "apps.list",
+    method: "GET",
+    path: "/api/apps",
+    auth: cap("app:read", authenticated),
+    emits: [],
+  }),
+  defineRoute<void, AppWire>({
+    opId: "apps.get",
+    method: "GET",
+    path: "/api/apps/:name",
+    auth: cap("app:read", appOwnerOrOfficeOwner("name")),
+    emits: [],
+  }),
+  defineRoute<AppRegisterReq, AppWire>({
+    opId: "apps.register",
+    method: "POST",
+    path: "/api/apps",
+    // hasOwningUser, not bare `authenticated`: an app must belong to a user, and
+    // an agent token can carry a null userId. See the guard for why an ownerless
+    // app is worse than a refusal.
+    auth: cap("app:write", and(authenticated, hasOwningUser)),
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "apps.delete",
+    method: "DELETE",
+    path: "/api/apps/:name",
+    auth: cap("app:write", appOwnerOrOfficeOwner("name")),
+    emits: [],
   }),
 
   // --- Memory (isomux-memory; durable shared facts) -------------------------

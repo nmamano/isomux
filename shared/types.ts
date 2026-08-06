@@ -686,6 +686,55 @@ export function generateUserId(existing?: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Agent-built apps
+// ---------------------------------------------------------------------------
+// An app is a web app an agent built and handed to isomux to run. Like a
+// cronjob it is a thing isomux runs that is NOT an agent; unlike a cronjob it
+// outlives the agent that made it, because it belongs to the USER (design doc
+// section 3). See internal-docs/agent-apps-design.md.
+//
+// There is no separate id: the NAME is the key. A name is bound to one app for
+// good - deleting an app retires the name rather than freeing it - so a second
+// identifier would be dead weight and one more thing to disagree with itself.
+// Everything derived from a name (the data directory, and the unit name once a
+// supervisor exists) therefore has a permanently stable value.
+export interface AppRecord {
+  // Hostname label, unique across live AND retired apps, forever. Lowercase
+  // [a-z0-9-], never starting or ending with a hyphen, at most 63 chars (one
+  // DNS label), so it can become a hostname later without changing.
+  name: string;
+  // Allocated by isomux at registration and never recycled - a freed port under
+  // a stale bookmark is the same trap as a recycled hostname.
+  port: number;
+  // Start command and working directory, stored verbatim / resolved. Whether
+  // the command actually runs is the supervisor's problem, not the registry's.
+  command: string;
+  cwd: string; // absolute, verified to exist at registration
+  description?: string;
+  // Absolute path isomux created and handed over, so app state lands somewhere
+  // known (and inside the backup set) instead of wherever the agent felt like
+  // writing.
+  dataDir: string;
+  // OWNER: the user the app belongs to - for an agent caller, its manager. The
+  // app survives the agent, so ownership can never be the agent.
+  userId: string | null;
+  username: string | null; // display snapshot of the owner (can go stale)
+  // Attribution only: who registered it. createdByAgentId is also the default
+  // message target once apps can message their agent.
+  createdBy: string;
+  createdByAgentId?: string;
+  createdAt: number;
+}
+
+// A retired app: the tombstone left behind by a delete. Both the name and the
+// port are burned permanently.
+export interface RetiredApp {
+  name: string;
+  port: number;
+  retiredAt: number;
+}
+
+// ---------------------------------------------------------------------------
 // Cronjobs
 // ---------------------------------------------------------------------------
 // Cronjobs are scheduled SDK sessions. They are NOT agents - no desk, no room,

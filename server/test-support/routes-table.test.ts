@@ -127,6 +127,7 @@ describe("route table: public routes are routed AROUND authorize()", () => {
       roomIdForAgent: () => "r1",
       userIdForUsername: () => null,
       cronjobCreatorUserId: () => null,
+      appOwnerUserId: () => null,
       agentManagerUserId: () => null,
       killedAgentManagerUserId: () => null,
     };
@@ -160,6 +161,7 @@ describe("route table: coverage sanity", () => {
       "sessions.logout",
       "office.setSettings",
       "tasks.create",
+      "apps.register",
       "cron.runReadFile",
       "system.backupStatus",
     ]) {
@@ -346,6 +348,15 @@ const SPEC_ROUTE_CONTRACT: Record<
   "tasks.claim": { caps: ["task:write"], emits: ["tasks"] },
   "tasks.done": { caps: ["task:write"], emits: ["tasks"] },
   "tasks.delete": { caps: ["task:write"], emits: ["tasks"] },
+  // Apps (agent-built web apps isomux runs). app:read / app:write are BASELINE
+  // agent capabilities - an agent registering the app it just built IS the
+  // feature - so the object-level scoping is carried by the
+  // appOwnerOrOfficeOwner guard, not by capability absence. No emits until the
+  // Apps tab exists.
+  "apps.list": { caps: ["app:read"], emits: [] },
+  "apps.get": { caps: ["app:read"], emits: [] },
+  "apps.register": { caps: ["app:write"], emits: [] },
+  "apps.delete": { caps: ["app:write"], emits: [] },
   // Cronjobs
   "cron.list": { caps: ["cron:read"], emits: [] },
   "cron.get": { caps: ["cron:read"], emits: [] },
