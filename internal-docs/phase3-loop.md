@@ -903,6 +903,16 @@ Load-bearing mechanics and traps:
   (sanity bound, not a knob) - this implements the 'proposed per-hour
   cap rides S7' line from PARKED FOR NIL; quote the chosen value in
   the report for Nil's pass.
+  AMENDED BY MANAGER RULING (2026-08-07, after Reviewer1's measured
+  finding that Caddy v2.11.4 consults the ask on STORED-cert loads
+  too, so a pure counter self-DoSes after restart): the cap bounds
+  NEW ADMISSIONS per hour via a persisted admission ledger -
+  admitted + still-live labels always pass (cold loads free); first
+  admission of a live label consumes a rolling-hour slot; unknown/
+  retired denied before budget; office host always passes. Admission
+  marker persisted ADDITIVELY on existing registry state (no new
+  state file); hourly-slot persistence is a worker+reviewer call
+  with the failure mode stated in code and report.
 - DNS for self-hosters is documentation, not code: one wildcard record.
   S10 owns the prose; this slice may leave a draft note in the report.
 - Certificates: wildcard DNS + on-demand HTTP-01 per label (no DNS
