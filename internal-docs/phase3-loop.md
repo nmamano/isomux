@@ -95,6 +95,11 @@ accepted by the manager 2026-08-06.
 
 Never two slices in flight. Never start N+1 with N uncommitted.
 
+After sending ANY gate request (plan or diff), END YOUR TURN and wait
+idle - replies queue behind an active turn, so working on is how you
+miss a CHANGES-REQUIRED verdict. Silence is never approval. (Lesson
+from S7: a worker coded past a queued plan verdict.)
+
 ## Gates per slice (always-run, exact commands)
 
 - `bunx eslint <touched files>` - clean.
