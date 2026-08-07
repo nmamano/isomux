@@ -315,8 +315,16 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          the public demo renders both arms - Reviewer2 ruled it stays;
          flagged for Nil (demo shows a hostname link before S7). No
          new user-visible strings. Baseline 3311 / 176 files.)
-- [ ] S10 Prompt + docs (system-prompt app-URL guidance, README/docs,
+- [x] S10 Prompt + docs (system-prompt app-URL guidance, README/docs,
          design docs marked resolved, documentation.md surfaces).
+         (Isomuxer2/Reviewer2, plan-gate + 2 diff rounds, approved
+         31c30e47, committed 784bc31. Prose only, zero behavior change
+         verified. README/landing left untouched by joint ruling - the
+         always-on bullet is universally true, hostname access is not;
+         escalated to Nil. Flagged, not fixed: no pin test covers the
+         system-prompt apps paragraph. LOOP COMPLETE - all slices
+         landed: d1d1fb2 ec5794f 5abf799 39a8ba0 73765ce cc00e1b
+         5bcdcbe dcf0eac ca7c29f b955eaa 784bc31.)
 
 ## Resources
 
