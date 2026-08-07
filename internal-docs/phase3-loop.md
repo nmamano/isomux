@@ -265,8 +265,22 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          needing a real box; installer site block + tls-ask; update path
          deliberately does NOT rewrite the Caddyfile - enabling app
          hostnames stays an explicit operator step, documented).
-- [ ] S8  ISOMUX_APP_URL injection (renderUnit + reconcile pass; absent when
+- [x] S8  ISOMUX_APP_URL injection (renderUnit + reconcile pass; absent when
          no domain configured).
+         (Isomuxer1/Reviewer1, diff-gate approved b8411222 FIRST ROUND,
+         no findings, committed dcf0eac. New pure leaf server/
+         app-domain.ts holds the hostname grammar + appPublicUrl -
+         moved out of app-hosts.ts to break the supervisor import
+         cycle. UnitRenderOpts.appUrl is REQUIRED (present-iff, never
+         empty); reconcile compares only the URL assignment, not the
+         whole unit, so future template edits don't bounce every app;
+         advisory at boot, wired after token reconcile. test:systemd
+         proves the full domain transition on real systemd incl.
+         restart-exactly-once by MainPID. Mutation lesson: nothing
+         exercised label != name until two mutations survived - a
+         hello-g2 test pair now pins hostLabel-not-name at both the
+         unit and the wire. No user-visible prose. Full test baseline
+         3308 / 176 files.)
 - [ ] S9  UI: link the hostname when present; keep port link otherwise.
 - [ ] S10 Prompt + docs (system-prompt app-URL guidance, README/docs,
          design docs marked resolved, documentation.md surfaces).
@@ -783,3 +797,57 @@ domain marker), test seam details.
 Locked: present-iff-URL-exists env semantics, hostLabel not name, derived
 never persisted, restart-at-most-once + run-state preservation, Standing
 rails.
+
+## SLICE-9 PICKUP (authored after S8's commit; baseline = dcf0eac)
+
+What S8 taught (real, from its report): `AppWire.url?: string` now
+carries `https://<hostLabel>.<domain>` on the wire, PRESENT IFF a
+public URL exists (https publicOrigin + derived domain) - the UI never
+computes an app URL itself, it consumes this field. server/app-domain.ts
+is the grammar authority; the supervisor injects the same URL as
+ISOMUX_APP_URL.
+
+Goal: the Apps tab links an app's hostname when it has one, and keeps
+today's port link otherwise. Small, UI-only, dark on every office
+without an apps domain (auntie included - verify via fixtures, not the
+live office).
+
+Load-bearing mechanics and traps:
+- `ui/components/AppsView.tsx:386`: the link is
+  `http://${window.location.hostname}:${app.port}/` with a comment
+  block (~381) explaining the pre-hostname story - update that comment;
+  it is the exact thing this slice obsoletes when url is present.
+- When `app.url` exists: link it (it is already the full https origin).
+  When absent: today's port link, byte-identical behavior. Decide with
+  the reviewer what the visible link TEXT shows in each arm and whether
+  the port Meta row (~430) changes - flag any new user-visible string
+  for Nil's pass (expect one or two at most; the room's copy rules
+  apply: short, no overexplaining).
+- The office UI reaches the server through the SAME origin scheme
+  either way; app.url is absolute and self-contained - do not derive
+  anything from window.location for the url arm.
+- Mobile: whatever is rendered must not depend on glyphs iOS
+  auto-emojis (room lesson); plain text/existing patterns only.
+- No new endpoint, but demo fixtures: the demo bundle's fixture apps
+  (demoApi) need at least one app WITH url and one WITHOUT so both arms
+  render - the repo has NO DOM test harness; visual verification runs
+  through the demo-bundle recipe in room memory (build to /tmp, serve
+  over http not file://, headless Chrome via playwright-core
+  channel:"chrome"). Delete any harness files before the freeze.
+- ui changes: `bun run build:ui` gate is the load-bearing one;
+  eslint + bun test as always (unit-test exported helpers if you add
+  any logic worth testing; a pure href-chooser function is the
+  testable shape).
+- Screenshots of both arms (with-url and without-url) go in the report
+  so Nil can see the rendering without running anything.
+
+Acceptance: demo-bundle screenshots of both arms; always-run gates
+green (test:systemd NOT expected - no supervisor files); reviewer
+approve on the final announced fingerprint; every new user-visible
+string quoted verbatim; mutation-check stated for any new test.
+
+Decide with reviewer: link text in each arm, Meta row treatment,
+helper extraction.
+
+Locked: url consumed from the wire only (never derived in the UI),
+port-link arm byte-identical when url is absent, Standing rails.
