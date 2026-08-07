@@ -9,7 +9,7 @@
 // Pure T0: no DOM, no server, no LLM.
 
 import { describe, it, expect } from "bun:test";
-import { nextPollDelay, shouldCommit } from "./AppsView.tsx";
+import { appHref, nextPollDelay, shouldCommit } from "./AppsView.tsx";
 
 describe("shouldCommit", () => {
   it("lets a response land under the row that asked for it", () => {
@@ -60,5 +60,31 @@ describe("nextPollDelay", () => {
     // alongside the new one - one extra loop per reconnect.
     expect(nextPollDelay(true, true)).toBeNull();
     expect(nextPollDelay(true, false)).toBeNull();
+  });
+});
+
+describe("appHref", () => {
+  it("uses the app's own URL verbatim when it has one", () => {
+    // The office computes the URL from its public origin and the app's issued
+    // label; the UI must not rebuild any part of it. The hostname passed in is
+    // deliberately unrelated, so a href that borrows from it fails here.
+    expect(
+      appHref(
+        { url: "https://standup-board.office.example", port: 21000 },
+        "auntie",
+      ),
+    ).toBe("https://standup-board.office.example");
+  });
+
+  it("keeps the port link when the office has no app hostnames", () => {
+    expect(appHref({ port: 21000 }, "auntie")).toBe("http://auntie:21000/");
+  });
+
+  it("keeps the port link for an empty URL rather than linking to nowhere", () => {
+    // The wire omits `url` instead of sending "", so this is the fail-safe: an
+    // empty href resolves to the office page the row is already on.
+    expect(appHref({ url: "", port: 21000 }, "auntie")).toBe(
+      "http://auntie:21000/",
+    );
   });
 });

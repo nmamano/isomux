@@ -59,6 +59,26 @@ export function nextPollDelay(
   return landed ? POLL_MS : 0;
 }
 
+/**
+ * Where the app's name links to. `url` is the office's own answer - the full
+ * https origin the app answers on, present exactly when the office has app
+ * hostnames at all - so it is used verbatim and nothing about it is derived
+ * here. Without one, the link stays what it has always been: this office's
+ * host with the app's port, which only reaches the app from inside the box's
+ * network.
+ *
+ * The empty-string check is a boundary fail-safe, not a contract: the wire
+ * omits `url` rather than sending "", and an empty href would silently link
+ * the row to the page it is already on.
+ */
+export function appHref(
+  app: Pick<AppWire, "url" | "port">,
+  officeHostname: string,
+): string {
+  if (typeof app.url === "string" && app.url !== "") return app.url;
+  return `http://${officeHostname}:${app.port}/`;
+}
+
 const STATE_COLOR: Record<AppState, string> = {
   running: "var(--green)",
   starting: "var(--orange, #d29922)",
@@ -378,12 +398,9 @@ export function AppsView({ onClose }: { onClose: () => void }) {
                     }}
                   >
                     <StateDot state={app.state} />
-                    {/* Apps listen on plain HTTP on their own port, so the
-                        link is the office's host with the app's port. On a
-                        firewalled box (VPS installs) this is unreachable
-                        until the phase-3 hostname transport. */}
+                    {/* An app with a hostname links to it; see appHref. */}
                     <a
-                      href={`http://${window.location.hostname}:${app.port}/`}
+                      href={appHref(app, window.location.hostname)}
                       target="_blank"
                       rel="noreferrer"
                       title="Open the app"
