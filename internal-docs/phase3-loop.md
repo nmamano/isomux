@@ -45,6 +45,9 @@ accepted by the manager 2026-08-06.
   `<label>.<office host>` - no `apps.` tier. Shorter wins; the reserved-name
   list guards the office's own namespace. Known accepted consequence: an
   apex-hosted office's wildcard record covers its whole domain.
+- WS relay caps (Nil, 2026-08-07): total concurrent relayed sockets 64
+  office-wide, 32 per app. Both plain named constants, own pool separate
+  from S5's HTTP permits.
 
 ## Manager-accepted defaults (reversible unless marked)
 
@@ -235,12 +238,11 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          per-connection memory bound ~3.5MB + one Bun read. Post-incident
          hardening: test fill loops are byte-budgeted and THROW if the
          queue never refuses - a broken ceiling fails in ms; carry this
-         pattern to any future resource-bound tests. OPEN FOR NIL/S6b:
-         total relayed-socket cap - Reviewer2 recommends 64 (~225MB
-         adversarial ceiling) over 128 (~450MB); per-app 32 uncontested.)
+         pattern to any future resource-bound tests. The cap question is
+         ANSWERED - see Rulings and the SLICE-6B pickup.)
 - [ ] S6b WebSocket relay: wiring S6a into the app-host arm, office
-         plumbing, lifecycle/auth per the SLICE-6 pickup (which is BACK in
-         force). Baseline = S6a's commit.
+         plumbing, lifecycle/auth per the SLICE-6 pickup (BACK in force)
+         as amended by the SLICE-6B pickup. Baseline = cc00e1b.
          Loop order: S6a -> S6b -> S8 -> S9 -> S7 -> S10.
 - [ ] S7  Caddy + DNS (GATED ON NIL: domain + URL-shape answer; only slice
          needing a real box; installer site block + tls-ask; update path
@@ -659,8 +661,59 @@ Locked: auth before upgrade, the three-cookie strip via S5's helper,
 prove-active before the upstream dial, office /ws untouched, Standing
 rails.
 
-## SLICE-8 PICKUP (authored after the S6 cut; baseline = its commit; the
-SLICE-6 PICKUP above is VOID - historical record only)
+## SLICE-6B PICKUP (authored after S6a's commit; baseline = cc00e1b)
+
+The SLICE-6 PICKUP above is BACK IN FORCE - it is your spec. This section
+adds what S6a settled, what Nil ruled, and what changed since it was
+written. Where they disagree, this section wins.
+
+What S6a built (real, from its report): a pure, dependency-free WS
+upstream stack - `server/ws-frames.ts` (frame codec) +
+`server/app-ws-upstream.ts` (in-house client over a raw TCP socket),
+plus their test files. Imported by NOTHING yet; wiring it in is this
+slice. It exists because Bun's own WS client buffers browser->app
+unboundedly (measured); the in-house client has a bounded send queue
+that REFUSES when full, stated per-connection memory bound ~3.5MB + one
+Bun read. Do not re-measure Bun's client - that question is closed.
+Bun's SERVER-side ws (`server.upgrade`) is still what faces the browser;
+its `send()` backpressure return values are still yours to measure and
+wire, per the SLICE-6 pickup.
+
+RULED BY NIL (2026-08-07, final - also in Rulings): total concurrent
+relayed sockets 64 office-wide, 32 per app. Plain named constants, own
+pool separate from S5's HTTP permits. This settles SLICE-6's
+"permit-pool question" and cap constants - do not relitigate values.
+
+Carry-forwards the S6a report flags for you:
+- Reuse S5's helpers, do not reimplement: the three-cookie strip (exact
+  names) on the upgrade request, and prove-active-before-connect ahead
+  of the upstream dial (squattable port).
+- Auth before upgrade (S4's per-request validation incl. generation
+  binding and office-session liveness) - locked in the SLICE-6 pickup.
+- S6b owns every refusal body the WS surface emits - put them in
+  app-host-responses.ts like S5 did, and quote ALL of them verbatim in
+  the report for Nil's pass.
+- Close-code/reason propagation was where S6a's review drew blood (5
+  diff-gate rounds) - expect the same scrutiny on the relay side: both
+  directions, abnormal-close mapping stated, post-101 upstream-dial
+  failure code decided with the reviewer.
+- Resource-bound code: the memory-sandbox gate applies to your mutation
+  runs, and any fill-loop test must follow S6a's byte-budgeted
+  throw-if-never-refused pattern.
+
+Acceptance: as the SLICE-6 pickup states (real WS echo app end-to-end,
+close propagation both ways, refusals, office /ws untouched), plus: cap
+behavior demonstrated (65th office-wide socket and 33rd per-app socket
+refused, release-exactly-once proven so caps do not leak).
+
+Decide with reviewer: Origin policy details, close-code mappings,
+buffer policy wiring, mid-connection revocation behavior.
+
+Locked: everything the SLICE-6 pickup locks, plus the ruled cap values.
+
+## SLICE-8 PICKUP (authored after the S6 cut; baseline = its commit;
+note: the SLICE-6 PICKUP was voided when Nil cut WS, then reinstated -
+see SLICE-6B)
 
 What the relay slices left for you: an app's public URL is
 `https://<hostLabel>.<office host>` exactly when `buildPublicOrigin().
