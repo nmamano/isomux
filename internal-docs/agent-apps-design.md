@@ -107,6 +107,12 @@ the per-customer wildcard the hosted design already provisions
 certificate work. Whether to flatten that to `hello.nil.isomux.app` is cosmetic,
 and costs a reserved-name list so an app cannot claim `www` or `api`.
 
+**Shipped flat** (Nil, 2026-08-06): an app answers at `hello.<office host>`,
+with no `apps.` tier and the reserved-name list guarding the office namespace.
+The parent domain is derived from the office's public origin - there is no
+configuration key - so an office published over https has app hostnames the
+moment its DNS and terminator carry them.
+
 Per-app origin rather than per-user path (`nil.isomux.app/hello`) for the two
 reasons already argued in the port-proxy doc: the app sees itself at the root so
 frameworks do not break, and one app's compromise does not reach a sibling app's
@@ -197,3 +203,8 @@ than office memory.
 Order matters: 1 and 2 are useful on their own on the box isomux already runs on,
 and 3 is the expensive part that depends on hosted infrastructure that does not
 exist yet.
+
+**Phase 3 shipped 2026-08-07** (task f51fe505; commits d1d1fb2, ec5794f,
+5abf799, 39a8ba0, 73765ce, cc00e1b, 5bcdcbe, dcf0eac, ca7c29f, b955eaa), and it
+did not wait on hosted: one generic design, where a self-hoster adds a wildcard
+DNS record and the installer's Caddy block obtains certificates on demand.

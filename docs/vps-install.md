@@ -105,6 +105,19 @@ isomux-update v2026.7.19
 
 Either way, it installs any system dependencies the new release needs, rebuilds at the new version, snapshots the office state, and restarts the service - interrupting running agents. If the new version fails to come up, it rolls code and state back to what you had. Downgrading to an older release needs `--allow-downgrade`.
 
+## App hostnames
+
+An app an agent registers can answer at its own address - `hello.office.example.com` - from any device, behind the same sign-in as the office. A fresh install sets up the proxy side; you add one DNS record:
+
+1. A wildcard A record, `*.office.example.com`, pointing at this server.
+2. On an office installed before this release, re-run the installer once to add the site block (or add it to `/etc/caddy/Caddyfile` yourself). `isomux-update` never rewrites that file.
+
+Certificates are obtained per app the first time it is opened. Three things follow:
+
+- The office answers 404 for every name under its domain that is not a live app, so a subdomain you pointed at this server for something else stops working after updating.
+- Isomux admits at most ten new app hostnames per hour, so an office with more than ten apps enables them as the hour rolls.
+- Deleting an app stops new certificates immediately, but TLS may keep terminating from Caddy's warm cache until its next cold load.
+
 ## Opening an agent's dev server
 
 An app an agent is running on the box - say on port 5173 - isn't exposed to the internet. If SSH is open (the default), forward the port from your own machine:

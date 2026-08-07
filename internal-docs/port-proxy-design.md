@@ -7,6 +7,11 @@
 > existing non-interactive answer), `agent-apps-design.md` (persistent named apps
 > built on this transport - it needs two of the rules below relaxed for its case,
 > flagged inline).
+> Update (2026-08-07): phase 3 of `agent-apps-design.md` shipped the
+> registered-app half of option C - commits d1d1fb2, ec5794f, 5abf799, 39a8ba0,
+> 73765ce, cc00e1b, 5bcdcbe, dcf0eac, ca7c29f, b955eaa. Scratch shares are still
+> design. The sections below keep the original reasoning; "What shipped" notes
+> mark where registered apps landed differently.
 
 ## Problem
 
@@ -123,6 +128,12 @@ hazard is pointing a hostname at an _unrelated_ app, so a name bound to one app
 for its whole life is fine, and deleting an app must retire its name rather than
 free it for reuse.
 
+**What shipped, for registered apps.** The name is freed and the LABEL is
+retired: a re-registration lands on a fresh label (`hello-g2`), so a reused name
+never inherits its predecessor's origin. The ledger of issued labels is never
+pruned. The shape is flat - `hello.office.example.com`, no `apps.` tier (Nil,
+2026-08-06) - and a reserved-name list guards the office's own namespace.
+
 ### TLS, which the hostname lifecycle decides
 
 Unique hostnames mean certificate cardinality scales with shares created, and
@@ -186,6 +197,17 @@ confusing TLS failure otherwise.
 
 Both need a wildcard A record (`*.apps.<office>`), provisioned by the control
 plane or added by hand.
+
+**What shipped, for registered apps.** The VPS installer writes an on-demand
+TLS site block for registered-app hostnames at `*.<office>`; an office that
+already exists adds it as a documented operator step. The ask endpoint is
+`/__isomux/tls-ask` (`server/tls-ask.ts`), and the measurement that shaped it:
+Caddy 2.11.4 consults the ask before loading a STORED certificate too, so it is
+a live access gate rather than an issuance hook, and a refusal breaks a name
+whose certificate already exists. Admissions are therefore persisted in the
+registry's ledger - admitted and still-live labels always pass, ten new
+admissions per hour bound the rest, and unknown or retired labels are refused
+before the budget is touched. The updater never rewrites the Caddyfile.
 
 ### Auth handshake
 
@@ -274,7 +296,8 @@ card should not show the URL until the share is enabled.
   and wrong for a registered app, which is owned by the user and outlives its
   author; see `agent-apps-design.md`. Both lifetimes should exist.
 - The office cookie carries the `__Host-` prefix on HTTPS deployments, which
-  forecloses cookie tossing from a sibling subdomain. Since `__Host-` requires
+  forecloses cookie tossing from a sibling subdomain. Shipped in ec5794f. Since
+  `__Host-` requires
   `Secure` it could not be an unconditional rename: both names are read, the
   new one is written where the deployment can carry it, and an existing session
   migrates onto it before the old name is cleared. Loopback HTTP installs are
@@ -304,10 +327,19 @@ wildcard hostnames, so those offices get A.
   decides whether a box offers sharing.
 - UI: shares list in the Access pane, enable/revoke on the chat card.
 
+**What shipped, for registered apps.** No share table: the app registry holds
+the labels (`server/app-registry.ts`), and `server/app-domain.ts` owns the
+hostname grammar. `server/app-hosts.ts` is the Host check, `app-auth.ts` the
+handshake, `app-proxy.ts` the HTTP relay, `ws-frames.ts` + `app-ws-upstream.ts`
++ `app-ws-relay.ts` the WebSocket one, `tls-ask.ts` the certificate gate. No new
+affordance route and no Access-pane surface - the Apps tab links the address.
+
 ## Open questions
 
-1. Is C worth building before the hosted product has users, or is A plus a
-   prompt line enough for now? (My read: A now, C with hosted.)
+1. ~~Is C worth building before the hosted product has users, or is A plus a
+   prompt line enough for now? (My read: A now, C with hosted.)~~ Answered by
+   building it: phase 3 shipped C for registered apps ahead of hosted, generic
+   across deployments. Scratch shares still have only A.
 2. Does `isomux.app` go on the Public Suffix List? Until it does, new-customer
    onboarding shares one certificate-issuance budget across the fleet, so this
    is a hosted scaling prerequisite rather than cleanliness. The submission has

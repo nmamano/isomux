@@ -210,6 +210,7 @@ A managed version is in the works: you pick a name, we set up a server, and your
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it survives the conversation that built it, isomux restarts, and reboots.
 - The Apps tab lists every app available to you with its state, restart count, and recent output, and lets you start, stop, restart, or delete it.
+- Apps can also answer at their own address under the office domain, behind the office sign-in, once the operator turns on app hostnames (see isomux.com/docs/vps-install).
 - Each app gets its own storage on the server, included in the daily backup.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.
 
