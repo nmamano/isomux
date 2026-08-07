@@ -240,9 +240,26 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          queue never refuses - a broken ceiling fails in ms; carry this
          pattern to any future resource-bound tests. The cap question is
          ANSWERED - see Rulings and the SLICE-6B pickup.)
-- [ ] S6b WebSocket relay: wiring S6a into the app-host arm, office
+- [x] S6b WebSocket relay: wiring S6a into the app-host arm, office
          plumbing, lifecycle/auth per the SLICE-6 pickup (BACK in force)
-         as amended by the SLICE-6B pickup. Baseline = cc00e1b.
+         as amended by the SLICE-6B pickup.
+         (Isomuxer2/Reviewer2, diff-gate approved 1e79adbd, committed
+         5bcdcbe. server/app-ws-relay.ts owns the WS surface; check
+         order reserved -> auth -> origin -> prove-active -> permit ->
+         dial -> subprotocol -> upgrade, everything refusable BEFORE the
+         101. Caps 64/32 own pool keyed by issuance. WsData is now a
+         discriminated union in isomux-office.ts; the upgrade thunk must
+         carry response headers or Bun silently replaces the app's
+         subprotocol selection with its own guess. Measured: Bun's
+         server accepts peer close codes only in 1000-1011 + 4000-4999
+         (1013 arrives as 1006), and cannot emit a status-less close.
+         Subprotocol refusal per manager ruling, verified against WHATWG
+         2.2 by BOTH lane agents. NOT_READY_BODY deleted - the app-host
+         surface has no placeholder left. Session/app revocation cuts
+         live sockets within 30s (timer, not per-message). 43 mutations,
+         39 killed, 4 chased to redundant-pair explanations. Full test
+         baseline now 3271 pass / 173 files. Product-visible notes
+         queued for Nil's pass in the manager's report.)
          Loop order: S6a -> S6b -> S8 -> S9 -> S7 -> S10.
 - [ ] S7  Caddy + DNS (GATED ON NIL: domain + URL-shape answer; only slice
          needing a real box; installer site block + tls-ask; update path
@@ -711,9 +728,11 @@ buffer policy wiring, mid-connection revocation behavior.
 
 Locked: everything the SLICE-6 pickup locks, plus the ruled cap values.
 
-## SLICE-8 PICKUP (authored after the S6 cut; baseline = its commit;
-note: the SLICE-6 PICKUP was voided when Nil cut WS, then reinstated -
-see SLICE-6B)
+## SLICE-8 PICKUP (baseline = 5bcdcbe, after S6b; originally authored
+after the S6 cut - the SLICE-6 PICKUP was voided then reinstated, see
+SLICE-6B. S6b addendum: full-test baseline is 3271 pass / 173 files;
+the app-host surface now has NO placeholder bodies, so do not grep for
+"not reachable yet" expectations in tests you touch)
 
 What the relay slices left for you: an app's public URL is
 `https://<hostLabel>.<office host>` exactly when `buildPublicOrigin().
