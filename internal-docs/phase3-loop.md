@@ -266,10 +266,29 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          baseline now 3271 pass / 173 files. Product-visible notes
          queued for Nil's pass in the manager's report.)
          Loop order: S6a -> S6b -> S8 -> S9 -> S7 -> S10.
-- [ ] S7  Caddy + DNS (GATED ON NIL: domain + URL-shape answer; only slice
-         needing a real box; installer site block + tls-ask; update path
-         deliberately does NOT rewrite the Caddyfile - enabling app
-         hostnames stays an explicit operator step, documented).
+- [x] S7  Caddy + DNS (only slice needing a real box; installer site block
+         + tls-ask; update path deliberately does NOT rewrite the
+         Caddyfile - enabling app hostnames stays an explicit operator
+         step, documented).
+         (Isomuxer1/Reviewer1, plan-gate 3 rounds incl. one measurement-
+         forced redesign, diff-gate approved 0e162dce round 2 + final
+         box-state approval, committed b955eaa. THE measured fact: Caddy
+         2.11.4's on_demand ask is a live ACCESS gate consulted on every
+         cold-cache load, not an issuance hook - a deny blocks serving a
+         VALID stored cert, so any in-memory counter self-DoSes on
+         restart. Hence the persisted admission ledger: certAdmittedAt
+         on issuedLabels rows, admitAppCertificate() atomic, cap
+         TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR=10 bounds NEW ADMISSIONS
+         (never confirmed issuances). Gate strings: ok/denied/rate
+         limited. E2E on test.isomux.app: real LE cert, generation
+         ladder (s7probe retired -> only -g2 certifiable), unknown label
+         no-cert, edge 404, cold-cache pass spending nothing, updater
+         two-leg transition leaving the Caddyfile untouched. Box
+         restored + verified healthy; linger/user-manager drop-in
+         deliberately kept. Warm-cache revocation caveat is real and
+         visible in the wild (S10 documents). LE shared-bucket risk
+         filed as task 1ed48df3. Baseline 3358 / 177 files. Process
+         lesson pinned: end turn after any gate request.)
 - [x] S8  ISOMUX_APP_URL injection (renderUnit + reconcile pass; absent when
          no domain configured).
          (Isomuxer1/Reviewer1, diff-gate approved b8411222 FIRST ROUND,
@@ -948,3 +967,63 @@ site-block details, code-delivery method to the box.
 
 Locked: on-demand TLS gated by fail-closed tls-ask, updater never
 rewrites the Caddyfile, flat URL shape, Standing rails (no push).
+
+## SLICE-10 PICKUP (authored after S7's commit; baseline = b955eaa)
+
+Goal: the words catch up with the code. Every doc/prompt surface that
+phase 3 made stale gets updated; design docs record what shipped. LAST
+slice of the loop. ALL prose in this slice is user-visible by
+definition - EVERY added or changed sentence goes VERBATIM in your
+report for Nil's pass, and his copy rules bind: short, no
+overexplaining, no em dashes (plain hyphens), no edge-case caveat
+clauses unless the pickup lists them, README/landing describe
+capability never mechanism.
+
+The surfaces (check internal-docs/documentation.md for any this list
+misses - that file is itself a surface if you add a new doc):
+- server/system-prompt.ts, the apps paragraph: apps now also receive
+  ISOMUX_APP_URL when the office has an apps domain (absent otherwise
+  - an app can test for it). Agents should hand bosses the hostname
+  link when the API returns url, else the port/SSH story. Keep the
+  existing tone; this prompt ships to EVERY deployment.
+- README/docs (self-hosted story): enabling app hostnames on an
+  existing https install is an EXPLICIT operator step - one wildcard
+  DNS record (*.<office host>) plus re-running the installer's Caddy
+  step or applying the site block by hand; the updater never rewrites
+  the Caddyfile. New installs on an https origin get it from install.sh
+  as of this loop. Keep it to a short section; capability first.
+- Documented consequences, ONE sentence each (rulings require these
+  three): an operator who aliased another subdomain at the office box
+  gets 404s there after updating; an office with >10 apps enabling
+  hostnames staggers first admissions as the hour rolls; deleting an
+  app stops new certificates immediately but TLS may keep terminating
+  from the terminator's warm cache until its next cold load.
+- Design docs: port-proxy-design.md + agent-apps-design.md - mark the
+  phase-3 sections resolved/shipped with commit refs (S1-S9's commits
+  are in this file's checkboxes); do not rewrite history, just close
+  the loops (e.g. the __Host- eventual-cleanup note at
+  port-proxy-design.md:276 is DONE).
+- internal-docs/app-orchestrator-loop.md: LEAVE IT ALONE - its
+  deletion is already queued for Nil; updating it would waste the pass.
+- internal-docs/documentation.md: add any new doc surface you create.
+
+Traps:
+- No behavior changes AT ALL in this slice - prose, comments and doc
+  files only. If you find a code bug while reading, report it, do not
+  fix it.
+- The reserved-name list, label grammar, cap values etc. are ALREADY
+  final - document what IS, do not restate internals README-side
+  (capability, not mechanism).
+- bun test includes prompt/doc pin tests (source-hygiene, system-prompt
+  pins); expect some to need updating and mutation-check any you touch.
+
+Acceptance: always-run gates green (build:ui too - the README may be
+bundled); reviewer approve on the final announced fingerprint;
+EVERYTHING quoted verbatim in the report, organized by surface so
+Nil's pass can go top to bottom; explicit statement that no behavior
+changed (diff shows docs/comments/strings only).
+
+Decide with reviewer: section placement, exact wording drafts.
+
+Locked: no behavior changes, Nil's copy rules, app-orchestrator-loop.md
+untouched, Standing rails.
