@@ -223,18 +223,21 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          5m, 128/app, 512 total; request size rides the listener's 512MB.
          For Nil's list: apps cannot see the visitor IP (XFF = terminator
          peer; real fix needs an authenticated Caddy boundary, not now).)
-- [ ] S6a WebSocket upstream: frame codec + in-house WS client over a raw
+- [x] S6a WebSocket upstream: frame codec + in-house WS client over a raw
          TCP socket, pure, wired into nothing. Split from S6 after a
          measured finding (Bun's WS client buffers browser->app
-         unboundedly: bufferedAmount pinned 0 with 120MB queued, RSS
-         211MB; raw socket reports real backpressure). Codec bar:
-         split-at-every-byte decode corpus, strict length arithmetic,
-         capped reassembly; the app is untrusted input at the parser
-         level. HISTORY: Nil cut WS from the loop (not critical path),
-         then REINSTATED it within the hour on principle - "we don't want
-         an artificial restriction that a non-managed app wouldn't have";
-         a port app can speak WS, so the managed transport must too. The
-         S6a implementation predated the cut and resumes unchanged.
+         unboundedly); Nil cut WS then reinstated it on the parity
+         principle ("no artificial restriction a non-managed app wouldn't
+         have"). (Isomuxer2/Reviewer2, diff-gate approved d43a3da4 round
+         5, committed with this edit. 4 new files, nothing existing
+         modified, imported by nothing. 100 tests / 620 assertions;
+         34 mutations, 32 killed, 2 documented equivalents. Stated
+         per-connection memory bound ~3.5MB + one Bun read. Post-incident
+         hardening: test fill loops are byte-budgeted and THROW if the
+         queue never refuses - a broken ceiling fails in ms; carry this
+         pattern to any future resource-bound tests. OPEN FOR NIL/S6b:
+         total relayed-socket cap - Reviewer2 recommends 64 (~225MB
+         adversarial ceiling) over 128 (~450MB); per-app 32 uncontested.)
 - [ ] S6b WebSocket relay: wiring S6a into the app-host arm, office
          plumbing, lifecycle/auth per the SLICE-6 pickup (which is BACK in
          force). Baseline = S6a's commit.
