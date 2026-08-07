@@ -31,7 +31,7 @@ import {
   NAVIGATION_HEADERS,
   expectBounce,
   NOT_FOUND,
-  NOT_READY,
+  WS_AUTH_REQUIRED,
   OFFICE_HOST,
   WS_UPGRADE_HEADERS,
   anAgentToken,
@@ -390,11 +390,12 @@ describe("app hosts: the arm", () => {
       path: "/ws",
       headers: WS_UPGRADE_HEADERS,
     });
-    // Not 101 (the office's own /ws would have upgraded) and not 401 (its
-    // unauthenticated refusal): the office WS handler is unreachable here.
-    // Reusing the HTTP placeholder verbatim is an explicit requirement, so it
-    // is asserted as the same constant rather than merely "some 503".
-    expectPlaceholder(res, NOT_READY, "ws upgrade on a live label");
+    // Not 101, and not the office /ws handler's own "unauthenticated" body: an
+    // upgrade on an app host is answered by the app-host arm and nothing else.
+    // Since slice 6b the answer to an anonymous one is the app surface's own
+    // 401 - which is also the proof the office's WS handler never ran, because
+    // that one refuses with a different status line and a different body.
+    expectPlaceholder(res, WS_AUTH_REQUIRED, "ws upgrade on a live label");
   });
 
   it("keeps every office route off an app host, credentials and all", async () => {

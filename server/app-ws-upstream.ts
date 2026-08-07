@@ -236,6 +236,17 @@ export function buildHandshakeRequest(req: HandshakeRequest): Buffer | null {
   return Buffer.from(`${lines.join("\r\n")}\r\n\r\n`, "utf8");
 }
 
+// The one place a validation outcome becomes a dial failure, so the two
+// vocabularies cannot drift apart as either grows.
+const HANDSHAKE_FAILURES: Record<
+  "rejected" | "invalid" | "protocol",
+  DialFailure
+> = {
+  rejected: "handshake_rejected",
+  invalid: "handshake_invalid",
+  protocol: "handshake_protocol",
+};
+
 export function handshakeAccept(key: string): string {
   return createHash("sha1")
     .update(key + WS_GUID)
@@ -248,11 +259,13 @@ export type HandshakeCheck =
   | { ok: true; protocol: string | null }
   // `rejected` is an app that answered something other than an upgrade - a
   // page, a 404, a redirect. `invalid` is an app that tried to upgrade and got
-  // it wrong. The distinction is the caller's, not cosmetic: one means "this
-  // path is not a WebSocket", the other means "this app's handshake cannot be
-  // trusted", and they are carried as a field rather than sniffed out of the
-  // message text.
-  | { ok: false; kind: "rejected" | "invalid"; detail: string };
+  // it wrong. `protocol` is the narrow subprotocol-negotiation case, split out
+  // in slice 6b because the relay owes that one a different, debuggable answer:
+  // the browser asked for an application protocol and the app did not agree to
+  // it, which is the caller's problem to fix rather than a broken app. The
+  // distinction is the caller's, not cosmetic, and it is carried as a field
+  // rather than sniffed out of the message text.
+  | { ok: false; kind: "rejected" | "invalid" | "protocol"; detail: string };
 
 // Comma-separated field value as lowercase tokens, for the two headers whose
 // meaning is "contains this token" rather than "equals this string".
@@ -349,7 +362,7 @@ export function checkHandshakeResponse(
   if (!offeredProtocols.includes(chosen)) {
     return {
       ok: false,
-      kind: "invalid",
+      kind: "protocol",
       detail: `server chose an unoffered subprotocol: ${chosen.slice(0, 40)}`,
     };
   }
@@ -413,6 +426,9 @@ export type DialFailure =
   | "handshake_timeout"
   | "handshake_rejected"
   | "handshake_invalid"
+  // The app's 101 named a subprotocol the client never offered. Its own kind so
+  // the relay can say what actually went wrong (slice 6b).
+  | "handshake_protocol"
   | "bad_request";
 
 export type DialResult =
@@ -1003,13 +1019,7 @@ export async function dialAppUpstream(
             opts.protocols,
           );
           if (!check.ok) {
-            failHandshake(
-              check.kind === "rejected"
-                ? "handshake_rejected"
-                : "handshake_invalid",
-              check.detail,
-              socket,
-            );
+            failHandshake(HANDSHAKE_FAILURES[check.kind], check.detail, socket);
             return;
           }
           // Frame bytes can share the read that ended the headers, and dropping

@@ -20,6 +20,12 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { STATE_ROOT } from "../config.ts";
 import { appRegistry } from "../app-registry.ts";
 import { APP_COOKIE_NAME } from "../app-auth.ts";
+import {
+  FrameDecoder,
+  encodeBinaryFrame,
+  encodeCloseFrame,
+  encodeTextFrame,
+} from "../ws-frames.ts";
 import { buildPublicOrigin } from "../auth.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
@@ -186,9 +192,21 @@ export const NOT_FOUND = {
   contentType: "text/plain; charset=utf-8",
   cacheControl: "no-store",
 };
-export const NOT_READY = {
-  status: 503,
-  body: "this app is not reachable yet\n",
+// A caller who is past the gate and asked for a WebSocket on an app whose port
+// has nothing listening. Slice 6b dials the app BEFORE upgrading, so a dial that
+// cannot be made is still an ordinary HTTP refusal - which is the whole reason
+// that ordering was chosen.
+export const WS_UNREACHABLE = {
+  status: 502,
+  body: "this app did not respond\n",
+  contentType: "text/plain; charset=utf-8",
+  cacheControl: "no-store",
+};
+// The refusal an upgrade gets with no live app session. Never a redirect: no
+// WebSocket client can follow one.
+export const WS_AUTH_REQUIRED = {
+  status: 401,
+  body: "authentication required\n",
   contentType: "text/plain; charset=utf-8",
   cacheControl: "no-store",
 };
@@ -451,4 +469,176 @@ export async function signIn(
 
 export function withAppCookie(value: string): Record<string, string> {
   return { Cookie: `${APP_COOKIE_NAME}=${value}` };
+}
+
+// --- a WebSocket client, for the slice-6b relay ------------------------------
+
+// Why a hand-rolled client rather than `new WebSocket(...)`: these tests need a
+// Host header of our choosing (the whole arm routes on it), an arbitrary Origin
+// including none at all, a cookie the runtime would not attach, and the ability
+// to DROP the TCP connection without a close frame - which is the only way to
+// produce the 1006 the relay has to map honestly. None of that is reachable
+// through a WebSocket client API.
+//
+// The frames are encoded with the office's own codec (server/ws-frames.ts),
+// which is what a client role needs (masked out, unmasked in). That is not
+// circular: the codec is independently tested in ws-frames.test.ts, and the leg
+// this file actually exercises - the browser leg - is Bun's own server
+// implementation on the other side of it.
+
+export type WsEvent =
+  | { kind: "text"; text: string }
+  | { kind: "binary"; data: Buffer }
+  | { kind: "close"; code: number | null; reason: string }
+  // The socket ended with no close frame: the client's view of 1006.
+  | { kind: "eof" };
+
+export interface WsClient {
+  send(text: string): void;
+  sendBinary(data: Buffer): void;
+  sendClose(code: number | null, reason?: string): void;
+  // Hang up like a crashed tab: no close frame, just a dead socket.
+  drop(): void;
+  // The next event, waiting for it if it has not arrived.
+  next(timeoutMs?: number): Promise<WsEvent>;
+  // Everything seen so far, in order.
+  seen: WsEvent[];
+  handshakeHeaders: Record<string, string>;
+}
+
+export type WsConnectResult =
+  | { ok: true; client: WsClient }
+  // Anything that is not a 101, parsed like any other raw response so a refusal
+  // can be compared byte for byte against the shared constants above.
+  | { ok: false; response: RawResponse };
+
+export function wsConnect(
+  port: number,
+  opts: {
+    host: string;
+    path?: string;
+    cookie?: string;
+    // Absent by default, since a hand-built client is exactly the case the
+    // relay's Origin rule allows; pass a string to send one.
+    origin?: string;
+    protocols?: string;
+    headers?: Record<string, string>;
+  },
+): Promise<WsConnectResult> {
+  return new Promise((resolve) => {
+    const seen: WsEvent[] = [];
+    const waiters: Array<(event: WsEvent) => void> = [];
+    const emit = (event: WsEvent): void => {
+      const waiter = waiters.shift();
+      if (waiter) waiter(event);
+      else seen.push(event);
+    };
+    let upgraded = false;
+    let head = Buffer.alloc(0);
+    let settled = false;
+    const decoder = new FrameDecoder({ maxMessageBytes: 8 * 1024 * 1024 });
+    const socket = connect(port, "127.0.0.1");
+    socket.on("connect", () => {
+      socket.write(
+        [
+          `GET ${opts.path ?? "/"} HTTP/1.1`,
+          `Host: ${opts.host}`,
+          "Upgrade: websocket",
+          "Connection: Upgrade",
+          "Sec-WebSocket-Version: 13",
+          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
+          ...(opts.origin === undefined ? [] : [`Origin: ${opts.origin}`]),
+          ...(opts.protocols === undefined
+            ? []
+            : [`Sec-WebSocket-Protocol: ${opts.protocols}`]),
+          ...(opts.cookie === undefined
+            ? []
+            : [`Cookie: ${APP_COOKIE_NAME}=${opts.cookie}`]),
+          ...Object.entries(opts.headers ?? {}).map(([k, v]) => `${k}: ${v}`),
+          "",
+          "",
+        ].join("\r\n"),
+      );
+    });
+    const client: WsClient = {
+      send(text) {
+        socket.write(encodeTextFrame(text));
+      },
+      sendBinary(data) {
+        socket.write(encodeBinaryFrame(data));
+      },
+      sendClose(code, reason = "") {
+        socket.write(encodeCloseFrame(code, reason));
+      },
+      drop() {
+        socket.destroy();
+      },
+      next(timeoutMs = 2000) {
+        const ready = seen.shift();
+        if (ready) return Promise.resolve(ready);
+        return new Promise<WsEvent>((res, rej) => {
+          const timer = setTimeout(
+            () => rej(new Error("no websocket event within the timeout")),
+            timeoutMs,
+          );
+          waiters.push((event) => {
+            clearTimeout(timer);
+            res(event);
+          });
+        });
+      },
+      seen,
+      handshakeHeaders: {},
+    };
+    socket.on("data", (chunk: Buffer) => {
+      if (!upgraded) {
+        head = Buffer.concat([head, chunk]);
+        const end = head.indexOf("\r\n\r\n");
+        if (end === -1) return;
+        const headText = head.subarray(0, end).toString("latin1");
+        if (!/^HTTP\/1\.1 101/.test(headText)) return; // handled on close/timeout
+        for (const line of headText.split("\r\n").slice(1)) {
+          const colon = line.indexOf(":");
+          if (colon > 0) {
+            client.handshakeHeaders[line.slice(0, colon).trim().toLowerCase()] =
+              line.slice(colon + 1).trim();
+          }
+        }
+        upgraded = true;
+        settled = true;
+        resolve({ ok: true, client });
+        chunk = head.subarray(end + 4);
+        head = Buffer.alloc(0);
+        if (chunk.length === 0) return;
+      }
+      decoder.push(chunk, (message) => {
+        if (message.kind === "text") emit({ kind: "text", text: message.text });
+        else if (message.kind === "binary")
+          emit({ kind: "binary", data: message.data });
+        else if (message.kind === "close")
+          emit({ kind: "close", code: message.code, reason: message.reason });
+        return "continue";
+      });
+    });
+    const finish = (): void => {
+      if (settled) {
+        emit({ kind: "eof" });
+        return;
+      }
+      settled = true;
+      resolve({ ok: false, response: parseRaw(head.toString("utf8")) });
+    };
+    socket.on("end", finish);
+    socket.on("close", finish);
+    socket.on("error", finish);
+    // A refusal that leaves the connection open (Bun keeps it alive) still has
+    // to resolve; the response is complete once the body has arrived.
+    setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        socket.destroy();
+        resolve({ ok: false, response: parseRaw(head.toString("utf8")) });
+      }
+    }, 400);
+  });
 }

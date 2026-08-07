@@ -42,13 +42,11 @@ import { buildPublicOrigin } from "./auth.ts";
 import {
   APP_AUTH_PATH,
   appHostAuthGate,
+  appHostWsAuthGate,
   handleAppAuthRedeem,
 } from "./app-auth.ts";
-import {
-  NOT_READY_BODY,
-  neutral,
-  neutralNotFound,
-} from "./app-host-responses.ts";
+import { relayWsToApp, type AppRelayWsData } from "./app-ws-relay.ts";
+import { neutralNotFound } from "./app-host-responses.ts";
 import type { AppRecord } from "../shared/types.ts";
 
 // --- hostname grammar (pure) ------------------------------------------------
@@ -239,8 +237,15 @@ export const APP_RESERVED_PATH = "/__isomux";
 // the handshake, so "externally indistinguishable" is one set of bytes rather
 // than two literals that could drift.
 
+// A WebSocket handshake is a GET (RFC 6455 section 4.1). Any other method
+// carrying an `Upgrade` header is not one, and is left to the HTTP relay - which
+// drops `Upgrade` as hop-by-hop, so the app sees an ordinary request rather than
+// a half-understood upgrade attempt.
 function isWebSocketUpgrade(req: Request): boolean {
-  return req.headers.get("upgrade")?.toLowerCase() === "websocket";
+  return (
+    req.method === "GET" &&
+    req.headers.get("upgrade")?.toLowerCase() === "websocket"
+  );
 }
 
 // What the arm needs from the process around it. The SUPERVISOR is the reason
@@ -254,6 +259,11 @@ export interface AppHostDeps {
   // request is actually relayed. See the relay for why that is the only address
   // it can honestly claim.
   peer?: () => string | null | undefined;
+  // Hands a request to the runtime as a WebSocket. Supplied by the office, which
+  // is the only place that holds the Bun server; absent means this office cannot
+  // upgrade anything, and an upgrade on an app host is refused rather than
+  // half-performed.
+  upgrade?: (req: Request, data: AppRelayWsData, headers?: Headers) => boolean;
 }
 
 // The office's request entry point calls this FIRST, before the URL is parsed
@@ -269,16 +279,15 @@ export interface AppHostDeps {
 //      never issued or was retired. Those two must be indistinguishable: a
 //      retired label is a name somebody used to have, and the difference is
 //      not the internet's business.
-//   3. WebSocket upgrade              -> refused HERE, deliberately (slice 6
-//      relays it). Refusing by falling through would hand a diverted host to
-//      the office's own /ws handler, which is the one thing that must be
-//      impossible. Refused BEFORE the auth gate, and identically with or
-//      without a session: an upgrade cannot follow a redirect, so bouncing one
-//      into the handshake would only turn a clear refusal into a broken one.
-//   4. the handshake's own path       -> redeem a sign-in code. Everything
-//      else under the reserved prefix, including any other method on this
-//      path, is the 404: an app never sees a reserved path, and the relay
-//      (slice 5) plugs in below this branch.
+//   3. the handshake's own path       -> redeem a sign-in code. Everything
+//      else under the reserved prefix, including any other method or protocol
+//      on this path, is the 404: an app never sees a reserved path, and both
+//      relays plug in below this branch.
+//   4. a WebSocket upgrade            -> its own auth answer (an upgrade cannot
+//      follow a redirect) and then the WebSocket relay (slice 6b). It is
+//      handled HERE rather than by falling through, because falling through
+//      would hand a diverted host to the office's own /ws handler, which is the
+//      one thing that must be impossible.
 //   5. no live app session            -> a request that could complete the
 //      handshake is sent through the office to get one; anything else is
 //      refused (mayInitiateHandshake). Runs AFTER the label
@@ -289,11 +298,13 @@ export interface AppHostDeps {
 //
 // DELIBERATELY NOT `async`. Only the diverted path returns a promise; the
 // office's own path - every request of every install without app hostnames -
-// stays synchronous, and the caller awaits what it gets back.
+// stays synchronous, and the caller awaits what it gets back. The WebSocket
+// branch is the one that can resolve to `undefined`: a request that became a
+// socket has no response, which is exactly what the runtime expects back.
 export function handleAppHostRequest(
   req: Request,
   deps: AppHostDeps = {},
-): Response | Promise<Response> | null {
+): Response | Promise<Response | undefined> | null {
   const domain = appHostDomain();
   if (domain === null) return null;
 
@@ -325,17 +336,46 @@ export function handleAppHostRequest(
   const app = apps.find((a) => a.hostLabel === match.label) ?? null;
   if (app === null) return neutralNotFound();
 
-  if (isWebSocketUpgrade(req)) return neutral(503, NOT_READY_BODY);
-
   const { pathname } = new URL(req.url);
+  const upgrade = isWebSocketUpgrade(req);
   if (
     pathname === APP_RESERVED_PATH ||
     pathname.startsWith(`${APP_RESERVED_PATH}/`)
   ) {
-    if (pathname === APP_AUTH_PATH && req.method === "GET") {
+    // The reserved check now runs AHEAD of the WebSocket branch, which it did
+    // not have to when that branch was a blanket refusal. An upgrade is a GET,
+    // and the handshake's own path answers GETs - so with the order the other
+    // way round an upgrade addressed at `/__isomux/auth` would redeem a sign-in
+    // code and then be relayed. The reserved namespace is not the app's, by any
+    // method and by any protocol.
+    if (!upgrade && pathname === APP_AUTH_PATH && req.method === "GET") {
       return handleAppAuthRedeem(req, { host, app });
     }
     return neutralNotFound();
+  }
+
+  if (upgrade) {
+    // Auth first, in the same position as the HTTP path's gate - but with its
+    // own answer, because an upgrade cannot follow the redirect the gate would
+    // hand it. Then the relay, which owns everything from the Origin check to
+    // the 101 (server/app-ws-relay.ts).
+    const wsGate = appHostWsAuthGate(req, { host, app });
+    if (wsGate !== null) return wsGate;
+    return relayWsToApp(req, {
+      app,
+      host,
+      apps,
+      supervisor: deps.supervisor ?? productionSupervisor,
+      peer: deps.peer,
+      registry,
+      upgrade: (request, data, headers) => {
+        // No upgrade seam, no upgrade: an office that did not supply one cannot
+        // hand a socket to anything, and pretending otherwise would 101 a
+        // browser into a connection nobody is holding.
+        if (deps.upgrade === undefined) return false;
+        return deps.upgrade(request, data, headers);
+      },
+    });
   }
 
   const gate = appHostAuthGate(req, { host, app });

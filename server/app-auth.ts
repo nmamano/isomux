@@ -678,6 +678,43 @@ export function handleAppAuthRedeem(
 // anything else is refused. When a cookie was presented and rejected, the refusal
 // clears it - a dead credential must not sit in a browser waiting to confuse
 // its owner, which is the lesson slice 2's logout blocker taught.
+// The same question for a WebSocket upgrade, which needs its own answer rather
+// than the gate below.
+//
+// The difference is not stylistic: the gate's non-session path either BOUNCES a
+// request into the handshake or refuses it, and an upgrade can do neither
+// usefully. A browser's upgrade carries `Sec-Fetch-Dest: websocket`, so it would
+// take the refusal branch; a hand-built client with no Fetch Metadata would take
+// the REDIRECT branch and be handed a 302 no WebSocket client can follow. Both
+// end in failure, one of them confusingly. So an upgrade gets one answer, the
+// honest one: hold a live app session or be refused.
+//
+// In practice a browser reaches an app's page over HTTP first (slice 5), which
+// is where the session is established, so a real app's socket opens with the
+// cookie already in hand.
+export function appHostWsAuthGate(
+  req: Request,
+  ctx: AppHostContext,
+): Response | null {
+  const rawCookie = readAppCookie(req);
+  if (
+    validateAppSession(rawCookie, {
+      label: ctx.app.hostLabel,
+      hostGen: ctx.app.hostGen,
+      now: ctx.now,
+    })
+  ) {
+    return null;
+  }
+  // Presented and rejected -> clear it, exactly as the gate does; absent ->
+  // nothing to clear. Same helper, so the two cannot emit different bytes.
+  return handshake(
+    401,
+    AUTH_REQUIRED_BODY,
+    rawCookie === null ? undefined : { "Set-Cookie": appCookieClearLine() },
+  );
+}
+
 export function appHostAuthGate(
   req: Request,
   ctx: AppHostContext,

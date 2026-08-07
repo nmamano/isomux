@@ -157,6 +157,7 @@ import {
   handleAppHostRequest,
 } from "./app-hosts.ts";
 import { APP_MINT_PATH, handleAppMintRequest } from "./app-auth.ts";
+import type { AppRelayWsData } from "./app-ws-relay.ts";
 import {
   appSupervisor as productionAppSupervisor,
   type AppSupervisor,
@@ -544,10 +545,19 @@ function registerBootHooks(): void {
 // auth session) - multiple tabs of the same user share `session.sessionIdHash`
 // but get distinct `connectionId`s, so live-avatars presence keyed by
 // connectionId gives one ghost per tab (the design contract).
-interface WsData {
+interface OfficeWsData {
+  kind: "office";
   session: SessionLookup;
   connectionId: string;
 }
+
+// One `Bun.serve` serves the office AND every app hostname, and a Bun server has
+// exactly one set of websocket callbacks - so those callbacks receive both kinds
+// of socket and have to tell them apart. `kind` is that discriminant, and it is
+// a field rather than a guess about which properties exist: an app-relay socket
+// carries no office session at all, and there must be no shape in which one
+// could be mistaken for the other.
+type WsData = OfficeWsData | AppRelayWsData;
 
 let connectionIdCounter = 0;
 function nextConnectionId(): string {
@@ -559,7 +569,7 @@ function nextConnectionId(): string {
   return `c${Date.now().toString(36)}-${connectionIdCounter.toString(36)}`;
 }
 
-const browsers = new Set<ServerWebSocket<WsData>>();
+const browsers = new Set<ServerWebSocket<OfficeWsData>>();
 
 // Centralized Idempotency-Key cache (Phase 3a). Process-global; reset per boot in
 // resetServerModuleState so a repeated in-process harness boot starts clean.
@@ -1093,7 +1103,7 @@ function listOnlineUserIds(): string[] {
   return Array.from(seen).sort();
 }
 
-function sendPresenceListTo(ws: ServerWebSocket<WsData>) {
+function sendPresenceListTo(ws: ServerWebSocket<OfficeWsData>) {
   const onlineUserIds = listOnlineUserIds();
   ws.send(
     JSON.stringify({
@@ -1278,7 +1288,7 @@ function buildLiveGuardDeps(): GuardDeps {
 // completeness and the 3b room-visibility projection. deliver() stamps the
 // event id as `type` and sends the
 // already-shaped payload (the core op does any per-user shaping before emit()).
-const liveEmitDeps: EmitDeps<ServerWebSocket<WsData>> = {
+const liveEmitDeps: EmitDeps<ServerWebSocket<OfficeWsData>> = {
   allSessions: () => [...browsers],
   ownerSessions: () =>
     [...browsers].filter((ws) => ws.data.session.role === "owner"),
@@ -3319,7 +3329,7 @@ function projectOfficeFor(session: SessionLookup): OfficeWire {
 }
 
 function sendProjectedFullState(
-  ws: ServerWebSocket<WsData>,
+  ws: ServerWebSocket<OfficeWsData>,
   options?: { replayLogsForVisible?: boolean },
 ) {
   const session = ws.data.session;
@@ -3413,7 +3423,7 @@ function projectTasksForSession(session: SessionLookup): TaskItem[] {
     .filter((t) => !t.roomId || accessible.has(t.roomId));
 }
 
-function sendTasksTo(ws: ServerWebSocket<WsData>) {
+function sendTasksTo(ws: ServerWebSocket<OfficeWsData>) {
   ws.send(
     JSON.stringify({
       type: "tasks",
@@ -3792,7 +3802,10 @@ function emitAgentEvent(event: AgentEvent): void {
   }
 }
 
-function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
+function routeAgentEventToWs(
+  ws: ServerWebSocket<OfficeWsData>,
+  event: AgentEvent,
+) {
   const session = ws.data.session;
 
   if (sessionHasFullRoomAccess(session)) {
@@ -4016,7 +4029,7 @@ function wireEventSinks(): void {
 // post-review.)
 async function handleInboundMessage(
   cmd: ClientCommand,
-  ws: ServerWebSocket<WsData>,
+  ws: ServerWebSocket<OfficeWsData>,
 ) {
   const session = ws.data.session;
   try {
@@ -4238,7 +4251,17 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // request that is actually being relayed, and this runs in front of
         // every request the office serves.
         peer: () => server.requestIP(req)?.address ?? null,
+        // The only way an app host can turn a request into a socket. The arm
+        // never sees the server itself. The headers it passes carry the app's
+        // own subprotocol selection, which the runtime would otherwise answer
+        // for itself.
+        upgrade: (request, data, headers) =>
+          server.upgrade(request, headers ? { data, headers } : { data }),
       });
+      // `await` can resolve to undefined here, and only on one path: the
+      // WebSocket relay upgraded the request, so the socket belongs to the
+      // runtime and there is no response to give. That is what Bun's fetch
+      // wants back for an upgraded request.
       if (appHostResponse) return await appHostResponse;
 
       const url = new URL(req.url);
@@ -4271,7 +4294,11 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         const wsHeaders = new Headers();
         for (const line of wsMigration) wsHeaders.append("Set-Cookie", line);
         const upgraded = server.upgrade(req, {
-          data: { session: wsSession, connectionId: nextConnectionId() },
+          data: {
+            kind: "office" as const,
+            session: wsSession,
+            connectionId: nextConnectionId(),
+          },
           ...(wsMigration.length > 0 ? { headers: wsHeaders } : {}),
         });
         if (upgraded) return;
@@ -4737,7 +4764,21 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       return serveIndexHtml(req, auth.session);
     },
     websocket: {
-      open(ws) {
+      // The three callbacks below serve two entirely different populations, so
+      // each one starts by asking which it has. An app-relay socket is handed
+      // straight to its relay object and NOTHING of the office's own machinery
+      // runs for it - no roster, no presence, no command parsing. The cast after
+      // the check is the narrowing TypeScript cannot do through the generic:
+      // `ws.data` is discriminated, but `ServerWebSocket<T>` is invariant in T,
+      // so the runtime check is what makes it sound.
+      open(socket) {
+        if (socket.data.kind === "app") {
+          socket.data.relay.attachBrowser(
+            socket as ServerWebSocket<AppRelayWsData>,
+          );
+          return;
+        }
+        const ws = socket as ServerWebSocket<OfficeWsData>;
         browsers.add(ws);
         registerSocket(ws.data.session.sessionIdHash, ws);
         // Send session context FIRST so the client knows the authenticated
@@ -4844,7 +4885,14 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // presence_update from someone else.
         sendPresenceListTo(ws);
       },
-      message(ws, data) {
+      message(socket, data) {
+        if (socket.data.kind === "app") {
+          socket.data.relay.browserMessage(
+            typeof data === "string" ? data : Buffer.from(data),
+          );
+          return;
+        }
+        const ws = socket as ServerWebSocket<OfficeWsData>;
         // Per-message session recheck. Revoke kicks in here without a reconnect:
         // revalidateByHash hits the same in-memory map and returns null if the
         // session has been deleted (revoke), expired, or its user removed.
@@ -4862,7 +4910,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           console.error("Invalid command:", e);
         }
       },
-      close(ws) {
+      close(socket, code, reason) {
+        if (socket.data.kind === "app") {
+          socket.data.relay.browserClosed(code, reason);
+          return;
+        }
+        const ws = socket as ServerWebSocket<OfficeWsData>;
         browsers.delete(ws);
         unregisterSocket(ws.data.session.sessionIdHash, ws);
         // Drop this connection's editor watchers on disconnect (keyed by

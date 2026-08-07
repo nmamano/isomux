@@ -30,7 +30,8 @@ import {
   HTTPS_ORIGIN,
   NAVIGATION_HEADERS,
   NOT_FOUND,
-  NOT_READY,
+  WS_AUTH_REQUIRED,
+  WS_UNREACHABLE,
   OFFICE_HOST,
   RELAY_UNREACHABLE,
   WS_UPGRADE_HEADERS,
@@ -507,9 +508,12 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
     expect(refused.setCookies).toEqual([clearLine]);
   });
 
-  it("refuses a WebSocket upgrade identically with and without a session", async () => {
-    // An upgrade cannot follow a redirect, so it is never bounced. Slice 6
-    // replaces this refusal with a relay.
+  it("answers a WebSocket upgrade by session, and never with a redirect", async () => {
+    // An upgrade cannot follow a redirect, so it is never bounced - that part is
+    // unchanged by slice 6b. What changed is that the two cases are no longer
+    // the same answer: without a session the arm refuses 401, and WITH one it
+    // goes on to dial the app, which in this office is not listening. Both are
+    // still refusals, and neither is the office's own /ws handler.
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     const host = appHost(label);
     const anonymous = await raw(srv.port, {
@@ -523,9 +527,11 @@ describe("app-host handshake: only navigations and metadata-less clients are bou
       path: "/ws",
       headers: { ...WS_UPGRADE_HEADERS, ...withAppCookie(value) },
     });
-    expectPlaceholder(anonymous, NOT_READY, "anonymous upgrade");
-    expectPlaceholder(authenticated, NOT_READY, "authenticated upgrade");
-    expect(anonymous.stable).toBe(authenticated.stable);
+    expectPlaceholder(anonymous, WS_AUTH_REQUIRED, "anonymous upgrade");
+    expectPlaceholder(authenticated, WS_UNREACHABLE, "authenticated upgrade");
+    // Neither is a redirect, which is the property that survives the slice.
+    expect(anonymous.headers.location).toBeUndefined();
+    expect(authenticated.headers.location).toBeUndefined();
   });
 
   it("keeps the reserved prefix unreachable except for the handshake GET", async () => {

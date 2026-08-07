@@ -340,15 +340,23 @@ function peerAddress(ctx: RelayContext): string | null {
   }
 }
 
-export async function relayToApp(
-  req: Request,
-  ctx: RelayContext,
-): Promise<Response> {
-  // 1. PROOF THE APP IS UP, before anything opens a socket. Not "proof it is
-  // down": a missing entry, `activating`, `failed` and `unknown` all refuse,
-  // because a port whose app is not running is a port anything on this box can
-  // be listening on. An externally-started app may briefly 503 while systemd
-  // reports `activating`, which is the right side to be wrong on.
+// PROOF THE APP IS UP, before anything opens a socket. Not "proof it is down":
+// a missing entry, `activating`, `failed` and `unknown` all refuse, because a
+// port whose app is not running is a port anything on this box can be listening
+// on. An externally-started app may briefly 503 while systemd reports
+// `activating`, which is the right side to be wrong on.
+//
+// The WHOLE step lives here - the supervisor read, its failure mode, the
+// decision, and the bytes of the refusal - rather than as a fragment each relay
+// re-assembles. Two relays (HTTP here, WebSocket in app-ws-relay.ts) have to
+// answer this question identically and in the same position in their sequence:
+// before a permit, before a socket. A shared boolean would have let the refusal
+// wording or the ordering drift apart; a shared decision cannot.
+export function proveAppRunning(ctx: {
+  app: AppRecord;
+  apps: readonly AppRecord[];
+  supervisor: AppSupervisor;
+}): { ok: true } | { ok: false; response: Response } {
   let runtime: AppRuntime | undefined;
   try {
     runtime = ctx.supervisor
@@ -356,9 +364,21 @@ export async function relayToApp(
       .get(ctx.app.name);
   } catch (err) {
     console.error("[app-proxy] supervisor unreadable; refusing app:", err);
-    return neutral(503, APP_STOPPED_BODY);
+    return { ok: false, response: neutral(503, APP_STOPPED_BODY) };
   }
-  if (runtime?.state !== "running") return neutral(503, APP_STOPPED_BODY);
+  if (runtime?.state !== "running") {
+    return { ok: false, response: neutral(503, APP_STOPPED_BODY) };
+  }
+  return { ok: true };
+}
+
+export async function relayToApp(
+  req: Request,
+  ctx: RelayContext,
+): Promise<Response> {
+  // 1. The app is running - proven before anything opens a socket.
+  const running = proveAppRunning(ctx);
+  if (!running.ok) return running.response;
 
   // 2. A permit, taken in this same synchronous turn.
   const permit = acquirePermit(permitKey(ctx.app), {

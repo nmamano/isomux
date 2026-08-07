@@ -22,9 +22,10 @@
 // business, so all of it is one answer.
 export const NOT_FOUND_BODY = "not found\n";
 
-// A live app, an authenticated caller, and nothing to relay yet: slice 5
-// replaces this with the app's own bytes.
-export const NOT_READY_BODY = "this app is not reachable yet\n";
+// (Slice 3's "this app is not reachable yet" body is GONE as of slice 6b. It
+// was the last placeholder on this surface: slice 5 replaced it for HTTP and the
+// WebSocket refusal was the only caller left. A live label now always reaches
+// either the app or a refusal that says something specific.)
 
 // A live app and no valid app session, on a request that could not complete the
 // sign-in handshake anyway: an unsafe method, a HEAD, or Fetch Metadata saying
@@ -67,7 +68,40 @@ export const APP_STOPPED_BODY = "this app is not running\n";
 export const APP_UNREACHABLE_BODY = "this app did not respond\n";
 
 // Too many requests already in flight to this app, or to all apps together.
+// Also the WebSocket relay's refusal when its own socket cap is reached (slice
+// 6b): the pools are separate, the sentence is the same one.
 export const APP_BUSY_BODY = "this app is busy; try again\n";
+
+// The two WebSocket refusals (slice 6b). Everything else the upgrade path can
+// refuse with is a body above, reused: no session -> AUTH_REQUIRED_BODY, app not
+// running -> APP_STOPPED_BODY, cap reached -> APP_BUSY_BODY, an upstream that
+// could not be dialed or would not upgrade -> APP_UNREACHABLE_BODY, a reserved
+// path -> NOT_FOUND_BODY, a malformed subprotocol offer -> BAD_REQUEST_BODY.
+
+// The upgrade carried an Origin that is not this app's own. Reachable only by a
+// caller who already holds a live app session, like the relay refusals above.
+export const APP_WS_BAD_ORIGIN_BODY = "bad origin\n";
+
+// The browser asked for one or more application subprotocols and the app did
+// not agree to any of them - it selected none, or selected one the browser never
+// offered. Refused rather than relayed, on a ruling that turns on what a browser
+// does anyway: the WebSocket standard (WHATWG section 2.2, step 11.2) requires a
+// browser that offered subprotocols to FAIL a connection whose 101 does not
+// acknowledge one, so a client hitting the app's port directly already fails
+// here. Bun's server would otherwise fabricate an agreement - it answers with
+// the first protocol the client offered unless told otherwise (measured) - and
+// the hostname would then succeed where the bare port fails, with the two ends
+// disagreeing about which protocol they are speaking.
+//
+// It names the cause because the person reading it is the app's author: the
+// caller offered protocols, and the app did not pick one of them.
+export const APP_WS_PROTOCOL_MISMATCH_BODY =
+  "this app did not select an offered websocket protocol\n";
+
+// The runtime refused to take the socket over. Nothing the caller did wrong and
+// nothing they can act on - it is here rather than as a bare status so the
+// surface has no unnamed bodies.
+export const APP_WS_UPGRADE_FAILED_BODY = "websocket upgrade failed\n";
 
 // --- responses --------------------------------------------------------------
 
