@@ -10,6 +10,7 @@ import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { EMBEDDED, embed } from "../scripts/embed-deploy-scripts.ts";
 import { AGENT_OOM_SCORE_ADJ } from "../server/oom-stamp.ts";
+import { TLS_ASK_PATH } from "../server/tls-ask.ts";
 
 const SRC = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
 
@@ -379,6 +380,36 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
   });
 });
 
+// The managed Caddyfile, rendered the way configure_caddy renders it. The
+// heredoc expands exactly two variables, which the assertion below pins - so a
+// literal substitution here IS the file the installer writes, and every claim
+// about placement can be made per site block rather than per file.
+function renderCaddyfile(domain: string): string {
+  const open = "write_file /etc/caddy/Caddyfile 644 <<EOF\n";
+  const from = SRC.indexOf(open);
+  expect(from).toBeGreaterThan(-1);
+  const body = SRC.slice(from + open.length, SRC.indexOf("\nEOF\n", from) + 1);
+  expect(body.match(/\$[A-Za-z_]+/g)).toEqual([
+    "$CADDY_MARKER",
+    "$DOMAIN",
+    "$DOMAIN",
+  ]);
+  return body
+    .replaceAll("$CADDY_MARKER", CADDY_MARKER)
+    .replaceAll("$DOMAIN", domain);
+}
+
+const CADDY_MARKER = "# Managed by the isomux installer";
+
+// One top-level block out of the rendered file. Nested directives are indented
+// with tabs, so a site ends at the first `}` in column zero.
+function block(rendered: string, header: string): string {
+  // The global block has no header - it is the bare `{` after the marker line.
+  const from = rendered.indexOf(header === "" ? "\n{\n" : `\n${header} {\n`);
+  expect({ header, found: from > -1 }).toEqual({ header, found: true });
+  return rendered.slice(from, rendered.indexOf("\n}\n", from) + 3);
+}
+
 describe("install.sh: the managed Caddyfile", () => {
   it("turns the admin API off, in a global block ahead of the site block", () => {
     // Caddy's admin API listens on 127.0.0.1:2019 by default and rewrites the
@@ -395,6 +426,74 @@ describe("install.sh: the managed Caddyfile", () => {
     expect(body.indexOf("admin off")).toBeLessThan(body.indexOf("$DOMAIN {"));
     // Still the same office it proxies to.
     expect(body).toContain("reverse_proxy 127.0.0.1:4000");
+  });
+
+  // Slice 7. The installer writes the WHOLE file, so "idempotent" means
+  // "renders the same bytes every time" - there is no append path and no
+  // partial edit to converge.
+  it("renders deterministically, which is what makes a re-run a no-op", () => {
+    expect(renderCaddyfile("office.example")).toBe(
+      renderCaddyfile("office.example"),
+    );
+    // The domain is the only thing that varies.
+    expect(renderCaddyfile("other.example").replaceAll("other", "office")).toBe(
+      renderCaddyfile("office.example"),
+    );
+    const body = SRC.slice(
+      SRC.indexOf("configure_caddy() {"),
+      SRC.indexOf("\nreport() {"),
+    );
+    expect(body).not.toContain(">>");
+  });
+
+  it("has exactly one marker, one global block and one block per site", () => {
+    const rendered = renderCaddyfile("office.example");
+    expect(rendered.split(CADDY_MARKER).length - 1).toBe(1);
+    expect(rendered.startsWith(`${CADDY_MARKER}\n`)).toBe(true);
+    // Every top-level opening brace in the file, in order: the global block,
+    // the office, the wildcard. Nothing outside the managed heredoc, and no
+    // second copy of anything.
+    expect(rendered.match(/^\S*\s?{$/gm)).toEqual([
+      "{",
+      "office.example {",
+      "*.office.example {",
+    ]);
+  });
+
+  it("gates on-demand certificates on the office's own ask endpoint", () => {
+    const global = block(renderCaddyfile("office.example"), "");
+    expect(global).toContain("on_demand_tls {");
+    // The URL the terminator calls must be the route the office actually
+    // serves; this fails if either side is renamed alone.
+    expect(global).toContain(`ask http://127.0.0.1:4000${TLS_ASK_PATH}`);
+  });
+
+  it("puts on-demand TLS on the wildcard site ONLY", () => {
+    const rendered = renderCaddyfile("office.example");
+    const office = block(rendered, "office.example");
+    const wildcard = block(rendered, "*.office.example");
+    // The office keeps ordinary automatic HTTPS: it has a name, an A record and
+    // a certificate obtained at startup, and nothing about it is on demand.
+    expect(office).not.toContain("on_demand");
+    expect(wildcard).toContain("tls {");
+    expect(wildcard).toContain("on_demand");
+    // Both still proxy the office socket - the app arm is the office's own
+    // code, on the same listener.
+    expect(office).toContain("reverse_proxy 127.0.0.1:4000");
+    expect(wildcard).toContain("reverse_proxy 127.0.0.1:4000");
+  });
+
+  it("hides the ask endpoint on the office site and NOT on the wildcard", () => {
+    const rendered = renderCaddyfile("office.example");
+    // Caddy calls the ask URL over loopback, never through a site block, so
+    // refusing that exact path at the edge costs nothing and stops a stranger
+    // asking the office which apps exist.
+    expect(block(rendered, "office.example")).toContain(
+      `respond ${TLS_ASK_PATH} 404`,
+    );
+    // The wildcard must NOT carry it: an app host serves its sign-in handshake
+    // under the same prefix.
+    expect(block(rendered, "*.office.example")).not.toContain("respond");
   });
 });
 

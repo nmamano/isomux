@@ -3111,13 +3111,54 @@ configure_caddy() {
   # this installer restarts the service instead - so the only thing lost is
   # `caddy reload` / `systemctl reload caddy` on this box; a restart still
   # applies a changed Caddyfile.
+  #
+  # The second site block is what makes registered apps reachable at their own
+  # hostnames (`hello.$DOMAIN`). It needs a wildcard DNS record - without one
+  # nothing ever arrives there and the block is inert - and it terminates TLS
+  # ON DEMAND, because a wildcard record means the set of names is not known in
+  # advance. Anyone can therefore point any name under $DOMAIN at this box, so
+  # every certificate is gated by `ask`, which the office answers.
+  #
+  # What `ask` actually gates, measured rather than assumed: Caddy calls it
+  # before obtaining a certificate AND before loading one from storage, so a
+  # restart of this service asks about every name again and a refusal then
+  # refuses the handshake even though the certificate exists. A certificate
+  # already in memory is served without asking, so cutting a name off takes
+  # effect at the next cold load rather than immediately. The office approves
+  # its own host, and a live app's label once it has been admitted - up to ten
+  # labels can be newly admitted per hour, so an office turning this on with
+  # more apps than that admits the rest as the hour rolls.
+  #
+  # Caddy's wildcard matches exactly one label, which is the shape apps use.
+  #
+  # The `respond` line keeps that gate off the public internet: Caddy calls the
+  # ask URL directly over loopback and never through a site block, so refusing
+  # the exact path here costs nothing and stops a stranger from asking the
+  # office which apps exist. Only on the office's own site - an app host serves
+  # its sign-in handshake under the same prefix.
+  #
+  # The update path deliberately never rewrites this file: turning app
+  # hostnames on for an office that already exists is an operator's decision
+  # (it needs a DNS record they have to add anyway), so it is a documented
+  # step, not something an update does to them.
   write_file /etc/caddy/Caddyfile 644 <<EOF
 $CADDY_MARKER
 {
 	admin off
+	on_demand_tls {
+		ask http://127.0.0.1:4000/__isomux/tls-ask
+	}
 }
 
 $DOMAIN {
+	respond /__isomux/tls-ask 404
+	reverse_proxy 127.0.0.1:4000
+}
+
+*.$DOMAIN {
+	tls {
+		on_demand
+	}
 	reverse_proxy 127.0.0.1:4000
 }
 EOF

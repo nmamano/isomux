@@ -288,7 +288,52 @@ export interface IssuedLabel {
   name: string;
   gen: number;
   issuedAt: number;
+  // When this label was first admitted for a TLS certificate (slice 7). Absent
+  // means never admitted, which is what every row written before this existed
+  // says, so there is no migration.
+  //
+  // It is BOTH halves of the certificate gate: its presence is the proof that
+  // this label is already being served, and its value is the slot it occupies
+  // in the rolling admission window. One field, so the two can never disagree,
+  // and both survive a restart of anything.
+  //
+  // Server-side only, deliberately: it never reaches AppRecord or the wire.
+  // Nothing outside the certificate gate has a use for it, and putting it on
+  // the API would invite one.
+  certAdmittedAt?: number;
 }
+
+// The certificate gate's constants (server/tls-ask.ts is the policy that reads
+// them; they live here because the registry method is what enforces them and
+// production callers deliberately cannot supply their own).
+//
+// The cap counts ADMISSIONS, not certificates: the gate is asked before a
+// certificate is obtained OR loaded from storage, and it never learns whether
+// the CA said yes. So this bounds how many labels can newly become certifiable
+// in an hour, which is the strongest thing the gate can honestly enforce. It is
+// a brake on us doing it to ourselves - an agent looping register/delete walks
+// the generation ladder and every new label is a name that has never had a
+// certificate. It is NOT a defence of the CA's own ceiling: Let's Encrypt
+// counts 50 certificates per registered domain per 7 days, and the registered
+// domain is PSL-derived, so every office under one parent shares that bucket.
+export const TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR = 10;
+export const TLS_ASK_ADMISSION_WINDOW_MS = 60 * 60 * 1000;
+
+// What an admission attempt did. Everything but "admitted" leaves the file
+// untouched.
+export type CertAdmission =
+  // No live app carries this label, or its ledger row is missing. Same answer
+  // for a retired label and one that never existed.
+  | "not_live"
+  // Already admitted, at any point in the past. Free forever: this is what
+  // makes a terminator restart - which re-asks about every live name at once -
+  // harmless at any number of apps.
+  | "already"
+  // Newly admitted and written to disk.
+  | "admitted"
+  // The rolling window is full. Nothing written; the label can try again as
+  // capacity ages out.
+  | "capped";
 
 // The label an app of this name and generation gets. Generation 1 is the bare
 // name, so a first registration reads as the address the human asked for and
@@ -467,7 +512,7 @@ function isPersistedApp(value: unknown): value is PersistedApp {
 // `bar`, which is the one lie that would let an origin be reissued.
 function isIssuedLabel(value: unknown): value is IssuedLabel {
   if (!isPlainObject(value)) return false;
-  const { label, name, gen, issuedAt } = value;
+  const { label, name, gen, issuedAt, certAdmittedAt } = value;
   return (
     typeof name === "string" &&
     name.length > 0 &&
@@ -477,7 +522,15 @@ function isIssuedLabel(value: unknown): value is IssuedLabel {
     typeof label === "string" &&
     label.length <= MAX_APP_NAME_LENGTH &&
     label === labelFor(name, gen) &&
-    isFiniteNumber(issuedAt)
+    isFiniteNumber(issuedAt) &&
+    // Absent is the normal case - every row written before slice 7, and every
+    // label nobody has visited yet. Present must be Date.now()-shaped: a
+    // non-integer or negative value is damage, and the row is refused rather
+    // than reinterpreted. This is validation, not a trust boundary - anyone who
+    // can edit apps.json can write a plausible admission, and that is not a
+    // threat this defends against.
+    (certAdmittedAt === undefined ||
+      (Number.isSafeInteger(certAdmittedAt) && (certAdmittedAt as number) >= 0))
   );
 }
 
@@ -709,6 +762,12 @@ export interface AppRegistry {
   // the ledger forever, so the next app to take the name is served somewhere
   // else. Returns the removed record, or null when no app has that name.
   remove(name: string): AppRecord | null;
+  // Ask whether this label may have a TLS certificate, and record it if so.
+  // Takes no policy arguments on purpose: the cap, the window and the clock are
+  // the registry's, so no later caller can pass a weaker one. Throws
+  // AppRegistryError on a read or write failure - an admission that was not
+  // written did not happen.
+  admitAppCertificate(label: string): CertAdmission;
 }
 
 export interface AppRegistryOptions {
@@ -938,6 +997,58 @@ export function createAppRegistry(
         issuedLabels: state.issuedLabels,
       });
       return record;
+    },
+
+    // ONE synchronous critical section, snapshot to persist, with no `await`
+    // anywhere between: that is what makes the cap exact rather than
+    // approximate. Two handshakes for the same new label cannot both count the
+    // window and both stamp - the first runs to completion, the second reads
+    // the row it wrote. Splitting this into a read and a write, or making it
+    // async, breaks that; a caller awaiting something BEFORE calling it does
+    // not.
+    admitAppCertificate(label) {
+      const state = snapshot();
+      // Live app first, before the budget is even read. A name nobody has
+      // registered - or one somebody used to have - must not be able to learn
+      // anything, spend anything, or write anything.
+      const app = state.apps.find((a) => a.hostLabel === label);
+      if (!app) return "not_live";
+      // The exact ISSUANCE, not just the label: the tuple is what the registry
+      // treats as an app's identity, and the row is where the admission is
+      // recorded. assertConsistent has already refused any file where a live
+      // app's tuple is missing, so this cannot be null on validated state - the
+      // check is here so the guarantee is LOCAL to the code that depends on it,
+      // and so a future change to that invariant fails closed here rather than
+      // stamping some other lineage's row.
+      const row = state.issuedLabels.find(
+        (e) =>
+          e.label === label && e.name === app.name && e.gen === app.hostGen,
+      );
+      if (!row) return "not_live";
+      // Presence, not a timestamp comparison. An established label is free
+      // forever and never consults the clock, so no amount of traffic, no
+      // restart and no clock movement can take it away.
+      if (row.certAdmittedAt !== undefined) return "already";
+
+      const at = now();
+      const cutoff = at - TLS_ASK_ADMISSION_WINDOW_MS;
+      let recent = 0;
+      for (const entry of state.issuedLabels) {
+        // RETIRED rows count too. Their admission already spent whatever it
+        // spent at the CA, and deleting the app does not give it back.
+        // A stamp exactly one window old has aged out; a stamp in the future -
+        // a clock that went backwards, or a hand-edited file - counts, which is
+        // the conservative direction.
+        if (entry.certAdmittedAt !== undefined && entry.certAdmittedAt > cutoff)
+          recent++;
+      }
+      if (recent >= TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR) return "capped";
+
+      row.certAdmittedAt = at;
+      // Throws on failure, so an admission that did not reach the disk can
+      // never come back as "admitted" - the next handshake asks again.
+      persist(state);
+      return "admitted";
     },
   };
 }

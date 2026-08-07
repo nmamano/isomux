@@ -37,6 +37,7 @@ import {
   MAX_APP_COMMAND_LENGTH,
   labelFor,
   allocateLabel,
+  TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR,
   RESERVED_APP_NAMES,
   type AppRegistry,
 } from "./app-registry.ts";
@@ -703,6 +704,49 @@ describe("app-registry: corruption fails LOUD, never empty", () => {
       "a ledger row with no issuedAt",
       envelope({}, [{ label: "hello", name: "hello", gen: 1 }]),
     ],
+    // A certificate admission is what lets a hostname be served, so a row that
+    // does not say plainly when it was admitted is refused rather than read
+    // past. Validation, not a trust boundary: anyone who can edit this file can
+    // write a plausible admission instead of a malformed one.
+    [
+      "apps.json",
+      "a ledger row whose admission timestamp is not a number",
+      envelope({}, [
+        {
+          label: "hello",
+          name: "hello",
+          gen: 1,
+          issuedAt: 1,
+          certAdmittedAt: "soon",
+        },
+      ]),
+    ],
+    [
+      "apps.json",
+      "a ledger row whose admission timestamp is not a whole number",
+      envelope({}, [
+        {
+          label: "hello",
+          name: "hello",
+          gen: 1,
+          issuedAt: 1,
+          certAdmittedAt: 1.5,
+        },
+      ]),
+    ],
+    [
+      "apps.json",
+      "a ledger row admitted at a negative time",
+      envelope({}, [
+        {
+          label: "hello",
+          name: "hello",
+          gen: 1,
+          issuedAt: 1,
+          certAdmittedAt: -1,
+        },
+      ]),
+    ],
     [
       "apps.json",
       "the same label recorded as issued twice",
@@ -1096,5 +1140,224 @@ describe("app-registry: update", () => {
       chmodSync(dir, 0o700);
     }
     expect(make().get("hello")!.command).toBe("bun run serve.ts");
+  });
+});
+
+describe("app-registry: TLS certificate admission", () => {
+  // The measured behaviour this exists for (Caddy 2.11.4, test box): the
+  // terminator asks before it SERVES a certificate, not only before it obtains
+  // one, so a restart asks about every live name at once and a refusal at that
+  // moment refuses the handshake. Two properties follow, and most of the cases
+  // below are one of them: an already-admitted label is free forever, and that
+  // fact has to be on disk, because the office restarts too.
+  const HOUR = 60 * 60 * 1000;
+  const T0 = 1_700_000_000_000;
+  let clock: number;
+
+  const at = (t: number) => {
+    clock = t;
+  };
+  const registry = () => make({ now: () => clock });
+  const ledgerOnDisk = () =>
+    JSON.parse(readFileSync(join(dir, "apps.json"), "utf-8")).issuedLabels;
+
+  beforeEach(() => {
+    clock = T0;
+  });
+
+  // n apps, registered but never admitted.
+  function seedApps(reg: AppRegistry, n: number, prefix = "app"): string[] {
+    const labels: string[] = [];
+    for (let i = 0; i < n; i++) {
+      labels.push(reg.register(registerInput(`${prefix}${i}`)).hostLabel);
+    }
+    return labels;
+  }
+
+  it("treats a row with no admission field as never admitted", () => {
+    const reg = registry();
+    reg.register(registerInput("hello"));
+    // Every row every released version ever wrote looks like this, so this IS
+    // the migration: there is nothing to migrate.
+    expect(ledgerOnDisk()[0].certAdmittedAt).toBeUndefined();
+    expect(reg.admitAppCertificate("hello")).toBe("admitted");
+  });
+
+  it("writes the admission to disk, where a later process can find it", () => {
+    const reg = registry();
+    reg.register(registerInput("hello"));
+    reg.admitAppCertificate("hello");
+    expect(ledgerOnDisk()[0].certAdmittedAt).toBe(T0);
+    // A DIFFERENT registry instance over the same directory: this is what the
+    // office looks like after a restart, and the whole point of persisting.
+    at(T0 + 5 * HOUR);
+    expect(registry().admitAppCertificate("hello")).toBe("already");
+  });
+
+  it("admits a label exactly once, however often it is asked about", () => {
+    const reg = registry();
+    reg.register(registerInput("hello"));
+    expect(reg.admitAppCertificate("hello")).toBe("admitted");
+    const afterFirst = readFileSync(join(dir, "apps.json"), "utf-8");
+    // Hours later, under a moved clock: the stamp must not be refreshed, or the
+    // slot it occupies would never age out.
+    at(T0 + 3 * HOUR);
+    expect(reg.admitAppCertificate("hello")).toBe("already");
+    expect(reg.admitAppCertificate("hello")).toBe("already");
+    expect(readFileSync(join(dir, "apps.json"), "utf-8")).toBe(afterFirst);
+  });
+
+  it("admits ten new labels in an hour and caps the eleventh", () => {
+    const reg = registry();
+    const labels = seedApps(reg, 11);
+    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
+      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
+    }
+    const before = readFileSync(join(dir, "apps.json"), "utf-8");
+    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
+    // A refusal writes nothing at all - a capped label must be able to come
+    // back later and find the file exactly as it left it.
+    expect(readFileSync(join(dir, "apps.json"), "utf-8")).toBe(before);
+  });
+
+  it("frees a slot at exactly one hour, not a millisecond before", () => {
+    const reg = registry();
+    const labels = seedApps(reg, 11);
+    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
+      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
+    }
+    // One tick short of the window: the oldest stamp is still inside it.
+    at(T0 + HOUR - 1);
+    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
+    // Exactly one hour old has aged out.
+    at(T0 + HOUR);
+    expect(reg.admitAppCertificate(labels[10])).toBe("admitted");
+  });
+
+  it("lets an established label through while the window is completely full", () => {
+    const reg = registry();
+    const labels = seedApps(reg, 12);
+    expect(reg.admitAppCertificate(labels[11])).toBe("admitted");
+    at(T0 + 1);
+    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR - 1; i++) {
+      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
+    }
+    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
+    // The established one is unaffected by a full window - this is the case a
+    // terminator restart produces, at every app the office has.
+    expect(reg.admitAppCertificate(labels[11])).toBe("already");
+  });
+
+  it("lets an established label through after the clock moves backwards", () => {
+    const reg = registry();
+    const labels = seedApps(reg, 11);
+    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
+      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
+    }
+    // A clock that jumped backwards leaves every stamp in the future. Those
+    // count - the conservative direction - so a NEW label stays capped for
+    // longer, which is a delay and not an outage...
+    at(T0 - 12 * HOUR);
+    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
+    // ...while an established label never consults the clock at all, so no
+    // clock movement in either direction can take its certificate away.
+    expect(reg.admitAppCertificate(labels[0])).toBe("already");
+    // Forward past the window empties it again.
+    at(T0 + 2 * HOUR);
+    expect(reg.admitAppCertificate(labels[10])).toBe("admitted");
+  });
+
+  it("keeps counting a retired label's admission, while refusing the label itself", () => {
+    const reg = registry();
+    const labels = seedApps(reg, 11);
+    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
+      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
+    }
+    reg.remove("app0");
+    // Deleting the app does not refund the admission: whatever it spent at the
+    // CA was spent, and a delete cannot unspend it.
+    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
+    // And the retired label itself is refused exactly like one that never
+    // existed - the ledger row survives, the app does not.
+    expect(reg.admitAppCertificate(labels[0])).toBe("not_live");
+  });
+
+  it("gives a re-registered name a fresh label that needs its own admission", () => {
+    const reg = registry();
+    reg.register(registerInput("hello"));
+    expect(reg.admitAppCertificate("hello")).toBe("admitted");
+    reg.remove("hello");
+    const again = reg.register(registerInput("hello"));
+    expect(again.hostLabel).toBe("hello-g2");
+    // The successor inherits nothing: a browser holding storage for `hello` is
+    // exactly what the generation ladder exists to keep away from it, and its
+    // certificate is its own.
+    expect(reg.admitAppCertificate("hello-g2")).toBe("admitted");
+    expect(reg.admitAppCertificate("hello")).toBe("not_live");
+  });
+
+  it("refuses a label the live app has moved off, even with its ledger row intact", () => {
+    const reg = registry();
+    reg.register(registerInput("hello"));
+    // The app is moved onto a later generation by hand - the shape a
+    // re-registration leaves, without going through one. `hello` still has a
+    // ledger row, and it still gets nothing: admission follows the LIVE app's
+    // label, not any label the ledger remembers.
+    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf-8"));
+    raw.apps[0].hostGen = 2;
+    raw.apps[0].hostLabel = "hello-g2";
+    raw.issuedLabels.push({
+      label: "hello-g2",
+      name: "hello",
+      gen: 2,
+      issuedAt: T0,
+    });
+    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+    expect(registry().admitAppCertificate("hello")).toBe("not_live");
+    expect(registry().admitAppCertificate("hello-g2")).toBe("admitted");
+  });
+
+  it("neither writes nor spends anything on labels that are not live", () => {
+    const reg = registry();
+    const labels = seedApps(reg, 10);
+    const before = readFileSync(join(dir, "apps.json"), "utf-8");
+    for (let i = 0; i < 1000; i++) {
+      expect(reg.admitAppCertificate(`unknown${i}`)).toBe("not_live");
+    }
+    expect(readFileSync(join(dir, "apps.json"), "utf-8")).toBe(before);
+    // Capacity is untouched: a stranger pointing a thousand names at the box
+    // cannot cap the office out of certificates for its own apps.
+    for (const label of labels) {
+      expect(reg.admitAppCertificate(label)).toBe("admitted");
+    }
+  });
+
+  it("counts a stamp from the future, rather than reading it as ancient", () => {
+    const reg = registry();
+    const labels = seedApps(reg, 11);
+    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf-8"));
+    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
+      raw.issuedLabels[i].certAdmittedAt = T0 + 10 * HOUR;
+    }
+    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+    expect(registry().admitAppCertificate(labels[10])).toBe("capped");
+  });
+
+  it("raises persist_failed rather than reporting an admission that was not written", () => {
+    if (!readOnlyIsEnforced(dir)) return; // running as root; see above
+    const reg = registry();
+    reg.register(registerInput("hello"));
+    chmodSync(dir, 0o500);
+    try {
+      expect(() => reg.admitAppCertificate("hello")).toThrow(
+        expect.objectContaining({ code: "persist_failed" }),
+      );
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+    // Fail CLOSED: the admission did not happen, so the next handshake asks
+    // again rather than the office believing a name is certified when the
+    // record of it never reached the disk.
+    expect(ledgerOnDisk()[0].certAdmittedAt).toBeUndefined();
   });
 });

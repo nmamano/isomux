@@ -442,3 +442,92 @@ describe("app hosts: the arm", () => {
     }
   });
 });
+
+// The certificate gate (slice 7) against the real server. Its policy is pinned
+// in tls-ask.test.ts and its accounting in app-registry.test.ts; what is only
+// provable here is WHERE it answers - on the office's own host, ahead of the
+// auth wall, and nowhere on an app host.
+describe("app hosts: the certificate gate", () => {
+  const ask = (name: string) =>
+    `/__isomux/tls-ask?domain=${encodeURIComponent(name)}`;
+
+  it("answers on the office host, unauthenticated, for a live label", async () => {
+    const srv = await startFlatOffice();
+    const token = await anAgentToken(srv);
+    const label = await registerApp(srv, token, "hello");
+    // No session, no bearer: the terminator has no identity to present, which
+    // is why this route sits with /readyz rather than behind the wall.
+    const res = await raw(srv.port, {
+      host: OFFICE_HOST,
+      path: ask(`${label}.${OFFICE_HOST}`),
+    });
+    expect({ status: res.status, body: res.body }).toEqual({
+      status: 200,
+      body: "ok\n",
+    });
+    expect(res.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("refuses the office's own children that are not apps, and allows the office itself", async () => {
+    const srv = await startFlatOffice();
+    for (const [name, status] of [
+      [`nobody.${OFFICE_HOST}`, 403],
+      [`a.b.${OFFICE_HOST}`, 403],
+      ["elsewhere.example.com", 403],
+      [OFFICE_HOST, 200],
+    ] as const) {
+      const res = await raw(srv.port, { host: OFFICE_HOST, path: ask(name) });
+      expect({ name, status: res.status }).toEqual({ name, status });
+    }
+  });
+
+  it("refuses a live label once its app is gone", async () => {
+    const srv = await startFlatOffice();
+    const token = await anAgentToken(srv);
+    const label = await registerApp(srv, token, "hello");
+    await deleteApp(srv, token, "hello");
+    // Measured caveat, worth knowing while reading this: the terminator cannot
+    // act on this until its own cache misses, so a deleted app's hostname keeps
+    // terminating TLS until then. What the office controls is that it stops
+    // vouching, immediately.
+    const res = await raw(srv.port, {
+      host: OFFICE_HOST,
+      path: ask(`${label}.${OFFICE_HOST}`),
+    });
+    expect({ status: res.status, body: res.body }).toEqual({
+      status: 403,
+      body: "denied\n",
+    });
+  });
+
+  it("is unreachable on an app host, which sees only the neutral 404", async () => {
+    const srv = await startFlatOffice();
+    const token = await anAgentToken(srv);
+    const label = await registerApp(srv, token, "hello");
+    // The reserved prefix already covers this, and that is the point: the gate
+    // is an office route, and an app host cannot answer it, shadow it, or learn
+    // anything from asking.
+    expectPlaceholder(
+      await raw(srv.port, {
+        host: `${label}.${OFFICE_HOST}`,
+        path: ask(`${label}.${OFFICE_HOST}`),
+      }),
+      NOT_FOUND,
+      "the certificate gate on an app host",
+    );
+  });
+
+  it("answers only GET", async () => {
+    const srv = await startFlatOffice();
+    const token = await anAgentToken(srv);
+    const label = await registerApp(srv, token, "hello");
+    const res = await raw(srv.port, {
+      host: OFFICE_HOST,
+      method: "POST",
+      path: ask(`${label}.${OFFICE_HOST}`),
+    });
+    // Falls through to the office's ordinary handling of an unknown route,
+    // which for an unauthenticated caller is the auth wall - NOT a 2xx.
+    expect(res.status).not.toBe(200);
+  });
+});
