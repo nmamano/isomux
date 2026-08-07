@@ -35,7 +35,7 @@ import { _testResetUsers } from "../users.ts";
 import { _testResetTokens } from "../identity/tokens.ts";
 import { _testResetSkillUsage } from "../skill-usage.ts";
 import { _testResetAppMessageLimits } from "../app-message-limits.ts";
-import { _testResetAppHostDomain } from "../app-hosts.ts";
+import { _testResetAppHostDomain } from "../app-domain.ts";
 import { _testResetAppAuth } from "../app-auth.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";

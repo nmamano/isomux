@@ -20,10 +20,12 @@
 import {
   AppSupervisorError,
   UNKNOWN_RUNTIME,
+  appUrlEnvDirective,
   unitNameFor,
   type AppRuntime,
   type AppSupervisor,
 } from "../app-supervisor.ts";
+import { appHostDomain, appPublicUrl } from "../app-domain.ts";
 import type { AppRecord } from "../../shared/types.ts";
 
 export interface FakeAppSupervisor extends AppSupervisor {
@@ -65,6 +67,16 @@ export interface FakeAppSupervisor extends AppSupervisor {
   // set it to `failed` to model a unit that installed fine and whose process
   // then died - the case that must still be a 201.
   installedState: AppRuntime;
+  // The unit files this supervisor "wrote", by app name. Not a full unit - the
+  // real renderer's output is pinned in app-supervisor.test.ts - but it carries
+  // the app's URL by the SAME rule and through the same directive builder, so
+  // boot URL reconciliation reads a truthful answer to the only question it
+  // asks a unit: which address does this one declare?
+  unitFiles: Map<string, string>;
+  // Where the URL in those files comes from. The real boot-frozen domain by
+  // default, so a test that turns the office into an HTTPS deployment gets
+  // units that agree with it.
+  appHostDomain: () => string | null;
   // What logs() returns.
   logLines: string[];
   // Arguments the last logs() call was made with.
@@ -75,6 +87,15 @@ export function createFakeAppSupervisor(
   unitPrefix = "isomux-app-test-fake-",
 ): FakeAppSupervisor {
   const runtimes = new Map<string, AppRuntime>();
+  // What this fake "writes" as an app's unit: enough of one to answer the
+  // question boot URL reconciliation asks, built through the production
+  // directive builder so the two can never disagree about the exact bytes.
+  const unitText = (app: AppRecord): string => {
+    const url = appPublicUrl(app.hostLabel, fake.appHostDomain());
+    const lines = ["[Service]", `Environment="ISOMUX_APP_NAME=${app.name}"`];
+    if (url !== null) lines.push(appUrlEnvDirective(url));
+    return `${lines.join("\n")}\n`;
+  };
   const fake: FakeAppSupervisor = {
     calls: [],
     installed: new Map(),
@@ -87,6 +108,8 @@ export function createFakeAppSupervisor(
     logLines: [],
     lastLogRequest: null,
     tokenFiles: new Map(),
+    unitFiles: new Map(),
+    appHostDomain,
     unitsInjectingToken: new Set(),
     failProvisionToken: null,
     failRegenerate: null,
@@ -116,6 +139,14 @@ export function createFakeAppSupervisor(
 
     unitInjectsToken: (name: string) => fake.unitsInjectingToken.has(name),
 
+    // Reads, like readToken, so they stay out of `calls`.
+    readUnitFile: (name: string) => fake.unitFiles.get(name) ?? null,
+
+    restoreUnitFile(name: string, contents: string) {
+      fake.calls.push(`restoreUnitFile:${name}`);
+      fake.unitFiles.set(name, contents);
+    },
+
     reloadUnits() {
       fake.calls.push("reloadUnits");
     },
@@ -135,6 +166,7 @@ export function createFakeAppSupervisor(
       // the reason reconciliation is allowed to call it).
       fake.installed.set(app.name, app);
       fake.unitsInjectingToken.add(app.name);
+      fake.unitFiles.set(app.name, unitText(app));
     },
 
     install(app: AppRecord) {
@@ -144,6 +176,7 @@ export function createFakeAppSupervisor(
         // Files written (so the unit references the token), then the failure -
         // the app is NOT installed as far as systemd is concerned.
         fake.unitsInjectingToken.add(app.name);
+        fake.unitFiles.set(app.name, unitText(app));
         runtimes.set(app.name, {
           state: "unknown",
           restartCount: 0,
@@ -167,6 +200,7 @@ export function createFakeAppSupervisor(
       }
       fake.installed.set(app.name, app);
       fake.unitsInjectingToken.add(app.name);
+      fake.unitFiles.set(app.name, unitText(app));
       runtimes.set(app.name, { ...fake.installedState });
     },
 
@@ -188,6 +222,7 @@ export function createFakeAppSupervisor(
       // The unit is rewritten, so it carries the token directive again even if
       // it was written before tokens existed.
       fake.unitsInjectingToken.add(app.name);
+      fake.unitFiles.set(app.name, unitText(app));
       const prior = runtimes.get(app.name);
       if (!prior || prior.state === "unknown") {
         runtimes.set(app.name, { ...fake.installedState });
@@ -217,6 +252,7 @@ export function createFakeAppSupervisor(
       runtimes.delete(name);
       // The real teardown removes the token file with the unit and launcher.
       fake.tokenFiles.delete(name);
+      fake.unitFiles.delete(name);
       fake.unitsInjectingToken.delete(name);
     },
 

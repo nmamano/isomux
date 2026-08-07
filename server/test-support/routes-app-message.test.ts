@@ -509,6 +509,7 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     attributionFor: () => ({ createdBy: "AppBot", username: "alice" }),
     validateCwd: (cwd: string) => ({ ok: true as const, resolved: cwd }),
     isOfficeOwner: () => false,
+    publicUrl: () => null,
     announce: () => {},
     announceRemoved: () => {},
     provisionToken: () => true,

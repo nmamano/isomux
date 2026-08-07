@@ -151,11 +151,12 @@ import {
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry } from "./app-registry.ts";
+import { handleAppHostRequest } from "./app-hosts.ts";
 import {
   appHostDomain,
+  appPublicUrl,
   freezeAppHostDomain,
-  handleAppHostRequest,
-} from "./app-hosts.ts";
+} from "./app-domain.ts";
 import { APP_MINT_PATH, handleAppMintRequest } from "./app-auth.ts";
 import type { AppRelayWsData } from "./app-ws-relay.ts";
 import {
@@ -165,6 +166,7 @@ import {
 import { appTokens } from "./app-tokens.ts";
 import { appMessageLimiter } from "./app-message-limits.ts";
 import { reconcileAppTokens } from "./app-token-reconcile.ts";
+import { reconcileAppUrls } from "./app-url-reconcile.ts";
 import { memoryHandlers } from "./routes/handlers/memory.ts";
 import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
@@ -1250,6 +1252,36 @@ function reconcileAppTokensAtBoot(): void {
   }
 }
 
+// One-time-per-boot convergence of app URLs (server/app-url-reconcile.ts):
+// every app's unit declares the address the office would give it today, and
+// apps that were running are restarted once onto it. Runs AFTER the token pass,
+// which may write a unit for an app that had none - a unit that pass creates is
+// already current, so this one has nothing to do for it.
+//
+// ADVISORY, for the same reason as the token pass: a failure here must never
+// stop the office from booting.
+function reconcileAppUrlsAtBoot(): void {
+  try {
+    const report = reconcileAppUrls({
+      list: () => appRegistry.list(),
+      expectedUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
+      readUnitFile: (name) => appSupervisor.readUnitFile(name),
+      restoreUnitFile: (name, contents) =>
+        appSupervisor.restoreUnitFile(name, contents),
+      regenerate: (record) => appSupervisor.regenerate(record),
+      states: (names) => appSupervisor.states(names),
+      restart: (name) => appSupervisor.restart(name),
+    });
+    if (report.converged.length + report.failed.length > 0) {
+      console.log(
+        `[app-urls] boot: ${report.converged.length} unit(s) updated, ${report.restarted.length} restarted, ${report.failed.length} failed`,
+      );
+    }
+  } catch (err) {
+    console.error("[app-urls] boot reconciliation failed:", err);
+  }
+}
+
 // Production GuardDeps adapter (Phase 2.3, deferred from 2.2). Wires the guard
 // catalog's injected office-state seam to today's materialized-allowedRooms
 // predicates + the live managers. Built at boot and exposed (dormant) on the
@@ -1598,6 +1630,7 @@ function buildExecutorDeps(): ExecutorDeps {
         };
       },
       limiter: appMessageLimiter,
+      publicUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
       install: (record) => appSupervisor.install(record),
       reinstall: (record) => appSupervisor.reinstall(record),
       teardown: (name) => appSupervisor.teardown(name),
@@ -5239,6 +5272,8 @@ export async function startServer(
   // before the listener: an app's token should be settled before anything can
   // present one.
   reconcileAppTokensAtBoot();
+  // Then their addresses, on the units the pass above may just have written.
+  reconcileAppUrlsAtBoot();
   executorDeps = buildExecutorDeps();
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The

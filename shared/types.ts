@@ -793,6 +793,12 @@ export interface AppWire extends AppRecord {
   // restart `state` still tells the truth while the next attempt regenerates
   // the reason.
   startError?: string;
+  // Where the app answers on the public internet, when the office has app
+  // hostnames at all. Derived from the office's public origin and the app's
+  // issued LABEL (never its name, which is reusable), and never stored -
+  // present exactly when a URL exists, absent otherwise, the same rule the
+  // app's own ISOMUX_APP_URL follows.
+  url?: string;
 }
 
 // ---------------------------------------------------------------------------

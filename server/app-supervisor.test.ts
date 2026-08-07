@@ -25,10 +25,12 @@ import { join } from "path";
 import {
   APP_LOG_LINES_MAX,
   AppSupervisorError,
+  appUrlEnvDirective,
   computeAppPath,
   createAppSupervisor,
   createSystemdHost,
   parseSystemctlShow,
+  parseUnitAppUrl,
   renderLauncher,
   renderUnit,
   unitNameFor,
@@ -129,12 +131,19 @@ const directives = (unit: string): string[] =>
     .map((l) => l.trim())
     .filter((l) => l.length > 0 && !l.startsWith("#"));
 
-const supervisor = (host: FakeHost, now: () => number = () => 0) =>
+// The domain is injected rather than read from the boot-frozen module: a pure
+// test has no boot, and the real reader throws before one on purpose.
+const supervisor = (
+  host: FakeHost,
+  now: () => number = () => 0,
+  appHostDomain: () => string | null = () => null,
+) =>
   createAppSupervisor({
     host,
     unitPrefix: "isomux-app-",
     runtimeBinDir: "/rt/bin",
     now,
+    appHostDomain,
   });
 
 // --- the unit namespace -----------------------------------------------------
@@ -199,6 +208,7 @@ describe("app-supervisor: unit generation", () => {
       path: "/p:/q",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
+      appUrl: null,
     });
     expect(directives(unit)).toEqual([
       "[Unit]",
@@ -240,6 +250,7 @@ describe("app-supervisor: unit generation", () => {
       path: "/p",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
+      appUrl: null,
     });
     expect(unit).not.toContain("bun run dev");
     expect(renderLauncher(app)).toContain("bun run dev --host");
@@ -268,6 +279,7 @@ describe("app-supervisor: unit generation", () => {
         path: "/p",
         unitName: "isomux-app-hello.service",
         tokenEnvPath: `/launchers/50% "q"\\hello.env`,
+        appUrl: null,
       },
     );
     // WorkingDirectory takes the rest of the line as a literal path: the space
@@ -296,8 +308,185 @@ describe("app-supervisor: unit generation", () => {
         path: "/p",
         unitName: "isomux-app-hello.service",
         tokenEnvPath: "/launchers/hello.env",
+        appUrl: null,
       }),
     ).toThrow(AppSupervisorError);
+  });
+});
+
+// --- the app's own address --------------------------------------------------
+
+// The rule this section exists to hold: PRESENT exactly when the office has an
+// address for the app, ABSENT otherwise - never an empty value. An app reads
+// `if (process.env.ISOMUX_APP_URL)` to find out whether it is reachable at a
+// hostname at all, and an empty string is a different answer from no answer.
+describe("app-supervisor: ISOMUX_APP_URL in the unit", () => {
+  const renderWith = (appUrl: string | null, over: Partial<AppRecord> = {}) =>
+    renderUnit(record(over), {
+      launcherPath: "/launchers/hello.sh",
+      path: "/p",
+      unitName: "isomux-app-hello.service",
+      tokenEnvPath: "/launchers/hello.env",
+      appUrl,
+    });
+
+  it("injects the URL as an Environment directive when there is one", () => {
+    const unit = renderWith("https://hello.office.example");
+    expect(directives(unit)).toContain(
+      'Environment="ISOMUX_APP_URL=https://hello.office.example"',
+    );
+  });
+
+  it("leaves the variable OUT entirely when there is none", () => {
+    // Not `Environment="ISOMUX_APP_URL="`. The whole name must be absent from
+    // the file, so the app sees an undefined variable rather than an empty one.
+    expect(renderWith(null)).not.toContain("ISOMUX_APP_URL");
+  });
+
+  it("keeps every other directive identical either way", () => {
+    // The URL is additive: turning app hostnames on must not change how an app
+    // is started, only what it knows about itself.
+    const without = directives(renderWith(null));
+    const with_ = directives(renderWith("https://hello.office.example"));
+    expect(with_.filter((d) => !d.includes("ISOMUX_APP_URL"))).toEqual(without);
+  });
+
+  it("is the app's LABEL, so a re-registered name never inherits the old URL", () => {
+    // The record's NAME is still `hello`; its label is the second generation.
+    // Rendering the name here would hand this app the previous one's origin.
+    const unit = renderWith("https://hello-g2.office.example", {
+      hostLabel: "hello-g2",
+      hostGen: 2,
+    });
+    expect(unit).toContain(
+      'Environment="ISOMUX_APP_URL=https://hello-g2.office.example"',
+    );
+    expect(unit).not.toContain("ISOMUX_APP_URL=https://hello.office.example");
+  });
+
+  it("writes it on install, from the domain the supervisor was given", () => {
+    // The wiring, not the renderer: install/reinstall/regenerate all read the
+    // domain at write time, so a unit can never be written without it.
+    const host = fakeHost();
+    supervisor(
+      host,
+      () => 0,
+      () => "office.example",
+    ).install(record());
+    expect(host.files.get("/units/isomux-app-hello.service")).toContain(
+      'Environment="ISOMUX_APP_URL=https://hello.office.example"',
+    );
+  });
+
+  it("writes the app's LABEL on install, not the name the unit is keyed by", () => {
+    // A second-generation app: unit file still `isomux-app-hello.service`,
+    // address `hello-g2` - and handing it `hello.office.example` would give a
+    // new app the origin of the one whose name it reused.
+    const host = fakeHost();
+    supervisor(
+      host,
+      () => 0,
+      () => "office.example",
+    ).install(record({ hostLabel: "hello-g2", hostGen: 2 }));
+    const unit = host.files.get("/units/isomux-app-hello.service")!;
+    expect(unit).toContain(
+      'Environment="ISOMUX_APP_URL=https://hello-g2.office.example"',
+    );
+    expect(unit).not.toContain("ISOMUX_APP_URL=https://hello.office.example");
+  });
+
+  it("writes no URL on an office that has no app hostnames", () => {
+    const host = fakeHost();
+    supervisor(host).install(record());
+    expect(host.files.get("/units/isomux-app-hello.service")).not.toContain(
+      "ISOMUX_APP_URL",
+    );
+  });
+});
+
+// What an installed unit is read to SAY about the address. Boot reconciliation
+// rests entirely on this: a wrong answer here is either a pointless restart of
+// every app on every boot, or an app left on an address it no longer has.
+describe("app-supervisor: reading the URL back out of a unit", () => {
+  const withLine = (line: string) =>
+    `[Service]\nExecStart=/bin/sh "/x.sh"\n${line}\nRestart=on-failure\n`;
+
+  it("says there is no unit at all when there is no file", () => {
+    expect(parseUnitAppUrl(null)).toEqual({ unit: false });
+  });
+
+  it("says a unit carries no assignment when it does not", () => {
+    expect(parseUnitAppUrl(withLine('Environment="PORT=21000"'))).toEqual({
+      unit: true,
+      assignment: null,
+    });
+  });
+
+  it("returns the assignment line, which is what the caller compares", () => {
+    const line = appUrlEnvDirective("https://hello.office.example");
+    expect(parseUnitAppUrl(withLine(line))).toEqual({
+      unit: true,
+      assignment: line,
+    });
+  });
+
+  it("does not confuse an EMPTY assignment with no assignment", () => {
+    // The distinction the present-iff rule lives on: `ISOMUX_APP_URL=` is a
+    // variable an app can see, so a unit carrying it is not a unit that
+    // carries nothing - and reconciliation must rewrite it, not skip it.
+    const empty = parseUnitAppUrl(withLine('Environment="ISOMUX_APP_URL="'));
+    expect(empty).toEqual({
+      unit: true,
+      assignment: 'Environment="ISOMUX_APP_URL="',
+    });
+    expect(empty).not.toEqual({ unit: true, assignment: null });
+  });
+
+  it("ignores a commented-out directive, which injects nothing", () => {
+    expect(
+      parseUnitAppUrl(withLine('# Environment="ISOMUX_APP_URL=https://x.y"')),
+    ).toEqual({ unit: true, assignment: null });
+  });
+
+  it("ignores a variable that merely starts the same way", () => {
+    expect(
+      parseUnitAppUrl(withLine('Environment="ISOMUX_APP_URL_EXTRA=1"')),
+    ).toEqual({ unit: true, assignment: null });
+  });
+
+  it("takes the LAST assignment, the way systemd does", () => {
+    const first = appUrlEnvDirective("https://old.office.example");
+    const last = appUrlEnvDirective("https://new.office.example");
+    expect(parseUnitAppUrl(withLine(`${first}\n${last}`))).toEqual({
+      unit: true,
+      assignment: last,
+    });
+    // Including when the last one empties it: the app ends up with an empty
+    // variable, so that - not the healthy-looking first line - is the truth.
+    expect(
+      parseUnitAppUrl(withLine(`${first}\nEnvironment="ISOMUX_APP_URL="`)),
+    ).toEqual({ unit: true, assignment: 'Environment="ISOMUX_APP_URL="' });
+  });
+
+  it("recognises hand-written forms this renderer never emits", () => {
+    // Unquoted, and sharing a line with another variable: both are legal
+    // systemd, and both would be MISSED by a check that only knew the
+    // canonical line - leaving a hand-set URL live and unnoticed. They compare
+    // unequal to the canonical directive, so they are rewritten.
+    expect(
+      parseUnitAppUrl(withLine("Environment=ISOMUX_APP_URL=https://x.y")),
+    ).toEqual({
+      unit: true,
+      assignment: "Environment=ISOMUX_APP_URL=https://x.y",
+    });
+    expect(
+      parseUnitAppUrl(
+        withLine('Environment="A=1" "ISOMUX_APP_URL=https://x.y"'),
+      ),
+    ).toEqual({
+      unit: true,
+      assignment: 'Environment="A=1" "ISOMUX_APP_URL=https://x.y"',
+    });
   });
 });
 

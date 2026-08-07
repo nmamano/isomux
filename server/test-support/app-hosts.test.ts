@@ -1,5 +1,6 @@
-// Pure matrices for app-host dispatch (phase 3, slice 3): the hostname
-// grammar, where the app-host domain comes from, and the Host -> label match.
+// Pure matrices for app-host dispatch (phase 3, slice 3): the Host header's
+// normalization and the Host -> label match. The hostname grammar and the
+// office's own domain moved to app-domain.test.ts with their module.
 //
 // The URL shape is FLAT: an app called `hello` on an office at
 // `office.example` answers at `hello.office.example`. So the office host and
@@ -16,16 +17,8 @@
 // never a refusal, and the only genuinely dangerous direction is a host that
 // normalizes into a MATCH it should not have.
 
-import { describe, it, expect, afterAll } from "bun:test";
-import {
-  _testResetAppHostDomain,
-  appHostDomain,
-  deriveAppHostDomain,
-  freezeAppHostDomain,
-  isHostname,
-  matchAppHost,
-  normalizeRequestHost,
-} from "../app-hosts.ts";
+import { describe, it, expect } from "bun:test";
+import { matchAppHost, normalizeRequestHost } from "../app-hosts.ts";
 
 describe("normalizeRequestHost", () => {
   it("lowercases the host", () => {
@@ -132,73 +125,6 @@ describe("normalizeRequestHost", () => {
   });
 });
 
-describe("isHostname", () => {
-  it("counts labels for the minimum", () => {
-    expect(isHostname("example")).toBe(true);
-    expect(isHostname("example", 2)).toBe(false);
-    expect(isHostname("a.example", 2)).toBe(true);
-  });
-});
-
-describe("deriveAppHostDomain", () => {
-  it("is the office host itself on an https deployment", () => {
-    expect(deriveAppHostDomain("https://office.example", true)).toBe(
-      "office.example",
-    );
-  });
-
-  it("is null on plain HTTP - every dev box, byte-identical to before", () => {
-    expect(deriveAppHostDomain("http://office.example", false)).toBeNull();
-    // The flag decides, not the string: buildPublicOrigin is the one that
-    // knows whether this deployment is really behind TLS.
-    expect(deriveAppHostDomain("https://office.example", false)).toBeNull();
-  });
-
-  it("is null for loopback names", () => {
-    for (const origin of [
-      "https://localhost",
-      "https://localhost:4000",
-      "https://dev.localhost",
-    ]) {
-      expect(deriveAppHostDomain(origin, true)).toBeNull();
-    }
-  });
-
-  it("is null for address literals", () => {
-    for (const origin of [
-      "https://127.0.0.1",
-      "https://93.184.216.34",
-      "https://[::1]",
-    ]) {
-      expect(deriveAppHostDomain(origin, true)).toBeNull();
-    }
-  });
-
-  it("is null for a single-label office host", () => {
-    // An intranet name cannot carry the public wildcard record apps need.
-    expect(deriveAppHostDomain("https://office", true)).toBeNull();
-  });
-
-  it("is null for an unparseable origin", () => {
-    expect(deriveAppHostDomain("not a url", true)).toBeNull();
-    expect(deriveAppHostDomain("", true)).toBeNull();
-  });
-
-  it("canonicalizes case and a trailing dot", () => {
-    // This value is compared against a normalized request Host on every
-    // request, so a stray trailing dot here would divert the office itself.
-    expect(deriveAppHostDomain("https://OFFICE.EXAMPLE./", true)).toBe(
-      "office.example",
-    );
-  });
-
-  it("keeps a port out of the domain", () => {
-    expect(deriveAppHostDomain("https://office.example:8443", true)).toBe(
-      "office.example",
-    );
-  });
-});
-
 describe("matchAppHost", () => {
   const domain = "office.example";
 
@@ -257,39 +183,5 @@ describe("matchAppHost", () => {
       kind: "label",
       label: "api",
     });
-  });
-});
-
-// The lifecycle, pinned directly. There is exactly one legal order - boot
-// state frozen, then the domain frozen, then requests - and reading the domain
-// outside it is a boot-order bug, not something to paper over: before
-// freezeBootState runs, buildPublicOrigin answers with its strict pre-boot
-// default, so a lazy resolve would cache `null` for the life of the process
-// and silently disable app hostnames on a deployment that has them.
-describe("appHostDomain lifecycle", () => {
-  // Leave the module in the state every other test file expects: the harness
-  // resets and re-freezes on each boot, but nothing here should depend on the
-  // order test files happen to run in.
-  afterAll(() => freezeAppHostDomain());
-
-  it("throws when read before the boot freeze", () => {
-    _testResetAppHostDomain();
-    expect(() => appHostDomain()).toThrow(/before freezeAppHostDomain/);
-  });
-
-  it("answers once frozen", () => {
-    _testResetAppHostDomain();
-    freezeAppHostDomain();
-    // The VALUE depends on this process's boot state, which a pure test has no
-    // business asserting - deriveAppHostDomain's matrix above covers that.
-    // What matters here is that it answers at all instead of throwing.
-    const domain = appHostDomain();
-    expect(domain === null || typeof domain === "string").toBe(true);
-  });
-
-  it("throws again after a reset, so the harness cannot leak a stale domain", () => {
-    freezeAppHostDomain();
-    _testResetAppHostDomain();
-    expect(() => appHostDomain()).toThrow();
   });
 });

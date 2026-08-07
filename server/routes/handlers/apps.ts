@@ -102,6 +102,10 @@ export interface AppsDeps {
   // Is this caller an office owner? Owners see every app; everyone else sees
   // the apps their user owns. Mirrors the cronjob rule.
   isOfficeOwner(identity: Identity): boolean;
+  // The app's public address, or null when this office has no app hostnames.
+  // Derived on every read from the boot-frozen domain and the app's label -
+  // the same value its unit injects as ISOMUX_APP_URL.
+  publicUrl(app: AppRecord): string | null;
 
   // --- the wire seam -------------------------------------------------------
   // Tell every socket that may see this app about it. Called with the SAME wire
@@ -182,14 +186,22 @@ export interface AppsDeps {
 
 // The ONE place a record becomes wire. `state` and `restartCount` are derived
 // from the supervisor at read time and never stored - a persisted "running"
-// would be a lie the moment the box reboots.
-function toWire(record: AppRecord, runtime: AppRuntime | undefined): AppWire {
+// would be a lie the moment the box reboots. `url` is derived too, from the
+// office's origin and the app's label.
+function toWire(
+  record: AppRecord,
+  runtime: AppRuntime | undefined,
+  url: string | null,
+): AppWire {
   const { state, restartCount, startError } = runtime ?? UNKNOWN_RUNTIME;
   return {
     ...record,
     state,
     restartCount,
     ...(startError ? { startError } : {}),
+    // `!== null`, not truthiness: the rule is present-iff-there-is-a-URL, and
+    // an empty string would be a URL-shaped answer meaning "none".
+    ...(url !== null ? { url } : {}),
   };
 }
 
@@ -213,6 +225,13 @@ const STATUS_BY_CODE: Record<AppErrorCode, HandlerErrorStatus> = {
 };
 
 export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
+  // toWire with this office's address rule applied, so no call site can build
+  // a wire object for one app carrying another's URL - or forget the field.
+  const wireOf = (
+    record: AppRecord,
+    runtime: AppRuntime | undefined,
+  ): AppWire => toWire(record, runtime, deps.publicUrl(record));
+
   // Every handler wraps its registry access, so a corrupt registry answers with
   // its own code on a READ as well as a write - a list that silently returned
   // [] would read as "you have no apps".
@@ -226,7 +245,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // ONE state lookup for the whole list. A per-app lookup would be a
         // subprocess per app per render, and the Apps tab polls.
         const runtimes = deps.states(visible.map((a) => a.name));
-        return ok(visible.map((a) => toWire(a, runtimes.get(a.name))));
+        return ok(visible.map((a) => wireOf(a, runtimes.get(a.name))));
       } catch (err) {
         return renderRegistryError(err);
       }
@@ -238,7 +257,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       try {
         const record = deps.get(ctx.params.name);
         if (!record) return fail(404, "not_found");
-        return ok(toWire(record, deps.states([record.name]).get(record.name)));
+        return ok(wireOf(record, deps.states([record.name]).get(record.name)));
       } catch (err) {
         return renderRegistryError(err);
       }
@@ -310,7 +329,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // ONE wire object: announced and returned, so the office and the caller
         // are told the same thing by construction. Built after install, so its
         // state reflects whether the app actually came up.
-        const wire = toWire(
+        const wire = wireOf(
           record,
           deps.states([record.name]).get(record.name),
         );
@@ -438,7 +457,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             );
           }
         }
-        const wire = toWire(after, deps.states([after.name]).get(after.name));
+        const wire = wireOf(after, deps.states([after.name]).get(after.name));
         announced(after.name, () => deps.announce(wire));
         return ok(wire);
       } catch (err) {
@@ -670,7 +689,11 @@ function actionHandler(
       // A throw here escapes to renderRegistryError, so nothing is announced -
       // a verb that failed changed nothing to tell anyone about.
       act(record.name);
-      const wire = toWire(record, deps.states([record.name]).get(record.name));
+      const wire = toWire(
+        record,
+        deps.states([record.name]).get(record.name),
+        deps.publicUrl(record),
+      );
       announced(record.name, () => deps.announce(wire));
       return ok(wire);
     } catch (err) {

@@ -38,6 +38,8 @@ import {
   cleanupFailure,
   cleanupLiveTestUnit,
 } from "./test-support/live-unit-cleanup.ts";
+import { reconcileAppUrls } from "./app-url-reconcile.ts";
+import { appPublicUrl } from "./app-domain.ts";
 import type { AppRecord } from "../shared/types.ts";
 
 const LIVE = process.env.ISOMUX_TEST_SYSTEMD === "1";
@@ -54,6 +56,10 @@ const tmpRoot = LIVE
   : join(tmpdir(), "unused");
 
 let supervisor: AppSupervisor | null = null;
+// The office's app-host domain for this test, moved by hand: there is no boot
+// here to freeze the real one, and moving it is exactly the transition boot URL
+// reconciliation exists for.
+let liveDomain: string | null = null;
 
 // Runs whatever happened above it, because the cleanup must not depend on the
 // test body reaching its own teardown call - an assertion that fails partway
@@ -133,6 +139,10 @@ suite("app-supervisor against real systemd", () => {
     supervisor = createAppSupervisor({
       host: { ...host, launcherDir },
       unitPrefix: UNIT_PREFIX,
+      // The office's app-host domain, as a variable this test can move: the
+      // real one is frozen at boot and there is no boot here. Starting at null
+      // is the plain-HTTP office every dev box is.
+      appHostDomain: () => liveDomain,
     });
 
     // A real free port from the app window, probed the way the registry does.
@@ -166,7 +176,8 @@ suite("app-supervisor against real systemd", () => {
         `  port: Number(process.env.PORT),\n` +
         `  fetch: () => new Response(\n` +
         `    (process.env.ISOMUX_APP_DATA_DIR ?? "no-data-dir") + "|" +\n` +
-        `    (process.env.ISOMUX_APP_TOKEN ?? "no-token")),\n` +
+        `    (process.env.ISOMUX_APP_TOKEN ?? "no-token") + "|" +\n` +
+        `    (process.env.ISOMUX_APP_URL ?? "no-url")),\n` +
         `});\n` +
         `console.log("probe listening on " + process.env.PORT);\n`,
     );
@@ -214,12 +225,73 @@ suite("app-supervisor against real systemd", () => {
       // running process. The launcher directory here has a space and a percent
       // sign in it, so this is also the proof that the EnvironmentFile path is
       // escaped by the right rule (unquoted, like WorkingDirectory).
-      expect(body).toBe(`${dataDir}|${token}`);
+      // "no-url", not an empty string: an office with no app hostnames must
+      // leave the variable UNSET, and only the running process can prove that
+      // systemd did not define it as empty.
+      expect(body).toBe(`${dataDir}|${token}|no-url`);
       expect(supervisor.readToken(APP_NAME)).toBe(token);
       expect(supervisor.states([APP_NAME]).get(APP_NAME)).toEqual({
         state: "running",
         restartCount: 0,
       });
+
+      // 1b. THE OFFICE GAINS A DOMAIN, and the boot pass runs for real against
+      //     real systemd. Nothing about the app changed - only the office's
+      //     public origin did - so this is the whole claim of the slice: the
+      //     unit is rewritten, systemd picks the rewrite up, and the process
+      //     that comes back knows its own address. A fake can prove we wrote
+      //     the string; only this can prove the app receives it.
+      const urlDeps = {
+        list: () => [app],
+        expectedUrl: (a: AppRecord) => appPublicUrl(a.hostLabel, liveDomain),
+        readUnitFile: (n: string) => supervisor!.readUnitFile(n),
+        restoreUnitFile: (n: string, c: string) =>
+          supervisor!.restoreUnitFile(n, c),
+        regenerate: (a: AppRecord) => supervisor!.regenerate(a),
+        states: (names: readonly string[]) => supervisor!.states(names),
+        restart: (n: string) => supervisor!.restart(n),
+      };
+      liveDomain = "office.example";
+      const urlReport = reconcileAppUrls(urlDeps);
+      expect(urlReport.converged).toEqual([APP_NAME]);
+      expect(urlReport.restarted).toEqual([APP_NAME]);
+      const addressed = await until(
+        "the app to answer knowing its own address",
+        20_000,
+        async () => {
+          try {
+            return await (await fetch(`http://127.0.0.1:${port}/`)).text();
+          } catch {
+            return null;
+          }
+        },
+        (text) =>
+          text?.endsWith(`|https://${APP_NAME}.office.example`) ?? false,
+      );
+      expect(addressed).toBe(
+        `${dataDir}|${token}|https://${APP_NAME}.office.example`,
+      );
+
+      // ...and the NEXT boot does nothing at all. Proven by the process
+      // itself: same PID afterwards means nothing was restarted, which is what
+      // keeps every subsequent office restart from bouncing every app.
+      const pidNow = () =>
+        host
+          .run([
+            "systemctl",
+            "--user",
+            "show",
+            supervisor!.unitName(APP_NAME),
+            "--property=MainPID",
+            "--value",
+          ])
+          .stdout.trim();
+      const settledPid = pidNow();
+      expect(Number(settledPid)).toBeGreaterThan(0);
+      const secondPass = reconcileAppUrls(urlDeps);
+      expect(secondPass.converged).toEqual([]);
+      expect(secondPass.restarted).toEqual([]);
+      expect(pidNow()).toBe(settledPid);
 
       // 2. Killed, it comes back, and the restart is COUNTED - which is what
       //    the Apps tab will show as a crash loop.

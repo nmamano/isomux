@@ -38,7 +38,6 @@ import type { AppRegistry } from "./app-registry.ts";
 import { appSupervisor as productionSupervisor } from "./app-supervisor.ts";
 import type { AppSupervisor } from "./app-supervisor.ts";
 import { relayToApp } from "./app-proxy.ts";
-import { buildPublicOrigin } from "./auth.ts";
 import {
   APP_AUTH_PATH,
   appHostAuthGate,
@@ -47,33 +46,13 @@ import {
 } from "./app-auth.ts";
 import { relayWsToApp, type AppRelayWsData } from "./app-ws-relay.ts";
 import { neutralNotFound } from "./app-host-responses.ts";
+// The hostname grammar and the office's own domain live in app-domain.ts, a
+// leaf module: the supervisor needs the same domain to write an app's URL into
+// its unit, and this module imports the supervisor.
+import { appHostDomain, isHostname } from "./app-domain.ts";
 import type { AppRecord } from "../shared/types.ts";
 
 // --- hostname grammar (pure) ------------------------------------------------
-
-// RFC 1035 label and name ceilings. The label pattern is the one the app
-// registry holds app names to (server/app-registry.ts), because an app's name
-// becomes its hostname label.
-const MAX_HOST_LABEL_LENGTH = 63;
-const MAX_HOSTNAME_LENGTH = 253;
-const HOST_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
-
-function isHostLabel(label: string): boolean {
-  return (
-    label.length > 0 &&
-    label.length <= MAX_HOST_LABEL_LENGTH &&
-    HOST_LABEL_PATTERN.test(label)
-  );
-}
-
-// A lowercase LDH hostname: one or more valid labels, no trailing dot, within
-// the name ceiling. `minLabels` lets a caller demand a dotted name.
-export function isHostname(host: string, minLabels = 1): boolean {
-  if (host.length === 0 || host.length > MAX_HOSTNAME_LENGTH) return false;
-  const labels = host.split(".");
-  if (labels.length < minLabels) return false;
-  return labels.every(isHostLabel);
-}
 
 // Every code point a hostname may carry before any structural check. Anything
 // outside printable ASCII - C0 controls, DEL (0x7f), and all non-ASCII
@@ -116,83 +95,6 @@ export function normalizeRequestHost(
   // and is rejected by isHostname.
   if (host.endsWith(".")) host = host.slice(0, -1);
   return isHostname(host) ? host : null;
-}
-
-// --- the app-host domain (pure) -------------------------------------------------
-
-// Hostnames app hostnames cannot hang off: loopback names (a `.localhost`
-// suffix is loopback by RFC 6761, not just the bare name) and address
-// literals. `URL.hostname` exposes an IPv6 literal bracketed.
-function isLoopbackOrLiteral(hostname: string): boolean {
-  if (hostname === "localhost" || hostname.endsWith(".localhost")) return true;
-  if (hostname.startsWith("[")) return true;
-  if (/^[0-9]+(?:\.[0-9]+){3}$/.test(hostname)) return true;
-  return false;
-}
-
-// The office's own hostname, and therefore the domain its apps hang off.
-// Null means this office has no app hostnames at all.
-//
-// Gated on HTTPS because that is what an office reachable at a real name looks
-// like: app hostnames need a wildcard DNS record and a certificate, and
-// neither exists for `localhost`, a bare address, or a plain-HTTP dev bind.
-// `URL` lowercases the host but KEEPS a trailing dot, so it is stripped here -
-// this value is compared against normalized request Hosts on every request.
-export function deriveAppHostDomain(
-  officeOrigin: string,
-  isHttps: boolean,
-): string | null {
-  if (!isHttps) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(officeOrigin);
-  } catch {
-    return null;
-  }
-  let host = parsed.hostname.toLowerCase();
-  if (host.endsWith(".")) host = host.slice(0, -1);
-  if (!host || isLoopbackOrLiteral(host)) return null;
-  // Dotted name required: a single-label office host is an intranet name that
-  // cannot carry a public wildcard record.
-  return isHostname(host, 2) ? host : null;
-}
-
-// --- the boot-frozen value --------------------------------------------------
-
-let frozenDomain: string | null = null;
-let frozen = false;
-
-// Called from bootPrelude, after freezeBootState (which is what makes
-// buildPublicOrigin answer for this boot). Frozen for the process lifetime
-// like the origin it reads: editing office-config.json under a running office
-// changes nothing until the next restart, so routing cannot shift mid-flight.
-export function freezeAppHostDomain(): void {
-  const { origin, isHttps } = buildPublicOrigin();
-  frozenDomain = deriveAppHostDomain(origin, isHttps);
-  frozen = true;
-}
-
-export function appHostDomain(): string | null {
-  // Deliberately NOT a lazy freeze. Resolving on demand would look like a
-  // harmless fallback and is the opposite: before freezeBootState runs,
-  // buildPublicOrigin answers with its strict pre-boot default (loopback, not
-  // HTTPS), so an accidental early call would cache `null` for the life of the
-  // process and silently turn app hostnames off on a deployment that has them
-  // - healthy-looking, and wrong. There is one legal lifecycle and the only
-  // production caller is downstream of bootPrelude, so a violation is a bug in
-  // the boot order and should say so.
-  if (!frozen) {
-    throw new Error(
-      "appHostDomain() called before freezeAppHostDomain(); the app-host " +
-        "domain is resolved in bootPrelude, after the boot state is frozen",
-    );
-  }
-  return frozenDomain;
-}
-
-export function _testResetAppHostDomain(): void {
-  frozenDomain = null;
-  frozen = false;
 }
 
 // --- host matching (pure) ---------------------------------------------------

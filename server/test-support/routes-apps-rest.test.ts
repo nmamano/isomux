@@ -1920,6 +1920,7 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     attributionFor: () => ({ createdBy: "Agent1", username: "alice" }),
     validateCwd: (cwd) => ({ ok: true, resolved: cwd }),
     isOfficeOwner: () => true,
+    publicUrl: () => null,
     announce: boom,
     announceRemoved: boom,
     provisionToken: () => true,
