@@ -281,7 +281,16 @@ out). Restart authorization per the 2026-08-06 program (handoff brief).
          hello-g2 test pair now pins hostLabel-not-name at both the
          unit and the wire. No user-visible prose. Full test baseline
          3308 / 176 files.)
-- [ ] S9  UI: link the hostname when present; keep port link otherwise.
+- [x] S9  UI: link the hostname when present; keep port link otherwise.
+         (Isomuxer2/Reviewer2, diff-gate approved 2f9e452e FIRST ROUND,
+         committed ca7c29f. Exported pure helper appHref(app,
+         officeHostname): url verbatim when non-empty, port link
+         otherwise; call site not unit-testable (no React harness) -
+         the browser run was the only cover, KNOWN GAP if that line is
+         ever touched. Demo fixture standup-board now carries a url so
+         the public demo renders both arms - Reviewer2 ruled it stays;
+         flagged for Nil (demo shows a hostname link before S7). No
+         new user-visible strings. Baseline 3311 / 176 files.)
 - [ ] S10 Prompt + docs (system-prompt app-URL guidance, README/docs,
          design docs marked resolved, documentation.md surfaces).
 
@@ -851,3 +860,76 @@ helper extraction.
 
 Locked: url consumed from the wire only (never derived in the UI),
 port-link arm byte-identical when url is absent, Standing rails.
+
+## SLICE-7 PICKUP (authored after S9's commit; baseline = ca7c29f)
+
+The gate is OPEN: Nil answered both blockers. URL shape is flat
+(Rulings), and the domain exists - wildcard DNS `*.test.isomux.app ->
+116.203.73.126` is live and verified; the test office runs at
+https://test.isomux.app on the Hetzner box (server id 153720692,
+auntie's SSH key works; box conventions in room memory and task
+236b1c9d's lessons).
+
+Goal: the transport reaches the outside world. Caddy on an
+https-published office terminates TLS for app hostnames and proxies
+them to the office socket; a fresh hosted install gets this without
+manual steps; an EXISTING install gets a documented one-time operator
+step (the updater deliberately never rewrites the Caddyfile -
+release-design.md consistency). Acceptance is a real browser-shaped
+end-to-end on the test box: a registered app answering on
+https://<label>.test.isomux.app with a real certificate.
+
+Load-bearing mechanics and traps:
+- `deploy/install.sh` owns the managed-Caddy site block (CADDY_MARKER
+  machinery; tests in deploy/install-sh.test.ts). Extend the generated
+  block: a wildcard-capable site for `*.<office host>` using ON-DEMAND
+  TLS (`on_demand`), proxying to the office socket like the main site.
+  Keep the block inside the managed markers so install stays
+  idempotent; the UPDATE path must not touch it (verify against
+  scripts/update.sh - enabling app hostnames on an existing install is
+  an explicit documented operator action, not an update side effect).
+- tls-ask: on-demand TLS means ANY SNI pointed at the box triggers a
+  CA request unless gated. Caddy's `on_demand_tls { ask <url> }` calls
+  an endpoint BEFORE issuance: the office serves it (localhost route,
+  no auth - Caddy calls it; decide the exact path with the reviewer,
+  it is public surface). Policy fail-closed: approve ONLY the exact
+  office host and currently-LIVE app labels (registry lookup; retired/
+  unknown -> deny). Per-hour issuance cap as a plain named constant
+  (sanity bound, not a knob) - this implements the 'proposed per-hour
+  cap rides S7' line from PARKED FOR NIL; quote the chosen value in
+  the report for Nil's pass.
+- DNS for self-hosters is documentation, not code: one wildcard record.
+  S10 owns the prose; this slice may leave a draft note in the report.
+- Certificates: wildcard DNS + on-demand HTTP-01 per label (no DNS
+  provider API assumed). The office host's own cert story is unchanged.
+- E2E ON THE TEST BOX (the sanctioned target for this slice - the
+  never-touch-a-live-office rail is about auntie, not this box, but
+  treat it with care: it is Nil's dogfood box. Leave it running and
+  healthy; document every change you make there in the report):
+  getting this branch's code onto the box WITHOUT pushing to GitHub -
+  task 236b1c9d's recipe (local bare mirror + REPO_URL override in
+  /etc/isomux/update.conf) or rsync of the working tree; decide with
+  the reviewer, state the method. Register a scratch app, verify
+  https://<label>.test.isomux.app end-to-end (page + auth handshake +
+  WS echo if quick), verify an unknown label is DENIED at the tls-ask
+  (no cert issued, neutral failure), then clean up the scratch app.
+- The office-side code for all of this already exists (S1-S6b, S8) -
+  expect this slice to be mostly install.sh + tls-ask route + the box
+  work. If office code gaps surface (they may - first real-world
+  contact), fix them in-slice if small, escalate if structural.
+- Gates: always-run set; deploy/install-sh.test.ts must cover the new
+  block (idempotence + marker containment); test:systemd only if
+  launcher/unit files change (not expected).
+
+Acceptance: transcript of the test-box E2E (real cert on a real label,
+denied unknown label, office host unaffected, update.sh run leaves the
+Caddyfile untouched); gates green; reviewer approve on the final
+announced fingerprint; every new user-visible string (tls-ask denials
+are machine-facing - still quote them) verbatim; box left healthy with
+changes documented.
+
+Decide with reviewer: tls-ask route path + response shape, cap value,
+site-block details, code-delivery method to the box.
+
+Locked: on-demand TLS gated by fail-closed tls-ask, updater never
+rewrites the Caddyfile, flat URL shape, Standing rails (no push).
