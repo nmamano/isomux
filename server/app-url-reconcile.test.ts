@@ -18,10 +18,13 @@ import {
   type AppUrlReconcileDeps,
 } from "./app-url-reconcile.ts";
 import { appUrlEnvDirective } from "./app-supervisor.ts";
-import { appPublicUrl } from "./app-domain.ts";
+import { appPublicUrl, deriveAppHostDomain } from "./app-domain.ts";
 import type { AppRecord, AppState } from "../shared/types.ts";
 
 const DOMAIN = "office.example";
+// This office's own tailnet name, the one the regression happened on.
+const TAILNET_HOST = "auntie.parrot-fish.ts.net";
+const TAILNET_ORIGIN = `https://${TAILNET_HOST}`;
 
 const record = (over: Partial<AppRecord> = {}): AppRecord => ({
   name: "hello",
@@ -207,6 +210,43 @@ describe("app-urls: convergence", () => {
     expect(on.units.get("hello")).toContain(
       'Environment="ISOMUX_APP_URL=https://hello.office.example"',
     );
+  });
+
+  it("takes back an address a tailnet office should never have given out", () => {
+    // The live regression, end to end (2026-08-08). This office IS on HTTPS -
+    // Tailscale Serve terminates TLS - so it derived a domain and wrote
+    // `https://hello.auntie.parrot-fish.ts.net` into every app's unit. That
+    // name resolves nowhere: MagicDNS has no wildcards. The domain comes from
+    // the PRODUCTION derivation here rather than a literal null, so this test
+    // is wired to the fix and not to a restatement of it: with the tailnet
+    // guard gone the derivation answers with the host, the seeded unit already
+    // agrees with it, and the pass below has nothing to do.
+    const lying = deriveAppHostDomain(TAILNET_ORIGIN, true);
+    expect(lying).toBeNull();
+
+    const app = record();
+    const w = world({ apps: [app], domain: lying });
+    w.units.set(app.name, unitFor(app, TAILNET_HOST));
+    w.states.set(app.name, "running");
+    expect(w.units.get("hello")).toContain(
+      'Environment="ISOMUX_APP_URL=https://hello.auntie.parrot-fish.ts.net"',
+    );
+
+    const report = reconcileAppUrls(w.deps);
+
+    // The variable is GONE - not emptied - and the app that was serving is
+    // restarted into the environment without it, exactly once.
+    expect(w.units.get("hello")).not.toContain("ISOMUX_APP_URL");
+    expect(w.calls).toEqual(["regenerate:hello", "restart:hello"]);
+    expect(report.restarted).toEqual(["hello"]);
+    expect(report.failed).toEqual([]);
+
+    // And the next boot is free: the cleanup is a one-time transition, not a
+    // bounce every app pays on every start.
+    w.calls.length = 0;
+    const second = reconcileAppUrls(w.deps);
+    expect(w.calls).toEqual([]);
+    expect(second.converged).toEqual([]);
   });
 
   it("judges by the LAST assignment when a unit has been hand-edited", () => {

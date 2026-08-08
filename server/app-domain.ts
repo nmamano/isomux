@@ -49,12 +49,33 @@ function isLoopbackOrLiteral(hostname: string): boolean {
   return false;
 }
 
+// Tailscale's MagicDNS namespace, which is a separate refusal from the one
+// above: a name like `auntie.parrot-fish.ts.net` is real and resolvable, and
+// an office served there is genuinely on HTTPS. What it cannot do is carry
+// CHILDREN - MagicDNS has no wildcard records and a Tailscale certificate
+// covers the node's own name only - so deriving a domain here would hand every
+// app an address that resolves nowhere and put that address in its
+// environment. A tailnet office keeps port links instead (Nil, 2026-08-08).
+//
+// Matched on the LABEL boundary, so `myts.net` and `ts.net.example.com` are
+// ordinary domains. Matched AFTER the URL parse, which is what makes it hold
+// against the spellings a string check on the origin would miss: `URL`
+// lowercases, and its IDNA mapping folds the fullwidth form (`ｔｓ.ｎｅｔ`) to
+// `ts.net` before this ever sees it.
+const TAILNET_SUFFIX = "ts.net";
+
+function isTailnetName(hostname: string): boolean {
+  return hostname === TAILNET_SUFFIX || hostname.endsWith(`.${TAILNET_SUFFIX}`);
+}
+
 // The office's own hostname, and therefore the domain its apps hang off.
 // Null means this office has no app hostnames at all.
 //
 // Gated on HTTPS because that is what an office reachable at a real name looks
 // like: app hostnames need a wildcard DNS record and a certificate, and
 // neither exists for `localhost`, a bare address, or a plain-HTTP dev bind.
+// HTTPS is necessary and not sufficient - a tailnet name is the one office
+// host that passes it and still cannot have children (see isTailnetName).
 // `URL` lowercases the host but KEEPS a trailing dot, so it is stripped here -
 // this value is compared against normalized request Hosts on every request.
 export function deriveAppHostDomain(
@@ -71,6 +92,7 @@ export function deriveAppHostDomain(
   let host = parsed.hostname.toLowerCase();
   if (host.endsWith(".")) host = host.slice(0, -1);
   if (!host || isLoopbackOrLiteral(host)) return null;
+  if (isTailnetName(host)) return null;
   // Dotted name required: a single-label office host is an intranet name that
   // cannot carry a public wildcard record.
   return isHostname(host, 2) ? host : null;

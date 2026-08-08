@@ -118,6 +118,8 @@ Certificates are obtained per app the first time it is opened. Three things foll
 - Isomux admits at most ten new app hostnames per hour, so an office with more than ten apps enables them as the hour rolls.
 - Deleting an app stops new certificates immediately, but TLS may keep terminating from Caddy's warm cache until its next cold load.
 
+A tailnet office (`*.ts.net`) keeps port links: Tailscale has no wildcard names, so app hostnames can't resolve there.
+
 ## Opening an agent's dev server
 
 An app an agent is running on the box - say on port 5173 - isn't exposed to the internet. If SSH is open (the default), forward the port from your own machine:

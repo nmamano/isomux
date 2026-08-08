@@ -83,6 +83,51 @@ describe("deriveAppHostDomain", () => {
       "office.example",
     );
   });
+
+  // A tailnet office is the one HTTPS deployment at a real, resolvable name
+  // that still has no app hostnames: MagicDNS has no wildcard records and a
+  // Tailscale certificate covers the node's own name only, so a derived
+  // address would resolve nowhere - and it would be written into every app's
+  // environment as if it did. Nil ruled these offices keep port links
+  // (2026-08-08), which is what `null` here buys.
+  it("is null for a tailnet office host", () => {
+    for (const origin of [
+      "https://auntie.parrot-fish.ts.net",
+      "https://auntie.tail1234.ts.net",
+      // The apex itself. No office lives here, but without it `hello.ts.net`
+      // would be an app host.
+      "https://ts.net",
+      // The port does not participate: the rule is about the NAME.
+      "https://auntie.parrot-fish.ts.net:8443",
+      // Case and a trailing dot, normalized by the same two steps that
+      // canonicalize every other office host.
+      "https://AUNTIE.PARROT-FISH.TS.NET./",
+      // The fullwidth spelling. `URL`'s IDNA mapping folds it to `ts.net`
+      // before the check runs, which is why the check runs after the parse.
+      "https://auntie.parrot-fish.ｔｓ.ｎｅｔ",
+    ]) {
+      expect({ origin, domain: deriveAppHostDomain(origin, true) }).toEqual({
+        origin,
+        domain: null,
+      });
+    }
+  });
+
+  it("matches the tailnet suffix on the label boundary, not the string", () => {
+    // Ordinary domains that merely end in those characters. A substring check
+    // would take app hostnames away from all three.
+    for (const origin of [
+      "https://myts.net",
+      "https://notts.net",
+      "https://ts.net.example.com",
+    ]) {
+      const expected = new URL(origin).hostname;
+      expect({ origin, domain: deriveAppHostDomain(origin, true) }).toEqual({
+        origin,
+        domain: expected,
+      });
+    }
+  });
 });
 
 describe("appPublicUrl", () => {

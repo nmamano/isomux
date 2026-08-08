@@ -81,6 +81,70 @@ describe("app hosts: the office is untouched", () => {
     expect(control.raw).toContain("ok");
   });
 
+  it("is inert on a tailnet office, which is on HTTPS and still has no domain", async () => {
+    // The 2026-08-08 regression, reproduced against the real server: an office
+    // behind Tailscale Serve has an HTTPS publicOrigin, so it derived a domain
+    // and every app link pointed at a name MagicDNS cannot resolve. HTTPS is
+    // no longer enough on its own - a `.ts.net` office is byte-identical to an
+    // office with no app hostnames at all.
+    const TAILNET_HOST = "auntie.tail1234.ts.net";
+    const before = await startTestServer();
+    server = before;
+
+    // A REAL app, registered and persisted before the transition, so the
+    // assertion after the restart is about an app the office actually has.
+    const owner = await before.seedOwner("Boss");
+    const token = await anAgentToken(before);
+    expect(await registerApp(before, token, "hello")).toBe("hello");
+
+    const hosts = [TAILNET_HOST, `hello.${TAILNET_HOST}`];
+    const baseline: Record<string, string> = {};
+    for (const host of hosts) {
+      baseline[host] = (
+        await raw(before.port, { host, path: "/readyz" })
+      ).stable;
+    }
+    expect(baseline[TAILNET_HOST]).toContain("ok");
+
+    // Become that office, through the route that is the whole of what turns
+    // app hostnames on, and cold-restart the same install.
+    const r = await before.http("/api/office/access", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        externalAccess: true,
+        publicOrigin: `https://${TAILNET_HOST}`,
+      }),
+    });
+    expect(r.status).toBe(200);
+    const after = await before.restart();
+    server = after;
+
+    // Nothing diverts: the app's own would-be hostname reaches the office and
+    // answers what it answered before the origin was ever set.
+    for (const host of hosts) {
+      const res = await raw(after.port, { host, path: "/readyz" });
+      expect({ host, stable: res.stable }).toEqual({
+        host,
+        stable: baseline[host],
+      });
+    }
+
+    // And the app is handed no address. ABSENT, not null and not empty: an
+    // agent tells "this office has app hostnames and mine is X" from "this
+    // office has none" by whether the key is there at all.
+    // Read it the way the Apps tab does - a signed-in human on the office
+    // host - because that is the surface that broke.
+    const list = await after.http("/api/apps", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(list.status).toBe(200);
+    const apps = (await list.json()) as Record<string, unknown>[];
+    expect(apps.map((a) => a.name)).toEqual(["hello"]);
+    expect("url" in apps[0]).toBe(false);
+  });
+
   it("still serves the office on its own host, which is also the app domain", async () => {
     // The rule the whole flat shape rests on: the app-host domain IS the
     // office host, and the office host still reaches the office.
