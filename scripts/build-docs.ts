@@ -15,10 +15,22 @@ import { join, basename } from "node:path";
 import { marked } from "marked";
 
 const SRC_DIR = "docs";
+const SITE_DIR = "site";
 const OUT_DIR = "site/docs";
 // The page whose content becomes the docs landing (`/docs`). Its sidebar link
 // points to `/docs` instead of `/docs/<slug>`.
 const LANDING_SLUG = "features";
+
+// Written into every canonical link, the sitemap, and og:url. Absolute by
+// necessity: a canonical has to name one origin, and deriving it from the
+// request is what lets www.isomux.com claim to be the original.
+const SITE_ORIGIN = "https://isomux.com";
+
+// Sitemap entries that aren't generated from docs/. Deliberately absent:
+// `/hosted-terms` and `/hosted-privacy` are unreviewed drafts that carry
+// `<meta name="robots" content="noindex">`, so listing them would be asking
+// Google to index a page that tells it not to.
+const STATIC_PATHS = ["/", "/demo", "/hosted"];
 
 type TocItem = { depth: number; id: string; text: string };
 type Frontmatter = {
@@ -618,12 +630,14 @@ function renderSidebar(pages: DocPage[], currentSlug: string): string {
 function htmlShell(opts: {
   title: string;
   description: string;
+  path: string;
   crumb?: string;
   body: string;
   docContext: string;
 }): string {
   const desc = escapeHtml(opts.description);
   const title = escapeHtml(opts.title);
+  const canonical = escapeHtml(SITE_ORIGIN + opts.path);
   const crumb = opts.crumb
     ? `<span class="topbar-crumb">${escapeHtml(opts.crumb)}</span>`
     : "";
@@ -635,8 +649,10 @@ function htmlShell(opts: {
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>${title} · Isomux docs</title>
 <meta name="description" content="${desc}" />
+<link rel="canonical" href="${canonical}" />
 <link rel="icon" href="${FAVICON_HREF}" />
 <meta property="og:type" content="article" />
+<meta property="og:url" content="${canonical}" />
 <meta property="og:title" content="${title} · Isomux docs" />
 <meta property="og:description" content="${desc}" />
 <meta property="og:site_name" content="Isomux" />
@@ -760,10 +776,32 @@ ${articleHtml}
   return htmlShell({
     title: page.title,
     description: page.description,
+    path: pageUrl(page),
     crumb: page.slug === LANDING_SLUG ? undefined : page.title,
     body,
     docContext: page.raw,
   });
+}
+
+// The sitemap is generated here rather than checked in as a static file
+// because this script is the only place that knows which doc pages exist - a
+// hand-written list would be wrong the first time a docs/*.md is added or
+// renamed. `site/robots.txt` stays static beside it: it names the sitemap and
+// nothing else, so it has no page list to drift from.
+function renderSitemapXml(pages: DocPage[]): string {
+  const paths = [...STATIC_PATHS, ...pages.map(pageUrl)];
+  const entries = paths.map(
+    (path) => `  <url><loc>${escapeHtml(SITE_ORIGIN + path)}</loc></url>`,
+  );
+  // No lastmod, changefreq or priority. Google ignores the last two, and a
+  // lastmod we can't derive from anything real would just be a date that lies.
+  return [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ...entries,
+    "</urlset>",
+    "",
+  ].join("\n");
 }
 
 // ---- Main ----
@@ -805,8 +843,13 @@ function main() {
     }
   }
 
+  writeFileSync(join(SITE_DIR, "sitemap.xml"), renderSitemapXml(pages));
+
   console.log(
     `built ${pages.length} doc pages → ${OUT_DIR}/ (${pages.map((p) => p.slug).join(", ")})`,
+  );
+  console.log(
+    `built sitemap → ${SITE_DIR}/sitemap.xml (${STATIC_PATHS.length + pages.length} urls)`,
   );
 }
 

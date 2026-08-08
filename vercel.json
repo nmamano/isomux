@@ -1,5 +1,13 @@
 {
   "buildCommand": "bun install && mkdir -p site/demo && bun build ui/demo-entry.tsx --outdir site/demo --production && cp ui/demo.html site/demo/index.html && cp node_modules/@xterm/xterm/css/xterm.css site/demo/xterm.css && bun run build:docs",
   "outputDirectory": "site",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.isomux.com" }],
+      "destination": "https://isomux.com/:path*",
+      "permanent": true
+    }
+  ]
 }
