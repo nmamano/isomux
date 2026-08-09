@@ -191,6 +191,26 @@ dunning (slice 3).
   budgets at most 4 cert-issuing e2e cycles; non-HTTPS work runs on
   non-issuing cycles (worker-raised, manager-accepted).
 
+## End-of-loop queue (for Nil at close; do not ping mid-loop)
+
+- DECISION: product access-window default (ruling R-2026-08-09-1 clause
+  3): ~30-day fail-safe backstop with confirmed revocation as the
+  normal path, vs genuinely no expiry until customer confirmation.
+- COPY SIGN-OFF (customer-visible strings from slice 1, verbatim in the
+  close-out report): the access-record message, two systemd Description
+  lines.
+- TASK CANDIDATE: pre-existing flake server/test-support/
+  app-ws-relay.test.ts ("carries the client's close code and reason to
+  the app") - teardown race under full-suite load; bit `bun run ci`
+  once 2026-08-09, passed on rerun and 6/6 isolated.
+- TASK CANDIDATE (papercut, found by Isomuxer1 2026-08-09): the safety
+  hook guarding ~/.isomux/ prefix-matches instead of path-boundary
+  matching, so it also blocks ~/.isomux-control-plane/ and any future
+  ~/.isomux-something. Worker surfaced it per the no-workaround rule
+  and used a temp-DB pattern instead.
+- RECORD: box 203474533 cancelled 2026-08-09 (Nil-approved), ends
+  2026-08-29. Slice-1 push done 2026-08-09 (Nil-approved).
+
 ## Slice checklist
 
 - [x] Slice 1: Contabo adapter + SSH driver (Isomuxer2 / Reviewer2).
