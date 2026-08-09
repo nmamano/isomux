@@ -210,23 +210,29 @@ describe("app-message limits: when BOTH budgets block", () => {
 
   it("reports the burst wait when the day is nearly through and the burst is fresh", () => {
     const { limiter, advance } = limiterAt();
-    // Yesterday's traffic, five short of the cap.
+    // Yesterday's traffic, one burst short of the cap.
     for (let i = 0; i < APP_MESSAGE_DAILY_CAP - APP_MESSAGE_BURST_LIMIT; i++) {
       limiter.commitDaily("hello");
     }
     // Nearly 24 hours later: the oldest commit is 40s from ageing out.
     advance(APP_MESSAGE_DAILY_WINDOW_MS - 40_000);
-    // Five more messages, a second apart, the way the handler pairs the calls -
-    // and the fifth fills the day.
+    // One full burst of messages, a second apart, the way the handler pairs
+    // the calls - and the last of them fills the day.
     for (let i = 0; i < APP_MESSAGE_BURST_LIMIT; i++) {
       expect({ i, ok: limiter.takeBurst("hello").ok }).toEqual({ i, ok: true });
       limiter.commitDaily("hello");
       advance(1000);
     }
-    // Day: 40s - 5s elapsed = 35s left. Burst: the oldest of the five is 5s old,
-    // so 55s left. The longer one wins, and it is the burst this time.
+    // The loop took one second per message, so the day has
+    // 40 - APP_MESSAGE_BURST_LIMIT seconds left, and the oldest burst entry is
+    // APP_MESSAGE_BURST_LIMIT seconds into its 60s window. The longer wait
+    // wins, and it is the burst this time.
     const denied = limiter.takeBurst("hello");
-    expect(denied).toEqual({ ok: false, kind: "burst", retryAfterSec: 55 });
+    expect(denied).toEqual({
+      ok: false,
+      kind: "burst",
+      retryAfterSec: 60 - APP_MESSAGE_BURST_LIMIT,
+    });
     // And it is honest: waiting exactly that long lets a message through, which
     // the daily wait alone (35s) would not have.
     if (!denied.ok) advance(denied.retryAfterSec * 1000);

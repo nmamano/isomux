@@ -28,14 +28,14 @@
 // three so an event-driven app (a webhook that fires a few times in a row, a
 // nightly job reporting several results) does not trip the limit doing something
 // legitimate, while a runaway loop still stops within seconds.
-export const APP_MESSAGE_BURST_LIMIT = 5;
+export const APP_MESSAGE_BURST_LIMIT = 10;
 export const APP_MESSAGE_BURST_WINDOW_MS = 60_000;
 
 // Daily: how many messages one app may successfully deliver per ROLLING 24
 // hours. Rolling rather than calendar-day, which would need a timezone nobody
 // has chosen and would hand back a full budget at midnight to an app that had
 // just spent one.
-export const APP_MESSAGE_DAILY_CAP = 50;
+export const APP_MESSAGE_DAILY_CAP = 500;
 export const APP_MESSAGE_DAILY_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // Message length. Agent-to-agent sends have no cap, and that is defensible for a

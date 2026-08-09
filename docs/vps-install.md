@@ -107,10 +107,7 @@ Either way, it installs any system dependencies the new release needs, rebuilds 
 
 ## App hostnames
 
-An app an agent registers can answer at its own address - `hello.office.example.com` - from any device, behind the same sign-in as the office. A fresh install sets up the proxy side; you add one DNS record:
-
-1. A wildcard A record, `*.office.example.com`, pointing at this server.
-2. On an office installed before this release, re-run the installer once to add the site block (or add it to `/etc/caddy/Caddyfile` yourself). `isomux-update` never rewrites that file.
+Each app an agent registers can get its own address, like `hello.office.example.com`, open from any device and behind the same sign-in as the office. A fresh install sets up the proxy side; you add one DNS record: a wildcard A record, `*.office.example.com`, pointing at this server. On an office installed before this release, also re-run the installer once to add the site block (or add it to `/etc/caddy/Caddyfile` yourself); `isomux-update` never rewrites that file.
 
 Certificates are obtained per app the first time it is opened. Three things follow:
 
