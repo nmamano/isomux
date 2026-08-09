@@ -75,6 +75,16 @@ dunning (slice 3).
   scan all other unquoted heredocs for the same mechanism. One diff,
   one gate. Push urgency queued for Nil.
 
+- R-2026-08-09-3 (post-loop, Nil delegated the call 2026-08-09): the
+  product access-window default is option (a) - a ~30-day fail-safe
+  expiry backstop on our provisioning key, with customer-confirmed
+  early revocation as the normal path and dashboard nagging until
+  confirmation. This honors design ruling 7's intent (never lock
+  ourselves out before the customer arrives - 30 days is far past any
+  real arrival) while keeping the design's holds-without-us guarantee
+  (an unconfirming customer's box still self-expires our key). Slices
+  4-5 implement it; the design doc's "still open" item 3 is settled.
+
 ## Manager-accepted defaults (reversible unless marked)
 
 - Code home: `control-plane/` at the repo root. TypeScript on Bun, the
