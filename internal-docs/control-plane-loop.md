@@ -145,10 +145,26 @@ dunning (slice 3).
 
 ## Box ledger (manager-maintained)
 
-- (empty - slice 1 records the adopted or created box here: provider
-  instance id, ipv4, product, region, paid-month end date, host key
-  fingerprint)
-- DNS record `cp1.test.isomux.app -> <ip>`: NOT yet requested from Nil.
+- ADOPTED (2026-08-09): Contabo instanceId 203474835, ipv4 169.58.97.2,
+  V153, EU, created 2026-07-30 ("latency-test"), already cancelled, paid
+  through 2026-08-29, no further charge. Not pristine (an earlier test
+  ran install.sh on it); first reinstall exercises the recycle path.
+  Loop provider spend so far: EUR 0.
+- NOT OURS TO TOUCH: instanceId 203474533 (169.58.96.127, the old
+  steal-monitor box) has no cancelDate and renews at EUR 5.50/mo; its
+  purpose concluded 2026-08-02 (task b223ebc3). Queued for Nil as a
+  cancel decision - outside this loop.
+- DNS record `cp1.test.isomux.app -> 169.58.97.2`: requested from Nil
+  2026-08-09 (queued for his morning).
+- Manager-accepted (2026-08-09): the live create path is NOT exercised
+  this loop (adoption avoids a ~EUR 5.50+ spend). Coverage = stub-tier
+  fixtures + the July pilot's live evidence (create-to-SSH 110s). The
+  create idempotency-key question is settled from API docs/fixtures and
+  documented as such in control-plane/README.md, marked "not live-
+  verified".
+- Let's Encrypt duplicate-cert limit (5/week per identical name set)
+  budgets at most 4 cert-issuing e2e cycles; non-HTTPS work runs on
+  non-issuing cycles (worker-raised, manager-accepted).
 
 ## Slice checklist
 
