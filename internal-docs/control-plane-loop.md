@@ -193,13 +193,27 @@ dunning (slice 3).
 
 ## Slice checklist
 
-- [ ] Slice 1: Contabo adapter + SSH driver (Isomuxer2 / Reviewer2) -
-      code review CLEAN as of 2026-08-09 ~12:15Z after 3 diff-gate
-      rounds (9+3+0 findings), fingerprint 6190c486ef5469ac6b4cb43df41cf98d
-      (6392 lines vs cabd963). Formal approval withheld only for live
-      acceptance, which waits on Nil's cp1.test.isomux.app A record.
-      Box 203474835 currently has no key on it (revocation proof
-      consumed it); acceptance starts with a recycle. Spend still EUR 0.
+- [x] Slice 1: Contabo adapter + SSH driver (Isomuxer2 / Reviewer2).
+      DONE 2026-08-09: approved fingerprint 5d9466c5951a3ededc91f4a5ab906a10,
+      committed 6f00881, pushed to origin/main same day (Nil-approved;
+      the push also shipped the install.sh heredoc fix, so fresh
+      self-hosted installs from main work again). EUR 0 spend. Lessons
+      folded into slice 2: (1) a box is NOT ready when SSH answers -
+      boot-time apt holds the dpkg lock (observed at T+2min on a box
+      SSH-able at T+88s); wait-for-package-manager is its own step and
+      needs its own typed operation + deadline in slice 2. (2) Measured
+      2026-08-09: reinstall-to-SSH 88s, install 236s (largest
+      inter-marker gap 67s - Chrome download), install-exit to HTTPS
+      200 16s, box clock skew 0-2s (sshd evaluates expiry-time on the
+      BOX clock). 8-min inactivity deadline has ~7x margin. Create-to-IP
+      still only the pilot's 110s (no live create this loop). (3)
+      Contabo reinstall PRESERVES cancelDate - recycling a cancelled box
+      keeps its paid-through date. (4) Slice-2 candidate from the lane:
+      retime the cleanup timer to a near instant at revocation so the
+      units do not outlive a proven revocation. (5) For Nil's list:
+      access-window product default still parked; customer-visible
+      strings exist (access-record message, two systemd Descriptions) -
+      queued for copy sign-off at loop close.
 - [ ] Slice 2: schema, operations, leases, deadlines
 - [ ] Slice 3: Stripe test mode (gate: stripe-test.env verifies by
       boolean check; if not, the loop closes at slice 2)
@@ -272,12 +286,80 @@ Locked: everything in Standing rails; the adapter interface signatures
 (design doc); no web app, no schema/leases yet (slice 2), no Stripe
 (slice 3).
 
-## PICKUP: Slice 2 - (authored after slice 1 lands)
+## PICKUP: Slice 2 - schema, operations, leases, deadlines
+(Isomuxer1 / Reviewer1)
 
-Placeholder. Will fold in slice 1's measurements and lessons. Known
-decide-with-reviewer item: datastore for the operations/leases schema
-(bun:sqlite default for the loop vs Postgres-first; deploy target is
-managed Postgres - record the tradeoff).
+Goal: put the design doc's operations model behind slice 1's command.
+The four state axes (service, provider asset, subscription as a stub
+cache, attention), typed operation rows with durable ids, status,
+attempt count, next_attempt_at, lease_until, inactivity + absolute
+deadlines and last evidence; a tick loop that leases due operations by
+CAS and reconciles provider truth from get(); deadlines that flag
+(raise attention) rather than conclude. The slice-1 CLI keeps working,
+now driven through operations, and a provisioner crash mid-flight
+recovers deterministically on restart.
+
+Load-bearing mechanics (design doc sections: "Provisioning: coarse
+state, explicit operations", "Concurrency", "Deadlines flag; they do
+not conclude", "Ordering a paid box exactly once"):
+
+- Every transition is a version-column CAS; losers re-read. Leases via
+  lease_until CAS; only the leaseholder acts; expired leases are
+  adoptable. One active operation per (instance, kind) where status in
+  pending/running/ambiguous. Backoff is persisted next_attempt_at;
+  nothing sleeps inside a tick.
+- create_intent keeps its slice-1 fail-closed latch semantics; the
+  15-min ambiguous-create quarantine polls find; exact adopts,
+  unproven/nothing raises attention with the instance still
+  provisioning. A second intent is never opened automatically.
+- revoke_access is never quietly abandoned: a closed access window plus
+  failed revocation is an attention case (the box-local timer makes it
+  a broken when, not a broken guarantee).
+- New typed operation from slice 1's lesson: wait_for_package_manager
+  (boot-time apt holds the dpkg lock past SSH-readiness) with its own
+  deadline. Deadline numbers seed from the measured values in the
+  design doc (dated 2026-08-09).
+- Slice-1 lane candidate, adopt unless the reviewer kills it: at proven
+  revocation, retime the cleanup timer/units to a near instant instead
+  of letting them ride to the original ceiling.
+- Attention is persisted (reason, severity, raised_at, acknowledged),
+  not derived; raise and clear both write audit_events.
+
+Exercises against the real box (203474835 - recycle first, it has no
+key on it and its old cleanup timer self-removed at 18:04Z):
+
+1. Crashed install: kill the installer mid-run on the box; the tick
+   must classify crash (exit file absent + dead PID) vs progress, and
+   a retry must run under a fresh runId with the old generation's
+   verdict untouched.
+2. Failed revocation: force the revoke command to fail; attention
+   raised, timer stays armed, retry succeeds, then the proof-of-removal
+   reconnect requirement still holds.
+3. Ambiguous create: money rail forbids a live create, so the create
+   call is faulted at the transport seam (timeout/5xx after "sent")
+   while find runs against the REAL account; the quarantine must adopt
+   on exact, raise attention on unproven, and never open a second
+   intent. Document that the live-create leg stays "not live-verified".
+4. Provisioner kill mid-provision: kill the tick process while an
+   install runs; on restart, recovery is deterministic from the
+   persisted rows (no duplicate installer run - the box wrapper's flock
+   plus run generations must be what arbitrates).
+
+Acceptance (isolated-instance demo transcript in the report): the full
+slice-1 chain executed as leased operations end to end on the real box,
+plus transcripts of exercises 1-4, plus unit/stub tier green with a
+mutation statement covering the CAS/lease/deadline logic.
+
+Decide with the reviewer: datastore (bun:sqlite default for the loop vs
+Postgres-first; deploy target is managed Postgres on fly.io - record
+the tradeoff where it is decided, do not solve deployment); tick cadence
+and how ticks are driven in CLI mode; schema file layout; how the
+audit JSONL from slice 1 migrates into or coexists with audit_events.
+
+Locked: everything in Standing rails; the adapter seam and slice-1
+driver semantics (extend, do not rewrite); no web app, no Stripe, no
+DNS automation; subscription state is a stub column, not an
+integration.
 
 ## PICKUP: Slice 3 - (authored after slice 2 lands)
 
