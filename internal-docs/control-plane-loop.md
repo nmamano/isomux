@@ -259,12 +259,11 @@ dunning (slice 3).
       full-tree pass caught new real issues. (3) Contabo displayName
       rejects colons - slice-1 intent stamp format was fixed. (4) No
       schema migration ships; pre-slice dev DBs refuse to open by name.
-- [ ] Slice 3: Stripe test mode - NOT RUN. Entry gate checked
-      2026-08-09 at slice-2 close: STRIPE_TEST_SECRET_KEY still
-      missing from ~/nil/secrets/stripe-test.env (Nil's roll pending).
-      Loop closed at slice 2 per standing orders; slice 3 queued for
-      the morning. This file stays until slice 3 lands or Nil retires
-      the loop.
+- [ ] Slice 3: Stripe test mode (Isomuxer2 / Reviewer2) - IN FLIGHT.
+      Entry gate verified OK 2026-08-09 ~20:50Z (the key was present
+      since 09:19Z as a bare key; the env-var name was added by Nil).
+      Loop re-opened same day with Nil's go; dispatched to the fresh
+      I2/R2 lane.
 
 ## PICKUP: Slice 1 - adapter + SSH driver
 
