@@ -49,6 +49,19 @@ dunning (slice 3).
    the boundary, and boot a box whose deadline passed while powered
    off) - never assume it.
 
+## Mid-loop rulings (manager)
+
+- R-2026-08-09-1 (slice 1, sent verbatim to both lanes): (1) Fail closed
+  at the driver layer - the driver refuses to rewrite an authorized_keys
+  line without an absolute expiry instant; a missing ceiling stops the
+  run at argument parsing AND as a driver precondition. Slice 2 inherits
+  the property. (2) Slice 1 takes the access window as a required CLI
+  parameter, no default; the acceptance run uses a short value. (3) The
+  product default (design ruling 7's mechanism: ~30-day fail-safe
+  backstop vs genuinely no expiry until customer confirmation) is
+  PARKED FOR NIL in the end-of-loop queue; nothing in slices 1-3
+  hardcodes either choice.
+
 ## Manager-accepted defaults (reversible unless marked)
 
 - Code home: `control-plane/` at the repo root. TypeScript on Bun, the
