@@ -194,7 +194,13 @@ dunning (slice 3).
 
 ## Slice checklist
 
-- [ ] Slice 1: Contabo adapter + SSH driver (Isomuxer2 / Reviewer2)
+- [ ] Slice 1: Contabo adapter + SSH driver (Isomuxer2 / Reviewer2) -
+      code review CLEAN as of 2026-08-09 ~12:15Z after 3 diff-gate
+      rounds (9+3+0 findings), fingerprint 6190c486ef5469ac6b4cb43df41cf98d
+      (6392 lines vs cabd963). Formal approval withheld only for live
+      acceptance, which waits on Nil's cp1.test.isomux.app A record.
+      Box 203474835 currently has no key on it (revocation proof
+      consumed it); acceptance starts with a recycle. Spend still EUR 0.
 - [ ] Slice 2: schema, operations, leases, deadlines
 - [ ] Slice 3: Stripe test mode (gate: stripe-test.env verifies by
       boolean check; if not, the loop closes at slice 2)
