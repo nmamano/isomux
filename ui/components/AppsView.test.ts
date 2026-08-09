@@ -87,4 +87,63 @@ describe("appHref", () => {
       "http://auntie:21000/",
     );
   });
+
+  it("shortens a tailnet office to the node name", () => {
+    // The bug this exists for: the browser upgrades http://<long tailnet
+    // name>:<port> to https and the plain-http app port is unreachable. The
+    // node's short name has no https history and MagicDNS resolves it.
+    expect(appHref({ port: 21001 }, "auntie.parrot-fish.ts.net")).toBe(
+      "http://auntie:21001/",
+    );
+  });
+
+  it("shortens a tailnet name whatever its case", () => {
+    expect(appHref({ port: 21001 }, "Auntie.Parrot-Fish.TS.NET")).toBe(
+      "http://auntie:21001/",
+    );
+  });
+
+  it("shortens a tailnet name written with the trailing root dot", () => {
+    expect(appHref({ port: 21001 }, "auntie.parrot-fish.ts.net.")).toBe(
+      "http://auntie:21001/",
+    );
+  });
+
+  it("leaves a tailnet office's own URL alone", () => {
+    // The office answers with the URL; the tailnet branch belongs to the port
+    // link only and must not touch a hostname the office issued.
+    expect(
+      appHref(
+        { url: "https://standup-board.office.example", port: 21001 },
+        "auntie.parrot-fish.ts.net",
+      ),
+    ).toBe("https://standup-board.office.example");
+  });
+
+  it("passes an ordinary domain through unchanged", () => {
+    expect(appHref({ port: 21000 }, "office.example.com")).toBe(
+      "http://office.example.com:21000/",
+    );
+  });
+
+  it("matches the tailnet suffix on the label boundary", () => {
+    // `ts.net` inside a name is not the MagicDNS namespace, and shortening
+    // either of these would link the row at a host that resolves nowhere.
+    expect(appHref({ port: 21000 }, "myts.net")).toBe("http://myts.net:21000/");
+    expect(appHref({ port: 21000 }, "ts.net.example.com")).toBe(
+      "http://ts.net.example.com:21000/",
+    );
+  });
+
+  it("leaves the bare tailnet apex unchanged", () => {
+    // No node label to shorten to. Unlike server/app-domain.ts, which counts
+    // the apex as tailnet to refuse deriving app hostnames under it.
+    expect(appHref({ port: 21000 }, "ts.net")).toBe("http://ts.net:21000/");
+  });
+
+  it("leaves a hostname that is nothing but the suffix unchanged", () => {
+    // Guards the empty-first-label fallback: without it the href would be
+    // `http://:21000/`.
+    expect(appHref({ port: 21000 }, ".ts.net")).toBe("http://.ts.net:21000/");
+  });
 });
