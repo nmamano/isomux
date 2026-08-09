@@ -234,9 +234,27 @@ dunning (slice 3).
       access-window product default still parked; customer-visible
       strings exist (access-record message, two systemd Descriptions) -
       queued for copy sign-off at loop close.
-- [ ] Slice 2: schema, operations, leases, deadlines
-- [ ] Slice 3: Stripe test mode (gate: stripe-test.env verifies by
-      boolean check; if not, the loop closes at slice 2)
+- [x] Slice 2: schema, operations, leases, deadlines (Isomuxer1 /
+      Reviewer1). DONE 2026-08-09: approved fingerprint
+      0f4d496c3d59f92b2c36444814748eca (round-8 formal approval),
+      committed 3a4d4ed (+ measurements doc commit 53c1764). EUR 0
+      spend. Eight diff-gate rounds, 45 mutations (3 first-pass
+      survivors, each led to a change). Live exercises all passed on
+      box 203474835: crashed installer, failed revocation (chattr +i),
+      ambiguous create at the transport seam (find-only recovery),
+      provisioner SIGKILL mid-provision. Lessons: (1) errored-agent
+      recovery = POST /resume with same sessionId (abort does not clear
+      it) - relevant to task 64b36bee. (2) Reviewer context refresh
+      mid-slice (clear + re-brief with open items) worked well; fresh
+      full-tree pass caught new real issues. (3) Contabo displayName
+      rejects colons - slice-1 intent stamp format was fixed. (4) No
+      schema migration ships; pre-slice dev DBs refuse to open by name.
+- [ ] Slice 3: Stripe test mode - NOT RUN. Entry gate checked
+      2026-08-09 at slice-2 close: STRIPE_TEST_SECRET_KEY still
+      missing from ~/nil/secrets/stripe-test.env (Nil's roll pending).
+      Loop closed at slice 2 per standing orders; slice 3 queued for
+      the morning. This file stays until slice 3 lands or Nil retires
+      the loop.
 
 ## PICKUP: Slice 1 - adapter + SSH driver
 
