@@ -62,6 +62,19 @@ dunning (slice 3).
   PARKED FOR NIL in the end-of-loop queue; nothing in slices 1-3
   hardcodes either choice.
 
+- R-2026-08-09-2 (slice 1, sent verbatim to both lanes): install.sh
+  product bug, manager-verified. The systemd-unit heredoc at
+  deploy/install.sh:2877 is unquoted and two comment lines contain
+  backticks; on a fresh box the substitution splices ERR-path log text
+  into the unit and the install dies at install-service ("Bad
+  message"). Broken on main since b0264e5 (2026-08-03); releases
+  unaffected; the documented curl-from-main VPS install is affected.
+  Authorized inside the slice-1 diff: remove the backticks from the two
+  comment lines (delimiter stays unquoted - the block expands real
+  vars), add a rendered-unit regression test that goes red pre-fix,
+  scan all other unquoted heredocs for the same mechanism. One diff,
+  one gate. Push urgency queued for Nil.
+
 ## Manager-accepted defaults (reversible unless marked)
 
 - Code home: `control-plane/` at the repo root. TypeScript on Bun, the
