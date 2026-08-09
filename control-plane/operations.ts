@@ -16,7 +16,10 @@ export type OperationKind =
   | "run_installer"
   | "verify_https"
   | "mint_invite"
-  | "revoke_access";
+  | "revoke_access"
+  /** Suspension. Enqueued by billing (slice 3) rather than by the provisioning
+   * chain, which is why `nextKind` never returns it and it has no successor. */
+  | "power_off";
 
 /**
  * Kinds the design names that this slice does not drive. They are listed rather
@@ -28,7 +31,9 @@ export const DECLARED_UNIMPLEMENTED_KINDS = [
   "set_dns",
   "remove_dns",
   "reboot",
-  "power_off",
+  // `power_on` is deliberately still here. Slice 3 suspends on dunning
+  // exhaustion; RESUMING a suspended box is a billing recovery transition that
+  // has not been ruled on, and half a ladder is better than an invented one.
   "power_on",
   "cancel_asset",
 ] as const;
@@ -121,6 +126,16 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     absoluteMs: 10 * MINUTE,
     maxRemoteMs: 120_000,
   },
+  // Suspension. One provider call with no intermediate evidence, so the inactivity
+  // deadline bounds a single attempt while the absolute ceiling covers the RETRIES:
+  // a provider API that is down for twenty minutes must not turn a suspension into
+  // a silently dropped one, and revocation's shape - keep trying, flag early - is
+  // the right one for a promise about someone's money.
+  power_off: {
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 30 * MINUTE,
+    maxRemoteMs: 60_000,
+  },
 };
 
 export function deadlinesFor(kind: string): Deadlines {
@@ -163,6 +178,10 @@ export function nextKind(
     case "mint_invite":
       return goal === "handed_off" ? "revoke_access" : null;
     case "revoke_access":
+      return null;
+    // Not part of the provisioning chain: billing opens it on its own evidence
+    // and nothing follows it.
+    case "power_off":
       return null;
   }
 }

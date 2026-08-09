@@ -687,7 +687,12 @@ export class Ticker {
  * Deliberately sparse: most operations say nothing about what the customer has.
  */
 export function serviceStateAfter(kind: OperationKind): ServiceState | null {
-  return kind === "verify_https" ? "live" : null;
+  if (kind === "verify_https") return "live";
+  // A proven power-off is the other boundary where what the customer has
+  // changes: suspension is a provider-level power state, because ruling 3 leaves
+  // no way to stop a service from inside.
+  if (kind === "power_off") return "suspended";
+  return null;
 }
 
 /**

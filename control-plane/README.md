@@ -389,6 +389,262 @@ for an owner session, then `POST /api/invites/recovery` for the standard 24h
 single-use link. The audit log records that a mint happened, never the URL, and
 the operator transcript redacts it.
 
+## Billing (Stripe, test mode only)
+
+Signup, the comped path, webhooks and the dunning ladder. Every module lives in
+`control-plane/stripe/` and every command in `control-plane/billing-cli.ts`,
+which is separate from `cli.ts` on purpose: that file drives real boxes, and its
+most important property is an absence - no command in it can reach a paid
+create. The same absence holds here. `billing-cli.ts` never registers the
+`power_off` handler, so billing can REQUEST a suspension and nothing runnable in
+this slice can power a real box off.
+
+```
+bun control-plane/billing-cli.ts bootstrap        # test product, price, 100%-off coupon
+bun control-plane/billing-cli.ts checkout --email <e> --office-name <n> --price <id> \
+    [--coupon <id>] [--customer <cus_...>] [--instance <inst-...>]
+bun control-plane/billing-cli.ts serve [--port 4243] [--record <dir>]
+bun control-plane/billing-cli.ts subs | events | tick
+bun control-plane/billing-cli.ts clock --action create|advance|list|delete ...
+bun control-plane/billing-cli.ts cleanup          # delete ONLY what this slice created
+```
+
+Every command reads `STRIPE_TEST_SECRET_KEY` from the environment, exactly as
+the provider commands read the Contabo credentials: the caller sources the file,
+the code never learns its path, and nothing prints, logs or echoes the value.
+`StripeClient` refuses to issue a single request unless the key is an
+`sk_test_`/`rk_test_` one, and a live prefix gets its own named error.
+
+### Test mode is enforced three times, not once
+
+A live-mode credential or object reaching this code would mean reading or
+writing real customer data, so the refusal is repeated at every layer that could
+independently be pointed at the wrong account:
+
+1. **The key**, at client construction.
+2. **The event**, immediately after signature verification and JSON parsing -
+   before any dedupe lookup, any object fetch, any transaction and any audit
+   row. `livemode` must be present and `false`; `true` or missing is a typed
+   refusal, answered 400, with nothing read and nothing written. Missing is
+   refused as hard as `true`, because treating absence as test mode is exactly
+   how live data would get through.
+3. **Every fetched object** that reports a mode - session, subscription,
+   invoice. A live-mode object is a hard stop, never "unavailable" and never
+   retried.
+
+`fixtures.test.ts` and `ownership.test.ts` scan the tree for credential-shaped
+literals and for personal data in fixtures, and the guards themselves have to
+name the `sk_live_` prefix - so those scans look for a credential-shaped BODY
+after a prefix rather than for the prefix alone.
+
+### Webhooks are the only writer, and they write from a FETCH
+
+A webhook is a notification, not truth. Two events about one subscription can
+carry the same one-second `created` value, so ordering them by their own
+timestamps cannot be made correct - the older payload would overwrite the newer
+one and the state would silently regress. Every accepted event therefore fetches
+the object it is about, through an injected `StripeObjectReader`, and
+reconciliation writes from that. Replays and reorderings converge by
+construction, because whichever event triggers the fetch, the fetch returns the
+same current object. `last_event_id` and `last_event_created` are stored as
+evidence and read by nothing.
+
+The alternative - trusting the event payload and guarding it with a watermark -
+was considered and dropped for that reason. The cost of fetching is one or two
+extra API calls per delivery and a seam that has to be injected for tests; the
+benefit is that "which write wins" stops being a question.
+
+Order of operations for one delivery:
+
+1. verify the signature over the RAW bytes;
+2. parse, then the live-mode gate;
+3. fetch the object, with NO transaction open;
+4. one transaction: re-check the event id, claim it, apply the snapshot, mirror
+   `instances.subscription_state`, move the dunning episode, enqueue any
+   suspension, raise or clear attention, write the audit rows.
+
+The event id is a primary key claimed in that same transaction, which is what
+makes a crash mid-apply replayable: a throw rolls the claim back too, so
+Stripe's redelivery still has work to do. A fetch that cannot be completed is
+answered 500 with nothing committed. An unhandled event type is answered 200 and
+recorded as `ignored`, because a 4xx would make Stripe retry it forever.
+
+Concurrency: deliveries for one subscription are serialised in-process by a
+per-subscription promise chain, so two of them cannot interleave fetch and
+write. That is enough for one endpoint, which is all this slice runs. A second
+provisioner would need a database-level lock instead; the durable event
+transaction is what covers crashes and redelivery either way.
+
+### Who may write what
+
+`subscriptions` has two column families with different writers, and they are
+separate so that "webhooks are the only writer of subscription state" is
+literally true rather than roughly true:
+
+- **Stripe-owned** (`status`, `current_period_end`, `cancel_at_period_end`, the
+  three discount columns, `ever_full_discount`, `latest_invoice_id`) - written
+  only by `casStripeOwnedSubscription`, whose only caller is reconciliation,
+  which only ever writes from a fetched object.
+- **Ours** (`payment_failures`, `exhaustion_observed_at`, `coupon_grace_until`,
+  `episode_id`, `episode_state`) - dunning bookkeeping, written by
+  reconciliation and by the coupon-hold deadline tick, which is the single
+  non-webhook transition the design asks for.
+
+`ownership.test.ts` asserts that split against the source, because no
+behavioural test can catch a future dashboard button or success-URL handler
+becoming a second writer.
+
+### The dunning episode, and why "exactly once" is not the one-active index
+
+Slice 2's one-active partial unique index stops holding the moment an operation
+becomes terminal, so a redelivered exhaustion event after a FAILED suspension
+would open a second one. Instead a failure sequence gets a durable identity -
+the episode - whose id is derived from the id of the event that opened it, and
+the suspension operation's id is derived from the episode
+(`op-power_off-dun-<event id>`). The operations primary key then refuses a second
+insert permanently, terminal or not. An episode is reset only by an
+authoritative recovery, so a genuine second failure sequence months later gets a
+new identity and may suspend again.
+
+### Comped accounts and the lapse diversion
+
+A coupon ID IS NOT PROOF of a full discount. `payment_method_collection:
+if_required` tells Checkout it may collect no card, and that is only true when
+nothing is owed - so it is reachable only behind a `FullDiscount`, a branded value
+that `verifyFullDiscount` alone can produce, after fetching the coupon and finding
+it test mode, valid, and exactly 100% off. A partial, amount-off, expired or
+unreadable coupon is refused, and an unreadable one creates no session at all. The
+type is what enforces this: `checkoutParams` cannot be handed a bare string.
+
+"Comped" is not a flag: it is an active 100% discount, cached from a fetched
+subscription. What IS remembered is `ever_full_discount`, which is sticky and
+never unset, because the design routes a formerly-comped account differently
+when its coupon lapses: the first confirmed failure opens a `coupon_hold` with a
+14-day deadline and raises attention instead of entering the ladder.
+
+Hold expiry never suspends on the strength of the calendar. It either acts on
+exhaustion already observed while the hold stood, or drops the account into the
+ordinary ladder and waits for Stripe to say it has finished retrying.
+
+Attention is per-instance by design, so a subscription with no box linked yet
+has nowhere to hang one; that case is audited instead. Slice 4, which links a
+subscription to an instance at signup, is where it stops happening.
+
+### What Stripe actually does (observed 2026-08-09, API version 2026-07-29.dahlia)
+
+Everything below was measured against the real test account, not read from
+documentation. The pinned API version matters: three of these are shape changes
+that older examples get wrong.
+
+- **`payment_method_collection: if_required` on a 100%-off coupon collects no
+  card at all.** The hosted page renders no card accordion and no payment-method
+  choice; it shows "EUR 0.00 / Then EUR 1.00 per month after coupon expires" and
+  a single subscribe button. The completed session reports
+  `payment_status: "paid"` with `amount_total: 0` - not `no_payment_required`,
+  which is what the field name invites you to assume.
+- **A coupon lapse ends in `past_due`.** With the discount expired, the renewal
+  invoice has an amount due and the customer has no payment method, so the
+  charge fails and the subscription moves to `past_due` (not `unpaid`, not
+  `incomplete`). Stripe still schedules retries even with no payment method on
+  file.
+- **Retry exhaustion arrived at attempt 9** on this account, and it arrived as a
+  CANCELLATION: `customer.subscription.deleted` with
+  `cancellation_details.reason = "payment_failed"`, delivered BEFORE the final
+  `invoice.payment_failed`, leaving the invoice `open` with
+  `next_payment_attempt: null`. That is the account's "manage failed payments"
+  setting, and it means the design's suspend-on-exhaustion boundary is not
+  reachable while it says "cancel": a subscription never sits unpaid. The ladder
+  therefore treats a cancellation with an open episode as a critical attention
+  case rather than silence.
+- **A subscription's period end lives on its ITEMS**
+  (`items.data[].current_period_end`), not on the subscription.
+- **An invoice names its subscription through
+  `parent.subscription_details.subscription`**, not `invoice.subscription`.
+- **An invoice has no `paid` boolean.** It reports `status` and
+  `amount_remaining`, so reading `paid` alone calls every invoice unpaid.
+- **A discount does not carry a `coupon` field.** It carries
+  `source: {type: "coupon", coupon: "<id>"}`, and the percentage - the whole
+  signal for "comped" - appears only when the fetch expands
+  `discounts.source.coupon`. Expanding `discounts` alone looks like it works and
+  silently yields a discount with no percentage. An event payload carries bare
+  discount ids, so normalising one is refused outright rather than read as "no
+  discount".
+- **Exhaustion is a named predicate, not an assumption.**
+  `observedExhaustion()` is the one function that decides Stripe has given up,
+  and its first hypothesis - an unpaid invoice with no `next_payment_attempt` -
+  is what the exercise above confirmed. If Stripe's shape changes, that function
+  is the only thing that has to change with it.
+
+### Running the endpoint against real Stripe deliveries
+
+A local endpoint has no inbound route, so real signed deliveries arrive through
+the Stripe CLI, which holds a websocket to Stripe and forwards each event:
+
+```
+stripe listen --forward-to http://localhost:4243/stripe/webhook   # STRIPE_API_KEY in the env
+bun control-plane/billing-cli.ts serve --db /tmp/billing.db       # STRIPE_WEBHOOK_SECRET in the env
+```
+
+The signing secret is runtime-only state: capture it by redirection into a 0600
+file, pass it in the environment rather than in an argument, and keep it out of
+every log. Pass the key in `STRIPE_API_KEY` rather than `--api-key` for the same
+reason - an argument is visible in the process table.
+
+`--record <dir>` writes the raw body of every applied event, for capturing
+fixtures. Point it outside the repo: a raw Stripe body carries customer details,
+and `fixtures/scrub.ts` is what turns one into something a public repository may
+hold - synthetic ids, placeholder personal fields, and no URL carrying a session
+token.
+
+Test clocks replace waiting for a renewal date, and deleting a clock takes its
+customers and subscriptions with it.
+
+`cleanup` decides ownership POSITIVELY and PER TYPE, because the test account is
+shared - it is the company's real account in test mode, and other work lives there:
+
+- anything that exposes metadata (coupons, customers) must carry our exact
+  `isomux_test=slice3` tag. A name is NOT proof for these: a coupon tagged for
+  another slice keeps its tag's word even if we happened to name something
+  similarly.
+- a test clock, which Stripe gives no metadata field at all, is identified by the
+  `cp3-` NAMESPACE we mint into - not by the bare prefix, so a clock called
+  `cp3other` is somebody else's. That is the only type where a name counts.
+
+Anything unprovable is skipped and listed BY ID rather than counted. Every delete
+result is checked, because "we asked" is not "it is gone" - a refused or ambiguous
+delete makes the whole cleanup incomplete and exits non-zero. A 404 counts as
+success: a customer that went with its test clock is already gone. Cleanup walks
+every page rather than assuming the first hundred is the account.
+
+So that cleanup can find them, `checkout` creates the customer ITSELF - tagged, and
+named `cp3-<office>` - instead of letting Checkout create an untagged one that
+nothing could safely delete afterwards. Pass `--customer` when you have your own
+(a test-clock customer, which is removed with its clock).
+
+The order matters and is fixed in `openCheckout`: verify the coupon (read-only),
+then create and CHECK the customer, then create the session. A refusal at any step
+leaves nothing behind - no customer after a bad coupon, no session after a customer
+that came back live-mode or without an id.
+
+What `cleanup` does NOT touch: prices and products. A used price cannot be deleted,
+only archived, and archiving on a shared account is a deliberate act rather than a
+side effect of a cleanup command - so archive the bootstrap price and product by
+hand when they get in the way.
+
+### What this slice does NOT do
+
+- No web app and no sign-in: Google/Auth.js is slice 4, so `accounts` rows are
+  created by the checkout command instead.
+- No cross-account name uniqueness. `validateOfficeName` enforces the DNS-label
+  syntax and the reserved-name refusal, both pure Checkout-boundary rules;
+  reserving a name across accounts needs the durable signup flow slice 4 owns.
+  Nothing here, and nothing in the metadata it writes, makes a name unique.
+- No resume from suspension. `power_on` stays declared-but-not-driven: ending a
+  suspension is a billing recovery transition nobody has ruled on.
+- No cancellation or deprovisioning, which is slice 5. A `customer.subscription.
+deleted` event is cached and, if a dunning episode was open, escalated - and
+  that is all.
+
 ## Tests
 
 ```

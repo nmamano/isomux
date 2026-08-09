@@ -516,6 +516,35 @@ manual follow-up he asked for and the one place couponed accounts diverge. That
 diversion needs its own deadline - 14 days, then the ordinary ladder resumes -
 or an unpaid office serves forever on the strength of an unread notification.
 
+**Observed 2026-08-09** (slice 3, Stripe TEST mode, API version
+`2026-07-29.dahlia`, against the real test account; full detail and the
+shape-change list in `control-plane/README.md`):
+
+- **`payment_method_collection: if_required` does what the coupon paragraph above
+  assumes.** A 100%-off session renders no card field and no payment-method
+  choice at all - the hosted page shows "EUR 0.00 / Then EUR 1.00 per month after
+  coupon expires" and one subscribe button. The completed session reports
+  `payment_status: "paid"` with `amount_total: 0`, not `no_payment_required`.
+- **A coupon lapse ends in `past_due`**, as the paragraph above predicts: the
+  renewal invoice has an amount due, no payment method was ever collected, the
+  charge fails. Stripe schedules retries even with no payment method on file.
+- **Retry exhaustion arrives as a CANCELLATION on the current account settings,
+  not as a lingering unpaid subscription.** At attempt 9 Stripe emitted
+  `customer.subscription.deleted` with
+  `cancellation_details.reason = "payment_failed"` - delivered BEFORE the final
+  `invoice.payment_failed` - and left the invoice `open` with
+  `next_payment_attempt: null`.
+
+  That last one is a decision, not a measurement. This section says exhaustion
+  suspends the box until payment is resolved, and suspension needs a subscription
+  that still exists to resume; the account's "manage failed payments" setting
+  currently says *cancel subscription*, so a subscription never sits unpaid and
+  the suspension rung is unreachable. Either the setting becomes *mark unpaid*
+  (dashboard-only; there is no API for it), or this section should say that
+  exhaustion ends the service rather than suspending it. Until then the ladder
+  treats a cancellation with an open dunning episode as a critical attention case
+  rather than passing over it in silence.
+
 Plan tiers map to provider products in configuration, not code. Pricing is a
 small margin over the provider's list price plus the non-EU surcharge for
 Seattle (ruling 2); the exact table is still open.

@@ -1,0 +1,131 @@
+{
+  "id": "evt_SCRUBBED1",
+  "object": "event",
+  "api_version": "2026-07-29.dahlia",
+  "created": 1786309621,
+  "data": {
+    "object": {
+      "id": "cs_test_SCRUBBED2",
+      "object": "checkout.session",
+      "adaptive_pricing": {
+        "enabled": true
+      },
+      "after_expiration": null,
+      "allow_promotion_codes": null,
+      "amount_subtotal": 100,
+      "amount_total": 0,
+      "automatic_tax": {
+        "enabled": false,
+        "liability": null,
+        "provider": null,
+        "status": null
+      },
+      "billing_address_collection": null,
+      "branding_settings": {
+        "background_color": "#ffffff",
+        "border_style": "rounded",
+        "button_color": "#0074d4",
+        "display_name": "Isomux LLC",
+        "font_family": "default",
+        "icon": null,
+        "logo": null
+      },
+      "cancel_url": "https://isomux.com/hosted",
+      "client_reference_id": null,
+      "client_secret": null,
+      "collected_information": {
+        "business_name": null,
+        "individual_name": null,
+        "shipping_details": null
+      },
+      "consent": null,
+      "consent_collection": null,
+      "created": 1786309607,
+      "currency": "eur",
+      "currency_conversion": null,
+      "custom_fields": [],
+      "custom_text": {
+        "after_submit": null,
+        "shipping_address": null,
+        "submit": null,
+        "terms_of_service_acceptance": null
+      },
+      "customer": "cus_SCRUBBED3",
+      "customer_account": null,
+      "customer_creation": null,
+      "customer_details": {},
+      "customer_email": null,
+      "discounts": [
+        {
+          "coupon": "SmON9aoN",
+          "promotion_code": null
+        }
+      ],
+      "expires_at": 1786396006,
+      "integration_identifier": null,
+      "invoice": "in_SCRUBBED4",
+      "invoice_creation": null,
+      "livemode": false,
+      "locale": null,
+      "managed_payments": {
+        "enabled": false
+      },
+      "metadata": {
+        "isomux_email": "scrubbed-email",
+        "isomux_office_name": "scrubbed-office_name",
+        "isomux_account": "scrubbed-account",
+        "isomux_instance": "scrubbed-instance"
+      },
+      "mode": "subscription",
+      "origin_context": null,
+      "payment_intent": null,
+      "payment_link": null,
+      "payment_method_collection": "if_required",
+      "payment_method_configuration_details": {
+        "id": "pmc_1U1FVmAU22RWBcwcZTRVtJox",
+        "parent": null
+      },
+      "payment_method_options": {
+        "card": {
+          "request_three_d_secure": "automatic"
+        }
+      },
+      "payment_method_types": ["card", "link", "satispay"],
+      "payment_status": "paid",
+      "permissions": null,
+      "phone_number_collection": {
+        "enabled": false
+      },
+      "recovered_from": null,
+      "saved_payment_method_options": {
+        "allow_redisplay_filters": ["always"],
+        "payment_method_remove": "disabled",
+        "payment_method_save": null
+      },
+      "setup_intent": null,
+      "shipping_address_collection": null,
+      "shipping_cost": null,
+      "shipping_options": [],
+      "status": "complete",
+      "submit_type": null,
+      "subscription": "sub_SCRUBBED5",
+      "success_url": "https://cloud.isomux.com/welcome?session={CHECKOUT_SESSION_ID}",
+      "total_details": {
+        "amount_discount": 100,
+        "amount_shipping": 0,
+        "amount_tax": 0
+      },
+      "ui_mode": "hosted_page",
+      "url": null,
+      "wallet_options": null
+    }
+  },
+  "livemode": false,
+  "pending_webhooks": 1,
+  "request": {
+    "id": null,
+    "idempotency_key": null
+  },
+  "type": "checkout.session.completed",
+  "_comment": "RECORDED from a real test-mode delivery on 2026-08-09 (API version 2026-07-29.dahlia), then scrubbed by fixtures/scrub.ts: every id is synthetic and every personal field is a placeholder. Kept only to prove that what Stripe sends still parses."
+}

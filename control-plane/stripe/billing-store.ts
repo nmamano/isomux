@@ -1,0 +1,403 @@
+// Billing rows: accounts, subscriptions, and the durable event ledger.
+//
+// These are FUNCTIONS OVER THE SLICE-2 STORE, not a second store. There is one
+// SQLite connection, one schema owner and one transaction owner, because the
+// whole point of putting billing here is that a subscription change, the
+// instance mirror, an attention raise, an audit row and a suspension enqueue
+// commit TOGETHER with slice 2's rows. A separately opened connection could not
+// give that.
+//
+// The two setters below are deliberately separate, with disjoint patch types:
+//
+//   casStripeOwnedSubscription - the cache of Stripe truth. Reconciliation is
+//     its only caller, and reconciliation only ever writes from a freshly
+//     fetched Stripe object. This is the design's "webhooks are the only writer
+//     of subscription state", expressed as a seam rather than as a habit.
+//   casEpisodeBookkeeping - our dunning bookkeeping. Reconciliation writes it,
+//     and so does the coupon-hold deadline tick, which is the one non-webhook
+//     transition the design asks for.
+//
+// A source-ownership test asserts that split, so a later redirect handler or
+// dashboard button cannot quietly become a writer of Stripe truth.
+
+import type { Store } from "../store.ts";
+
+export interface AccountRow {
+  id: string;
+  email: string;
+  google_subject: string | null;
+  stripe_customer_id: string | null;
+  version: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export type EpisodeState =
+  | "none"
+  | "open"
+  | "coupon_hold"
+  | "suspension_requested";
+
+export interface SubscriptionRow {
+  /** The Stripe subscription id. Stripe's identity is the identity: a local id
+   * would need a mapping table and could disagree with the thing it caches. */
+  id: string;
+  account_id: string;
+  instance_id: string | null;
+  stripe_customer_id: string;
+  status: string;
+  current_period_end: number | null;
+  cancel_at_period_end: number;
+  discount_percent_off: number | null;
+  discount_coupon_id: string | null;
+  discount_ends_at: number | null;
+  /** Sticky, never unset. "Comped" stays derived from the ACTIVE discount, per
+   * the design; this only records that the subscription was once fully
+   * discounted, which is what routes a lapse to a human instead of the ladder. */
+  ever_full_discount: number;
+  latest_invoice_id: string | null;
+  payment_failures: number;
+  /** When Stripe was authoritatively observed to have given up retrying. Set
+   * per episode; cleared with the episode. */
+  exhaustion_observed_at: number | null;
+  coupon_grace_until: number | null;
+  episode_id: string | null;
+  episode_state: EpisodeState;
+  last_event_id: string | null;
+  last_event_created: number | null;
+  version: number;
+  created_at: number;
+  updated_at: number;
+}
+
+/** What Stripe says. Written only from a fetched object, only by reconciliation. */
+export type StripeOwnedPatch = Partial<
+  Pick<
+    SubscriptionRow,
+    | "status"
+    | "current_period_end"
+    | "cancel_at_period_end"
+    | "discount_percent_off"
+    | "discount_coupon_id"
+    | "discount_ends_at"
+    | "ever_full_discount"
+    | "latest_invoice_id"
+    | "instance_id"
+    | "last_event_id"
+    | "last_event_created"
+  >
+>;
+
+/** Ours. Reconciliation and the coupon-hold tick. */
+export type EpisodePatch = Partial<
+  Pick<
+    SubscriptionRow,
+    | "payment_failures"
+    | "exhaustion_observed_at"
+    | "coupon_grace_until"
+    | "episode_id"
+    | "episode_state"
+  >
+>;
+
+export interface StripeEventRow {
+  id: string;
+  type: string;
+  created: number;
+  received_at: number;
+  subscription_id: string | null;
+  outcome: string;
+  detail: string | null;
+}
+
+// ---------------------------------------------------------------- accounts
+
+/**
+ * The account row for an email, created on first use.
+ *
+ * An account is NOT subscription state: it is who is buying, and it has to exist
+ * before Checkout can carry an id in its metadata. Slice 4 replaces this with
+ * Google sign-in; the email uniqueness index is what keeps that migration from
+ * finding duplicates.
+ */
+export function ensureAccount(
+  store: Store,
+  args: { id: string; email: string },
+): AccountRow {
+  assertInTx(store, "ensureAccount");
+  const existing = accountByEmail(store, args.email);
+  if (existing) return existing;
+  const ts = store.now();
+  store.db.run(
+    "insert into accounts (id, email, google_subject, stripe_customer_id, version, " +
+      "created_at, updated_at) values (?, ?, null, null, 1, ?, ?)",
+    [args.id, args.email, ts, ts],
+  );
+  const made = getAccount(store, args.id);
+  if (!made) throw new Error("account insert did not land");
+  return made;
+}
+
+export function getAccount(store: Store, id: string): AccountRow | null {
+  return (
+    store.db
+      .query<AccountRow, [string]>("select * from accounts where id = ?")
+      .get(id) ?? null
+  );
+}
+
+export function accountByEmail(store: Store, email: string): AccountRow | null {
+  return (
+    store.db
+      .query<AccountRow, [string]>("select * from accounts where email = ?")
+      .get(email) ?? null
+  );
+}
+
+export function listAccounts(store: Store): AccountRow[] {
+  return store.db
+    .query<AccountRow, []>("select * from accounts order by created_at")
+    .all();
+}
+
+/** Version CAS, like every other transition in this schema. A loser re-reads. */
+export function casAccount(
+  store: Store,
+  id: string,
+  expectedVersion: number,
+  patch: Partial<Pick<AccountRow, "google_subject" | "stripe_customer_id">>,
+): AccountRow | null {
+  assertInTx(store, "casAccount");
+  return casRow<AccountRow>(
+    store,
+    "accounts",
+    "id",
+    id,
+    expectedVersion,
+    patch,
+  );
+}
+
+// ----------------------------------------------------------- subscriptions
+
+/**
+ * Create the local cache row for a Stripe subscription.
+ *
+ * Reconciliation is the only caller, and it inserts from a FETCHED subscription
+ * object - never from a Checkout redirect and never from an event payload taken
+ * as truth.
+ */
+export function insertSubscription(
+  store: Store,
+  row: Omit<
+    SubscriptionRow,
+    "version" | "created_at" | "updated_at" | "episode_state"
+  > & { episode_state?: EpisodeState },
+): SubscriptionRow {
+  assertInTx(store, "insertSubscription");
+  const ts = store.now();
+  store.db.run(
+    "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, status, " +
+      "current_period_end, cancel_at_period_end, discount_percent_off, discount_coupon_id, " +
+      "discount_ends_at, ever_full_discount, latest_invoice_id, payment_failures, " +
+      "exhaustion_observed_at, coupon_grace_until, episode_id, episode_state, last_event_id, " +
+      "last_event_created, version, created_at, updated_at) " +
+      "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+    [
+      row.id,
+      row.account_id,
+      row.instance_id,
+      row.stripe_customer_id,
+      row.status,
+      row.current_period_end,
+      row.cancel_at_period_end,
+      row.discount_percent_off,
+      row.discount_coupon_id,
+      row.discount_ends_at,
+      row.ever_full_discount,
+      row.latest_invoice_id,
+      row.payment_failures,
+      row.exhaustion_observed_at,
+      row.coupon_grace_until,
+      row.episode_id,
+      row.episode_state ?? "none",
+      row.last_event_id,
+      row.last_event_created,
+      ts,
+      ts,
+    ],
+  );
+  const made = getSubscription(store, row.id);
+  if (!made) throw new Error("subscription insert did not land");
+  return made;
+}
+
+export function getSubscription(
+  store: Store,
+  id: string,
+): SubscriptionRow | null {
+  return (
+    store.db
+      .query<
+        SubscriptionRow,
+        [string]
+      >("select * from subscriptions where id = ?")
+      .get(id) ?? null
+  );
+}
+
+export function listSubscriptions(store: Store): SubscriptionRow[] {
+  return store.db
+    .query<
+      SubscriptionRow,
+      []
+    >("select * from subscriptions order by created_at")
+    .all();
+}
+
+/** Subscriptions whose coupon-lapse hold has run out. The tick's only query. */
+export function holdsExpiredAt(store: Store, now: number): SubscriptionRow[] {
+  return store.db
+    .query<
+      SubscriptionRow,
+      [number]
+    >("select * from subscriptions where episode_state = 'coupon_hold' " + "and coupon_grace_until is not null and coupon_grace_until <= ? " + "order by coupon_grace_until")
+    .all(now);
+}
+
+/**
+ * THE STRIPE-OWNED SETTER. Reconciliation only.
+ *
+ * If you are reading this because you want to write `status` from somewhere
+ * else: that is the thing the design forbids. Fetch the object and reconcile,
+ * or leave the row alone.
+ */
+export function casStripeOwnedSubscription(
+  store: Store,
+  id: string,
+  expectedVersion: number,
+  patch: StripeOwnedPatch,
+): SubscriptionRow | null {
+  assertInTx(store, "casStripeOwnedSubscription");
+  return casRow<SubscriptionRow>(
+    store,
+    "subscriptions",
+    "id",
+    id,
+    expectedVersion,
+    patch,
+  );
+}
+
+/** Our dunning bookkeeping. Reconciliation and the coupon-hold tick. */
+export function casEpisodeBookkeeping(
+  store: Store,
+  id: string,
+  expectedVersion: number,
+  patch: EpisodePatch,
+): SubscriptionRow | null {
+  assertInTx(store, "casEpisodeBookkeeping");
+  return casRow<SubscriptionRow>(
+    store,
+    "subscriptions",
+    "id",
+    id,
+    expectedVersion,
+    patch,
+  );
+}
+
+// ------------------------------------------------------------ event ledger
+
+/**
+ * Has this event already been applied?
+ *
+ * Called INSIDE the applying transaction, after the object fetch, because the
+ * fetch happens with no transaction open and a concurrent delivery of the same
+ * event could have landed in the meantime.
+ */
+export function eventSeen(store: Store, id: string): StripeEventRow | null {
+  return (
+    store.db
+      .query<
+        StripeEventRow,
+        [string]
+      >("select * from stripe_events where id = ?")
+      .get(id) ?? null
+  );
+}
+
+/**
+ * Claim an event id. The PRIMARY KEY is the dedupe, and it is claimed in the
+ * SAME transaction as the effect: a throw anywhere in the apply rolls the claim
+ * back too, so a redelivery of that event still has work to do. A claim written
+ * in its own transaction would turn a crash mid-apply into a silently dropped
+ * event.
+ */
+export function claimEvent(
+  store: Store,
+  row: Omit<StripeEventRow, "received_at"> & { received_at?: number },
+): StripeEventRow {
+  assertInTx(store, "claimEvent");
+  const receivedAt = row.received_at ?? store.now();
+  store.db.run(
+    "insert into stripe_events (id, type, created, received_at, subscription_id, outcome, detail) " +
+      "values (?, ?, ?, ?, ?, ?, ?)",
+    [
+      row.id,
+      row.type,
+      row.created,
+      receivedAt,
+      row.subscription_id,
+      row.outcome,
+      row.detail,
+    ],
+  );
+  return { ...row, received_at: receivedAt };
+}
+
+export function listEvents(store: Store, limit = 50): StripeEventRow[] {
+  return store.db
+    .query<
+      StripeEventRow,
+      [number]
+    >("select * from stripe_events order by received_at desc limit ?")
+    .all(limit);
+}
+
+// ----------------------------------------------------------------- helpers
+
+function assertInTx(store: Store, what: string): void {
+  if (!store.inTransaction()) {
+    throw new Error(`${what} must run inside a transaction`);
+  }
+}
+
+/** One statement, version predicate, `returning *`. The same shape slice 2 uses
+ * for every row it owns. */
+function casRow<T>(
+  store: Store,
+  table: string,
+  key: string,
+  id: string,
+  expectedVersion: number,
+  patch: Record<string, unknown>,
+): T | null {
+  const sets: string[] = [];
+  const args: (string | number | null)[] = [];
+  for (const [k, v] of Object.entries(patch)) {
+    sets.push(`${k} = ?`);
+    args.push(v as string | number | null);
+  }
+  if (sets.length === 0) return null;
+  sets.push("updated_at = ?");
+  args.push(store.now());
+  return (
+    store.db
+      .query<
+        T,
+        (string | number | null)[]
+      >(`update ${table} set ${sets.join(", ")}, version = version + 1 where ${key} = ? and version = ? returning *`)
+      .get(...args, id, expectedVersion) ?? null
+  );
+}

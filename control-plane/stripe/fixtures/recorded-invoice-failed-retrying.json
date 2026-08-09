@@ -1,0 +1,191 @@
+{
+  "id": "evt_SCRUBBED1",
+  "object": "event",
+  "api_version": "2026-07-29.dahlia",
+  "created": 1786309766,
+  "data": {
+    "object": {
+      "id": "in_SCRUBBED2",
+      "object": "invoice",
+      "account_country": "US",
+      "account_name": "Isomux LLC",
+      "account_tax_ids": null,
+      "amount_due": 100,
+      "amount_overpaid": 0,
+      "amount_paid": 0,
+      "amount_remaining": 100,
+      "amount_shipping": 0,
+      "application": null,
+      "attempt_count": 1,
+      "attempted": true,
+      "auto_advance": true,
+      "automatic_tax": {
+        "disabled_reason": null,
+        "enabled": false,
+        "liability": null,
+        "provider": null,
+        "status": null
+      },
+      "automatically_finalizes_at": null,
+      "billing_reason": "subscription_cycle",
+      "collection_method": "charge_automatically",
+      "created": 1788987990,
+      "currency": "eur",
+      "custom_fields": null,
+      "customer": "cus_SCRUBBED3",
+      "customer_account": null,
+      "customer_address": null,
+      "customer_email": "SCRUBBED",
+      "customer_name": "SCRUBBED",
+      "customer_phone": null,
+      "customer_shipping": null,
+      "customer_tax_exempt": "none",
+      "customer_tax_ids": [],
+      "default_payment_method": null,
+      "default_source": null,
+      "default_tax_rates": [],
+      "description": null,
+      "discounts": [],
+      "due_date": null,
+      "effective_at": 1788991590,
+      "ending_balance": 0,
+      "footer": null,
+      "from_invoice": null,
+      "hosted_invoice_url": "SCRUBBED",
+      "invoice_pdf": "SCRUBBED",
+      "issuer": {
+        "type": "self"
+      },
+      "last_finalization_error": null,
+      "latest_revision": null,
+      "lines": {
+        "object": "list",
+        "data": [
+          {
+            "id": "il_SCRUBBED4",
+            "object": "line_item",
+            "amount": 100,
+            "currency": "eur",
+            "description": "1 × cp3 slice-3 test office (not a real plan) (at €1.00 / month)",
+            "discount_amounts": [],
+            "discountable": true,
+            "discounts": [],
+            "invoice": "in_SCRUBBED2",
+            "livemode": false,
+            "metadata": {
+              "isomux_email": "scrubbed-email",
+              "isomux_instance": "scrubbed-instance",
+              "isomux_account": "scrubbed-account",
+              "isomux_office_name": "scrubbed-office_name",
+              "nudge": "1"
+            },
+            "parent": {
+              "invoice_item_details": null,
+              "subscription_item_details": {
+                "invoice_item": null,
+                "proration": false,
+                "proration_details": {
+                  "credited_items": null
+                },
+                "subscription": "sub_SCRUBBED5",
+                "subscription_item": "si_SCRUBBED6"
+              },
+              "type": "subscription_item_details"
+            },
+            "period": {
+              "end": 1791579990,
+              "start": 1788987990
+            },
+            "pretax_credit_amounts": [],
+            "pricing": {
+              "price_details": {
+                "price": "price_SCRUBBED7",
+                "product": "prod_SCRUBBED8"
+              },
+              "type": "price_SCRUBBED9",
+              "unit_amount_decimal": "100"
+            },
+            "quantity": 1,
+            "quantity_decimal": "1",
+            "subtotal": 100,
+            "taxes": []
+          }
+        ],
+        "has_more": false,
+        "total_count": 1,
+        "url": "SCRUBBED"
+      },
+      "livemode": false,
+      "metadata": {},
+      "next_payment_attempt": 1789154657,
+      "number": "IXVETFRW-0002",
+      "on_behalf_of": null,
+      "parent": {
+        "quote_details": null,
+        "subscription_details": {
+          "metadata": {
+            "isomux_email": "scrubbed-email",
+            "isomux_instance": "scrubbed-instance",
+            "isomux_account": "scrubbed-account",
+            "isomux_office_name": "scrubbed-office_name",
+            "nudge": "1"
+          },
+          "subscription": "sub_SCRUBBED5"
+        },
+        "type": "subscription_details"
+      },
+      "payment_settings": {
+        "default_mandate": null,
+        "payment_method_options": {
+          "acss_debit": null,
+          "bancontact": null,
+          "card": {
+            "request_three_d_secure": "automatic"
+          },
+          "customer_balance": null,
+          "konbini": null,
+          "payto": null,
+          "pix": null,
+          "sepa_debit": null,
+          "upi": null,
+          "us_bank_account": null
+        },
+        "payment_method_types": null
+      },
+      "period_end": 1788987990,
+      "period_start": 1786309590,
+      "post_payment_credit_notes_amount": 0,
+      "pre_payment_credit_notes_amount": 0,
+      "receipt_number": null,
+      "rendering": null,
+      "shipping_cost": null,
+      "shipping_details": null,
+      "starting_balance": 0,
+      "statement_descriptor": null,
+      "status": "open",
+      "status_transitions": {
+        "finalized_at": 1788991590,
+        "marked_uncollectible_at": null,
+        "paid_at": null,
+        "voided_at": null
+      },
+      "subtotal": 100,
+      "subtotal_excluding_tax": 100,
+      "test_clock": "clock_SCRUBBED10",
+      "total": 100,
+      "total_discount_amounts": [],
+      "total_excluding_tax": 100,
+      "total_pretax_credit_amounts": [],
+      "total_taxes": [],
+      "webhooks_delivered_at": 1788987990
+    }
+  },
+  "livemode": false,
+  "pending_webhooks": 2,
+  "request": {
+    "id": null,
+    "idempotency_key": null
+  },
+  "type": "invoice.payment_failed",
+  "_comment": "RECORDED from a real test-mode delivery on 2026-08-09 (API version 2026-07-29.dahlia), then scrubbed by fixtures/scrub.ts: every id is synthetic and every personal field is a placeholder. Kept only to prove that what Stripe sends still parses."
+}

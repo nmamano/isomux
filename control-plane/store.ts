@@ -290,6 +290,64 @@ create table if not exists audit_events (
   outcome text not null,
   detail text
 );
+-- Billing (slice 3). Two column families with DIFFERENT WRITERS, which is what
+-- keeps the design's "webhooks are the only writer of subscription state"
+-- literally true rather than roughly true:
+--   STRIPE-OWNED (status, current_period_end, cancel_at_period_end, the three
+--   discount columns, ever_full_discount, latest_invoice_id) are written only by
+--   webhook reconciliation, from a freshly fetched Stripe object.
+--   OURS (payment_failures, exhaustion_observed_at, coupon_grace_until,
+--   episode_id, episode_state) is dunning bookkeeping. Only reconciliation and
+--   the coupon-hold deadline tick touch it.
+-- last_event_id / last_event_created are EVIDENCE. Nothing reads them to decide
+-- whether to apply an event: ordering is settled by re-fetching the object,
+-- because Stripe timestamps have one-second resolution and two same-second
+-- snapshots would otherwise regress each other.
+create table if not exists accounts (
+  id text primary key,
+  email text not null,
+  google_subject text,
+  stripe_customer_id text,
+  version integer not null,
+  created_at integer not null,
+  updated_at integer not null
+);
+create unique index if not exists accounts_email on accounts (email);
+create table if not exists subscriptions (
+  id text primary key,
+  account_id text not null,
+  instance_id text,
+  stripe_customer_id text not null,
+  status text not null,
+  current_period_end integer,
+  cancel_at_period_end integer not null default 0,
+  discount_percent_off integer,
+  discount_coupon_id text,
+  discount_ends_at integer,
+  ever_full_discount integer not null default 0,
+  latest_invoice_id text,
+  payment_failures integer not null default 0,
+  exhaustion_observed_at integer,
+  coupon_grace_until integer,
+  episode_id text,
+  episode_state text not null default 'none' check (
+    episode_state in ('none', 'open', 'coupon_hold', 'suspension_requested')
+  ),
+  last_event_id text,
+  last_event_created integer,
+  version integer not null,
+  created_at integer not null,
+  updated_at integer not null
+);
+create table if not exists stripe_events (
+  id text primary key,
+  type text not null,
+  created integer not null,
+  received_at integer not null,
+  subscription_id text,
+  outcome text not null,
+  detail text
+);
 `;
 
 export class Store {
@@ -333,6 +391,10 @@ export class Store {
       ["operations", "absolute_flagged"],
       ["attention_reasons", "reason_class"],
       ["attention_reasons", "version"],
+      ["accounts", "stripe_customer_id"],
+      ["subscriptions", "episode_state"],
+      ["subscriptions", "exhaustion_observed_at"],
+      ["stripe_events", "type"],
     ];
     for (const [table, column] of required) {
       const cols = this.db

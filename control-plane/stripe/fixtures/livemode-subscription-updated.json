@@ -1,0 +1,29 @@
+{
+  "_comment": "SYNTHETIC. Hand-written, never recorded: a live-mode delivery must be refused, and the only safe way to test that is with an object nobody's account ever produced. Ids are obviously fake.",
+  "id": "evt_synthetic_livemode",
+  "object": "event",
+  "api_version": "2026-07-29.dahlia",
+  "created": 1770000000,
+  "livemode": true,
+  "type": "customer.subscription.updated",
+  "data": {
+    "object": {
+      "id": "sub_synthetic_livemode",
+      "object": "subscription",
+      "customer": "cus_synthetic_livemode",
+      "status": "active",
+      "livemode": true,
+      "items": {
+        "object": "list",
+        "data": [
+          {
+            "id": "si_synthetic",
+            "object": "subscription_item",
+            "current_period_end": 1772592000
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  }
+}
