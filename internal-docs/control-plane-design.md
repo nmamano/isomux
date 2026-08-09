@@ -446,6 +446,22 @@ one end-to-end run at `cp1.test.isomux.app`):
   because sshd evaluates `expiry-time` against the box's clock, so every
   deadline is computed from the box's own reading rather than ours.
 
+**Measured 2026-08-09** (slice 2, same box, two further reinstall cycles):
+
+- **Reinstall to SSH: 73s and 68s** - slice 1's 88s was the slow end, the
+  5-minute IP/SSH deadline keeps a wide margin.
+- **First contact through installer exit: about 6 min** including the
+  wait-for-package-manager step, consistent with slice 1's per-step numbers.
+- **Persisted backoff reaches its 300s cap by attempt 6-7**, so an operator
+  watching a stuck-then-retried operation waits up to five minutes between
+  attempts at the cap. Intended behavior, noted so a dashboard does not
+  misread it as a hang.
+- **Provider fact:** Contabo rejects a colon in `displayName` ("Only numbers,
+  letters, spaces and - allowed"). Slice 1's `isomux-cp:<intentId>` stamp
+  would have been refused on a live create; the stamp format is now
+  hyphen-based. Found by the slice-2 live adopt exercise; the create leg
+  itself remains not live-verified (no paid create in the loop).
+
 ## Naming, DNS, TLS
 
 The customer picks `<name>` at Checkout, validated as a DNS label, refused if it
