@@ -176,10 +176,9 @@ dunning (slice 3).
   through 2026-08-29, no further charge. Not pristine (an earlier test
   ran install.sh on it); first reinstall exercises the recycle path.
   Loop provider spend so far: EUR 0.
-- NOT OURS TO TOUCH: instanceId 203474533 (169.58.96.127, the old
-  steal-monitor box) has no cancelDate and renews at EUR 5.50/mo; its
-  purpose concluded 2026-08-02 (task b223ebc3). Queued for Nil as a
-  cancel decision - outside this loop.
+- RESOLVED: instanceId 203474533 (169.58.96.127, the old steal-monitor
+  box) cancelled by the manager 2026-08-09 with Nil's approval; service
+  ends 2026-08-29, no further renewals (was renewing at EUR 5.50/mo).
 - DNS record `cp1.test.isomux.app -> 169.58.97.2`: requested from Nil
   2026-08-09 (queued for his morning).
 - Manager-accepted (2026-08-09): the live create path is NOT exercised
