@@ -610,9 +610,6 @@ const demoApps: AppWire[] = [
     createdAt: Date.now() - 86_400_000,
     state: "running",
     restartCount: 0,
-    // One app with a hostname and one without, so the tab shows both link
-    // arms. An office only has app hostnames once it is reachable under a
-    // domain, which is why cost-tracker below has none.
     url: "https://standup-board.office.example",
   },
   {
@@ -631,6 +628,7 @@ const demoApps: AppWire[] = [
     state: "failed",
     restartCount: 4,
     startError: "bun: command not found",
+    url: "https://cost-tracker.office.example",
   },
 ];
 
