@@ -2874,6 +2874,13 @@ EOF
 # name made a fresh install of v2026.7.23 crash-loop.
 install_service() {
   step install-service
+  # NO BACKTICKS AND NO $( ) BELOW, not even inside a comment. The delimiter is
+  # unquoted because the unit expands $SERVICE_USER, $SERVICE_HOME and
+  # $INSTALL_DIR, so everything else in here is expanded too - and a
+  # backtick-quoted "systemctl restart isomux" in a comment ran for real,
+  # spliced this installer's own log output into the unit, and made systemd
+  # reject it with "Bad message" on every fresh install. Use "double quotes".
+  # deploy/install-sh.test.ts renders this unit and fails if it regresses.
   write_file /etc/systemd/system/isomux.service 644 <<EOF
 [Unit]
 Description=Isomux server
@@ -2895,7 +2902,7 @@ WorkingDirectory=$INSTALL_DIR
 ExecStart=/usr/local/bin/bun run server/index.ts
 Restart=always
 # Matches what isomux-oom-protect writes for the daemons it protects. Only
-# automatic restarts wait: `systemctl restart isomux` is not delayed by it.
+# automatic restarts wait: "systemctl restart isomux" is not delayed by it.
 RestartSec=5
 Environment=PORT=4000
 # Best-effort kill-order bias under memory pressure: killed after everything
@@ -2904,7 +2911,7 @@ Environment=PORT=4000
 # agents - earlyoom does that steering; isomux-oom-protect sets the other
 # tiers and configures it.
 OOMScoreAdjust=-500
-# systemd's default is `stop`: ANY process in the unit being OOM-killed stops
+# systemd's default is "stop": ANY process in the unit being OOM-killed stops
 # the unit, and Restart=always then recycles every agent on the box because one
 # agent ran out of memory.
 #

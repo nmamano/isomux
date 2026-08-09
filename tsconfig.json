@@ -13,5 +13,5 @@
       "@shared/*": ["./shared/*"]
     }
   },
-  "include": ["server", "shared", "ui", "api"]
+  "include": ["server", "shared", "ui", "api", "control-plane"]
 }

@@ -1,0 +1,258 @@
+import { describe, expect, test } from "bun:test";
+import {
+  ContaboAdapter,
+  IndeterminateFindError,
+  intentStamp,
+} from "./adapter.ts";
+import { ContaboHttp } from "./http.ts";
+import { TokenProvider, type FetchLike } from "./auth.ts";
+
+interface Reply {
+  status: number;
+  body?: unknown;
+  throws?: string;
+}
+
+/** A queued transport. Records the URLs it was asked for, so a test can prove
+ * how many times a money-spending endpoint was reached. */
+function transport(replies: Reply[]): { fetchImpl: FetchLike; urls: string[] } {
+  const urls: string[] = [];
+  const queue = [...replies];
+  const fetchImpl: FetchLike = (url) => {
+    urls.push(url);
+    const next = queue.shift();
+    if (!next) throw new Error(`unexpected request to ${url}`);
+    if (next.throws) return Promise.reject(new Error(next.throws));
+    return Promise.resolve({
+      ok: next.status >= 200 && next.status < 300,
+      status: next.status,
+      json: () => Promise.resolve(next.body ?? null),
+    });
+  };
+  return { fetchImpl, urls };
+}
+
+function adapterOver(replies: Reply[]) {
+  // The first reply is always the token grant.
+  const t = transport([
+    { status: 200, body: { access_token: "t", expires_in: 3600 } },
+    ...replies,
+  ]);
+  const http = new ContaboHttp({
+    fetchImpl: t.fetchImpl,
+    tokens: new TokenProvider(
+      { clientId: "c", clientSecret: "s", apiUser: "u", apiPassword: "p" },
+      t.fetchImpl,
+    ),
+    requestId: () => "fixed-request-id",
+  });
+  return {
+    adapter: new ContaboAdapter({
+      http,
+      imageId: "image-uuid",
+      loginUser: "root",
+    }),
+    urls: t.urls,
+  };
+}
+
+const INTENT = "abc123";
+const STAMP = intentStamp(INTENT);
+
+function row(id: number, displayName: string) {
+  return { instanceId: id, displayName, status: "running" };
+}
+
+describe("find", () => {
+  test("claims exact only when the filter was honoured and one row matches", async () => {
+    const { adapter } = adapterOver([
+      {
+        status: 200,
+        body: { data: [row(1, STAMP)], _pagination: { totalElements: 1 } },
+      },
+    ]);
+    expect(await adapter.find(INTENT)).toEqual({
+      providerId: "1",
+      confidence: "exact",
+    });
+  });
+
+  // THE LOAD-BEARING ONE. Contabo silently ignores query parameters it does not
+  // recognise: `?foo=bar` returns the whole account. If the adapter trusted the
+  // server-side filter, a typo or a silent API change would hand back somebody
+  // else's box and the machine would adopt it - the paid-duplicate failure
+  // class. Verified live 2026-08-09.
+  test("treats a response containing non-matching rows as an ignored filter", async () => {
+    const { adapter } = adapterOver([
+      {
+        status: 200,
+        body: {
+          data: [row(1, STAMP), row(2, "isomux-cp:someone-else")],
+          _pagination: { totalElements: 2 },
+        },
+      },
+    ]);
+    const found = await adapter.find(INTENT);
+    expect(found?.providerId).toBe("1");
+    expect(found?.confidence).toBe("unproven");
+  });
+
+  test("never claims exact when more than one row carries our stamp", async () => {
+    const { adapter } = adapterOver([
+      {
+        status: 200,
+        body: {
+          data: [row(1, STAMP), row(2, STAMP)],
+          _pagination: { totalElements: 2 },
+        },
+      },
+    ]);
+    expect((await adapter.find(INTENT))?.confidence).toBe("unproven");
+  });
+
+  test("never claims exact when the page is a slice of a larger result", async () => {
+    const { adapter } = adapterOver([
+      {
+        status: 200,
+        body: { data: [row(1, STAMP)], _pagination: { totalElements: 7 } },
+      },
+    ]);
+    expect((await adapter.find(INTENT))?.confidence).toBe("unproven");
+  });
+});
+
+describe("create outcome classes", () => {
+  test("a 5xx is ambiguous, never rejected", async () => {
+    const { adapter } = adapterOver([{ status: 503 }]);
+    const out = await adapter.create({
+      intentId: INTENT,
+      plan: "V153",
+      region: "EU",
+      publicKeys: [1],
+    });
+    expect(out.outcome).toBe("ambiguous");
+  });
+
+  test("a dropped connection is ambiguous", async () => {
+    const { adapter } = adapterOver([{ status: 0, throws: "socket hang up" }]);
+    const out = await adapter.create({
+      intentId: INTENT,
+      plan: "V153",
+      region: "EU",
+      publicKeys: [1],
+    });
+    expect(out.outcome).toBe("ambiguous");
+  });
+
+  test("a 4xx is a rejection: nothing was spent", async () => {
+    const { adapter } = adapterOver([{ status: 400 }]);
+    const out = await adapter.create({
+      intentId: INTENT,
+      plan: "V153",
+      region: "EU",
+      publicKeys: [1],
+    });
+    expect(out.outcome).toBe("rejected");
+  });
+
+  test("an accepted order with no readable instanceId is ambiguous, not created", async () => {
+    const { adapter } = adapterOver([{ status: 201, body: { data: [{}] } }]);
+    const out = await adapter.create({
+      intentId: INTENT,
+      plan: "V153",
+      region: "EU",
+      publicKeys: [1],
+    });
+    expect(out.outcome).toBe("ambiguous");
+  });
+
+  test("stamps the intent into displayName and sends defaultUser explicitly", async () => {
+    let sentBody: Record<string, unknown> = {};
+    const t = transport([
+      { status: 200, body: { access_token: "t", expires_in: 3600 } },
+      { status: 201, body: { data: [{ instanceId: 42 }] } },
+    ]);
+    const wrapped: FetchLike = (url, init) => {
+      if (
+        typeof init.body === "string" &&
+        url.includes("/v1/compute/instances")
+      ) {
+        sentBody = JSON.parse(init.body) as Record<string, unknown>;
+      }
+      return t.fetchImpl(url, init);
+    };
+    const http = new ContaboHttp({
+      fetchImpl: wrapped,
+      tokens: new TokenProvider(
+        { clientId: "c", clientSecret: "s", apiUser: "u", apiPassword: "p" },
+        wrapped,
+      ),
+    });
+    const adapter = new ContaboAdapter({
+      http,
+      imageId: "image-uuid",
+      loginUser: "root",
+    });
+    const out = await adapter.create({
+      intentId: INTENT,
+      plan: "V153",
+      region: "EU",
+      publicKeys: [7],
+    });
+    expect(out).toEqual({ outcome: "created", providerId: "42" });
+    expect(sentBody.displayName).toBe(STAMP);
+    // Contabo documents defaultUser as defaulting to "admin" and then produces
+    // `ubuntu` when it is omitted, so it is never left to the default.
+    expect(sentBody.defaultUser).toBe("root");
+  });
+});
+
+// "Nothing on this page" is only "no box" when the search itself was sound.
+// An ignored filter means the rows are a slice of the whole account, so the
+// intended box may exist and simply not be on it - and reporting that as a
+// clean null lets a caller treat an unfound box as one that was never created.
+describe("find must not report absence it cannot establish", () => {
+  test("no match, but the filter was ignored -> indeterminate, never null", async () => {
+    const { adapter } = adapterOver([
+      {
+        status: 200,
+        body: {
+          // Rows we did not ask for: proof the filter was ignored.
+          data: [row(1, "isomux-cp:someone-else"), row(2, "isomux-cp:another")],
+          _pagination: { totalElements: 2 },
+        },
+      },
+    ]);
+    expect(adapter.find(INTENT)).rejects.toThrow(IndeterminateFindError);
+  });
+
+  test("no match, and the page is a slice -> indeterminate, never null", async () => {
+    const { adapter } = adapterOver([
+      { status: 200, body: { data: [], _pagination: { totalElements: 40 } } },
+    ]);
+    expect(adapter.find(INTENT)).rejects.toThrow(/cannot establish absence/);
+  });
+
+  test("no match, filter honoured, response complete -> a real, usable null", async () => {
+    const { adapter } = adapterOver([
+      { status: 200, body: { data: [], _pagination: { totalElements: 0 } } },
+    ]);
+    expect(await adapter.find(INTENT)).toBeNull();
+  });
+});
+
+// Exactness needs affirmative evidence that we saw the whole result. A response
+// carrying no pagination metadata tells us nothing, and "nothing" is not proof.
+describe("exactness requires positive evidence of a complete response", () => {
+  test("a match with NO pagination metadata is unproven, not exact", async () => {
+    const { adapter } = adapterOver([
+      { status: 200, body: { data: [row(1, STAMP)] } },
+    ]);
+    expect((await adapter.find(INTENT))?.confidence).toBe("unproven");
+  });
+
+  test("absence with NO pagination metadata is indeterminate, not null", async () => {
+    const { adapter } = adapterOver([{ status: 200, body: { data: [] } }]);
+    expect(adapter.find(INTENT)).rejects.toThrow(IndeterminateFindError);
+  });
+});

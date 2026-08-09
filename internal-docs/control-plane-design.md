@@ -413,9 +413,38 @@ within 5 min (the pilot's 110s makes this thin but plausible), installer
 inactivity 8 min with a 40-minute ceiling, HTTPS reachable within 10 min of
 install exit.
 
-Ordering matters in one place: the A record must exist before Caddy attempts
-HTTP-01, so `set_dns` precedes `run_installer`. Caddy retries until the name
-resolves, so a slow record delays TLS and breaks nothing.
+**Measured 2026-08-09** (slice 1, Contabo V153 in EU, instance 203474835,
+one end-to-end run at `cp1.test.isomux.app`):
+
+- **Reinstall to SSH: 88s.** From the provider accepting the rebuild to our key
+  authenticating. Contabo's create-to-SSH of 110s (2026-07-30, task b223ebc3)
+  remains the only figure for a fresh create; slice 1 adopted a box rather than
+  creating one, so create-to-IP was not re-measured.
+- **The box is not ready when SSH answers.** A rebuilt Ubuntu cloud image runs
+  its own apt work on boot, and it still held `/var/lib/dpkg/lock-frontend` at
+  T+2min on a box that authenticated at T+88s. An installer launched into that
+  window dies immediately with `Could not get lock`. Provisioning therefore
+  waits for the package manager before it launches anything, and that wait is a
+  step with its own deadline rather than a sleep.
+- **Installer: 236s to exit 0**, from the marker log:
+  install-packages +1s, configure-oom-protection +56s, configure-user-manager
+  +69s, check-root-reachability +75s, install-browser +81s, codex-sandbox +148s,
+  fetch-isomux +160s, install-bun +166s, build-isomux +179s, wait-for-server
+  +223s, assert-hardening +229s.
+  Largest gap between consecutive markers: **67s** (install-browser to
+  codex-sandbox - the Chrome download). So an 8-minute inactivity deadline has
+  about a 7x margin on this box and stands. The 40-minute absolute ceiling is
+  untested at the top end and looks generous against a 4-minute install.
+- **Install exit to HTTPS 200: 16s**, including one TLS retry while Caddy
+  obtained the certificate. A real Let's Encrypt certificate was issued for
+  `cp1.test.isomux.app` (notBefore 2026-08-09 14:10:05Z). The 10-minute
+  starting value is far wider than needed; the binding constraint on that rung
+  is the A record existing before Caddy attempts HTTP-01, not the delay itself.
+- **Provider IP within 5 min**: unchanged and still plausible on the pilot's
+  110s. Nothing measured here contradicts it.
+- **Box clock skew** against ours: **0-2s** across four samples. It matters
+  because sshd evaluates `expiry-time` against the box's clock, so every
+  deadline is computed from the box's own reading rather than ours.
 
 ## Naming, DNS, TLS
 

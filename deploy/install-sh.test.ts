@@ -7,7 +7,9 @@
 // any reviewer has to notice it. Zero execution, zero LLM.
 
 import { describe, it, expect } from "bun:test";
-import { readFileSync } from "fs";
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { EMBEDDED, embed } from "../scripts/embed-deploy-scripts.ts";
 import { AGENT_OOM_SCORE_ADJ } from "../server/oom-stamp.ts";
 import { TLS_ASK_PATH } from "../server/tls-ask.ts";
@@ -687,5 +689,227 @@ describe("install.sh - session cookie jar parse", () => {
 
   it("is empty when the jar holds no session cookie, so the caller can die", async () => {
     expect(await runAwk(`${row("other_cookie", "X")}\n`)).toBe("");
+  });
+});
+
+// The unit heredoc is UNQUOTED, because it expands $SERVICE_USER, $SERVICE_HOME
+// and $INSTALL_DIR. That also means everything else inside it is expanded - and
+// on 2026-08-03 two comment lines arrived carrying backticks. Bash ran them:
+// `systemctl restart isomux` executed before the unit existed, the installer's
+// own failure log was captured as the substitution's output and spliced into
+// the file, and systemd rejected the result with "Bad message" on every FRESH
+// install. Re-installs kept working (the restart succeeded and printed
+// nothing), which is why it survived six days unnoticed.
+//
+// Rendering the unit is the only way to catch this class: reading the source
+// cannot tell an expanded backtick from a literal one.
+describe("install.sh: the systemd unit renders cleanly", () => {
+  // Pull the heredoc body straight out of the source and let bash expand it
+  // exactly as the installer would, with the three variables the unit needs.
+  //
+  // Rendered with an EMPTY PATH and shell builtins only (read, printf), which
+  // is what makes this deterministic: any command substitution left in the body
+  // has nothing to exec, so it lands on stderr as "command not found". On a box
+  // that happens to HAVE the command - this one runs isomux.service - a
+  // backticked "systemctl restart isomux" would succeed and print nothing, and
+  // the render would look perfectly clean. That environment dependence is
+  // exactly how the real bug hid: it broke fresh installs and spared re-installs.
+  function renderUnit(source: string): { unit: string; stderr: string } {
+    const start = source.indexOf(
+      "write_file /etc/systemd/system/isomux.service 644 <<EOF",
+    );
+    expect(start).toBeGreaterThan(-1);
+    const bodyStart = source.indexOf("\n", start) + 1;
+    const end = source.indexOf("\nEOF\n", bodyStart);
+    expect(end).toBeGreaterThan(bodyStart);
+    const body = source.slice(bodyStart, end);
+    const script =
+      `SERVICE_USER=isomux\nSERVICE_HOME=/home/isomux\nINSTALL_DIR=/opt/isomux\n` +
+      `IFS= read -r -d '' rendered <<EOF\n${body}\nEOF\nprintf '%s' "$rendered"\n`;
+    const proc = Bun.spawnSync(["bash", "-c", script], { env: { PATH: "" } });
+    return {
+      unit: new TextDecoder().decode(proc.stdout),
+      stderr: new TextDecoder().decode(proc.stderr),
+    };
+  }
+
+  const { unit, stderr: renderStderr } = renderUnit(SRC);
+
+  // The deterministic detector: with no PATH, a body that still executes
+  // something cannot stay quiet.
+  it("executes nothing while being rendered", () => {
+    expect(renderStderr).toBe("");
+  });
+
+  it("expands the three variables it is unquoted for", () => {
+    expect(unit).toContain("User=isomux");
+    expect(unit).toContain("Environment=HOME=/home/isomux");
+    expect(unit).toContain("WorkingDirectory=/opt/isomux");
+  });
+
+  // The portable core of the check: no line may carry this installer's log
+  // prefix, which can only get in there by a command substitution running.
+  it("carries no command-substitution artifacts", () => {
+    expect(unit).not.toContain("[isomux-install]");
+    expect(unit).not.toContain("command not found");
+    expect(unit).not.toContain("Failed to");
+  });
+
+  it("keeps every line a comment, a section header or a directive", () => {
+    for (const line of unit.split("\n")) {
+      const t = line.trim();
+      if (t === "" || t.startsWith("#")) continue;
+      expect(t).toMatch(/^(\[[A-Za-z]+\]|[A-Za-z][A-Za-z0-9]*=)/);
+    }
+  });
+
+  // The source-level guard, so the hazard is caught before a render is needed.
+  it("has no backticks or command substitution in the heredoc body", () => {
+    const start = SRC.indexOf(
+      "write_file /etc/systemd/system/isomux.service 644 <<EOF",
+    );
+    const bodyStart = SRC.indexOf("\n", start) + 1;
+    const body = SRC.slice(bodyStart, SRC.indexOf("\nEOF\n", bodyStart));
+    expect(body).not.toContain("`");
+    expect(body).not.toContain("$(");
+  });
+
+  // systemd's own verdict where the tool exists. The EXIT STATUS is the
+  // verdict; filtering stderr for two phrases would pass a unit systemd
+  // rejected for a third reason.
+  //
+  // Two diagnostics are environment-only and are tolerated by name, because
+  // they describe THIS machine rather than the unit: the isomux service account
+  // does not exist on a dev box, and neither does the bun binary the unit
+  // execs. Both are facts about where the test runs. Every other complaint
+  // fails the test, and the tolerated ones are matched narrowly enough that a
+  // real defect cannot hide behind them.
+  it("passes systemd-analyze verify, where available", () => {
+    const probe = Bun.spawnSync(["bash", "-c", "command -v systemd-analyze"]);
+    if (probe.exitCode !== 0) return;
+    const dir = mkdtempSync(join(tmpdir(), "isomux-unit-"));
+    const file = join(dir, "isomux.service");
+    writeFileSync(file, unit);
+    const proc = Bun.spawnSync(["systemd-analyze", "verify", file]);
+    const stderr = new TextDecoder().decode(proc.stderr);
+    rmSync(dir, { recursive: true, force: true });
+
+    const complaints = stderr
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .filter(
+        (l) =>
+          !/\b(User|Group)\b.*isomux.*(not found|does not exist)/i.test(l) &&
+          !/Command .*bun is not executable: No such file or directory/i.test(
+            l,
+          ),
+      );
+    expect(complaints).toEqual([]);
+    if (stderr === "") expect(proc.exitCode).toBe(0);
+  });
+});
+
+// The backtick defect is a CLASS, not one line, and it can exist at two stages.
+//
+// Stage 1 is what install.sh's own shell expands. Stage 2 is what the helper
+// scripts it GENERATES expand when they later run: quoting the outer delimiter
+// makes those bodies literal to install.sh, which protects them then, and
+// protects them not at all once the helper is installed and executed under its
+// own shell.
+//
+// Backticks inside a heredoc that will be expanded are never intentional here -
+// if substitution is wanted, $( ) says so visibly - and command substitution in
+// COMMENT text is always a mistake.
+describe("install.sh: no heredoc executes its own comments", () => {
+  interface Block {
+    startLine: number;
+    delimiter: string;
+    quoted: boolean;
+    body: string[];
+  }
+
+  /** All heredocs in one shell body, every delimiter form. */
+  function heredocs(lines: string[]): Block[] {
+    const start = /<<(-?)\s*(["']?)([A-Za-z_][A-Za-z0-9_]*)\2/;
+    const out: Block[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const m = start.exec(lines[i]);
+      if (!m) continue;
+      const dash = m[1] === "-";
+      const delimiter = m[3];
+      let j = i + 1;
+      while (j < lines.length) {
+        const t = dash ? lines[j].trim() : lines[j];
+        if (t === delimiter) break;
+        j++;
+      }
+      out.push({
+        startLine: i + 1,
+        delimiter,
+        quoted: m[2] !== "",
+        body: lines.slice(i + 1, j),
+      });
+      i = j;
+    }
+    return out;
+  }
+
+  function hazards(body: string[]): string[] {
+    const found: string[] = [];
+    for (const line of body) {
+      if (line.includes("`")) found.push(`backtick: ${line.trim()}`);
+      if (/^\s*#/.test(line) && line.includes("$(")) {
+        found.push(`substitution in a comment: ${line.trim()}`);
+      }
+    }
+    return found;
+  }
+
+  const srcLines = SRC.split("\n");
+  const stage1 = heredocs(srcLines);
+
+  it("finds the heredocs it claims to (all delimiter forms)", () => {
+    // Pins the scan itself, so a future edit that adds one is visible here
+    // rather than silently outside the checks below.
+    expect(stage1.length).toBeGreaterThanOrEqual(10);
+    expect(stage1.some((b) => b.quoted)).toBe(true);
+    expect(stage1.some((b) => !b.quoted)).toBe(true);
+  });
+
+  it("stage 1: nothing install.sh expands carries a backtick or a substituted comment", () => {
+    const bad = stage1
+      .filter((b) => !b.quoted)
+      .flatMap((b) =>
+        hazards(b.body).map(
+          (h) => `line ${b.startLine} (${b.delimiter}): ${h}`,
+        ),
+      );
+    expect(bad).toEqual([]);
+  });
+
+  // The recursion the first version of this scan missed.
+  it("stage 2: nothing a GENERATED helper expands carries one either", () => {
+    const bad: string[] = [];
+    for (const outer of stage1.filter((b) => b.quoted)) {
+      for (const inner of heredocs(outer.body)) {
+        if (inner.quoted) continue; // literal when the helper runs too
+        for (const h of hazards(inner.body)) {
+          bad.push(
+            `${outer.delimiter} line ${outer.startLine + inner.startLine} (${inner.delimiter}): ${h}`,
+          );
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it("stage 2 actually descends - the helpers really do contain heredocs", () => {
+    // Otherwise the test above would pass by finding nothing to look at.
+    const inner = stage1
+      .filter((b) => b.quoted)
+      .flatMap((b) => heredocs(b.body));
+    expect(inner.length).toBeGreaterThan(0);
+    expect(inner.some((b) => !b.quoted)).toBe(true);
   });
 });
