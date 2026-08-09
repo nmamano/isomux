@@ -409,9 +409,86 @@ driver semantics (extend, do not rewrite); no web app, no Stripe, no
 DNS automation; subscription state is a stub column, not an
 integration.
 
-## PICKUP: Slice 3 - (authored after slice 2 lands)
+## PICKUP: Slice 3 - Stripe test mode (Isomuxer2 / Reviewer2)
 
-Placeholder. Entry gate: `grep -qE '^STRIPE_TEST_SECRET_KEY=sk_test_'
-~/nil/secrets/stripe-test.env && echo ok || echo missing` must print ok
-(the file's previous key was burned and awaits Nil's roll). If missing,
-the loop closes at slice 2 and slice 3 queues for the morning.
+Entry gate (verified by the manager before dispatch):
+`grep -qE '^STRIPE_TEST_SECRET_KEY=sk_test_' ~/nil/secrets/stripe-test.env`.
+
+Goal: the billing machinery of the design doc's Billing section, built
+and exercised entirely in Stripe TEST mode: Checkout session creation,
+the 100%-off coupon path, webhooks as the only writer of subscription
+state, and the dunning ladder including the couponed-account diversion.
+No web app, no deploy: modules + a locally-runnable webhook endpoint
+driven by `stripe listen` (Stripe CLI) or recorded events, plus CLI
+commands mirroring the slice-1/2 pattern.
+
+Hard rails specific to this slice:
+
+- TEST KEY ONLY, read from the environment
+  (source ~/nil/secrets/stripe-test.env). The office's Stripe MCP tools
+  are LIVE-mode on the real Isomux LLC account - never use them in this
+  work, read or write. Nothing live-mode, ever; sk_live anywhere is a
+  stop-and-escalate.
+- Secrets rails unchanged (boolean checks only; no printed fragments;
+  no key material in code, fixtures, logs, or test snapshots - webhook
+  fixtures must have secrets scrubbed before they land in the repo).
+- Stripe test-mode objects are free; there is no spend ceiling concern,
+  but create test clocks/customers with a recognizable prefix and
+  delete them in cleanup so the test account stays legible.
+
+Load-bearing mechanics (design doc "Billing" + rulings 1 and the
+coupon paragraph):
+
+- Webhooks are the ONLY writer of subscription state; the local row is
+  a cache of Stripe truth. Events: checkout.session.completed,
+  customer.subscription.updated, customer.subscription.deleted,
+  invoice.payment_failed. Verify signatures, dedupe by event id
+  (durable), tolerate out-of-order and replayed delivery.
+- No trial. Checkout collects a card and charges immediately; a
+  100%-off coupon sets payment_method_collection to if_required so no
+  card is collected. "Comped" is not a flag: it is the presence of an
+  active 100% discount, cached from webhooks.
+- Coupon lapse: next invoice has amount due and no payment method ->
+  past_due -> for formerly-couponed accounts this raises attention and
+  notifies, does NOT enter the dunning ladder, with a 14-day deadline
+  after which the ordinary ladder resumes.
+- Dunning: Stripe's retry schedule runs; on exhaustion the design says
+  suspension via provider power_off - in this slice that boundary is a
+  typed operation enqueued into the slice-2 machine (exercised with a
+  stubbed provider; no real power action needed).
+- Verify-at-implementation items owned by this slice: Stripe's actual
+  payment_method_collection: if_required behaviour on a 100%-off
+  subscription, and what really happens at coupon lapse - use test
+  clocks, record the observed behaviour dated, in the design doc.
+
+Manager-accepted defaults (reversible): Google/Auth.js sign-in is
+slice-4 work (it needs the web app); slice 3 builds the accounts +
+subscriptions schema rows it writes into (extending the slice-2
+store). Test-clock-driven time travel replaces waiting for real
+renewal dates.
+
+Acceptance (transcripts in the report):
+
+1. Checkout session created against the real test account; completion
+   (test card via Stripe CLI/API) delivers checkout.session.completed
+   through signature verification into a subscription row.
+2. The coupon path: a 100%-off session collects no card; the
+   subscription shows the discount; coupon lapse under a test clock
+   produces the observed-and-documented past_due behaviour and the
+   attention diversion with its 14-day deadline.
+3. Dunning: a failing card under a test clock walks the retry
+   schedule; exhaustion enqueues the suspension operation exactly once
+   (idempotent under replayed webhooks).
+4. Event-id dedupe and out-of-order tolerance pinned by tests; stub
+   tier green; mutation statement covering the state-transition and
+   dedupe logic.
+
+Decide with the reviewer: module layout under control-plane/ (e.g.
+stripe/ subdir), fixture strategy (recorded vs synthesized events),
+how the webhook endpoint runs locally (Bun.serve + stripe listen
+forwarding vs direct fixture injection - at least one leg must go
+through real Stripe delivery), test-clock lifecycle helpers.
+
+Locked: everything in Standing rails; the slice-2 store and operation
+semantics (extend, do not rewrite); no provider actions against real
+boxes this slice; no web UI; no deployment.
