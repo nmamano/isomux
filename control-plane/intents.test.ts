@@ -4,24 +4,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { IntentJournal } from "./intents.ts";
 import { ContaboAdapter } from "./contabo/adapter.ts";
-import { CreateCoordinator } from "./create-coordinator.ts";
-import type {
-  CreateOutcome,
-  CreateRequest,
-  ProviderAdapter,
-} from "./provider.ts";
 import { ContaboHttp } from "./contabo/http.ts";
 import { TokenProvider, type FetchLike } from "./contabo/auth.ts";
-
-/** Run something expected to fail and return its message. */
-async function captureError(fn: () => Promise<unknown>): Promise<string> {
-  try {
-    await fn();
-  } catch (err) {
-    return err instanceof Error ? err.message : String(err);
-  }
-  return "(no error thrown)";
-}
 
 let dir = "";
 
@@ -185,70 +169,8 @@ describe("single writer", () => {
   });
 });
 
-// The coordinator is the only seam that may spend money. Calling the adapter
-// directly is what the reviewer called "testing discipline rather than
-// enforcing the invariant", so the invariant lives here now.
-describe("CreateCoordinator", () => {
-  function fakeAdapter(outcome: CreateOutcome, calls: string[] = []) {
-    return {
-      calls,
-      create: (req: CreateRequest) => {
-        calls.push(req.intentId);
-        return Promise.resolve(outcome);
-      },
-      find: () => Promise.resolve(null),
-    } as unknown as ProviderAdapter & { calls: string[] };
-  }
-
-  test("latches before calling, and records what the call did", async () => {
-    const journal = new IntentJournal(dir);
-    const adapter = fakeAdapter({ outcome: "created", providerId: "77" });
-    const coord = new CreateCoordinator(adapter, journal);
-    const out = await coord.create({
-      intentId: "c1",
-      plan: "V153",
-      region: "EU",
-      publicKeys: [1],
-    });
-    expect(out).toEqual({ outcome: "created", providerId: "77" });
-    expect(journal.read("c1")?.state).toBe("created");
-    expect(journal.canCreate("c1")).toBe(false);
-  });
-
-  test("a second create for the same intent never reaches the provider", async () => {
-    const journal = new IntentJournal(dir);
-    const calls: string[] = [];
-    const adapter = fakeAdapter({ outcome: "ambiguous", reason: "5xx" }, calls);
-    const coord = new CreateCoordinator(adapter, journal);
-    const req = { intentId: "c2", plan: "V153", region: "EU", publicKeys: [1] };
-    await coord.create(req);
-    expect(calls).toHaveLength(1);
-    expect(await captureError(() => coord.create(req))).toMatch(
-      /permanently forbidden/,
-    );
-    // The adapter was never reached the second time - no second paid call.
-    expect(calls).toHaveLength(1);
-  });
-
-  test("an adapter that THROWS still leaves the intent latched as ambiguous", async () => {
-    const journal = new IntentJournal(dir);
-    const adapter = {
-      create: () => Promise.reject(new Error("socket hang up")),
-      find: () => Promise.resolve(null),
-    } as unknown as ProviderAdapter;
-    const coord = new CreateCoordinator(adapter, journal);
-    expect(
-      await captureError(() =>
-        coord.create({
-          intentId: "c3",
-          plan: "V153",
-          region: "EU",
-          publicKeys: [1],
-        }),
-      ),
-    ).toMatch(/socket hang up/);
-    // A throw is not evidence that nothing was ordered.
-    expect(journal.read("c3")?.state).toBe("ambiguous");
-    expect(journal.canCreate("c3")).toBe(false);
-  });
-});
+// The coordinator's own tests moved to create-latch.test.ts when the latch
+// moved into the schema. This file keeps the journal's tests because the journal
+// is still live: slice 2 reads it as VETO-ONLY evidence, so its fail-closed
+// reads are still load-bearing - they can forbid a create, and nothing about
+// them may ever permit one.

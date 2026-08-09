@@ -26,8 +26,20 @@
 # always passes is worse than no check.
 #
 # Usage: wait-apt.sh [timeout-seconds] [poll-seconds]
+#        wait-apt.sh once
+#
+# `once` performs exactly ONE check and exits, for a caller that owns its own
+# scheduling - a tick may not sleep. It calls the same busy_reason() the loop
+# does, so there is no second copy of the layered detection above or of its "any
+# one of them saying busy means busy" rule.
 
 set -uo pipefail
+
+MODE=
+if [ "${1:-}" = "once" ]; then
+  MODE=once
+  shift
+fi
 
 TIMEOUT=${1:-600}
 # 5s in production; the tests pass 1 so they do not each cost a poll interval.
@@ -80,6 +92,17 @@ busy_reason() {
   done
   return 1
 }
+
+# One check, no sleeping. The reason string is the caller's evidence: when it
+# changes, the box is making progress rather than being stuck.
+if [ "$MODE" = once ]; then
+  reason=$(busy_reason) || {
+    printf 'RESULT: ready\n'
+    exit 0
+  }
+  printf 'RESULT: busy (%s)\n' "$reason"
+  exit 0
+fi
 
 while :; do
   reason=$(busy_reason) || {

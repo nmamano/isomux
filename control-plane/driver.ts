@@ -12,8 +12,10 @@ import type { AuthOutcome, Exec, SshClient, SshTarget } from "./ssh.ts";
 import {
   SshClient as SshClientCtor,
   classifyAuth,
+  resolveTimeout,
   sshBaseArgs,
 } from "./ssh.ts";
+import type { TimeoutSource } from "./ssh.ts";
 
 export const WRAPPER_REMOTE_PATH = "/usr/local/sbin/isomux-cp-run";
 export const CLEANUP_REMOTE_PATH = "/usr/local/sbin/isomux-cp-cleanup";
@@ -311,6 +313,48 @@ export interface WaitForSshOptions {
  * The pinned key is then, by construction, the key of the box that holds the
  * key we just installed.
  */
+export async function probeAndPinOnce(opts: {
+  target: SshTarget;
+  exec: Exec;
+  /** A throwaway path in the same directory as the target's known_hosts. */
+  tempKnownHosts: string;
+  timeoutMs?: TimeoutSource;
+}): Promise<AuthOutcome> {
+  const probe = new SshClientCtor(
+    { ...opts.target, knownHostsFile: opts.tempKnownHosts },
+    opts.exec,
+    "accept-new",
+    opts.timeoutMs,
+  );
+  let outcome: AuthOutcome;
+  try {
+    outcome = await probe.probeAuth();
+  } catch (err) {
+    fs.rmSync(opts.tempKnownHosts, { force: true });
+    throw err;
+  }
+  if (outcome.kind === "authenticated") {
+    fs.renameSync(opts.tempKnownHosts, opts.target.knownHostsFile);
+    return outcome;
+  }
+  // A probe that did not authenticate leaves NO pin behind. Both this and the
+  // throwaway path are load-bearing: dropping either one lets the host key of a
+  // box we are destroying survive into the run's known_hosts.
+  fs.rmSync(opts.tempKnownHosts, { force: true });
+  return outcome;
+}
+
+/**
+ * Drop any pin from a previous life. Separate from the probe because a
+ * tick-driven caller must do it ONCE at the start of the operation and then
+ * poll, and because the ordering matters at a crash: remove first, record that
+ * it was removed second. Recording first would let a crash skip the removal and
+ * leave a stale pin in place.
+ */
+export function resetHostKeyPin(knownHostsFile: string): void {
+  fs.rmSync(knownHostsFile, { force: true });
+}
+
 export async function waitForAuthenticatedSsh(
   opts: WaitForSshOptions,
 ): Promise<{ elapsedMs: number }> {
@@ -319,23 +363,16 @@ export async function waitForAuthenticatedSsh(
   const pollMs = opts.pollMs ?? 5000;
   const started = now();
   // Nothing from a previous life may survive into this run's pin.
-  fs.rmSync(opts.target.knownHostsFile, { force: true });
+  resetHostKeyPin(opts.target.knownHostsFile);
   for (;;) {
-    const tmp = opts.tempKnownHosts();
-    const probe = new SshClientCtor(
-      { ...opts.target, knownHostsFile: tmp },
-      opts.exec,
-      "accept-new",
-    );
-    const outcome = await probe.probeAuth();
+    const outcome = await probeAndPinOnce({
+      target: opts.target,
+      exec: opts.exec,
+      tempKnownHosts: opts.tempKnownHosts(),
+    });
     if (outcome.kind === "authenticated") {
-      fs.renameSync(tmp, opts.target.knownHostsFile);
       return { elapsedMs: now() - started };
     }
-    // A probe that did not authenticate leaves NO pin behind. Both this and the
-    // throwaway path above are load-bearing: dropping either one lets the host
-    // key of a box we are destroying survive into the run's known_hosts.
-    fs.rmSync(tmp, { force: true });
     if (now() - started >= opts.timeoutMs) {
       throw new Error(
         `box never authenticated our key within ${Math.round(opts.timeoutMs / 1000)}s ` +
@@ -421,6 +458,13 @@ export function onCalendarFromExpiry(expiry: string): string {
 export type LaunchOutcome =
   | { kind: "confirmed"; runId: string }
   | { kind: "failed"; reason: string }
+  /**
+   * The box already has this generation, so the launch we were unsure about did
+   * reach it. The BOX is the arbiter of that ambiguity, which is why re-issuing
+   * a launch with the SAME runId is safe: the wrapper refuses to reuse a
+   * generation directory, so a second installer cannot start.
+   */
+  | { kind: "already-exists"; reason: string }
   /** Resolved by the next tick. NEVER by launching again. */
   | { kind: "unconfirmed"; reason: string };
 
@@ -432,6 +476,9 @@ export function parseLaunch(result: {
   const out = result.stdout.trim();
   if (out.startsWith("CONFIRMED")) {
     return { kind: "confirmed", runId: out.split(/\s+/)[1] ?? "" };
+  }
+  if (out.startsWith("FAILED") && /already exists/.test(out)) {
+    return { kind: "already-exists", reason: out };
   }
   if (out.startsWith("UNCONFIRMED")) {
     return { kind: "unconfirmed", reason: out };
@@ -519,9 +566,14 @@ export type RemovalProof = { proven: true } | { proven: false; reason: string };
 export async function proveRemoval(
   target: SshTarget,
   exec: Exec,
+  /** Bounded like every other remote call. Unbounded, this one could outlive
+   * its holder's lease while the proof that matters most was in flight. */
+  timeoutMs?: TimeoutSource,
 ): Promise<RemovalProof> {
   const argv = [...sshBaseArgs(target, "yes"), "true"];
-  const outcome: AuthOutcome = classifyAuth(await exec.run(argv));
+  const outcome: AuthOutcome = classifyAuth(
+    await exec.run(argv, { timeoutMs: resolveTimeout(timeoutMs) }),
+  );
   if (outcome.kind === "rejected") return { proven: true };
   if (outcome.kind === "authenticated") {
     return {

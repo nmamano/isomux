@@ -6,21 +6,31 @@
 //   recycle   rebuild an adopted box with a fresh per-run key
 //   provision first contact -> installer -> HTTPS -> invite, and with
 //             --handoff-now, revocation and its proof
+//   run       the tick loop as its own process
+//   tick      one pass
+//   ops       the operation rows; attention  the open reasons
 //   status    one tick against the current generation
 //   revoke    revoke, prove, destroy - for the held case and after a failure
 //   expiry-test  the ruling-9 verification, both variants
 //
-// There is deliberately NO create command here. The adapter can create a box
-// and the stub tier exercises that path, but no flag in this file reaches it:
-// creating one is latched durably by intents.ts and, in this slice, is a thing
-// a human does on purpose rather than something a mistyped argument can do.
+// The chain is the same as slice 1's and the driver primitives are the same.
+// What changed is that every step is now a durable, leased operation row, so
+// --stop-after and --handoff-now are the instance's GOAL rather than control
+// flow, and killing this process mid-flight is recoverable from the rows alone.
+//
+// There is deliberately NO create command here. The adapter can create a box and
+// the stub tier exercises that path, but no flag in this file reaches it: the
+// handler that can spend money is not even registered in this process, and the
+// call itself is latched durably by create-latch.ts.
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
 import {
   AUDIT_FILE,
+  DB_FILE,
   DEFAULT_LOGIN_USER,
+  INTENTS_DIR,
   KEYS_DIR,
   RUNS_DIR,
   SSH_WAIT_TIMEOUT_MS,
@@ -35,29 +45,26 @@ import {
 } from "./contabo/auth.ts";
 import { ContaboHttp } from "./contabo/http.ts";
 import {
-  CLEANUP_REMOTE_PATH,
-  CLEANUP_UNIT_NAME,
   WRAPPER_REMOTE_PATH,
   identityFor,
-  composeRemoteScript,
-  installFile,
-  installText,
-  parseLaunch,
   parseTick,
-  proveRemoval,
   onCalendarFromExpiry,
-  parseTimerEvidence,
-  renderCleanupUnits,
-  repoFile,
   timerIsArmed,
-  revokeAccess,
-  rewriteKeyWithExpiry,
   waitForAuthenticatedSsh,
 } from "./driver.ts";
-import { destroyPrivateKey, generateKeyPair, type KeyPair } from "./keys.ts";
-import { probeLiveness } from "./liveness.ts";
+import { destroyPrivateKey, generateKeyPair } from "./keys.ts";
 import { Reporter } from "./report.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
+import { acknowledgeAttention } from "./attention.ts";
+import { migrateLegacyIntents } from "./create-latch.ts";
+import { boxHandlers } from "./handlers.ts";
+import {
+  CeilingIsImmutable,
+  ensureInstance as ensureInstanceRow,
+} from "./instance.ts";
+import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
+import { Store } from "./store.ts";
+import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
 
 const reporter = new Reporter();
 const audit = new AuditLog(AUDIT_FILE, "control-plane-cli");
@@ -181,6 +188,145 @@ async function waitForSsh(
   return elapsedMs;
 }
 
+// ------------------------------------------------------- operations wiring
+
+/**
+ * Open the durable state, importing slice 1's O_EXCL intent journal on the way.
+ *
+ * The import is conservative and read-only: a legacy record can only ever add a
+ * row that FORBIDS a create, and the files themselves are never touched.
+ */
+function openStore(): Store {
+  fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
+  const store = new Store(DB_FILE);
+  migrateLegacyIntents(store, INTENTS_DIR);
+  return store;
+}
+
+/** The instance row for a run. The rule that makes the ceiling mean something
+ * lives in instance.ts, where a crash boundary can be tested. */
+function ensureInstance(
+  store: Store,
+  rec: RunRecord,
+  goal: Goal,
+  expiresAt?: Date,
+): string {
+  try {
+    return ensureInstanceRow({ store, rec, goal, expiresAt });
+  } catch (err) {
+    if (err instanceof CeilingIsImmutable) die(err.message);
+    throw err;
+  }
+}
+
+/**
+ * Provider truth for the reconcile pass, when this box has credentials.
+ *
+ * Absent credentials are not fatal: everything the driver does over SSH works
+ * without them, and a reconcile that cannot run just leaves the asset row where
+ * it was rather than stopping provisioning.
+ */
+function reconcileFn():
+  | ((asset: { provider_id: string | null }) => Promise<{
+      assetState: string;
+      ipv4?: string;
+      serviceEndsAt?: string;
+    } | null>)
+  | undefined {
+  let adapter: ContaboAdapter;
+  try {
+    adapter = makeAdapter();
+  } catch {
+    reporter.line(
+      "no provider credentials in the environment: reconcile is off for this run",
+    );
+    return undefined;
+  }
+  return async (asset) => {
+    if (!asset.provider_id) return null;
+    const view = await adapter.get(asset.provider_id);
+    const raw = view.raw as { cancelDate?: string | null } | null;
+    return {
+      assetState: view.assetState,
+      ...(view.ipv4 === undefined ? {} : { ipv4: view.ipv4 }),
+      ...(raw?.cancelDate ? { serviceEndsAt: raw.cancelDate } : {}),
+    };
+  };
+}
+
+function makeTicker(store: Store, ownerName?: string): Ticker {
+  return new Ticker({
+    store,
+    // create_instance is deliberately absent: no flag in this file can reach a
+    // paid create, exactly as in slice 1.
+    handlers: boxHandlers({
+      exec,
+      reporter,
+      runsDir: RUNS_DIR,
+      keysDir: KEYS_DIR,
+      ownerName,
+    }),
+    reconcile: reconcileFn(),
+    report: (line) => reporter.line(line),
+  });
+}
+
+/**
+ * Drive ticks until the work is done, or forever.
+ *
+ * Raised attention NEVER stops the loop. A deadline flags and the operation
+ * keeps going, so a provisioner that stopped on the first flag would be exactly
+ * the process that is supposed to keep reconciling giving up.
+ */
+async function driveTicks(
+  store: Store,
+  ticker: Ticker,
+  opts: { forever: boolean },
+): Promise<void> {
+  let stopping = false;
+  const onSignal = () => {
+    stopping = true;
+    reporter.line("stopping after this tick");
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  const announced = new Set<string>();
+  try {
+    for (;;) {
+      const summary = await ticker.once();
+      for (const inst of store.listInstances()) {
+        for (const reason of store.openReasons(inst.id)) {
+          if (announced.has(reason.id)) continue;
+          announced.add(reason.id);
+          reporter.problem(
+            `ATTENTION (${reason.severity}) on ${inst.id}: ${reason.reason}`,
+          );
+        }
+      }
+      if (stopping) return;
+      if (!opts.forever && summary.live === 0) return;
+      await Bun.sleep(POLL_INTERVAL_MS);
+    }
+  } finally {
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+  }
+}
+
+/** Non-zero when a human is still owed something. */
+function exitCodeFor(store: Store): number {
+  return store.listInstances().some((i) => i.attention_state !== "clear")
+    ? 1
+    : 0;
+}
+
+function goalFrom(args: Map<string, string>): Goal {
+  const stopAfter = args.get("stop-after");
+  if (stopAfter === "first-contact") return "first_contact";
+  if (stopAfter === "install") return "installed";
+  return args.get("handoff-now") === "true" ? "handed_off" : "live";
+}
+
 function newId(prefix: string): string {
   return `${prefix}-${new Date()
     .toISOString()
@@ -287,313 +433,163 @@ async function cmdRecycle(args: Map<string, string>): Promise<void> {
   reporter.line(`run ${runId} recorded; login user is ${rec.loginUser}`);
 }
 
+/**
+ * Provision, as leased operations.
+ *
+ * Slice 1 ran this as one straight line with three blocking loops inside it.
+ * The steps are the same and the driver primitives are the same; what changed is
+ * that each one is now a durable row with its own deadlines, so a crash between
+ * two of them is a tick that did not happen rather than a flow nobody can
+ * resume. --stop-after and --handoff-now became the instance's GOAL, which is
+ * why a restart continues to the same place without being told again.
+ */
 async function cmdProvision(args: Map<string, string>): Promise<void> {
   const rec = loadRun(required(args, "run"));
   const expiresAt = accessWindowInstant(args);
-  const ownerName = args.get("owner-name") ?? "Owner";
-  const ssh = new SshClient(targetFor(rec), exec);
-  const identity = identityFor(rec.loginUser);
-
-  // 1. FIRST CONTACT. Nothing else happens on this box until the key carries a
-  // ceiling and we have read it back.
-  reporter.step("first-contact", "rewriting our key with an absolute expiry");
-  const contact = await rewriteKeyWithExpiry(
-    ssh,
-    identity,
-    { algorithm: rec.algorithm, blob: rec.blob },
-    expiresAt,
-  );
-  rec.expiry = contact.expiry;
-  rec.boxClockUtc = contact.boxClockUtc;
-  saveRun(rec);
-  audit.record("arm_expiry", rec.instanceId, "succeeded");
-  reporter.line(`expiry confirmed on the box: ${contact.expiry}`);
-  reporter.line(
-    `MEASUREMENT box clock at first contact: ${contact.boxClockUtc} (ours: ${new Date().toISOString()})`,
-  );
-
-  // 2. ARM THE BOX-LOCAL BACKSTOP before anything long-running starts.
-  reporter.step("arm-revocation", "installing the cleanup timer");
-  await installText(
-    ssh,
-    identity,
-    composeRemoteScript(["remote/authorized-keys.sh", "cleanup.sh"]),
-    CLEANUP_REMOTE_PATH,
-    "0755",
-  );
-  const units = renderCleanupUnits(
-    identity.authorizedKeysPath,
-    rec.blob,
-    expiresAt,
-  );
-  await installText(
-    ssh,
-    identity,
-    units.service,
-    `/etc/systemd/system/${CLEANUP_UNIT_NAME}.service`,
-    "0644",
-  );
-  await installText(
-    ssh,
-    identity,
-    units.timer,
-    `/etc/systemd/system/${CLEANUP_UNIT_NAME}.timer`,
-    "0644",
-  );
-  const enable = await ssh.script(
-    `set -euo pipefail\nsystemctl daemon-reload\nsystemctl enable --now ${CLEANUP_UNIT_NAME}.timer\n`,
-  );
-  if (enable.code !== 0)
-    die(`arming the cleanup timer failed: ${enable.stderr.trim()}`);
-  // Exit 0 says the command was accepted, not that a timer is loaded, active,
-  // persistent and pointed at our instant. Read systemd's own answer back and
-  // parse it; the expiry tests are gated on this evidence.
-  const shown = await ssh.script(
-    `systemctl show ${CLEANUP_UNIT_NAME}.timer ` +
-      `-p UnitFileState -p ActiveState -p Persistent -p NextElapseUSecRealtime ` +
-      `-p TimersCalendar\n`,
-  );
-  const evidence = parseTimerEvidence(shown.stdout);
-  if (!timerIsArmed(evidence, units.onCalendar)) {
-    die(
-      `the cleanup timer is not armed for OUR instant (wanted OnCalendar=` +
-        `${units.onCalendar}): ${JSON.stringify(evidence)}. ` +
-        `The box would hold a key whose only ceiling is sshd's own expiry.`,
-    );
+  const store = openStore();
+  const goal = goalFrom(args);
+  const instanceId = ensureInstance(store, rec, goal, expiresAt);
+  const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
+  if (store.operationsFor(instanceId).length === 0) {
+    ticker.enqueue(instanceId, FIRST_KIND);
   }
-  rec.timerArmed = evidence;
-  rec.state = "first_contact_done";
-  saveRun(rec);
-  audit.record("arm_revocation", rec.instanceId, "succeeded");
-  reporter.line(
-    `cleanup timer armed: enabled+active+Persistent, next elapse ${evidence.nextElapseUtc}`,
-  );
-
-  // Reviewer2's R7: the expiry tests may only run once the PROVISIONING key's
-  // rewrite has passed read-back and this timer is armed, so the box is never
-  // in a state where a key exists without a ceiling. --stop-after first-contact
-  // is how that prerequisite is reached on its own.
-  if (args.get("stop-after") === "first-contact") {
-    reporter.line(
-      "stopping after first contact: the key carries a confirmed ceiling and " +
-        "the cleanup timer is armed.",
-    );
-    return;
-  }
-
-  // 3. THE INSTALL, driven through the wrapper.
-  //
-  // First wait out the box's OWN boot-time package work. SSH answering is not
-  // the same claim as ready-to-provision: measured 2026-08-09, apt still held
-  // the dpkg lock at T+2min on a box that authenticated at T+88s, and the
-  // installer died on it immediately.
   reporter.step(
-    "wait-for-package-manager",
-    "letting the box finish its own apt work",
+    "provision",
+    `goal=${goal}, ceiling=${expiresAt.toISOString()}`,
   );
-  const settleStarted = Date.now();
-  const settled = await ssh.pipe(
-    [...privilegeArgvFor(identity.loginUser), "bash", "-s", "--", "600"],
-    fs.readFileSync(repoFile("remote/wait-apt.sh"), "utf8"),
-  );
-  if (!settled.stdout.includes("RESULT: ready")) {
-    die(
-      `the box never finished its own package work: ${settled.stdout.trim()}`,
-    );
-  }
-  reporter.line(
-    `MEASUREMENT wait-for-package-manager: ${Math.round((Date.now() - settleStarted) / 1000)}s ` +
-      `(${settled.stdout.trim()})`,
-  );
-
-  reporter.step("run-installer", "installing the wrapper and launching");
-  await installFile(
-    ssh,
-    identity,
-    repoFile("wrapper.sh"),
-    WRAPPER_REMOTE_PATH,
-    "0755",
-  );
-  const installerRunId = newId("install");
-  // Upload the installer from THIS tree rather than curling it from GitHub.
-  // The point of driving it is to test the installer we have, and a fix that
-  // has not been pushed yet is invisible to a fetch from main. (Production will
-  // drive a release's installer; that choice belongs to the deployed
-  // provisioner, not to the driver.)
-  await installText(
-    ssh,
-    identity,
-    fs.readFileSync(
-      path.join(import.meta.dir, "..", "deploy", "install.sh"),
-      "utf8",
-    ),
-    "/tmp/isomux-install.sh",
-    "0755",
-  );
-
-  const launch = parseLaunch(
-    await ssh.script(
-      `${identity.loginUser === "root" ? "" : "sudo -n "}${WRAPPER_REMOTE_PATH} launch "$1" env DOMAIN="$2" OWNER_NAME="$3" bash /tmp/isomux-install.sh\n`,
-      [installerRunId, rec.host, ownerName],
-    ),
-  );
-  if (launch.kind === "failed") die(`launch failed: ${launch.reason}`);
-  if (launch.kind === "unconfirmed") {
-    reporter.problem(
-      `launch unconfirmed (${launch.reason}); resolving by tick, NOT relaunching`,
-    );
-  }
-  audit.record("run_installer", installerRunId, "started");
-
-  // 4. TICK until the generation is terminal.
-  const installStarted = Date.now();
-  let lastStep = "";
-  for (;;) {
-    const tick = parseTick(
-      (await ssh.script(`${WRAPPER_REMOTE_PATH} tick\n`)).stdout,
-    );
-    if (tick.state === "running" && tick.step !== lastStep) {
-      lastStep = tick.step;
-      reporter.line(
-        `  step: ${tick.step} (+${Math.round((Date.now() - installStarted) / 1000)}s)`,
-      );
-    }
-    if (tick.state === "finished") {
-      reporter.line(
-        `MEASUREMENT install duration: ${Math.round((Date.now() - installStarted) / 1000)}s, exit=${tick.exit}`,
-      );
-      if (tick.exit !== 0) {
-        audit.record("run_installer", installerRunId, "failed");
-        die(`installer exited ${tick.exit} at step ${tick.step}`);
-      }
-      audit.record("run_installer", installerRunId, "succeeded");
-      break;
-    }
-    if (tick.state === "crashed") {
-      audit.record("run_installer", installerRunId, "failed", "crashed");
-      die(`installer crashed at step ${tick.step}`);
-    }
-    await Bun.sleep(5000);
-  }
-
-  if (args.get("stop-after") === "install") {
-    reporter.line(
-      "stopping after the install. HTTPS and the invite need the A record; " +
-        `finish with: finish --run ${rec.runId}`,
-    );
-    return;
-  }
-
-  await finishHandoff(rec, args);
+  await driveTicks(store, ticker, { forever: false });
+  printOperations(store, instanceId);
+  process.exitCode = exitCodeFor(store);
 }
 
-/**
- * The tail of provisioning: wait for HTTPS, mint the invite, and - only when
- * asked - hand off.
- *
- * Separate from the install because it is the one part that depends on DNS.
- * Caddy retries HTTP-01 until the name resolves, so an install can complete
- * long before the record exists, and only a SUCCESSFUL issuance counts against
- * Let's Encrypt's duplicate-certificate limit.
- */
-async function finishHandoff(
-  rec: RunRecord,
-  args: Map<string, string>,
-): Promise<void> {
-  const httpsStarted = Date.now();
-  reporter.step("verify-https", `waiting for https://${rec.host}/readyz`);
-  for (;;) {
-    const live = await probeLiveness(rec.host, {}, rec.ipv4);
-    if (live.rung === "ok") {
-      reporter.line(
-        `MEASUREMENT install-exit to HTTPS 200: ${Math.round((Date.now() - httpsStarted) / 1000)}s`,
-      );
-      break;
-    }
-    reporter.line(`  liveness rung ${live.rung}: ${live.detail}`);
-    if (Date.now() - httpsStarted > 20 * 60_000) {
-      audit.record("verify_https", rec.host, "failed", live.rung);
-      die(`HTTPS never came up (stuck at rung ${live.rung})`);
-    }
-    await Bun.sleep(15_000);
-  }
-  audit.record("verify_https", rec.host, "succeeded");
+/** The tick loop as its own process: the provisioner, in miniature. */
+async function cmdRun(args: Map<string, string>): Promise<void> {
+  const store = openStore();
+  const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
+  reporter.step("run", `holder ${ticker.holder}`);
+  await driveTicks(store, ticker, { forever: args.get("once") !== "true" });
+  process.exitCode = exitCodeFor(store);
+}
 
-  await mintInvite(rec);
+async function cmdTick(args: Map<string, string>): Promise<void> {
+  const store = openStore();
+  const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
+  reporter.line(JSON.stringify(await ticker.once()));
+  process.exitCode = exitCodeFor(store);
+}
 
-  if (args.get("handoff-now") === "true") {
-    await revokeAndProve(rec);
-  } else {
-    reporter.line(
-      "access window is OPEN (default). Run `revoke --run " +
-        rec.runId +
-        "` to hand off, or pass --handoff-now next time.",
-    );
+/** Enqueue one more operation of a kind that is legitimately repeatable. */
+function enqueueOnce(
+  store: Store,
+  ticker: Ticker,
+  instanceId: string,
+  kind: OperationKind,
+): void {
+  if (!store.activeOperation(instanceId, kind)) {
+    ticker.enqueue(instanceId, kind);
   }
 }
 
 /**
- * Mint an owner invite and show it to the operator once.
- *
- * Available while the access window is open, which is what makes "resend" work
- * without us ever storing a credential. The URL reaches the terminal and
- * nothing else: the audit log records that a mint happened, and the transcript
- * carries a redaction in its place.
+ * The tail of provisioning: HTTPS, then the invite, then - only when asked -
+ * handoff. Separate from the install because it is the part that depends on DNS.
  */
-async function mintInvite(rec: RunRecord): Promise<void> {
-  const identity = identityFor(rec.loginUser);
-  const ssh = new SshClient(targetFor(rec), exec);
-  reporter.step("mint-invite", "minting a fresh owner invite");
-  const minted = await ssh.pipe(
-    [...privilegeArgvFor(identity.loginUser), "bash", "-s"],
-    fs.readFileSync(repoFile("remote/mint-invite.sh"), "utf8"),
-  );
-  if (minted.code !== 0)
-    die(`minting the invite failed: ${minted.stderr.trim()}`);
-  audit.record("mint_invite", rec.host, "succeeded");
-  reporter.invite(minted.stdout.trim());
+async function cmdFinish(args: Map<string, string>): Promise<void> {
+  const rec = loadRun(required(args, "run"));
+  const store = openStore();
+  const goal = args.get("handoff-now") === "true" ? "handed_off" : "live";
+  const instanceId = ensureInstance(store, rec, goal);
+  const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
+  enqueueOnce(store, ticker, instanceId, "verify_https");
+  await driveTicks(store, ticker, { forever: false });
+  printOperations(store, instanceId);
+  process.exitCode = exitCodeFor(store);
+}
+
+async function cmdMint(args: Map<string, string>): Promise<void> {
+  const rec = loadRun(required(args, "run"));
+  const store = openStore();
+  const instanceId = ensureInstance(store, rec, "live");
+  const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
+  enqueueOnce(store, ticker, instanceId, "mint_invite");
+  await driveTicks(store, ticker, { forever: false });
+  process.exitCode = exitCodeFor(store);
+}
+
+/**
+ * Revoke, prove it, destroy our half - as an operation, so a failure raises
+ * attention and retries rather than ending at an error message.
+ */
+async function cmdRevoke(args: Map<string, string>): Promise<void> {
+  const rec = loadRun(required(args, "run"));
+  const store = openStore();
+  const instanceId = ensureInstance(store, rec, "handed_off");
+  const ticker = makeTicker(store);
+  enqueueOnce(store, ticker, instanceId, "revoke_access");
+  await driveTicks(store, ticker, {
+    forever: args.get("until-proven") === "true",
+  });
+  printOperations(store, instanceId);
+  process.exitCode = exitCodeFor(store);
+}
+
+function flagLabel(op: {
+  inactivity_flagged: number;
+  absolute_flagged: number;
+}): string {
+  const flags = [
+    op.inactivity_flagged ? "inactivity" : "",
+    op.absolute_flagged ? "absolute" : "",
+  ].filter(Boolean);
+  return flags.length ? flags.join("+") : "none";
+}
+
+/** What the dashboard will render one day, as text. */
+function printOperations(store: Store, instanceId?: string): void {
+  const instances = instanceId
+    ? [store.getInstance(instanceId)].filter((i) => i !== null)
+    : store.listInstances();
+  for (const inst of instances) {
+    reporter.line(
+      `${inst.id}  ${inst.service_state}  goal=${inst.goal}  ` +
+        `attention=${inst.attention_state}${inst.attention_reason ? ` (${inst.attention_reason})` : ""}`,
+    );
+    for (const op of store.operationsFor(inst.id)) {
+      reporter.line(
+        `  ${op.kind.padEnd(24)} ${op.status.padEnd(10)} attempt=${op.attempt} ` +
+          `flagged=${flagLabel(op)} ${op.evidence}`,
+      );
+    }
+  }
+}
+
+function cmdOps(args: Map<string, string>): void {
+  const store = openStore();
+  const run = args.get("run");
+  printOperations(store, run && run !== "true" ? `inst-${run}` : undefined);
+}
+
+function cmdAttention(args: Map<string, string>): void {
+  const store = openStore();
+  const ack = args.get("ack");
+  if (ack && ack !== "true") {
+    const n = acknowledgeAttention(store, ack, args.get("by") ?? "operator");
+    // Acknowledging is not clearing: the reasons stay open and the instance
+    // keeps reporting needs_operator until the condition itself goes away.
+    reporter.line(`acknowledged ${n} open reason(s) on ${ack}`);
+  }
+  for (const inst of store.listInstances()) {
+    for (const r of store.openReasons(inst.id)) {
+      reporter.line(
+        `${inst.id}  ${r.severity.padEnd(8)} ${r.reason}` +
+          (r.acknowledged_at ? `  (acknowledged by ${r.acknowledged_by})` : ""),
+      );
+    }
+  }
 }
 
 function privilegeArgvFor(loginUser: string): string[] {
   return loginUser === "root" ? [] : ["sudo", "-n"];
-}
-
-/**
- * Revoke, then prove it, then destroy our half.
- *
- * The order is the guarantee: remove and confirm from disk while the session is
- * alive, close it, reconnect with the REMOVED key and require sshd to refuse
- * it, and only then destroy the private half. The cleanup timer stays armed
- * throughout - it is the backstop that must still be in place if the proof
- * comes back saying the removal did not take.
- */
-async function revokeAndProve(rec: RunRecord): Promise<void> {
-  const identity = identityFor(rec.loginUser);
-  reporter.step("revoke-access", "removing our key and our artifacts");
-  const ssh = new SshClient(targetFor(rec), exec);
-  await revokeAccess(ssh, identity, rec.blob);
-  audit.record("revoke_access", rec.instanceId, "succeeded");
-
-  reporter.step("prove-removal", "reconnecting with the key we just removed");
-  const proof = await proveRemoval(targetFor(rec), exec);
-  if (!proof.proven) {
-    audit.record("verify_revocation", rec.instanceId, "failed", proof.reason);
-    die(
-      `REVOCATION NOT PROVEN: ${proof.reason}. The cleanup timer is still armed and ` +
-        `the key still carries expiry-time=${rec.expiry ?? "unknown"}. This needs a human.`,
-    );
-  }
-  audit.record("verify_revocation", rec.instanceId, "succeeded");
-  reporter.line(
-    "proof: sshd refused the removed key (publickey). Access is gone.",
-  );
-
-  destroyPrivateKey({
-    privateKeyPath: rec.privateKeyPath,
-    publicKeyPath: rec.publicKeyPath,
-  } as KeyPair);
-  audit.record("destroy_key", rec.instanceId, "succeeded");
-  reporter.line("our private half is destroyed.");
 }
 
 /**
@@ -659,10 +655,6 @@ async function cmdStatus(args: Map<string, string>): Promise<void> {
     (await ssh.script(`${WRAPPER_REMOTE_PATH} tick\n`)).stdout,
   );
   reporter.line(JSON.stringify(tick));
-}
-
-async function cmdRevoke(args: Map<string, string>): Promise<void> {
-  await revokeAndProve(loadRun(required(args, "run")));
 }
 
 /**
@@ -825,20 +817,29 @@ async function main(): Promise<void> {
     case "connect":
       return cmdConnect(args);
     case "mint":
-      return mintInvite(loadRun(required(args, "run")));
+      return cmdMint(args);
     case "finish":
-      return finishHandoff(loadRun(required(args, "run")), args);
+      return cmdFinish(args);
     case "resume":
       return cmdResume(args);
     case "status":
       return cmdStatus(args);
     case "revoke":
       return cmdRevoke(args);
+    case "run":
+      return cmdRun(args);
+    case "tick":
+      return cmdTick(args);
+    case "ops":
+      return cmdOps(args);
+    case "attention":
+      return cmdAttention(args);
     case "expiry-test":
       return cmdExpiryTest(args);
     default:
       reporter.line(
-        "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|finish|mint|status|revoke|expiry-test> [--flags]",
+        "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
+          "attention|finish|mint|status|revoke|expiry-test> [--flags]",
       );
       process.exit(2);
   }

@@ -5,83 +5,224 @@
 // contract. It is NOT the seam anything should call: on its own it will happily
 // order a second box for an intent that already spent one.
 //
-// This coordinator is the seam. It reserves the intent durably, then calls the
-// adapter, then records what the call turned out to do - and the reservation is
-// what forbids a second attempt, whatever happens afterwards. Everything that
-// can reach a paid create goes through here.
+// This coordinator is that seam, and it is the ONLY body in the codebase that
+// contains a call to `adapter.create` (asserted by a test). It owns the arming
+// transaction and the immediate call that follows it. There is deliberately no
+// public method that takes an intent id and infers permission from an existing
+// row: permission exists only as an ephemeral CreatePermit in this call stack,
+// so a restart can never reconstruct one.
 
+import {
+  CreateLatch,
+  CreatePermit,
+  FenceLostError,
+  type ArmRequest,
+} from "./create-latch.ts";
 import type {
   CreateOutcome,
   CreateRequest,
+  FindResult,
   ProviderAdapter,
 } from "./provider.ts";
-import { IntentJournal } from "./intents.ts";
+import type { Fence, OperationRow, Store } from "./store.ts";
+import { auditOutcomeOf } from "./tick.ts";
+
+/**
+ * Extra writes that belong to the SAME transaction as the outcome - the
+ * provider asset row, the operation's completion. Run inside it, so losing the
+ * fence rolls them back with everything else.
+ */
+export type SettleCreate = (outcome: CreateOutcome, op: OperationRow) => void;
 
 export class CreateCoordinator {
   constructor(
     private readonly adapter: ProviderAdapter,
-    private readonly journal: IntentJournal,
+    private readonly latch: CreateLatch,
+    private readonly store: Store,
   ) {}
 
   /**
-   * Order a box, exactly once per intent, ever.
+   * Arm and issue exactly one create.
    *
-   * The reservation is written and fsynced BEFORE the call and already means
-   * "the paid call may have happened". So a crash anywhere after this point -
-   * including between Contabo accepting the order and our result write - leaves
-   * the intent in the state that forbids create, and the only way forward is
-   * `find`.
+   * The order is the guarantee: latch (one transaction, intent row plus the
+   * operation's fenced evidence), consume the permit, then call. Consuming
+   * BEFORE the await matters - a permit left live across it would still be
+   * spendable by a re-entrant path.
    */
-  async create(req: CreateRequest): Promise<CreateOutcome> {
-    // Throws if the intent has been used, if another process reserved it first,
-    // or if the journal is unreadable. All three fail closed.
-    this.journal.latchBeforeCreate(req.intentId, {
+  async armAndCreate(
+    req: CreateRequest,
+    fence: Fence,
+    settle?: SettleCreate,
+  ): Promise<CreateOutcome> {
+    const arm: ArmRequest = {
+      intentId: req.intentId,
       plan: req.plan,
       region: req.region,
-    });
+    };
+    const { permit, armed } = this.latch.armOnce(arm, fence);
+    permit.consume();
+    if (!(permit instanceof CreatePermit) || !permit.spent) {
+      throw new Error("refusing to call create without a spent permit");
+    }
 
     let outcome: CreateOutcome;
+    this.audit(armed.instance_id, "provider_create", "started", req.intentId);
     try {
       outcome = await this.adapter.create(req);
+      this.audit(
+        armed.instance_id,
+        "provider_create",
+        outcome.outcome === "created"
+          ? "succeeded"
+          : outcome.outcome === "rejected"
+            ? "failed"
+            : "ambiguous",
+        req.intentId,
+      );
     } catch (err) {
-      // A throw from the adapter is not evidence that nothing was ordered.
-      this.journal.recordOutcome(req.intentId, {
-        state: "ambiguous",
-        reason: `create threw: ${err instanceof Error ? err.message : String(err)}`,
-      });
+      this.audit(
+        armed.instance_id,
+        "provider_create",
+        "ambiguous",
+        req.intentId,
+      );
+      // A throw is not evidence that nothing was ordered.
+      this.settleOutcome(
+        req,
+        armed,
+        fence.holder,
+        {
+          outcome: "ambiguous",
+          reason: `create threw: ${err instanceof Error ? err.message : String(err)}`,
+        },
+        settle,
+      );
       throw err;
     }
-
-    switch (outcome.outcome) {
-      case "created":
-        this.journal.recordOutcome(req.intentId, {
-          state: "created",
-          providerId: outcome.providerId,
-        });
-        break;
-      case "rejected":
-        this.journal.recordOutcome(req.intentId, {
-          state: "rejected",
-          reason: outcome.reason,
-        });
-        break;
-      case "ambiguous":
-        this.journal.recordOutcome(req.intentId, {
-          state: "ambiguous",
-          reason: outcome.reason,
-        });
-        break;
-    }
+    this.settleOutcome(req, armed, fence.holder, outcome, settle);
     return outcome;
   }
 
   /**
    * Resolve an intent that is still owed an answer, by search only.
    *
-   * There is deliberately no path from here back to create: an `exact` hit
-   * adopts the box, and anything else is a human's problem.
+   * There is deliberately no path from here back to create. This method takes an
+   * intent id and grants nothing: `find` cannot spend.
    */
-  async resolve(intentId: string) {
-    return this.adapter.find(intentId);
+  async resolve(intentId: string): Promise<FindResult | null> {
+    this.audit(null, "provider_find", "started", intentId);
+    try {
+      const found = await this.adapter.find(intentId);
+      this.audit(null, "provider_find", "succeeded", intentId);
+      return found;
+    } catch (err) {
+      // A find that cannot establish anything is ambiguity, not failure: it is
+      // the state that keeps an intent in quarantine rather than resolving it.
+      this.audit(null, "provider_find", auditOutcomeOf(err), intentId);
+      throw err;
+    }
+  }
+
+  /** One classified row per provider call, in its own transaction. Never a
+   * response body, never a credential - an action, a target and an outcome. */
+  private audit(
+    instanceId: string | null,
+    action: string,
+    outcome: "started" | "succeeded" | "failed" | "ambiguous",
+    target: string,
+  ): void {
+    this.store.tx(() =>
+      this.store.appendAudit({
+        actor: "control-plane",
+        instance_id: instanceId,
+        action,
+        target,
+        outcome,
+        detail: null,
+      }),
+    );
+  }
+
+  /**
+   * Write down what the call turned out to do - intent row, operation evidence
+   * and whatever the caller settles - in ONE transaction, fenced.
+   *
+   * If the lease moved while we were at the remote seam, EVERY write here rolls
+   * back and FenceLostError is raised. That is deliberate: the operation stays
+   * at `create_call_armed` and the intent stays `intended`, which is the state
+   * whose only legal next act is `find`. A blind retry of this transaction, or
+   * of the call, is exactly what must not happen.
+   */
+  private settleOutcome(
+    req: CreateRequest,
+    armed: OperationRow,
+    holder: string,
+    outcome: CreateOutcome,
+    settle?: SettleCreate,
+  ): void {
+    this.store.tx(() => {
+      const intent = this.store.getIntent(req.intentId);
+      if (!intent) {
+        throw new Error(
+          `intent ${req.intentId} vanished between arming and settling`,
+        );
+      }
+      const patch =
+        outcome.outcome === "created"
+          ? { state: "created" as const, provider_id: outcome.providerId }
+          : outcome.outcome === "rejected"
+            ? { state: "rejected" as const, reason: outcome.reason }
+            : { state: "ambiguous" as const, reason: outcome.reason };
+      if (!this.store.casIntent(req.intentId, intent.version, patch)) {
+        throw new FenceLostError(
+          `intent ${req.intentId} moved while settling the create outcome`,
+        );
+      }
+      const op = this.store.casOperation(
+        { id: armed.id, version: armed.version, holder },
+        {
+          status:
+            outcome.outcome === "created"
+              ? "running"
+              : outcome.outcome === "rejected"
+                ? "failed"
+                : "ambiguous",
+          evidence: {
+            phase:
+              outcome.outcome === "created"
+                ? "created"
+                : outcome.outcome === "rejected"
+                  ? "rejected"
+                  : "quarantine",
+            intentId: req.intentId,
+            ...(outcome.outcome === "created"
+              ? { providerId: outcome.providerId }
+              : { reason: outcome.reason }),
+          },
+          evidence_at: this.store.now(),
+        },
+      );
+      if (!op) {
+        throw new FenceLostError(
+          `operation ${armed.id} moved while settling the create outcome for ` +
+            `${req.intentId}; every write is rolled back and the only legal next ` +
+            `act is find`,
+        );
+      }
+      settle?.(outcome, op);
+      this.store.appendAudit({
+        actor: "control-plane",
+        instance_id: op.instance_id,
+        action: "create_instance",
+        target: req.intentId,
+        outcome:
+          outcome.outcome === "created"
+            ? "succeeded"
+            : outcome.outcome === "rejected"
+              ? "failed"
+              : "ambiguous",
+        detail: null,
+      });
+    });
   }
 }

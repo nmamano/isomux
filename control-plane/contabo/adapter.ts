@@ -21,6 +21,7 @@
 // Contabo offers NO idempotency key for the paid create endpoint (see
 // http.ts), so an ambiguous create is resolvable only by `find`.
 
+import { IndeterminateProviderError } from "../provider.ts";
 import type {
   AssetState,
   CancelResult,
@@ -45,13 +46,36 @@ import type { ContaboHttp } from "./http.ts";
  * what routes this to a human, which is exactly where the design sends an
  * unresolvable intent.
  */
-export class IndeterminateFindError extends Error {}
+export class IndeterminateFindError extends IndeterminateProviderError {}
 
-/** Prefix stamped into `displayName` so `find` has something to match on. */
-export const INTENT_STAMP_PREFIX = "isomux-cp:";
+/**
+ * Prefix stamped into `displayName` so `find` has something to match on.
+ *
+ * The separator is a HYPHEN, not a colon, and that is not cosmetic. Measured
+ * live 2026-08-09 (slice 2): Contabo validates displayName and answers
+ * `400 {"message":["Only numbers, letters, spaces and - allowed."]}` to anything
+ * else. A colon-separated stamp - which is what slice 1 shipped - would have
+ * made every live create fail at the provider, and no fixture could catch it
+ * because the rule lives on their side. Slice 1 never ordered a box, so the
+ * defect was invisible until a real request carried the stamp.
+ */
+export const INTENT_STAMP_PREFIX = "isomux-cp-";
+
+/** What the provider accepts in a displayName, measured rather than assumed. */
+const PROVIDER_LEGAL_DISPLAY_NAME = /^[A-Za-z0-9 -]+$/;
 
 export function intentStamp(intentId: string): string {
-  return `${INTENT_STAMP_PREFIX}${intentId}`;
+  const stamp = `${INTENT_STAMP_PREFIX}${intentId}`;
+  if (!PROVIDER_LEGAL_DISPLAY_NAME.test(stamp)) {
+    // Fail here rather than at the provider: a create rejected for a malformed
+    // name is a wasted round trip on the one call that must not be repeated
+    // blind, and `find` would then have nothing to match on either.
+    throw new Error(
+      `intent id ${JSON.stringify(intentId)} cannot be stamped into a Contabo ` +
+        `displayName: only numbers, letters, spaces and - are accepted`,
+    );
+  }
+  return stamp;
 }
 
 interface ContaboInstanceRow {
@@ -125,12 +149,23 @@ export class ContaboAdapter implements ProviderAdapter, RecyclableProvider {
     if (result.kind === "rejected" && result.status === 404) {
       return { assetState: "absent", powerState: "unknown", raw: null };
     }
+    // The transport's outcome CLASS has to survive this boundary. A timeout or a
+    // 5xx establishes nothing about the instance, and collapsing it into a plain
+    // Error would have the audit trail claim we learned it was gone.
+    if (result.kind === "ambiguous") {
+      throw new IndeterminateProviderError(
+        `get(${providerId}) could not establish anything: ${result.reason}`,
+      );
+    }
     if (result.kind !== "ok") {
       throw new Error(`get(${providerId}) failed: ${result.reason}`);
     }
     const row = firstRow(result.body);
     if (!row) {
-      throw new Error(`get(${providerId}) returned no instance row`);
+      // A 2xx we cannot read is not a refusal either.
+      throw new IndeterminateProviderError(
+        `get(${providerId}) returned a response with no readable instance row`,
+      );
     }
     return {
       assetState: assetStateOf(row),

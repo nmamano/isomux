@@ -19,13 +19,79 @@ export interface ExecResult {
   stderr: string;
 }
 
+/**
+ * A remote call whose EFFECT cannot be established. Callers treat this class as
+ * ambiguous rather than as a clean failure: the box may well have acted.
+ */
+export class AmbiguousRemoteError extends Error {}
+
+/**
+ * The call itself succeeded and RECORDING it did not.
+ *
+ * It is emphatically not a remote failure: retrying blind on a storage error
+ * would repeat a mutation the box already applied. A failure to write the audit
+ * row is a failure to know, which is what ambiguous means.
+ */
+export class ObserverWriteFailed extends AmbiguousRemoteError {}
+
+/**
+ * A remote call that was killed for exceeding its wall-clock bound.
+ *
+ * It is an ERROR rather than an ExecResult on purpose. classifyAuth reads any
+ * exit status other than ssh's own 255 as "the remote command ran, so
+ * authentication had already succeeded" - so a timeout that came back as a
+ * result would certify an authentication that never happened. A killed child
+ * also proves nothing about whether the remote side acted, which is why callers
+ * treat this as ambiguous rather than as a clean failure.
+ */
+export class RemoteTimeoutError extends AmbiguousRemoteError {}
+
+/**
+ * A bound on one remote call, or a function that yields the CURRENT bound.
+ *
+ * The function form is what makes a shared, whole-handler budget real: a handler
+ * that runs five children must have each of them bounded by what is LEFT, not by
+ * the same number five times. A source that returns zero or less means the call
+ * may not begin at all.
+ */
+export type TimeoutSource = number | (() => number);
+
+export function resolveTimeout(
+  source: TimeoutSource | undefined,
+): number | undefined {
+  if (source === undefined) return undefined;
+  const ms = typeof source === "function" ? source() : source;
+  if (ms <= 0) {
+    throw new RemoteTimeoutError(
+      "refusing to start a remote call with no time left in its budget",
+    );
+  }
+  return ms;
+}
+
+export interface ExecOptions {
+  stdin?: string;
+  /** Hard bound on the whole child-process lifetime, spawn to exit, so
+   * connection setup and teardown are inside it. */
+  timeoutMs?: number;
+}
+
+/** Told about every child a client runs, so each one can be recorded. One
+ * driver primitive issuing three commands produces three of these. */
+export type CallPhase = "started" | "succeeded" | "failed" | "ambiguous";
+
+export type CallObserver = (
+  phase: CallPhase,
+  kind: "script" | "pipe" | "probe",
+) => void;
+
 /** The process seam, so driver logic is testable without a box. */
 export interface Exec {
-  run(argv: string[], opts?: { stdin?: string }): Promise<ExecResult>;
+  run(argv: string[], opts?: ExecOptions): Promise<ExecResult>;
 }
 
 export class SpawnExec implements Exec {
-  async run(argv: string[], opts?: { stdin?: string }): Promise<ExecResult> {
+  async run(argv: string[], opts?: ExecOptions): Promise<ExecResult> {
     const proc = Bun.spawn(argv, {
       stdin:
         opts?.stdin === undefined
@@ -34,12 +100,29 @@ export class SpawnExec implements Exec {
       stdout: "pipe",
       stderr: "pipe",
     });
-    const [stdout, stderr, code] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ]);
-    return { code, stdout, stderr };
+    let timedOut = false;
+    const timer =
+      opts?.timeoutMs === undefined
+        ? null
+        : setTimeout(() => {
+            timedOut = true;
+            proc.kill(9);
+          }, opts.timeoutMs);
+    try {
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      if (timedOut) {
+        throw new RemoteTimeoutError(
+          `remote command exceeded ${opts?.timeoutMs}ms and was killed: ${argv[0]}`,
+        );
+      }
+      return { code, stdout, stderr };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 }
 
@@ -159,7 +242,65 @@ export class SshClient {
     readonly target: SshTarget,
     private readonly exec: Exec,
     private readonly hostKeyPolicy: "accept-new" | "yes" = "yes",
+    /**
+     * Hard bound applied to every call this client makes, resolved PER CALL.
+     * A tick passes a function reading the handler's remaining budget, so the
+     * second and third children of one handler are bounded by what is left
+     * rather than by the original figure. The slice-1 commands leave it unset
+     * and rely on ssh's own timeouts.
+     */
+    private readonly timeoutMs?: TimeoutSource,
+    /** Notified per CHILD, not per logical step. */
+    private readonly observer?: CallObserver,
   ) {}
+
+  /**
+   * Run one child and tell the observer about it.
+   *
+   * The `succeeded` notification is the delicate one: if recording throws, the
+   * remote command has ALREADY run, so this must not come back as a plain
+   * failure that a scheduler would retry blind.
+   */
+  private async observed(
+    kind: "script" | "pipe" | "probe",
+    fn: () => Promise<ExecResult>,
+  ): Promise<ExecResult> {
+    this.observer?.("started", kind);
+    let res: ExecResult;
+    try {
+      res = await fn();
+    } catch (err) {
+      try {
+        // "failed" is a claim that nothing happened on the box. A timeout has
+        // not earned it: the command may well have run and only the answer was
+        // lost.
+        this.observer?.(
+          err instanceof AmbiguousRemoteError ? "ambiguous" : "failed",
+          kind,
+        );
+      } catch {
+        // The original transport error is the more useful one.
+      }
+      throw err;
+    }
+    try {
+      this.observer?.("succeeded", kind);
+    } catch (err) {
+      // The command ran. Record what we know - that its outcome could not be
+      // written - rather than leaving the trail claiming a failure.
+      try {
+        this.observer?.("ambiguous", kind);
+      } catch {
+        // Nothing else to try; the throw below carries the story.
+      }
+      throw new ObserverWriteFailed(
+        `the remote command ran and could not be recorded: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    return res;
+  }
 
   /**
    * Run a script on the box. The script arrives on stdin and its inputs arrive
@@ -173,7 +314,12 @@ export class SshClient {
       "--",
       ...args,
     ];
-    return this.exec.run(argv, { stdin: body });
+    return this.observed("script", () =>
+      this.exec.run(argv, {
+        stdin: body,
+        timeoutMs: resolveTimeout(this.timeoutMs),
+      }),
+    );
   }
 
   /**
@@ -203,12 +349,21 @@ export class SshClient {
       ...sshBaseArgs(this.target, this.hostKeyPolicy),
       ...remoteArgv,
     ];
-    return this.exec.run(argv, { stdin });
+    return this.observed("pipe", () =>
+      this.exec.run(argv, {
+        stdin,
+        timeoutMs: resolveTimeout(this.timeoutMs),
+      }),
+    );
   }
 
   /** One authentication attempt that runs nothing of consequence. */
   async probeAuth(): Promise<AuthOutcome> {
     const argv = [...sshBaseArgs(this.target, this.hostKeyPolicy), "true"];
-    return classifyAuth(await this.exec.run(argv));
+    return classifyAuth(
+      await this.observed("probe", () =>
+        this.exec.run(argv, { timeoutMs: resolveTimeout(this.timeoutMs) }),
+      ),
+    );
   }
 }

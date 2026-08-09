@@ -17,9 +17,15 @@ bun control-plane/cli.ts list
 bun control-plane/cli.ts recycle --instance <id> --host <name> [--run-id <id>]
 bun control-plane/cli.ts connect --run <runId>
 bun control-plane/cli.ts resume  --run <runId>
-bun control-plane/cli.ts provision --run <runId> --access-window 2h [--stop-after first-contact] [--handoff-now] [--owner-name X]
-bun control-plane/cli.ts status  --run <runId>
+bun control-plane/cli.ts provision --run <runId> --access-window 2h [--stop-after first-contact|install] [--handoff-now] [--owner-name X]
+bun control-plane/cli.ts finish  --run <runId> [--handoff-now]
+bun control-plane/cli.ts mint    --run <runId>
 bun control-plane/cli.ts revoke  --run <runId>
+bun control-plane/cli.ts run                     # the tick loop, as its own process
+bun control-plane/cli.ts tick                    # one pass
+bun control-plane/cli.ts ops     [--run <runId>] # the operation rows
+bun control-plane/cli.ts attention [--ack <instanceId>] [--by <name>]
+bun control-plane/cli.ts status  --run <runId>
 bun control-plane/cli.ts expiry-test --run <runId> --variant boundary|powered-off [--seconds N]
 ```
 
@@ -61,7 +67,15 @@ only when all three hold:
 - the reported total is no larger than the page we read.
 
 Anything else is `unproven`, which raises a human rather than being acted on.
-The intent is stamped into `displayName` as `isomux-cp:<intentId>`.
+The intent is stamped into `displayName` as `isomux-cp-<intentId>`.
+
+**The separator is a hyphen because a colon is rejected.** Measured live
+2026-08-09: Contabo validates `displayName` and answers `400 {"message":["Only
+numbers, letters, spaces and - allowed."]}`. Slice 1 shipped a colon here, which
+would have made every live create fail at the provider - invisible to fixtures,
+and invisible to slice 1 because it never ordered a box. `intentStamp` now
+refuses an intent id it cannot stamp legally, so the failure lands locally
+instead of on the one call that must never be repeated blind.
 
 Absence gets the same treatment. `null` is a CLAIM - "no such box" - and an
 unsound search has not earned it: if the filter was ignored, the rows are a
@@ -128,6 +142,123 @@ box has no keys at all, and a provider reinstall is the only way back in.
 `ProviderAdapter`. The installer needs nothing from a provider beyond a fresh
 Ubuntu box with our key on it, so requiring every adapter to wipe and rebuild in
 place would be inventing a requirement the product does not have.
+
+## Operations, leases and deadlines
+
+Provisioning is not a script; it is a set of durable rows. Service state stays
+coarse (`provisioning`, `live`, `suspended`, `deprovisioned`) and the
+fine-grained progress lives in typed **operation** rows, which is what makes
+recovery deterministic: "installing" is no longer one word covering
+not-launched, running, and exited.
+
+`provision --stop-after` and `--handoff-now` are not control flow any more. They
+set the instance's **goal** (`first_contact`, `installed`, `live`,
+`handed_off`), and `nextKind(completed, goal)` decides what follows what - so a
+restart continues to the same place without being told again where it was going.
+Completing an operation and enqueueing its successor is ONE transaction, and the
+partial unique index on `(instance_id, kind) where status in
+(pending, running, ambiguous)` is the final arbiter of who gets to open it.
+
+**Nothing sleeps inside a tick.** Slice 1's three blocking loops - wait-for-SSH,
+the installer poll, the HTTPS wait - are single probes now, and the waiting is
+persisted as `next_attempt_at`. That is what makes a crash between two polls a
+tick that did not happen rather than a flow nobody can resume.
+
+**A version CAS fences a stale write; it does nothing about a stale ACT.** So a
+handler declares a hard bound on its remote work, `SpawnExec` enforces that bound
+by killing the child, and the tick refuses to begin unless it provably owns the
+lease for longer than the bound plus a margin (`LEASE_MS` 300s, `LEASE_SAFETY_MS`
+60s, `maxRemoteMs` at most 150s - see the per-kind table in operations.ts). A holder that loses or cannot renew its lease
+does not touch a remote seam at all. The residual - a process stopped between the
+check and the kill - is covered by the box: `flock -n` plus the wrapper's refusal
+to reuse a generation directory is what stops two installers, not our bookkeeping.
+
+A killed child throws `RemoteTimeoutError`, which is **ambiguous by default**
+rather than a clean failure: it proves nothing about whether the remote side
+acted. Only read-only probes opt down to a plain retry.
+
+The instance row and its provider asset are created in ONE transaction: a death
+between them would leave an instance with no provider axis, and the restart would
+take the "already exists" branch and never look again - the four-axis model
+quietly down to three. A restart also repairs a row that is missing its asset,
+for the databases an older build could have left.
+
+**There are two fences and they are not the same one.** TIME bounds the right to
+BEGIN remote work: the budget caps itself by `lease_until - LEASE_SAFETY_MS`, so
+once a lease is spent nothing new can start. The VERSION/HOLDER token bounds
+whether a late RESULT may be recorded: if another holder adopted, or a deadline
+flag landed, or anything else touched the row, the old result is refused.
+
+So an expired holder that nobody has adopted yet may still write down what it did
+while it legitimately held the lease. Requiring the lease to still be live at
+write time would discard valid evidence without preventing a single conflicting
+write - the version predicate already prevents those - and that evidence is often
+the record of a real remote effect the next holder would otherwise rediscover the
+hard way.
+
+**A losing writer re-reads and DECIDES; it never replays.** For provider truth
+the decision is to DROP the response: re-applying an older answer on top of the
+winner's newer one is a blind retry wearing a fresh version number. A fresh `get`
+on the next tick is what settles it, and a failed read never pushes out a
+schedule somebody else has since made more urgent.
+
+**Deadlines flag; they never conclude.** Each operation carries an inactivity
+deadline that resets when its evidence advances and a larger absolute ceiling.
+Blowing either raises attention and leaves the operation exactly as it was, still
+retrying. `revoke_access` has no fatal arm at all: a failed revocation is an
+attention case that keeps trying, because the box-local timer means the failure
+costs a broken promise about _when_, not a broken guarantee.
+
+Attention is persisted, and every reason is its own row. The instance's attention
+columns are a written summary of the still-open reasons, recomputed in the same
+transaction - so an installer deadline cannot clear or overwrite an open
+revocation failure. Acknowledging is **not** clearing: `attention --ack` records
+that a human saw it, and the instance keeps reporting `needs_operator` until the
+condition itself goes away.
+
+## Where the state lives
+
+`~/.isomux-control-plane/control-plane.db`, SQLite in WAL with
+`synchronous=FULL`. The deployed provisioner runs managed Postgres, so the SQL is
+constrained rather than idiomatic: service state, goal, attention state and
+severity, operation status, intent state and PROVIDER ASSET STATE all carry CHECK
+constraints, so every finite set is enforced by the database and not only by a
+TypeScript union; times are INTEGER ms-epoch, booleans are 0/1,
+JSON travels as an already-serialised TEXT parameter (no `json()` calls), the
+audit log's event id comes from a `sequences` row bumped in the same transaction
+rather than AUTOINCREMENT, and every mutation is one statement with a version
+predicate. Private key material still never enters the database: the run record
+and the 0600 key files on disk remain the authority, and the schema stores only
+the runId, the public blob and paths.
+
+There is no schema migration in this slice, and a database written before it
+REFUSES TO OPEN rather than failing somewhere in the middle of a run: `create
+table if not exists` is silent about a table that exists with the wrong columns,
+so the store checks for the columns it needs and names the file to move aside.
+
+The slice-1 audit JSONL is still written, as a post-commit mirror. It is not half
+of a state transition: an attention raise and its `audit_events` row commit
+together, and a failure there fails the tick loudly rather than persisting one
+without the other.
+
+### The create latch moved into the schema
+
+A successful INSERT into `create_intents` permits only its returning call stack
+to issue one call; the persisted row permanently forbids all later calls. The
+intent INSERT and the fenced CAS of the operation's evidence to
+`create_call_armed` commit TOGETHER, so "latched but nobody knows which operation
+owns it" cannot exist, and a stale fence rolls the intent back - correct, because
+nothing was sent. On commit the latch mints a `CreatePermit` into the caller's
+stack frame: not serialisable, never stored, consumed before the await. A crash
+loses it permanently, which is what makes restart recovery find-only by
+construction rather than by a check somebody could forget.
+
+Slice 1's O_EXCL journal is retained as VETO-ONLY evidence. It is imported into
+the schema on open - a corrupt file still forbids, using the id from its
+filename; an unrecognised state imports as `ambiguous` rather than being trusted,
+because a legacy file is bytes on disk and the column's type is a claim about our
+own writes; a directory that cannot be enumerated refuses to open the store at
+all. It is never deleted or rewritten, and it can only ever refuse a create.
 
 ## The driver protocol
 

@@ -15,6 +15,16 @@
 //     best-effort must say `unproven`, and the machine treats that as grounds
 //     for a human rather than as a reconciliation.
 
+/**
+ * A provider answer that establishes nothing - neither that the thing is there
+ * nor that it is absent.
+ *
+ * It lives on the portable seam rather than inside one adapter because callers
+ * have to treat it as ambiguity wherever it comes from: an audit row that says
+ * `failed` for it would claim we learned something we did not.
+ */
+export class IndeterminateProviderError extends Error {}
+
 /** What a create attempt actually established. Never thrown, always returned. */
 export type CreateOutcome =
   | { outcome: "created"; providerId: string }

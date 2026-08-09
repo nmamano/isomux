@@ -11,6 +11,9 @@ export const RUNS_DIR = path.join(STATE_ROOT, "runs");
 export const KEYS_DIR = path.join(STATE_ROOT, "keys");
 export const INTENTS_DIR = path.join(STATE_ROOT, "intents");
 export const AUDIT_FILE = path.join(STATE_ROOT, "audit.jsonl");
+/** Instances, provider assets, operations, attention and audit_events. The
+ * JSONL above stays as a post-commit mirror that survives losing this file. */
+export const DB_FILE = path.join(STATE_ROOT, "control-plane.db");
 
 /** Contabo's Ubuntu 24.04 image, as measured on the pilot account. */
 export const UBUNTU_2404_IMAGE_ID = "d64d5c6c-9dda-4e38-8174-0ee282474d8a";

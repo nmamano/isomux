@@ -4,6 +4,7 @@ import {
   IndeterminateFindError,
   intentStamp,
 } from "./adapter.ts";
+import { IndeterminateProviderError } from "../provider.ts";
 import { ContaboHttp } from "./http.ts";
 import { TokenProvider, type FetchLike } from "./auth.ts";
 
@@ -63,6 +64,74 @@ function row(id: number, displayName: string) {
   return { instanceId: id, displayName, status: "running" };
 }
 
+describe("get preserves the transport's outcome class", () => {
+  test("a transport failure is indeterminate, not a refusal", async () => {
+    const { adapter } = adapterOver([{ status: 0, throws: "socket hang up" }]);
+    let thrown: unknown;
+    try {
+      await adapter.get("203474835");
+    } catch (err) {
+      thrown = err;
+    }
+    // "failed" downstream would claim we learned the instance was gone.
+    expect(thrown).toBeInstanceOf(IndeterminateProviderError);
+  });
+
+  test("a 5xx is indeterminate too", async () => {
+    const { adapter } = adapterOver([{ status: 503 }]);
+    let thrown: unknown;
+    try {
+      await adapter.get("203474835");
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(IndeterminateProviderError);
+  });
+
+  test("a 2xx with no readable row is indeterminate", async () => {
+    const { adapter } = adapterOver([{ status: 200, body: { data: [] } }]);
+    let thrown: unknown;
+    try {
+      await adapter.get("203474835");
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(IndeterminateProviderError);
+  });
+
+  test("a 404 is a real answer: the instance is absent", async () => {
+    const { adapter } = adapterOver([{ status: 404 }]);
+    const view = await adapter.get("203474835");
+    expect(view.assetState).toBe("absent");
+  });
+
+  test("a deterministic 4xx stays a plain refusal", async () => {
+    const { adapter } = adapterOver([{ status: 400 }]);
+    let thrown: unknown;
+    try {
+      await adapter.get("203474835");
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(thrown).not.toBeInstanceOf(IndeterminateProviderError);
+  });
+});
+
+describe("the intent stamp", () => {
+  test("uses only characters the provider accepts", () => {
+    // Measured 2026-08-09: Contabo answers 400 "Only numbers, letters, spaces
+    // and - allowed." A stamp it refuses is a create that cannot be issued and,
+    // worse, an intent that find can never match on afterwards.
+    expect(intentStamp("abc-123")).toMatch(/^[A-Za-z0-9 -]+$/);
+  });
+
+  test("refuses an intent id it cannot stamp legally", () => {
+    expect(() => intentStamp("has:a:colon")).toThrow(/only numbers, letters/i);
+    expect(() => intentStamp("has_underscore")).toThrow();
+  });
+});
+
 describe("find", () => {
   test("claims exact only when the filter was honoured and one row matches", async () => {
     const { adapter } = adapterOver([
@@ -87,7 +156,7 @@ describe("find", () => {
       {
         status: 200,
         body: {
-          data: [row(1, STAMP), row(2, "isomux-cp:someone-else")],
+          data: [row(1, STAMP), row(2, "isomux-cp-someone-else")],
           _pagination: { totalElements: 2 },
         },
       },
@@ -218,7 +287,7 @@ describe("find must not report absence it cannot establish", () => {
         status: 200,
         body: {
           // Rows we did not ask for: proof the filter was ignored.
-          data: [row(1, "isomux-cp:someone-else"), row(2, "isomux-cp:another")],
+          data: [row(1, "isomux-cp-someone-else"), row(2, "isomux-cp-another")],
           _pagination: { totalElements: 2 },
         },
       },
