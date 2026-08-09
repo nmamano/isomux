@@ -256,7 +256,7 @@ export function renderCleanupUnits(
   const onCalendar = formatOnCalendar(expiresAt);
   const service = [
     "[Unit]",
-    "Description=Remove isomux setup access from this box",
+    "Description=Remove Hosted Isomux Provisioning access from this box",
     "",
     "[Service]",
     "Type=oneshot",
@@ -268,7 +268,7 @@ export function renderCleanupUnits(
   ].join("\n");
   const timer = [
     "[Unit]",
-    "Description=Deadline for isomux setup access",
+    "Description=Deadline for Hosted Isomux Provisioning access",
     "",
     "[Timer]",
     `OnCalendar=${onCalendar}`,

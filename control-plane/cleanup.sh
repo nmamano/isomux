@@ -82,7 +82,7 @@ cat >"$RECORD" <<JSON
   "removedProvisioningKey": $removed,
   "removedRunDirectory": "$RUN_ROOT",
   "removedWrapper": "$WRAPPER",
-  "note": "isomux setup access ended. The provisioning key no longer authenticates on this box."
+  "note": "Hosted Isomux Provisioning access ended. The provisioning key no longer authenticates on this box."
 }
 JSON
 chmod 0644 "$RECORD"
