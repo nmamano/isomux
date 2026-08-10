@@ -136,11 +136,141 @@ all user-visible prose verbatim in the report.
 
 ## Slice checklist
 
-- [ ] Slice P1: async API flip (Isomuxer1 / Reviewer1)
-- [ ] Slice P2: engine swap to Postgres (Isomuxer2 / Reviewer2) -
-      pickup finalized after P1 lands
+- [x] Slice P1: async API flip (Isomuxer1 / Reviewer1). DONE
+      2026-08-10: approved pre-format fingerprint
+      6ecceb711011a42d8b4125dceab77e99 (verified byte-exact before
+      formatting), committed 4dbecab. 87 files; suite 4076/0 incl.
+      691 control-plane; SQL-multiset and expect-line audits prove no
+      semantic drift. Key facts for P2: Store.open replaces new Store
+      (constructor private, init failure closes the handle and
+      rethrows unwrapped); raw SQL goes through sqlAll/sqlGet/sqlRun
+      (db private; tx control routes through sqlRun so the
+      failed-COMMIT injection seam survives); type-aware lint fence
+      lives in BOTH eslint configs (root config ignores
+      control-plane/web); interim caller rule "a tx body may await
+      only store calls, never remote I/O or timers" is a P1 stopgap
+      that P2 replaces with per-transaction connections; four
+      pre-existing dropped audit awaits fixed (reboot, resume,
+      deprovision, stripe/suspension); unawaited expect(p).rejects is
+      deliberate (awaiting trips await-thenable under bun types).
+      Product-visible consequences: none (README section only).
+      Three 6957e90d harness kills during the slice, all recovered by
+      same-session resume.
+- [ ] Slice P2: engine swap to Postgres (Isomuxer2 / Reviewer2)
 - [ ] Slice P3: production server, live proof, Neon-readiness, docs
       (Isomuxer1 / Reviewer1) - pickup finalized after P2 lands
+
+## PICKUP: Slice P2 - engine swap to Postgres (Isomuxer2 / Reviewer2)
+
+Goal: store.ts and the billing-store speak Postgres through a driver
+that runs under BOTH Node and Bun; every semantic in ruling 3
+preserved; tests run against a real local Postgres with per-test
+isolation; GitHub CI gains a Postgres service; bun:sqlite leaves
+control-plane entirely. P1 froze the API so this slice touches
+callers only where the connection string and error shapes force it.
+
+Load-bearing mechanics and traps:
+
+- Driver: `pg` presumed (standing defaults); argue any alternative at
+  the plan gate. The bigint problem is real: every time column is
+  epoch MILLISECONDS and must become `bigint` in Postgres, and pg
+  returns bigint as a STRING by default - parser config must return JS
+  numbers (safe: ms epochs sit far below 2^53), pinned by a test that
+  round-trips a written timestamp and asserts typeof number.
+- Placeholders: sqlite's `?` becomes `$1..$n`. P1 deliberately froze
+  SQL text; P2 is where it legitimately changes. The SQL-multiset
+  audit does not apply this slice - the reviewer reviews SQL changes
+  directly instead. No semantic change rides along with the syntax
+  change; `returning *`, partial unique indexes, check constraints
+  and the sequences-row bump all carry over as-is.
+- tx: per-transaction connection (pool checkout), replacing the P1
+  single-connection stopgap and its no-I/O-inside-tx caller rule.
+  What replaces the depth guard is a plan-gate topic with a hard
+  requirement either way: nesting must still throw, and the
+  transaction boundary comments in store.ts (which statements commit
+  together) must hold on the wire - statements of one tx must not
+  interleave onto another tx's connection.
+- Isolation: READ COMMITTED per standing defaults, argued from the
+  one-statement arbiters. Every CAS is a single UPDATE carrying its
+  predicate, so row locks resolve the races the concurrency suites
+  pin. If any invariant needs more, escalate to the manager - no
+  silent isolation bump.
+- Durability: the store header's "a commit that has not reached the
+  disk is not a latch" survives as synchronous_commit=on (the
+  default; do not turn it off anywhere, and note Neon honors it).
+  The pragma calls go away; busy_timeout has no equivalent needed
+  (row locks queue), but pick and justify connect/statement timeouts
+  at the plan gate.
+- Error mapping: signup.ts's isUniqueViolation must recognize
+  Postgres unique_violation (SQLSTATE 23505) - it currently matches
+  SQLITE_CONSTRAINT codes and sqlite message text. Sweep for every
+  caller that catches constraint failures (name reservation, create
+  latch, liveness ensure, billing inserts), and pin the mapping with
+  a test that provokes a real 23505.
+- assertSchemaIsCurrent: `pragma table_info` becomes
+  information_schema.columns (same refuse-by-name behavior, same
+  error message shape naming the database instead of the file).
+- Connection config: CONTROL_PLANE_DB keeps its name, value becomes a
+  postgres:// URL (standing default). Everything that passed a file
+  path to Store.open flips: cli, billing-cli, exercises, fixtures,
+  web services.server.ts (CONTROL_PLANE_DB is already its env
+  contract), and every test. HOME-override state roots stop carrying
+  the database (they still carry keys/artifacts).
+- Test infra: one local Postgres (docker, postgres:16 to match Neon's
+  major) with per-test isolation - database-per-test-file or
+  schema-per-test, mechanics plan-gated; the bar is the current suite
+  stays green and does not blow past roughly 2x its present runtime.
+  A run without Postgres fails loudly with one-line instructions
+  (docker run command included); no silent skip anywhere. GitHub
+  build.yml gains a postgres service container so CI cannot skip;
+  validate the workflow change by running the same steps locally
+  against the same service configuration.
+- bun:sqlite: after this slice `grep -rn "bun:sqlite" control-plane/`
+  (excluding web/node_modules) returns nothing. web/bun-types.d.ts
+  loses its shim if that was its only purpose.
+- The five preserved injection seams from P1 (failed COMMIT among
+  them) must survive the swap - they route through sqlRun, so they
+  should; the reviewer verifies reachability, not just presence.
+- Concurrency suites get STRONGER here: racing name reservation,
+  overlapping liveness claims, lost successor, stale fences now run
+  on genuinely concurrent connections. If any of them was quietly
+  depending on bun:sqlite's single-writer serialization, this slice
+  is where that surfaces - treat such a failure as information about
+  the test or the invariant, never patch it silent.
+
+Acceptance:
+
+1. Full `bun run ci` green with the dockerized Postgres up; the
+   control-plane suite (691+) green against real Postgres.
+2. The concurrency suites demonstrably exercising Postgres (show the
+   connection evidence, not just green).
+3. bigint-as-number parser and 23505 mapping each pinned by a test.
+4. bun:sqlite gone from control-plane; boundary tests still green.
+5. build.yml carries the postgres service; the CI steps run green
+   locally against an identical service config.
+6. Exercises and CLIs run against a local Postgres (document the
+   one-liner that starts it).
+7. Mutation statement, no fewer than 6 sites across: a version
+   predicate removed from a CAS (test must fail), the lease predicate
+   removed from tryLease, the bigint parser config removed, the 23505
+   mapping broken, a per-transaction connection reuse bug simulated,
+   the partial-index predicate dropped. Name which net catches each.
+8. No deploy, no Neon calls (no credentials exist; Neon-readiness is
+   P3 documentation work).
+
+Decide with the reviewer: driver final call; pool sizing and
+lifecycle (a CLI one-shot vs the long-lived tick process); tx
+nesting-guard mechanism; placeholder translation approach (rewrite in
+place vs a tiny translator - bias to rewrite in place, the SQL is the
+readable artifact); per-test isolation mechanics and teardown; how
+the docker requirement lands in `bun run ci` (compose file vs raw
+docker run vs testcontainers).
+
+Locked: standing rails; ruling 3 semantics; row-type interfaces keep
+their shapes (numbers stay numbers); no new env var names;
+CONTROL_PLANE_DB reuse; READ COMMITTED unless escalated; the P1 lint
+fence stays exactly as pinned; contributor-story README wording gets
+drafted here but its copy sign-off waits for loop close.
 
 ## PICKUP: Slice P1 - async API flip (Isomuxer1 / Reviewer1)
 
