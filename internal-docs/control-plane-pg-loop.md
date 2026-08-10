@@ -183,6 +183,78 @@ all user-visible prose verbatim in the report.
 - [ ] Slice P3: production server, live proof, Neon-readiness, docs
       (Isomuxer1 / Reviewer1) - pickup finalized after P2 lands
 
+## PICKUP: Slice P3 - production server, live proof, Neon-readiness,
+docs (Isomuxer1 / Reviewer1)
+
+Goal: prove the port bought what it was for. The wall this loop exists
+to break, measured 2026-08-10: no production web server existed -
+`next start` under Node died on bun:sqlite, `bun --bun next start`
+died in Next's compiled runtime. P2 removed the cause; P3 demonstrates
+the effect, closes the two questions P2 parked, and leaves the docs
+telling the truth.
+
+Read the ticked P1 and P2 checklist entries above first - they carry
+the load-bearing facts (AsyncLocalStorage tx, pool-scoped parser,
+Store.recoverable, the isomux-cp-pg container on port 5433, DSN-only
+CONTROL_PLANE_DB, the in-suite-flake lesson).
+
+Work:
+
+1. The production server, demonstrated: `next build` then `next start`
+   under NODE (not bun) against the local Postgres, with a headless-
+   browser transcript (the repo's established playwright-core + system
+   Chrome pattern) showing store-backed pages actually serving:
+   dev-credentials sign-in, the dashboard/progress view over a seeded
+   instance (exercises/seed-instance against a scratch schema), and
+   the ops floor under an operator account. The Stripe checkout leg is
+   optional (needs the test key env); seeded rows are an acceptable
+   substitute - the claim under proof is "the store works under the
+   Node production server", not "checkout works" (slice 4a proved
+   that).
+2. Re-measure the README runtime matrix under the production server
+   and date it - P2 explicitly marked it pre-port and unverified.
+3. Close P2's two parked questions WITH the reviewer at the plan gate:
+   pool lifecycle for the web app (pool-per-request today; decide the
+   deployment posture and either implement a process-lifetime pool or
+   document why per-request stands for now - note Vercel/serverless
+   and Neon's pooled-vs-direct endpoints in the reasoning), and the
+   request-time dynamic import (its bun:sqlite reason died; keep or
+   simplify on the module-graph argument; the boundary test stays the
+   enforcement either way).
+4. One real-box leg: a single existing exercise (power-cycle or
+   adopt-run pattern, HOME-override state root, CONTROL_PLANE_DB at a
+   scratch database) against box 203474835, proving the provisioner
+   stack end-to-end on the Postgres store. Money rails unchanged:
+   that box only, no create, EUR 0, report any paid action
+   immediately. Leave the box serving (power back on, liveness
+   re-verified) before the slice ends.
+5. Neon-readiness as DOCUMENTATION only (no Neon account, no calls -
+   no credentials exist): DSN sslmode handling, pooled-vs-direct
+   endpoint note, confirmation that nothing engine-side assumes
+   superuser/extensions, synchronous_commit stance. One README
+   section, deploy-facing.
+6. Doc surfaces current per internal-docs/documentation.md; the
+   contributor story README wording stays as P2 wrote it (sign-off at
+   close, not yours).
+
+Acceptance:
+
+1. The transcript: Node production server, store-backed pages
+   rendering, cited file paths; the measured claim replacing the
+   README's dated matrix.
+2. Real-box exercise transcript cited, box left serving, EUR 0.
+3. Mutation statement, floor 3, on code this slice adds or changes
+   (server/pool lifecycle config, transcript driver assertions, doc-
+   asserted constants) - not re-proving P2's 14.
+4. Full `bun run ci` green; no deploy; no Neon calls; no DNS writes.
+
+Decide with the reviewer: pool posture; dynamic import; transcript
+driver mechanics; whether the checkout leg is worth the env plumbing.
+
+Locked: standing rails; ruling 3; P1 lint fence; P2 semantics
+(extend, do not rewrite); retention rulings; the contributor-story
+copy is frozen pending Nil.
+
 ## PICKUP: Slice P2 - engine swap to Postgres (Isomuxer2 / Reviewer2)
 
 Goal: store.ts and the billing-store speak Postgres through a driver
