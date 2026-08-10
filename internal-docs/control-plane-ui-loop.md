@@ -141,6 +141,15 @@ flow against a local instance seeded via `exercises/seed-instance.ts`.
   claim; the design's "5-minute poll" line is a budget argument
   (readyz limit 30/min), not a mandated cadence, and a 5-min cadence
   would make the 60-90s reboot outage unobservable.
+- R-2026-08-10-3 (slice 5, both lanes): retention beats provider term.
+  Data survives until the 1-calendar-month retention deadline; the
+  asset is not cancel-scheduled during suspension (cancel_asset only
+  at deprovision_due); a provider renewal meanwhile is an accepted
+  cost (up to one extra provider month per churn, on top of the grace
+  month - queued for Nil's price-table math). Customer copy shows only
+  proven dates; provider truth contradicting the promise raises
+  attention, never silently shortens copy. Not exercised on a live
+  asset this loop.
 - Nil awareness (from 4b settlement): after the access window closes,
   invite fetch refuses AND deletes, and minting is window-gated - so a
   customer whose window closes between mint and fetch has NO self-serve
