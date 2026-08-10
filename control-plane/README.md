@@ -1226,3 +1226,15 @@ an injected transport, the driver against a fake process seam, and `wrapper.sh`
 against a fake installer in a temp tree - which is how generation isolation,
 exit capture, single-flight and crash detection are proven, since a live run
 cannot be made to violate them on demand.
+
+## Working on control-plane/web: the next-env.d.ts trap
+
+`next dev` and `next build` each rewrite the GENERATED
+`control-plane/web/next-env.d.ts` (pointing it at `.next/dev/types` or
+`.next/types` respectively), so any dev-server or transcript run moves
+a frozen diff fingerprint by that one file. Restore it before
+fingerprinting. The isomux safety hooks block `git checkout -- <path>`
+and `git restore <path>` as destructive, so the standard moves are:
+edit the two import lines back by hand, or run `bun run ci:web`, whose
+`next build` restores the build-flavored content as a side effect.
+(Recorded 2026-08-10 after every web slice hit it.)
