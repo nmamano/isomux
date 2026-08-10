@@ -65,14 +65,15 @@ function deploymentOrigin(): string | null {
 export type OriginVerdict = { ok: true } | { ok: false; reason: string };
 
 /**
- * Refuse a signup POST that did not come from this deployment's own page.
+ * Refuse a POST that did not come from this deployment's own page.
  *
- * The route writes durably and spends at Stripe on the strength of a cookie, so
- * a form on another site - including a customer's own office, which shares the
- * registrable domain - must not be able to drive it. A missing Origin is
- * refused as hard as a foreign one.
+ * Every route that writes uses this, not just signup: on the strength of a
+ * cookie these routes spend at Stripe, restart a server, and ask for our own
+ * access to be removed. A form on another site - including a customer's own
+ * office, which shares the registrable domain - must not be able to drive any
+ * of them. A missing Origin is refused as hard as a foreign one.
  */
-export async function checkSignupOrigin(
+export async function checkTrustedOrigin(
   origin: string | null,
 ): Promise<OriginVerdict> {
   const { originIsTrusted } = await import("../../signup");
@@ -245,6 +246,94 @@ export async function progressForAccount(
 ): Promise<ProgressView | null> {
   const { projectionFor } = await import("../../progress");
   return withStore((store) => projectionFor(store, { accountId, instanceId }));
+}
+
+// ------------------------------------------------------- customer requests
+//
+// Three verbs, and they are the whole of what this app can ask the control
+// plane to DO. Each one is a named function over the store in
+// control-plane/requests.ts: nothing here names an operation kind, opens a
+// transaction or enqueues anything, so a new way to drive the machine cannot
+// appear as a side effect of writing a page.
+
+export type RequestResult =
+  | { ok: true; operationId: string }
+  | { ok: false; reason: string };
+
+async function customerRequest(
+  verb: "requestInvite" | "confirmHandoff" | "requestRestart",
+  accountId: string,
+  instanceId: string,
+): Promise<RequestResult> {
+  const requests = await import("../../requests");
+  const outcome = await withStore((store) =>
+    requests[verb](store, { accountId, instanceId }),
+  );
+  if (!outcome.ok) return { ok: false, reason: outcome.reason };
+  return { ok: true, operationId: outcome.operationId };
+}
+
+/** Ask for an owner invite. This opens the request; the URL is collected
+ * separately, once, by `revealInvite`. */
+export async function requestInvite(
+  accountId: string,
+  instanceId: string,
+): Promise<RequestResult> {
+  return customerRequest("requestInvite", accountId, instanceId);
+}
+
+/** "Revoke isomux's access" - the customer confirming they are in. */
+export async function confirmHandoff(
+  accountId: string,
+  instanceId: string,
+): Promise<RequestResult> {
+  return customerRequest("confirmHandoff", accountId, instanceId);
+}
+
+/** Restart the server at the provider. */
+export async function requestRestart(
+  accountId: string,
+  instanceId: string,
+): Promise<RequestResult> {
+  return customerRequest("requestRestart", accountId, instanceId);
+}
+
+export type RevealResult =
+  | { status: "ready"; url: string }
+  | {
+      status:
+        | "not_ready"
+        | "expired_or_lost"
+        | "window_closed"
+        | "failed"
+        | "forbidden";
+      reason: string;
+    };
+
+/**
+ * Collect a minted invite from the provisioner, once.
+ *
+ * The URL is never stored, cached or logged on this side: it is returned to the
+ * route, rendered by the page that asked, and forgotten. Asking twice is
+ * answered by the provisioner, not by us - the value is gone from its memory
+ * after the first collection, which is what makes "shown once" a fact rather
+ * than a flag.
+ */
+export async function revealInvite(
+  accountId: string,
+  instanceId: string,
+  operationId: string,
+): Promise<RevealResult> {
+  const { fetchInviteFromSeam, seamConfigFrom } =
+    await import("../../mint-client");
+  const config = seamConfigFrom(process.env);
+  if (!config) {
+    return {
+      status: "failed",
+      reason: "this deployment cannot hand out invites yet",
+    };
+  }
+  return fetchInviteFromSeam(config, { accountId, instanceId, operationId });
 }
 
 /**

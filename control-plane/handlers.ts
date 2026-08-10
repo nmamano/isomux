@@ -59,6 +59,18 @@ export interface HandlerDeps {
   /** Where the installer comes from. Injected so a test needs no 100KB fixture. */
   installerPath?: string;
   ownerName?: string;
+  /**
+   * Where a DASHBOARD-REQUESTED invite goes: the provisioner's in-memory
+   * one-shot hold, and nowhere else.
+   *
+   * A narrow structural type rather than the class, so this file cannot reach
+   * anything else on it. Present only in the long-lived provisioner; its
+   * ABSENCE is what makes a customer-requested mint refuse rather than fall
+   * back to printing a live credential at whoever is watching the process.
+   */
+  deliver?: {
+    hold(operationId: string, instanceId: string, url: string): void;
+  };
 }
 
 // --------------------------------------------------------------- utilities
@@ -603,9 +615,16 @@ export function verifyHttpsHandler(_deps: HandlerDeps): Handler {
 // ------------------------------------------------------------- mint_invite
 
 /**
- * Mint an owner invite and show it to the operator once.
+ * Mint an owner invite and hand it over exactly once.
  *
- * The URL reaches the terminal and nothing else: not the evidence, not the audit
+ * WHERE IT GOES IS DECIDED BY THE ROW, not by how this process was wired. A row
+ * carrying `via: "dashboard"` was opened by a customer through requests.ts, and
+ * its URL goes to the in-memory hold the seam serves - never to the operator's
+ * terminal, where it would land in a journal belonging to someone who is not
+ * the owner. Any other row is the operator's own interactive mint and keeps
+ * slice 1's reporter path with its redacted-transcript contract.
+ *
+ * Either way the URL reaches exactly one sink: not the evidence, not the audit
  * row, not the JSONL, not an error message. That last one is why this handler
  * does not use the firstLineOf(stdout, stderr) pattern the rest of the driver
  * uses - it would put remote output on an error path.
@@ -617,6 +636,21 @@ export function mintInviteHandler(deps: HandlerDeps): Handler {
       const rec = runFor(ctx, deps);
       const ev = evidenceOf(ctx);
       const phase = str(ev.phase);
+      const forDashboard = str(ev.via) === "dashboard";
+
+      // FAIL CLOSED, AND BEFORE THE REMOTE CALL. A customer's invite minted in
+      // a process with nowhere to deliver it would have to go somewhere, and
+      // every "somewhere" available here is wrong: a terminal, a journal, a
+      // row. So nothing is minted at all. Fatal rather than retry: no amount
+      // of waiting gives this process a delivery channel.
+      if (forDashboard && !deps.deliver) {
+        return {
+          kind: "fatal",
+          reason:
+            "this process has no delivery channel for a dashboard-requested " +
+            "invite; refusing to mint a credential it cannot hand to its owner",
+        };
+      }
 
       // Did we ENTER this invocation with a marker? That, and only that, is
       // recovery: it means some earlier invocation got as far as intending to
@@ -632,7 +666,14 @@ export function mintInviteHandler(deps: HandlerDeps): Handler {
       // warn.
       if (!isRecovery) {
         const marked = ctx.store.casOperation(ctx.fence, {
-          evidence: { phase: "minting" },
+          // THE STAMP IS CARRIED FORWARD. This write replaces the evidence
+          // wholesale, and a later attempt re-reads it to decide where the URL
+          // goes - so dropping `via` here would make a retried customer mint
+          // look like an operator's and print their credential to a terminal.
+          evidence: {
+            phase: "minting",
+            ...(forDashboard ? { via: "dashboard" } : {}),
+          },
           evidence_at: ctx.now,
         });
         if (!marked) {
@@ -653,17 +694,34 @@ export function mintInviteHandler(deps: HandlerDeps): Handler {
       if (minted.code !== 0) {
         return { kind: "retry", reason: "minting the invite failed" };
       }
-      if (isRecovery || ctx.op.attempt > 0) {
-        // A second mint revokes the first unconsumed link, so the operator is
-        // told rather than left holding a dead URL that looks fine.
-        deps.reporter.line(
-          "the invite printed earlier is no longer valid; use this one",
-        );
+      const url = minted.stdout.trim();
+      if (forDashboard) {
+        // The one write of this value anywhere, and it is to memory in this
+        // process. The customer's browser collects it through the seam; the
+        // hold drops it on collection, on its TTL, and on restart.
+        deps.deliver!.hold(ctx.op.id, ctx.instance.id, url);
+      } else {
+        if (isRecovery || ctx.op.attempt > 0) {
+          // A second mint revokes the first unconsumed link, so the operator is
+          // told rather than left holding a dead URL that looks fine. Only on
+          // the operator path: a customer's page already knows that asking
+          // again replaces their link.
+          deps.reporter.line(
+            "the invite printed earlier is no longer valid; use this one",
+          );
+        }
+        deps.reporter.invite(url);
       }
-      deps.reporter.invite(minted.stdout.trim());
       return {
         kind: "done",
-        evidence: { phase: "minted", minted: true, mintedAt: ctx.now },
+        // STATUS ONLY. `minted: true` says a link was produced; nothing here
+        // says anything about what it was.
+        evidence: {
+          phase: "minted",
+          minted: true,
+          mintedAt: ctx.now,
+          ...(forDashboard ? { via: "dashboard" } : {}),
+        },
       };
     },
   };

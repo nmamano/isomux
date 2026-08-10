@@ -1,5 +1,5 @@
 import { auth } from "../../../auth";
-import { checkSignupOrigin, signUpOffice } from "../../../lib/services.server";
+import { checkTrustedOrigin, signUpOffice } from "../../../lib/services.server";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,7 @@ export async function POST(request: Request): Promise<Response> {
   // durable rows and spends at Stripe on the strength of a cookie, so a post
   // from anywhere but this deployment's own page is refused outright - and a
   // refusal here has read nothing, written nothing and called nobody.
-  const trusted = await checkSignupOrigin(request.headers.get("origin"));
+  const trusted = await checkTrustedOrigin(request.headers.get("origin"));
   if (!trusted.ok) return new Response(trusted.reason, { status: 403 });
 
   const session = await auth();

@@ -19,7 +19,10 @@ export type OperationKind =
   | "revoke_access"
   /** Suspension. Enqueued by billing (slice 3) rather than by the provisioning
    * chain, which is why `nextKind` never returns it and it has no successor. */
-  | "power_off";
+  | "power_off"
+  /** The customer's own lever (slice 4b). Like `power_off` it is opened on
+   * demand rather than by the chain, so `nextKind` never returns it. */
+  | "reboot";
 
 /**
  * Kinds the design names that this slice does not drive. They are listed rather
@@ -30,7 +33,6 @@ export type OperationKind =
 export const DECLARED_UNIMPLEMENTED_KINDS = [
   "set_dns",
   "remove_dns",
-  "reboot",
   // `power_on` is deliberately still here. Slice 3 suspends on dunning
   // exhaustion; RESUMING a suspended box is a billing recovery transition that
   // has not been ruled on, and half a ladder is better than an invented one.
@@ -136,6 +138,16 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     absoluteMs: 30 * MINUTE,
     maxRemoteMs: 60_000,
   },
+  // The customer's restart. It concludes when the PROVIDER has accepted the
+  // reboot, not when the office answers again: coming back is what liveness
+  // reports, and tying the operation to it would turn a slow boot into a failed
+  // restart. Same retry shape as power_off - a provider API that is down for a
+  // few minutes must not silently drop somebody's restart.
+  reboot: {
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 30 * MINUTE,
+    maxRemoteMs: 60_000,
+  },
 };
 
 export function deadlinesFor(kind: string): Deadlines {
@@ -174,14 +186,27 @@ export function nextKind(
     case "run_installer":
       return goal === "installed" ? null : "verify_https";
     case "verify_https":
-      return "mint_invite";
+      // A HOSTED OFFICE STOPS HERE AND WAITS FOR THE CUSTOMER TO ASK.
+      //
+      // Minting before demand would put a live 24h credential in the hands of
+      // whoever is watching the provisioner - its stdout, its journal - and the
+      // design says the link goes only to the authenticated session that asked
+      // for it. So an instance whose goal is `live` reaches verified-live and
+      // stops; the dashboard's request is what opens the mint.
+      //
+      // `handed_off` is the OPERATOR's deliberate one-command flow (slice 1's
+      // north star: an office with an invite in hand and our key removed), and
+      // it is invoked interactively, so it keeps minting through the reporter
+      // with its redacted-transcript contract.
+      return goal === "handed_off" ? "mint_invite" : null;
     case "mint_invite":
       return goal === "handed_off" ? "revoke_access" : null;
     case "revoke_access":
       return null;
-    // Not part of the provisioning chain: billing opens it on its own evidence
-    // and nothing follows it.
+    // Not part of the provisioning chain: billing and the customer open these
+    // on their own evidence, and nothing follows them.
     case "power_off":
+    case "reboot":
       return null;
   }
 }

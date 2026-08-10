@@ -389,6 +389,93 @@ for an owner session, then `POST /api/invites/recovery` for the standard 24h
 single-use link. The audit log records that a mint happened, never the URL, and
 the operator transcript redacts it.
 
+### Where a customer's invite goes (slice 4b)
+
+The dashboard's invite takes the same two-hop mint and delivers it somewhere
+else, because the operator's terminal belongs to us and the credential belongs
+to the customer. Ruling R-2026-08-10-1-AMENDED: **the plaintext URL lives only
+in provisioner process memory**, in a one-shot map keyed by operation id with a
+five-minute TTL, and it is dropped on collection, on expiry, and on restart.
+
+    browser -> POST /api/invite      -> requests.ts opens a typed mint_invite
+                                        row stamped via:"dashboard"
+    tick    -> mint_invite handler   -> InviteHold.hold(opId, instanceId, url)
+    browser -> POST /api/invite/reveal -> mint-seam.ts fetch verb -> take() once
+
+Four consequences worth stating, because each one was a decision:
+
+- **Encryption was not enough.** An earlier design sealed the URL to a
+  per-session key and stored the ciphertext in the operation row. That was
+  rejected: encryption changes readability, not persistence, and the rule is
+  that an invite is never persisted anywhere, rows included.
+- **The routing is a property of the ROW, not of the wiring.** A row carrying
+  `via: "dashboard"` delivers to the hold; anything else keeps slice 1's
+  reporter path. The stamp is carried through the recovery marker write, or a
+  retried customer mint would print their credential to an operator's journal.
+- **A process with no delivery channel mints nothing.** `cli.ts tick` starts no
+  seam and holds no map, so a dashboard-requested row there is FATAL before the
+  remote call rather than minted into a context that cannot hand it over.
+- **The chain no longer mints.** `nextKind("verify_https", "live")` is null: a
+  hosted office stops at verified-live and waits to be asked. Only the
+  operator's deliberate `handed_off` flow still mints on its own, and that one
+  is invoked interactively with the redacted-transcript contract.
+
+`invite-persistence.test.ts` is the check that this holds: it drives a real mint
+against a fake box and then searches the database FILE'S BYTES (and its `-wal`,
+where a fresh value lands first), every evidence and audit value, the reporter's
+output and its transcript. It carries a positive control - a test that
+deliberately persists the URL and requires the same scan to catch it - because a
+search that has never matched anything is not evidence.
+
+### The seam, and what it is allowed to be
+
+One authenticated verb: fetch a minted invite by operation id, for an instance
+the caller owns, while the window is open. No kind, no host, no path, nothing
+else that reaches a remote seam. The web app's half (`mint-client.ts`) imports
+nothing from the control plane except a type, and `mint-seam.ts` is on the
+web-boundary test's forbidden list so no page can reach the server half.
+
+Answers are typed and carry no material: `ready`, `not_ready`,
+`expired_or_lost`, `window_closed`, `failed`, `forbidden`. `expired_or_lost`
+deliberately covers already-taken, expired and restarted alike - which of the
+three it was is information about how a credential was handled, and the
+customer's next action is the same in all three.
+
+A fetch after the window closes REFUSES and deletes the entry (manager ruling,
+reviewer-confirmed). The consequence is worth knowing: minting is window-gated
+too, so a customer in that position has no self-serve path left, and the page
+says so and points at support rather than showing a button that cannot work.
+
+**Transport, and the deploy-time note.** HTTP request-response, bound to
+loopback in this loop because the provisioner and the web app are the same box.
+Deliberately not a unix socket: a socket path is same-box by construction, and
+the deployed shape is a web app on Vercel calling a private provisioner surface.
+The interface does not assume co-location; the private networking (or mTLS) in
+front of it, and a request budget that fits the platform's function timeout, are
+deployment work and are not built here. The bearer credential comes from the
+environment on both sides - `CONTROL_PLANE_MINT_TOKEN` on the provisioner,
+plus `CONTROL_PLANE_MINT_URL` on the web app - with no default and no fallback:
+a provisioner started without one refuses to serve the seam at all, and says so.
+
+### Liveness, the restart, and the access window (slice 4b)
+
+- **Liveness is a measurement, not an operation.** `liveness-watch.ts` probes
+  each `live` office once a minute and counts CONSECUTIVE failures. Three
+  strikes raises attention (design: a box failing liveness gets a human), and
+  only a later `ok` clears it - an office failing dns, then tls, then tcp would
+  otherwise look like it keeps recovering. The due test and the claim are one
+  UPDATE, so two overlapping provisioners cannot count one outage twice.
+- **Reboot is never automatic.** It is the customer's button and nothing else,
+  because the failure may be ours. The customer-facing word is RESTART
+  everywhere: the boundary test forbids any file under `web/` from containing an
+  operation kind, so the app asks through a named verb and cannot spell
+  `reboot`.
+- **Confirmation is not a column.** "Revoke isomux's access" opens a
+  `revoke_access` row stamped `via: "dashboard"`, and that stamp is what makes
+  it the customer's confirmation. A row opened by an operator or the chain still
+  renders, but is never described as their choice. The 30-day ceiling stays the
+  fail-safe underneath.
+
 ## Billing (Stripe, test mode only)
 
 Signup, the comped path, webhooks and the dunning ladder. Every module lives in
@@ -839,6 +926,28 @@ idempotency keys, so re-running it inside Stripe's 24-hour idempotency window
 REPLAYS the original response - it printed ids for a coupon that had since been
 deleted and a price that had since been archived. Its output is a record of what
 was created once, not proof that those objects are usable now.
+
+### The 4b transcripts, and why there are two
+
+`e2e/handoff.e2e.ts` is the real-box driver: a real Chrome against a real dev
+server against a real provisioner holding a real box. It is the primary
+evidence, and it is the one that found the collection race described below.
+
+`e2e/handoff-local.e2e.ts` runs the same surface with the BOX faked - real
+store, real requests, real projection, real hold, real seam, real browser, but
+a fake exec for the mint and a directly-marked revocation. It exists because
+the real-box legs are gated on a certificate, and Let's Encrypt's
+duplicate-certificate limit is 5 per week per name: a run that needs a fresh
+`cp1.test.isomux.app` certificate cannot simply be repeated. Anything about how
+an invite is HANDLED is real in both.
+
+One defect a real browser found and no unit test would have: **the resend
+collected against a stale operation id.** The page took the id from the polled
+projection, which between the click and the next poll still described the
+PREVIOUS mint - so a resend asked the provisioner for a link it had already
+handed over and was told, correctly, that it was gone. The box had minted
+perfectly well both times. The click now carries the id its own request
+returned, and `handoff-local.e2e.ts` pins it.
 
 ## Tests
 

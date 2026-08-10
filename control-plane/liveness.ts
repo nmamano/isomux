@@ -13,6 +13,33 @@ import * as net from "node:net";
 
 export type Rung = "dns" | "wrong-box" | "tcp" | "tls" | "readyz" | "ok";
 
+/**
+ * Three consecutive failures before we call an office unreachable (design:
+ * "Three strikes before we call it unreachable"). One failed probe is a flap -
+ * a DNS hiccup here, a dropped SYN there - and telling a customer their office
+ * is down on the strength of one is how a dashboard trains people to ignore it.
+ */
+export const LIVENESS_STRIKES = 3;
+
+/** How often a live office is probed. /readyz is rate-limited at 30/min per
+ * caller, so this is two orders of magnitude inside budget, and it is fast
+ * enough that a reboot's dip and recovery are both visible on the dashboard. */
+export const LIVENESS_INTERVAL_MS = 60_000;
+
+/** How long one prober may hold the right to check an office. Longer than any
+ * single probe can take (DNS + connect + fetch are each bounded well under
+ * this), so a crashed prober's claim expires rather than stalling the ladder. */
+export const LIVENESS_CLAIM_MS = 5 * 60_000;
+
+/**
+ * The strike count after a result. Consecutive is the whole point: any `ok`
+ * resets to zero, so three strikes means three failures in a row rather than
+ * three failures ever.
+ */
+export function strikesAfter(previous: number, rung: Rung): number {
+  return rung === "ok" ? 0 : previous + 1;
+}
+
 export interface LivenessResult {
   /** The furthest rung reached. "ok" means every rung passed. */
   rung: Rung;

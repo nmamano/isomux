@@ -68,11 +68,15 @@ describe("only one file reaches the store", () => {
     // Adding an entry here is a deliberate act, which is the point: a new way
     // into the control plane cannot appear as a side effect of writing a page.
     expect(exported).toEqual([
-      "checkSignupOrigin",
+      "checkTrustedOrigin",
+      "confirmHandoff",
       "identityForSignIn",
       "officeForAccount",
       "plans",
       "progressForAccount",
+      "requestInvite",
+      "requestRestart",
+      "revealInvite",
       "signUpOffice",
     ]);
     // And nothing exports a store, a database or a transaction.
@@ -102,6 +106,12 @@ describe("only one file reaches the store", () => {
       "../../stripe/client",
       "../../stripe/checkout",
       "../../stripe/billing-store",
+      // Slice 4b. `requests` is the customer's three verbs over the store;
+      // `mint-client` is fetch plus a bearer credential and imports nothing
+      // from the control plane except a type. The graph walk below is what
+      // proves neither drags the driver in behind it.
+      "../../requests",
+      "../../mint-client",
     ]);
     for (const specifier of specifiers) {
       expect([specifier, allowed.has(specifier)]).toEqual([specifier, true]);
@@ -132,6 +142,15 @@ describe("the privileged half of the control plane is unreachable", () => {
     "stripe/dunning",
     "stripe/suspension",
     "stripe/signature",
+    // Slice 4b, the provisioner's half of the invite path. `mint-seam` serves
+    // the fetch verb and can read the hold; `invite-hold` IS the plaintext
+    // invite in memory; `liveness-watch` and `reboot` drive probes and a
+    // provider power action. None of them may be reachable from a page - the
+    // app's side of this is mint-client.ts and nothing else.
+    "mint-seam",
+    "invite-hold",
+    "liveness-watch",
+    "reboot",
   ];
 
   test("no app file imports the driver, the provider or the webhook path", () => {
@@ -204,6 +223,9 @@ describe("the privileged half of the control plane is unreachable", () => {
       "mint_invite",
       "revoke_access",
       "power_off",
+      // Added in 4b, and the reason the customer-facing vocabulary is RESTART:
+      // the app asks for one through a named verb, and cannot spell the kind.
+      "reboot",
     ];
     for (const file of FILES) {
       const source = read(file);
@@ -278,9 +300,50 @@ describe("the privileged half of the control plane is unreachable", () => {
     walk(FACADE);
     expect(forbidden).toEqual([]);
     // A sanity check on the walk itself: if it stopped at the facade it would
-    // trivially pass, so it must have reached the services it is allowed to.
+    // trivially pass, so it must have reached the services it is allowed to -
+    // including the three 4b added, or this would pass by not looking.
     expect(seen.has(path.join(CONTROL_PLANE, "signup.ts"))).toBe(true);
     expect(seen.has(path.join(CONTROL_PLANE, "progress.ts"))).toBe(true);
     expect(seen.has(path.join(CONTROL_PLANE, "store.ts"))).toBe(true);
+    expect(seen.has(path.join(CONTROL_PLANE, "requests.ts"))).toBe(true);
+    expect(seen.has(path.join(CONTROL_PLANE, "mint-client.ts"))).toBe(true);
+    expect(seen.has(path.join(CONTROL_PLANE, "liveness.ts"))).toBe(true);
+  });
+
+  /**
+   * The seam's client half must stay a client.
+   *
+   * mint-client.ts is the one module in the app's bundle that talks to the
+   * provisioner, so if it ever grew a store import - "just to check ownership
+   * first" - the app would be back inside the control plane through the one
+   * door the boundary opens. It is allowed node's fetch and a type, and
+   * nothing else.
+   */
+  test("the seam client reaches no control-plane runtime module", () => {
+    const source = read(path.join(import.meta.dir, "mint-client.ts"));
+    for (const line of source.split("\n")) {
+      if (!/^\s*(?:import|export)\s[^;]*\sfrom\s/.test(line)) continue;
+      // A type import is erased by the bundler: what is asserted is what runs.
+      expect([line, /^\s*(?:import|export) type /.test(line)]).toEqual([
+        line,
+        true,
+      ]);
+    }
+  });
+
+  /**
+   * The invite never becomes a stored thing.
+   *
+   * R-2026-08-10-1-AMENDED: the plaintext URL lives ONLY in provisioner process
+   * memory. This asserts the shape of that rule at the two places a future edit
+   * would break it - the hold must not import a store or a filesystem, and the
+   * handler must put the URL in exactly one place.
+   */
+  test("the invite hold cannot persist anything", () => {
+    const source = read(path.join(import.meta.dir, "invite-hold.ts"));
+    expect(source).not.toContain("bun:sqlite");
+    expect(source).not.toMatch(/from\s+"\.\/store/);
+    expect(source).not.toMatch(/from\s+"node:fs"/);
+    expect(source).not.toMatch(/console\./);
   });
 });

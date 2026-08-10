@@ -466,6 +466,89 @@ describe("mint_invite", () => {
   });
 });
 
+/**
+ * Slice 4b, and the property the whole invite seam rests on: a customer's link
+ * goes to the provisioner's memory, and a process that cannot deliver it mints
+ * NOTHING rather than falling back to printing it.
+ */
+describe("mint_invite for the dashboard", () => {
+  const URL = "https://cp1.test.isomux.app/i/dashboardsecret";
+
+  function held(): {
+    calls: { op: string; instance: string; url: string }[];
+    hold(op: string, instance: string, url: string): void;
+  } {
+    const calls: { op: string; instance: string; url: string }[] = [];
+    return {
+      calls,
+      hold(op, instance, url) {
+        calls.push({ op, instance, url });
+      },
+    };
+  }
+
+  test("the URL goes to the hold, and NEVER to the operator", async () => {
+    const exec = new FakeExec(() => ({
+      code: 0,
+      stdout: `${URL}\n`,
+      stderr: "",
+    }));
+    const b = bed(exec);
+    const deliver = held();
+    const ctx = b.ctx({ phase: "minting", via: "dashboard" });
+    const result = await mintInviteHandler({ ...b.deps, deliver }).run(ctx);
+
+    expect(result.kind).toBe("done");
+    expect(deliver.calls).toHaveLength(1);
+    expect(deliver.calls[0]).toMatchObject({
+      op: ctx.op.id,
+      instance: "inst-1",
+      url: URL,
+    });
+    // The operator's terminal and the redacted transcript both stay clean: this
+    // credential belongs to the customer, and a journal on our side is not
+    // theirs.
+    expect(b.lines.join("\n")).not.toContain("dashboardsecret");
+    expect(b.reporter.transcript.join("\n")).not.toContain("dashboardsecret");
+    expect(
+      JSON.stringify((result as { evidence: unknown }).evidence),
+    ).not.toContain("dashboardsecret");
+  });
+
+  test("no delivery channel: fatal, and nothing is minted at all", async () => {
+    const exec = new FakeExec(() => ({
+      code: 0,
+      stdout: `${URL}\n`,
+      stderr: "",
+    }));
+    const b = bed(exec);
+    const result = await mintInviteHandler(b.deps).run(
+      b.ctx({ via: "dashboard" }),
+    );
+    expect(result.kind).toBe("fatal");
+    // BEFORE the remote call, which is the point: a URL that exists has to go
+    // somewhere, so the refusal happens while there is still nothing to place.
+    expect(exec.calls).toHaveLength(0);
+    expect(b.lines.join("\n")).not.toContain("dashboardsecret");
+  });
+
+  test("the stamp survives the recovery marker, so a retry cannot leak", async () => {
+    // The marker write REPLACES the evidence. If it dropped `via`, the next
+    // attempt would read an operator row and print a customer's link.
+    const exec = new FakeExec(() => ({
+      code: 0,
+      stdout: `${URL}\n`,
+      stderr: "",
+    }));
+    const b = bed(exec);
+    const deliver = held();
+    const ctx = b.ctx({ via: "dashboard" });
+    await mintInviteHandler({ ...b.deps, deliver }).run(ctx);
+    const after = b.store.getOperation(ctx.op.id)!;
+    expect(JSON.parse(after.evidence).via).toBe("dashboard");
+  });
+});
+
 describe("mint_invite after an unrecorded attempt", () => {
   const URL2 = "https://cp1.test.isomux.app/i/second-link";
 

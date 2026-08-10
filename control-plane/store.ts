@@ -157,6 +157,33 @@ export interface AttentionReasonRow {
   version: number;
 }
 
+/**
+ * Where an office is on the probe ladder, and how many consecutive checks have
+ * failed.
+ *
+ * `strikes` is a COUNT, not a flag, because the design's threshold is three
+ * consecutive failures and a single flap is not an outage. It is persisted
+ * rather than recomputed because there is nothing to recompute it from: a probe
+ * leaves no other trace.
+ *
+ * `next_check_at` plus `claim_until`/`claim_holder` are what stop two
+ * overlapping ticks probing the same office and counting one outage twice. The
+ * claim is taken by the same UPDATE that tests whether the row is due, so there
+ * is no read-then-act window between the two.
+ */
+export interface LivenessRow {
+  instance_id: string;
+  rung: string;
+  strikes: number;
+  checked_at: number | null;
+  next_check_at: number;
+  claim_until: number | null;
+  claim_holder: string | null;
+  version: number;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface AuditRow {
   seq: number;
   ts: number;
@@ -373,6 +400,22 @@ create table if not exists stripe_events (
 -- the MVP, so "one office per account" is a database constraint rather than a
 -- check somebody could forget. Two connections reserving different names for
 -- one account are separated here, not by a SELECT in front of the insert.
+-- Liveness (slice 4b). A NEW TABLE, which is why it needs no migration and no
+-- entry in the column check below: an older database gains an empty one, and an
+-- office with no row has simply never been probed - which is not ambiguous
+-- state, it is the absence of a reading.
+create table if not exists instance_liveness (
+  instance_id text primary key,
+  rung text not null,
+  strikes integer not null default 0,
+  checked_at integer,
+  next_check_at integer not null,
+  claim_until integer,
+  claim_holder text,
+  version integer not null,
+  created_at integer not null,
+  updated_at integer not null
+);
 create table if not exists name_reservations (
   name text primary key,
   id text not null unique,
@@ -982,6 +1025,89 @@ export class Store {
           (string | number | null)[]
         >(`update create_intents set ${sets.join(", ")}, version = version + 1 ` + "where intent_id = ? and version = ? returning *")
         .get(...args, intentId, expectedVersion) ?? null
+    );
+  }
+
+  // ------------------------------------------------------------ liveness
+
+  getLiveness(instanceId: string): LivenessRow | null {
+    return (
+      this.db
+        .query<
+          LivenessRow,
+          [string]
+        >("select * from instance_liveness where instance_id = ?")
+        .get(instanceId) ?? null
+    );
+  }
+
+  /**
+   * Create the row if this office has never been probed. Conditional INSERT
+   * rather than a SELECT in front of one: two ticks starting together must not
+   * both insert, and the primary key is what decides that.
+   */
+  ensureLiveness(instanceId: string, dueAt: number): void {
+    const ts = this.now();
+    this.db.run(
+      "insert into instance_liveness (instance_id, rung, strikes, checked_at, " +
+        "next_check_at, claim_until, claim_holder, version, created_at, updated_at) " +
+        "select ?, 'unknown', 0, null, ?, null, null, 1, ?, ? " +
+        "where not exists (select 1 from instance_liveness where instance_id = ?)",
+      [instanceId, dueAt, ts, ts, instanceId],
+    );
+  }
+
+  /**
+   * Take the right to probe this office, if it is due and nobody else holds it.
+   *
+   * The due test and the claim are ONE statement on purpose. Reading "due" and
+   * then claiming is a check-then-act: two ticks can both read due, both probe,
+   * and both count the same failure - which is exactly the double-counted strike
+   * this row exists to prevent. A caller that gets null does not probe.
+   */
+  claimLiveness(
+    instanceId: string,
+    holder: string,
+    claimUntil: number,
+    now: number,
+  ): LivenessRow | null {
+    return (
+      this.db
+        .query<
+          LivenessRow,
+          [number, string, number, string, number, number]
+        >("update instance_liveness set claim_until = ?, claim_holder = ?, " + "version = version + 1, updated_at = ? where instance_id = ? " + "and next_check_at <= ? and (claim_until is null or claim_until <= ?) " + "returning *")
+        .get(claimUntil, holder, now, instanceId, now, now) ?? null
+    );
+  }
+
+  /**
+   * Write a probe's result, fenced by the version AND the holder that claimed
+   * it. A holder that lost its claim writes nothing rather than adding its
+   * strike on top of the winner's.
+   */
+  recordLiveness(
+    instanceId: string,
+    expectedVersion: number,
+    holder: string,
+    patch: { rung: string; strikes: number; checkedAt: number; nextAt: number },
+  ): LivenessRow | null {
+    return (
+      this.db
+        .query<
+          LivenessRow,
+          [string, number, number, number, number, string, number, string]
+        >("update instance_liveness set rung = ?, strikes = ?, checked_at = ?, " + "next_check_at = ?, claim_until = null, claim_holder = null, " + "version = version + 1, updated_at = ? where instance_id = ? " + "and version = ? and claim_holder = ? returning *")
+        .get(
+          patch.rung,
+          patch.strikes,
+          patch.checkedAt,
+          patch.nextAt,
+          this.now(),
+          instanceId,
+          expectedVersion,
+          holder,
+        ) ?? null
     );
   }
 

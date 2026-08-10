@@ -57,12 +57,16 @@ import { Reporter } from "./report.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
 import { acknowledgeAttention } from "./attention.ts";
 import { migrateLegacyIntents } from "./create-latch.ts";
-import { boxHandlers } from "./handlers.ts";
+import { boxHandlers, type HandlerDeps } from "./handlers.ts";
 import {
   CeilingIsImmutable,
   ensureInstance as ensureInstanceRow,
 } from "./instance.ts";
+import { InviteHold } from "./invite-hold.ts";
+import { watchLiveness } from "./liveness-watch.ts";
+import { startMintSeam, type RunningMintSeam } from "./mint-seam.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
+import { rebootHandler } from "./reboot.ts";
 import { Store } from "./store.ts";
 import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
 
@@ -254,18 +258,52 @@ function reconcileFn():
   };
 }
 
-function makeTicker(store: Store, ownerName?: string): Ticker {
+/**
+ * Provider reboot for the customer's restart button, when this box has
+ * credentials.
+ *
+ * Absent credentials leave the handler UNREGISTERED rather than stubbed, which
+ * is the same choice slice 3 made for power_off: an enqueued reboot then
+ * surfaces as slice 2's no-handler condition - a failed operation with
+ * attention raised - instead of looking like a restart that quietly did
+ * nothing.
+ */
+function rebootFn(): ((providerId: string) => Promise<void>) | undefined {
+  let adapter: ContaboAdapter;
+  try {
+    adapter = makeAdapter();
+  } catch {
+    return undefined;
+  }
+  return (providerId) => adapter.reboot(providerId);
+}
+
+function makeTicker(
+  store: Store,
+  ownerName?: string,
+  /** The provisioner's in-memory hold. Present only in `run`: its absence is
+   * what makes a dashboard-requested mint refuse instead of minting a
+   * credential into a process that cannot hand it over. */
+  deliver?: HandlerDeps["deliver"],
+): Ticker {
+  const reboot = rebootFn();
   return new Ticker({
     store,
     // create_instance is deliberately absent: no flag in this file can reach a
     // paid create, exactly as in slice 1.
-    handlers: boxHandlers({
-      exec,
-      reporter,
-      runsDir: RUNS_DIR,
-      keysDir: KEYS_DIR,
-      ownerName,
-    }),
+    handlers: [
+      ...boxHandlers({
+        exec,
+        reporter,
+        runsDir: RUNS_DIR,
+        keysDir: KEYS_DIR,
+        ownerName,
+        deliver,
+      }),
+      ...(reboot
+        ? [rebootHandler({ reboot, report: (l) => reporter.line(l) })]
+        : []),
+    ],
     reconcile: reconcileFn(),
     report: (line) => reporter.line(line),
   });
@@ -281,7 +319,7 @@ function makeTicker(store: Store, ownerName?: string): Ticker {
 async function driveTicks(
   store: Store,
   ticker: Ticker,
-  opts: { forever: boolean },
+  opts: { forever: boolean; watch?: () => Promise<void> },
 ): Promise<void> {
   let stopping = false;
   const onSignal = () => {
@@ -294,6 +332,18 @@ async function driveTicks(
   try {
     for (;;) {
       const summary = await ticker.once();
+      if (opts.watch) {
+        // Liveness is a MEASUREMENT, not an operation, so it runs beside the
+        // tick rather than inside it. A probe that throws must not stop the
+        // provisioner: the reading is worth less than the loop.
+        try {
+          await opts.watch();
+        } catch (err) {
+          reporter.problem(
+            `liveness pass failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      }
       for (const inst of store.listInstances()) {
         for (const reason of store.openReasons(inst.id)) {
           if (announced.has(reason.id)) continue;
@@ -462,12 +512,56 @@ async function cmdProvision(args: Map<string, string>): Promise<void> {
   process.exitCode = exitCodeFor(store);
 }
 
-/** The tick loop as its own process: the provisioner, in miniature. */
+/**
+ * The tick loop as its own process: the provisioner, in miniature.
+ *
+ * THE ONE PROCESS THAT OWNS ALL FOUR THINGS - the tick, the invite hold, the
+ * hold's expiry, and the seam that serves it. That is not an accident of
+ * wiring: the hold is process memory, so a URL minted here is collectable only
+ * from here, which is exactly why it cannot become a second source of truth.
+ */
 async function cmdRun(args: Map<string, string>): Promise<void> {
   const store = openStore();
-  const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
+  const hold = new InviteHold();
+  const token = process.env.CONTROL_PLANE_MINT_TOKEN ?? "";
+  let seam: RunningMintSeam | null = null;
+  if (token) {
+    seam = startMintSeam({
+      store,
+      hold,
+      token,
+      port: Number(process.env.CONTROL_PLANE_MINT_PORT ?? "") || undefined,
+      report: (line) => reporter.line(line),
+    });
+  } else {
+    // Said out loud, because the consequence is invisible otherwise: customer
+    // invite requests will refuse rather than mint into a process that has
+    // nowhere to hand them over.
+    reporter.line(
+      "no CONTROL_PLANE_MINT_TOKEN in the environment: the invite seam is off, " +
+        "and dashboard invite requests will be refused rather than minted",
+    );
+  }
+  const ticker = makeTicker(
+    store,
+    args.get("owner-name") ?? "Owner",
+    // Only when the seam is up. A hold nobody can read would turn every
+    // customer's invite into a link that silently expires in memory.
+    seam ? hold : undefined,
+  );
   reporter.step("run", `holder ${ticker.holder}`);
-  await driveTicks(store, ticker, { forever: args.get("once") !== "true" });
+  try {
+    await driveTicks(store, ticker, {
+      forever: args.get("once") !== "true",
+      watch: () =>
+        watchLiveness(store, {
+          holder: ticker.holder,
+          report: (line) => reporter.line(line),
+        }).then(() => undefined),
+    });
+  } finally {
+    await seam?.stop();
+  }
   process.exitCode = exitCodeFor(store);
 }
 

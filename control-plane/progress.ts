@@ -20,22 +20,28 @@
 //   IT IS READ-ONLY. Nothing here writes, enqueues or acts. The web app holds
 //   no other verb.
 
+import { accessFor, windowIsOpen, type AccessView } from "./access.ts";
+import { LIVENESS_STRIKES } from "./liveness.ts";
 import {
   type Goal,
   type OperationKind,
   DECLARED_UNIMPLEMENTED_KINDS,
   nextKind,
 } from "./operations.ts";
-import type {
-  AttentionReasonRow,
-  InstanceRow,
-  OperationRow,
-  ReasonClass,
-  ServiceState,
-  Severity,
-  Store,
+import {
+  ACTIVE_STATUSES,
+  type AttentionReasonRow,
+  type InstanceRow,
+  type LivenessRow,
+  type OperationRow,
+  type ReasonClass,
+  type ServiceState,
+  type Severity,
+  type Store,
 } from "./store.ts";
 import { reservationForInstance, type ReservationRow } from "./signup.ts";
+
+export type { AccessView };
 
 export type StepState = "waiting" | "active" | "checking" | "done" | "failed";
 
@@ -67,39 +73,62 @@ export interface SubscriptionView {
 }
 
 /**
- * What we can HONESTLY say about our provisioning key.
+ * The handoff, as the customer's own actions rather than as machine states.
  *
- * Four states, because two were not enough to avoid claiming things we have no
- * evidence for:
+ * `invite` tracks the operation THEY opened, so a mint that is still running,
+ * that failed, or that is ambiguous is visible as itself rather than as an
+ * absent link. `operationId` is what the browser fetches the minted URL with;
+ * it is an opaque row id and carries no material.
  *
- *   not_started - a PRISTINE signup: a placeholder asset, no provider id, and
- *     no create attempt of any kind. A fresh reservation said "holds a
- *     temporary key to your server" before anything had been ordered.
- *     The narrowness is the point. A null provider id does NOT prove there is
- *     no box - the whole ambiguous-create quarantine exists because a provider
- *     may have built a machine carrying our key while we still cannot name it.
- *     After ANY create attempt, an unknown provider id means unknown access,
- *     not absent access.
- *   held - a box is linked and the ceiling has not passed. The ceiling is a
- *     LATEST-POSSIBLE instant, not a promise about when the key goes: the
- *     normal path is a confirmed revocation well before it.
- *   gone - either a revocation SUCCEEDED (proof: the operation completes only
- *     after a reconnect with the removed key is refused), or first_contact
- *     succeeded and the ceiling has passed. First contact is what writes the
- *     expiry option and READS IT BACK from disk, so after it the box itself
- *     enforces the instant, whether or not our cleanup timer ever ran.
- *   needs_attention - a linked box crossed its ceiling with no succeeded
- *     first_contact. The guarantee was never proven onto that box, so neither
- *     "held" nor "gone" is a claim we have earned.
- *
- * `ceilingProven` says whether the instant is enforced by the box rather than
- * merely written in our database, which is what decides whether the page may
- * name a date at all.
+ * `handoffConfirmed` is deliberately not a column. Confirmation IS the
+ * revocation request: a customer who clicked has a revoke_access row, and one
+ * that arrived any other way is not described as their confirmation.
  */
-export interface AccessView {
-  state: "not_started" | "held" | "gone" | "needs_attention";
-  expiresAt: number | null;
-  ceilingProven: boolean;
+export interface HandoffView {
+  /** Whether a mint may be opened at all right now, and if not, why - the
+   * same computation that gates the seam, never a second one. */
+  canMint: boolean;
+  invite: {
+    state: StepState | "none";
+    operationId: string | null;
+    /** Set only once a mint has SUCCEEDED, so the page can say a link was
+     * produced without saying anything about the link. */
+    mintedAt: number | null;
+  };
+  revocation: {
+    state: StepState | "none";
+    /** True only for a revocation the customer asked for. A row opened by an
+     * operator or by the chain is still shown, but never described as their
+     * confirmation. */
+    customerConfirmed: boolean;
+    confirmedAt: number | null;
+  };
+}
+
+/** Where the office is on the probe ladder, and how many consecutive checks
+ * have failed. Three strikes is the design's threshold for calling it
+ * unreachable, and reboot is never automatic. */
+export interface LivenessView {
+  rung: string;
+  words: string;
+  strikes: number;
+  checkedAt: number | null;
+  unreachable: boolean;
+}
+
+/**
+ * The customer's restart, as a state rather than as a button that may or may
+ * not work.
+ *
+ * Called RESTART and not reboot throughout the customer-facing surface. That is
+ * not only copy: the web-boundary test forbids any file under web/ from
+ * containing an operation kind, so the app literally cannot name `reboot`, and
+ * a page therefore cannot ask for one by spelling it.
+ */
+export interface RestartView {
+  state: StepState | "none";
+  active: boolean;
+  lastRequestedAt: number | null;
 }
 
 export interface ProgressView {
@@ -124,6 +153,9 @@ export interface ProgressView {
   ready: boolean;
   attention: AttentionView[];
   access: AccessView;
+  handoff: HandoffView;
+  liveness: LivenessView | null;
+  restart: RestartView;
   subscription: SubscriptionView | null;
 }
 
@@ -140,6 +172,7 @@ const LABELS: Record<OperationKind, string> = {
   mint_invite: "Preparing your owner invite",
   revoke_access: "Removing our access",
   power_off: "Suspending the office",
+  reboot: "Restarting your server",
 };
 
 /**
@@ -335,44 +368,80 @@ function originOf(
   return operations.length > 0 ? "adopted" : "created";
 }
 
-/** The one place a claim about our key is decided. Order matters: proof of
- * removal outranks everything, and an absent box outranks a ceiling. */
-function accessFor(
-  store: Store,
-  instance: InstanceRow,
+/**
+ * The handoff panel's rows.
+ *
+ * `latest` per kind is already computed by the caller, and it is the right row
+ * to describe: a retried mint opens a new row, and the newest one is where the
+ * customer's link is coming from.
+ */
+function handoffFor(
+  access: AccessView,
+  byKind: Map<string, OperationRow>,
   operations: OperationRow[],
-  now: number,
-): AccessView {
-  const ceiling = instance.access_window_expires_at;
-  const succeeded = (kind: OperationKind): boolean =>
-    operations.some((op) => op.kind === kind && op.status === "succeeded");
-  const contactProven = succeeded("first_contact");
-  const base = {
-    expiresAt: ceiling,
-    ceilingProven: contactProven && ceiling !== null,
+): HandoffView {
+  const mint = byKind.get("mint_invite");
+  const revoke = byKind.get("revoke_access");
+  // Their confirmation is a revocation THEY asked for. requests.ts stamps the
+  // asking account into the evidence; a chain- or operator-opened row has no
+  // stamp, so it renders as a revocation without being called their choice.
+  const customerConfirmed = operations.some(
+    (op) => op.kind === "revoke_access" && requestedByCustomer(op),
+  );
+  const confirmed = operations.find(
+    (op) => op.kind === "revoke_access" && requestedByCustomer(op),
+  );
+  return {
+    canMint: windowIsOpen(access),
+    invite: {
+      state: mint ? stateOf(mint) : "none",
+      operationId: mint?.id ?? null,
+      mintedAt: mint?.status === "succeeded" ? mint.evidence_at : null,
+    },
+    revocation: {
+      state: revoke ? stateOf(revoke) : "none",
+      customerConfirmed,
+      confirmedAt: confirmed?.created_at ?? null,
+    },
   };
+}
 
-  if (succeeded("revoke_access")) return { ...base, state: "gone" };
-
-  const asset = store.assetForInstance(instance.id);
-  if (!asset || asset.provider_id === null) {
-    // "No box" is a CLAIM, and only a pristine signup has earned it: the
-    // placeholder asset untouched, and no create ever attempted. A create row
-    // in any state - or an asset the coordinator has moved to order_pending or
-    // order_ambiguous - means a machine may exist carrying our key that we
-    // cannot yet name, which is unknown rather than absent. A missing asset
-    // row is unknown too: it is a repair case, not evidence.
-    const attempted = operations.some((op) => op.kind === "create_instance");
-    const pristine = !!asset && asset.asset_state === "none" && !attempted;
-    return { ...base, state: pristine ? "not_started" : "needs_attention" };
+/** Did the customer open this row? A stamp we wrote, read back as a boolean -
+ * never as a string that could reach a page. */
+function requestedByCustomer(op: OperationRow): boolean {
+  try {
+    const parsed: unknown = JSON.parse(op.evidence);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      return false;
+    return (parsed as Record<string, unknown>).via === "dashboard";
+  } catch {
+    return false;
   }
+}
 
-  const crossed = ceiling !== null && ceiling <= now;
-  if (!crossed) return { ...base, state: "held" };
-  // Crossed. sshd enforces the instant on the BOX, and first contact is what
-  // proved the option is on it - so with that proof the key is gone even if
-  // cleanup never ran, and without it we know only that we cannot say.
-  return { ...base, state: contactProven ? "gone" : "needs_attention" };
+function livenessFor(row: LivenessRow | null): LivenessView | null {
+  if (!row) return null;
+  return {
+    rung: row.rung,
+    // Our words for the rung, from the same table the installer view uses. An
+    // unknown rung would otherwise print a bare machine token at a customer.
+    words: RUNG_WORDS[row.rung] ?? "we could not classify the last check",
+    strikes: row.strikes,
+    checkedAt: row.checked_at,
+    unreachable: row.strikes >= LIVENESS_STRIKES,
+  };
+}
+
+function restartFor(byKind: Map<string, OperationRow>): RestartView {
+  const op = byKind.get("reboot");
+  const state = op ? stateOf(op) : "none";
+  return {
+    state,
+    // "Active" is what the unique index would refuse a second row against, so
+    // the button's availability and the machine's rule cannot disagree.
+    active: !!op && ACTIVE_STATUSES.includes(op.status),
+    lastRequestedAt: op?.created_at ?? null,
+  };
 }
 
 function stepFor(
@@ -431,6 +500,7 @@ export function projectionFor(
     .sort();
 
   const verifyHttps = byKind.get("verify_https");
+  const access = accessFor(store, instance, operations, store.now());
 
   return {
     instanceId: instance.id,
@@ -448,7 +518,10 @@ export function projectionFor(
     // how far down the ladder we are.
     ready: verifyHttps?.status === "succeeded",
     attention: attentionViews(store.openReasons(instance.id)),
-    access: accessFor(store, instance, operations, store.now()),
+    access,
+    handoff: handoffFor(access, byKind, operations),
+    liveness: livenessFor(store.getLiveness(instance.id)),
+    restart: restartFor(byKind),
     subscription: subscriptionFor(store, instance.id, store.now()),
   };
 }

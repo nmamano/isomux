@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Store, type OperationStatus } from "./store.ts";
 import { raiseAttention, acknowledgeAttention } from "./attention.ts";
-import { DECLARED_UNIMPLEMENTED_KINDS } from "./operations.ts";
+import { DECLARED_UNIMPLEMENTED_KINDS, nextKind } from "./operations.ts";
 import { ladderFor, projectionFor } from "./progress.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 
@@ -95,6 +95,10 @@ describe("the ladder is walked, not written down", () => {
       "wait_for_package_manager",
       "run_installer",
     ]);
+    // A HOSTED OFFICE STOPS AT verify_https. Slice 4b: minting before the
+    // customer asks would put a live credential wherever the provisioner's
+    // output goes, so `live` ends at verified-live and the dashboard's request
+    // is what opens the mint.
     expect(ladderFor("live")).toEqual([
       "create_instance",
       "wait_for_ssh",
@@ -103,12 +107,23 @@ describe("the ladder is walked, not written down", () => {
       "wait_for_package_manager",
       "run_installer",
       "verify_https",
-      "mint_invite",
     ]);
+    // The OPERATOR's deliberate one-command flow still mints and revokes: it is
+    // invoked interactively, and its invite goes to the reporter with the
+    // redacted-transcript contract.
     expect(ladderFor("handed_off")).toEqual([
       ...ladderFor("live"),
+      "mint_invite",
       "revoke_access",
     ]);
+  });
+
+  test("a hosted goal never reaches a mint on its own", () => {
+    // The rule stated where it is enforced, so that moving it back into the
+    // chain fails here rather than in a browser six steps later.
+    expect(nextKind("verify_https", "live")).toBeNull();
+    expect(nextKind("verify_https", "handed_off")).toBe("mint_invite");
+    expect(ladderFor("live")).not.toContain("mint_invite");
   });
 
   test("no ladder can contain a kind nothing drives, or a suspension", () => {
@@ -631,4 +646,172 @@ describe("comped means an ACTIVE full discount", () => {
       })!.subscription?.comped,
     ).toBe(false);
   });
+});
+
+// ------------------------------------------------------------- slice 4b
+
+describe("the handoff panel", () => {
+  function ready(store: Store): { instanceId: string; accountId: string } {
+    const out = signedUp(store);
+    const instanceId = out.reservation.instance_id;
+    adopt(store, instanceId);
+    addOp(store, instanceId, "first_contact", "succeeded");
+    addOp(store, instanceId, "verify_https", "succeeded");
+    return { instanceId, accountId: signedUpAccountId(store) };
+  }
+
+  test("a live office with our key held may mint, and nothing has yet", () => {
+    const store = tempStore();
+    const { instanceId, accountId } = ready(store);
+    const view = projectionFor(store, { accountId, instanceId })!;
+    expect(view.handoff.canMint).toBe(true);
+    expect(view.handoff.invite).toEqual({
+      state: "none",
+      operationId: null,
+      mintedAt: null,
+    });
+    expect(view.handoff.revocation.state).toBe("none");
+    expect(view.handoff.revocation.customerConfirmed).toBe(false);
+  });
+
+  test("a running mint is visible as itself, with the id to collect it by", () => {
+    const store = tempStore();
+    const { instanceId, accountId } = ready(store);
+    addOp(store, instanceId, "mint_invite", "running", { via: "dashboard" });
+    const view = projectionFor(store, { accountId, instanceId })!;
+    expect(view.handoff.invite.state).toBe("active");
+    expect(view.handoff.invite.operationId).toContain("mint_invite");
+    // Nothing claims a link exists until one does.
+    expect(view.handoff.invite.mintedAt).toBeNull();
+  });
+
+  test("a proven revocation closes minting and reports it as theirs", () => {
+    const store = tempStore();
+    const { instanceId, accountId } = ready(store);
+    addOp(store, instanceId, "revoke_access", "succeeded", {
+      via: "dashboard",
+    });
+    const view = projectionFor(store, { accountId, instanceId })!;
+    expect(view.access.state).toBe("gone");
+    expect(view.handoff.canMint).toBe(false);
+    expect(view.handoff.revocation.state).toBe("done");
+    expect(view.handoff.revocation.customerConfirmed).toBe(true);
+  });
+
+  test("a revocation nobody asked for is shown but not called confirmation", () => {
+    // An operator- or chain-opened row is real history and renders as a
+    // revocation; describing it as the customer's confirmation would put words
+    // in their mouth about the one act the access window turns on.
+    const store = tempStore();
+    const { instanceId, accountId } = ready(store);
+    addOp(store, instanceId, "revoke_access", "running");
+    const view = projectionFor(store, { accountId, instanceId })!;
+    expect(view.handoff.revocation.state).toBe("active");
+    expect(view.handoff.revocation.customerConfirmed).toBe(false);
+    expect(view.handoff.revocation.confirmedAt).toBeNull();
+  });
+
+  test("an ambiguous revocation stays visible rather than reading as done", () => {
+    const store = tempStore();
+    const { instanceId, accountId } = ready(store);
+    addOp(store, instanceId, "revoke_access", "ambiguous", {
+      via: "dashboard",
+    });
+    const view = projectionFor(store, { accountId, instanceId })!;
+    expect(view.handoff.revocation.state).toBe("checking");
+    // And our key is still reported as HELD: an unproven removal is not a
+    // removal, whatever the customer asked for.
+    expect(view.access.state).toBe("held");
+  });
+});
+
+describe("liveness and restart", () => {
+  test("no reading is null rather than an invented healthy one", () => {
+    const store = tempStore();
+    const out = signedUp(store);
+    const view = projectionFor(store, {
+      accountId: signedUpAccountId(store),
+      instanceId: out.reservation.instance_id,
+    })!;
+    expect(view.liveness).toBeNull();
+    expect(view.restart).toEqual({
+      state: "none",
+      active: false,
+      lastRequestedAt: null,
+    });
+  });
+
+  test("strikes cross into unreachable at three, in our words", () => {
+    const store = tempStore();
+    const out = signedUp(store);
+    const instanceId = out.reservation.instance_id;
+    store.ensureLiveness(instanceId, store.now());
+    const claimed = store.claimLiveness(instanceId, "h", 0, store.now())!;
+    store.recordLiveness(instanceId, claimed.version, "h", {
+      rung: "tls",
+      strikes: 3,
+      checkedAt: store.now(),
+      nextAt: store.now() + 60_000,
+    });
+    const view = projectionFor(store, {
+      accountId: signedUpAccountId(store),
+      instanceId,
+    })!;
+    expect(view.liveness).toMatchObject({
+      rung: "tls",
+      strikes: 3,
+      unreachable: true,
+      words: "waiting for the certificate",
+    });
+  });
+
+  test("an active restart is reported active, so the button cannot double-fire", () => {
+    const store = tempStore();
+    const out = signedUp(store);
+    const instanceId = out.reservation.instance_id;
+    addOp(store, instanceId, "reboot", "running", { via: "dashboard" });
+    const view = projectionFor(store, {
+      accountId: signedUpAccountId(store),
+      instanceId,
+    })!;
+    expect(view.restart).toMatchObject({ state: "active", active: true });
+  });
+
+  test("a finished restart is no longer active", () => {
+    const store = tempStore();
+    const out = signedUp(store);
+    const instanceId = out.reservation.instance_id;
+    addOp(store, instanceId, "reboot", "succeeded", { via: "dashboard" });
+    const view = projectionFor(store, {
+      accountId: signedUpAccountId(store),
+      instanceId,
+    })!;
+    expect(view.restart).toMatchObject({ state: "done", active: false });
+  });
+});
+
+test("the customer's view never carries an invite or anything URL-shaped", () => {
+  // Belt and braces beside invite-persistence.test.ts: that one watches what is
+  // STORED, this one watches what is SENT. A future field that helpfully
+  // surfaced "the link we minted" would fail here.
+  const store = tempStore();
+  const out = signedUp(store);
+  const instanceId = out.reservation.instance_id;
+  adopt(store, instanceId);
+  addOp(store, instanceId, "first_contact", "succeeded");
+  addOp(store, instanceId, "verify_https", "succeeded");
+  addOp(store, instanceId, "mint_invite", "succeeded", {
+    phase: "minted",
+    minted: true,
+    via: "dashboard",
+  });
+  const view = projectionFor(store, {
+    accountId: signedUpAccountId(store),
+    instanceId,
+  })!;
+  const json = JSON.stringify(view);
+  expect(json).not.toMatch(/https?:\/\/\S*\/(?:i|invite)\//);
+  expect(json).not.toContain("sealed");
+  // It may say a link EXISTS, which is the point of the panel.
+  expect(view.handoff.invite.mintedAt).not.toBeNull();
 });
