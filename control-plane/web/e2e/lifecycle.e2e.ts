@@ -320,7 +320,7 @@ async function main(): Promise<void> {
     check(
       "S6 names the retention deadline and says we REQUEST deletion",
       suspended ===
-        `Your office is powered off. Your data stays on its server, which we keep until ${retention} - then the server is permanently deleted. Contact support if you need help before deletion.`,
+        `Your office is powered off. Your data stays on your server, which you can recover until ${retention}, at which point we cancel the contract and the data is lost. Contact support if you need help before then.`,
       retention,
     );
     check(

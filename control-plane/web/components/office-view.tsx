@@ -550,9 +550,10 @@ function CancelPanel({
       // carried across rather than a second computation of it.
       return (
         <p data-testid="cancel-suspended">
-          Your office is powered off. Your data stays on its server, which we
-          keep until {day(life.retentionEnd)} - then the server is permanently
-          deleted. Contact support if you need help before deletion.
+          Your office is powered off. Your data stays on your server, which you
+          can recover until {day(life.retentionEnd)}, at which point we cancel
+          the contract and the data is lost. Contact support if you need help
+          before then.
         </p>
       );
     }
