@@ -558,6 +558,21 @@ shape-change list in `control-plane/README.md`):
   treats a cancellation with an open dunning episode as a critical attention case
   rather than passing over it in silence.
 
+  **RESOLVED, verified 2026-08-10.** Nil flipped the setting to *mark unpaid*
+  in the dashboard on 2026-08-10 (live mode; the dashboard mirrors these
+  settings into test mode and blocks editing them there). Behavioural
+  verification the same day, test clock on a fresh bootstrap: coupon-covered
+  first month (subscription `active` with no charge), renewal against a
+  card that fails every charge went `past_due` at day +32, retries ran, and
+  at day +47 the subscription sat **`unpaid`** - not canceled, not deleted.
+  The suspension rung is reachable; the paragraph above's cancellation
+  measurement describes the OLD setting. One shape note for the machine: a
+  FIRST invoice that fails does not enter this ladder at all - a
+  subscription created against a failing card walks
+  `incomplete -> incomplete_expired` (measured the same day) and never
+  reaches dunning, which is another reason signup collects payment through
+  Checkout rather than creating subscriptions directly.
+
 **Observed 2026-08-10** (slice 5, same API version, test-clock cancel at period
 end):
 
