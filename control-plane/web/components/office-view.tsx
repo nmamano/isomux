@@ -550,9 +550,9 @@ function CancelPanel({
       // carried across rather than a second computation of it.
       return (
         <p data-testid="cancel-suspended">
-          Your office is powered off. We will keep your data until{" "}
-          {day(life.retentionEnd)} and then request permanent deletion. Contact
-          support if you need help before deletion.
+          Your office is powered off. Your data stays on its server, which we
+          keep until {day(life.retentionEnd)} - then the server is permanently
+          deleted. Contact support if you need help before deletion.
         </p>
       );
     }
@@ -581,9 +581,8 @@ function CancelPanel({
           for a further 7 days until {day(graceEnd)}.
         </p>
         <p>
-          After {day(graceEnd)} your server is powered off. We will keep your
-          data for one calendar month after that, and then request permanent
-          deletion.
+          After {day(graceEnd)} your server is powered off. Your data stays on
+          it for one calendar month, and then the server is permanently deleted.
         </p>
         <p>
           <button

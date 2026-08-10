@@ -251,7 +251,7 @@ async function main(): Promise<void> {
       "S3 states the grace week and what happens after it",
       scheduled.includes("for a further 7 days until 2027-02-07") &&
         scheduled.includes(
-          "After 2027-02-07 your server is powered off. We will keep your data for one calendar month after that, and then request permanent deletion.",
+          "After 2027-02-07 your server is powered off. Your data stays on it for one calendar month, and then the server is permanently deleted.",
         ),
     );
     check(
@@ -320,7 +320,7 @@ async function main(): Promise<void> {
     check(
       "S6 names the retention deadline and says we REQUEST deletion",
       suspended ===
-        `Your office is powered off. We will keep your data until ${retention} and then request permanent deletion. Contact support if you need help before deletion.`,
+        `Your office is powered off. Your data stays on its server, which we keep until ${retention} - then the server is permanently deleted. Contact support if you need help before deletion.`,
       retention,
     );
     check(
