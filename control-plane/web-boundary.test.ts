@@ -1,0 +1,286 @@
+// The web app's boundary, asserted against the source rather than described in
+// a comment.
+//
+// The design's blast-radius section says the public web app cannot decrypt key
+// material and never originates SSH. That is a property of what it IMPORTS, and
+// no behavioural test can catch a future page adding one line at the top of a
+// file. So this reads the app's own source: which modules it may name, which
+// credentials it may read, and - because a loader that handed back a live Store
+// would leave every handler one method call away from mutating the control
+// plane - which store methods may appear anywhere in it at all.
+//
+// Scope: everything that ships in the app's server bundle. `e2e/` is a test
+// driver that runs as its own process and never inside the app, so it is
+// excluded here and asserted to be unimported.
+
+import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+const WEB = path.join(import.meta.dir, "web");
+const FACADE = path.join(WEB, "lib", "services.server.ts");
+
+function appFiles(): string[] {
+  const out: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name === ".next") continue;
+      if (entry.name === "e2e") continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      // Declaration files carry no code: they are excluded so that a type
+      // reference to bun:sqlite is not read as the app opening a database.
+      else if (/\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith(".d.ts"))
+        out.push(full);
+    }
+  };
+  walk(WEB);
+  return out;
+}
+
+function read(file: string): string {
+  return fs.readFileSync(file, "utf8");
+}
+
+const FILES = appFiles();
+
+test("the app has files to check", () => {
+  expect(FILES.length).toBeGreaterThan(5);
+  expect(FILES).toContain(FACADE);
+});
+
+describe("only one file reaches the store", () => {
+  test("nothing else names the store, its engine, or opens one", () => {
+    for (const file of FILES) {
+      if (file === FACADE) continue;
+      const source = read(file);
+      expect(source).not.toContain("bun:sqlite");
+      expect(source).not.toMatch(/from\s+"\.\.\/[^"]*store"/);
+      expect(source).not.toMatch(/new Store\b/);
+    }
+  });
+
+  test("the facade's exports are a fixed list", () => {
+    const source = read(FACADE);
+    const exported = [...source.matchAll(/export (?:async )?function (\w+)/g)]
+      .map((m) => m[1])
+      .sort();
+    // Adding an entry here is a deliberate act, which is the point: a new way
+    // into the control plane cannot appear as a side effect of writing a page.
+    expect(exported).toEqual([
+      "checkSignupOrigin",
+      "identityForSignIn",
+      "officeForAccount",
+      "plans",
+      "progressForAccount",
+      "signUpOffice",
+    ]);
+    // And nothing exports a store, a database or a transaction.
+    expect(source).not.toMatch(/export .*\bStore\b/);
+  });
+
+  test("every control-plane import in the facade is request-time", () => {
+    const source = read(FACADE);
+    for (const line of source.split("\n")) {
+      if (!/from\s+"\.\.\/\.\./.test(line)) continue;
+      // A static import would be evaluated while `next build` collects page
+      // data, under Node, where bun:sqlite does not exist. The build is what
+      // enforces this; the assertion is what names it.
+      expect(line).toMatch(/^import type /);
+    }
+  });
+
+  test("the facade imports only the typed services it is allowed to", () => {
+    const source = read(FACADE);
+    const specifiers = [
+      ...source.matchAll(/(?:import\(|from )"(\.\.\/\.\.[^"]*)"/g),
+    ].map((m) => m[1]);
+    const allowed = new Set([
+      "../../signup",
+      "../../progress",
+      "../../store",
+      "../../stripe/client",
+      "../../stripe/checkout",
+      "../../stripe/billing-store",
+    ]);
+    for (const specifier of specifiers) {
+      expect([specifier, allowed.has(specifier)]).toEqual([specifier, true]);
+    }
+  });
+});
+
+describe("the privileged half of the control plane is unreachable", () => {
+  const FORBIDDEN_MODULES = [
+    "keys",
+    "ssh",
+    "driver",
+    "handlers",
+    "tick",
+    "intents",
+    "create-latch",
+    "create-coordinator",
+    "provider",
+    "contabo",
+    "remote",
+    "run-record",
+    "attention",
+    "operations",
+    "cli",
+    "billing-cli",
+    "stripe/webhook",
+    "stripe/reconcile",
+    "stripe/dunning",
+    "stripe/suspension",
+    "stripe/signature",
+  ];
+
+  test("no app file imports the driver, the provider or the webhook path", () => {
+    for (const file of FILES) {
+      const source = read(file);
+      for (const module of FORBIDDEN_MODULES) {
+        const pattern = new RegExp(
+          `["']\\.\\.[^"']*/${module.replace("/", "\\/")}(\\.ts)?["']`,
+        );
+        expect([path.basename(file), module, pattern.test(source)]).toEqual([
+          path.basename(file),
+          module,
+          false,
+        ]);
+      }
+    }
+  });
+
+  test("no app file reads provider credentials or the webhook secret", () => {
+    for (const file of FILES) {
+      const source = read(file);
+      expect(source).not.toContain("CONTABO_");
+      expect(source).not.toContain("STRIPE_WEBHOOK_SECRET");
+      expect(source).not.toContain(".isomux-control-plane");
+      expect(source).not.toContain("PRIVATE KEY");
+    }
+  });
+
+  test("no app file calls a raw store, transaction or mutation method", () => {
+    // `new Store` and `close()` are the facade's business; everything below
+    // would be a handler reaching past the typed services.
+    const FORBIDDEN = [
+      /\.db\b/,
+      /\.tx\(/,
+      /\.enqueue\(/,
+      /\bcas[A-Z]/,
+      /createInstance\(/,
+      /createAsset\(/,
+      /raiseAttention/,
+      /clearAttention/,
+      /acknowledgeAttention/,
+      /openReasons\(/,
+      /operationsFor\(/,
+      /dueOperations\(/,
+      /tryLease\(/,
+      /appendAudit\(/,
+      /nextSeq\(/,
+    ];
+    for (const file of FILES) {
+      const source = read(file);
+      for (const pattern of FORBIDDEN) {
+        expect([
+          path.basename(file),
+          String(pattern),
+          pattern.test(source),
+        ]).toEqual([path.basename(file), String(pattern), false]);
+      }
+    }
+  });
+
+  test("no app file names an operation kind, so none can be routed in", () => {
+    const KINDS = [
+      "create_instance",
+      "wait_for_ssh",
+      "wait_for_package_manager",
+      "first_contact",
+      "arm_revocation",
+      "run_installer",
+      "verify_https",
+      "mint_invite",
+      "revoke_access",
+      "power_off",
+    ];
+    for (const file of FILES) {
+      const source = read(file);
+      for (const kind of KINDS) {
+        expect([path.basename(file), kind, source.includes(kind)]).toEqual([
+          path.basename(file),
+          kind,
+          false,
+        ]);
+      }
+    }
+  });
+
+  test("the browser-driver harness is not part of the app", () => {
+    for (const file of FILES) {
+      expect(read(file)).not.toMatch(/["'][^"']*e2e\//);
+    }
+  });
+
+  /**
+   * The direct-import rules above are not enough on their own, and this test
+   * exists because they were not: the facade may import stripe/checkout.ts, and
+   * checkout.ts imported four metadata constants from stripe/reconcile.ts - so
+   * the whole webhook path arrived in the app's bundle through a module the
+   * boundary explicitly allows. The constants moved to their own module; this
+   * walks the graph so the next such edge fails here rather than shipping.
+   *
+   * Type-only imports are followed by the compiler but erased by the bundler,
+   * so they are excluded: what is being asserted is what the app RUNS.
+   */
+  test("nothing forbidden is reachable from the facade, however indirectly", () => {
+    const CONTROL_PLANE = import.meta.dir;
+    const seen = new Set<string>();
+    const forbidden: string[] = [];
+
+    const resolve = (from: string, specifier: string): string | null => {
+      if (!specifier.startsWith(".")) return null;
+      const base = path.resolve(path.dirname(from), specifier);
+      for (const candidate of [
+        base,
+        `${base}.ts`,
+        path.join(base, "index.ts"),
+      ]) {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile())
+          return candidate;
+      }
+      return null;
+    };
+
+    const walk = (file: string): void => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const name = path.relative(CONTROL_PLANE, file).replace(/\.ts$/, "");
+      // operations.ts is the one module on the direct list that legitimately
+      // appears in the graph: it is a pure table of kinds, deadlines and the
+      // chain function, and the projection derives its ladder from it. It
+      // performs no I/O and reaches nothing that does. Everything else on the
+      // list stays forbidden however indirectly it arrives.
+      if (FORBIDDEN_MODULES.includes(name) && name !== "operations")
+        forbidden.push(name);
+      const source = read(file);
+      for (const match of source.matchAll(
+        /(?:^|\n)\s*(?:export|import)\s+(type\s+)?[^;]*?from\s+"([^"]+)"|import\(\s*"([^"]+)"\s*\)/g,
+      )) {
+        if (match[1]) continue; // `import type` / `export type`: erased.
+        const specifier = match[2] ?? match[3];
+        const next = specifier ? resolve(file, specifier) : null;
+        if (next) walk(next);
+      }
+    };
+
+    walk(FACADE);
+    expect(forbidden).toEqual([]);
+    // A sanity check on the walk itself: if it stopped at the facade it would
+    // trivially pass, so it must have reached the services it is allowed to.
+    expect(seen.has(path.join(CONTROL_PLANE, "signup.ts"))).toBe(true);
+    expect(seen.has(path.join(CONTROL_PLANE, "progress.ts"))).toBe(true);
+    expect(seen.has(path.join(CONTROL_PLANE, "store.ts"))).toBe(true);
+  });
+});

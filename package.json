@@ -13,10 +13,12 @@
     "format:check": "prettier --check .",
     "lint": "eslint . --concurrency=auto",
     "lint:fix": "eslint . --fix --concurrency=auto",
+    "lint:web": "eslint --config control-plane/web/eslint.config.mjs control-plane/web",
     "test": "bun test",
     "test:live": "ISOMUX_TEST_LIVE=1 bun test",
     "test:systemd": "ISOMUX_TEST_SYSTEMD=1 bun test server/app-supervisor.live.test.ts",
-    "ci": "bun run format:check && bun run lint && bun x tsc --noEmit && bun run build:ui && bun test"
+    "ci:web": "bun install --cwd control-plane/web --frozen-lockfile && bun run --cwd control-plane/web build && bun run --cwd control-plane/web typecheck && bun run lint:web",
+    "ci": "bun run format:check && bun run lint && bun x tsc --noEmit && bun run build:ui && bun test && bun run ci:web"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.219",

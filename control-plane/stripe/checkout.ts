@@ -22,7 +22,7 @@ import {
   META_EMAIL,
   META_INSTANCE,
   META_OFFICE_NAME,
-} from "./reconcile.ts";
+} from "./metadata.ts";
 
 /**
  * Names we serve centrally, so a customer's office may not take them.

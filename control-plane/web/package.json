@@ -1,0 +1,26 @@
+{
+  "name": "isomux-control-plane-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --bun next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "e2e": "bun e2e/signup-flow.e2e.ts"
+  },
+  "dependencies": {
+    "next": "16.3.0",
+    "next-auth": "5.0.0-beta.32",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.0.0",
+    "playwright-core": "^1.50.0",
+    "typescript": "^6.0.3"
+  }
+}

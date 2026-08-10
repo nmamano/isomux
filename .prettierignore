@@ -4,3 +4,4 @@ ui/dist/
 ui/index.js
 internal-docs/
 server/backends/codex/_generated/
+control-plane/web/.next/

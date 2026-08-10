@@ -16,6 +16,10 @@ export default tseslint.config(
       // Stale Claude Code worktree leftovers - gitignored on disk but not
       // by ESLint, so explicit ignore here.
       ".claude/",
+      // Its own package, with its own config: typed linting there needs Next's
+      // types, which exist only after the nested install. `bun run lint:web`
+      // covers it, and `bun run ci` runs that.
+      "control-plane/web/",
     ],
   },
   js.configs.recommended,

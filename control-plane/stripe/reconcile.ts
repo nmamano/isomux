@@ -34,11 +34,7 @@ import type {
   SubscriptionSnapshot,
 } from "./shapes.ts";
 
-/** Metadata keys we set at Checkout and read back from fetched objects. */
-export const META_ACCOUNT = "isomux_account";
-export const META_EMAIL = "isomux_email";
-export const META_OFFICE_NAME = "isomux_office_name";
-export const META_INSTANCE = "isomux_instance";
+import { META_ACCOUNT, META_EMAIL, META_INSTANCE } from "./metadata.ts";
 
 export const WEBHOOK_ACTOR = "stripe-webhook";
 

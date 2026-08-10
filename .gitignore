@@ -15,3 +15,8 @@ internal-docs/private/
 # holds a Stripe key; this repo is public
 .mcp.json
 .cache/
+
+# Hosted control-plane web app: build output only. Its lockfile and
+# next-env.d.ts are committed; node_modules is covered above.
+control-plane/web/.next/
+control-plane/web/*.tsbuildinfo

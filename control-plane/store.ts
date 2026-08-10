@@ -348,6 +348,61 @@ create table if not exists stripe_events (
   outcome text not null,
   detail text
 );
+-- Signup (slice 4a). The office name is unique across accounts, and THIS TABLE
+-- IS WHERE THAT IS DECIDED: name is the primary key, so a second account taking
+-- a name is refused by a failed INSERT rather than by a SELECT in front of one.
+-- Two connections can both read "absent" in the same instant; only one can
+-- insert.
+--
+-- id is the durable identity everything derived hangs off - the instance id and
+-- both Stripe idempotency keys are computed from it once, at insert, and read
+-- back from the row on every retry. Deriving them from a timestamp instead
+-- would make a future release-and-reissue path depend on two reservations never
+-- sharing a millisecond.
+--
+-- Nothing writes this row after the insert in this slice. version and
+-- updated_at are carried for consistency with every other table here, and have
+-- no writer yet: an abandoned checkout stays held, and releasing a name is
+-- slice-5 work with its own ruling. A named state column was considered and
+-- dropped for exactly that reason - a state nobody transitions is a claim the
+-- code cannot keep.
+--
+-- (No backticks anywhere in this string: SCHEMA is a template literal, and one
+-- would end it. Same mechanism as the install.sh heredoc defect.)
+-- account_id is UNIQUE: the design puts more than one box per account outside
+-- the MVP, so "one office per account" is a database constraint rather than a
+-- check somebody could forget. Two connections reserving different names for
+-- one account are separated here, not by a SELECT in front of the insert.
+create table if not exists name_reservations (
+  name text primary key,
+  id text not null unique,
+  account_id text not null unique,
+  instance_id text not null,
+  plan text not null,
+  coupon_id text,
+  version integer not null,
+  created_at integer not null,
+  updated_at integer not null
+);
+`;
+
+/**
+ * Indexes over columns THIS build added, created after the column check rather
+ * than with the tables.
+ *
+ * An index names a column, so creating one on a database that predates the
+ * column fails with a raw SQLite error - which is precisely the "fails
+ * somewhere in the middle" outcome the check below exists to replace with a
+ * sentence naming the file. Order is the fix: refuse by name first, index
+ * after.
+ */
+const LATE_INDEXES = `
+-- One Google identity, one account. Partial rather than plain because
+-- google_subject is null for every account created by the CLI or by a dev
+-- sign-in, and NULLs compare distinct on both engines - a plain unique index
+-- would permit exactly one of them.
+create unique index if not exists accounts_google_subject
+  on accounts (google_subject) where google_subject is not null;
 `;
 
 export class Store {
@@ -366,6 +421,7 @@ export class Store {
     this.db.run("pragma busy_timeout = 5000");
     this.db.run(SCHEMA);
     this.assertSchemaIsCurrent();
+    this.db.run(LATE_INDEXES);
     this.db.run(
       "insert into sequences (name, value) select 'audit', 0 " +
         "where not exists (select 1 from sequences where name = 'audit')",
@@ -384,6 +440,14 @@ export class Store {
    * fail somewhere in the middle of a provisioning run with a raw SQLite error.
    * Failing at open, by name, is the difference between "move this file aside"
    * and a debugging session.
+   *
+   * It guards COLUMNS, and only columns. A table this build adds outright -
+   * `name_reservations` - cannot be listed here and would be pointless if it
+   * were: SCHEMA runs `create table if not exists` first, so by the time this
+   * check reads `pragma table_info`, the table exists with every column. Nor
+   * does it need guarding. An older database simply gains an empty reservations
+   * table, and an empty one is not ambiguous state - nothing was signed up
+   * before this build existed.
    */
   private assertSchemaIsCurrent(): void {
     const required: [string, string][] = [
@@ -392,6 +456,7 @@ export class Store {
       ["attention_reasons", "reason_class"],
       ["attention_reasons", "version"],
       ["accounts", "stripe_customer_id"],
+      ["accounts", "google_subject"],
       ["subscriptions", "episode_state"],
       ["subscriptions", "exhaustion_observed_at"],
       ["stripe_events", "type"],

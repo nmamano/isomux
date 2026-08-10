@@ -633,17 +633,212 @@ hand when they get in the way.
 
 ### What this slice does NOT do
 
-- No web app and no sign-in: Google/Auth.js is slice 4, so `accounts` rows are
-  created by the checkout command instead.
-- No cross-account name uniqueness. `validateOfficeName` enforces the DNS-label
-  syntax and the reserved-name refusal, both pure Checkout-boundary rules;
-  reserving a name across accounts needs the durable signup flow slice 4 owns.
-  Nothing here, and nothing in the metadata it writes, makes a name unique.
+- No web app and no sign-in - both arrived in slice 4a (below), which is also
+  where a name became unique across accounts. `validateOfficeName` still
+  enforces only the DNS-label syntax and the reserved-name refusal, which are
+  pure Checkout-boundary rules; nothing in this section, and nothing in the
+  metadata it writes, makes a name unique.
 - No resume from suspension. `power_on` stays declared-but-not-driven: ending a
   suspension is a billing recovery transition nobody has ruled on.
 - No cancellation or deprovisioning, which is slice 5. A `customer.subscription.
 deleted` event is cached and, if a dunning episode was open, escalated - and
   that is all.
+
+## The web app: sign-in, signup, progress (slice 4a)
+
+`control-plane/web/` is a Next.js App Router app - **its own package**, with its
+own `package.json`, lockfile and `node_modules`. It is not a workspace member,
+so an ordinary `bun install` at the repository root does not pull Next: a
+self-hoster installs the office, not the hosted product's storefront. The
+measured cost of the alternative was 446 MB.
+
+`bun run ci` still covers it. The last step of the root `ci` script is
+`ci:web`, which installs the nested package from its committed lockfile with
+`--frozen-lockfile` and then builds, type-checks and lints it. A fresh clone
+passes one command; the price is that the first `bun run ci` needs the network,
+where it used not to.
+
+### The runtime matrix, measured
+
+Next 16.3.0 (Turbopack), Bun 1.3.11, Node 24.18.0, measured 2026-08-10:
+
+|              | `bun --bun`                                                                                         | `node`                      |
+| ------------ | --------------------------------------------------------------------------------------------------- | --------------------------- |
+| `next dev`   | works, and `bun:sqlite` opens inside route handlers and server components                           | cannot load `bun:sqlite`    |
+| `next build` | FAILS: "Expected CommonJS module to have a function wrapper" loading Next's compiled server runtime | works                       |
+| `next start` | FAILS, same defect                                                                                  | works, without `bun:sqlite` |
+
+So the app RUNS under Bun's dev server, and BUILDS under Node. The Node build is
+a compile-and-bundle gate, not a claim that the built artifact can serve
+store-backed pages here; in the deployed shape the store is managed Postgres and
+`bun:sqlite` is gone.
+
+That split is what forces the one structural rule in the app:
+`lib/services.server.ts` reaches the control plane through **request-time
+dynamic imports**. Next evaluates every page and route module while collecting
+page data, under Node, so a module-scope import of the store fails the build.
+The build is the enforcement; `web-boundary.test.ts` is the explanation.
+
+### What is in the app, and what is deliberately not
+
+- Auth.js with Google configured only when its credentials are present, so a
+  missing client id means the provider is absent rather than broken. A
+  credentials provider gated on `CONTROL_PLANE_DEV_AUTH=1` AND a non-production
+  build drives every test, because no Google OAuth client exists yet. Sessions
+  are JWTs with no database adapter: an adapter would make Auth.js a second
+  writer of `accounts`.
+- One facade, `lib/services.server.ts`, with a fixed export list. It opens a
+  `Store` per request and closes it in a `finally`, and it hands no store out -
+  every export returns plain data, so no page or handler is one method call away
+  from mutating the control plane.
+- `web-boundary.test.ts` asserts that against the source: the export list, the
+  modules the app may name, the credentials it may read, the absence of raw
+  store methods anywhere in it, and - because direct imports are not enough -
+  the whole transitive module graph. That last rule earned its place
+  immediately: `checkout.ts` imported four metadata constants from
+  `reconcile.ts`, which put the entire webhook path (and, through it, the
+  ticker's type graph) into the storefront's bundle. The constants now live in
+  `stripe/metadata.ts`.
+- No webhook processing. Deliveries stay with `billing-cli.ts serve`, exactly as
+  slice 3 built them. No operator actions either: 4a is the read side.
+
+### Signup, and why a name is unique
+
+`signup.ts` owns it. `name_reservations.name` is a primary key, and **the INSERT
+is the uniqueness decision** - not a SELECT in front of one, because two
+connections can both observe "absent" in the same instant. A conflict is read
+back: another account's row is a refusal, the same account's row is that
+account's own retry.
+
+`account_id` is unique too, so **one office per account** is a constraint rather
+than a rule somebody could forget - the design puts more than one box per
+account outside the MVP. Two connections racing different names for one account
+are separated by the database, and the loser is told which office it already
+has.
+
+THE TENANT KEY IS THE ACCOUNT ID, NOT THE EMAIL. Both providers resolve to a
+durable account before a session exists, and the session carries that id;
+signup, the dashboard and the projection accept nothing else. An email is
+mutable - Google can return the same subject with a new address - and a session
+keyed on the address would reach a different account than the one the subject is
+durably bound to, while the binding kept saying the right thing. The email is
+contact and display data, and Checkout takes it from the ACCOUNT row rather than
+from whatever the session carries today.
+
+The signup POST also refuses a request that did not come from this deployment's
+own origin, before it reads the form: it writes durably and spends at Stripe on
+the strength of a cookie, and a customer's own office shares the registrable
+domain. A missing Origin is refused as hard as a foreign one, and the Checkout
+success and cancel URLs are built from the configured origin rather than from
+the request, so a Host header is not configuration.
+
+Everything a retry needs comes from the stored row. The reservation carries an
+opaque `id`, and the instance id and both Stripe idempotency keys are derived
+from it once and read back afterwards, so a second POST cannot move a session to
+a different plan, coupon or instance. A request that disagrees with the stored
+plan or coupon is REFUSED rather than silently served from the row: quietly
+using the stored plan would leave someone believing they had changed it.
+
+Signup writes four rows in one transaction - account, reservation, instance,
+placeholder provider asset - and it writes the access-window ceiling with the
+instance, because nothing else can. `createInstance` is the only statement that
+sets `access_window_expires_at`; `casInstance` refuses it in its type and at
+runtime. A row created without a ceiling could never be given one, and the
+driver is fail-closed on a missing ceiling, so the row would be unprovisionable
+forever. The value is the 30-day fail-safe backstop of R-2026-08-09-3.
+
+An abandoned checkout keeps its name. Releasing one is slice-5 work with its own
+ruling, and a state column nobody transitions is a claim the code cannot keep.
+
+### Progress, and what the browser is not told
+
+`progress.ts` projects rows into steps. The ladder is DERIVED by walking
+`nextKind` from the instance's own stored goal, so it cannot drift from the
+chain the machine will run, and a goal of `live` promises no revocation step.
+A step with no row is `waiting`, never `done`; `ambiguous` is "checking";
+"ready" rests on a SUCCEEDED `verify_https` rather than on ladder position.
+
+Raw evidence never crosses. The extractor is an allowlist of typed, bounded
+fields mapped to our own words - the installer's step marker (only if it still
+looks like one), its phase, the liveness rung, probe counts. `last`, `busy`,
+`detail`, `timer`, `expiry`, `runId` and anything a later handler adds stay
+invisible until somebody adds them here on purpose. Attention gets the same
+treatment: the customer view carries the reason CLASS and severity, never the
+operator-facing string, which interpolates remote output at several raise sites.
+
+An adopted box has no `create_instance` row and never will, so the projection
+omits that step and says `origin: "adopted"` instead of leaving it waiting
+beside real progress. It is decided from rows - no create row, an asset
+carrying a provider id, at least one operation - not from a flag. LINKED MEANS
+A PROVIDER ID AND NOTHING MORE: asset state tracks the provider's lifecycle, so
+requiring `active` made the first reconcile against a cancel-dated box put the
+create step back beside a running install.
+
+Two things the page may not overstate. Our key is reported as `held` until a
+revocation has SUCCEEDED, and the ceiling is worded as a latest-possible
+instant rather than a promise about when the key goes; after proof the page says
+the key is gone, instead of contradicting the "Removing our access - done" line
+directly above it. And "no charge" needs an ACTIVE full discount - 100% off with
+`discount_ends_at` null or still in the future - because a cached discount that
+has already ended is not a reason to tell somebody they are not being billed.
+
+### Driving a signed-up instance against a real box
+
+`exercises/adopt-run.ts` links a signed-up instance to an existing run record,
+and `cli.ts run` drives it from there: handlers resolve the run record from
+`instances.run_id`, so a tick needs nothing else to work on a row it did not
+create. Every other command in `cli.ts` addresses `inst-<runId>` through
+`ensureInstance`, so pointing one of them at a signed-up instance would create a
+SECOND instance driving the same box, which the account cannot see.
+
+Both modes decide every mutable precondition INSIDE the transaction that writes,
+so two callers cannot turn a pre-check into duplicate work:
+
+```
+bun control-plane/exercises/adopt-run.ts --db <file> --instance inst-<id> --run <runId> --start
+bun control-plane/exercises/adopt-run.ts --db <file> --instance inst-<id> --run <runId> --revoke
+```
+
+`--start` requires an unlinked instance, an asset with no provider id, and no
+operations; it links both rows, audits and opens `wait_for_ssh` atomically.
+`--revoke` requires the SAME linked instance and run, the same provider identity
+and host, and a succeeded `verify_https` - we do not revoke access to a box we
+never proved was live. A repeat is idempotent: an active revocation is left
+alone (and the attempt audited), a proven one is refused. Neither mode can open
+any other kind of operation, and `create_instance` still has no handler
+anywhere.
+
+### The browser transcript
+
+`e2e/signup-flow.e2e.ts` drives a real Chrome against a real dev server against
+the real Stripe test account, and prints what it saw. It is deliberately not
+named like a test: `bun test` must not pick it up.
+
+```
+set -a; . ~/nil/secrets/stripe-test.env; set +a
+export CONTROL_PLANE_PRICE_ID=price_... CONTROL_PLANE_COUPON_ID=...
+bun run --cwd control-plane/web e2e
+```
+
+Three things it found that no unit test would have:
+
+- **Configuration was judged before input.** Checking our own price id ahead of
+  the customer's name answered every bad name with "no price configured", and
+  would have reserved names for a deployment that cannot sell anything.
+- **A Checkout throw became a 500.** `openCheckout` returns its refusals, but
+  the session step throws, which is right for the operator CLI and wrong for a
+  form. The web catches it, logs the detail and shows a sentence.
+- **A driver can lie by racing.** `waitForLoadState` resolves against the
+  document already loaded, so the transcript reported the form's own URL while
+  the redirect to Stripe was still in flight - and claimed Checkout was never
+  reached when the session had been created. The POST is now issued with
+  redirects off, so the transcript carries what the SERVER said.
+
+One Stripe-side caveat worth writing down: `billing-cli.ts bootstrap` uses fixed
+idempotency keys, so re-running it inside Stripe's 24-hour idempotency window
+REPLAYS the original response - it printed ids for a coupon that had since been
+deleted and a price that had since been archived. Its output is a record of what
+was created once, not proof that those objects are usable now.
 
 ## Tests
 
