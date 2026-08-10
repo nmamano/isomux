@@ -75,7 +75,7 @@ export async function billingTick(
           // a check-then-act on the one field that decides whether a customer's box
           // gets powered off.
           const fresh = await store.sqlGet<SubscriptionRow>(
-            "select * from subscriptions where id = ?",
+            "select * from subscriptions where id = $1",
             [row.id],
           );
           if (!fresh || fresh.episode_state !== "coupon_hold") {

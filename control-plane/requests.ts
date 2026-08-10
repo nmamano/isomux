@@ -24,7 +24,7 @@ import {
   type OperationKind,
 } from "./operations.ts";
 import { instanceOwnedBy } from "./signup.ts";
-import { ACTIVE_STATUSES, type Store } from "./store.ts";
+import { ACTIVE_STATUSES, isUniqueViolation, type Store } from "./store.ts";
 
 /** The kinds a customer may open. Listed, so this file cannot become a general
  * enqueue by someone passing a different string. */
@@ -93,14 +93,6 @@ function windowRefusal(access: AccessView): RefusalCode {
   }
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  const code = (err as { code?: unknown })?.code;
-  if (typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT"))
-    return true;
-  const message = err instanceof Error ? err.message : "";
-  return /UNIQUE constraint failed|PRIMARY KEY must be unique/i.test(message);
-}
-
 /**
  * Open one customer-requested operation.
  *
@@ -122,14 +114,22 @@ async function openCustomerOperation(
   }
   const d = deadlinesFor(kind);
   const id = newOperationId(kind, await store.nextSeq("audit"));
-  await store.enqueue({
-    id,
-    instance_id: instanceId,
-    kind,
-    inactivity_deadline_at: now + d.inactivityMs,
-    absolute_deadline_at: now + d.absoluteMs,
-    evidence: { via: "dashboard" },
-  });
+  // RECOVERABLE: the one-active partial index refusing this insert is not a
+  // fault, it is the answer to two simultaneous clicks, and all three callers
+  // turn it into a customer-facing "already in progress". Without the savepoint
+  // that refusal would abort the whole transaction, and the caller's own
+  // `return refuse(...)` would then be a transaction that silently rolled back
+  // instead of the sentence it looks like.
+  await store.recoverable(() =>
+    store.enqueue({
+      id,
+      instance_id: instanceId,
+      kind,
+      inactivity_deadline_at: now + d.inactivityMs,
+      absolute_deadline_at: now + d.absoluteMs,
+      evidence: { via: "dashboard" },
+    }),
+  );
   return id;
 }
 

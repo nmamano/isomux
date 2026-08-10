@@ -28,8 +28,8 @@ function appFiles(): string[] {
       if (entry.name === "e2e") continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      // Declaration files carry no code: they are excluded so that a type
-      // reference to bun:sqlite is not read as the app opening a database.
+      // Declaration files carry no code: a type reference is not the app
+      // opening a database.
       else if (/\.(ts|tsx)$/.test(entry.name) && !entry.name.endsWith(".d.ts"))
         out.push(full);
     }
@@ -54,9 +54,14 @@ describe("only one file reaches the store", () => {
     for (const file of FILES) {
       if (file === FACADE) continue;
       const source = read(file);
-      expect(source).not.toContain("bun:sqlite");
+      // The rule is STRUCTURAL: not "does this file mention a driver by name",
+      // which is a list somebody has to keep and which a rename makes
+      // meaningless, but "can this file reach a database at all". It may not
+      // import the store, it may not construct one, and it may not import a
+      // driver of its own to go around the store with.
       expect(source).not.toMatch(/from\s+"\.\.\/[^"]*store"/);
       expect(source).not.toMatch(/new Store\b/);
+      expect(source).not.toMatch(/from\s+"(pg|postgres|node-postgres)(\/|")/);
     }
   });
 
@@ -92,9 +97,11 @@ describe("only one file reaches the store", () => {
     const source = read(FACADE);
     for (const line of source.split("\n")) {
       if (!/from\s+"\.\.\/\.\./.test(line)) continue;
-      // A static import would be evaluated while `next build` collects page
-      // data, under Node, where bun:sqlite does not exist. The build is what
-      // enforces this; the assertion is what names it.
+      // A static import would put the whole control-plane runtime - keys, ssh,
+      // handlers, the webhook path - into the storefront's module graph. The
+      // build used to enforce this on its own, because the store spoke
+      // bun:sqlite and `next build` runs under Node; with a driver that loads
+      // under both, THIS ASSERTION IS THE ONLY ENFORCEMENT LEFT.
       expect(line).toMatch(/^import type /);
     }
   });
@@ -446,8 +453,8 @@ describe("the privileged half of the control plane is unreachable", () => {
    */
   test("the invite hold cannot persist anything", async () => {
     const source = read(path.join(import.meta.dir, "invite-hold.ts"));
-    expect(source).not.toContain("bun:sqlite");
     expect(source).not.toMatch(/from\s+"\.\/store/);
+    expect(source).not.toMatch(/from\s+"(pg|postgres|node-postgres)(\/|")/);
     expect(source).not.toMatch(/from\s+"node:fs"/);
     expect(source).not.toMatch(/console\./);
   });

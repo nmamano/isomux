@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store } from "./store.ts";
+import { openTestStoreOn, releaseTestStores, testDsn } from "./testing/pg.ts";
 import { accountForDevSignIn, hostnameFor, reserveOffice } from "./signup.ts";
 import type { RunRecord } from "./run-record.ts";
 
@@ -23,6 +24,7 @@ function tempDir(): string {
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   while (temps.length)
     fs.rmSync(temps.pop()!, { recursive: true, force: true });
 });
@@ -36,10 +38,12 @@ interface Bed {
 
 async function bed(over: Partial<RunRecord> = {}): Promise<Bed> {
   const dir = tempDir();
-  const db = path.join(dir, "cp.db");
+  // The subprocess opens its own store on this connection string, exactly as
+  // an operator's would.
+  const db = await testDsn();
   const runsDir = path.join(dir, "runs");
   fs.mkdirSync(runsDir);
-  const store = await Store.open(db);
+  const store = await openTestStoreOn(db);
   const account = await accountForDevSignIn(store, "a@example.com");
   const out = await reserveOffice(store, {
     accountId: account.id,
@@ -97,7 +101,7 @@ function run(b: Bed, mode: string, over: Partial<Bed> = {}) {
 }
 
 async function open(b: Bed): Promise<Store> {
-  return await Store.open(b.db);
+  return await openTestStoreOn(b.db);
 }
 
 describe("--start", () => {
@@ -157,7 +161,7 @@ describe("--revoke", () => {
       absolute_deadline_at: store.now() + 60_000,
     });
     await store.sqlRun(
-      "update operations set status = 'succeeded' where id = ?",
+      "update operations set status = 'succeeded' where id = $1",
       ["op-verify_https-99"],
     );
     await store.close();

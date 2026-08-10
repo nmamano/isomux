@@ -22,9 +22,11 @@ import {
 } from "./lifecycle.ts";
 import { suspensionOperationId } from "./stripe/dunning.ts";
 import { Store, type AssetRow, type OperationRow } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 
 const temps: string[] = [];
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -33,7 +35,7 @@ afterEach(async () => {
 async function tempStore(now: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-life-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), now);
+  return await openTestStore(now);
 }
 
 const T = (iso: string): number => Date.parse(iso);

@@ -365,7 +365,7 @@ async function subscriptionRowFor(
   return store.sqlGet<SubscriptionFacts>(
     "select status, current_period_end, cancel_at_period_end, ended_at, " +
       "cancellation_reason, discount_percent_off, discount_ends_at " +
-      "from subscriptions where instance_id = ? order by created_at desc",
+      "from subscriptions where instance_id = $1 order by created_at desc",
     [instanceId],
   );
 }
@@ -409,7 +409,7 @@ async function lifecycleViewOf(
     return null;
   }
   const subscriptionId = await store.sqlGet<{ id: string }>(
-    "select id from subscriptions where instance_id = ? order by created_at desc",
+    "select id from subscriptions where instance_id = $1 order by created_at desc",
     [instanceId],
   );
   const asset = await store.assetForInstance(instanceId);

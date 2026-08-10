@@ -22,6 +22,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { Store } from "../../store.ts";
+import { databaseUrl } from "../../config.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { StripeClient } from "../../stripe/client.ts";
 
@@ -109,9 +110,10 @@ async function errorCopy(page: Page): Promise<string> {
 
 async function main(): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp4a-e2e-"));
-  // The webhook leg needs the slice-3 billing server writing the SAME database,
-  // so the runner passes one in. On its own the driver uses a temp file.
-  const db = process.env.E2E_SHARED_DB ?? path.join(dir, "control-plane.db");
+  // The webhook leg needs the slice-3 billing server writing the SAME
+  // database, so the runner may pass one in; otherwise both halves use the
+  // deployment's own connection string.
+  const db = process.env.E2E_SHARED_DB ?? databaseUrl();
   const stripeKey = process.env.STRIPE_TEST_SECRET_KEY;
   const priceId = process.env.CONTROL_PLANE_PRICE_ID;
   const couponId = process.env.CONTROL_PLANE_COUPON_ID;

@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { requestCancel, requestUncancel } from "./cancel.ts";
 import { Store } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { StripeClient, type FetchLike } from "./stripe/client.ts";
 import {
   ensureAccount,
@@ -17,6 +18,7 @@ import { reserveOffice } from "./signup.ts";
 
 const temps: string[] = [];
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -28,7 +30,7 @@ const TEST_KEY = "sk_test_fixture_key_not_real";
 async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-cancel-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), () => NOW);
+  return await openTestStore(() => NOW);
 }
 
 interface Call {
@@ -191,7 +193,7 @@ describe("the durable key", () => {
 /** Move the cached flag the way a webhook would, so the next verb is legal. */
 async function flip(store: Store, to: number): Promise<void> {
   await store.sqlRun(
-    "update subscriptions set cancel_at_period_end = ? where id = ?",
+    "update subscriptions set cancel_at_period_end = $1 where id = $2",
     [to, "sub_1"],
   );
 }

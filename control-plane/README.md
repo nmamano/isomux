@@ -218,48 +218,121 @@ condition itself goes away.
 
 ## Where the state lives
 
-`~/.isomux-control-plane/control-plane.db`, SQLite in WAL with
-`synchronous=FULL`. The deployed provisioner runs managed Postgres, so the SQL is
-constrained rather than idiomatic: service state, goal, attention state and
+Postgres, named by `CONTROL_PLANE_DB` as a `postgres://` connection string.
+There is no default: a file path could be derived from a home directory, and a
+connection string cannot be derived from anything, so a command with no
+`CONTROL_PLANE_DB` refuses rather than guessing which database it is about to
+write to. `~/.isomux-control-plane/` still holds the keys, run records and the
+audit JSONL.
+
+The SQL stays constrained rather than idiomatic, because it is the part a second
+engine would have to agree with: service state, goal, attention state and
 severity, operation status, intent state and PROVIDER ASSET STATE all carry CHECK
 constraints, so every finite set is enforced by the database and not only by a
-TypeScript union; times are INTEGER ms-epoch, booleans are 0/1,
-JSON travels as an already-serialised TEXT parameter (no `json()` calls), the
-audit log's event id comes from a `sequences` row bumped in the same transaction
-rather than AUTOINCREMENT, and every mutation is one statement with a version
-predicate. Private key material still never enters the database: the run record
-and the 0600 key files on disk remain the authority, and the schema stores only
-the runId, the public blob and paths.
+TypeScript union; times are BIGINT ms-epoch, booleans are 0/1, JSON travels as an
+already-serialised TEXT parameter, the audit log's event id comes from a
+`sequences` row bumped in the same transaction rather than an identity column,
+and every mutation is one statement with a version predicate. Private key
+material still never enters the database: the run record and the 0600 key files
+on disk remain the authority, and the schema stores only the runId, the public
+blob and paths.
 
-There is no schema migration in this slice, and a database written before it
-REFUSES TO OPEN rather than failing somewhere in the middle of a run: `create
-table if not exists` is silent about a table that exists with the wrong columns,
-so the store checks for the columns it needs and names the file to move aside.
+**Times are `bigint`, and that is not a preference.** A millisecond epoch does
+not fit `integer`: the unported schema answers `22003` the moment one is bound.
+The driver is configured to hand `bigint` back as a JS number rather than as the
+string it defaults to - a string timestamp compares, sorts and serialises without
+ever complaining, so it would simply be wrong wherever a deadline is evaluated.
+The parser is attached to the store's own pool rather than installed globally,
+and a test round-trips a written instant and asserts it comes back a number.
+
+Durability is not decoration: `create_intents` is the latch that stops us buying
+a box twice, so `synchronous_commit` stays at its default `on` and nothing in
+this codebase turns it off, in production or in a test container.
+
+There is no schema migration, and a database written before this build REFUSES TO
+OPEN rather than failing somewhere in the middle of a run: `create table if not
+exists` is silent about a table that exists with the wrong columns, so the store
+checks the catalog for the columns it needs and names the database to move aside.
+It names it with the password stripped - the value that used to be a file path is
+now a credential, and an error message is a place credentials get copied to.
 
 ### The store API is Promise-based, and the engine handle is private
 
 Every method that reaches the database returns a promise, readers included, and
-`Store.open` replaces `new Store` - even though bun:sqlite answers
-synchronously. That is deliberate groundwork rather than present-tense need: the
-engine behind this class becomes Postgres, whose driver cannot answer
-synchronously and whose opening cannot happen in a constructor. Flipping the API
-on its own keeps that change narrow instead of re-touching every caller twice.
-`now()` and `inTransaction()` stay synchronous, because neither reaches the
-database on either engine.
+`Store.open` replaces `new Store`, because a pool cannot be opened in a
+constructor. `now()` and `inTransaction()` stay synchronous, because neither
+reaches the database.
 
-`db` is private. The handful of callers whose SQL does not fit a typed method -
+`pool` is private. The handful of callers whose SQL does not fit a typed method -
 the create latch's INSERT, the name reservation, the billing tables - go through
 `sqlAll` / `sqlGet` / `sqlRun`, which carry the SQL text verbatim. The names are
-deliberately ugly so `grep 'sql[A-Z]'` finds every one of them, and the web
-app's boundary test forbids them outright. `tx` issues its own `begin
-immediate`, `commit` and `rollback` through `sqlRun` like everything else, so a
-test that needs to make a COMMIT fail has one seam to patch rather than a
-private path it cannot reach.
+deliberately ugly so `grep 'sql[A-Z]'` finds every one of them, and the web app's
+boundary test forbids them outright. `tx` issues its own `begin`, `commit` and
+`rollback` through `sqlRun` like everything else, so a test that needs to make a
+COMMIT fail has one seam to patch rather than a private path it cannot reach.
 
-One rule this imposes on callers, which the Postgres port will replace with
-per-transaction connections: **a transaction body may await only store calls,
-never remote I/O and never a timer.** There is one connection, so a body that
-awaited a network round trip would hold `begin immediate` open across it.
+`close()` is idempotent: a second close is a no-op, where the engine handle used
+to throw. Only a close after a SUCCESSFUL one is silent - a first close that
+fails is reported.
+
+### A transaction owns its connection
+
+`tx` checks a connection out of the pool for the body's whole life, and the
+frame travels in async context - so every statement the body issues lands inside
+those `begin`/`commit` brackets and inside no others, without a handle the caller
+has to thread through. That is what makes the transaction boundary comments in
+`store.ts` true ON THE WIRE rather than true by convention, and it is why the
+previous engine's caller rule - _a transaction body may await only store calls,
+never remote I/O and never a timer_ - is gone. A body that waits now holds one
+connection out of the pool, which is a cost rather than a correctness problem.
+
+Two consequences the tests pin with the engine's own answer, by reading
+`pg_backend_pid()` from inside the bodies:
+
+- **Concurrent transactions are no longer an error.** Two overlapping flows take
+  a connection each and commit independently. The single-connection engine could
+  not tell that case from nesting and refused both.
+- **Nesting still throws.** A `tx` opened inside another one, across an await or
+  not, is a programming error: every money and attention invariant here is stated
+  as "these statements commit together", and a nested call would quietly widen
+  someone else's boundary. A transaction on a DIFFERENT store is not nesting and
+  is allowed - it is a second database on a second connection, and it cannot
+  widen this one's boundary.
+
+### A failed statement takes the transaction, unless somebody said otherwise
+
+Postgres aborts the whole transaction on any statement error: every later
+statement answers 25P02 until a rollback. Two rules here are built on the
+opposite behaviour - the name reservation, where the INSERT IS the uniqueness
+decision and the conflicting row is read back inside the same transaction, and
+the one-active operation index, where a refusal becomes a customer-facing
+"already in progress". `store.recoverable(fn)` wraps those in a savepoint:
+release on success, rollback-to and release on failure, and the ORIGINAL error
+rethrown. If the rollback itself cannot run, the connection is discarded rather
+than returned to the pool and the transaction is failed, because at that point
+nobody can say what state it is in.
+
+It is used at exactly four sites - the reservation insert and the three
+dashboard operation opens - and it is deliberately not the default. Making every
+statement implicitly savepointed would make "this failure is expected" the
+assumption, and the failures that are not expected are the ones that must take
+the transaction down with them.
+
+That leaves one quiet failure class, and it is closed separately: **a COMMIT
+issued on an aborted transaction SUCCEEDS and commits nothing** - Postgres
+answers it with the command tag ROLLBACK. A body that caught a statement error
+and returned normally would otherwise be told its writes landed. The store reads
+that tag where every statement passes and fails the transaction, so the caller
+gets an error instead of a false receipt.
+
+Isolation is READ COMMITTED, argued from the one-statement arbiters rather than
+assumed: every mutation is a single UPDATE or INSERT carrying its own predicate,
+so a loser sees the winner's row once the lock releases and its predicate no
+longer matches. Nothing needs a stable snapshot ACROSS statements - every "these
+commit together" here is about atomicity, not isolation. `statement_timeout` and
+`idle_in_transaction_session_timeout` are both 30s: measured statements run in
+under a millisecond, so those bound a wedged row lock and a holder that died with
+`begin` open, not slow SQL.
 
 The slice-1 audit JSONL is still written, as a post-commit mirror. It is not half
 of a state transition: an attention raise and its `audit_events` row commit
@@ -772,7 +845,8 @@ where it used not to.
 
 ### The runtime matrix, measured
 
-Next 16.3.0 (Turbopack), Bun 1.3.11, Node 24.18.0, measured 2026-08-10:
+Next 16.3.0 (Turbopack), Bun 1.3.11, Node 24.18.0. **Measured 2026-08-10,
+BEFORE the Postgres port**, which is what the port was for:
 
 |              | `bun --bun`                                                                                         | `node`                      |
 | ------------ | --------------------------------------------------------------------------------------------------- | --------------------------- |
@@ -780,16 +854,22 @@ Next 16.3.0 (Turbopack), Bun 1.3.11, Node 24.18.0, measured 2026-08-10:
 | `next build` | FAILS: "Expected CommonJS module to have a function wrapper" loading Next's compiled server runtime | works                       |
 | `next start` | FAILS, same defect                                                                                  | works, without `bun:sqlite` |
 
-So the app RUNS under Bun's dev server, and BUILDS under Node. The Node build is
-a compile-and-bundle gate, not a claim that the built artifact can serve
-store-backed pages here; in the deployed shape the store is managed Postgres and
-`bun:sqlite` is gone.
+The right-hand column is the one the port changes: the store's driver is `pg`,
+which loads under Node, so "works, without a store" stops being the ceiling.
+What is **verified as of the port** is only the build - `bun run ci:web` builds,
+type-checks and lints under Node with `pg` resolved from the nested package, and
+needs no `serverExternalPackages` entry to do it. Whether a Node `next start`
+actually serves store-backed pages against a real Postgres is not claimed here:
+it is the next slice's job, and this table will carry its measurement when there
+is one. The left-hand column is unchanged and still the way the app is developed.
 
-That split is what forces the one structural rule in the app:
-`lib/services.server.ts` reaches the control plane through **request-time
-dynamic imports**. Next evaluates every page and route module while collecting
-page data, under Node, so a module-scope import of the store fails the build.
-The build is the enforcement; `web-boundary.test.ts` is the explanation.
+The `next build` split is also why `lib/services.server.ts` reaches the control
+plane through **request-time dynamic imports** - but note that the reason has
+shifted. It used to be enforced by the build itself, because a module-scope
+import of a `bun:sqlite` store failed under Node while Next collected page data.
+With a driver that loads under both, the build no longer objects, and
+`web-boundary.test.ts` is the only thing keeping the driver, keys, ssh and the
+webhook path out of the storefront's module graph.
 
 ### What is in the app, and what is deliberately not
 
@@ -1199,10 +1279,26 @@ Two rules shape all three:
 - **the authority check and the work are ONE TRANSACTION.** Not merely "inside
   the service": a role read that commits separately from the work it guards is
   a role that can be revoked in between while the protected read or write still
-  goes through. Each verb opens one `begin immediate`, re-reads `is_operator`
-  inside it, and does the whole protected operation there - which is why
+  goes through. Each verb opens one transaction, re-reads `is_operator` inside
+  it, and does the whole protected operation there - which is why
   acknowledgement needs `acknowledgeAttentionIn` rather than the wrapper that
   opens its own transaction.
+
+  The read is `select is_operator ... FOR SHARE`, and the exact property is
+  worth stating rather than gesturing at: **a revoke cannot commit while a
+  guarded verb holds the share lock on that role row, and a revoke that
+  committed BEFORE the verb began is observed by the verb and refused.** A plain
+  SELECT takes no lock, so without it a revoke would land mid-verb and the verb
+  would finish on an authority it no longer had. `FOR KEY SHARE` is not enough:
+  it conflicts only with writers that change a key, and `is_operator` is not
+  one.
+
+  The lock order is `accounts` first, everything else after, in every
+  transaction that touches the table - the granting CLI reads without locking
+  and then updates the account row before it audits, so a blocked revoke holds
+  nothing while it waits. That is what keeps the share lock from being half of
+  a cycle.
+
 - **refusal is indistinguishable from absence.** A non-operator gets the same
   `null` a missing instance gets, and the caller answers 404 to both. A 403
   would confirm the floor exists and that this account is not on it.
@@ -1236,9 +1332,33 @@ stays `needs_operator` until the condition itself goes away.
 
 ## Tests
 
+The suite needs a local Postgres, and it does not skip without one:
+
 ```
+docker run -d --name isomux-cp-pg \
+  -e POSTGRES_PASSWORD=isomux -e POSTGRES_USER=isomux \
+  -e POSTGRES_DB=control_plane_test \
+  -p 127.0.0.1:5433:5432 postgres:16
+
 bun test control-plane
 ```
+
+Port 5433 so an already-installed Postgres on the default port is never what the
+suite writes to. The address is a constant in `control-plane/testing/pg.ts`, and
+CI runs the same image with the same settings.
+
+A real engine rather than a substitute, because what these tests are for is
+engine behaviour: which of two compare-and-swap contenders loses, whether a
+partial unique index refuses the second row, whether one transaction's
+statements can reach another's connection. A substitute would assert our own
+beliefs back at us.
+
+Each test gets a schema of its own, carried in the connection string, so two
+stores opened on the same string share state exactly as two stores on one file
+did. Schemas are recycled between tests rather than created per test: creating
+one costs about 96ms and wiping a used one about 1ms, which across 353 store
+openings is the difference between a suite that fits its runtime budget and one
+that does not.
 
 `deploy/install-sh.test.ts` also scans install.sh for the heredoc defect as a
 CLASS, at both stages: what install.sh's own shell expands, and what the helper

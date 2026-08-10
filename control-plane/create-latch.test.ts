@@ -19,6 +19,11 @@ import { IntentJournal } from "./intents.ts";
 import { createInstanceHandler } from "./handlers.ts";
 import { Reporter } from "./report.ts";
 import { Store, type Fence } from "./store.ts";
+import {
+  openTestStore,
+  openTestStoreOn,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import { Ticker } from "./tick.ts";
 import type {
   CreateOutcome,
@@ -36,6 +41,7 @@ function tempDir(): string {
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -74,7 +80,7 @@ interface Bed {
 
 async function bed(): Promise<Bed> {
   const dir = tempDir();
-  const store = await Store.open(path.join(dir, "cp.db"));
+  const store = await openTestStore();
   await store.createInstance({
     id: "inst-1",
     run_id: null,
@@ -347,7 +353,9 @@ describe("the outcome transaction", () => {
 describe("restart after a real crash", () => {
   test("a persisted armed row can never reach adapter.create again", async () => {
     const b = await bed();
-    const dbPath = path.join(b.dir, "cp.db");
+    // The child opens its own store on the same connection string: a real
+    // second process, which is what makes losing it evidence.
+    const dbPath = b.store.url;
     // Hand the row over unleased: the child process is the holder in this
     // story, and it is the one whose death has to be survivable.
     await b.store.casOperation(b.fence, {
@@ -380,7 +388,7 @@ describe("restart after a real crash", () => {
     await child.exited;
 
     // Everything below comes from the file. Nothing carries the capability.
-    const store = await Store.open(dbPath);
+    const store = await openTestStoreOn(dbPath);
     expect((await store.getIntent("intent-1"))?.state).toBe("intended");
     expect(JSON.parse((await store.getOperation(b.opId))!.evidence).phase).toBe(
       CREATE_ARMED_PHASE,

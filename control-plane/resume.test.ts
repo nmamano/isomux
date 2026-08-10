@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { LIFECYCLE_REASON, lifecycleOperationId } from "./lifecycle.ts";
 import { powerOnHandler, requestResume, resumeOperationId } from "./resume.ts";
 import { Store, type ServiceState } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import {
   ensureAccount,
   insertSubscription,
@@ -22,6 +23,7 @@ import {
 
 const temps: string[] = [];
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -33,7 +35,7 @@ const EPISODE = "dun-evt_1";
 async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-resume-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), () => NOW);
+  return await openTestStore(() => NOW);
 }
 
 /** A suspended office with a succeeded DUNNING power_off, which is the only
@@ -167,7 +169,7 @@ describe("requestResume predicates", () => {
     });
     // Episode A's resume completes.
     await store.sqlRun(
-      "update operations set status = 'succeeded' where id = ?",
+      "update operations set status = 'succeeded' where id = $1",
       [resumeOperationId(EPISODE)],
     );
 

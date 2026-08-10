@@ -31,6 +31,7 @@ import {
 import { setOperator } from "../../operator-admin.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { Store } from "../../store.ts";
+import { databaseUrl } from "../../config.ts";
 import {
   ensureAccount,
   insertSubscription,
@@ -102,7 +103,7 @@ async function succeed(
     ...(evidence ? { evidence } : {}),
   });
   await store.sqlRun(
-    "update operations set status = 'succeeded', version = version + 1 where id = ?",
+    "update operations set status = 'succeeded', version = version + 1 where id = $1",
     [op.id],
   );
 }
@@ -114,7 +115,7 @@ async function stripeSays(
   patch: Record<string, string | number | null>,
 ): Promise<void> {
   const sets = Object.keys(patch)
-    .map((k) => `${k} = ?`)
+    .map((k, i) => `${k} = $${i + 1}`)
     .join(", ");
   await store.sqlRun(`update subscriptions set ${sets} where id = 'sub_e2e'`, [
     ...Object.values(patch),
@@ -123,10 +124,10 @@ async function stripeSays(
 
 async function main(): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp5-lifecycle-"));
-  const db = path.join(dir, "control-plane.db");
+  const db = databaseUrl();
   const store = await Store.open(db);
   say("# slice 5 transcript: cancellation copy and the ops floor");
-  say(`database: ${db}`);
+  say(`database: ${store.describe()}`);
 
   const customer = await accountForDevSignIn(store, "customer@example.com");
   const operator = await accountForDevSignIn(store, "operator@example.com");

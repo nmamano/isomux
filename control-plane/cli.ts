@@ -28,7 +28,7 @@ import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
 import {
   AUDIT_FILE,
-  DB_FILE,
+  databaseUrl,
   DEFAULT_LOGIN_USER,
   INTENTS_DIR,
   KEYS_DIR,
@@ -207,7 +207,7 @@ async function waitForSsh(
  */
 async function openStore(): Promise<Store> {
   fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
-  const store = await Store.open(DB_FILE);
+  const store = await Store.open(databaseUrl());
   await migrateLegacyIntents(store, INTENTS_DIR);
   return store;
 }

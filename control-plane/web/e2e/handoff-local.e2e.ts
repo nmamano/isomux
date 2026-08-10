@@ -26,6 +26,8 @@ import { Reporter, type Sink } from "../../report.ts";
 import { saveRun, type RunRecord } from "../../run-record.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { Store } from "../../store.ts";
+import { databaseUrl } from "../../config.ts";
+import { quoteIdentifier } from "../../testing/pg.ts";
 import type { Exec, ExecOptions, ExecResult } from "../../ssh.ts";
 import { Ticker } from "../../tick.ts";
 
@@ -130,10 +132,10 @@ async function succeed(
 
 async function main(): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp4b-local-"));
-  const db = path.join(dir, "control-plane.db");
+  const db = databaseUrl();
   const store = await Store.open(db);
   say("# slice 4b local transcript: the handoff surface with the box faked");
-  say(`database: ${db}`);
+  say(`database: ${store.describe()}`);
 
   const account = await accountForDevSignIn(store, "local@example.com");
   const reserved = await reserveOffice(store, {
@@ -319,10 +321,29 @@ async function main(): Promise<void> {
       closedBody.status === "window_closed",
     );
 
-    // Nothing anywhere durable carries a link.
-    const dump = fs.readFileSync(db).toString("latin1");
+    // Nothing anywhere durable carries a link. The database is a server now,
+    // so this asks it for every value in every table rather than reading a
+    // file: same question, and the same one invite-persistence.test.ts pins
+    // with a positive control.
+    const dump = (
+      await Promise.all(
+        (
+          await store.sqlAll<{ tablename: string }>(
+            "select tablename from pg_tables where schemaname = current_schema()",
+          )
+        ).map(async ({ tablename }) =>
+          (
+            await store.sqlAll<{ row: string }>(
+              `select t::text as row from ${quoteIdentifier(tablename)} t`,
+            )
+          )
+            .map((r) => r.row)
+            .join("\n"),
+        ),
+      )
+    ).join("\n");
     check(
-      "no invite in the database file",
+      "no invite anywhere in the database",
       !/https?:\/\/\S*\/i\/local-link/.test(dump),
     );
     check(

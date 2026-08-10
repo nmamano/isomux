@@ -13,10 +13,12 @@ import {
 import { LIFECYCLE_REASON } from "./lifecycle.ts";
 import type { AssetState } from "./provider.ts";
 import { Store, type AssetRow, type OperationRow } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 
 const temps: string[] = [];
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -36,7 +38,7 @@ async function bed(opts: {
 }): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-deprov-"));
   temps.push(dir);
-  const store = await Store.open(path.join(dir, "cp.db"));
+  const store = await openTestStore();
   const instance = await store.createInstance({
     id: "inst-1",
     run_id: null,

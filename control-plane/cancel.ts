@@ -3,9 +3,9 @@
 // Shaped like requests.ts - ownership re-read inside the transaction, refusal
 // codes with the customer's own words - but with one structural difference that
 // matters more than the similarity: THIS ONE TALKS TO STRIPE, and the store must
-// not be inside a transaction while it does. A SQLite write transaction held
-// across a network call blocks every other writer for as long as Stripe takes to
-// answer, which on a bad day is the timeout.
+// not be inside a transaction while it does. A write transaction held across a
+// network call keeps its row locks, and its connection, for as long as Stripe
+// takes to answer - which on a bad day is the timeout.
 //
 // So it is three phases:
 //
@@ -105,7 +105,7 @@ async function prepare(
       return refuse("not_yours");
     }
     const row = await store.sqlGet<SubscriptionRow>(
-      "select * from subscriptions where instance_id = ? order by created_at desc",
+      "select * from subscriptions where instance_id = $1 order by created_at desc",
       [req.instanceId],
     );
     if (!row) return refuse("no_subscription");

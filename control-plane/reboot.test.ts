@@ -5,13 +5,15 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { rebootHandler } from "./reboot.ts";
-import { Store, type AssetRow } from "./store.ts";
+import { type AssetRow } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 import { RemoteTimeoutError } from "./ssh.ts";
 
 const temps: string[] = [];
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -26,7 +28,7 @@ interface Bed {
 async function bed(withAsset: boolean): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-reboot-"));
   temps.push(dir);
-  const store = await Store.open(path.join(dir, "cp.db"));
+  const store = await openTestStore();
   const instance = await store.createInstance({
     id: "inst-1",
     run_id: null,

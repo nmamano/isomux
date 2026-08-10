@@ -6,7 +6,7 @@
 // frame, and the only honest way to show that losing the process loses it is to
 // kill a real process that is holding it.
 //
-// Usage: arm-and-hang.ts <dbPath> <opId> <intentId> <runsDirUnused>
+// Usage: arm-and-hang.ts <databaseUrl> <opId> <intentId>
 // Prints ARMED once the pre-call transaction has committed and the provider call
 // has begun. The parent kills it at that point.
 
@@ -15,8 +15,8 @@ import { CreateLatch } from "../create-latch.ts";
 import { Store } from "../store.ts";
 import type { CreateOutcome, ProviderAdapter } from "../provider.ts";
 
-const [dbPath, opId, intentId] = process.argv.slice(2);
-const store = await Store.open(dbPath);
+const [databaseUrl, opId, intentId] = process.argv.slice(2);
+const store = await Store.open(databaseUrl);
 const op = await store.getOperation(opId);
 if (!op) throw new Error(`no operation ${opId}`);
 

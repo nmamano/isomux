@@ -9,6 +9,7 @@ import * as path from "node:path";
 import { DEADLINES, nextKind } from "./operations.ts";
 import { ObserverWriteFailed, RemoteTimeoutError } from "./ssh.ts";
 import { Store } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { ContaboAdapter } from "./contabo/adapter.ts";
 import { ContaboHttp } from "./contabo/http.ts";
 import { TokenProvider, type FetchLike } from "./contabo/auth.ts";
@@ -32,10 +33,11 @@ const temps: string[] = [];
 async function tempStore(now: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-tick-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), now);
+  return await openTestStore(now);
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }

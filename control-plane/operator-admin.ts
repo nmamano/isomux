@@ -40,8 +40,8 @@ export async function setOperator(
       return { ok: true as const, account, changed: false };
     }
     const updated = await store.sqlGet<AccountRow>(
-      "update accounts set is_operator = ?, updated_at = ?, version = version + 1 " +
-        "where id = ? and version = ? returning *",
+      "update accounts set is_operator = $1, updated_at = $2, version = version + 1 " +
+        "where id = $3 and version = $4 returning *",
       [want, store.now(), account.id, account.version],
     );
     if (!updated) {

@@ -1,11 +1,11 @@
 // Billing rows: accounts, subscriptions, and the durable event ledger.
 //
-// These are FUNCTIONS OVER THE SLICE-2 STORE, not a second store. There is one
-// SQLite connection, one schema owner and one transaction owner, because the
-// whole point of putting billing here is that a subscription change, the
-// instance mirror, an attention raise, an audit row and a suspension enqueue
-// commit TOGETHER with slice 2's rows. A separately opened connection could not
-// give that.
+// These are FUNCTIONS OVER THE SLICE-2 STORE, not a second store. One schema
+// owner and one transaction owner, because the whole point of putting billing
+// here is that a subscription change, the instance mirror, an attention raise,
+// an audit row and a suspension enqueue commit TOGETHER with slice 2's rows -
+// they run inside the caller's transaction, on its connection. A separately
+// opened store could not give that.
 //
 // The two setters below are deliberately separate, with disjoint patch types:
 //
@@ -20,7 +20,7 @@
 // A source-ownership test asserts that split, so a later redirect handler or
 // dashboard button cannot quietly become a writer of Stripe truth.
 
-import type { SqlArgs, Store } from "../store.ts";
+import { isUniqueViolation, type SqlArgs, type Store } from "../store.ts";
 
 export interface AccountRow {
   id: string;
@@ -160,11 +160,29 @@ export async function ensureAccount(
   // default. Every account arrives through here or through a sign-in that calls
   // here, so the literal is the proof that no sign-in path can create a
   // privileged account.
-  await store.sqlRun(
-    "insert into accounts (id, email, google_subject, stripe_customer_id, is_operator, " +
-      "version, created_at, updated_at) values (?, ?, null, null, 0, 1, ?, ?)",
-    [args.id, args.email, ts, ts],
-  );
+  try {
+    await store.recoverable(() =>
+      store.sqlRun(
+        "insert into accounts (id, email, google_subject, stripe_customer_id, is_operator, " +
+          "version, created_at, updated_at) values ($1, $2, null, null, 0, 1, $3, $4)",
+        [args.id, args.email, ts, ts],
+      ),
+    );
+  } catch (err) {
+    // The read above is a fast path, not the decision: under read committed two
+    // callers can both find the address absent and only one of them can insert
+    // it. The previous engine serialised writers, so the loser's read happened
+    // after the winner's commit and returned the existing account - and that is
+    // the outcome preserved here.
+    if (!isUniqueViolation(err)) throw err;
+    // The EMAIL index is what decides identity, so the winner is read back by
+    // address. A collision on the primary key with a different address is a
+    // different fact - two accounts fighting over one id - and is not something
+    // to answer with somebody else's row.
+    const winner = await accountByEmail(store, args.email);
+    if (!winner) throw err;
+    return winner;
+  }
   const made = await getAccount(store, args.id);
   if (!made) throw new Error("account insert did not land");
   return made;
@@ -174,14 +192,14 @@ export async function getAccount(
   store: Store,
   id: string,
 ): Promise<AccountRow | null> {
-  return store.sqlGet<AccountRow>("select * from accounts where id = ?", [id]);
+  return store.sqlGet<AccountRow>("select * from accounts where id = $1", [id]);
 }
 
 export async function accountByEmail(
   store: Store,
   email: string,
 ): Promise<AccountRow | null> {
-  return store.sqlGet<AccountRow>("select * from accounts where email = ?", [
+  return store.sqlGet<AccountRow>("select * from accounts where email = $1", [
     email,
   ]);
 }
@@ -233,7 +251,7 @@ export async function insertSubscription(
       "discount_ends_at, ever_full_discount, latest_invoice_id, payment_failures, " +
       "exhaustion_observed_at, coupon_grace_until, episode_id, episode_state, last_event_id, " +
       "last_event_created, version, created_at, updated_at) " +
-      "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+      "values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 1, $23, $24)",
     [
       row.id,
       row.account_id,
@@ -271,7 +289,7 @@ export async function getSubscription(
   id: string,
 ): Promise<SubscriptionRow | null> {
   return store.sqlGet<SubscriptionRow>(
-    "select * from subscriptions where id = ?",
+    "select * from subscriptions where id = $1",
     [id],
   );
 }
@@ -291,7 +309,7 @@ export async function holdsExpiredAt(
 ): Promise<SubscriptionRow[]> {
   return store.sqlAll<SubscriptionRow>(
     "select * from subscriptions where episode_state = 'coupon_hold' " +
-      "and coupon_grace_until is not null and coupon_grace_until <= ? " +
+      "and coupon_grace_until is not null and coupon_grace_until <= $1 " +
       "order by coupon_grace_until",
     [now],
   );
@@ -353,7 +371,7 @@ export async function eventSeen(
   id: string,
 ): Promise<StripeEventRow | null> {
   return store.sqlGet<StripeEventRow>(
-    "select * from stripe_events where id = ?",
+    "select * from stripe_events where id = $1",
     [id],
   );
 }
@@ -373,7 +391,7 @@ export async function claimEvent(
   const receivedAt = row.received_at ?? store.now();
   await store.sqlRun(
     "insert into stripe_events (id, type, created, received_at, subscription_id, outcome, detail) " +
-      "values (?, ?, ?, ?, ?, ?, ?)",
+      "values ($1, $2, $3, $4, $5, $6, $7)",
     [
       row.id,
       row.type,
@@ -392,7 +410,7 @@ export async function listEvents(
   limit = 50,
 ): Promise<StripeEventRow[]> {
   return store.sqlAll<StripeEventRow>(
-    "select * from stripe_events order by received_at desc limit ?",
+    "select * from stripe_events order by received_at desc limit $1",
     [limit],
   );
 }
@@ -418,14 +436,15 @@ async function casRow<T>(
   const sets: string[] = [];
   const args: SqlArgs = [];
   for (const [k, v] of Object.entries(patch)) {
-    sets.push(`${k} = ?`);
     args.push(v as string | number | null);
+    sets.push(`${k} = $${args.length}`);
   }
   if (sets.length === 0) return null;
-  sets.push("updated_at = ?");
   args.push(store.now());
+  sets.push(`updated_at = $${args.length}`);
   return store.sqlGet<T>(
-    `update ${table} set ${sets.join(", ")}, version = version + 1 where ${key} = ? and version = ? returning *`,
+    `update ${table} set ${sets.join(", ")}, version = version + 1 ` +
+      `where ${key} = $${args.length + 1} and version = $${args.length + 2} returning *`,
     [...args, id, expectedVersion],
   );
 }

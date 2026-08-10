@@ -6,6 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store } from "../store.ts";
+import { openTestStore, releaseTestStores } from "../testing/pg.ts";
 import { RemoteBudget, Ticker, serviceStateAfter } from "../tick.ts";
 import { DECLARED_UNIMPLEMENTED_KINDS, deadlinesFor } from "../operations.ts";
 import { powerOffHandler } from "./suspension.ts";
@@ -16,7 +17,7 @@ const temps: string[] = [];
 async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-suspend-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), () => NOW);
+  return await openTestStore(() => NOW);
 }
 
 async function seed(store: Store, withAsset = true): Promise<string> {
@@ -91,6 +92,7 @@ async function enqueuePowerOff(store: Store, id = "op-power_off-dun-1") {
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }

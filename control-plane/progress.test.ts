@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store, type OperationStatus } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
 import { raiseAttention } from "./attention.ts";
 import { DECLARED_UNIMPLEMENTED_KINDS, nextKind } from "./operations.ts";
@@ -18,10 +19,11 @@ const temps: string[] = [];
 async function tempStore(now?: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-progress-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), now);
+  return await openTestStore(now);
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   while (temps.length)
     fs.rmSync(temps.pop()!, { recursive: true, force: true });
 });
@@ -66,7 +68,7 @@ async function addOp(
     evidence,
   });
   if (status !== "pending") {
-    await store.sqlRun("update operations set status = ? where id = ?", [
+    await store.sqlRun("update operations set status = $1 where id = $2", [
       status,
       id,
     ]);
@@ -203,7 +205,7 @@ describe("it does not invent progress", () => {
     }))!;
     expect(running.ready).toBe(false);
     await store.sqlRun(
-      "update operations set status = 'succeeded' where kind = ?",
+      "update operations set status = 'succeeded' where kind = $1",
       ["verify_https"],
     );
     const done = (await projectionFor(store, {
@@ -348,7 +350,7 @@ describe("evidence never reaches the browser raw", () => {
       big.steps.find((s) => s.kind === "run_installer")?.detail,
     ).toBeNull();
 
-    await store.sqlRun("update operations set evidence = ? where kind = ?", [
+    await store.sqlRun("update operations set evidence = $1 where kind = $2", [
       "not json at all",
       "run_installer",
     ]);
@@ -477,7 +479,7 @@ describe("what the page is allowed to claim about our key", () => {
     at: number,
   ): Promise<void> {
     await store.sqlRun(
-      "update instances set access_window_expires_at = ? where id = ?",
+      "update instances set access_window_expires_at = $1 where id = $2",
       [at, id],
     );
   }
@@ -529,7 +531,7 @@ describe("what the page is allowed to claim about our key", () => {
 
   test("an instance whose asset row is missing is unknown, not absent", async () => {
     const { store, id, read } = await frozen();
-    await store.sqlRun("delete from provider_assets where instance_id = ?", [
+    await store.sqlRun("delete from provider_assets where instance_id = $1", [
       id,
     ]);
     expect((await read()).state).toBe("needs_attention");
@@ -575,7 +577,7 @@ describe("what the page is allowed to claim about our key", () => {
     await addOp(store, id, "revoke_access", "running");
     expect((await read()).state).toBe("held");
     await store.sqlRun(
-      "update operations set status = 'failed' where kind = ?",
+      "update operations set status = 'failed' where kind = $1",
       ["revoke_access"],
     );
     expect((await read()).state).toBe("held");
@@ -609,7 +611,7 @@ describe("comped means an ACTIVE full discount", () => {
       "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, " +
         "status, cancel_at_period_end, discount_percent_off, discount_ends_at, " +
         "ever_full_discount, payment_failures, episode_state, version, created_at, updated_at) " +
-        "values ('sub_1', 'acct', ?, 'cus_1', 'active', 0, ?, ?, 1, 0, 'none', 1, ?, ?)",
+        "values ('sub_1', 'acct', $1, 'cus_1', 'active', 0, $2, $3, 1, 0, 'none', 1, $4, $5)",
       [instanceId, percent, endsAt, store.now(), store.now()],
     );
   }
@@ -625,7 +627,7 @@ describe("comped means an ACTIVE full discount", () => {
       }))!.subscription?.comped,
     ).toBe(true);
 
-    await store.sqlRun("update subscriptions set discount_ends_at = ?", [
+    await store.sqlRun("update subscriptions set discount_ends_at = $1", [
       store.now() - 1,
     ]);
     expect(
@@ -650,14 +652,14 @@ describe("comped means an ACTIVE full discount", () => {
         instanceId: reservation.instance_id,
       }))!.subscription!.comped;
 
-    await store.sqlRun("update subscriptions set discount_ends_at = ?", [
+    await store.sqlRun("update subscriptions set discount_ends_at = $1", [
       NOW - 1,
     ]);
     expect(await read()).toBe(false);
     // Ending AT this instant is over: the discount does not cover it.
-    await store.sqlRun("update subscriptions set discount_ends_at = ?", [NOW]);
+    await store.sqlRun("update subscriptions set discount_ends_at = $1", [NOW]);
     expect(await read()).toBe(false);
-    await store.sqlRun("update subscriptions set discount_ends_at = ?", [
+    await store.sqlRun("update subscriptions set discount_ends_at = $1", [
       NOW + 1,
     ]);
     expect(await read()).toBe(true);

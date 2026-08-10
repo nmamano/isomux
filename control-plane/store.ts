@@ -1,31 +1,39 @@
 // The durable state behind the driver: instances, provider assets, typed
 // operations, attention and the audit log.
 //
-// SQLite is the engine for this slice; the deployed provisioner runs managed
-// Postgres. That port is meant to be mechanical, so the SQL here is constrained
-// rather than idiomatic:
+// POSTGRES IS THE ENGINE, under both Bun and Node. The driver is `pg`, chosen
+// because it is the one that runs on both: the deployed shape is a Next app
+// under Node and a provisioner that may be either, and a Bun-only driver would
+// put the store back where the port found it.
 //
-//   - times are INTEGER milliseconds since the epoch, never a date type;
-//   - booleans are 0/1 INTEGER;
+// The SQL stays constrained rather than idiomatic, for the same reason it was
+// before - it is the part of this file that a second engine would have to
+// agree with:
+//
+//   - times are BIGINT milliseconds since the epoch, never a date type. Bigint
+//     because a ms epoch does not fit `integer`: the unported schema answers
+//     22003 the moment one is bound. The driver is configured to hand int8
+//     back as a JS number, which is safe because a ms epoch is far below
+//     2^53;
+//   - booleans are 0/1 integers;
 //   - JSON travels as an already-serialised TEXT PARAMETER. No json() calls, no
-//     jsonb, nothing the other engine spells differently;
-//   - no INSERT OR REPLACE, no rowid tricks, no AUTOINCREMENT. The audit log's
-//     event id comes from a `sequences` row bumped in the same transaction,
-//     which is the same statement on both engines;
+//     jsonb, nothing another engine spells differently;
+//   - no upserts, no rowid tricks, no identity columns. The audit log's event
+//     id comes from a `sequences` row bumped in the same transaction;
 //   - every mutation is ONE statement carrying a version predicate.
 //
-// Durability is not decoration here: `create_intents` is the latch that stops us
-// buying a box twice, so the database opens WAL with synchronous=FULL and a
-// commit is fsynced before it returns.
+// Durability is not decoration here: `create_intents` is the latch that stops
+// us buying a box twice, so `synchronous_commit` is left at its default `on`
+// and nothing in this codebase turns it off. A commit that has not reached the
+// disk is not a latch.
 //
-// EVERY METHOD THAT TOUCHES THE DATABASE IS ASYNC, including the readers, even
-// though bun:sqlite answers synchronously. The engine behind this class becomes
-// Postgres, whose driver cannot answer synchronously at all; flipping the API
-// separately from the engine is what keeps that change narrow instead of
-// re-touching every caller twice. `now()` and `inTransaction()` stay
-// synchronous, because neither reaches the database on either engine.
+// EVERY METHOD THAT TOUCHES THE DATABASE IS ASYNC, including the readers.
+// `now()` and `inTransaction()` stay synchronous, because neither reaches the
+// database.
 
-import { Database } from "bun:sqlite";
+import { AsyncLocalStorage } from "node:async_hooks";
+import pg from "pg";
+import type { Pool, PoolClient, PoolConfig } from "pg";
 
 export type Clock = () => number;
 
@@ -216,7 +224,7 @@ create table if not exists schema_meta (
 );
 create table if not exists sequences (
   name text primary key,
-  value integer not null
+  value bigint not null
 );
 create table if not exists instances (
   id text primary key,
@@ -238,13 +246,13 @@ create table if not exists instances (
   attention_severity text check (
     attention_severity is null or attention_severity in ('info', 'warning', 'critical')
   ),
-  attention_raised_at integer,
-  acknowledged_at integer,
+  attention_raised_at bigint,
+  acknowledged_at bigint,
   acknowledged_by text,
-  access_window_expires_at integer,
+  access_window_expires_at bigint,
   version integer not null,
-  created_at integer not null,
-  updated_at integer not null
+  created_at bigint not null,
+  updated_at bigint not null
 );
 create table if not exists provider_assets (
   id text primary key,
@@ -259,10 +267,10 @@ create table if not exists provider_assets (
   ipv4 text,
   service_ends_at text,
   host_key_fingerprint text,
-  next_reconcile_at integer not null,
+  next_reconcile_at bigint not null,
   version integer not null,
-  created_at integer not null,
-  updated_at integer not null
+  created_at bigint not null,
+  updated_at bigint not null
 );
 create table if not exists operations (
   id text primary key,
@@ -272,18 +280,18 @@ create table if not exists operations (
     status in ('pending', 'running', 'succeeded', 'failed', 'ambiguous')
   ),
   attempt integer not null,
-  next_attempt_at integer not null,
-  lease_until integer,
+  next_attempt_at bigint not null,
+  lease_until bigint,
   lease_holder text,
-  inactivity_deadline_at integer not null,
-  absolute_deadline_at integer not null,
+  inactivity_deadline_at bigint not null,
+  absolute_deadline_at bigint not null,
   evidence text not null,
-  evidence_at integer not null,
+  evidence_at bigint not null,
   inactivity_flagged integer not null default 0,
   absolute_flagged integer not null default 0,
   version integer not null,
-  created_at integer not null,
-  updated_at integer not null
+  created_at bigint not null,
+  updated_at bigint not null
 );
 create unique index if not exists operations_one_active
   on operations (instance_id, kind)
@@ -293,7 +301,7 @@ create table if not exists create_intents (
   state text not null check (
     state in ('intended', 'created', 'rejected', 'ambiguous')
   ),
-  latched_at integer not null,
+  latched_at bigint not null,
   plan text not null,
   region text not null,
   provider_id text,
@@ -309,9 +317,9 @@ create table if not exists attention_reasons (
   ),
   reason text not null,
   severity text not null check (severity in ('info', 'warning', 'critical')),
-  raised_at integer not null,
-  cleared_at integer,
-  acknowledged_at integer,
+  raised_at bigint not null,
+  cleared_at bigint,
+  acknowledged_at bigint,
   acknowledged_by text,
   version integer not null default 1
 );
@@ -319,8 +327,8 @@ create unique index if not exists attention_reasons_open
   on attention_reasons (instance_id, source_op_id, reason)
   where cleared_at is null;
 create table if not exists audit_events (
-  seq integer primary key,
-  ts integer not null,
+  seq bigint primary key,
+  ts bigint not null,
   actor text not null,
   instance_id text,
   action text not null,
@@ -354,8 +362,8 @@ create table if not exists accounts (
   stripe_customer_id text,
   is_operator integer not null default 0,
   version integer not null,
-  created_at integer not null,
-  updated_at integer not null
+  created_at bigint not null,
+  updated_at bigint not null
 );
 create unique index if not exists accounts_email on accounts (email);
 create table if not exists subscriptions (
@@ -364,7 +372,7 @@ create table if not exists subscriptions (
   instance_id text,
   stripe_customer_id text not null,
   status text not null,
-  current_period_end integer,
+  current_period_end bigint,
   cancel_at_period_end integer not null default 0,
   -- Slice 5, and all three are STRIPE-OWNED like the columns above them.
   -- ended_at is the instant service actually ended, and it is the cancellation
@@ -374,32 +382,32 @@ create table if not exists subscriptions (
   -- cancellation_reason is the discriminator between a customer cancellation
   -- ("cancellation_requested") and a dunning one ("payment_failed", observed
   -- 2026-08-09) - the two walk completely different machines.
-  ended_at integer,
-  canceled_at integer,
+  ended_at bigint,
+  canceled_at bigint,
   cancellation_reason text,
   discount_percent_off integer,
   discount_coupon_id text,
-  discount_ends_at integer,
+  discount_ends_at bigint,
   ever_full_discount integer not null default 0,
   latest_invoice_id text,
   payment_failures integer not null default 0,
-  exhaustion_observed_at integer,
-  coupon_grace_until integer,
+  exhaustion_observed_at bigint,
+  coupon_grace_until bigint,
   episode_id text,
   episode_state text not null default 'none' check (
     episode_state in ('none', 'open', 'coupon_hold', 'suspension_requested')
   ),
   last_event_id text,
-  last_event_created integer,
+  last_event_created bigint,
   version integer not null,
-  created_at integer not null,
-  updated_at integer not null
+  created_at bigint not null,
+  updated_at bigint not null
 );
 create table if not exists stripe_events (
   id text primary key,
   type text not null,
-  created integer not null,
-  received_at integer not null,
+  created bigint not null,
+  received_at bigint not null,
   subscription_id text,
   outcome text not null,
   detail text
@@ -437,13 +445,13 @@ create table if not exists instance_liveness (
   instance_id text primary key,
   rung text not null,
   strikes integer not null default 0,
-  checked_at integer,
-  next_check_at integer not null,
-  claim_until integer,
+  checked_at bigint,
+  next_check_at bigint not null,
+  claim_until bigint,
   claim_holder text,
   version integer not null,
-  created_at integer not null,
-  updated_at integer not null
+  created_at bigint not null,
+  updated_at bigint not null
 );
 create table if not exists name_reservations (
   name text primary key,
@@ -453,8 +461,8 @@ create table if not exists name_reservations (
   plan text not null,
   coupon_id text,
   version integer not null,
-  created_at integer not null,
-  updated_at integer not null
+  created_at bigint not null,
+  updated_at bigint not null
 );
 `;
 
@@ -463,9 +471,9 @@ create table if not exists name_reservations (
  * than with the tables.
  *
  * An index names a column, so creating one on a database that predates the
- * column fails with a raw SQLite error - which is precisely the "fails
+ * column fails with a raw engine error - which is precisely the "fails
  * somewhere in the middle" outcome the check below exists to replace with a
- * sentence naming the file. Order is the fix: refuse by name first, index
+ * sentence naming the database. Order is the fix: refuse by name first, index
  * after.
  */
 const LATE_INDEXES = `
@@ -477,43 +485,176 @@ create unique index if not exists accounts_google_subject
   on accounts (google_subject) where google_subject is not null;
 `;
 
+/**
+ * How long a statement, a connect and an abandoned transaction may take.
+ *
+ * Measured on this schema, an ordinary statement is under a millisecond, so
+ * thirty seconds is not a budget for slow SQL - it is the bound on a wedged row
+ * lock, which is the only way a statement here can take real time. The
+ * idle-in-transaction bound is the matching one for a holder that died with
+ * `begin` open: without it, its locks outlive it until someone notices.
+ *
+ * The connect bound is shorter and points at a person: a control plane whose
+ * database is unreachable must say so in seconds rather than hang.
+ */
+const STATEMENT_TIMEOUT_MS = 30_000;
+const IDLE_IN_TRANSACTION_TIMEOUT_MS = 30_000;
+const CONNECT_TIMEOUT_MS = 5_000;
+
+/** Postgres OID 20, int8. */
+const INT8_OID = 20;
+
+/**
+ * Times are ms epochs in `bigint` columns, and `pg` hands bigint back as a
+ * STRING by default - which would turn every timestamp into a string the
+ * moment it crossed the driver, silently, since a string compares and
+ * serialises without complaining.
+ *
+ * The parser is attached to OUR POOL rather than installed with
+ * `pg.types.setTypeParser`, which is process-global: a second pg user in the
+ * same process (a Next app, a script) must not have its int8 reads changed by
+ * this class opening. Null stays null; a ms epoch is far below 2^53, so Number
+ * is exact.
+ */
+const TYPES: PoolConfig["types"] = {
+  getTypeParser: (oid: number, format?: "text" | "binary") =>
+    oid === INT8_OID
+      ? (value: string | null) => (value === null ? null : Number(value))
+      : pg.types.getTypeParser(oid, format),
+};
+
+/**
+ * One open transaction, and WHOSE it is.
+ *
+ * The store no longer owns a single connection, so "am I in a transaction" is a
+ * question about the CALLING FLOW rather than about the process. The frame
+ * travels in async context, which is what routes a statement issued inside a
+ * transaction body to that transaction's own connection and everything else to
+ * the pool.
+ *
+ * `store` is part of the frame because two Stores are two databases: a
+ * statement on one must never be routed onto the other's checked-out client,
+ * and a transaction on a DIFFERENT store is not nesting - it cannot widen this
+ * store's boundary. `parent` keeps that chain visible.
+ */
+interface TxFrame {
+  store: Store;
+  client: PoolClient;
+  parent: TxFrame | null;
+  /** Names savepoints apart, so nested or serial recovery scopes cannot
+   * release each other's. */
+  savepoints: number;
+  /** Set when the connection can no longer be reasoned about - a savepoint
+   * rollback that failed - or when Postgres turned our COMMIT into a ROLLBACK.
+   * Either way the transaction must not report success. */
+  failed: Error | null;
+}
+
+const TX_CONTEXT = new AsyncLocalStorage<TxFrame>();
+
+/**
+ * Read a transaction's failure through a call.
+ *
+ * Both checks below are live: `sqlRun("commit")` can set the field BETWEEN
+ * them, which is the whole point of the second one. Reading the property
+ * directly would let the type checker carry the first check's narrowing past
+ * the commit and call the second one dead.
+ */
+function txFailure(frame: TxFrame): Error | null {
+  return frame.failed;
+}
+
+/** Postgres SQLSTATE 23505, unique_violation. */
+const UNIQUE_VIOLATION = "23505";
+
+/**
+ * Did this error come from a uniqueness rule the database enforces?
+ *
+ * ONE COPY, exported, because the callers that ask are the ones where a wrong
+ * answer is silent: a name reservation that reads a real failure as "taken"
+ * refuses a customer their own name, and one that reads a CHECK violation as a
+ * duplicate turns a bug into a shrug. Postgres separates them - 23505 is
+ * uniqueness, 23514 is a check - so nothing here matches on message text.
+ *
+ * It covers both the primary key and a unique index, which Postgres reports
+ * identically and distinguishes by `constraint`.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  return (err as { code?: unknown })?.code === UNIQUE_VIOLATION;
+}
+
+/** The connection string with any password removed, for messages and logs. A
+ * path could be printed; a DSN cannot. */
+export function describeDatabase(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.password = "";
+    // URL keeps the "user:@host" colon once a password has ever been set.
+    return parsed.toString().replace(/:@/, "@");
+  } catch {
+    return "the configured database";
+  }
+}
+
 export class Store {
-  private depth = 0;
+  private closed = false;
 
   /** Inert on purpose: it assigns fields and touches nothing. Opening is
    * `Store.open`, so there is no path to a Store that skipped the schema
    * check. */
   private constructor(
-    readonly file: string,
+    readonly url: string,
     readonly now: Clock,
-    private readonly db: Database,
+    private readonly pool: Pool,
   ) {}
+
+  /** What to call this database in a sentence, with no credential in it. */
+  describe(): string {
+    return describeDatabase(this.url);
+  }
+
+  /** This flow's open transaction on THIS store, if it has one. */
+  private frame(): TxFrame | null {
+    for (
+      let f = TX_CONTEXT.getStore() ?? null;
+      f !== null;
+      f = f.parent ?? null
+    ) {
+      if (f.store === this) return f;
+    }
+    return null;
+  }
 
   /**
    * Open the database and bring the schema up.
    *
-   * The order below is the contract, not an implementation detail: the pragmas
-   * come before any statement that writes, the column check comes before the
-   * indexes (an index names a column, so creating one on an older database
-   * fails with a raw engine error instead of the sentence that names the file),
-   * and the sequence seed comes last.
+   * The order below is the contract, not an implementation detail: the column
+   * check comes before the indexes (an index names a column, so creating one on
+   * an older database fails with a raw engine error instead of the sentence
+   * that names the database), and the sequence seed comes last.
    *
-   * A failure at any step CLOSES THE HANDLE and rethrows the original error
+   * A failure at any step CLOSES THE POOL and rethrows the original error
    * unwrapped. A half-opened Store must not escape: every caller of this class
    * is entitled to assume the schema check has run.
    */
   static async open(
-    file: string,
+    url: string,
     now: Clock = () => Date.now(),
   ): Promise<Store> {
-    const db = new Database(file, { create: true });
-    const store = new Store(file, now, db);
+    const pool = new pg.Pool({
+      connectionString: url,
+      types: TYPES,
+      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+      statement_timeout: STATEMENT_TIMEOUT_MS,
+      idle_in_transaction_session_timeout: IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    });
+    // A pool emits an error when an IDLE connection dies with nobody awaiting
+    // it - a server restart, a network drop. Unhandled, that is a process-level
+    // crash on an event nothing was waiting for; the pool discards the client
+    // and the next checkout makes a new one.
+    pool.on("error", () => {});
+    const store = new Store(url, now, pool);
     try {
-      // A commit that has not reached the disk is not a latch. WAL plus
-      // synchronous=FULL is what makes "the row exists" survive the machine.
-      await store.sqlRun("pragma journal_mode = wal");
-      await store.sqlRun("pragma synchronous = full");
-      await store.sqlRun("pragma busy_timeout = 5000");
       await store.sqlRun(SCHEMA);
       await store.assertSchemaIsCurrent();
       await store.sqlRun(LATE_INDEXES);
@@ -523,9 +664,9 @@ export class Store {
       );
     } catch (err) {
       try {
-        db.close();
+        await pool.end();
       } catch {
-        // A handle that will not close says nothing about why the open failed,
+        // A pool that will not close says nothing about why the open failed,
         // and the original error describes that better than this one would.
       }
       throw err;
@@ -533,8 +674,19 @@ export class Store {
     return store;
   }
 
+  /**
+   * Close the pool.
+   *
+   * IDEMPOTENT, which the engine handle was not: several callers close in a
+   * `finally` and again in a test's teardown, and under a pool the second call
+   * would reject rather than being harmless. Only a close AFTER A SUCCESSFUL
+   * one is a no-op - a first close that fails is reported, and leaves the store
+   * closeable again.
+   */
   async close(): Promise<void> {
-    this.db.close();
+    if (this.closed) return;
+    await this.pool.end();
+    this.closed = true;
   }
 
   // ------------------------------------------------------- raw statements
@@ -544,20 +696,62 @@ export class Store {
   // tables. Deliberately ugly names so `grep sql[A-Z]` finds every one of them,
   // and the web app's boundary test forbids them outright.
   //
-  // They exist so that NOTHING outside this file holds an engine handle: `db` is
-  // private, so the whole codebase reaches the database through this class and
-  // the engine can be replaced underneath it.
+  // They exist so that NOTHING outside this file holds an engine handle: `pool`
+  // is private, so the whole codebase reaches the database through this class
+  // and the engine can be replaced underneath it.
+  //
+  // All three route the same way: inside a transaction body the statement goes
+  // to THAT transaction's checked-out connection, and outside one it goes to
+  // the pool. That routing is the whole reason the transaction boundary
+  // comments in this file still describe the wire: two transactions cannot
+  // interleave onto one connection, because neither can reach the other's.
+
+  private async query<T>(sql: string, args: SqlArgs): Promise<T[]> {
+    const frame = this.frame();
+    const on: Pick<PoolClient, "query"> = frame?.client ?? this.pool;
+    // Arguments are passed ONLY when there are some. A parameter list, even an
+    // empty one, puts the driver on the extended protocol, which refuses more
+    // than one statement per message - and `SCHEMA` is deliberately one
+    // multi-statement round trip.
+    const answer =
+      args.length > 0
+        ? await on.query<Record<string, unknown>>(sql, args)
+        : await on.query<Record<string, unknown>>(sql);
+    // A multi-statement simple query answers with one result per statement.
+    const results = Array.isArray(answer) ? answer : [answer];
+    const last = results[results.length - 1];
+
+    // A COMMIT ISSUED ON AN ABORTED TRANSACTION SUCCEEDS AND COMMITS NOTHING:
+    // Postgres answers it with the command tag ROLLBACK. Without this check a
+    // caller that swallowed a statement error would be told its writes landed,
+    // which is the quietest way this engine can lose data. The tag is read
+    // here, where every statement passes, rather than from a return value -
+    // `sqlRun` stays void, so the failed-COMMIT injection seam still works by
+    // patching it.
+    if (
+      frame &&
+      /^\s*commit\s*;?\s*$/i.test(sql) &&
+      last?.command !== "COMMIT"
+    ) {
+      frame.failed = new Error(
+        `the transaction could not commit: Postgres answered COMMIT with ` +
+          `${last?.command ?? "nothing"}, which means an earlier statement ` +
+          `failed and its error was swallowed. Nothing in it was written.`,
+      );
+    }
+    return (last?.rows ?? []) as T[];
+  }
 
   async sqlAll<T>(sql: string, args: SqlArgs = []): Promise<T[]> {
-    return this.db.query<T, SqlArgs>(sql).all(...args);
+    return this.query<T>(sql, args);
   }
 
   async sqlGet<T>(sql: string, args: SqlArgs = []): Promise<T | null> {
-    return this.db.query<T, SqlArgs>(sql).get(...args) ?? null;
+    return (await this.query<T>(sql, args))[0] ?? null;
   }
 
   async sqlRun(sql: string, args: SqlArgs = []): Promise<void> {
-    this.db.run(sql, args);
+    await this.query<never>(sql, args);
   }
 
   /**
@@ -565,17 +759,17 @@ export class Store {
    *
    * `create table if not exists` is silent about a table that exists with the
    * WRONG columns, so an older development database would open cleanly and then
-   * fail somewhere in the middle of a provisioning run with a raw SQLite error.
-   * Failing at open, by name, is the difference between "move this file aside"
-   * and a debugging session.
+   * fail somewhere in the middle of a provisioning run with a raw engine error.
+   * Failing at open, by name, is the difference between "move this database
+   * aside" and a debugging session.
    *
    * It guards COLUMNS, and only columns. A table this build adds outright -
    * `name_reservations` - cannot be listed here and would be pointless if it
    * were: SCHEMA runs `create table if not exists` first, so by the time this
-   * check reads `pragma table_info`, the table exists with every column. Nor
-   * does it need guarding. An older database simply gains an empty reservations
-   * table, and an empty one is not ambiguous state - nothing was signed up
-   * before this build existed.
+   * check reads the catalog, the table exists with every column. Nor does it
+   * need guarding. An older database simply gains an empty reservations table,
+   * and an empty one is not ambiguous state - nothing was signed up before this
+   * build existed.
    */
   private async assertSchemaIsCurrent(): Promise<void> {
     const required: [string, string][] = [
@@ -594,71 +788,172 @@ export class Store {
       ["stripe_events", "type"],
     ];
     for (const [table, column] of required) {
+      // Scoped to the schema this connection actually resolves names in, so
+      // the check reads the same table the statements will.
       const cols = (
-        await this.sqlAll<{ name: string }>(`pragma table_info(${table})`)
-      ).map((c) => c.name);
+        await this.sqlAll<{ column_name: string }>(
+          "select column_name from information_schema.columns " +
+            "where table_schema = current_schema() and table_name = $1",
+          [table],
+        )
+      ).map((c) => c.column_name);
       if (cols.length > 0 && !cols.includes(column)) {
         throw new Error(
-          `the database at ${this.file} predates this version of the control ` +
-            `plane: ${table} has no ${column} column. Move it aside and let a ` +
-            `fresh one be created; there is no migration in this slice.`,
+          `the database at ${this.describe()} predates this version of the ` +
+            `control plane: ${table} has no ${column} column. Move it aside ` +
+            `and let a fresh one be created; there is no migration in this ` +
+            `slice.`,
         );
       }
     }
   }
 
   /**
-   * One write transaction, immediate so two writers cannot both start reading
-   * and then deadlock on upgrade. Nesting is a programming error rather than a
-   * silently-flattened savepoint: every money and attention invariant in this
-   * file is stated as "these statements commit together", and a nested call
-   * would quietly widen someone else's boundary. The guard holds across an
-   * await too, which is the case an async body newly makes reachable.
+   * One write transaction, ON ITS OWN CONNECTION.
    *
-   * A RULE THIS SLICE IMPOSES, not a property of the engine: a transaction body
-   * may await only store calls and the helpers built on them, never remote I/O
-   * and never a timer. Under bun:sqlite every store call settles immediately,
-   * so a body that keeps to the rule cannot be suspended part-way; a body that
-   * broke it would hold `begin immediate` open across a network round trip on
-   * the one connection this class owns. Per-transaction connections are the
-   * real answer and they arrive with the Postgres engine.
+   * The connection is checked out for the body's whole life, so every statement
+   * the body issues - through the async context, not through a handle the
+   * caller has to thread - lands inside these `begin`/`commit` brackets and
+   * inside no others. That is what makes the transaction boundary comments in
+   * this file true on the wire rather than true by convention, and it is why
+   * the previous engine's rule ("a body may await only store calls, never
+   * remote I/O and never a timer") is gone: a body that waits now holds one
+   * connection out of the pool, which is a cost, not a correctness problem.
    *
-   * The control statements go through `sqlRun` like everything else, so a test
-   * that needs to make a COMMIT fail has one seam to patch rather than a
-   * private path it cannot reach.
+   * Nesting is still a programming error rather than a silently-flattened
+   * savepoint: every money and attention invariant in this file is stated as
+   * "these statements commit together", and a nested call would quietly widen
+   * someone else's boundary. A transaction on a DIFFERENT store is not nesting
+   * and is allowed - it is a second database on a second connection, and it
+   * cannot widen this one's boundary.
+   *
+   * Two CONCURRENT flows are also no longer an error, which is the point of the
+   * engine: they take a connection each and commit independently. The old depth
+   * counter could not tell that case from nesting, and refused both.
+   *
+   * `begin`, `commit` and `rollback` go through `sqlRun` like everything else,
+   * so a test that needs to make a COMMIT fail has one seam to patch rather
+   * than a private path it cannot reach.
    */
   async tx<T>(fn: () => Promise<T> | T): Promise<T> {
-    if (this.depth > 0) throw new Error("nested transaction");
-    this.depth = 1;
-    await this.sqlRun("begin immediate");
+    if (this.frame()) throw new Error("nested transaction");
+    const client = await this.pool.connect();
+    const frame: TxFrame = {
+      store: this,
+      client,
+      parent: TX_CONTEXT.getStore() ?? null,
+      savepoints: 0,
+      failed: null,
+    };
+    // Set only when the ROLLBACK itself failed. A body that threw and rolled
+    // back cleanly leaves a perfectly good connection, and discarding one on
+    // every refused CAS would make every error path pay for a new one; a
+    // rollback that could not run leaves the session in a state nobody can
+    // describe, and that one must not go back into the pool.
+    let poisoned: Error | undefined;
     try {
-      const out = await fn();
-      await this.sqlRun("commit");
-      return out;
-    } catch (err) {
-      try {
-        await this.sqlRun("rollback");
-      } catch {
-        // A rollback that cannot run leaves the connection unusable, which the
-        // original error already describes better than this one would.
-      }
-      throw err;
+      // Everything, `begin` included, runs INSIDE the context: otherwise the
+      // control statements would go to the pool and open a transaction on a
+      // connection nobody is holding.
+      return await TX_CONTEXT.run(frame, async () => {
+        await this.sqlRun("begin");
+        try {
+          const out = await fn();
+          // A body that returned normally on a connection we can no longer
+          // reason about must not reach COMMIT.
+          const beforeCommit = txFailure(frame);
+          if (beforeCommit) throw beforeCommit;
+          await this.sqlRun("commit");
+          // And a COMMIT that Postgres turned into a ROLLBACK is a failure
+          // whatever the body believed.
+          const atCommit = txFailure(frame);
+          if (atCommit) throw atCommit;
+          return out;
+        } catch (err) {
+          try {
+            await this.sqlRun("rollback");
+          } catch (rollbackErr) {
+            poisoned =
+              rollbackErr instanceof Error
+                ? rollbackErr
+                : new Error(String(rollbackErr));
+          }
+          throw err;
+        }
+      });
     } finally {
-      this.depth = 0;
+      // `frame.failed` covers the same class from the other direction: a
+      // savepoint rollback that could not run leaves a connection nobody can
+      // describe. A COMMIT that came back ROLLBACK does not strictly need
+      // discarding, and is discarded anyway - it is a bug path, and one
+      // connection is a cheaper thing to be wrong about.
+      client.release(poisoned ?? frame.failed ?? undefined);
     }
   }
 
   inTransaction(): boolean {
-    return this.depth > 0;
+    return this.frame() !== null;
+  }
+
+  /**
+   * Run a statement whose failure the caller INTENDS TO RECOVER FROM, without
+   * losing the transaction around it.
+   *
+   * Postgres aborts the whole transaction on any statement error: every later
+   * statement answers 25P02 until a rollback. The previous engine did not, and
+   * two rules in this codebase are built on catching a failure and carrying on
+   * - the name reservation, where the INSERT IS the uniqueness decision and the
+   * conflicting row is read back inside the same transaction, and the
+   * one-active operation index, where the refusal becomes a customer-facing
+   * "already in progress". A savepoint is what keeps those exactly as they
+   * were.
+   *
+   * DELIBERATELY EXPLICIT, one site at a time. Wrapping every statement in a
+   * savepoint would make "this failure is expected" the default, and the
+   * failures that are not expected are the ones that must take the transaction
+   * down with them.
+   *
+   * Outside a transaction it just runs `fn`: a failed statement in autocommit
+   * aborts nothing there is to abort.
+   */
+  async recoverable<T>(fn: () => Promise<T>): Promise<T> {
+    const frame = this.frame();
+    if (!frame) return fn();
+    // Named from a counter on the frame, never from anything a caller passed,
+    // so nested or serial scopes cannot release each other's.
+    const name = `cp_sp_${++frame.savepoints}`;
+    await this.sqlRun(`savepoint ${name}`);
+    try {
+      const out = await fn();
+      await this.sqlRun(`release savepoint ${name}`);
+      return out;
+    } catch (err) {
+      try {
+        // Back to the instant before the statement, which un-aborts the
+        // transaction, and then release: an un-released savepoint would pile up
+        // on a retrying caller.
+        await this.sqlRun(`rollback to savepoint ${name}`);
+        await this.sqlRun(`release savepoint ${name}`);
+      } catch (undoErr) {
+        // The recovery itself failed, so what state this connection is in is no
+        // longer knowable. The ORIGINAL error is what the caller gets - it
+        // describes what actually went wrong - but the transaction must not be
+        // allowed to commit, and the connection must not go back to the pool.
+        frame.failed =
+          undoErr instanceof Error ? undoErr : new Error(String(undoErr));
+      }
+      throw err;
+    }
   }
 
   // ------------------------------------------------------------- sequences
 
-  /** Portable monotonic id. AUTOINCREMENT is SQLite-only and would break the
-   * stated portability rule. */
+  /** Portable monotonic id. An identity column would tie the audit sequence to
+   * one engine's spelling, and it is bumped in the same transaction as the row
+   * it numbers. */
   async nextSeq(name: string): Promise<number> {
     const row = await this.sqlGet<{ value: number }>(
-      "update sequences set value = value + 1 where name = ? returning value",
+      "update sequences set value = value + 1 where name = $1 returning value",
       [name],
     );
     if (!row) throw new Error(`no sequence named ${name}`);
@@ -686,7 +981,7 @@ export class Store {
     await this.sqlRun(
       "insert into instances (id, run_id, name, plan, region, service_state, goal, " +
         "subscription_state, attention_state, access_window_expires_at, version, created_at, updated_at) " +
-        "values (?, ?, ?, ?, ?, ?, ?, ?, 'clear', ?, 1, ?, ?)",
+        "values ($1, $2, $3, $4, $5, $6, $7, $8, 'clear', $9, 1, $10, $11)",
       [
         row.id,
         row.run_id,
@@ -707,7 +1002,7 @@ export class Store {
   }
 
   async getInstance(id: string): Promise<InstanceRow | null> {
-    return this.sqlGet<InstanceRow>("select * from instances where id = ?", [
+    return this.sqlGet<InstanceRow>("select * from instances where id = $1", [
       id,
     ]);
   }
@@ -745,17 +1040,22 @@ export class Store {
           "cannot be updated, because the box already carries that instant",
       );
     }
+    // The patch decides how many parameters there are, so the numbering is
+    // built with the list rather than written out: each argument is pushed
+    // first, and its 1-based position is what the placeholder names. Same
+    // shape in every dynamic statement below.
     const sets: string[] = [];
     const args: SqlArgs = [];
     for (const [k, v] of Object.entries(patch)) {
-      sets.push(`${k} = ?`);
       args.push(v);
+      sets.push(`${k} = $${args.length}`);
     }
-    sets.push("updated_at = ?");
     args.push(this.now());
+    sets.push(`updated_at = $${args.length}`);
     return this.sqlGet<InstanceRow>(
       `update instances set ${sets.join(", ")}, version = version + 1 ` +
-        "where id = ? and version = ? returning *",
+        `where id = $${args.length + 1} and version = $${args.length + 2} ` +
+        "returning *",
       [...args, id, expectedVersion],
     );
   }
@@ -769,7 +1069,8 @@ export class Store {
     await this.sqlRun(
       "insert into provider_assets (id, instance_id, provider, provider_id, intent_id, " +
         "asset_state, ipv4, service_ends_at, host_key_fingerprint, next_reconcile_at, " +
-        "version, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        "version, created_at, updated_at) values " +
+        "($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1, $11, $12)",
       [
         row.id,
         row.instance_id,
@@ -791,14 +1092,15 @@ export class Store {
   }
 
   async getAsset(id: string): Promise<AssetRow | null> {
-    return this.sqlGet<AssetRow>("select * from provider_assets where id = ?", [
-      id,
-    ]);
+    return this.sqlGet<AssetRow>(
+      "select * from provider_assets where id = $1",
+      [id],
+    );
   }
 
   async assetForInstance(instanceId: string): Promise<AssetRow | null> {
     return this.sqlGet<AssetRow>(
-      "select * from provider_assets where instance_id = ? order by created_at limit 1",
+      "select * from provider_assets where instance_id = $1 order by created_at limit 1",
       [instanceId],
     );
   }
@@ -806,7 +1108,7 @@ export class Store {
   async assetsDueForReconcile(now: number): Promise<AssetRow[]> {
     return this.sqlAll<AssetRow>(
       "select * from provider_assets where provider_id is not null " +
-        "and next_reconcile_at <= ? order by next_reconcile_at",
+        "and next_reconcile_at <= $1 order by next_reconcile_at",
       [now],
     );
   }
@@ -829,14 +1131,15 @@ export class Store {
     const sets: string[] = [];
     const args: SqlArgs = [];
     for (const [k, v] of Object.entries(patch)) {
-      sets.push(`${k} = ?`);
       args.push(v);
+      sets.push(`${k} = $${args.length}`);
     }
-    sets.push("updated_at = ?");
     args.push(this.now());
+    sets.push(`updated_at = $${args.length}`);
     return this.sqlGet<AssetRow>(
       `update provider_assets set ${sets.join(", ")}, version = version + 1 ` +
-        "where id = ? and version = ? returning *",
+        `where id = $${args.length + 1} and version = $${args.length + 2} ` +
+        "returning *",
       [...args, id, expectedVersion],
     );
   }
@@ -863,7 +1166,7 @@ export class Store {
       "insert into operations (id, instance_id, kind, status, attempt, next_attempt_at, " +
         "lease_until, lease_holder, inactivity_deadline_at, absolute_deadline_at, " +
         "evidence, evidence_at, inactivity_flagged, absolute_flagged, version, created_at, updated_at) " +
-        "values (?, ?, ?, ?, 0, ?, null, null, ?, ?, ?, ?, 0, 0, 1, ?, ?)",
+        "values ($1, $2, $3, $4, 0, $5, null, null, $6, $7, $8, $9, 0, 0, 1, $10, $11)",
       [
         row.id,
         row.instance_id,
@@ -872,8 +1175,9 @@ export class Store {
         row.next_attempt_at ?? ts,
         row.inactivity_deadline_at,
         row.absolute_deadline_at,
-        // Constraint from review: serialise here and bind as TEXT. A json()
-        // call would be SQLite-specific and break the portability rule above.
+        // Constraint from review: serialise here and bind as TEXT, so the
+        // column stays text on any engine and no driver decides how to encode
+        // it.
         JSON.stringify(row.evidence ?? {}),
         ts,
         ts,
@@ -886,14 +1190,14 @@ export class Store {
   }
 
   async getOperation(id: string): Promise<OperationRow | null> {
-    return this.sqlGet<OperationRow>("select * from operations where id = ?", [
+    return this.sqlGet<OperationRow>("select * from operations where id = $1", [
       id,
     ]);
   }
 
   async operationsFor(instanceId: string): Promise<OperationRow[]> {
     return this.sqlAll<OperationRow>(
-      "select * from operations where instance_id = ? order by created_at",
+      "select * from operations where instance_id = $1 order by created_at",
       [instanceId],
     );
   }
@@ -903,7 +1207,7 @@ export class Store {
     kind: string,
   ): Promise<OperationRow | null> {
     return this.sqlGet<OperationRow>(
-      "select * from operations where instance_id = ? and kind = ? " +
+      "select * from operations where instance_id = $1 and kind = $2 " +
         "and status in ('pending', 'running', 'ambiguous')",
       [instanceId, kind],
     );
@@ -935,8 +1239,8 @@ export class Store {
   async dueOperations(now: number, limit: number): Promise<OperationRow[]> {
     return this.sqlAll<OperationRow>(
       "select * from operations where status in ('pending', 'running', 'ambiguous') " +
-        "and next_attempt_at <= ? and (lease_until is null or lease_until <= ?) " +
-        "order by next_attempt_at limit ?",
+        "and next_attempt_at <= $1 and (lease_until is null or lease_until <= $2) " +
+        "order by next_attempt_at limit $3",
       [now, now, limit],
     );
   }
@@ -958,10 +1262,10 @@ export class Store {
     now: number,
   ): Promise<OperationRow | null> {
     return this.sqlGet<OperationRow>(
-      "update operations set lease_until = ?, lease_holder = ?, status = " +
+      "update operations set lease_until = $1, lease_holder = $2, status = " +
         "case when status = 'pending' then 'running' else status end, " +
-        "version = version + 1, updated_at = ? " +
-        "where id = ? and version = ? and (lease_until is null or lease_until <= ?) " +
+        "version = version + 1, updated_at = $3 " +
+        "where id = $4 and version = $5 and (lease_until is null or lease_until <= $6) " +
         "returning *",
       [leaseUntil, holder, now, id, expectedVersion, now],
     );
@@ -973,8 +1277,8 @@ export class Store {
     leaseUntil: number,
   ): Promise<OperationRow | null> {
     return this.sqlGet<OperationRow>(
-      "update operations set lease_until = ?, version = version + 1, updated_at = ? " +
-        "where id = ? and version = ? and lease_holder = ? returning *",
+      "update operations set lease_until = $1, version = version + 1, updated_at = $2 " +
+        "where id = $3 and version = $4 and lease_holder = $5 returning *",
       [leaseUntil, this.now(), fence.id, fence.version, fence.holder],
     );
   }
@@ -1020,18 +1324,19 @@ export class Store {
     const sets: string[] = [];
     const args: SqlArgs = [];
     for (const [k, v] of Object.entries(patch)) {
-      sets.push(`${k} = ?`);
       args.push(
         k === "evidence"
           ? JSON.stringify(v ?? {})
           : (v as string | number | null),
       );
+      sets.push(`${k} = $${args.length}`);
     }
-    sets.push("updated_at = ?");
     args.push(this.now());
+    sets.push(`updated_at = $${args.length}`);
     return this.sqlGet<OperationRow>(
       `update operations set ${sets.join(", ")}, version = version + 1 ` +
-        "where id = ? and version = ? and lease_holder = ? returning *",
+        `where id = $${args.length + 1} and version = $${args.length + 2} ` +
+        `and lease_holder = $${args.length + 3} returning *`,
       [...args, fence.id, fence.version, fence.holder],
     );
   }
@@ -1061,8 +1366,8 @@ export class Store {
     // under a fence that is already at a remote seam.
     return this.sqlGet<OperationRow>(
       `update operations set ${column} = 1, version = version + 1, ` +
-        `updated_at = ? where id = ? and version = ? and ${column} = 0 ` +
-        "and (lease_until is null or lease_until <= ?) returning *",
+        `updated_at = $1 where id = $2 and version = $3 and ${column} = 0 ` +
+        "and (lease_until is null or lease_until <= $4) returning *",
       [now, id, expectedVersion, now],
     );
   }
@@ -1071,7 +1376,7 @@ export class Store {
 
   async getIntent(intentId: string): Promise<IntentRow | null> {
     return this.sqlGet<IntentRow>(
-      "select * from create_intents where intent_id = ?",
+      "select * from create_intents where intent_id = $1",
       [intentId],
     );
   }
@@ -1098,12 +1403,13 @@ export class Store {
     const sets: string[] = [];
     const args: SqlArgs = [];
     for (const [k, v] of Object.entries(patch)) {
-      sets.push(`${k} = ?`);
       args.push(v);
+      sets.push(`${k} = $${args.length}`);
     }
     return this.sqlGet<IntentRow>(
       `update create_intents set ${sets.join(", ")}, version = version + 1 ` +
-        "where intent_id = ? and version = ? returning *",
+        `where intent_id = $${args.length + 1} and version = $${args.length + 2} ` +
+        "returning *",
       [...args, intentId, expectedVersion],
     );
   }
@@ -1112,7 +1418,7 @@ export class Store {
 
   async getLiveness(instanceId: string): Promise<LivenessRow | null> {
     return this.sqlGet<LivenessRow>(
-      "select * from instance_liveness where instance_id = ?",
+      "select * from instance_liveness where instance_id = $1",
       [instanceId],
     );
   }
@@ -1124,13 +1430,29 @@ export class Store {
    */
   async ensureLiveness(instanceId: string, dueAt: number): Promise<void> {
     const ts = this.now();
-    await this.sqlRun(
-      "insert into instance_liveness (instance_id, rung, strikes, checked_at, " +
-        "next_check_at, claim_until, claim_holder, version, created_at, updated_at) " +
-        "select ?, 'unknown', 0, null, ?, null, null, 1, ?, ? " +
-        "where not exists (select 1 from instance_liveness where instance_id = ?)",
-      [instanceId, dueAt, ts, ts, instanceId],
-    );
+    try {
+      await this.recoverable(() =>
+        this.sqlRun(
+          "insert into instance_liveness (instance_id, rung, strikes, checked_at, " +
+            "next_check_at, claim_until, claim_holder, version, created_at, updated_at) " +
+            "select $1, 'unknown', 0, null, $2, null, null, 1, $3, $4 " +
+            "where not exists (select 1 from instance_liveness where instance_id = $5)",
+          [instanceId, dueAt, ts, ts, instanceId],
+        ),
+      );
+    } catch (err) {
+      // THE `where not exists` IS NOT THE ARBITER, the primary key is. Under
+      // read committed two first probes can both find the row absent in the
+      // same instant, and one of them then loses to the key - so the conditional
+      // insert is the fast path and this is the race. The previous engine's
+      // single writer hid it: the loser re-evaluated its own condition after the
+      // winner had committed and quietly did nothing.
+      if (!isUniqueViolation(err)) throw err;
+      // "Ensure" promises the row EXISTS, not that we made it. Only the row
+      // being there discharges that; anything else is somebody else's failure
+      // wearing this one's error code.
+      if (!(await this.getLiveness(instanceId))) throw err;
+    }
   }
 
   /**
@@ -1148,9 +1470,9 @@ export class Store {
     now: number,
   ): Promise<LivenessRow | null> {
     return this.sqlGet<LivenessRow>(
-      "update instance_liveness set claim_until = ?, claim_holder = ?, " +
-        "version = version + 1, updated_at = ? where instance_id = ? " +
-        "and next_check_at <= ? and (claim_until is null or claim_until <= ?) " +
+      "update instance_liveness set claim_until = $1, claim_holder = $2, " +
+        "version = version + 1, updated_at = $3 where instance_id = $4 " +
+        "and next_check_at <= $5 and (claim_until is null or claim_until <= $6) " +
         "returning *",
       [claimUntil, holder, now, instanceId, now, now],
     );
@@ -1168,10 +1490,10 @@ export class Store {
     patch: { rung: string; strikes: number; checkedAt: number; nextAt: number },
   ): Promise<LivenessRow | null> {
     return this.sqlGet<LivenessRow>(
-      "update instance_liveness set rung = ?, strikes = ?, checked_at = ?, " +
-        "next_check_at = ?, claim_until = null, claim_holder = null, " +
-        "version = version + 1, updated_at = ? where instance_id = ? " +
-        "and version = ? and claim_holder = ? returning *",
+      "update instance_liveness set rung = $1, strikes = $2, checked_at = $3, " +
+        "next_check_at = $4, claim_until = null, claim_holder = null, " +
+        "version = version + 1, updated_at = $5 where instance_id = $6 " +
+        "and version = $7 and claim_holder = $8 returning *",
       [
         patch.rung,
         patch.strikes,
@@ -1201,7 +1523,7 @@ export class Store {
     const ts = ev.ts ?? this.now();
     await this.sqlRun(
       "insert into audit_events (seq, ts, actor, instance_id, action, target, outcome, detail) " +
-        "values (?, ?, ?, ?, ?, ?, ?, ?)",
+        "values ($1, $2, $3, $4, $5, $6, $7, $8)",
       [
         seq,
         ts,
@@ -1224,7 +1546,7 @@ export class Store {
 
   async openReasons(instanceId: string): Promise<AttentionReasonRow[]> {
     return this.sqlAll<AttentionReasonRow>(
-      "select * from attention_reasons where instance_id = ? and cleared_at is null " +
+      "select * from attention_reasons where instance_id = $1 and cleared_at is null " +
         "order by raised_at",
       [instanceId],
     );
@@ -1232,7 +1554,7 @@ export class Store {
 
   async allReasons(instanceId: string): Promise<AttentionReasonRow[]> {
     return this.sqlAll<AttentionReasonRow>(
-      "select * from attention_reasons where instance_id = ? order by raised_at",
+      "select * from attention_reasons where instance_id = $1 order by raised_at",
       [instanceId],
     );
   }
@@ -1241,7 +1563,7 @@ export class Store {
     await this.sqlRun(
       "insert into attention_reasons (id, instance_id, source_op_id, reason_class, reason, " +
         "severity, raised_at, cleared_at, acknowledged_at, acknowledged_by, version) " +
-        "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
+        "values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1)",
       [
         row.id,
         row.instance_id,
@@ -1264,8 +1586,8 @@ export class Store {
     at: number,
   ): Promise<AttentionReasonRow | null> {
     return this.sqlGet<AttentionReasonRow>(
-      "update attention_reasons set cleared_at = ?, version = version + 1 " +
-        "where id = ? and version = ? and cleared_at is null returning *",
+      "update attention_reasons set cleared_at = $1, version = version + 1 " +
+        "where id = $2 and version = $3 and cleared_at is null returning *",
       [at, id, expectedVersion],
     );
   }
@@ -1281,8 +1603,8 @@ export class Store {
     // for the caller to re-read rather than overwritten.
     const ack = (id: string, version: number) =>
       this.sqlGet<AttentionReasonRow>(
-        "update attention_reasons set acknowledged_at = ?, acknowledged_by = ?, " +
-          "version = version + 1 where id = ? and version = ? and cleared_at is null " +
+        "update attention_reasons set acknowledged_at = $1, acknowledged_by = $2, " +
+          "version = version + 1 where id = $3 and version = $4 and cleared_at is null " +
           "returning *",
         [at, by, id, version],
       );
@@ -1298,7 +1620,7 @@ export class Store {
       // The row may have been cleared (nothing to acknowledge), already
       // acknowledged by someone else (nothing to do), or simply moved.
       const fresh = await this.sqlGet<AttentionReasonRow>(
-        "select * from attention_reasons where id = ?",
+        "select * from attention_reasons where id = $1",
         [row.id],
       );
       if (!fresh || fresh.cleared_at !== null) continue;
@@ -1354,8 +1676,8 @@ export class Store {
       return write(
         "update instances set attention_state = 'clear', attention_reason = null, " +
           "attention_severity = null, attention_raised_at = null, acknowledged_at = null, " +
-          "acknowledged_by = null, version = version + 1, updated_at = ? " +
-          "where id = ? and version = ? returning *",
+          "acknowledged_by = null, version = version + 1, updated_at = $1 " +
+          "where id = $2 and version = $3 returning *",
         [],
       );
     }
@@ -1373,10 +1695,10 @@ export class Store {
         null)
       : null;
     return write(
-      "update instances set attention_state = 'needs_operator', attention_reason = ?, " +
-        "attention_severity = ?, attention_raised_at = ?, acknowledged_at = ?, " +
-        "acknowledged_by = ?, version = version + 1, updated_at = ? " +
-        "where id = ? and version = ? returning *",
+      "update instances set attention_state = 'needs_operator', attention_reason = $1, " +
+        "attention_severity = $2, attention_raised_at = $3, acknowledged_at = $4, " +
+        "acknowledged_by = $5, version = version + 1, updated_at = $6 " +
+        "where id = $7 and version = $8 returning *",
       [worst.reason, worst.severity, worst.raised_at, ackedAt, ackedBy],
     );
   }

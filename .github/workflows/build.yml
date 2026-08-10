@@ -18,6 +18,30 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # The control-plane store runs on Postgres, and its suite runs against a
+    # real one - the CAS losers, lease arbitration and partial-index refusals it
+    # pins are engine behaviour. A service container rather than an opt-in step
+    # so there is no arrangement of this file in which those tests quietly do
+    # not run: without it they FAIL, they never skip.
+    #
+    # Matching the README's local one-liner exactly, port included, so a
+    # contributor's green run and CI's green run mean the same thing.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: isomux
+          POSTGRES_PASSWORD: isomux
+          POSTGRES_DB: control_plane_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U isomux -d control_plane_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v7

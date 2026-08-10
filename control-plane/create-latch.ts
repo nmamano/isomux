@@ -121,7 +121,7 @@ export class CreateLatch {
         // create - would never be raised.
         await this.store.sqlRun(
           "insert into create_intents (intent_id, state, latched_at, plan, region, version) " +
-            "values (?, 'intended', ?, ?, ?, 1)",
+            "values ($1, 'intended', $2, $3, $4, 1)",
           [req.intentId, this.store.now(), req.plan, req.region],
         );
       } catch (err) {
@@ -229,7 +229,7 @@ export async function migrateLegacyIntents(
     await store.tx(() =>
       store.sqlRun(
         "insert into create_intents (intent_id, state, latched_at, plan, region, " +
-          "provider_id, reason, version) values (?, ?, ?, ?, ?, ?, ?, 1)",
+          "provider_id, reason, version) values ($1, $2, $3, $4, $5, $6, $7, 1)",
         [intentId, state, store.now(), plan, region, providerId, reason],
       ),
     );

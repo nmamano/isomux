@@ -7,8 +7,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Database } from "bun:sqlite";
-import { Store } from "./store.ts";
+import { isUniqueViolation, Store } from "./store.ts";
+import {
+  freshDsn,
+  openTestStore,
+  openTestStoreOn,
+  releaseTestStores,
+  seedRawSchema,
+  testDsn,
+} from "./testing/pg.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
 import { clearAttention, raiseAttention } from "./attention.ts";
 
@@ -17,7 +24,7 @@ const temps: string[] = [];
 async function tempStore(now?: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-store-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), now);
+  return await openTestStore(now);
 }
 
 async function seedInstance(store: Store, id = "inst-1"): Promise<string> {
@@ -45,6 +52,7 @@ async function seedOp(store: Store, instance: string, kind = "run_installer") {
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -234,48 +242,419 @@ describe("deadline flagging", () => {
   });
 });
 
-describe("the transaction guard holds across a suspension", () => {
-  /**
-   * The case an async body newly makes reachable.
-   *
-   * Before the flip, a transaction ran start to finish in one synchronous
-   * block, so nothing could enter it. Now a body can suspend part-way, and the
-   * depth guard is what turns a second `tx` entered in that window into a
-   * programming error instead of a silently widened boundary. Per-transaction
-   * connections are the real answer and they arrive with the Postgres engine;
-   * until then this is the fence, so it is pinned rather than assumed.
-   */
-  test("a second tx entered while one is suspended is refused, and the first still commits", async () => {
+/** Which Postgres backend answered. The evidence that two flows are on two
+ * connections rather than two flows the engine happened to serialise. */
+async function backendPid(store: Store): Promise<number> {
+  const row = await store.sqlGet<{ pid: number }>(
+    "select pg_backend_pid() as pid",
+  );
+  return row!.pid;
+}
+
+/**
+ * WHICH TRANSACTION this statement is inside, as Postgres understands it.
+ *
+ * Stronger than the backend pid, and the pair is what pins the routing: a pid
+ * says which connection answered, and this says which transaction that
+ * connection was in. Statements that drifted onto pooled connections would each
+ * be their own autocommit transaction, and would report different ids - or
+ * none, which is what an unwritten transaction reports.
+ */
+async function transactionId(store: Store): Promise<string | null> {
+  const row = await store.sqlGet<{ xid: string | null }>(
+    "select pg_current_xact_id_if_assigned()::text as xid",
+  );
+  return row?.xid ?? null;
+}
+
+describe("a failure inside a transaction, and who is allowed to recover from it", () => {
+  test("a swallowed statement error cannot come back as a successful commit", async () => {
+    // THE QUIET FAILURE CLASS. Postgres aborts the whole transaction on any
+    // statement error and then answers COMMIT with the tag ROLLBACK - so a body
+    // that caught the error and returned normally would be told its writes
+    // landed when nothing did.
     const store = await tempStore();
     const inst = await seedInstance(store);
+    let caught = "not thrown";
+
+    const attempt = store.tx(async () => {
+      await store.casInstance(inst, 1, { service_state: "live" });
+      try {
+        // A real constraint failure, NOT wrapped in `recoverable`.
+        await store.createInstance({
+          id: inst,
+          run_id: null,
+          name: "duplicate",
+          plan: "V153",
+          region: "EU",
+          service_state: "provisioning",
+          goal: "live",
+          access_window_expires_at: null,
+        });
+      } catch {
+        caught = "swallowed";
+      }
+      return "looks fine";
+    });
+
+    expect(attempt).rejects.toThrow(
+      /could not commit|Nothing in it was written/,
+    );
+    expect(caught).toBe("swallowed");
+    // The write from before the swallowed error is gone with the rest.
+    expect((await store.getInstance(inst))?.service_state).toBe("provisioning");
+  });
+
+  test("recoverable keeps the transaction, the read-back, and the writes either side of it", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+
+    const outcome = await store.tx(async () => {
+      // Before.
+      await store.casInstance(inst, 1, { service_state: "live" });
+      let refused = "not attempted";
+      try {
+        await store.recoverable(() =>
+          store.createInstance({
+            id: inst,
+            run_id: null,
+            name: "duplicate",
+            plan: "V153",
+            region: "EU",
+            service_state: "provisioning",
+            goal: "live",
+            access_window_expires_at: null,
+          }),
+        );
+      } catch (err) {
+        // The ORIGINAL error, not the savepoint's.
+        expect(isUniqueViolation(err)).toBe(true);
+        // And the transaction is usable: this read is the whole point.
+        refused = (await store.getInstance(inst))!.service_state;
+      }
+      // After.
+      await store.enqueue({
+        id: "op-after",
+        instance_id: inst,
+        kind: "verify_https",
+        inactivity_deadline_at: 1,
+        absolute_deadline_at: 2,
+      });
+      return refused;
+    });
+
+    expect(outcome).toBe("live");
+    expect((await store.getInstance(inst))?.service_state).toBe("live");
+    expect(await store.getOperation("op-after")).not.toBeNull();
+  });
+
+  test("a check violation is not a uniqueness refusal, and takes the transaction with it", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+
+    const attempt = store.tx(async () => {
+      await store.casInstance(inst, 1, { service_state: "live" });
+      try {
+        await store.recoverable(() =>
+          store.createInstance({
+            id: "inst-check",
+            run_id: null,
+            name: "x",
+            plan: "V153",
+            region: "EU",
+            service_state: "mostly-live" as never,
+            goal: "live",
+            access_window_expires_at: null,
+          }),
+        );
+      } catch (err) {
+        // Recoverable makes the transaction usable again; it does not decide
+        // what is worth recovering from. This caller only forgives 23505.
+        if (!isUniqueViolation(err)) throw err;
+      }
+      return "committed";
+    });
+
+    expect(attempt).rejects.toThrow(/check constraint/i);
+    expect((await store.getInstance(inst))?.service_state).toBe("provisioning");
+  });
+
+  test("serial and nested recovery scopes do not release each other's savepoints", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+    const dup = (id: string) =>
+      store.createInstance({
+        id,
+        run_id: null,
+        name: "duplicate",
+        plan: "V153",
+        region: "EU",
+        service_state: "provisioning",
+        goal: "live",
+        access_window_expires_at: null,
+      });
+
+    const seen = await store.tx(async () => {
+      const order: string[] = [];
+      // Serial: two scopes one after the other, both failing.
+      for (const round of ["first", "second"]) {
+        await store.recoverable(() => dup(`inst-${round}`));
+        await store.recoverable(() => dup(inst)).catch(() => order.push(round));
+      }
+      // Nested: an outer scope that survives an inner one's failure.
+      await store.recoverable(async () => {
+        await store
+          .recoverable(() => dup(inst))
+          .catch(() => order.push("inner"));
+        await dup("inst-outer");
+        order.push("outer");
+      });
+      return order;
+    });
+
+    expect(seen).toEqual(["first", "second", "inner", "outer"]);
+    // Everything that was supposed to be written is there, and the duplicates
+    // are not.
+    for (const id of ["inst-first", "inst-second", "inst-outer"]) {
+      expect(await store.getInstance(id)).not.toBeNull();
+    }
+  });
+
+  test("outside a transaction it is a passthrough", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+    expect(
+      await store.recoverable(() => store.getInstance(inst)),
+    ).not.toBeNull();
+    // A failure still surfaces unchanged; there is simply no transaction to
+    // save.
+    expect(
+      store.recoverable(() =>
+        store.sqlRun("insert into instances (id) values ('x')"),
+      ),
+    ).rejects.toThrow();
+  });
+});
+
+describe("the connection settings are on the wire, not just in the config", () => {
+  test("statement and idle-in-transaction bounds are what a fresh backend carries", async () => {
+    const store = await tempStore();
+    // Asked of the SERVER: a value that never left the pool's options object
+    // would bound nothing.
+    const setting = async (name: string): Promise<string | undefined> =>
+      (
+        await store.sqlGet<{ v: string }>("select current_setting($1) as v", [
+          name,
+        ])
+      )?.v;
+    expect(await setting("statement_timeout")).toBe("30s");
+    expect(await setting("idle_in_transaction_session_timeout")).toBe("30s");
+    // Durability, which the create latch rests on, is left alone.
+    expect(await setting("synchronous_commit")).toBe("on");
+  });
+
+  test("a statement wedged behind a row lock is cancelled rather than waiting forever", async () => {
+    // The bound's real job. A short timeout is set on the WAITING transaction's
+    // own connection, so the mechanism is exercised without a 30-second test:
+    // what is proven is that the engine cancels a blocked statement at the
+    // configured instant, which is what the 30s setting buys in production.
+    const dsn = await testDsn();
+    const holder = await openTestStoreOn(dsn);
+    const waiter = await openTestStoreOn(dsn);
+    const inst = await seedInstance(holder);
 
     let release = () => {};
     const gate = new Promise<void>((r) => {
       release = r;
     });
-
-    const first = store.tx(async () => {
-      await store.casInstance(inst, 1, { goal: "installed" });
+    // Two gates, and the second one is load-bearing: the waiter must not start
+    // until the holder's write has actually TAKEN the row lock. Without it the
+    // waiter can get there first, write, and never block at all - which is a
+    // test that passes on scheduling rather than on the setting it is about.
+    let locked = () => {};
+    const rowIsLocked = new Promise<void>((r) => {
+      locked = r;
+    });
+    const held = holder.tx(async () => {
+      await holder.casInstance(inst, 1, { service_state: "live" });
+      locked();
       await gate;
+      return "held";
+    });
+    await rowIsLocked;
+
+    const blocked = await waiter
+      .tx(async () => {
+        await waiter.sqlRun("set local statement_timeout = '200ms'");
+        // The row is locked by the transaction above, so this waits.
+        return await waiter.casInstance(inst, 1, {
+          service_state: "suspended",
+        });
+      })
+      .then(
+        () => "wrote",
+        (err: unknown) => (err as { code?: string }).code,
+      );
+
+    release();
+    expect(await held).toBe("held");
+    // 57014 is query_canceled: the engine gave up on the wait, and the store
+    // reported it rather than hanging the tick that issued it.
+    expect(blocked).toBe("57014");
+    expect((await holder.getInstance(inst))?.service_state).toBe("live");
+  });
+
+  test("closing twice is a no-op, so a finally and a teardown can both do it", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    await store.close();
+    // The engine handle used to throw here. A pool is closed by whoever gets
+    // there first, and the second caller is not the one with a problem.
+    await store.close();
+    // And it really is closed.
+    expect(store.getInstance("inst-1")).rejects.toThrow();
+  });
+});
+
+describe("a transaction owns its connection", () => {
+  /**
+   * THE PROPERTY THE TRANSACTION BOUNDARY COMMENTS REST ON.
+   *
+   * Every "these statements commit together" in store.ts is a claim about the
+   * wire, and it is only true if one body's statements cannot reach another
+   * body's connection. Under the previous engine there was one connection and
+   * the claim was kept by refusing concurrency outright: a second `tx` entered
+   * while one was suspended threw. That refusal was a stopgap, and this is what
+   * replaces it - the backend pids are read from inside the bodies, so the
+   * evidence is the engine's own answer rather than our bookkeeping.
+   */
+  test("two overlapping transactions run on different backends, and each body stays on its own", async () => {
+    const store = await tempStore();
+    await seedInstance(store, "inst-a");
+    await seedInstance(store, "inst-b");
+
+    // A TURNSTILE, not a single barrier: after both transactions are open, the
+    // bodies take strict turns, so only one statement is ever in flight. That is
+    // what makes this decide the question. With statements routed to their own
+    // checked-out clients, taking turns changes nothing - each body keeps its
+    // connection whether or not it is the one running. With statements routed to
+    // the POOL instead, the two checked-out clients are held and unusable, and
+    // an idle pool connection is handed to whichever body asks next - so the
+    // bodies end up sharing one, and their transaction identities collapse into
+    // each other's.
+    const gates = new Map<number, { wait: Promise<void>; open: () => void }>();
+    const gate = (n: number) => {
+      let g = gates.get(n);
+      if (!g) {
+        let open = () => {};
+        const wait = new Promise<void>((r) => {
+          open = r;
+        });
+        g = { wait, open };
+        gates.set(n, g);
+      }
+      return g;
+    };
+    const seen: { a: number[]; b: number[] } = { a: [], b: [] };
+    const xids: { a: (string | null)[]; b: (string | null)[] } = {
+      a: [],
+      b: [],
+    };
+    const observe = async (who: "a" | "b") => {
+      seen[who].push(await backendPid(store));
+      xids[who].push(await transactionId(store));
+    };
+
+    const a = store.tx(async () => {
+      // A write, so this transaction has an identity to report.
+      await store.casInstance("inst-a", 1, { goal: "installed" });
+      await observe("a");
+      gate(1).open();
+      await gate(2).wait;
+      await observe("a");
+      gate(3).open();
+      await gate(4).wait;
+      await observe("a");
+      return "a";
+    });
+    const b = store.tx(async () => {
+      await gate(1).wait;
+      await store.casInstance("inst-b", 1, { goal: "installed" });
+      await observe("b");
+      gate(2).open();
+      await gate(3).wait;
+      await observe("b");
+      gate(4).open();
+      return "b";
+    });
+
+    expect(await Promise.all([a, b])).toEqual(["a", "b"]);
+    // Each body saw ONE backend from start to finish, across turns in which the
+    // other body was the only one running...
+    expect(new Set(seen.a).size).toBe(1);
+    expect(new Set(seen.b).size).toBe(1);
+    // ...and never the other's.
+    expect(seen.a[0]).not.toBe(seen.b[0]);
+    // And one transaction identity each, distinct: statements that had drifted
+    // onto pool connections would report the other body's transaction, or none.
+    expect(xids.a[0]).not.toBeNull();
+    expect(xids.b[0]).not.toBeNull();
+    expect(new Set(xids.a).size).toBe(1);
+    expect(new Set(xids.b).size).toBe(1);
+    expect(xids.a[0]).not.toBe(xids.b[0]);
+    // Both wrote, and both writes survived: neither transaction was rolled into
+    // the other's.
+    expect((await store.getInstance("inst-a"))?.goal).toBe("installed");
+    expect((await store.getInstance("inst-b"))?.goal).toBe("installed");
+  });
+
+  test("a transaction opened INSIDE one, across an await, is still refused", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+    let inner = "not attempted";
+
+    const outer = await store.tx(async () => {
+      await store.casInstance(inst, 1, { goal: "installed" });
+      try {
+        await store.tx(async () => "should not get here");
+        inner = "entered";
+      } catch (err) {
+        inner = (err as Error).message;
+      }
       return "committed";
     });
 
-    // The body is now parked on the gate, with `begin immediate` open.
-    let second: string;
-    try {
-      await store.tx(async () => "should not get here");
-      second = "entered";
-    } catch (err) {
-      second = (err as Error).message;
-    }
-    expect(second).toBe("nested transaction");
-
-    release();
-    expect(await first).toBe("committed");
-    // And the suspended transaction's own write is durable, so the refusal
-    // above cost the first one nothing.
+    // Nesting is what widens somebody else's boundary, and it is refused
+    // whether or not the body suspended first.
+    expect(inner).toBe("nested transaction");
+    expect(outer).toBe("committed");
     expect((await store.getInstance(inst))?.goal).toBe("installed");
-    await store.close();
+  });
+
+  test("a second store's statements never land on the first store's connection", async () => {
+    // Two stores on ONE database, which is how the racing suites are written.
+    const dsn = await testDsn();
+    const first = await openTestStoreOn(dsn);
+    const second = await openTestStoreOn(dsn);
+    await seedInstance(first, "inst-1");
+
+    let insidePid = 0;
+    let outsidePid = 0;
+    let otherStore = "not attempted";
+    await first.tx(async () => {
+      insidePid = await backendPid(first);
+      // The other store is NOT in a transaction, and its statements go to its
+      // own pool - the async context belongs to a store, not to the process.
+      expect(second.inTransaction()).toBe(false);
+      outsidePid = await backendPid(second);
+      // And a transaction on a DIFFERENT store is not nesting: it is a second
+      // database handle on a second connection, and it cannot widen this one's
+      // boundary.
+      otherStore = await second.tx(async () => "opened");
+    });
+
+    expect(insidePid).not.toBe(outsidePid);
+    expect(otherStore).toBe("opened");
   });
 });
 
@@ -411,17 +790,144 @@ describe("attention", () => {
 });
 
 describe("portability rules", () => {
-  test("the schema uses no AUTOINCREMENT and no json() calls", async () => {
+  test("no date types, no json columns, and no generated ids", async () => {
     const store = await tempStore();
-    const sql = (
-      await store.sqlAll<{ sql: string | null }>(
-        "select sql from sqlite_master",
+    const columns = await store.sqlAll<{
+      table_name: string;
+      column_name: string;
+      data_type: string;
+      is_identity: string;
+      column_default: string | null;
+    }>(
+      "select table_name, column_name, data_type, is_identity, column_default " +
+        "from information_schema.columns where table_schema = current_schema() " +
+        "order by table_name, column_name",
+    );
+    expect(columns.length).toBeGreaterThan(50);
+    const named = (c: (typeof columns)[number]) =>
+      `${c.table_name}.${c.column_name} ${c.data_type}`;
+
+    // Times are ms epochs, never a date type: a date column would be read back
+    // as a Date object by the driver and compared against a number by every
+    // caller in the codebase.
+    expect(
+      columns.filter((c) => /date|time/.test(c.data_type)).map(named),
+    ).toEqual([]);
+    // JSON travels as an already-serialised text parameter.
+    expect(columns.filter((c) => /json/.test(c.data_type)).map(named)).toEqual(
+      [],
+    );
+    // The audit id comes from a `sequences` row bumped in the same
+    // transaction, not from anything the engine generates on its own.
+    expect(
+      columns
+        .filter(
+          (c) =>
+            c.is_identity === "YES" || /nextval/.test(c.column_default ?? ""),
+        )
+        .map(named),
+    ).toEqual([]);
+  });
+
+  test("every instant is a bigint, because a ms epoch does not fit an integer", async () => {
+    const store = await tempStore();
+    // `provider_assets.service_ends_at` is the provider's OWN string, carried
+    // verbatim rather than parsed, so it is the one column with this shape that
+    // is not one of our epochs.
+    const notOurs = new Set(["provider_assets.service_ends_at"]);
+    const instants = (
+      await store.sqlAll<{
+        table_name: string;
+        column_name: string;
+        data_type: string;
+      }>(
+        "select table_name, column_name, data_type from information_schema.columns " +
+          "where table_schema = current_schema() " +
+          "and (column_name like '%\\_at' or column_name like '%\\_until')",
       )
-    )
-      .map((r) => r.sql ?? "")
-      .join("\n");
-    expect(sql).not.toMatch(/autoincrement/i);
-    expect(sql).not.toMatch(/\bjsonb?\s*\(/i);
+    ).filter((c) => !notOurs.has(`${c.table_name}.${c.column_name}`));
+    expect(instants.length).toBeGreaterThan(20);
+    expect(
+      instants
+        .filter((c) => c.data_type !== "bigint")
+        .map((c) => `${c.table_name}.${c.column_name} ${c.data_type}`),
+    ).toEqual([]);
+  });
+
+  test("a written instant comes back as a NUMBER, not the driver's string", async () => {
+    // The driver hands bigint back as a string unless it is told otherwise, and
+    // a string timestamp would compare, sort and serialise without ever
+    // complaining - it would simply be wrong everywhere a deadline is
+    // evaluated. So the parser is pinned by a real round trip through a real
+    // column rather than by reading the pool's configuration back.
+    const written = Date.parse("2027-06-10T12:34:56.789Z");
+    const store = await tempStore(() => written);
+    const inst = await seedInstance(store);
+
+    const row = (await store.getInstance(inst))!;
+    expect(typeof row.created_at).toBe("number");
+    expect(row.created_at).toBe(written);
+    // And it is not a value an `integer` column could have held: this exact
+    // schema answered 22003 before the columns became bigint.
+    expect(written).toBeGreaterThan(2 ** 31);
+
+    // Every other shape a time reaches us through: a returning clause, a
+    // sequence bump, and a nullable column.
+    const op = await store.enqueue({
+      id: "op-bigint",
+      instance_id: inst,
+      kind: "verify_https",
+      inactivity_deadline_at: written + 1,
+      absolute_deadline_at: written + 2,
+    });
+    const leased = (await store.tryLease(
+      op.id,
+      op.version,
+      "a",
+      written + 3,
+      written,
+    ))!;
+    expect(typeof leased.lease_until).toBe("number");
+    expect(leased.lease_until).toBe(written + 3);
+    expect(typeof leased.absolute_deadline_at).toBe("number");
+    expect(
+      (await store.getInstance(inst))?.access_window_expires_at,
+    ).toBeNull();
+    expect(typeof (await store.nextSeq("audit"))).toBe("number");
+  });
+
+  test("a uniqueness refusal is 23505, and a check refusal is not read as one", async () => {
+    const store = await tempStore();
+    const inst = await seedInstance(store);
+    await seedOp(store, inst, "mint_invite");
+
+    // A REAL refusal from the partial unique index, not a hand-built error.
+    const duplicate = await seedOp(store, inst, "mint_invite").then(
+      () => null,
+      (err: unknown) => err,
+    );
+    expect((duplicate as { code?: string }).code).toBe("23505");
+    expect(isUniqueViolation(duplicate)).toBe(true);
+
+    // A CHECK violation is a different SQLSTATE and must not be read as
+    // "somebody already has it": that would turn a bug into a shrug.
+    const bad = await store
+      .createInstance({
+        id: "inst-bad",
+        run_id: null,
+        name: "x",
+        plan: "V153",
+        region: "EU",
+        service_state: "mostly-live" as never,
+        goal: "live",
+        access_window_expires_at: null,
+      })
+      .then(
+        () => null,
+        (err: unknown) => err,
+      );
+    expect((bad as { code?: string }).code).toBe("23514");
+    expect(isUniqueViolation(bad)).toBe(false);
   });
 
   test("audit ids come from a sequence, so they are ordered and portable", async () => {
@@ -500,7 +1006,7 @@ describe("finite state sets are enforced by the database", () => {
         host_key_fingerprint: null,
         next_reconcile_at: 0,
       }),
-    ).rejects.toThrow(/CHECK constraint failed/);
+    ).rejects.toThrow(/check constraint/i);
   });
 
   test("an unknown service state is rejected", async () => {
@@ -516,24 +1022,21 @@ describe("finite state sets are enforced by the database", () => {
         goal: "live",
         access_window_expires_at: null,
       }),
-    ).rejects.toThrow(/CHECK constraint failed/);
+    ).rejects.toThrow(/check constraint/i);
   });
 });
 
 describe("a database from before this slice", () => {
   test("refuses to open, by name, instead of failing mid-run", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-old-"));
-    temps.push(dir);
-    const file = path.join(dir, "old.db");
+    const dsn = await freshDsn();
     // The shape slice 2 inherited: the tables exist, the new columns do not.
-    const legacy = new Database(file, { create: true });
-    legacy.run(
+    await seedRawSchema(
+      dsn,
       "create table attention_reasons (id text primary key, instance_id text, " +
         "source_op_id text, reason text, severity text, raised_at integer, " +
         "cleared_at integer, acknowledged_at integer, acknowledged_by text)",
     );
-    legacy.close();
-    expect(Store.open(file)).rejects.toThrow(/predates this version/);
+    expect(Store.open(dsn)).rejects.toThrow(/predates this version/);
   });
 
   test("every column slice 5 added is pinned, one at a time", async () => {
@@ -557,17 +1060,13 @@ describe("a database from before this slice", () => {
       ],
     ];
     for (const [table, column, ddl] of SLICE_5) {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-col-"));
-      temps.push(dir);
-      const file = path.join(dir, "old.db");
-      const legacy = new Database(file, { create: true });
-      legacy.run(ddl);
-      legacy.close();
+      const dsn = await freshDsn();
+      await seedRawSchema(dsn, ddl);
       expect([
         `${table}.${column}`,
         await (async () => {
           try {
-            await Store.open(file);
+            await Store.open(dsn);
             return "opened";
           } catch (err) {
             return (err as Error).message.includes(`${table} has no ${column}`)

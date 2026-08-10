@@ -20,7 +20,7 @@
 // therefore incapable of moving a Checkout session to a different plan, coupon
 // or instance under one idempotency key.
 
-import type { Store } from "./store.ts";
+import { isUniqueViolation, type Store } from "./store.ts";
 import {
   accountByEmail,
   casAccount,
@@ -103,7 +103,7 @@ export async function reservationByName(
   name: string,
 ): Promise<ReservationRow | null> {
   return store.sqlGet<ReservationRow>(
-    "select * from name_reservations where name = ?",
+    "select * from name_reservations where name = $1",
     [name],
   );
 }
@@ -113,7 +113,7 @@ export async function reservationForInstance(
   instanceId: string,
 ): Promise<ReservationRow | null> {
   return store.sqlGet<ReservationRow>(
-    "select * from name_reservations where instance_id = ?",
+    "select * from name_reservations where instance_id = $1",
     [instanceId],
   );
 }
@@ -125,7 +125,7 @@ export async function reservationForAccount(
   accountId: string,
 ): Promise<ReservationRow | null> {
   return store.sqlGet<ReservationRow>(
-    "select * from name_reservations where account_id = ?",
+    "select * from name_reservations where account_id = $1",
     [accountId],
   );
 }
@@ -151,7 +151,7 @@ export async function accountByGoogleSubject(
   subject: string,
 ): Promise<AccountRow | null> {
   return store.sqlGet<AccountRow>(
-    "select * from accounts where google_subject = ?",
+    "select * from accounts where google_subject = $1",
     [subject],
   );
 }
@@ -298,17 +298,6 @@ export type SignupOutcome =
     }
   | { ok: false; reason: string };
 
-/** SQLite reports both the primary key and the unique index the same way, and
- * bun:sqlite carries the code on the error. Anything else is a real failure and
- * is rethrown rather than read as "taken". */
-function isUniqueViolation(err: unknown): boolean {
-  const code = (err as { code?: unknown })?.code;
-  if (typeof code === "string" && code.startsWith("SQLITE_CONSTRAINT"))
-    return true;
-  const message = err instanceof Error ? err.message : "";
-  return /UNIQUE constraint failed|PRIMARY KEY must be unique/i.test(message);
-}
-
 /**
  * Reserve an office name for an account, creating everything the name needs to
  * become a box.
@@ -343,19 +332,26 @@ export async function reserveOffice(
       // AWAITED INSIDE THE TRY. Without the await the UNIQUE violation would
       // reject after this frame has left, so the catch below - the arm that
       // reads both constraints back and refuses a taken name - would never run.
-      await store.sqlRun(
-        "insert into name_reservations (name, id, account_id, instance_id, plan, " +
-          "coupon_id, version, created_at, updated_at) values (?, ?, ?, ?, ?, ?, 1, ?, ?)",
-        [
-          req.officeName,
-          `res-${uuid}`,
-          account.id,
-          instanceId,
-          plan.id,
-          coupon,
-          ts,
-          ts,
-        ],
+      //
+      // RECOVERABLE, because the catch below reads the database again: a failed
+      // statement aborts the whole transaction on this engine, so without the
+      // savepoint the read-back that decides refusal-versus-retry could not run
+      // at all. The INSERT is still the arbiter, with no SELECT in front of it.
+      await store.recoverable(() =>
+        store.sqlRun(
+          "insert into name_reservations (name, id, account_id, instance_id, plan, " +
+            "coupon_id, version, created_at, updated_at) values ($1, $2, $3, $4, $5, $6, 1, $7, $8)",
+          [
+            req.officeName,
+            `res-${uuid}`,
+            account.id,
+            instanceId,
+            plan.id,
+            coupon,
+            ts,
+            ts,
+          ],
+        ),
       );
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;

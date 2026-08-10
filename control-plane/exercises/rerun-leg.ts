@@ -19,16 +19,13 @@
 // provisioner recovers from the PERSISTED ROWS, so a fresh database per process
 // would let the box arbitrate alone and prove much less.
 
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { KEYS_DIR, RUNS_DIR } from "../config.ts";
+import { databaseUrl, KEYS_DIR, RUNS_DIR } from "../config.ts";
+import { Store } from "../store.ts";
 import { boxHandlers } from "../handlers.ts";
 import { deadlinesFor, type OperationKind } from "../operations.ts";
 import { Reporter } from "../report.ts";
 import { loadRun } from "../run-record.ts";
 import { SpawnExec } from "../ssh.ts";
-import { Store } from "../store.ts";
 import { POLL_INTERVAL_MS, Ticker } from "../tick.ts";
 
 const [runId, kind, ...rest] = process.argv.slice(2);
@@ -43,12 +40,10 @@ if (!rec) throw new Error(`no run record ${runId}`);
 
 const reporter = new Reporter();
 const dbFlag = rest.indexOf("--db");
-const dbPath =
-  dbFlag >= 0 && rest[dbFlag + 1]
-    ? rest[dbFlag + 1]
-    : path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cp-rerun-")), "cp.db");
-const store = await Store.open(dbPath);
-reporter.line(`store: ${dbPath}`);
+const dbUrl =
+  dbFlag >= 0 && rest[dbFlag + 1] ? rest[dbFlag + 1] : databaseUrl();
+const store = await Store.open(dbUrl);
+reporter.line(`store: ${store.describe()}`);
 
 const instanceId = `inst-${runId}`;
 if (!(await store.getInstance(instanceId))) {

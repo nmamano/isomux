@@ -22,6 +22,7 @@ import { accountForDevSignIn, reserveOffice } from "../signup.ts";
 import { Store } from "../store.ts";
 import { insertSubscription } from "../stripe/billing-store.ts";
 import { StripeClient } from "../stripe/client.ts";
+import { databaseUrl } from "../config.ts";
 import {
   createTestClock,
   deleteTestClock,
@@ -60,8 +61,11 @@ async function readBack(subscriptionId: string): Promise<boolean> {
   return sub.cancel_at_period_end === true;
 }
 
+// Keys and run records still live in a throwaway directory; the database
+// does not, because the store speaks to a server now. Point
+// CONTROL_PLANE_DB at a SCRATCH database: this writes rows.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp5-cancel-live-"));
-const store = await Store.open(path.join(dir, "control-plane.db"));
+const store = await Store.open(databaseUrl());
 let clockId: string | null = null;
 
 try {
@@ -165,7 +169,7 @@ try {
    * and cancel.ts deliberately never writes this column itself. */
   const mirror = (to: number) =>
     store.sqlRun(
-      "update subscriptions set cancel_at_period_end = ? where id = ?",
+      "update subscriptions set cancel_at_period_end = $1 where id = $2",
       [to, subscriptionId],
     );
 

@@ -17,11 +17,13 @@ import {
 } from "./mint-seam.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import { Store, type OperationStatus } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 
 const URL_HELD = "https://cp1.test.isomux.app/i/seamsecret";
 const temps: string[] = [];
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -46,7 +48,7 @@ async function bed(
 ): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-seam-"));
   temps.push(dir);
-  const store = await Store.open(path.join(dir, "cp.db"));
+  const store = await openTestStore();
   const account = await accountForDevSignIn(store, "seam@example.com");
   const reserved = await reserveOffice(store, {
     accountId: account.id,

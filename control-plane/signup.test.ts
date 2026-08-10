@@ -7,9 +7,6 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import { Store } from "./store.ts";
 import {
   ACCESS_WINDOW_MS,
   accountForDevSignIn,
@@ -28,20 +25,22 @@ import {
   validateSignup,
 } from "./signup.ts";
 import { accountByEmail } from "./stripe/billing-store.ts";
+import type { Store } from "./store.ts";
+import {
+  openTestStore,
+  openTestStoreOn,
+  releaseTestStores,
+  testDsn,
+} from "./testing/pg.ts";
 
 const temps: string[] = [];
 
-function tempFile(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-signup-"));
-  temps.push(dir);
-  return path.join(dir, "cp.db");
-}
-
 async function tempStore(now?: () => number): Promise<Store> {
-  return await Store.open(tempFile(), now);
+  return await openTestStore(now);
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   while (temps.length)
     fs.rmSync(temps.pop()!, { recursive: true, force: true });
 });
@@ -127,9 +126,9 @@ describe("the reservation", () => {
   });
 
   test("two independent connections racing for one name: exactly one wins", async () => {
-    const file = tempFile();
-    const a = await Store.open(file);
-    const b = await Store.open(file);
+    const dsn = await testDsn();
+    const a = await openTestStoreOn(dsn);
+    const b = await openTestStoreOn(dsn);
     const mine = await accountForDevSignIn(a, "a@example.com");
     const theirs = await accountForDevSignIn(a, "b@example.com");
     const first = await reserveOffice(a, {
@@ -157,9 +156,9 @@ describe("the reservation", () => {
   });
 
   test("the same owner racing itself gets one reservation and identical keys", async () => {
-    const file = tempFile();
-    const a = await Store.open(file);
-    const b = await Store.open(file);
+    const dsn = await testDsn();
+    const a = await openTestStoreOn(dsn);
+    const b = await openTestStoreOn(dsn);
     const account = await accountForDevSignIn(a, "a@example.com");
     const first = await reserveOffice(a, {
       accountId: account.id,
@@ -206,10 +205,10 @@ describe("retry identity does not come from the clock or the request", () => {
     // being asserted, so it is driven through the stored value directly.
     const first = await signup(store);
     if (!first.ok) throw new Error("signup failed");
-    await store.sqlRun("update name_reservations set plan = ? where name = ?", [
-      "other",
-      "acme",
-    ]);
+    await store.sqlRun(
+      "update name_reservations set plan = $1 where name = $2",
+      ["other", "acme"],
+    );
     const second = await signup(store);
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.reason).toContain("already reserved on the");
@@ -333,7 +332,7 @@ describe("google subject binding", () => {
       email: "b@example.com",
     });
     expect(
-      store.sqlRun("update accounts set google_subject = ? where id = ?", [
+      store.sqlRun("update accounts set google_subject = $1 where id = $2", [
         "sub-1",
         other.id,
       ]),
@@ -384,9 +383,9 @@ describe("one office per account", () => {
   });
 
   test("two connections racing DIFFERENT names for one account: one wins", async () => {
-    const file = tempFile();
-    const a = await Store.open(file);
-    const b = await Store.open(file);
+    const dsn = await testDsn();
+    const a = await openTestStoreOn(dsn);
+    const b = await openTestStoreOn(dsn);
     const account = await accountForDevSignIn(a, "a@example.com");
     const first = await reserveOffice(a, {
       accountId: account.id,

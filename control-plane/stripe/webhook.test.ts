@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store } from "../store.ts";
+import { openTestStore, releaseTestStores } from "../testing/pg.ts";
 import {
   getSubscription,
   listAccounts,
@@ -48,10 +49,11 @@ const temps: string[] = [];
 async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-webhook-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), () => NOW);
+  return await openTestStore(() => NOW);
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -722,7 +724,7 @@ describe("suspension: exactly once per episode", () => {
     await store.tx(
       async () =>
         await store.sqlRun(
-          "update subscriptions set episode_state = 'open', version = version + 1 where id = ?",
+          "update subscriptions set episode_state = 'open', version = version + 1 where id = $1",
           ["sub_1"],
         ),
     );

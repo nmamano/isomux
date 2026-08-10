@@ -80,7 +80,7 @@ export async function lifecycleTick(
         // the scan and here, and the field that moves is the one that decides
         // whether somebody's box gets powered off.
         const sub = await store.sqlGet<SubscriptionRow>(
-          "select * from subscriptions where id = ?",
+          "select * from subscriptions where id = $1",
           [scanned.id],
         );
         // Deliberately NOT short-circuiting on a null ended_at. decideLifecycle

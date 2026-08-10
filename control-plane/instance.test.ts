@@ -11,6 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { CeilingIsImmutable, ensureInstance } from "./instance.ts";
 import { Store, type OperationStatus } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import type { RunRecord } from "./run-record.ts";
 
 const temps: string[] = [];
@@ -18,10 +19,11 @@ const temps: string[] = [];
 async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-instance-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"));
+  return await openTestStore();
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -36,7 +36,11 @@ import { createInstanceHandler } from "../handlers.ts";
 import { Reporter } from "../report.ts";
 import { Store } from "../store.ts";
 import { Ticker } from "../tick.ts";
-import { UBUNTU_2404_IMAGE_ID, DEFAULT_LOGIN_USER } from "../config.ts";
+import {
+  databaseUrl,
+  UBUNTU_2404_IMAGE_ID,
+  DEFAULT_LOGIN_USER,
+} from "../config.ts";
 import { SpawnExec } from "../ssh.ts";
 
 const instanceId = process.argv[2];
@@ -74,8 +78,11 @@ const adapter = new ContaboAdapter({
   loginUser: DEFAULT_LOGIN_USER,
 });
 
+// Keys and run records still live in a throwaway directory; the database
+// does not, because the store speaks to a server now. Point
+// CONTROL_PLANE_DB at a SCRATCH database: this writes rows.
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-ambiguous-"));
-const store = await Store.open(path.join(dir, "cp.db"));
+const store = await Store.open(databaseUrl());
 await store.createInstance({
   id: "inst-ambiguous",
   run_id: null,

@@ -16,10 +16,12 @@ import {
 } from "./lifecycle.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 import { Store } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 
 const temps: string[] = [];
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -31,7 +33,7 @@ const GRACE_END = ENDED + GRACE_MS; // 2027-02-07T09:00:00Z
 async function tempStore(now: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-lifetick-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), now);
+  return await openTestStore(now);
 }
 
 function clock(start: number) {
@@ -107,8 +109,8 @@ async function succeed(
   evidence: object,
 ): Promise<void> {
   await store.sqlRun(
-    "update operations set status = 'succeeded', evidence = ?, evidence_at = ?, " +
-      "version = version + 1 where id = ?",
+    "update operations set status = 'succeeded', evidence = $1, evidence_at = $2, " +
+      "version = version + 1 where id = $3",
     [JSON.stringify(evidence), store.now(), id],
   );
 }
@@ -211,7 +213,7 @@ describe("the walk, on seeded dates", () => {
 
     const set = async (cape: number, reason: string | null) =>
       await store.sqlRun(
-        "update subscriptions set cancel_at_period_end = ?, cancellation_reason = ? where id = 'sub_1'",
+        "update subscriptions set cancel_at_period_end = $1, cancellation_reason = $2 where id = 'sub_1'",
         [cape, reason],
       );
 
@@ -226,7 +228,7 @@ describe("the walk, on seeded dates", () => {
     // Now it actually ends. One power_off, at the grace boundary, and its id is
     // the one the anchor computes.
     await store.sqlRun(
-      "update subscriptions set ended_at = ?, status = 'canceled' where id = 'sub_1'",
+      "update subscriptions set ended_at = $1, status = 'canceled' where id = 'sub_1'",
       [ENDED],
     );
     c.set(GRACE_END);

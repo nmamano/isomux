@@ -20,6 +20,7 @@ import {
 import { Reporter, type Sink } from "./report.ts";
 import { saveRun, type RunRecord } from "./run-record.ts";
 import { Store } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import type { ExecResult, Exec, ExecOptions } from "./ssh.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 
@@ -32,6 +33,7 @@ function tempDir(): string {
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -66,7 +68,7 @@ interface Bed {
 
 async function bed(exec: Exec): Promise<Bed> {
   const dir = tempDir();
-  const store = await Store.open(path.join(dir, "cp.db"));
+  const store = await openTestStore();
   const lines: string[] = [];
   const audits: string[] = [];
   const sink: Sink = {

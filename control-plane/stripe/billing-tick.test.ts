@@ -7,6 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store, type SqlArgs } from "../store.ts";
+import { openTestStore, releaseTestStores } from "../testing/pg.ts";
 import {
   ensureAccount,
   getSubscription,
@@ -22,7 +23,7 @@ const temps: string[] = [];
 async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-billing-tick-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), () => NOW);
+  return await openTestStore(() => NOW);
 }
 
 async function seedInstance(store: Store, id = "inst-1"): Promise<string> {
@@ -76,6 +77,7 @@ async function seedHold(
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -192,7 +194,7 @@ describe("holds that should not be acted on", () => {
         moved = true;
         await store.tx(() =>
           store.sqlRun(
-            "update subscriptions set episode_state = 'none', version = version + 1 where id = ?",
+            "update subscriptions set episode_state = 'none', version = version + 1 where id = $1",
             [sub.id],
           ),
         );
@@ -252,7 +254,7 @@ describe("the row can change between the scan and the transaction", () => {
     await seedHold(store, { exhaustion_observed_at: null });
     const restore = mutateAfterScan(
       store,
-      "update subscriptions set exhaustion_observed_at = ?, version = version + 1 where id = ?",
+      "update subscriptions set exhaustion_observed_at = $1, version = version + 1 where id = $2",
       [NOW - 60_000, "sub_1"],
     );
     const summary = await billingTick(store, NOW);
@@ -278,7 +280,7 @@ describe("the row can change between the scan and the transaction", () => {
     await seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
     const restore = mutateAfterScan(
       store,
-      "update subscriptions set exhaustion_observed_at = null, version = version + 1 where id = ?",
+      "update subscriptions set exhaustion_observed_at = null, version = version + 1 where id = $1",
       ["sub_1"],
     );
     const summary = await billingTick(store, NOW);
@@ -302,7 +304,7 @@ describe("the row can change between the scan and the transaction", () => {
     await seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
     const restore = mutateAfterScan(
       store,
-      "update subscriptions set coupon_grace_until = ?, version = version + 1 where id = ?",
+      "update subscriptions set coupon_grace_until = $1, version = version + 1 where id = $2",
       [NOW + 86_400_000, "sub_1"],
     );
     const lines: string[] = [];

@@ -8,9 +8,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
-import { Store } from "../store.ts";
+import { openTestStore, releaseTestStores } from "../testing/pg.ts";
 import { listEvents, listSubscriptions } from "./billing-store.ts";
 import type { StripeObjectReader } from "./reader.ts";
 import {
@@ -78,6 +77,7 @@ function fixtureFiles(): string[] {
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -129,12 +129,7 @@ describe("the fixtures directory", () => {
 
 describe("the synthetic live-mode delivery", () => {
   test("is refused with a valid signature, and nothing is fetched or written", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-fixture-"));
-    temps.push(dir);
-    const store = await Store.open(
-      path.join(dir, "cp.db"),
-      () => 1_770_000_000_000,
-    );
+    const store = await openTestStore(() => 1_770_000_000_000);
     const calls: string[] = [];
     const reader: StripeObjectReader = {
       getSubscription: async (id) => {

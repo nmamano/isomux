@@ -4,14 +4,30 @@
 // R-2026-08-10-1-AMENDED: the plaintext URL lives ONLY in provisioner process
 // memory. This drives a real mint through the real ticker against a fake box,
 // then searches every durable surface the run touched for the value and for
-// anything URL-shaped: the DATABASE FILE'S BYTES (not just the rows we think to
-// query - a dropped column, a WAL page or an index entry would still be a
-// stored credential), every operation's evidence, every audit row, the
-// reporter's live output and its redacted transcript.
+// anything URL-shaped.
 //
-// The scanner has a POSITIVE CONTROL below. A search that finds nothing is only
-// evidence if it would have found something, so one test deliberately persists
-// the URL and requires the same scan to catch it in every place.
+// THERE ARE TWO NETS, and they catch different things.
+//
+//   WHAT IS STORED. Every column of every table in the schema, rendered to
+//   text - the whole row, not the columns we thought to query, so a value put
+//   somewhere nobody expects is still found.
+//
+//   WHAT WAS SUBMITTED. Every statement and every argument the store was asked
+//   to run, recorded at the seam. This is the HISTORICAL net: a URL written and
+//   then deleted, or written inside a transaction that rolled back, leaves no
+//   live row at all, and the first net would call that clean. It also does not
+//   care whether the value reached the disk - it was handed to the database,
+//   which is already the thing the ruling forbids.
+//
+// Under the previous engine the first net was a scan of the database FILE'S
+// BYTES, which reached freed pages and the write-ahead log. Postgres keeps its
+// pages inside a server we do not read, so the honest statement of what is
+// proven changed with the engine: the value was never SUBMITTED through the one
+// handle that can write, and is in no live row. The store's engine is private,
+// so there is no second route to the database to leave that claim with a gap.
+//
+// Both nets have a POSITIVE CONTROL below. A search that finds nothing is only
+// evidence if it would have found something.
 
 import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
@@ -24,6 +40,11 @@ import { requestInvite } from "./requests.ts";
 import { saveRun, type RunRecord } from "./run-record.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import { Store } from "./store.ts";
+import {
+  openTestStore,
+  quoteIdentifier,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import type { Exec, ExecOptions, ExecResult } from "./ssh.ts";
 import { Ticker } from "./tick.ts";
 
@@ -34,6 +55,7 @@ const INVITE_URL = `https://cp1.test.isomux.app/i/${SECRET}`;
 const temps: string[] = [];
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -45,9 +67,35 @@ class MintExec implements Exec {
   }
 }
 
+/**
+ * Record every statement the store is asked to run, with its arguments.
+ *
+ * At the store's own seam rather than at the driver: `sqlAll`/`sqlGet`/`sqlRun`
+ * are the only way anything in this codebase reaches the database, so a
+ * credential that never appears here never went to Postgres at all.
+ */
+function observe(store: Store): string[] {
+  const submitted: string[] = [];
+  for (const name of ["sqlAll", "sqlGet", "sqlRun"] as const) {
+    const real = store[name].bind(store) as (
+      sql: string,
+      args?: unknown[],
+    ) => Promise<unknown>;
+    (store as unknown as Record<string, unknown>)[name] = (
+      sql: string,
+      args: unknown[] = [],
+    ) => {
+      submitted.push(`${sql} ${JSON.stringify(args)}`);
+      return real(sql, args);
+    };
+  }
+  return submitted;
+}
+
 interface Surfaces {
-  dbFile: string;
   store: Store;
+  /** Every statement and argument list handed to the store, in order. */
+  submitted: string[];
   reporter: Reporter;
   lines: string[];
 }
@@ -65,18 +113,19 @@ async function scan(s: Surfaces): Promise<string[]> {
     if (/https?:\/\/\S*\/(?:i|invite)\//.test(text))
       hits.push(`${where}: url-shaped`);
   };
-  // The whole file as bytes, including anything a query would not return.
-  look("database file", fs.readFileSync(s.dbFile).toString("latin1"));
-  for (const file of fs.readdirSync(path.dirname(s.dbFile))) {
-    if (!file.startsWith(path.basename(s.dbFile))) continue;
-    if (file === path.basename(s.dbFile)) continue;
-    // -wal and -shm: a value can live in the write-ahead log after a commit.
-    look(
-      `database ${file}`,
-      fs
-        .readFileSync(path.join(path.dirname(s.dbFile), file))
-        .toString("latin1"),
+  // WHAT WAS SUBMITTED: the statements themselves, before any of them could be
+  // undone. A rolled-back write is still a submitted credential.
+  look("submitted sql", s.submitted.join("\n"));
+  // WHAT IS STORED: every table in the schema, whole rows rendered to text, so
+  // a column nobody thought to query is covered too.
+  for (const { tablename } of await s.store.sqlAll<{ tablename: string }>(
+    "select tablename from pg_tables where schemaname = current_schema() " +
+      "order by tablename",
+  )) {
+    const rows = await s.store.sqlAll<{ row: string }>(
+      `select t::text as row from ${quoteIdentifier(tablename)} t`,
     );
+    look(`table ${tablename}`, rows.map((r) => r.row).join("\n"));
   }
   for (const instance of await s.store.listInstances()) {
     for (const op of await s.store.operationsFor(instance.id)) {
@@ -100,8 +149,10 @@ interface Bed extends Surfaces {
 async function bed(opts: { deliver?: boolean } = {}): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-invite-persist-"));
   temps.push(dir);
-  const dbFile = path.join(dir, "cp.db");
-  const store = await Store.open(dbFile);
+  const store = await openTestStore();
+  // The observer goes on BEFORE anything runs, so the record covers the whole
+  // mint rather than whatever survived it.
+  const submitted = observe(store);
   const lines: string[] = [];
   const sink: Sink = { out: (l) => lines.push(l), err: (l) => lines.push(l) };
   const reporter = new Reporter(sink);
@@ -177,8 +228,8 @@ async function bed(opts: { deliver?: boolean } = {}): Promise<Bed> {
   });
   if (!asked.ok) throw new Error(asked.reason);
   return {
-    dbFile,
     store,
+    submitted,
     reporter,
     lines,
     hold,
@@ -255,13 +306,47 @@ describe("the scan would catch a leak", () => {
     const hits = await scan(b);
     expect(hits).toContain("evidence mint_invite: sentinel");
     expect(hits).toContain("audit: sentinel");
-    // A committed value lands in the WRITE-AHEAD LOG before it is checkpointed
-    // into the main file, so scanning only cp.db would miss a fresh leak
-    // entirely. This is why the sweep covers the sidecars, and the assertion
-    // accepts either file rather than pinning which one it landed in.
+    // Both nets see a committed leak: the row it became, and the statement it
+    // arrived on.
     expect(
-      hits.some((h) => h.startsWith("database") && h.endsWith("sentinel")),
+      hits.some((h) => h.startsWith("table ") && h.endsWith("sentinel")),
     ).toBe(true);
+    expect(hits).toContain("submitted sql: sentinel");
+  });
+
+  test("and it would catch one that was written and then ROLLED BACK", async () => {
+    // The case the row scan cannot see, and the reason there are two nets. A
+    // credential handed to the database and then undone was still handed to the
+    // database - and the previous engine caught that class only by accident,
+    // because a freed page kept the bytes.
+    const b = await bed();
+    await b.ticker.once();
+    b.hold.take(b.opId, b.instanceId);
+    const clean = await scan(b);
+    expect(clean).toEqual([]);
+
+    // Not awaited, matching every other rejects assertion here: awaiting one
+    // trips await-thenable under the bun test types.
+    expect(
+      b.store.tx(async () => {
+        await b.store.appendAudit({
+          actor: "leak",
+          instance_id: b.instanceId,
+          action: "mint_invite",
+          target: b.opId,
+          outcome: "succeeded",
+          detail: INVITE_URL,
+        });
+        throw new Error("and then the transaction failed");
+      }),
+    ).rejects.toThrow(/and then the transaction failed/);
+
+    const hits = await scan(b);
+    // No live row holds it...
+    expect(hits.filter((h) => h.startsWith("table "))).toEqual([]);
+    expect(hits).not.toContain("audit: sentinel");
+    // ...and it is caught anyway.
+    expect(hits).toContain("submitted sql: sentinel");
   });
 
   test("and it would catch one printed to the operator's output", async () => {

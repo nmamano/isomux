@@ -7,25 +7,25 @@
 // both halves of that: this file's export list, and the absence of raw store
 // access everywhere else under web/.
 //
-// Every control-plane import is a REQUEST-TIME dynamic import. Two reasons, and
-// both are load-bearing:
+// Every control-plane import is a REQUEST-TIME dynamic import. The reason it
+// was introduced - the store spoke bun:sqlite, which `next build` under Node
+// could not load - died with the Postgres port. The reason it stays did not: it
+// keeps the module graph of the public app free of the driver, so nothing here
+// reaches keys, ssh, handlers or the webhook path. `web-boundary.test.ts` is
+// what enforces that now; the build no longer does it for us.
 //
-//   - the store speaks bun:sqlite, and `next build` runs under Node, where that
-//     module does not exist. Next evaluates every page and route module while
-//     collecting page data, so a module-scope import would fail the build. The
-//     build is therefore the enforcement of this rule, not a comment about it.
-//   - it keeps the module graph of the public app free of the driver: nothing
-//     here reaches keys, ssh, handlers or the webhook path.
-//
-// One Store per request, closed in a finally. The connection is cheap, and a
-// process-lifetime handle would outlive dev-server hot reloads.
+// One Store per request, closed in a finally, which under a pooled driver costs
+// a connection per request rather than a file handle. That is a deployment
+// question (a process-lifetime pool would also outlive dev-server hot reloads)
+// and it is deliberately not answered here: the boundary this file exists for
+// is that no page holds a store, and that is unchanged.
 
 import type { ProgressView } from "../../progress";
 import type { OpsFloor, OpsInstanceView } from "../../ops";
 
 export type { ProgressView, OpsFloor, OpsInstanceView };
 
-function databasePath(): string {
+function databaseUrl(): string {
   const configured = process.env.CONTROL_PLANE_DB;
   if (configured) return configured;
   throw new Error(
@@ -40,7 +40,7 @@ async function withStore<T>(
   fn: (store: import("../../store").Store) => Promise<T> | T,
 ): Promise<T> {
   const { Store } = await import("../../store");
-  const store = await Store.open(databasePath());
+  const store = await Store.open(databaseUrl());
   try {
     // Awaited inside the try, so the store is closed by the finally rather
     // than left open by a rejection that escaped this frame.
@@ -330,7 +330,7 @@ async function billingVerb(
     import("../../stripe/client"),
   ]);
   const { Store } = await import("../../store");
-  const store = await Store.open(databasePath());
+  const store = await Store.open(databaseUrl());
   try {
     const outcome = await cancel[verb](store, new StripeClient({ key }), {
       accountId,

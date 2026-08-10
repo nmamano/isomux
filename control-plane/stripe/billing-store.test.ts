@@ -5,8 +5,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Database } from "bun:sqlite";
 import { Store } from "../store.ts";
+import {
+  freshDsn,
+  openTestStore,
+  releaseTestStores,
+  seedRawSchema,
+} from "../testing/pg.ts";
 import {
   accountByEmail,
   casAccount,
@@ -27,7 +32,7 @@ const temps: string[] = [];
 async function tempStore(now?: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-billing-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), now);
+  return await openTestStore(now);
 }
 
 async function seedSubscription(
@@ -67,6 +72,7 @@ async function seedSubscription(
 }
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -295,13 +301,9 @@ describe("opening an older database", () => {
 
   for (const [table, missing, columns] of GUARDED) {
     test(`${table} without ${missing} is refused by name`, async () => {
-      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-billing-old-"));
-      temps.push(dir);
-      const file = path.join(dir, "cp.db");
-      const db = new Database(file, { create: true });
-      db.run(`create table ${table} (${columns})`);
-      db.close();
-      expect(Store.open(file)).rejects.toThrow(
+      const dsn = await freshDsn();
+      await seedRawSchema(dsn, `create table ${table} (${columns})`);
+      expect(Store.open(dsn)).rejects.toThrow(
         new RegExp(`${table} has no ${missing}`),
       );
     });

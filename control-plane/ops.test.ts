@@ -8,12 +8,14 @@ import { raiseAttention } from "./attention.ts";
 import { acknowledgeInstance, opsFloor, opsInstance } from "./ops.ts";
 import { isOperator } from "./operator.ts";
 import { setOperator } from "./operator-admin.ts";
-import { Database } from "bun:sqlite";
+import pg from "pg";
 import { Store } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { accountForDevSignIn } from "./signup.ts";
 
 const temps: string[] = [];
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -24,7 +26,7 @@ const NOW = Date.parse("2027-06-10T00:00:00Z");
 async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-ops-"));
   temps.push(dir);
-  return await Store.open(path.join(dir, "cp.db"), () => NOW);
+  return await openTestStore(() => NOW);
 }
 
 async function seed(
@@ -166,23 +168,27 @@ describe("every ops service gates on the column itself", () => {
     // hoped for.
     const store = await tempStore();
     const { operator } = await seed(store);
-    const file = store.file;
+    const dsn = store.url;
     let revokeOutcome = "not attempted";
     const realList = store.listInstances.bind(store);
-    store.listInstances = () => {
+    store.listInstances = async () => {
       // Mid-work, from outside this transaction. Still a raw second connection
       // on purpose: the point is a competing writer that is not this Store.
-      const other = new Database(file);
-      other.run("pragma busy_timeout = 100");
+      const other = new pg.Client({ connectionString: dsn });
+      await other.connect();
       try {
-        other.run("update accounts set is_operator = 0 where id = ?", [
+        // A bound on waiting for the row lock, so a revoke that is BLOCKED
+        // says so instead of hanging this test against the transaction it is
+        // trying to interrupt.
+        await other.query("set lock_timeout = '100ms'");
+        await other.query("update accounts set is_operator = 0 where id = $1", [
           operator,
         ]);
         revokeOutcome = "committed";
       } catch (err) {
         revokeOutcome = (err as { code?: string }).code ?? "refused";
       }
-      other.close();
+      await other.end();
       return realList();
     };
 
@@ -192,10 +198,24 @@ describe("every ops service gates on the column itself", () => {
     } finally {
       store.listInstances = realList;
     }
-    expect(revokeOutcome).not.toBe("committed");
+    // 55P03 is lock_not_available: the revoke did not merely lose a race, it
+    // was BLOCKED by the share lock the verb holds on the role row, and gave up
+    // at its own 100ms bound.
+    expect(revokeOutcome).toBe("55P03");
     // And the read that was already authorised completed coherently.
     expect(floor).not.toBeNull();
     expect(await isOperator(store, operator)).toBe(true);
+
+    // The lock is released with the transaction, so the revoke is not forbidden
+    // - only prevented from landing mid-verb. It succeeds immediately after.
+    const after = new pg.Client({ connectionString: dsn });
+    await after.connect();
+    await after.query("set lock_timeout = '2s'");
+    await after.query("update accounts set is_operator = 0 where id = $1", [
+      operator,
+    ]);
+    await after.end();
+    expect(await isOperator(store, operator)).toBe(false);
     await store.close();
   });
 
@@ -254,7 +274,7 @@ describe("what the floor shows", () => {
         absolute_deadline_at: NOW - 10_000,
       });
       await store.flagDeadline(op.id, op.version, "absolute", NOW);
-      await store.sqlRun("update operations set status = ? where id = ?", [
+      await store.sqlRun("update operations set status = $1 where id = $2", [
         status,
         id,
       ]);

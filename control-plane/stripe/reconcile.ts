@@ -2,8 +2,8 @@
 //
 // Everything here runs inside a transaction the CALLER owns, and the caller has
 // already fetched the objects. That split is deliberate: the fetch is network
-// I/O, and holding a SQLite write transaction open across it would let one slow
-// Stripe response block every other writer. So the order is
+// I/O, and holding a write transaction open across it would keep its row locks
+// and its connection for as long as one slow Stripe response takes. So the order is
 // fetch-then-transaction, and the first thing this file does inside the
 // transaction is RE-CHECK the event id, because a concurrent delivery of the same
 // event could have landed while we were fetching.
@@ -14,7 +14,7 @@
 // rows. A throw anywhere rolls back the claim too, so Stripe's redelivery of that
 // event still has work to do.
 
-import type { Store } from "../store.ts";
+import { isUniqueViolation, type Store } from "../store.ts";
 import { applyBillingAttention } from "./billing-attention.ts";
 import {
   casEpisodeBookkeeping,
@@ -205,14 +205,28 @@ export async function recordIgnoredEvent(
     throw new Error("recordIgnoredEvent must run inside a transaction");
   }
   if (await eventSeen(store, args.eventId)) return "duplicate";
-  await claimEvent(store, {
-    id: args.eventId,
-    type: args.eventType,
-    created: args.eventCreated,
-    subscription_id: null,
-    outcome: "ignored",
-    detail: args.note,
-  });
+  try {
+    // The read above cannot decide this on its own: two deliveries of one event
+    // can both find it unseen, and the primary key is what settles which of
+    // them records it. RECOVERABLE because the claim is the only write in this
+    // transaction, so the loser can answer exactly what it answered when the
+    // previous engine serialised the two - "duplicate" - instead of failing a
+    // delivery that has nothing left to do.
+    await store.recoverable(() =>
+      claimEvent(store, {
+        id: args.eventId,
+        type: args.eventType,
+        created: args.eventCreated,
+        subscription_id: null,
+        outcome: "ignored",
+        detail: args.note,
+      }),
+    );
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    if (!(await eventSeen(store, args.eventId))) throw err;
+    return "duplicate";
+  }
   return "recorded";
 }
 
@@ -220,6 +234,28 @@ export async function recordIgnoredEvent(
 
 /** The cache row for this subscription, created from the FETCHED object if this
  * is the first event we have applied for it. */
+/**
+ * The first row for a subscription, when two deliveries may both be making it.
+ *
+ * Both can read absent under read committed, and the primary key is what
+ * decides. The loser reads the winner's row back and carries on with it, which
+ * is what the previous engine's serialised writers gave for free: its second
+ * transaction ran after the first had committed, so its own read found the row.
+ */
+async function insertFirstRow(
+  store: Store,
+  row: Parameters<typeof insertSubscription>[1],
+): Promise<SubscriptionRow> {
+  try {
+    return await store.recoverable(() => insertSubscription(store, row));
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const winner = await getSubscription(store, row.id);
+    if (!winner) throw err;
+    return winner;
+  }
+}
+
 async function ensureRow(
   store: Store,
   input: ReconcileInput,
@@ -227,6 +263,8 @@ async function ensureRow(
 ): Promise<SubscriptionRow> {
   const existing = await getSubscription(store, input.subscription.id);
   if (existing) return existing;
+  // ...and if two deliveries for one subscription both read absent here, the
+  // primary key settles it below, where the loser reads the winner's row back.
 
   const meta = {
     ...input.subscription.metadata,
@@ -253,7 +291,7 @@ async function ensureRow(
     });
   }
 
-  return insertSubscription(store, {
+  return insertFirstRow(store, {
     id: input.subscription.id,
     account_id: account.id,
     instance_id: null,

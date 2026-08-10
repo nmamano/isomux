@@ -11,9 +11,38 @@ export const RUNS_DIR = path.join(STATE_ROOT, "runs");
 export const KEYS_DIR = path.join(STATE_ROOT, "keys");
 export const INTENTS_DIR = path.join(STATE_ROOT, "intents");
 export const AUDIT_FILE = path.join(STATE_ROOT, "audit.jsonl");
-/** Instances, provider assets, operations, attention and audit_events. The
- * JSONL above stays as a post-commit mirror that survives losing this file. */
-export const DB_FILE = path.join(STATE_ROOT, "control-plane.db");
+
+/**
+ * A local Postgres for development and for the test suite, as one command.
+ *
+ * Quoted verbatim by everything that has to tell somebody the database is
+ * missing, so the instruction and the thing it starts cannot drift apart.
+ */
+export const LOCAL_POSTGRES_COMMAND =
+  "docker run -d --name isomux-cp-pg " +
+  "-e POSTGRES_PASSWORD=isomux -e POSTGRES_USER=isomux " +
+  "-e POSTGRES_DB=control_plane_test " +
+  "-p 127.0.0.1:5433:5432 postgres:16";
+
+/**
+ * Instances, provider assets, operations, attention and audit_events, as a
+ * postgres:// connection string.
+ *
+ * There is NO DEFAULT, deliberately. A file path could be derived from a home
+ * directory and be wrong only for this user; a connection string cannot be
+ * derived from anything, and a guessed one is how a command writes to a
+ * database nobody meant it to touch. The JSONL above stays as a post-commit
+ * mirror that survives losing this one.
+ */
+export function databaseUrl(): string {
+  const configured = process.env.CONTROL_PLANE_DB;
+  if (configured) return configured;
+  throw new Error(
+    "CONTROL_PLANE_DB is not set: it is the postgres:// connection string " +
+      "for the control plane's database, and there is no default. A local " +
+      `one: ${LOCAL_POSTGRES_COMMAND}`,
+  );
+}
 
 /** Contabo's Ubuntu 24.04 image, as measured on the pilot account. */
 export const UBUNTU_2404_IMAGE_ID = "d64d5c6c-9dda-4e38-8174-0ee282474d8a";

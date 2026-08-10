@@ -11,10 +11,12 @@ import {
 } from "./liveness.ts";
 import { LIVENESS_REASON, watchLiveness } from "./liveness-watch.ts";
 import { Store } from "./store.ts";
+import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 
 const temps: string[] = [];
 
 afterEach(async () => {
+  await releaseTestStores();
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -33,7 +35,7 @@ async function bed(): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-liveness-"));
   temps.push(dir);
   const now = { value: 1_000_000 };
-  const store = await Store.open(path.join(dir, "cp.db"), () => now.value);
+  const store = await openTestStore(() => now.value);
   await store.createInstance({
     id: "inst-1",
     run_id: null,

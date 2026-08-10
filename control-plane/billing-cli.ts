@@ -21,7 +21,7 @@
 // builds - but nothing runnable here can power a real box off.
 
 import * as fs from "node:fs";
-import { DB_FILE, STATE_ROOT } from "./config.ts";
+import { databaseUrl, STATE_ROOT } from "./config.ts";
 import { Reporter } from "./report.ts";
 import { Store } from "./store.ts";
 import {
@@ -117,7 +117,7 @@ async function openStore(args: Map<string, string>): Promise<Store> {
   const override = args.get("db");
   if (override && override !== "true") return Store.open(override);
   fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
-  return Store.open(DB_FILE);
+  return Store.open(databaseUrl());
 }
 
 function newId(prefix: string): string {
