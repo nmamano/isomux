@@ -623,7 +623,13 @@ export function App() {
       ) : cronjobsOpen ? (
         <CronjobsView onClose={goHome} />
       ) : appsOpen ? (
-        <AppsView onClose={goHome} />
+        <AppsView
+          onClose={goHome}
+          onFocusAgent={(agentId) => {
+            setAppsOpen(false);
+            dispatch({ type: "focus", agentId });
+          }}
+        />
       ) : focusedAgent ? (
         <LogView
           key={focusedAgent.id}

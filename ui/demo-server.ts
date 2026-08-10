@@ -594,6 +594,10 @@ let cronjobsPrompt: string | null = null;
 // Agent-built apps. The demo has no systemd, so `state` is whatever the last
 // verb set it to - enough to exercise the Apps tab's list, verbs, log view and
 // the failed-app rendering.
+//
+// The creators are deliberately one of each: `standup-board` names an agent the
+// demo office still has, so its row links to that conversation, while
+// `cost-tracker` names one it does not and stays plain text.
 const demoApps: AppWire[] = [
   {
     name: "standup-board",
@@ -606,7 +610,7 @@ const demoApps: AppWire[] = [
     dataDir: "/home/ricky/.isomux/apps/data/standup-board",
     userId: "demo-user",
     username: "Ricky",
-    createdBy: "Scout",
+    createdBy: "Pam",
     createdAt: Date.now() - 86_400_000,
     state: "running",
     restartCount: 0,

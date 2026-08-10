@@ -130,7 +130,7 @@ function StateDot({ state }: { state: AppState }) {
   );
 }
 
-function Meta({ label, value }: { label: string; value: string }) {
+function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <span style={{ whiteSpace: "nowrap" }}>
       <span style={{ color: "var(--text-dim, var(--text-muted))" }}>
@@ -141,8 +141,55 @@ function Meta({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function AppsView({ onClose }: { onClose: () => void }) {
-  const { apps, appsLoaded, appsRevision, isMobile, hydrationEpoch } =
+/**
+ * The live agent behind an app's `created by`, or null when there is nothing to
+ * open - a human registered it, or its agent is gone.
+ *
+ * A record that names an agent id is answered by that id ALONE. A dead id gets
+ * nothing rather than the agent that now holds the same nameplate: a successor
+ * did not register the app, and the row states who did. The same rule already
+ * governs the app-to-agent message route, which answers a gone target with
+ * `target_gone` instead of picking another agent (server/routes/handlers/apps.ts).
+ *
+ * The name match is for records with no id at all - written before the field
+ * existed, or registered by a person - where a name is the only attribution
+ * there is. That is the rule the task board resolves its own names by.
+ */
+export function resolveCreatorAgentId(
+  app: Pick<AppWire, "createdBy" | "createdByAgentId">,
+  agents: readonly { id: string; name: string }[],
+): string | null {
+  if (app.createdByAgentId !== undefined) {
+    const byId = agents.find((a) => a.id === app.createdByAgentId);
+    return byId ? byId.id : null;
+  }
+  const byName = agents.find(
+    (a) => a.name.toLowerCase() === app.createdBy.toLowerCase(),
+  );
+  return byName ? byName.id : null;
+}
+
+// A link, not a button-shaped control: the same accent-and-underline affordance
+// the task board gives an agent name. A real <button> rather than the task
+// board's <span> so it is reachable by keyboard.
+const agentLinkStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  font: "inherit",
+  color: "var(--accent)",
+  cursor: "pointer",
+  textDecoration: "none",
+};
+
+export function AppsView({
+  onClose,
+  onFocusAgent,
+}: {
+  onClose: () => void;
+  onFocusAgent?: (agentId: string) => void;
+}) {
+  const { apps, appsLoaded, appsRevision, isMobile, hydrationEpoch, agents } =
     useAppState();
   const dispatch = useDispatch();
   const [error, setError] = useState<string | null>(null);
@@ -401,6 +448,9 @@ export function AppsView({ onClose }: { onClose: () => void }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {sorted.map((app) => {
               const isBusy = busy?.startsWith(`${app.name}:`) ?? false;
+              const creatorAgentId = onFocusAgent
+                ? resolveCreatorAgentId(app, agents)
+                : null;
               return (
                 <div
                   key={app.name}
@@ -468,7 +518,32 @@ export function AppsView({ onClose }: { onClose: () => void }) {
                   >
                     <Meta label="port" value={String(app.port)} />
                     <Meta label="restarts" value={String(app.restartCount)} />
-                    <Meta label="created by" value={app.createdBy} />
+                    {/* The creator opens its conversation when it is still an
+                        agent of this office; otherwise it stays plain text. */}
+                    <Meta
+                      label="created by"
+                      value={
+                        creatorAgentId !== null ? (
+                          <button
+                            type="button"
+                            title="Open the agent"
+                            onClick={() => onFocusAgent?.(creatorAgentId)}
+                            style={agentLinkStyle}
+                            onMouseEnter={(e) =>
+                              (e.currentTarget.style.textDecoration =
+                                "underline")
+                            }
+                            onMouseLeave={(e) =>
+                              (e.currentTarget.style.textDecoration = "none")
+                            }
+                          >
+                            {app.createdBy}
+                          </button>
+                        ) : (
+                          app.createdBy
+                        )
+                      }
+                    />
                     {app.username && (
                       <Meta label="owner" value={app.username} />
                     )}

@@ -9,7 +9,12 @@
 // Pure T0: no DOM, no server, no LLM.
 
 import { describe, it, expect } from "bun:test";
-import { appHref, nextPollDelay, shouldCommit } from "./AppsView.tsx";
+import {
+  appHref,
+  nextPollDelay,
+  resolveCreatorAgentId,
+  shouldCommit,
+} from "./AppsView.tsx";
 
 describe("shouldCommit", () => {
   it("lets a response land under the row that asked for it", () => {
@@ -60,6 +65,60 @@ describe("nextPollDelay", () => {
     // alongside the new one - one extra loop per reconnect.
     expect(nextPollDelay(true, true)).toBeNull();
     expect(nextPollDelay(true, false)).toBeNull();
+  });
+});
+
+describe("resolveCreatorAgentId", () => {
+  const agents = [
+    { id: "agent-1", name: "Isomuxer2" },
+    { id: "agent-2", name: "AppBot" },
+  ];
+
+  it("opens the agent the record names by id", () => {
+    expect(
+      resolveCreatorAgentId(
+        { createdBy: "Isomuxer2", createdByAgentId: "agent-1" },
+        agents,
+      ),
+    ).toBe("agent-1");
+  });
+
+  it("falls back to the name when the record carries no id", () => {
+    // Every app registered before the id was stored, and every human one.
+    expect(resolveCreatorAgentId({ createdBy: "AppBot" }, agents)).toBe(
+      "agent-2",
+    );
+  });
+
+  it("matches a name whatever its case", () => {
+    expect(resolveCreatorAgentId({ createdBy: "appbot" }, agents)).toBe(
+      "agent-2",
+    );
+  });
+
+  it("gives nothing to open when the recorded agent is gone", () => {
+    // A killed agent whose nameplate a successor now holds. Opening the
+    // successor would present it as the agent that registered the app, which
+    // it is not - the same reason the app-to-agent message route answers a
+    // gone target with `target_gone` rather than picking another agent.
+    expect(
+      resolveCreatorAgentId(
+        { createdBy: "AppBot", createdByAgentId: "agent-dead" },
+        agents,
+      ),
+    ).toBeNull();
+  });
+
+  it("gives nothing to open for an actor that is not an agent", () => {
+    // A human registration, or the admin CLI: `created by` stays plain text.
+    expect(resolveCreatorAgentId({ createdBy: "Nil" }, agents)).toBeNull();
+    expect(
+      resolveCreatorAgentId({ createdBy: "(admin-cli)" }, agents),
+    ).toBeNull();
+  });
+
+  it("gives nothing to open when the office has no agents at all", () => {
+    expect(resolveCreatorAgentId({ createdBy: "AppBot" }, [])).toBeNull();
   });
 });
 
