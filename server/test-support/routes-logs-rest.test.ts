@@ -23,6 +23,10 @@ import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { _testResetSearchAdmission } from "../log-search-runner.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
+import type {
+  LogRetrieveResp,
+  LogSessionIndexResp,
+} from "../../shared/contract-shapes.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -162,6 +166,43 @@ describe("routes/logs REST: the three modes", () => {
         lastModified: 4_000,
       },
     ]);
+  });
+
+  // Task 29daebe2. The field is TYPE-CHECKED here, not just read off an `any`:
+  // the body is assigned to the declared contract types, so removing
+  // pendingPrompt from LogSessionIndexResp / LogRetrieveResp (or adding it to
+  // the search response, which must NOT have it) fails the build rather than
+  // drifting silently away from what the server returns and system-prompt.ts
+  // documents.
+  it("index and retrieve carry pendingPrompt; search does not", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const agent = await spawnOwnedBy(srv, "Alpha", roomA, 0, owner.username);
+    seedLog(srv, agent.id);
+    const bearer = mintAgentToken(agent.id, getUserByName(owner.username)!.id);
+
+    const index = await api(srv, `/api/agents/${agent.id}/logs`, { bearer });
+    const indexBody = index.body as unknown as LogSessionIndexResp;
+    // Not parked, and the key is PRESENT rather than omitted - a reader has to
+    // be able to tell "not waiting" from "this server does not report it".
+    expect(indexBody.pendingPrompt).toBe(null);
+    expect("pendingPrompt" in (index.body as object)).toBe(true);
+
+    const retrieve = await api(
+      srv,
+      `/api/agents/${agent.id}/logs?session=s-seed`,
+      { bearer },
+    );
+    const retrieveBody = retrieve.body as unknown as LogRetrieveResp;
+    expect(retrieveBody.pendingPrompt).toBe(null);
+
+    // Search is a hit list, not a reading of the agent's present state.
+    const search = await api(srv, `/api/agents/${agent.id}/logs?q=marmalade`, {
+      bearer,
+    });
+    expect("pendingPrompt" in (search.body as object)).toBe(false);
   });
 
   it("?q= searches and returns a context handle for each hit", async () => {

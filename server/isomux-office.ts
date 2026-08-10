@@ -1798,6 +1798,7 @@ function buildExecutorDeps(): ExecutorDeps {
         retrieveSession(officeLogSource, agentId, sessionId, query),
       search: (callerKey, agentId, query) =>
         runSearchInChild(callerKey, agentId, query),
+      pendingPrompt: (agentId) => agentManager.pendingPrompt(agentId),
     }),
   );
 
@@ -2783,9 +2784,10 @@ function buildExecutorDeps(): ExecutorDeps {
       cancelQueued: (agentId, messageId) => {
         agentManager.cancelQueued(agentId, messageId);
       },
-      sendNow: (agentId) => {
-        void agentManager.sendNow(agentId);
-      },
+      // AWAITED, unlike the fire-and-forget it used to be: the refusal is the
+      // point (task 5dcb0a02). sendNow resolves as soon as it has decided
+      // whether it can flush - the delivery itself still streams over WS.
+      sendNow: (agentId) => agentManager.sendNow(agentId),
       newConversation: (agentId, agentType) => {
         // The WS case awaited this purely for handler sequencing; the clear_logs
         // + turn events stream over WS regardless, so void-discard for an

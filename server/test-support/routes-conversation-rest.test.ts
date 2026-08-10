@@ -318,7 +318,11 @@ describe("agents cancelQueued / sendNow / newConversation REST -> 204 (Phase 3d 
     expect(res.status).toBe(204);
   });
 
-  it("sendNow -> 204", async () => {
+  // Contract CHANGED by task 5dcb0a02: send-now with nothing to send used to
+  // answer 204. The case that mattered was an agent whose backend had died,
+  // where the flush is gated out and silently moves nothing - the 204 read as
+  // a delivery. An empty queue is the same class of honest refusal.
+  it("sendNow with an empty queue -> 409 queue_empty", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -327,7 +331,10 @@ describe("agents cancelQueued / sendNow / newConversation REST -> 204 (Phase 3d 
     const res = await req(srv, "POST", `/api/agents/${x.id}/send-now`, {
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(409);
+    expect((res.body as { error: { code: string } }).error.code).toBe(
+      "queue_empty",
+    );
   });
 
   it("newConversation -> 204", async () => {

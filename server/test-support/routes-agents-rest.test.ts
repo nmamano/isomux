@@ -141,7 +141,11 @@ describe("agents.kill REST (Phase 3d slice 7a)", () => {
 });
 
 describe("agents.abort REST (Phase 3d slice 7a)", () => {
-  it("owner aborts an idle agent -> 204 (no-op safe)", async () => {
+  // Contract CHANGED by task 29daebe2: abort on an agent with nothing to stop
+  // used to answer 204 "no-op safe". That is what made a wedged agent
+  // indistinguishable from a healthy one - an operator ran Stop, got a success,
+  // and reasonably concluded the agent had been unstuck. It now says so.
+  it("owner aborts an idle agent -> 409 nothing_to_abort", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -150,7 +154,10 @@ describe("agents.abort REST (Phase 3d slice 7a)", () => {
     const res = await req(srv, "POST", `/api/agents/${x.id}/abort`, {
       rawSessionId: owner.rawSessionId,
     });
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(409);
+    expect((res.body as { error: { code: string } }).error.code).toBe(
+      "nothing_to_abort",
+    );
   });
 });
 

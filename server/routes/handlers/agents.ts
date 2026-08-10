@@ -36,6 +36,7 @@ import {
   type RouteHandler,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
+import type { AbortResult } from "../../internal-types.ts";
 import type { AgentInfo } from "../../../shared/types.ts";
 import { DESK_COUNT, isValidDesk } from "../../../shared/desks.ts";
 
@@ -91,8 +92,11 @@ export interface AgentsDeps {
   // Despawns a live agent (core revokes its token). No-op safe: the agentParam
   // guard already gated existence + access, so a stale id is a harmless no-op.
   kill(agentId: string): Promise<void>;
-  // Aborts the agent's in-flight turn. No-op safe.
-  abort(agentId: string): Promise<void>;
+  // Stops whatever the agent is doing: cancels the in-flight turn, and denies
+  // a permission prompt it is parked on. Returns the outcome rather than void
+  // (task 29daebe2) - an agent with no turn and no prompt has nothing to stop,
+  // and reporting that as success told operators the opposite of the truth.
+  abort(agentId: string): Promise<AbortResult>;
   // Moves an agent to targetRoomId. Returns the moved AgentInfo (or, for a
   // same-room request, the unchanged agent - an idempotent no-op). A failure is
   // DISCRIMINATED so the handler maps it to the right status, never a false
@@ -209,7 +213,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     },
 
     "agents.abort": async (ctx) => {
-      await deps.abort(ctx.params.id);
+      const r = await deps.abort(ctx.params.id);
+      if (!r.ok) return fail(r.status, r.code, r.message);
       return noContent();
     },
 

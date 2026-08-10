@@ -6,6 +6,7 @@ import { StatusLight } from "./StatusLight.tsx";
 import { DESK_SLOTS } from "../../shared/desks.ts";
 import { deskPixelPos } from "./grid.ts";
 import { styleForModel } from "../model-styles.ts";
+import { PENDING_PROMPT_BADGE } from "../pending-prompt.ts";
 
 export function DeskUnit({
   agent,
@@ -245,6 +246,26 @@ export function DeskUnit({
               }}
             >
               unread
+            </span>
+          )}
+          {/* Parked on a two-step prompt (task 29daebe2). Distinct from the
+              unread badge: unread means "someone spoke to it", this means "it
+              asked YOU something and is waiting". Amber rather than purple so
+              the two never read as the same signal at a glance. */}
+          {agent.pendingPrompt && (
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "white",
+                background: "var(--orange)",
+                padding: "1px 6px",
+                borderRadius: 8,
+                letterSpacing: "0.02em",
+                flexShrink: 0,
+              }}
+            >
+              {PENDING_PROMPT_BADGE[agent.pendingPrompt]}
             </span>
           )}
         </div>

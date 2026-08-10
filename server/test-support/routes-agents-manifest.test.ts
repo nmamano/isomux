@@ -129,6 +129,17 @@ function manifestOnDisk(srv: TestServer): unknown {
   );
 }
 
+// The endpoint's documented difference from the file: it carries the agent's
+// LIVE pendingPrompt, the file does not (task 29daebe2). These tests have no
+// parked agents, so the live value is null everywhere - the point of the
+// helper is that the divergence is stated, not incidental.
+function withLivePromptField(onDisk: unknown): unknown {
+  return (onDisk as Record<string, unknown>[]).map((e) => ({
+    ...e,
+    pendingPrompt: null,
+  }));
+}
+
 describe("GET /agents (discovery manifest)", () => {
   it("owner-agent bearer gets the full manifest, matching the file on disk", async () => {
     const srv = await startTestServer();
@@ -172,6 +183,9 @@ describe("GET /agents (discovery manifest)", () => {
       effort: DEFAULT_EFFORT,
       username: owner.username,
       logDir: join(srv.stateRoot, "logs", a.id),
+      // Live parked-prompt state (task 29daebe2). Null for an agent that is
+      // not waiting on a prompt.
+      pendingPrompt: null,
     });
     expect(beta.room).toBe(2);
     expect(beta.roomName).toBe("Second Room");
@@ -179,8 +193,14 @@ describe("GET /agents (discovery manifest)", () => {
     expect(beta.desk).toBe(1);
 
     // Parity on the full-access view: the endpoint and the still-written file
-    // must not drift (both come from persistence.buildManifest).
-    expect(body).toEqual(manifestOnDisk(srv) as typeof body);
+    // must not drift (both come from persistence.buildManifest) - EXCEPT for
+    // pendingPrompt, which the endpoint adds and the file deliberately omits.
+    // It is live state, and a snapshot written when an agent parked would keep
+    // claiming a prompt long after it was answered, which is the exact
+    // confusion task 29daebe2 exists to remove.
+    expect(body).toEqual(
+      withLivePromptField(manifestOnDisk(srv)) as typeof body,
+    );
   });
 
   // Task cf666d6d: effort is settable over PATCH /api/agents/<id> but used to
@@ -201,7 +221,9 @@ describe("GET /agents (discovery manifest)", () => {
     const body = (await res.json()) as Array<Record<string, unknown>>;
     expect(body.find((e) => e.id === a.id)?.effort).toBe("low");
     expect(body.find((e) => e.id === b.id)?.effort).toBe(DEFAULT_EFFORT);
-    expect(body).toEqual(manifestOnDisk(srv) as typeof body);
+    expect(body).toEqual(
+      withLivePromptField(manifestOnDisk(srv)) as typeof body,
+    );
   });
 
   it("reflects live changes (kill) without waiting on file readers", async () => {
@@ -219,7 +241,9 @@ describe("GET /agents (discovery manifest)", () => {
     });
     const body = (await res.json()) as Array<Record<string, unknown>>;
     expect(body.map((e) => e.name)).toEqual(["Beta"]);
-    expect(body).toEqual(manifestOnDisk(srv) as typeof body);
+    expect(body).toEqual(
+      withLivePromptField(manifestOnDisk(srv)) as typeof body,
+    );
   });
 
   it("anonymous request -> 401, even from loopback", async () => {

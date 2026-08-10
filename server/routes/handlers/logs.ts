@@ -39,6 +39,7 @@ import {
   type SearchResult,
   type SessionIndexEntry,
 } from "../../log-search.ts";
+import type { PendingPromptKind } from "../../../shared/types.ts";
 
 export type SearchOutcome =
   | { ok: true; result: SearchResult }
@@ -62,6 +63,10 @@ export interface LogsDeps {
     agentId: string,
     query: LogQuery,
   ): Promise<SearchOutcome>;
+  // Which two-step prompt the agent is parked on RIGHT NOW, or null when it is
+  // not parked (task 29daebe2). Null for a killed agent, which cannot be
+  // waiting for anything.
+  pendingPrompt(agentId: string): PendingPromptKind | null;
 }
 
 export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
@@ -91,15 +96,37 @@ export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
         }
       }
 
+      // LIVE AGENT STATE, NOT SESSION HISTORY (task 29daebe2). Attached to the
+      // two transcript-reading modes because that is where its absence misled
+      // people: a permission prompt is written as an ephemeral log entry, so it
+      // never reaches disk, and a reader sees a turn that simply stops and
+      // concludes the backend died. It describes the agent at the moment of
+      // THIS request and says nothing about the session being read - a
+      // transcript fetched for an old session still reports the agent's current
+      // prompt, and re-reading the same session later can return a different
+      // value. Search results deliberately omit it: a hit list is not a reading
+      // of the agent's present state.
+      //
+      // The route's existing auth (log:read + the logSearchAccess guard) is the
+      // whole boundary: a caller who cannot read this agent's logs never
+      // reaches the handler, so the field discloses nothing the response body
+      // did not already.
+      const pendingPrompt = deps.pendingPrompt(agentId);
+
       switch (query.mode) {
         case "index":
-          return ok(await deps.sessionIndex(agentId));
+          return ok({ ...(await deps.sessionIndex(agentId)), pendingPrompt });
         case "retrieve":
           // `session` is non-undefined here by construction: parseLogQuery only
           // returns "retrieve" when it is present.
-          return ok(
-            await deps.retrieveSession(agentId, query.session as string, query),
-          );
+          return ok({
+            ...(await deps.retrieveSession(
+              agentId,
+              query.session as string,
+              query,
+            )),
+            pendingPrompt,
+          });
         case "search": {
           // The concurrency admission inside deps.search runs HERE, which is
           // after the route's authorize() stage - so a caller who cannot reach

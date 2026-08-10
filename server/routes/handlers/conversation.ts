@@ -40,7 +40,10 @@ import type {
   NewConversationReq,
   HandoffReq,
 } from "../../../shared/contract-shapes.ts";
-import type { SteerDeclineReason } from "../../internal-types.ts";
+import type {
+  SendNowResult,
+  SteerDeclineReason,
+} from "../../internal-types.ts";
 // Pure format parser (no state) - safe for a leaf handler module to import.
 import { parseDeliverAt } from "../../scheduled-messages.ts";
 import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
@@ -144,7 +147,10 @@ export interface ConversationDeps {
     device: string | undefined,
   ): void;
   cancelQueued(agentId: string, messageId: string): void;
-  sendNow(agentId: string): void;
+  // Returns the outcome rather than void: "flush started" and "cannot flush"
+  // are different answers and the caller has to be able to tell them apart
+  // (task 5dcb0a02). Synchronous - it decides, then kicks the delivery off.
+  sendNow(agentId: string): SendNowResult;
   newConversation(agentId: string, agentType?: AgentBackendType): void;
   // Self-handoff (task 8883e45d): reset the agent's session then deliver `text`
   // into the fresh session as a self-handoff brief. The manager guards to one
@@ -372,8 +378,13 @@ export function conversationHandlers(
       return noContent();
     },
 
+    // Reports refusals instead of swallowing them (task 5dcb0a02). The common
+    // one is an agent in `error` after its backend died: every queue-flush
+    // trigger is gated on an idle state, so the flush silently does nothing,
+    // and the old unconditional 204 was indistinguishable from a delivery.
     "agents.sendNow": (ctx) => {
-      deps.sendNow(ctx.params.id);
+      const r = deps.sendNow(ctx.params.id);
+      if (!r.ok) return fail(r.status, r.code, r.message);
       return noContent();
     },
 

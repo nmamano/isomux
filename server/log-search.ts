@@ -501,14 +501,21 @@ export type SearchHit = LogSearchHit;
 export type SearchResult = LogSearchResp;
 export type SessionIndexEntry = LogSessionIndexEntry;
 export type RetrievedEntry = LogRetrievedEntry;
-export type RetrieveResult = LogRetrieveResp;
+// What this module PRODUCES is the session-history half of the response. The
+// live `pendingPrompt` field is added by the route handler, which is the only
+// layer that knows the agent's current state - log-search reads files and has
+// no view of a running agent. Declaring the producer as "the response minus
+// that field" keeps the wire type honest (a handler that forgot to add it does
+// not compile) without pretending this module could supply it.
+export type RetrieveResult = Omit<LogRetrieveResp, "pendingPrompt">;
+export type SessionIndexResult = Omit<LogSessionIndexResp, "pendingPrompt">;
 
 // --- Index mode -------------------------------------------------------------
 
 export async function buildSessionIndex(
   source: LogSource,
   agentId: string,
-): Promise<LogSessionIndexResp> {
+): Promise<SessionIndexResult> {
   const listed = await source.listSessions(agentId);
   const meta = await source.readSessionsMeta(agentId);
   const branchedFrom = new Set<string>();

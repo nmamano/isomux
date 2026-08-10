@@ -9,6 +9,7 @@ import type {
   KilledAgentSummary,
   LogEntry,
   OfficeSettings,
+  PendingPromptKind,
   QueuedMessage,
   RoomWire,
   SkillInfo,
@@ -87,6 +88,11 @@ import {
   moveClaudeSessionFile,
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
+import {
+  BACKEND_STOPPED_DURING_TURN,
+  backendFailureMeta,
+  humanizeBackendFailure,
+} from "./backend-failure-text.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
@@ -123,11 +129,14 @@ import {
   BackendNotConfiguredError,
   SessionSwappedError,
   inMultiStepFlow,
+  pendingPromptOf,
   type ManagedAgent,
   type ContextUsageSnapshot,
   type AgentEvent,
   type EventHandler,
   type EnqueueResult,
+  type SendNowResult,
+  type AbortResult,
 } from "./internal-types.ts";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
 import {
@@ -1028,9 +1037,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // agent_updated events. Splice it in here so full_state (sent on each new WS
     // connect) carries it too. Without this, a device opening the convo after
     // another device already queued messages would render no queue chips.
+    // pendingPrompt is derived here for the same reason: it is live state, so
+    // full_state must carry today's value rather than whatever the last
+    // incremental event happened to set (task 29daebe2).
     return [...agents.values()].map((a) => ({
       ...a.info,
       queue: [...a.messageQueue],
+      pendingPrompt: pendingPromptOf(a),
     }));
   }
 
@@ -1067,10 +1080,31 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     writeManifest(manifestEntries());
   }
 
+  // Which two-step prompt an agent is parked on right now, or null (task
+  // 29daebe2). Null for an unknown or killed id: neither can be waiting for an
+  // answer. Read by the logs route so a transcript reader can tell a parked
+  // agent from one whose backend died.
+  function pendingPrompt(agentId: string): PendingPromptKind | null {
+    const managed = agents.get(agentId);
+    return managed ? pendingPromptOf(managed) : null;
+  }
+
   // Live manifest for GET /agents - same JSON shape as the file writeManifest
-  // persists to ~/.isomux/agents-summary.json.
+  // persists to ~/.isomux/agents-summary.json, plus pendingPrompt.
+  //
+  // pendingPrompt is added HERE and not in manifestEntries (which both this and
+  // the file share) on purpose: it is live state, and the file is a snapshot.
+  // A written-at-prompt-time file read minutes later would assert a prompt that
+  // was answered long ago, which is exactly the confusion task 29daebe2 is
+  // about. Over HTTP the value is computed per request, so it cannot go stale.
   function getManifest() {
-    return buildManifest(manifestEntries());
+    return buildManifest(manifestEntries()).map((entry) => {
+      const managed = agents.get(entry.id);
+      return {
+        ...entry,
+        pendingPrompt: managed ? pendingPromptOf(managed) : null,
+      };
+    });
   }
 
   function persistAll() {
@@ -1387,6 +1421,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       turnCancelToken: 0,
       abortCancelToken: -1,
       aborting: false,
+      lastBackendFailure: null,
       abortPromise: null,
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
@@ -1954,9 +1989,33 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     updateState(agentId, "thinking");
   }
 
+  // Push AgentInfo.pendingPrompt to match the four pending-* flags, emitting
+  // agent_updated only on an actual change (task 29daebe2).
+  //
+  // getAllAgents() DERIVES the same value, so full_state is correct even if a
+  // call site here is ever missed; this exists for the incremental event that
+  // keeps an already-connected client live. Idempotent and change-gated, so
+  // calling it more often than strictly needed costs nothing.
+  function syncPendingPrompt(agentId: string, managed: ManagedAgent) {
+    const next = pendingPromptOf(managed);
+    if ((managed.info.pendingPrompt ?? null) === next) return;
+    for (const event of officeState.updateAgent(agentId, {
+      pendingPrompt: next,
+    }))
+      emit(event);
+  }
+
   function updateState(agentId: string, state: AgentState) {
     const managed = agents.get(agentId);
     if (!managed) return;
+    // Every path that parks an agent on a prompt, and every path that answers
+    // one, transitions state immediately afterwards (the four /-command
+    // handlers, the approval_request handler, and the permission-reply branch
+    // in sendMessage all do). Syncing here therefore covers them all without a
+    // lockstep obligation at each site. NOT gated on `state !== prev`: parking
+    // at waiting_for_response from waiting_for_response is a real change to
+    // pendingPrompt even though the state is unchanged.
+    syncPendingPrompt(agentId, managed);
     if (state === "thinking" && managed.info.state !== "thinking") {
       managed.thinkingStartedAt = Date.now();
     }
@@ -1990,6 +2049,44 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
       });
     }
+  }
+
+  // Log a failed turn from the TURN-OWNING CALLER's catch (sendMessage,
+  // flushQueue). `frame` wraps anything we could not classify, keeping each
+  // caller's existing wording for ordinary failures.
+  //
+  // Two jobs, both from tasks 86678675 / e8168c2a:
+  //   - explain a backend death instead of pasting its raw text, exactly as the
+  //     consumer-side sites do. Before this, a death during a QUEUED FLUSH -
+  //     the shape of the original incident - still printed "Claude Code process
+  //     exited with code 143" verbatim.
+  //   - stay QUIET when the consumer already wrote this same explanation and
+  //     then rejected our turn, which is what woke us. See
+  //     ManagedAgent.lastBackendFailure for why this is one pipeline rather
+  //     than two independent writers.
+  function addCallerFailureEntry(
+    agentId: string,
+    managed: ManagedAgent,
+    err: unknown,
+    frame: (raw: string) => string,
+  ) {
+    const raw = errMessage(err);
+    const failure = humanizeBackendFailure(raw);
+    const classified = failure.raw !== undefined;
+    const text = classified ? failure.text : frame(raw);
+    // Consume the stamp whatever we decide, so it can never suppress a second,
+    // genuinely new failure later in the agent's life.
+    const echoed = managed.lastBackendFailure === text;
+    managed.lastBackendFailure = null;
+    // Only a CLASSIFIED death is ever suppressed. Two unrelated consecutive
+    // errors that happen to share wording both still surface.
+    if (echoed && classified) return;
+    addLogEntry(
+      agentId,
+      "error",
+      text,
+      classified ? { backendFailureRaw: raw } : undefined,
+    );
   }
 
   function addLogEntry(
@@ -3120,11 +3217,28 @@ Once complete, it takes effect immediately for all Isomux agents.`;
                 ? `Codex exited during interrupt: ${ev.error}`
                 : "Codex exited during interrupt - installing a fresh session."
               : (ev.error ?? `Agent stopped: ${ev.status}.`);
-            addLogEntry(agentId, "error", errorText);
+            // Humanize only the ordinary failure path (task 86678675): the
+            // hot-abort-dirty strings are isomux-authored and already say what
+            // happened, and they EMBED the backend's error - rewriting them
+            // would drop the "during interrupt" context that makes them useful.
+            const failure = isHotAbortDirty
+              ? { text: errorText }
+              : humanizeBackendFailure(errorText);
+            addLogEntry(
+              agentId,
+              "error",
+              failure.text,
+              backendFailureMeta(failure),
+            );
+            // Arm the caller-catch echo suppressor (see ManagedAgent.
+            // lastBackendFailure): the turn rejection below wakes the owning
+            // caller, whose catch would otherwise repeat this same sentence.
+            if (managed) managed.lastBackendFailure = failure.text;
             // Auth detection: trust the backend's `causedByAuth` flag when set
             // (Codex sets it after rewriting the error string to avoid double-
             // emission of the login card). Fall back to regex on the raw error
-            // text for backends that don't set the flag.
+            // text for backends that don't set the flag - `errorText`, never
+            // `failure.text`, which no longer carries the backend's wording.
             const isAuthError =
               ev.causedByAuth === true ||
               detectAgentAuthError(managed, errorText);
@@ -3202,7 +3316,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         break;
       case "error": {
         const managed = agents.get(agentId);
-        addLogEntry(agentId, "error", ev.message);
+        // Task 86678675: the backend's raw string ("Claude Code process exited
+        // with code 143") goes to metadata; chat gets the explained version.
+        // Everything below still classifies on ev.message.
+        const failure = humanizeBackendFailure(ev.message);
+        addLogEntry(
+          agentId,
+          "error",
+          failure.text,
+          backendFailureMeta(failure),
+        );
+        if (managed) managed.lastBackendFailure = failure.text;
         // diagnoseProcessExit gives Claude-specific hints (CLAUDE_CONFIG_DIR/
         // projects/ path, "session .jsonl missing" wording). Don't run it for
         // non-Claude agents - the message would be wrong and misleading.
@@ -3308,6 +3432,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // turn/completed). Backends MUST emit exactly one turn_completed per
   // send() for this contract to hold.
   function createTurnDeferred(managed: ManagedAgent): Promise<void> {
+    // A new turn starts, so whatever the last one died of is history and the
+    // echo suppressor must not carry into it. Belt-and-braces - the caller
+    // catch consumes the stamp already - but it bounds the lifetime to a turn.
+    managed.lastBackendFailure = null;
     // Any stale pending turn (shouldn't normally happen; agents are
     // state-gated to one turn at a time) gets rejected so awaiting callers
     // don't leak forever.
@@ -3474,11 +3602,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               new Error("Backend stream ended unexpectedly mid-turn."),
             );
           } catch {}
-          addLogEntry(
-            agentId,
-            "error",
-            "Backend stream ended unexpectedly mid-turn.",
-          );
+          // The rejection text above stays raw - it is an internal Error that
+          // callers log to the console. What the USER reads uses the shared
+          // death wording (task 86678675), so this doesn't become a fourth
+          // inconsistent death surface. There is no exit code or subtype on
+          // this path (the stream simply ended), so it gets the generic line.
+          addLogEntry(agentId, "error", BACKEND_STOPPED_DURING_TURN, {
+            backendFailureRaw: "Backend stream ended unexpectedly mid-turn.",
+          });
+          managed.lastBackendFailure = BACKEND_STOPPED_DURING_TURN;
         } else {
           console.warn(
             `Agent ${agentId}: backend stream ended while idle; released the dead session (next message resumes).`,
@@ -3522,7 +3654,22 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
       console.error(`Agent ${agentId} stream error:`, errMessage(err));
       const errorText = `Stream error: ${errMessage(err)}`;
-      addLogEntry(agentId, "error", errorText);
+      // Task 86678675. Classified against the RAW backend message, not the
+      // "Stream error: " wrapper - the wrapper is isomux's own framing and
+      // would otherwise be pasted in front of the explanation. An UNRECOGNIZED
+      // failure keeps the wrapper it has always had; only a classified one
+      // replaces the whole line.
+      const failure = humanizeBackendFailure(errMessage(err));
+      const classified = failure.raw !== undefined;
+      addLogEntry(
+        agentId,
+        "error",
+        classified ? failure.text : errorText,
+        classified
+          ? backendFailureMeta({ text: failure.text, raw: errorText })
+          : undefined,
+      );
+      managed.lastBackendFailure = classified ? failure.text : errorText;
       // The SDK's "process exited with code 1" is opaque; diagnose common causes.
       // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
       // only call it for claude-typed agents.
@@ -4153,6 +4300,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // The backend's close() resolves any in-flight SDK resolver with deny.
     if (managed.pendingPermission) {
       managed.pendingPermission = null;
+      syncPendingPrompt(managed.info.id, managed);
     }
     // Preflight checks so failures surface as readable errors instead of the
     // backend's opaque process-exit messages.
@@ -4340,6 +4488,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       turnCancelToken: 0,
       abortCancelToken: -1,
       aborting: false,
+      lastBackendFailure: null,
       abortPromise: null,
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
@@ -5211,10 +5360,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           return;
         }
         console.error(`Agent ${agentId} flush error:`, errMessage(err));
-        addLogEntry(
+        addCallerFailureEntry(
           agentId,
-          "error",
-          `Error flushing queue: ${errMessage(err)}`,
+          managed,
+          err,
+          (raw) => `Error flushing queue: ${raw}`,
         );
         updateState(agentId, "error");
       }
@@ -5254,11 +5404,58 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Steering action: stop whatever the agent is doing and flush the queue.
   // Mapped to the UI "Send now" button. No-op when the queue is empty so users
   // who hit it accidentally don't kill an in-flight turn for no reason.
-  async function sendNow(agentId: string): Promise<void> {
+  //
+  // REPORTS WHAT IT DID (task 5dcb0a02). The old signature was `Promise<void>`
+  // and the route answered 204 unconditionally, so the single case that matters
+  // most - an agent in `error` after its backend died, where every flush
+  // trigger is gated on an idle state and flushQueue returns immediately -
+  // looked exactly like a successful delivery. An operator watching a queue
+  // that never moves had no way to tell the difference.
+  // SYNCHRONOUS: it decides whether it can flush and says so; the delivery
+  // itself is kicked off fire-and-forget below. Awaiting the abort would make
+  // the route hold the request open for the ~1-2s of a session replacement,
+  // and no caller ever used the resolution (both call sites voided it).
+  function sendNow(agentId: string): SendNowResult {
     const managed = agents.get(agentId);
-    if (!managed) return;
-    if (managed.messageQueue.length === 0) return;
+    if (!managed)
+      return {
+        ok: false,
+        status: 404,
+        code: "agent_not_found",
+        message: "No such agent.",
+      };
+    if (managed.messageQueue.length === 0)
+      return {
+        ok: false,
+        status: 409,
+        code: "queue_empty",
+        message: "There are no queued messages to send.",
+      };
     const state = managed.info.state;
+    // States flushQueue refuses to run in. Reported rather than absorbed; the
+    // remedy differs per case and only the caller can pick it. NOT auto-
+    // recovered here - whether a delivery attempt may revive an errored agent
+    // is task 64b36bee and stays unsettled.
+    if (state === "error" || state === "stopped") {
+      return {
+        ok: false,
+        status: 409,
+        code: `agent_${state}`,
+        message:
+          state === "error"
+            ? "The agent's backend is not running, so queued messages cannot be delivered. Resume the agent's current session first; the queue is kept and delivers on resume."
+            : "The agent is stopped, so queued messages cannot be delivered.",
+      };
+    }
+    if (inMultiStepFlow(managed)) {
+      return {
+        ok: false,
+        status: 409,
+        code: "awaiting_prompt",
+        message:
+          "The agent is waiting for an answer to a prompt. Answer it first; queued messages deliver afterwards.",
+      };
+    }
     if (state === "thinking" || state === "tool_executing") {
       // abort transitions to waiting_for_response (synchronously) and fires the
       // queue-flush trigger in updateState, but that flush awaits abortPromise
@@ -5266,10 +5463,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // effect: queued items land in the same session (hot-abort) or in the
       // freshly-installed replacement (slow path / Codex fallback), never in a
       // half-closed one.
-      await abort(agentId);
+      void abort(agentId);
     } else {
       flushQueue(agentId).catch(() => {});
     }
+    return { ok: true };
   }
 
   // Wake a session-less agent so a pending send has somewhere to go. Shared by
@@ -5945,7 +6143,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         return;
       }
       console.error(`Agent ${agentId} send error:`, errMessage(err));
-      addLogEntry(agentId, "error", `Error: ${errMessage(err)}`);
+      addCallerFailureEntry(agentId, managed, err, (raw) => `Error: ${raw}`);
       updateState(agentId, "error");
     }
   }
@@ -5972,9 +6170,70 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // noticed as "something's wrong" if it ever fires.
   const HOT_ABORT_TIMEOUT_MS = 7000;
 
-  async function abort(agentId: string) {
+  // Deny reason handed to the backend when a Stop lands on an agent parked at a
+  // permission prompt (task 29daebe2). The model reads it as the tool result,
+  // so it has to explain the refusal in the model's terms.
+  const ABORT_DENY_REASON = "The operator stopped the agent." as const;
+
+  // What denyPendingPermission actually managed to do. Distinguished because
+  // the three outcomes need different follow-up, and collapsing them to a
+  // boolean produced exactly the false success these tasks exist to remove:
+  //
+  //   "none"     - there was no prompt. Nothing happened.
+  //   "denied"   - the backend accepted the denial. The agent is genuinely
+  //                unparked and its turn resumes to handle the refusal.
+  //   "gone"     - there is no session. The backend already died, and its
+  //                close() resolved the SDK callback with a denial on the way
+  //                out, so clearing our pointer is the whole job. Honest to
+  //                report as resolved.
+  //   "failed"   - approve() threw. Our pointer is clear, but the BACKEND may
+  //                still be sitting inside canUseTool, so the agent is NOT
+  //                unparked. The caller must not report success on this.
+  type DenyOutcome = "none" | "denied" | "gone" | "failed";
+
+  // Resolve a parked permission prompt as a denial, so a Stop actually ENDS the
+  // wait instead of leaving the SDK's canUseTool promise hanging forever.
+  //
+  // Ordering mirrors the human-reply path in sendMessage: clear the
+  // orchestrator pointer FIRST so an inbound message can't be read as a second
+  // answer to the same prompt, then resolve the backend callback.
+  async function denyPendingPermission(
+    agentId: string,
+    managed: ManagedAgent,
+  ): Promise<DenyOutcome> {
+    const pending = managed.pendingPermission;
+    if (!pending) return "none";
+    managed.pendingPermission = null;
+    // Explicit: the main abort path flips state BEFORE calling us, so the sync
+    // inside updateState has already run against the still-parked flag.
+    syncPendingPrompt(agentId, managed);
+    const session = managed.session;
+    if (!session) return "gone";
+    try {
+      await session.approve(pending.approvalId, {
+        kind: "deny",
+        reason: ABORT_DENY_REASON,
+      });
+      return "denied";
+    } catch (err) {
+      addLogEntry(
+        agentId,
+        "error",
+        `Failed to resolve permission: ${errMessage(err)}`,
+      );
+      return "failed";
+    }
+  }
+
+  async function abort(agentId: string): Promise<AbortResult> {
     const managed = agents.get(agentId);
-    if (!managed) return;
+    if (!managed)
+      return {
+        ok: false,
+        status: 404,
+        code: "agent_not_found",
+        message: "No such agent.",
+      };
     // Bump the cancel token unconditionally. Stop is always a cancellation
     // event from the runAgentTurn pre-send window's perspective - whether
     // the agent is mid-plugin-retrieval (no pendingTurn yet) or mid-real-
@@ -5993,14 +6252,77 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // exited) OR runAgentTurn may be mid-plugin-retrieval. Either way reset
     // state so Stop is never a no-op.
     if (!managed.pendingTurn) {
+      // A parked permission prompt is the case this branch used to answer with
+      // silence (task 29daebe2): no pendingTurn, and state is
+      // waiting_for_response rather than a busy state, so the old code returned
+      // having done nothing at all while the agent stayed parked forever.
+      // Resolve the prompt as a denial - that IS the interruption here.
+      const denied = await denyPendingPermission(agentId, managed);
+      if (denied !== "none") {
+        // "failed" means the backend never accepted the denial, so it may still
+        // be inside canUseTool: the agent is not actually unparked, and hiding
+        // our own pointer is not a stop. Only tearing the session down really
+        // ends that call. There is no pendingTurn here, so the main path's
+        // replacement never runs - it has to happen here or not at all.
+        if (denied === "failed") {
+          try {
+            const autoSessionId = pickAutoResumeSessionId(managed);
+            if (managed.sessionId && !autoSessionId)
+              clearStaleAutoResumeState(agentId, managed);
+            await replaceSession(
+              agentId,
+              managed,
+              autoSessionId
+                ? createSession(managed, autoSessionId)
+                : createSession(managed),
+            );
+          } catch (err) {
+            addLogEntry(
+              agentId,
+              "error",
+              `Interrupt handler failed: ${errMessage(err)}`,
+            );
+            updateState(agentId, "error");
+            return {
+              ok: false,
+              status: 500,
+              code: "abort_failed",
+              message:
+                "The pending permission request could not be resolved and the agent's session could not be replaced.",
+            };
+          }
+        }
+        updateState(agentId, "waiting_for_response");
+        // Same truthfulness rule as the main path: only "denied" and "gone"
+        // mean the backend actually took the denial. A "failed" one got here
+        // by having its session torn down instead, and the entry has to say so.
+        addLogEntry(
+          agentId,
+          "system",
+          denied === "failed"
+            ? "Agent interrupted; the pending permission request could not be denied, so the agent session was replaced."
+            : "Agent interrupted; the pending permission request was denied.",
+        );
+        return { ok: true };
+      }
       if (
         managed.info.state === "thinking" ||
         managed.info.state === "tool_executing"
       ) {
         updateState(agentId, "waiting_for_response");
         addLogEntry(agentId, "system", "Agent interrupted.");
+        return { ok: true };
       }
-      return;
+      // Genuinely nothing to interrupt: no turn, no prompt, not busy. Reported
+      // instead of absorbed - an operator who runs Stop on a wedged agent and
+      // gets a 204 reasonably concludes the agent was unstuck.
+      return {
+        ok: false,
+        status: 409,
+        code: "nothing_to_abort",
+        message:
+          "The agent is not running a turn, so there is nothing to stop.",
+      };
     }
     // Re-entry guard: a second Stop while the first is still in flight just
     // waits for it instead of starting another abort that would reassign
@@ -6009,7 +6331,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       try {
         await managed.abortPromise;
       } catch {}
-      return;
+      return { ok: true };
     }
     managed.aborting = true;
     let abortDone!: () => void;
@@ -6023,12 +6345,33 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // session alive so no drain is needed; the slow path drains while
     // runConsumer suppresses events from the dying session.
     updateState(agentId, "waiting_for_response");
-    addLogEntry(agentId, "system", "Agent interrupted.");
+    // A turn parked at a permission prompt still owns a pendingTurn (the SDK is
+    // inside canUseTool waiting for an answer), so this is the ordinary path for
+    // a prompt-parked agent. Resolve the prompt as a denial BEFORE the abort
+    // machinery below: the hot path leaves the session alive, so a prompt left
+    // pending here would survive the Stop and keep the agent parked
+    // (task 29daebe2).
+    const deniedPrompt = await denyPendingPermission(agentId, managed);
+    // Only claim the denial landed when it actually did. A "failed" denial gets
+    // its sentence AFTER the replacement below, because until that runs we do
+    // not know whether the prompt was ended at all.
+    addLogEntry(
+      agentId,
+      "system",
+      deniedPrompt === "denied" || deniedPrompt === "gone"
+        ? "Agent interrupted; the pending permission request was denied."
+        : "Agent interrupted.",
+    );
 
     try {
       let needsReplace = !(
         managed.session && managed.session.canAbortInPlace()
       );
+      // A denial the backend refused leaves it possibly still inside
+      // canUseTool. The hot path would keep that session alive, so force the
+      // replacement: tearing the session down is the only thing that reliably
+      // ends the call. No-op for Claude, which always needs a replacement.
+      if (deniedPrompt === "failed") needsReplace = true;
 
       if (!needsReplace) {
         // Hot path (Codex with an active turn): send turn/interrupt and let
@@ -6068,6 +6411,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           updateState(agentId, "waiting_for_response");
         }
       }
+      // The replacement above is what ended a prompt the backend refused to
+      // deny, so this is the point where that outcome is known and truthful.
+      if (deniedPrompt === "failed") {
+        addLogEntry(
+          agentId,
+          "system",
+          "Agent interrupted; the pending permission request could not be denied, so the agent session was replaced.",
+        );
+      }
+      return { ok: true };
     } catch (err) {
       addLogEntry(
         agentId,
@@ -6075,6 +6428,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         `Interrupt handler failed: ${errMessage(err)}`,
       );
       updateState(agentId, "error");
+      // A refused denial AND a failed replacement means neither route ended the
+      // prompt: the backend may still be inside canUseTool. Same honest 500 the
+      // no-pendingTurn branch returns, for the same reason.
+      if (deniedPrompt === "failed") {
+        return {
+          ok: false,
+          status: 500,
+          code: "abort_failed",
+          message:
+            "The pending permission request could not be resolved and the agent's session could not be replaced.",
+        };
+      }
+      // Otherwise the turn WAS cancelled (the pendingTurn rejection and the
+      // token bump both already happened); only the session replacement fell
+      // over, and that is logged above. Reporting a refusal here would tell the
+      // caller nothing was stopped, which is false.
+      return { ok: true };
     } finally {
       managed.aborting = false;
       managed.abortPromise = null;
@@ -6688,13 +7058,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.pendingResumeSessions = [];
     managed.pendingModelPick = false;
     managed.pendingEffortPick = false;
-    // Resuming switches context; queued messages from the prior session
-    // shouldn't bleed into the resumed transcript.
-    if (managed.messageQueue.length > 0) {
-      managed.messageQueue.length = 0;
-      emitQueueUpdate(agentId, managed);
-      persistQueueState(agentId, managed);
-    }
     persistCurrentSessionTopic(agentId, managed);
     // Captured before the swap: resuming a DIFFERENT session is a conversation
     // switch (reset below); re-resuming the current one continues it (fullness
@@ -6763,6 +7126,35 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }))
         emit(event);
 
+      // Queued messages across a resume (task 5dcb0a02). Two different intents
+      // share this one entry point, and treating them alike destroyed messages:
+      //
+      //   - SWITCHING to a different session is a context switch. Queued
+      //     messages were addressed to the OLD conversation and shouldn't bleed
+      //     into the resumed transcript, so they are dropped - but now with a
+      //     persisted entry naming the count, because a message that vanishes
+      //     with no trace is indistinguishable from one that was delivered.
+      //   - RE-RESUMING THE CURRENT session is the documented dead-backend
+      //     recovery. It is the same conversation, so the queue is exactly what
+      //     the operator ran /resume to rescue. Keeping it lets the
+      //     error -> waiting_for_response transition below fire updateState's
+      //     flush trigger and finally deliver.
+      //
+      // Both branches run only AFTER the resume succeeded: the clear used to
+      // happen before the attempt, so a resume that then threw ate the messages
+      // and left the agent errored with nothing to show for it.
+      const switchedSession = sessionId !== prevResumeSessionId;
+      const queuedCount = managed.messageQueue.length;
+      if (switchedSession && queuedCount > 0) {
+        managed.messageQueue.length = 0;
+        emitQueueUpdate(agentId, managed);
+        persistQueueState(agentId, managed);
+        addLogEntry(
+          agentId,
+          "system",
+          `Cleared ${queuedCount} queued message${queuedCount === 1 ? "" : "s"} when switching to another session.`,
+        );
+      }
       updateState(agentId, "waiting_for_response");
       addLogEntry(
         agentId,
@@ -7431,6 +7823,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     moveAgent,
     getAllAgents,
     getManifest,
+    pendingPrompt,
     getKilledAgentSummaries,
     getKilledAgentSummariesForManager,
     killedAgentManagerUserId,

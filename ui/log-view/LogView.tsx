@@ -10,6 +10,7 @@ import {
 import type {
   AgentInfo,
   AgentState,
+  PendingPromptKind,
   LogEntry,
   QueuedMessage,
   Attachment,
@@ -68,11 +69,33 @@ import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import { SkillsPopover } from "./SkillsPopover.tsx";
 import { shortenCwd } from "../cwd-display.ts";
+import { PENDING_PROMPT_LABEL } from "../pending-prompt.ts";
 
 const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
   tool_executing: "Running tool",
 };
+
+// Header label for an agent parked on a two-step prompt (task 29daebe2). It
+// sits where the activity indicator would be if a turn were running - which is
+// blank for a parked agent, since `waiting_for_response` has no STATE_LABELS
+// entry, so a parked agent rendered identically to one that had simply finished
+// its turn. Static, with no elapsed timer: the wait ends when a human or agent
+// answers, and counting up would imply the agent is working on something.
+function PendingPromptLabel({ kind }: { kind: PendingPromptKind }) {
+  return (
+    <span
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        color: "var(--orange)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {PENDING_PROMPT_LABEL[kind]}
+    </span>
+  );
+}
 
 // Slide Mode header toggle (design: internal-docs/slide-mode-design.md). Sits
 // next to the context battery; per-device-per-agent state (device-settings). SVG
@@ -1876,6 +1899,9 @@ export function LogView({
                 stateChangedAt={stateChangedAt.get(agent.id)}
               />
             )}
+            {agent.pendingPrompt && (
+              <PendingPromptLabel kind={agent.pendingPrompt} />
+            )}
             {/* Topic (conversation summary) stacked over cwd (task efdabed3):
             frees horizontal header space for the upcoming Slide Mode toggle. */}
             <div
@@ -2137,6 +2163,9 @@ export function LogView({
                       state={agent.state}
                       stateChangedAt={stateChangedAt.get(agent.id)}
                     />
+                  )}
+                  {agent.pendingPrompt && (
+                    <PendingPromptLabel kind={agent.pendingPrompt} />
                   )}
                   <SubscriptionPill
                     key={`${agent.id}:${agent.agentType}`}

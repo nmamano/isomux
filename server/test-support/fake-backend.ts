@@ -219,7 +219,14 @@ export class FakeSession implements BackendSession {
     }
   }
 
+  // Set by a test to make approve() reject, modelling a backend that will not
+  // (or can no longer) accept a permission decision. The orchestrator has to
+  // treat that as "the prompt is NOT resolved" rather than reporting success,
+  // so the path needs to be reachable under test.
+  approveError: Error | null = null;
+
   approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
+    if (this.approveError) return Promise.reject(this.approveError);
     this.approvals.push({ approvalId, decision });
     return Promise.resolve();
   }

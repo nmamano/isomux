@@ -10,6 +10,12 @@ export type AgentState =
   | "error"
   | "stopped";
 
+// The two-step prompts an agent can be parked on, waiting for a chat reply that
+// is read as the answer (task 29daebe2). `state` cannot express this: all four
+// park the agent at `waiting_for_response`, which is also where an agent that
+// merely finished its turn sits. See AgentInfo.pendingPrompt.
+export type PendingPromptKind = "permission" | "resume" | "model" | "effort";
+
 // Deterministic outfit from name hash
 export interface AgentOutfit {
   hat: "none" | "cap" | "beanie" | "bow" | "headband";
@@ -457,6 +463,22 @@ export interface AgentInfo {
   // agent-only turn (one agent messages another, the receiver answers and
   // idles) stays silent.
   turnHadHumanInput: boolean;
+  // Which two-step prompt the agent is parked on, or null/absent when it is not
+  // parked (task 29daebe2). A parked agent sits at state
+  // `waiting_for_response` - the same state as one that has simply finished a
+  // turn - and the prompt itself is written as an EPHEMERAL log entry, so it
+  // never reaches disk and never appears in the logs API. Without this field an
+  // operator (or a manager agent) reading a transcript sees a turn that stops
+  // mid-way and concludes the backend died.
+  //
+  // LIVE STATE, NOT HISTORY. It describes the agent right now; it is not part
+  // of any recorded transcript. Carries the KIND of prompt only - never its
+  // text, the tool name, or the command - so rendering it discloses nothing
+  // beyond "this agent is waiting for an answer". In-memory server-side and NOT
+  // part of PersistedAgent: a restart clears it, which is correct, because the
+  // pending prompt does not survive a restart either. Clears go over the wire
+  // as EXPLICIT null for the same JSON.stringify reason as contextUsage below.
+  pendingPrompt?: PendingPromptKind | null;
   // Live context-window fullness of the CURRENT conversation, pushed over
   // agent_updated (internal-docs/context-fullness-visibility.md). Absent or
   // null while there's no committed measurement (fresh conversation, Codex

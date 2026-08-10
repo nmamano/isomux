@@ -2,6 +2,7 @@ import type {
   AgentInfo,
   KilledAgentSummary,
   LogEntry,
+  PendingPromptKind,
   QueuedMessage,
   SkillInfo,
   SlideFailureReason,
@@ -109,6 +110,19 @@ export interface ManagedAgent {
   // can't accidentally equal token 0.
   abortCancelToken: number;
   aborting: boolean;
+  // The explained backend-failure sentence the STREAM CONSUMER just wrote to
+  // chat, held so the turn-owning caller's catch can recognize its own echo
+  // (tasks 86678675 / e8168c2a).
+  //
+  // One death produces two writes inside this one turn pipeline: the consumer
+  // logs the failure and then rejects pendingTurn, and that rejection is
+  // precisely what wakes sendMessage's / flushQueue's catch, which logs again.
+  // Two identical explanations in a row read worse than the two raw ones did.
+  // ONE-SHOT: the consumer sets it, the first caller catch consumes it and
+  // stays quiet, and anything after that logs normally - so an unrelated later
+  // error with the same text is never swallowed. Cleared at turn start too, so
+  // it cannot survive into a different turn.
+  lastBackendFailure: string | null;
   // Set while abort() is mid-flight (between session.close() and installSession of the
   // replacement). sendMessage awaits this so a follow-up message arriving in the gap
   // doesn't see session=null and amputate context by spinning up a fresh blank session.
@@ -426,6 +440,41 @@ export function inMultiStepFlow(managed: ManagedAgent): boolean {
     managed.pendingEffortPick
   );
 }
+
+// Which two-step prompt an agent is parked on, or null when it is not parked
+// (task 29daebe2). The same four flags inMultiStepFlow reduces to a boolean,
+// kept as a named value so the state can be SHOWN rather than only acted on: a
+// prompt-parked agent used to be indistinguishable from one whose backend had
+// died, because the prompt itself is written as an ephemeral log entry that
+// never reaches disk.
+//
+// DELIBERATELY AN ENUM AND NOTHING MORE (PendingPromptKind, shared/types.ts).
+// It discloses that the agent is waiting and what KIND of answer it wants -
+// never the prompt text, the tool name, or the command. This value rides on
+// AgentInfo, which reaches every client that can see the agent, so widening it
+// would create a new disclosure surface out of what is meant to be a status
+// indicator.
+export function pendingPromptOf(
+  managed: ManagedAgent,
+): PendingPromptKind | null {
+  if (managed.pendingPermission) return "permission";
+  if (managed.pendingResume) return "resume";
+  if (managed.pendingModelPick) return "model";
+  if (managed.pendingEffortPick) return "effort";
+  return null;
+}
+
+// Result of sendNow / abort. Both used to be void with an unconditional 204,
+// which made "I did the thing" and "I could not and said nothing" identical on
+// the wire (tasks 5dcb0a02, 29daebe2). Same shape as CancelResult so the route
+// layer maps them with the existing `fail(status, code, message)` helper.
+export type SendNowResult =
+  | { ok: true }
+  | { ok: false; status: 404 | 409; code: string; message: string };
+
+export type AbortResult =
+  | { ok: true }
+  | { ok: false; status: 404 | 409 | 500; code: string; message: string };
 
 // Why a requested steer did not interrupt the receiver (task 80b2bb08). Both
 // reasons degrade to a plain queue rather than failing the send: the message is

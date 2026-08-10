@@ -20,6 +20,7 @@ import type {
   MemoryScope,
   MemoryItem,
   OfficeSettings,
+  PendingPromptKind,
   SlideRecord,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
@@ -266,6 +267,19 @@ export interface LogSessionIndexEntry {
 export interface LogSessionIndexResp {
   agentId: string;
   sessions: LogSessionIndexEntry[];
+  /**
+   * Which two-step prompt the agent is parked on RIGHT NOW, or null.
+   *
+   * LIVE AGENT STATE, NOT SESSION HISTORY (task 29daebe2). It describes the
+   * agent at the moment of THIS request and says nothing about the session
+   * being read: a transcript fetched for an old session still reports the
+   * agent's current prompt, and re-reading the same session later can return a
+   * different value. Present because a permission prompt is written as an
+   * ephemeral log entry and never reaches the transcript, so a reader sees a
+   * turn that simply stops and concludes the backend died. Carries the KIND
+   * only - never the prompt text, the tool name, or the command.
+   */
+  pendingPrompt: PendingPromptKind | null;
 }
 
 /**
@@ -349,6 +363,19 @@ export interface LogRetrieveResp {
   around?: string;
   window?: number;
   found?: boolean;
+  /**
+   * Which two-step prompt the agent is parked on RIGHT NOW, or null.
+   *
+   * LIVE AGENT STATE, NOT SESSION HISTORY (task 29daebe2). It describes the
+   * agent at the moment of THIS request and says nothing about the session
+   * being read: a transcript fetched for an old session still reports the
+   * agent's current prompt, and re-reading the same session later can return a
+   * different value. Present because a permission prompt is written as an
+   * ephemeral log entry and never reaches the transcript, so a reader sees a
+   * turn that simply stops and concludes the backend died. Carries the KIND
+   * only - never the prompt text, the tool name, or the command.
+   */
+  pendingPrompt: PendingPromptKind | null;
 }
 
 export type LogsResp = LogSessionIndexResp | LogSearchResp | LogRetrieveResp;
