@@ -126,6 +126,15 @@ flow against a local instance seeded via `exercises/seed-instance.ts`.
 - Operator note: ~/.isomux-control-plane/control-plane.db predates
   slice 2 and refuses to open by name; live runs use HOME-override
   state roots (4a used HOME=/tmp/cp4a-home). Decide its fate at close.
+- Pre-launch secret (from 4b): the mint seam's shared credential -
+  env-read on both sides, seam refuses to start without it. Same class
+  as the Google OAuth client; both need minting + storage under
+  ~/nil/secrets/ before deploy.
+- Nil awareness (from 4b settlement): after the access window closes,
+  invite fetch refuses AND deletes, and minting is window-gated - so a
+  customer whose window closes between mint and fetch has NO self-serve
+  invite path; the panel says so plainly and points at support. The
+  string joins the copy sign-off list.
 - Copy sign-off at close, slice-3 precedent (4a strings recorded in
   the slice-4a report, 2026-08-10).
 
