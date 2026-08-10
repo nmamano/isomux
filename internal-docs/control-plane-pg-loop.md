@@ -156,7 +156,30 @@ all user-visible prose verbatim in the report.
       Product-visible consequences: none (README section only).
       Three 6957e90d harness kills during the slice, all recovered by
       same-session resume.
-- [ ] Slice P2: engine swap to Postgres (Isomuxer2 / Reviewer2)
+- [x] Slice P2: engine swap to Postgres (Isomuxer2 / Reviewer2). DONE
+      2026-08-10: approved pre-format fingerprint
+      4847347df6a93b0974288d43996038fd (verified byte-exact), committed
+      8fb8b8d. 59 files, +2586/-581. First diff gate REJECTED with two
+      measured 23505 races (liveness + account initializers) - the
+      reviewer measured, the worker reproduced on the frozen tree
+      before fixing; both now have invariant-specific recovery and
+      barriered two-backend tests. Key facts for P3: driver pg 8.23.0
+      in root AND web packages (Node needs it at next build); tx via
+      AsyncLocalStorage per-transaction connections (concurrent tx
+      legal, nesting throws); Store.recoverable savepoint scope at 4
+      catch-and-carry-on sites; FOR SHARE authority read; COMMIT-tag
+      false-receipt guard; bigint parser is pool-scoped; tests need
+      the isomux-cp-pg container (port 5433, schema recycling -
+      96.5ms fresh vs 23ms recycled); CONTROL_PLANE_DB is now a DSN
+      with no default and redacted in every error; web store-per-
+      request is now pool-per-request (P3 deployment question);
+      request-time dynamic import's remaining reason is module-graph
+      only (P3 topic); README runtime matrix dated pre-port - Node
+      next start is P3's to measure. One flake worth remembering: a
+      lock-wait test that passed alone and failed in-suite (waiter
+      outran holder) - "passed in isolation" is how that class
+      survives. 14/14 mutations caught. Contributor README wording
+      queued for Nil sign-off at close.
 - [ ] Slice P3: production server, live proof, Neon-readiness, docs
       (Isomuxer1 / Reviewer1) - pickup finalized after P2 lands
 
