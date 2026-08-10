@@ -164,7 +164,19 @@ flow against a local instance seeded via `exercises/seed-instance.ts`.
       4b's access window builds on rows 4a already writes. (4) Tenant
       key is account id everywhere; email is display-only. (5)
       reinstall-to-SSH 76s (2026-08-10).
-- [ ] Slice 4b: handoff + access window (Isomuxer2 / Reviewer2)
+- [x] Slice 4b: handoff + access window (Isomuxer2 / Reviewer2).
+      DONE 2026-08-10: approved pre-format fingerprint
+      7045f22f63445b676fda55ecdaf8ab69 (verified byte-exact before
+      formatting), committed 48ed716 (unpushed). Async one-shot mint
+      seam per R-2026-08-10-1-AMENDED; hosted chain stops after
+      verify_https; 60s liveness cadence + 5-min claim per
+      R-2026-08-10-2. Real-box acceptance on cp2 (cp1 cert budget
+      spent until ~2026-08-16). Three defects found in-slice. EUR 0.
+      Lessons for slice 5: next-env.d.ts is rewritten by any next dev
+      run (restore before fingerprinting); transcripts live in
+      HOME-override state roots (cp4b3 is the citable one); one
+      spurious "user interrupt" hit the manager mid-ci (task 6957e90d
+      updated - plausible earlyoom, unconfirmed).
 - [ ] Slice 5: cancel, deprovision, ops floor (Isomuxer1 / Reviewer1)
 
 ## PICKUP: Slice 4a - web skeleton: auth, signup, progress
@@ -276,8 +288,72 @@ Locked: standing rails; no new privilege in web (boundary test is the
 contract); mint_invite/revoke_access driver semantics from slice 1;
 no deploy.
 
-## PICKUP: Slice 5 - (authored after 4b lands)
+## PICKUP: Slice 5 - cancel, deprovision, ops floor
+(Isomuxer1 / Reviewer1)
 
-Placeholder: cancel (grace-week semantics per ruling 9), deprovision
-operations (power_off / remove_dns stub / cancel_asset), the operator
-attention/alert view, audit trail surfacing.
+Goal: the end of the customer lifecycle and the operator's side of the
+product. Customer: cancel from the dashboard with the design's exact
+semantics (effective at period end; the office keeps serving through
+the grace week - ruling 9 bought it; then power_off, and deprovision
+per the retention rulings). Operator: an authenticated ops view over
+attention, operations, audit - the "Alerting on any raised attention"
+floor from the design's ops section, as a page rather than a pager.
+
+Load-bearing mechanics:
+
+- Cancel is a subscription action: Stripe cancel-at-period-end via the
+  slice-3 client (test mode), webhook-driven state as always. The
+  customer sees period end, grace end, and what happens at each,
+  stated plainly. Un-cancel (Stripe reactivation) inside the period is
+  in scope - Stripe supports it and the dashboard must not lie about
+  it either way.
+- The machine timeline after period end: grace week serving -> power_off
+  -> suspended (retention month, ruling 8) -> deprovision:
+  cancel_asset + remove_dns (stub - no DNS automation exists) +
+  data-end audit record. All typed operations with deadlines,
+  reconciled against provider truth. power_on becomes a driven kind
+  (suspension resume - the recovery transition slice 3 parked; drive
+  it as the un-suspend path and record the billing rule that triggers
+  it as a deploy-time note if Nil has not ruled).
+- Timeline arithmetic uses the subscription rows' dates; no wall-clock
+  sleeps; test via seeded dates, not real waits.
+- Ops floor: operator-only page (dev-credentials role gate; the
+  operator flag is a column, not a hardcoded email) listing instances
+  with attention (reason class, severity, age, acknowledged-by),
+  operation failures past deadline, and the audit trail for one
+  instance. Acknowledge writes audit_events per the design.
+
+Money rails, slice-specific: cancel_asset may ONLY be exercised
+against 203474835, which is ALREADY cancel-scheduled (2026-08-29) -
+the call must be proven idempotent/no-op-safe in that state, never
+against a hypothetical live asset; no reinstate/renewal calls; no
+create, no second box. power_off/power_on live on 203474835 are free
+and reversible - power it back on and re-verify liveness before the
+slice ends (leave the box serving). Stripe: test mode only, as always.
+
+Acceptance (transcripts + tests):
+
+1. Dashboard cancel -> Stripe (test clock) -> period end -> the
+   machine walks grace -> power_off -> suspended on seeded dates;
+   un-cancel before period end reverses cleanly; copy captured
+   verbatim at each state.
+2. Real box: power_off -> liveness goes non-ok -> power_on ->
+   liveness recovers (the suspend/resume legs, observed).
+3. Ops floor: a real raised attention (from any exercise) listed with
+   reason class and age; acknowledge writes the audit event and shows
+   "(we have seen it)"; a non-operator account gets a 404/refusal for
+   the ops page, pinned by the boundary/authz tests.
+4. Stub tier green; mutations on timeline arithmetic (period/grace/
+   retention boundaries), the operator role gate, and cancel_asset
+   no-op safety; repo CI green.
+
+Decide with the reviewer: ops page information architecture, how
+seeded-date tests drive the timeline (test-clock vs injected now()),
+un-cancel UX, whether deprovision is one chained operation or three
+independent ones (the design leans separate retryable operations -
+argue from it).
+
+Locked: standing rails; R-2026-08-10-1-AMENDED and -2 stand; slice
+1-4 module semantics (extend, do not rewrite); no deploy; no DNS
+writes (remove_dns stays a stub); the retention numbers are rulings
+(grace week bought, suspension-to-deletion 1 month) - not knobs.
