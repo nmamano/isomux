@@ -127,9 +127,20 @@ flow against a local instance seeded via `exercises/seed-instance.ts`.
   slice 2 and refuses to open by name; live runs use HOME-override
   state roots (4a used HOME=/tmp/cp4a-home). Decide its fate at close.
 - Pre-launch secret (from 4b): the mint seam's shared credential -
-  env-read on both sides, seam refuses to start without it. Same class
-  as the Google OAuth client; both need minting + storage under
+  CONTROL_PLANE_MINT_TOKEN (both sides) + CONTROL_PLANE_MINT_URL (web
+  side), env-read, seam refuses to start without it. Same class as the
+  Google OAuth client; both need minting + storage under
   ~/nil/secrets/ before deploy.
+- Cert budget fact (measured 2026-08-10): cp1.test.isomux.app consumed
+  all five LE duplicate-cert issuances for the sliding week (2026-08-09
+  14:10, 15:25, 15:39, 23:32, 2026-08-10 01:12); oldest ages out
+  2026-08-16. cp2.test.isomux.app requested from Nil as the fresh-name
+  unblock (same IP 169.58.97.2).
+- R-2026-08-10-2 (mid-loop ruling, both lanes): 60s liveness sampling
+  cadence stands alongside the separate 5-minute machine-enforced CAS
+  claim; the design's "5-minute poll" line is a budget argument
+  (readyz limit 30/min), not a mandated cadence, and a 5-min cadence
+  would make the 60-90s reboot outage unobservable.
 - Nil awareness (from 4b settlement): after the access window closes,
   invite fetch refuses AND deletes, and minting is window-gated - so a
   customer whose window closes between mint and fetch has NO self-serve
