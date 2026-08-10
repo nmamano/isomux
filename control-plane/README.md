@@ -1347,18 +1347,15 @@ Port 5433 so an already-installed Postgres on the default port is never what the
 suite writes to. The address is a constant in `control-plane/testing/pg.ts`, and
 CI runs the same image with the same settings.
 
-A real engine rather than a substitute, because what these tests are for is
-engine behaviour: which of two compare-and-swap contenders loses, whether a
-partial unique index refuses the second row, whether one transaction's
-statements can reach another's connection. A substitute would assert our own
-beliefs back at us.
+The tests run against a real engine because what they assert is engine
+behaviour: which of two compare-and-swap contenders loses, whether a partial
+unique index refuses the second row, whether one transaction's statements can
+reach another's connection.
 
 Each test gets a schema of its own, carried in the connection string, so two
 stores opened on the same string share state exactly as two stores on one file
-did. Schemas are recycled between tests rather than created per test: creating
-one costs about 96ms and wiping a used one about 1ms, which across 353 store
-openings is the difference between a suite that fits its runtime budget and one
-that does not.
+did. Schemas are recycled between tests rather than created per test, for
+efficiency.
 
 `deploy/install-sh.test.ts` also scans install.sh for the heredoc defect as a
 CLASS, at both stages: what install.sh's own shell expands, and what the helper
