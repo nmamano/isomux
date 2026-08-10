@@ -301,7 +301,7 @@ describe("evidence never reaches the browser raw", () => {
     addOp(store, id, "run_installer", "running", {
       phase: "running",
       step: "install service; cat /root/.ssh/id_ed25519",
-      detail: "sk_test_51ABCDEFsecretlookingvalue",
+      detail: "sk_test_hostile_fixture_value",
       last: "ssh: connect to host 169.58.97.2 port 22: Connection refused",
       runId: "run-20260809-abcd",
       surprise: "a field a future handler added",

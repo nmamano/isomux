@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 const NOW = Date.parse("2027-06-10T00:00:00Z");
-const TEST_KEY = "sk_test_deadbeefdeadbeefdeadbeef";
+const TEST_KEY = "sk_test_fixture_key_not_real";
 
 function tempStore(): Store {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-cancel-"));
