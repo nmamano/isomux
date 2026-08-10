@@ -85,10 +85,14 @@ flow against a local instance seeded via `exercises/seed-instance.ts`.
 
 - Nil pre-launch action (does not stall the loop): create the Google
   OAuth client (web app), store creds under ~/nil/secrets/.
-- Nil decision pending from the last loop: the Stripe
-  cancel-at-exhaustion account setting (he is flipping it to "mark
-  unpaid"; verify with a test-clock run when he confirms, then close
-  the design-doc note).
+- Stripe cancel-at-exhaustion setting: Nil flipped it to "mark unpaid"
+  2026-08-10 in LIVE mode (test mode mirrors live for these settings -
+  the dashboard blocks editing them in test mode). Behavioural
+  test-clock verification DEFERRED until after ~22:00Z 2026-08-10: the
+  slice-3 bootstrap's fixed idempotency keys replay the archived price
+  inside Stripe's 24h window (the known footgun from the 4a report),
+  so a clean run needs the window to lapse. Design-doc note stays open
+  until verified.
 - PARKED DECISION (Nil, from 4a): a Google email change does not
   rewrite accounts.email - the stored contact/billing address stays as
   first seen (account id is the tenant key, so nothing breaks). Which
