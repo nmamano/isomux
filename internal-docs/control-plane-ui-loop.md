@@ -89,12 +89,36 @@ flow against a local instance seeded via `exercises/seed-instance.ts`.
   cancel-at-exhaustion account setting (he is flipping it to "mark
   unpaid"; verify with a test-clock run when he confirms, then close
   the design-doc note).
-- Copy sign-off at close, slice-3 precedent.
+- PARKED DECISION (Nil, from 4a): a Google email change does not
+  rewrite accounts.email - the stored contact/billing address stays as
+  first seen (account id is the tenant key, so nothing breaks). Which
+  address we bill and mail is a product call.
+- TASK CANDIDATE (from 4a): billing-cli bootstrap uses fixed
+  idempotency keys, so a re-run within Stripe's 24h window replays the
+  original response and can print ids of deleted/archived objects (an
+  archived price 500'd a signup). Documented in README; candidate:
+  bootstrap verifies what it prints.
+- Operator note: ~/.isomux-control-plane/control-plane.db predates
+  slice 2 and refuses to open by name; live runs use HOME-override
+  state roots (4a used HOME=/tmp/cp4a-home). Decide its fate at close.
+- Copy sign-off at close, slice-3 precedent (4a strings recorded in
+  the slice-4a report, 2026-08-10).
 
 ## Slice checklist
 
-- [ ] Slice 4a: web skeleton - auth, signup/Checkout, progress
-      (Isomuxer1 / Reviewer1)
+- [x] Slice 4a: web skeleton - auth, signup/Checkout, progress
+      (Isomuxer1 / Reviewer1). DONE 2026-08-10: approved fingerprint
+      76f018490179d3b0cff0203e97da628e, committed a64c11e (unpushed;
+      push needs Nil's per-loop approval). Five diff-gate rounds; 28
+      mutations. Lessons for 4b/5: (1) web runs dev under Bun but
+      BUILDS under Node (Bun bug in Next's compiled server runtime);
+      store reached via request-time dynamic import. (2) Root ci:web
+      needs the network on a fresh clone (frozen nested install,
+      reviewer-accepted). (3) The 30-day ceiling (R-2026-08-09-3) is
+      written at signup and reached the real box's authorized_keys -
+      4b's access window builds on rows 4a already writes. (4) Tenant
+      key is account id everywhere; email is display-only. (5)
+      reinstall-to-SSH 76s (2026-08-10).
 - [ ] Slice 4b: handoff + access window (Isomuxer2 / Reviewer2)
 - [ ] Slice 5: cancel, deprovision, ops floor (Isomuxer1 / Reviewer1)
 
@@ -148,12 +172,64 @@ Locked: standing rails; slice-1/2/3 module semantics (extend, do not
 rewrite); no webhook processing in the web app; no operator actions;
 no deploy config beyond what `next build` needs to pass locally.
 
-## PICKUP: Slice 4b - (authored after 4a lands)
+## PICKUP: Slice 4b - handoff and the access window
+(Isomuxer2 / Reviewer2)
 
-Placeholder: invite handoff (mint via the existing two-hop path as a
-typed operation), the "Revoke isomux's access" confirmed-handoff flow
-(R-2026-08-09-3 semantics), resend inside the window, reboot button,
-liveness ladder display. Real-box acceptance.
+Goal: the customer's handoff experience on the dashboard 4a built:
+get the owner invite, confirm they are in, revoke our access, and the
+two remote levers (resend invite, reboot). All actions flow as typed
+operations through the slice-2 machine - the web app stays
+unprivileged (4a's web-boundary test is the fence; extend it, never
+weaken it).
+
+Load-bearing mechanics:
+
+- Invite handoff: mint_invite exists in the driver (two-hop admin
+  socket path, never persisted). 4b surfaces it: the dashboard shows
+  the invite ONCE at mint time to the authenticated owner session
+  only; resend re-mints (design: a new mint revokes the previous
+  unconsumed link). Minting is available only while the access window
+  is open.
+- The access window (R-2026-08-09-3 semantics): "Revoke isomux's
+  access" button = customer-confirmed handoff -> enqueues
+  revoke_access; the dashboard nags until confirmed; the 30-day
+  ceiling 4a writes at signup is the backstop. After the window
+  closes: resend says plainly it cannot mint anymore. 4a's
+  evidence-honest access panel states are the display; 4b adds the
+  transitions.
+- revoke_access is never quietly abandoned (design): failed revocation
+  raises attention; the customer sees the honest state, not a
+  euphemism.
+- Reboot: provider-level reboot as a typed operation with the design's
+  copy caveat (heavier than a service restart, interrupts agents).
+  One active reboot per instance (slice-2 uniqueness); liveness
+  strikes displayed but reboot is NEVER automatic.
+- Real-box acceptance on 203474835 via recycle + adopt-run per 4a's
+  pattern (HOME-override state root).
+
+Acceptance (headless-browser transcript + tests):
+
+1. Full handoff on the real box: provision -> invite minted and shown
+   once -> resend re-mints (old link dead, shown by a real attempt) ->
+   customer confirms -> revoke_access runs -> proof-of-removal
+   reconnect fails -> dashboard shows "no longer has a key", resend
+   now refuses with the honest message.
+2. Reboot: button -> typed operation -> provider reboot observed ->
+   liveness dips and recovers on the dashboard; second reboot while
+   one is active is refused by the uniqueness rule.
+3. Nag behaviour: unconfirmed handoff shows the nag; confirmation
+   clears it.
+4. Stub tier green; mutations on the window-state transitions, the
+   mint-once/no-persist property, and the reboot uniqueness; repo CI
+   green.
+
+Decide with the reviewer: how the invite renders once-only (server
+component lifetime vs one-time token fetch), operation-driven UI
+refresh cadence, resend rate limiting.
+
+Locked: standing rails; no new privilege in web (boundary test is the
+contract); mint_invite/revoke_access driver semantics from slice 1;
+no deploy.
 
 ## PICKUP: Slice 5 - (authored after 4b lands)
 
