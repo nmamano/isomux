@@ -43,7 +43,7 @@ function Steps({
   testid: string;
 }) {
   return (
-    <ol data-testid={testid}>
+    <ol className="card ladder" data-testid={testid}>
       {steps.map((step) => (
         <li key={step.kind} data-testid={`step-${step.kind}`}>
           {step.label} -{" "}
@@ -279,34 +279,37 @@ export function OfficeView({
   return (
     <main>
       <h1 data-testid="office-hostname">{view.hostname}</h1>
-      <p data-testid="office-status">
+      <p className="lead" data-testid="office-status">
         {view.ready
           ? "Your office is ready."
           : "Hosted Isomux Provisioning is setting up your office."}
       </p>
       {view.ready && (
         <p>
-          <a href={`https://${view.hostname}`}>Open your office</a>
+          <a className="btn btn-primary" href={`https://${view.hostname}`}>
+            Open your office
+          </a>
         </p>
       )}
       {view.origin === "adopted" && (
-        <p data-testid="office-origin">
+        <p className="note" data-testid="office-origin">
           An existing server was adopted for this office, so there is no
           ordering step.
         </p>
       )}
 
       {view.attention.length > 0 && (
-        <section
-          data-testid="attention"
-          style={{
-            border: "1px solid #b00020",
-            padding: "0.75rem",
-            margin: "1rem 0",
-          }}
-        >
-          <strong>This office needs a person</strong>
-          <ul>
+        <section className="callout callout-danger" data-testid="attention">
+          {/* The icon is decorative: the heading beside it already names the
+              condition, and the left rule marks the banner out. Between the
+              three, nothing here depends on seeing the colour. */}
+          <div className="callout-head">
+            <svg viewBox="0 0 16 16" aria-hidden="true">
+              <path d="M8 1.5a1 1 0 0 1 .87.5l6 10.5A1 1 0 0 1 14 14H2a1 1 0 0 1-.87-1.5l6-10.5A1 1 0 0 1 8 1.5Zm0 3.75a.75.75 0 0 0-.75.75v3a.75.75 0 0 0 1.5 0v-3A.75.75 0 0 0 8 5.25ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
+            </svg>
+            <strong>This office needs a person</strong>
+          </div>
+          <ul className="rows">
             {view.attention.map((item, index) => (
               <li key={index} data-severity={item.severity}>
                 {item.summary}
@@ -328,29 +331,38 @@ export function OfficeView({
       )}
 
       <h2>Your plan</h2>
-      <p data-testid="subscription">{planLine(view)}</p>
-      <CancelPanel
-        view={view}
-        pending={billing}
-        onAct={(path, label) => void billingAct(path, label)}
-      />
-      {billingProblem && <p data-testid="billing-problem">{billingProblem}</p>}
+      <div className="card">
+        <p className="lead" data-testid="subscription">
+          {planLine(view)}
+        </p>
+        <CancelPanel
+          view={view}
+          pending={billing}
+          onAct={(path, label) => void billingAct(path, label)}
+        />
+        {billingProblem && (
+          <p className="callout callout-danger" data-testid="billing-problem">
+            {billingProblem}
+          </p>
+        )}
+      </div>
 
       <h2>Getting in</h2>
-      <section data-testid="handoff">
-        <p style={{ color: "#555" }} data-testid="access-window">
+      <section className="card" data-testid="handoff">
+        <p className="note" data-testid="access-window">
           {accessSentence(view.access)}
         </p>
 
         {view.handoff.invite.state === "none" && !view.ready && (
-          <p data-testid="invite-not-yet">
+          <p className="note" data-testid="invite-not-yet">
             Your owner invite can be created once your office is serving.
           </p>
         )}
 
         {view.handoff.canMint && view.ready && (
-          <p>
+          <p className="action">
             <button
+              className="btn-primary"
               data-testid="invite-button"
               onClick={() => void askForInvite()}
               disabled={invite.phase === "asking" || invite.phase === "waiting"}
@@ -369,34 +381,42 @@ export function OfficeView({
         )}
 
         {!view.handoff.canMint && view.handoff.invite.mintedAt !== null && (
-          <p data-testid="invite-closed">
+          <p className="note" data-testid="invite-closed">
             Hosted Isomux Provisioning can no longer create invites for this
             office. If you cannot get in, contact support.
           </p>
         )}
 
-        {invite.phase === "asking" && <p>Asking for an invite...</p>}
+        {invite.phase === "asking" && (
+          <p className="note">Asking for an invite...</p>
+        )}
         {invite.phase === "waiting" &&
           (view.handoff.invite.state === "failed" ? (
-            <p data-testid="invite-problem">
+            <p className="callout callout-danger" data-testid="invite-problem">
               We could not prepare an invite. Try asking again.
             </p>
           ) : (
-            <p data-testid="invite-waiting">
+            <p className="note" data-testid="invite-waiting">
               Preparing your invite. This takes a few seconds.
             </p>
           ))}
         {invite.phase === "problem" && (
-          <p data-testid="invite-problem">{invite.message}</p>
+          <p className="callout callout-danger" data-testid="invite-problem">
+            {invite.message}
+          </p>
         )}
         {invite.phase === "shown" && (
-          <div data-testid="invite-shown">
+          <div className="callout" data-testid="invite-shown">
             <p>
-              <a data-testid="invite-link" href={invite.url}>
+              <a
+                className="btn btn-primary"
+                data-testid="invite-link"
+                href={invite.url}
+              >
                 Open your office and sign in
               </a>
             </p>
-            <p style={{ color: "#555" }}>
+            <p className="note">
               This link works once, within 24 hours, and is shown only here. If
               you lose it, ask for a new one.
             </p>
@@ -412,13 +432,14 @@ export function OfficeView({
         {view.handoff.canMint &&
           view.ready &&
           view.handoff.revocation.state === "none" && (
-            <div data-testid="handoff-nag">
+            <div className="callout" data-testid="handoff-nag">
               <p>
                 Once you are signed in to your office, remove our access. Until
                 you do, Hosted Isomux Provisioning keeps a temporary key to your
                 server.
               </p>
               <button
+                className="btn-primary"
                 data-testid="revoke-button"
                 onClick={() => void act("/api/handoff", "remove our access")}
               >
@@ -437,7 +458,7 @@ export function OfficeView({
       {view.liveness && (
         <>
           <h2>Is it answering?</h2>
-          <p data-testid="liveness">
+          <p className="card" data-testid="liveness">
             {view.liveness.unreachable
               ? `Your office has not answered its last ${view.liveness.strikes} checks: ${view.liveness.words}. This has been raised with us.`
               : view.liveness.strikes > 0
@@ -448,20 +469,26 @@ export function OfficeView({
       )}
 
       <h2>Restart</h2>
-      <p style={{ color: "#555" }} data-testid="restart-caveat">
-        Restarting powers the whole server off and on, not just isomux. It
-        interrupts every agent that is running and takes a couple of minutes.
-      </p>
-      <p>
-        <button
-          data-testid="restart-button"
-          onClick={() => void act("/api/restart", "restart your server")}
-          disabled={view.restart.active}
-        >
-          {view.restart.active ? "Restarting..." : "Restart my server"}
-        </button>
-      </p>
-      {action && <p data-testid="action-problem">{action}</p>}
+      <div className="card">
+        <p className="note" data-testid="restart-caveat">
+          Restarting powers the whole server off and on, not just isomux. It
+          interrupts every agent that is running and takes a couple of minutes.
+        </p>
+        <p className="action">
+          <button
+            data-testid="restart-button"
+            onClick={() => void act("/api/restart", "restart your server")}
+            disabled={view.restart.active}
+          >
+            {view.restart.active ? "Restarting..." : "Restart my server"}
+          </button>
+        </p>
+        {action && (
+          <p className="callout callout-danger" data-testid="action-problem">
+            {action}
+          </p>
+        )}
+      </div>
     </main>
   );
 }
@@ -524,7 +551,7 @@ function CancelPanel({
 
   if (pending === "cancel") {
     return (
-      <p data-testid="cancel-pending">
+      <p className="note" data-testid="cancel-pending">
         We have asked Stripe to cancel your subscription. This page updates when
         Stripe confirms it.
       </p>
@@ -532,7 +559,7 @@ function CancelPanel({
   }
   if (pending === "uncancel") {
     return (
-      <p data-testid="uncancel-pending">
+      <p className="note" data-testid="uncancel-pending">
         We have asked Stripe to keep your subscription. This page updates when
         Stripe confirms it.
       </p>
@@ -549,7 +576,7 @@ function CancelPanel({
       // instant the box was actually powered off, and this is that same number
       // carried across rather than a second computation of it.
       return (
-        <p data-testid="cancel-suspended">
+        <p className="callout" data-testid="cancel-suspended">
           Your office is powered off. Your data stays on your server, which you
           can recover until {day(life.retentionEnd)}, at which point we cancel
           the contract and the data is lost. Contact support if you need help
@@ -559,12 +586,12 @@ function CancelPanel({
     }
     return (
       <>
-        <p data-testid="cancel-grace">
+        <p className="callout" data-testid="cancel-grace">
           Your subscription ended on {day(sub.endedAt!)}. Your office keeps
           serving until {day(life.graceEnd!)} so you can take your work out.
           After that your server is powered off.
         </p>
-        <p data-testid="cancel-restart-refused">
+        <p className="note" data-testid="cancel-restart-refused">
           This subscription has ended, so it cannot be restarted here. Contact
           support if you need help.
         </p>
@@ -585,8 +612,9 @@ function CancelPanel({
           After {day(graceEnd)} your server is powered off. Your data stays on
           it for one calendar month, and then the server is permanently deleted.
         </p>
-        <p>
+        <p className="action">
           <button
+            className="btn-primary"
             data-testid="uncancel-button"
             onClick={() => onAct("/api/uncancel", "uncancel")}
           >
@@ -604,11 +632,11 @@ function CancelPanel({
 
   return (
     <section data-testid="cancel-offer">
-      <p style={{ color: "#555" }} data-testid="cancel-caveat">
+      <p className="note" data-testid="cancel-caveat">
         Cancelling keeps your office running until the end of the period you
         have paid for.
       </p>
-      <p>
+      <p className="action">
         <button
           data-testid="cancel-button"
           onClick={() => onAct("/api/cancel", "cancel")}

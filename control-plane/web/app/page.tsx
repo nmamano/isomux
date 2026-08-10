@@ -12,7 +12,7 @@ export default async function Home() {
     return (
       <main>
         <h1>Hosted Isomux</h1>
-        <p>
+        <p className="lead">
           <Link href="/signin">Sign in</Link> to set up an office.
         </p>
       </main>
@@ -24,16 +24,29 @@ export default async function Home() {
   return (
     <main>
       <h1>Your office</h1>
-      <p data-testid="signed-in-as">Signed in as {email}</p>
+      <p className="note" data-testid="signed-in-as">
+        Signed in as {email}
+      </p>
       {office ? (
-        <p>
-          <Link href={`/office/${office.instanceId}`}>{office.hostname}</Link> -{" "}
-          {office.ready ? "ready" : "being set up"}
-        </p>
+        <div className="card">
+          <p className="lead">
+            <Link className="address" href={`/office/${office.instanceId}`}>
+              {office.hostname}
+            </Link>{" "}
+            -{" "}
+            {/* The same chip the provisioning ladder uses, so "ready" reads the
+                same here as it does inside the office. */}
+            <span data-state={office.ready ? "done" : "active"}>
+              {office.ready ? "ready" : "being set up"}
+            </span>
+          </p>
+        </div>
       ) : (
-        <p>
-          You have no office yet. <Link href="/signup">Set one up</Link>.
-        </p>
+        <div className="card">
+          <p>
+            You have no office yet. <Link href="/signup">Set one up</Link>.
+          </p>
+        </div>
       )}
     </main>
   );

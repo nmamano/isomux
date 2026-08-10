@@ -1,0 +1,555 @@
+/*
+ * The hosted dashboard, dressed as the isomux landing page.
+ *
+ * The ruling for this work is that the landing IS the design, so the palette,
+ * type, spacing and component shapes below are copied from site/index.html and
+ * site/docs/_styles.css rather than chosen here. A second set of near-miss
+ * values would be a second design system, which is the thing to avoid.
+ *
+ * Blocks marked EXTENSION are the three places the landing has no answer:
+ * forms, the colours a status needs, and a focus ring. Each says what it is
+ * derived from.
+ *
+ * There is no theme toggle and no saved preference. The landing's light
+ * palette is honoured through prefers-color-scheme and nothing else.
+ */
+
+/* ---------- Palette ---------- */
+
+/* site/index.html :root, verbatim. */
+:root {
+  --bg: #0a0e16;
+  --bg-surface: #161b22;
+  --bg-card: #1c2128;
+  --text: #f0f3f6;
+  --text-dim: #bcc5d0;
+  --accent: #50b86c;
+  --accent-hover: #3da85a;
+  --border: #30363d;
+  /* site/docs/_styles.css, for the sticky top bar. */
+  --topbar-bg: rgba(10, 14, 22, 0.92);
+  /* The landing's --max-width for the customer's surfaces, the docs'
+     --layout-max for the operator's denser ones. */
+  --page-max: 960px;
+  --page-max-wide: 1180px;
+
+  /* EXTENSION - status colours. The landing carries one colour and already
+     means "good" by it, so a finished step keeps the accent green. Its greys
+     (#0a0e16, #161b22, #30363d) are GitHub's dark tones, so failure and doubt
+     are taken from that same family rather than from a new palette. The
+     tint/line alphas repeat the landing's .free-badge (0.1 fill, 0.3 line), so
+     a status chip is that badge re-tinted rather than a new component. */
+  --ok: var(--accent);
+  --ok-tint: rgba(80, 184, 108, 0.1);
+  --ok-line: rgba(80, 184, 108, 0.3);
+  --warn: #d29922;
+  --warn-tint: rgba(210, 153, 34, 0.1);
+  --warn-line: rgba(210, 153, 34, 0.3);
+  --danger: #f85149;
+  --danger-tint: rgba(248, 81, 73, 0.1);
+  --danger-line: rgba(248, 81, 73, 0.35);
+
+  /* EXTENSION - the outline of an INTERACTIVE control, and only of one. A
+     button or a field sits on a card in the same family of near-blacks as the
+     card itself, so the boundary is the only thing that says "this is a
+     control", and --border reaches 1.42:1 against a card - well under the 3:1
+     that a component boundary needs. Cards, rules and chips keep --border:
+     they are not controls, and widening the line there would redraw the whole
+     page. */
+  --control-border: #6e7681;
+
+  color-scheme: dark;
+}
+
+/* site/index.html's light block, verbatim, with the status hues darkened the
+   same way the landing darkens its accent for white backgrounds. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6f9;
+    --bg-surface: #ffffff;
+    --bg-card: #eef1f5;
+    --text: #1a2030;
+    --text-dim: #5a6a80;
+    /* The landing's light accent, MOVED ONE STEP DOWN its own ramp: its
+       #1f9550 becomes the hover, and its #16803f becomes the resting colour.
+       site/index.html says this green was darkened "so links and the primary
+       CTA hit AA contrast on white"; measured, #1f9550 reaches 3.84:1 on white
+       and 3.54:1 on the page, so it misses what it was chosen for. Promoting
+       the shade the landing already carries delivers the stated intent (5.01
+       and 4.63) without inventing a colour. Only the hover below is new. */
+    --accent: #16803f;
+    --accent-hover: #116932;
+    --border: #d8dde6;
+    --topbar-bg: rgba(244, 246, 249, 0.92);
+
+    /* A lighter wash than the dark palette's: a dark word on a pale tint of
+       itself loses contrast as the tint deepens, and a chip word is 12.8px, so
+       it needs the full 4.5:1. */
+    --ok-tint: rgba(22, 128, 63, 0.06);
+    --ok-line: rgba(22, 128, 63, 0.35);
+    --warn: #9a6700;
+    --warn-tint: rgba(154, 103, 0, 0.06);
+    --warn-line: rgba(154, 103, 0, 0.35);
+    --danger: #cf222e;
+    --danger-tint: rgba(207, 34, 46, 0.06);
+    --danger-line: rgba(207, 34, 46, 0.35);
+
+    --control-border: #767f8c;
+
+    color-scheme: light;
+  }
+}
+
+/* ---------- Base ---------- */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Helvetica,
+    Arial,
+    sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+h1,
+h2,
+h3 {
+  font-family:
+    "Space Grotesk",
+    -apple-system,
+    sans-serif;
+}
+
+/* EXTENSION - the focus ring. The landing has no interactive surface beyond
+   its links, and an outline in the accent alone would vanish into the fill of
+   an accent-coloured button. The offset is what makes it survive there: the
+   ring is drawn clear of the element with the page showing through the gap, so
+   it reads on a green button, a bordered card and a bare link alike. */
+:where(a, button, input, select, summary):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* ---------- Top bar ---------- */
+
+/* site/docs/_styles.css .topbar. It carries the mark and nothing else: this
+   application has one page per customer and no navigation to offer. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--topbar-bg);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-inner {
+  max-width: var(--page-max-wide);
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+}
+/* The application's own favicon, as a background rather than an inline <svg>:
+   the mark contains a ">_" glyph, and inline it would put those two characters
+   into the page's text. As a background image it is a picture of the mark and
+   the document stays wordless. */
+.brand-mark {
+  display: block;
+  width: 26px;
+  height: 26px;
+  background-repeat: no-repeat;
+  background-size: contain;
+  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='2,10 16,18 16,30 2,22' fill='%23209050'/><polygon points='30,10 16,18 16,30 30,22' fill='%23186840'/><polygon points='16,8 24,12.5 16,17 8,12.5' fill='%230d1117'/><text x='16' y='14.5' text-anchor='middle' font-size='6' font-family='monospace' font-weight='bold' fill='%23E6F5EC'>%3E_</text><polygon points='16,2 2,10 8,12.5 16,8' fill='%233AC874'/><polygon points='16,2 30,10 24,12.5 16,8' fill='%234BE88A'/><polygon points='2,10 16,18 16,17 8,12.5' fill='%2330B76A'/><polygon points='30,10 16,18 16,17 24,12.5' fill='%2341D57E'/></svg>");
+}
+
+/* ---------- Page column ---------- */
+
+/* The chrome lives in the layout, so every page's own <main> is the column.
+   Styling it by element keeps the page components free of wrappers. */
+main {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 32px 24px 64px;
+}
+main.wide {
+  max-width: var(--page-max-wide);
+}
+
+/* site/docs/_styles.css .content h1/h2/h3. The rules divide a long page into
+   sections without a box around each one, which is what these surfaces need:
+   the office dashboard is one continuous read. */
+main h1 {
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+main h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin: 36px 0 12px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+main h2:first-of-type {
+  margin-top: 28px;
+}
+/* A page whose first section opens immediately under the title would draw the
+   title's rule and the section's rule as two parallel lines. */
+main h1 + h2 {
+  border-top: none;
+  padding-top: 0;
+}
+main h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 20px 0 8px;
+}
+main p {
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+main strong {
+  color: var(--text);
+}
+
+/* The landing sets body copy a step below the reading size and lets the
+   headings carry the weight. */
+.note {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+.lead {
+  font-size: 1.05rem;
+}
+
+/* An address is monospace and accent-coloured on the hosted page, and a
+   hostname here is the same kind of thing. */
+.address {
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+  color: var(--accent);
+}
+.mono {
+  font-family: "SF Mono", "Fira Code", "Fira Mono", Menlo, monospace;
+  font-size: 0.86rem;
+}
+
+/* ---------- Cards ---------- */
+
+/* site/hosted.html .card / site/index.html .setup-card. */
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.card > :last-child {
+  margin-bottom: 0;
+}
+.card-narrow {
+  max-width: 26rem;
+}
+/* A heading that opens a card is the card's title, so it drops the rule and
+   the air the page-level heading uses to separate one section from the next. */
+.card > h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  font-size: 1.15rem;
+}
+
+/* site/docs/_styles.css blockquote: a 3px accent rule, a wash of the same
+   colour, and the corners squared on the ruled side. Used here for anything
+   that speaks up - the attention banner and the handoff nag. */
+.callout {
+  border-left: 3px solid var(--accent);
+  background: var(--ok-tint);
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 0 6px 6px 0;
+}
+.callout > :last-child {
+  margin-bottom: 0;
+}
+.callout-danger {
+  border-left-color: var(--danger);
+  background: var(--danger-tint);
+}
+/* The icon is a picture and the heading beside it is the sentence: the banner
+   is legible with no colour at all, which is the point of carrying both. */
+.callout-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.callout-head svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.callout-danger .callout-head svg {
+  fill: var(--danger);
+}
+/* A callout that IS one sentence, rather than one that contains sentences. The
+   red stays in the rule and the wash; the sentence itself is full-strength text
+   so that a refusal is the most readable thing on the page rather than the
+   least. */
+p.callout-danger {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* ---------- Status chip ---------- */
+
+/* site/index.html .free-badge, re-tinted. The word inside it comes from the
+   data, so the chip still says which state it is in when the colour is not
+   available to the reader. */
+[data-state] {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 0 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  background: var(--bg-card);
+  white-space: nowrap;
+}
+[data-state="done"] {
+  color: var(--ok);
+  background: var(--ok-tint);
+  border-color: var(--ok-line);
+}
+[data-state="active"],
+[data-state="checking"] {
+  color: var(--warn);
+  background: var(--warn-tint);
+  border-color: var(--warn-line);
+}
+[data-state="failed"] {
+  color: var(--danger);
+  background: var(--danger-tint);
+  border-color: var(--danger-line);
+}
+
+/* ---------- Rows ---------- */
+
+/* The docs stylesheet's table treatment, applied to the lists this
+   application actually renders. A list is not turned into a table: the row is
+   given the rule and the padding a table row would have. */
+.rows {
+  list-style: none;
+}
+.rows > li {
+  color: var(--text-dim);
+  padding: 10px 0 10px 14px;
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+.rows > li:last-child {
+  border-bottom: none;
+}
+/* The severity is already on the row, so its colour needs no new markup. */
+.rows > li[data-severity="warning"] {
+  border-left-color: var(--warn);
+}
+.rows > li[data-severity="warning"] strong {
+  color: var(--warn);
+}
+.rows > li[data-severity="critical"] {
+  border-left-color: var(--danger);
+}
+.rows > li[data-severity="critical"] strong {
+  color: var(--danger);
+}
+
+/* The provisioning ladder. The marker is a box rather than a number: a counter
+   would put digits into the page's text, and the state is already named in the
+   chip at the end of the row. */
+.ladder {
+  list-style: none;
+}
+.ladder > li {
+  position: relative;
+  color: var(--text-dim);
+  padding: 8px 0 8px 22px;
+  border-bottom: 1px solid var(--border);
+}
+.ladder > li:last-child {
+  border-bottom: none;
+}
+.ladder > li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 1.15em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+}
+.ladder > li:has([data-state="done"])::before {
+  background: var(--ok);
+}
+.ladder > li:has([data-state="active"])::before,
+.ladder > li:has([data-state="checking"])::before {
+  background: var(--warn);
+}
+.ladder > li:has([data-state="failed"])::before {
+  background: var(--danger);
+}
+
+/* ---------- Buttons ---------- */
+
+/* site/index.html .btn / .btn-primary and site/hosted.html .btn-secondary.
+   Every button starts as the secondary shape, so one that is added later is
+   styled before anyone remembers to class it.
+
+   Two measured departures from the landing, both flagged in the slice report:
+   the outline is --control-border (hosted.html already firms this line up in
+   light mode for the same reason - it just does not go far enough to be a
+   boundary), and the primary label is the PAGE colour rather than white. White
+   on the landing's dark accent is 2.50:1, which is not a near miss; the page
+   colour on the same fill is 7.74:1 and leaves the fill - the thing the eye
+   reads as the brand - exactly as the landing has it. */
+/* `.btn` rather than `a.btn`: an element-qualified selector would outrank the
+   primary rule below on specificity and quietly grey out every primary link. */
+main button,
+main .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--bg-surface);
+  border: 1px solid var(--control-border);
+  color: var(--text);
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+main button:hover:not(:disabled) {
+  background: var(--bg-card);
+}
+/* A disabled button here still SAYS something - "Restarting...", "Asking for
+   an invite" - so it is muted rather than faded. A blanket opacity took the
+   label to 3.20:1 in the dark palette, which is a sentence the customer is
+   meant to read and could not. */
+main button:disabled {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  color: var(--text-dim);
+  cursor: default;
+}
+main .btn-primary {
+  padding: 0 20px;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+main .btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  text-decoration: none;
+}
+
+/* A button and the sentence that qualifies it sit on one line until the line
+   runs out, which is how every caveat in these pages is written. */
+.action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.action span {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+/* ---------- Forms ---------- */
+
+/* EXTENSION - the landing has no form. The control is recessed to the page
+   background inside a card, which is the same relationship the landing's
+   <pre> has to the card it sits in, and it borrows that card's border and
+   radius rather than introducing a new pair. Scoped to .form so the rule
+   cannot restack a label anywhere else. */
+.form p {
+  margin-bottom: 14px;
+}
+.form label {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.form input,
+.form select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+.form input:focus,
+.form select:focus {
+  border-color: var(--accent);
+}
+
+/* ---------- Responsive ---------- */
+
+/* The landing's breakpoint and its narrower gutter. */
+@media (max-width: 640px) {
+  .topbar-inner {
+    padding: 10px 16px;
+  }
+  main {
+    padding: 24px 16px 48px;
+  }
+  main h1 {
+    font-size: 1.6rem;
+    padding-bottom: 16px;
+  }
+  main h2 {
+    font-size: 1.2rem;
+  }
+  .card {
+    padding: 14px 16px;
+  }
+}

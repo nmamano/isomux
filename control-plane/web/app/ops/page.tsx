@@ -23,14 +23,16 @@ export default async function Ops() {
   if (!floor) notFound();
 
   return (
-    <main>
+    <main className="wide">
       <h1>Ops floor</h1>
 
       <h2>Attention</h2>
       {floor.attention.length === 0 ? (
-        <p data-testid="ops-attention-empty">Nothing is raised.</p>
+        <p className="note" data-testid="ops-attention-empty">
+          Nothing is raised.
+        </p>
       ) : (
-        <ul data-testid="ops-attention">
+        <ul className="card rows" data-testid="ops-attention">
           {floor.attention.map((item) => (
             <li key={item.reasonId} data-severity={item.severity}>
               <Link href={`/ops/${item.instanceId}`}>{item.officeName}</Link> -{" "}
@@ -46,9 +48,11 @@ export default async function Ops() {
 
       <h2>Past their deadline</h2>
       {floor.overdue.length === 0 ? (
-        <p data-testid="ops-overdue-empty">Nothing is overdue.</p>
+        <p className="note" data-testid="ops-overdue-empty">
+          Nothing is overdue.
+        </p>
       ) : (
-        <ul data-testid="ops-overdue">
+        <ul className="card rows" data-testid="ops-overdue">
           {floor.overdue.map((op) => (
             <li key={op.operationId}>
               <Link href={`/ops/${op.instanceId}`}>{op.officeName}</Link> -{" "}

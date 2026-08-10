@@ -34,18 +34,20 @@ export function OpsInstance({ initial }: { initial: OpsInstanceView }) {
   };
 
   return (
-    <main>
+    <main className="wide">
       <h1 data-testid="ops-office">{view.officeName}</h1>
-      <p data-testid="ops-states">
+      <p className="mono" data-testid="ops-states">
         service {view.serviceState} - subscription {view.subscriptionState} -
         attention {view.attentionState}
       </p>
 
       <h2>Attention</h2>
       {view.attention.length === 0 ? (
-        <p data-testid="ops-none">Nothing has been raised for this office.</p>
+        <p className="note" data-testid="ops-none">
+          Nothing has been raised for this office.
+        </p>
       ) : (
-        <ul data-testid="ops-reasons">
+        <ul className="card rows" data-testid="ops-reasons">
           {view.attention.map((item) => (
             <li key={item.reasonId} data-severity={item.severity}>
               <strong>{item.severity}</strong> - {item.reasonClass} -{" "}
@@ -57,7 +59,7 @@ export function OpsInstance({ initial }: { initial: OpsInstanceView }) {
           ))}
         </ul>
       )}
-      <p>
+      <p className="action">
         <button data-testid="ops-ack" onClick={() => void acknowledge()}>
           We have seen it
         </button>
@@ -69,10 +71,14 @@ export function OpsInstance({ initial }: { initial: OpsInstanceView }) {
           them; the condition itself does.
         </span>
       </p>
-      {note && <p data-testid="ops-ack-note">{note}</p>}
+      {note && (
+        <p className="note" data-testid="ops-ack-note">
+          {note}
+        </p>
+      )}
 
       <h2>Operations</h2>
-      <ul data-testid="ops-operations">
+      <ul className="card rows mono" data-testid="ops-operations">
         {view.operations.map((op) => (
           <li key={op.operationId}>
             {op.kind} - {op.status} - attempt {op.attempt}
@@ -83,7 +89,7 @@ export function OpsInstance({ initial }: { initial: OpsInstanceView }) {
       </ul>
 
       <h2>Audit</h2>
-      <ol data-testid="ops-audit">
+      <ol className="card rows mono" data-testid="ops-audit">
         {view.audit.map((event) => (
           <li key={event.seq}>
             {new Date(event.ts).toISOString()} - {event.actor} - {event.action}{" "}

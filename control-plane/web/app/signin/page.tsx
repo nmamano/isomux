@@ -14,12 +14,18 @@ export default function SignIn() {
   return (
     <main>
       <h1>Sign in</h1>
-      <button type="button" onClick={() => void signIn("google")}>
-        Continue with Google
-      </button>
+      <div className="card card-narrow">
+        <button
+          className="btn-primary"
+          type="button"
+          onClick={() => void signIn("google")}
+        >
+          Continue with Google
+        </button>
+      </div>
       {devAuth && (
         <form
-          style={{ marginTop: "2rem" }}
+          className="form card card-narrow"
           onSubmit={(event) => {
             event.preventDefault();
             void signIn("dev", { email, callbackUrl: "/" });
@@ -36,7 +42,11 @@ export default function SignIn() {
               onChange={(event) => setEmail(event.target.value)}
             />
           </label>{" "}
-          <button type="submit" data-testid="dev-submit">
+          <button
+            className="btn-primary"
+            type="submit"
+            data-testid="dev-submit"
+          >
             Sign in
           </button>
         </form>

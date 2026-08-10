@@ -21,14 +21,11 @@ export default async function Signup({
     <main>
       <h1>Set up your office</h1>
       {error && (
-        <p
-          data-testid="signup-error"
-          style={{ color: "#b00020", fontWeight: 600 }}
-        >
+        <p className="callout callout-danger" data-testid="signup-error">
           {error}
         </p>
       )}
-      <form method="post" action="/api/signup">
+      <form className="form card" method="post" action="/api/signup">
         <p>
           <label>
             Office name{" "}
@@ -58,11 +55,15 @@ export default async function Signup({
             <input name="couponId" data-testid="coupon" autoComplete="off" />
           </label>
         </p>
-        <button type="submit" data-testid="signup-submit">
+        <button
+          className="btn-primary"
+          type="submit"
+          data-testid="signup-submit"
+        >
           Continue to payment
         </button>
       </form>
-      <p style={{ color: "#555" }}>
+      <p className="note">
         Your office is reached at your name plus our domain, and the name cannot
         be changed after setup.
       </p>
