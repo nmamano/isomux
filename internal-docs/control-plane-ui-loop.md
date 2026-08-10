@@ -41,6 +41,27 @@ Cut: the design's slice 4 is split for reviewability. Loop slices:
    Anything that reads like marketing gets PARKED for Nil - the loop
    ships functional copy only.
 
+## Mid-loop rulings (manager)
+
+- R-2026-08-10-1, AMENDED (slice 4b, both versions sent verbatim to
+  both lanes; the amendment supersedes the synchronous mechanism):
+  invite delivery is the ASYNC one-shot seam - web enqueues the typed
+  mint_invite operation; the leased tick executes the two-hop mint;
+  the plaintext lives only in provisioner process memory in a one-shot
+  map keyed by operation id with a minutes-TTL; the web fetches it
+  exactly once over an authenticated seam (fetch-once verb, owned
+  instance, window-open only) and it is dropped on fetch, TTL expiry,
+  or restart (lost unfetched link = resend re-mints, correct). Sealed
+  envelope rejected: encryption changes readability, not persistence.
+  The pickup's "no new HTTP surface" line is overridden for exactly
+  this seam; the web-boundary test encodes its narrowness; the
+  interface must not assume same-box (deployed topology is a
+  deploy-time note). Mint stays audited, result fields status-only.
+  Also settled: row-driven revoke projection with honest states;
+  liveness attention at 3 strikes with a 5-minute CAS claim; no resend
+  rate knob; no durable reveal marker; persistence-scan tests that
+  fail under a deliberate persistence mutation.
+
 ## Manager-accepted defaults (reversible unless marked)
 
 - The web app lives at `control-plane/web/` (Next.js, App Router),
