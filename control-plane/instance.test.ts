@@ -15,13 +15,13 @@ import type { RunRecord } from "./run-record.ts";
 
 const temps: string[] = [];
 
-function tempStore(): Store {
+async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-instance-"));
   temps.push(dir);
-  return new Store(path.join(dir, "cp.db"));
+  return await Store.open(path.join(dir, "cp.db"));
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -44,8 +44,11 @@ function record(overrides: Partial<RunRecord> = {}): RunRecord {
   };
 }
 
-function firstContact(store: Store, status: OperationStatus): void {
-  store.enqueue({
+async function firstContact(
+  store: Store,
+  status: OperationStatus,
+): Promise<void> {
+  await store.enqueue({
     id: `op-fc-${status}`,
     instance_id: "inst-run-1",
     kind: "first_contact",
@@ -59,118 +62,118 @@ const T1 = new Date("2026-08-09T19:00:00Z");
 const T2 = new Date("2026-08-09T23:00:00Z");
 
 describe("the ceiling", () => {
-  test("is written once, with the row, and never again", () => {
-    const store = tempStore();
+  test("is written once, with the row, and never again", async () => {
+    const store = await tempStore();
     const rec = record();
-    ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
+    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
     // Even before anything has touched the box. The check-then-act version
     // allowed this window, and a second process could be rewriting the key
     // inside it.
-    expect(() =>
+    expect(
       ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-    ).toThrow(CeilingIsImmutable);
-    expect(store.getInstance("inst-run-1")?.access_window_expires_at).toBe(
-      T1.getTime(),
-    );
+    ).rejects.toThrow(CeilingIsImmutable);
+    expect(
+      (await store.getInstance("inst-run-1"))?.access_window_expires_at,
+    ).toBe(T1.getTime());
   });
 
-  test("is immutable once first contact SUCCEEDED", () => {
-    const store = tempStore();
+  test("is immutable once first contact SUCCEEDED", async () => {
+    const store = await tempStore();
     const rec = record({ expiry: "20260809190000Z" });
-    ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    firstContact(store, "succeeded");
-    expect(() =>
+    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
+    await firstContact(store, "succeeded");
+    expect(
       ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-    ).toThrow(CeilingIsImmutable);
-    expect(store.getInstance("inst-run-1")?.access_window_expires_at).toBe(
-      T1.getTime(),
-    );
+    ).rejects.toThrow(CeilingIsImmutable);
+    expect(
+      (await store.getInstance("inst-run-1"))?.access_window_expires_at,
+    ).toBe(T1.getTime());
   });
 
-  test("is immutable after the crash boundary: running, and nothing written down", () => {
-    const store = tempStore();
+  test("is immutable after the crash boundary: running, and nothing written down", async () => {
+    const store = await tempStore();
     // No `expiry` on the run record and no succeeded operation - the process
     // died between acting on the box and recording it. The box is nonetheless
     // carrying T1 in an authorized_keys option and a systemd timer.
     const rec = record();
-    ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    firstContact(store, "running");
-    expect(() =>
+    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
+    await firstContact(store, "running");
+    expect(
       ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-    ).toThrow(CeilingIsImmutable);
-    expect(store.getInstance("inst-run-1")?.access_window_expires_at).toBe(
-      T1.getTime(),
-    );
+    ).rejects.toThrow(CeilingIsImmutable);
+    expect(
+      (await store.getInstance("inst-run-1"))?.access_window_expires_at,
+    ).toBe(T1.getTime());
   });
 
-  test("an ambiguous or failed first contact counts too", () => {
+  test("an ambiguous or failed first contact counts too", async () => {
     for (const status of ["ambiguous", "failed"] as OperationStatus[]) {
-      const store = tempStore();
+      const store = await tempStore();
       const rec = record();
-      ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-      firstContact(store, status);
-      expect(() =>
+      await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
+      await firstContact(store, status);
+      expect(
         ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-      ).toThrow(CeilingIsImmutable);
+      ).rejects.toThrow(CeilingIsImmutable);
     }
   });
 
-  test("re-running with the SAME window is fine, armed or not", () => {
-    const store = tempStore();
+  test("re-running with the SAME window is fine, armed or not", async () => {
+    const store = await tempStore();
     const rec = record({ expiry: "20260809190000Z" });
-    ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    firstContact(store, "running");
-    expect(() =>
-      ensureInstance({ store, rec, goal: "handed_off", expiresAt: T1 }),
-    ).not.toThrow();
+    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
+    await firstContact(store, "running");
+    await ensureInstance({ store, rec, goal: "handed_off", expiresAt: T1 });
     // And the goal still moves, because that is not a claim about the box.
-    expect(store.getInstance("inst-run-1")?.goal).toBe("handed_off");
+    expect((await store.getInstance("inst-run-1"))?.goal).toBe("handed_off");
   });
 });
 
 describe("the interleaving the check-then-act version allowed", () => {
-  test("two contenders from ONE pre-read cannot end up with two ceilings", () => {
-    const store = tempStore();
+  test("two contenders from ONE pre-read cannot end up with two ceilings", async () => {
+    const store = await tempStore();
     const rec = record();
     // Both processes look, both see no instance and no first_contact, and
     // neither yields to the other before writing. No pre-read here serialises
     // them: the row's creation is what arbitrates.
-    expect(store.getInstance("inst-run-1")).toBeNull();
-    const outcomes = [T1, T2].map((when) => {
+    expect(await store.getInstance("inst-run-1")).toBeNull();
+    const outcomes: string[] = [];
+    for (const when of [T1, T2]) {
       try {
-        ensureInstance({ store, rec, goal: "live", expiresAt: when });
-        return "wrote";
+        await ensureInstance({ store, rec, goal: "live", expiresAt: when });
+        outcomes.push("wrote");
       } catch (err) {
-        return err instanceof CeilingIsImmutable ? "refused" : "other";
+        outcomes.push(err instanceof CeilingIsImmutable ? "refused" : "other");
       }
-    });
+    }
     expect(outcomes.filter((o) => o === "wrote")).toHaveLength(1);
     expect(outcomes).toContain("refused");
     // And the ceiling is the winner's, whichever of them won.
-    const ceiling = store.getInstance("inst-run-1")?.access_window_expires_at;
+    const ceiling = (await store.getInstance("inst-run-1"))
+      ?.access_window_expires_at;
     expect(ceiling).toBe(T1.getTime());
   });
 
-  test("a contender that arrives while first_contact is being opened is still refused", () => {
-    const store = tempStore();
+  test("a contender that arrives while first_contact is being opened is still refused", async () => {
+    const store = await tempStore();
     const rec = record();
-    ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
+    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
     // The other process opens first_contact and starts rewriting the box. That
     // does NOT bump the instance version, which is exactly why the old code
     // could still be talked into writing T2 here.
-    firstContact(store, "running");
-    expect(() =>
+    await firstContact(store, "running");
+    expect(
       ensureInstance({ store, rec, goal: "live", expiresAt: T2 }),
-    ).toThrow(CeilingIsImmutable);
-    expect(store.getInstance("inst-run-1")?.access_window_expires_at).toBe(
-      T1.getTime(),
-    );
+    ).rejects.toThrow(CeilingIsImmutable);
+    expect(
+      (await store.getInstance("inst-run-1"))?.access_window_expires_at,
+    ).toBe(T1.getTime());
   });
 });
 
 describe("the instance and its provider axis are created together", () => {
-  test("a failure creating the asset leaves NO half-made instance", () => {
-    const store = tempStore();
+  test("a failure creating the asset leaves NO half-made instance", async () => {
+    const store = await tempStore();
     const rec = record({ instanceId: "203474835" });
     // Force the second insert to fail the way a crash would leave it: the
     // instance row written, the provider axis missing.
@@ -178,31 +181,35 @@ describe("the instance and its provider axis are created together", () => {
     store.createAsset = () => {
       throw new Error("died between the two inserts");
     };
-    expect(() =>
+    expect(
       ensureInstance({ store, rec, goal: "live", expiresAt: T1 }),
-    ).toThrow(/died between the two inserts/);
-    expect(store.getInstance("inst-run-1")).toBeNull();
+    ).rejects.toThrow(/died between the two inserts/);
+    expect(await store.getInstance("inst-run-1")).toBeNull();
 
     // And a clean retry makes both.
     store.createAsset = original;
-    ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    expect(store.getInstance("inst-run-1")).not.toBeNull();
-    expect(store.assetForInstance("inst-run-1")?.provider_id).toBe("203474835");
+    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
+    expect(await store.getInstance("inst-run-1")).not.toBeNull();
+    expect((await store.assetForInstance("inst-run-1"))?.provider_id).toBe(
+      "203474835",
+    );
   });
 
-  test("an instance found without a provider axis is repaired on restart", () => {
-    const store = tempStore();
+  test("an instance found without a provider axis is repaired on restart", async () => {
+    const store = await tempStore();
     const rec = record();
     // The shape an older build could leave behind: instance, no asset.
-    ensureInstance({
+    await ensureInstance({
       store,
       rec,
       goal: "live",
       expiresAt: T1,
       createAsset: false,
     });
-    expect(store.assetForInstance("inst-run-1")).toBeNull();
-    ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
-    expect(store.assetForInstance("inst-run-1")?.provider_id).toBe("203474835");
+    expect(await store.assetForInstance("inst-run-1")).toBeNull();
+    await ensureInstance({ store, rec, goal: "live", expiresAt: T1 });
+    expect((await store.assetForInstance("inst-run-1"))?.provider_id).toBe(
+      "203474835",
+    );
   });
 });

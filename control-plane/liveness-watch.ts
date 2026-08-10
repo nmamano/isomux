@@ -54,11 +54,11 @@ export async function watchLiveness(
   deps: WatchDeps,
 ): Promise<number> {
   let probed = 0;
-  for (const instance of store.listInstances()) {
+  for (const instance of await store.listInstances()) {
     if (instance.service_state !== "live") continue;
     const now = store.now();
-    store.ensureLiveness(instance.id, now);
-    const claimed = store.claimLiveness(
+    await store.ensureLiveness(instance.id, now);
+    const claimed = await store.claimLiveness(
       instance.id,
       deps.holder,
       now + LIVENESS_CLAIM_MS,
@@ -68,7 +68,7 @@ export async function watchLiveness(
     // touch it: the claim is the arbiter, so a loser never counts a strike.
     if (!claimed) continue;
 
-    const asset = store.assetForInstance(instance.id);
+    const asset = await store.assetForInstance(instance.id);
     let rung: Rung;
     try {
       const result = await probeLiveness(
@@ -90,7 +90,7 @@ export async function watchLiveness(
 
     const strikes = strikesAfter(claimed.strikes, rung);
     const checkedAt = store.now();
-    const written = store.recordLiveness(
+    const written = await store.recordLiveness(
       instance.id,
       claimed.version,
       deps.holder,
@@ -113,7 +113,7 @@ export async function watchLiveness(
 
     // The reading is durable before attention moves, so a crash here leaves a
     // recorded strike rather than an alert with nothing behind it.
-    applyAttention(store, instance.id, strikes, rung, deps);
+    await applyAttention(store, instance.id, strikes, rung, deps);
   }
   return probed;
 }
@@ -125,29 +125,29 @@ export async function watchLiveness(
  * failing differently each time - dns, then tls, then tcp - look like it keeps
  * recovering.
  */
-function applyAttention(
+async function applyAttention(
   store: Store,
   instanceId: string,
   strikes: number,
   rung: Rung,
   deps: WatchDeps,
-): void {
-  const open = store
-    .openReasons(instanceId)
-    .filter(
-      (r) => r.source_op_id === NO_OPERATION && r.reason === LIVENESS_REASON,
-    );
+): Promise<void> {
+  const open = (await store.openReasons(instanceId)).filter(
+    (r) => r.source_op_id === NO_OPERATION && r.reason === LIVENESS_REASON,
+  );
   try {
     if (rung === "ok") {
       if (open.length === 0) return;
-      store.tx(() => {
-        for (const row of open) clearAttentionIn(store, instanceId, row.id);
+      await store.tx(async () => {
+        for (const row of open) {
+          await clearAttentionIn(store, instanceId, row.id);
+        }
       });
       deps.report?.(`liveness recovered for ${instanceId}`);
       return;
     }
     if (strikes < LIVENESS_STRIKES || open.length > 0) return;
-    store.tx(() =>
+    await store.tx(() =>
       raiseAttentionIn(store, {
         instanceId,
         sourceOpId: NO_OPERATION,

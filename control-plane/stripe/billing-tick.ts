@@ -38,11 +38,11 @@ export interface BillingTickSummary {
  * One pass over expired coupon-lapse holds. Nothing sleeps in here, like every
  * other tick in this codebase.
  */
-export function billingTick(
+export async function billingTick(
   store: Store,
   now: number = store.now(),
   report: (line: string) => void = () => {},
-): BillingTickSummary {
+): Promise<BillingTickSummary> {
   const summary: BillingTickSummary = {
     examined: 0,
     resumedToLadder: 0,
@@ -50,15 +50,21 @@ export function billingTick(
     closed: 0,
   };
 
-  for (const row of holdsExpiredAt(store, now)) {
+  for (const row of await holdsExpiredAt(store, now)) {
     summary.examined++;
     try {
       // The transaction returns what it COMMITTED, and nothing outside it is touched
       // until it has. Counting or printing from inside would let a failed COMMIT -
       // or a reporter that throws - leave a summary claiming a transition that
       // rolled back, and a printed line claiming an action nobody took.
-      const committed = store.tx(
-        (): { note: string; state?: string; suspended: boolean } | null => {
+      // Awaited inside the try, so the catch below still turns a failed COMMIT
+      // into a reported line and an unchanged summary.
+      const committed = await store.tx(
+        async (): Promise<{
+          note: string;
+          state?: string;
+          suspended: boolean;
+        } | null> => {
           // Re-read inside the transaction, and DECIDE FROM THE RE-READ ROW.
           //
           // The outer scan runs with no transaction open, so a webhook can change this
@@ -68,12 +74,10 @@ export function billingTick(
           // requesting suspension. A decision computed from the scanned copy would be
           // a check-then-act on the one field that decides whether a customer's box
           // gets powered off.
-          const fresh = store.db
-            .query<
-              SubscriptionRow,
-              [string]
-            >("select * from subscriptions where id = ?")
-            .get(row.id);
+          const fresh = await store.sqlGet<SubscriptionRow>(
+            "select * from subscriptions where id = ?",
+            [row.id],
+          );
           if (!fresh || fresh.episode_state !== "coupon_hold") {
             return {
               note: "left its coupon-lapse hold before this pass could act; leaving it alone",
@@ -89,7 +93,7 @@ export function billingTick(
             // out, for instance. Not an error, and not a transition.
             return { note: decision.note, suspended: false };
           }
-          const after = casEpisodeBookkeeping(
+          const after = await casEpisodeBookkeeping(
             store,
             fresh.id,
             fresh.version,
@@ -103,21 +107,21 @@ export function billingTick(
           let suspended = false;
           if (decision.suspension) {
             suspended =
-              requestSuspension(
+              (await requestSuspension(
                 store,
                 after,
                 decision.suspension.episodeId,
                 now,
                 BILLING_TICK_ACTOR,
-              ) !== null;
+              )) !== null;
           }
-          applyBillingAttention(
+          await applyBillingAttention(
             store,
             after,
             decision.attention,
             BILLING_TICK_ACTOR,
           );
-          store.appendAudit({
+          await store.appendAudit({
             actor: BILLING_TICK_ACTOR,
             instance_id: after.instance_id,
             action: "coupon_hold_expired",

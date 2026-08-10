@@ -13,7 +13,7 @@ import { Store } from "./store.ts";
 import { accountForDevSignIn } from "./signup.ts";
 
 const temps: string[] = [];
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -21,14 +21,16 @@ afterEach(() => {
 
 const NOW = Date.parse("2027-06-10T00:00:00Z");
 
-function tempStore(): Store {
+async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-ops-"));
   temps.push(dir);
-  return new Store(path.join(dir, "cp.db"), () => NOW);
+  return await Store.open(path.join(dir, "cp.db"), () => NOW);
 }
 
-function seed(store: Store): { operator: string; plain: string } {
-  store.createInstance({
+async function seed(
+  store: Store,
+): Promise<{ operator: string; plain: string }> {
+  await store.createInstance({
     id: "inst-1",
     run_id: null,
     name: "cp2.test.isomux.app",
@@ -38,9 +40,9 @@ function seed(store: Store): { operator: string; plain: string } {
     goal: "live",
     access_window_expires_at: null,
   });
-  const operator = accountForDevSignIn(store, "nil@example.test").id;
-  const plain = accountForDevSignIn(store, "customer@example.test").id;
-  const granted = setOperator(store, {
+  const operator = (await accountForDevSignIn(store, "nil@example.test")).id;
+  const plain = (await accountForDevSignIn(store, "customer@example.test")).id;
+  const granted = await setOperator(store, {
     email: "nil@example.test",
     on: true,
     actor: "cli:test",
@@ -50,119 +52,126 @@ function seed(store: Store): { operator: string; plain: string } {
 }
 
 describe("the operator flag", () => {
-  test("a sign-in cannot self-assign it", () => {
-    const store = tempStore();
+  test("a sign-in cannot self-assign it", async () => {
+    const store = await tempStore();
     // Both providers land on the same account creation path, and it writes 0.
-    const account = accountForDevSignIn(store, "someone@example.test");
+    const account = await accountForDevSignIn(store, "someone@example.test");
     expect(account.is_operator).toBe(0);
-    expect(isOperator(store, account.id)).toBe(false);
-    store.close();
+    expect(await isOperator(store, account.id)).toBe(false);
+    await store.close();
   });
 
-  test("granting is audited, idempotent, and reversible", () => {
-    const store = tempStore();
-    const { operator } = seed(store);
-    expect(isOperator(store, operator)).toBe(true);
-    const again = setOperator(store, {
+  test("granting is audited, idempotent, and reversible", async () => {
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    expect(await isOperator(store, operator)).toBe(true);
+    const again = await setOperator(store, {
       email: "nil@example.test",
       on: true,
       actor: "cli:test",
     });
     expect(again).toMatchObject({ ok: true, changed: false });
     expect(
-      store.auditEvents().filter((e) => e.action === "grant_operator"),
+      (await store.auditEvents()).filter((e) => e.action === "grant_operator"),
     ).toHaveLength(1);
 
-    setOperator(store, {
+    await setOperator(store, {
       email: "nil@example.test",
       on: false,
       actor: "cli:test",
     });
-    expect(isOperator(store, operator)).toBe(false);
+    expect(await isOperator(store, operator)).toBe(false);
     expect(
-      store.auditEvents().some((e) => e.action === "revoke_operator"),
+      (await store.auditEvents()).some((e) => e.action === "revoke_operator"),
     ).toBe(true);
-    store.close();
+    await store.close();
   });
 
-  test("an unknown address is refused rather than creating an operator", () => {
-    const store = tempStore();
-    const outcome = setOperator(store, {
+  test("an unknown address is refused rather than creating an operator", async () => {
+    const store = await tempStore();
+    const outcome = await setOperator(store, {
       email: "nobody@example.test",
       on: true,
       actor: "cli:test",
     });
     expect(outcome).toMatchObject({ ok: false });
-    store.close();
+    await store.close();
   });
 });
 
 describe("every ops service gates on the column itself", () => {
-  test("a non-operator gets the same answer a missing office gets", () => {
-    const store = tempStore();
-    const { plain } = seed(store);
+  test("a non-operator gets the same answer a missing office gets", async () => {
+    const store = await tempStore();
+    const { plain } = await seed(store);
     // Null, not a refusal object: a 403 would confirm the floor exists and that
     // this account is not on it.
-    expect(opsFloor(store, plain)).toBeNull();
-    expect(opsInstance(store, plain, "inst-1")).toBeNull();
-    expect(acknowledgeInstance(store, plain, "inst-1")).toBeNull();
-    store.close();
+    expect(await opsFloor(store, plain)).toBeNull();
+    expect(await opsInstance(store, plain, "inst-1")).toBeNull();
+    expect(await acknowledgeInstance(store, plain, "inst-1")).toBeNull();
+    await store.close();
   });
 
-  test("revoking the flag closes every verb, on the next call", () => {
-    const store = tempStore();
-    const { operator } = seed(store);
-    expect(opsFloor(store, operator)).not.toBeNull();
-    setOperator(store, {
+  test("revoking the flag closes every verb, on the next call", async () => {
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    expect(await opsFloor(store, operator)).not.toBeNull();
+    await setOperator(store, {
       email: "nil@example.test",
       on: false,
       actor: "cli:test",
     });
     // The check is INSIDE each service and re-reads the account, so authority
     // that is taken away is gone immediately rather than at the next page load.
-    expect(opsFloor(store, operator)).toBeNull();
-    expect(opsInstance(store, operator, "inst-1")).toBeNull();
-    expect(acknowledgeInstance(store, operator, "inst-1")).toBeNull();
-    store.close();
+    expect(await opsFloor(store, operator)).toBeNull();
+    expect(await opsInstance(store, operator, "inst-1")).toBeNull();
+    expect(await acknowledgeInstance(store, operator, "inst-1")).toBeNull();
+    await store.close();
   });
 
-  test("THE ROLE IS READ INSIDE THE TRANSACTION THAT DOES THE WORK", () => {
+  test("THE ROLE IS READ INSIDE THE TRANSACTION THAT DOES THE WORK", async () => {
     // A role read that commits separately from the work it guards is a role
     // that can be revoked in between while the protected read still goes
     // through. This observes the accounts query directly: it must happen with a
     // transaction already open.
-    const store = tempStore();
-    const { operator } = seed(store);
+    const store = await tempStore();
+    const { operator } = await seed(store);
     const inside: boolean[] = [];
-    const realQuery = store.db.query.bind(store.db);
-    store.db.query = ((sql: string) => {
+    // The SAME observation as before the async flip, moved to the public SQL
+    // primitive because the engine handle is private now: the operator read is
+    // a sqlGet, and what is asserted is still that it happens with a
+    // transaction already open.
+    const realGet = store.sqlGet.bind(store);
+    store.sqlGet = (async (sql: string, args?: unknown[]) => {
       if (sql.includes("is_operator from accounts")) {
         inside.push(store.inTransaction());
       }
-      return realQuery(sql);
-    }) as unknown as typeof store.db.query;
+      return realGet(sql, args as never);
+    }) as unknown as typeof store.sqlGet;
 
-    opsFloor(store, operator);
-    opsInstance(store, operator, "inst-1");
-    acknowledgeInstance(store, operator, "inst-1");
-
-    store.db.query = realQuery;
+    try {
+      await opsFloor(store, operator);
+      await opsInstance(store, operator, "inst-1");
+      await acknowledgeInstance(store, operator, "inst-1");
+    } finally {
+      store.sqlGet = realGet;
+    }
     expect(inside).toEqual([true, true, true]);
-    store.close();
+    await store.close();
   });
 
-  test("a revoke cannot land between the check and the work", () => {
+  test("a revoke cannot land between the check and the work", async () => {
     // The seam itself, from a SECOND connection: while a verb holds its
     // transaction, a competing revoke cannot commit, so no protected read can
     // straddle one. `begin immediate` is what makes that true rather than
     // hoped for.
-    const store = tempStore();
-    const { operator } = seed(store);
-    const file = store.db.filename;
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    const file = store.file;
     let revokeOutcome = "not attempted";
     const realList = store.listInstances.bind(store);
     store.listInstances = () => {
-      // Mid-work, from outside this transaction.
+      // Mid-work, from outside this transaction. Still a raw second connection
+      // on purpose: the point is a competing writer that is not this Store.
       const other = new Database(file);
       other.run("pragma busy_timeout = 100");
       try {
@@ -177,42 +186,46 @@ describe("every ops service gates on the column itself", () => {
       return realList();
     };
 
-    const floor = opsFloor(store, operator);
-    store.listInstances = realList;
+    let floor;
+    try {
+      floor = await opsFloor(store, operator);
+    } finally {
+      store.listInstances = realList;
+    }
     expect(revokeOutcome).not.toBe("committed");
     // And the read that was already authorised completed coherently.
     expect(floor).not.toBeNull();
-    expect(isOperator(store, operator)).toBe(true);
-    store.close();
+    expect(await isOperator(store, operator)).toBe(true);
+    await store.close();
   });
 
-  test("an unknown account id is not an operator", () => {
-    const store = tempStore();
-    seed(store);
-    expect(opsFloor(store, "acct-nonexistent")).toBeNull();
-    store.close();
+  test("an unknown account id is not an operator", async () => {
+    const store = await tempStore();
+    await seed(store);
+    expect(await opsFloor(store, "acct-nonexistent")).toBeNull();
+    await store.close();
   });
 });
 
 describe("what the floor shows", () => {
-  test("open attention, worst first, with the operator-facing reason", () => {
-    const store = tempStore();
-    const { operator } = seed(store);
-    raiseAttention(store, {
+  test("open attention, worst first, with the operator-facing reason", async () => {
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    await raiseAttention(store, {
       instanceId: "inst-1",
       reasonClass: "inactivity_deadline",
       sourceOpId: "op-a",
       reason: "the installer has been on the same step for ten minutes",
       severity: "warning",
     });
-    raiseAttention(store, {
+    await raiseAttention(store, {
       instanceId: "inst-1",
       reasonClass: "operation_condition",
       sourceOpId: "op-b",
       reason: "REVOCATION NOT PROVEN: the box still accepts the removed key",
       severity: "critical",
     });
-    const floor = opsFloor(store, operator)!;
+    const floor = (await opsFloor(store, operator))!;
     expect(floor.attention).toHaveLength(2);
     // Worst first.
     expect(floor.attention[0].severity).toBe("critical");
@@ -220,49 +233,49 @@ describe("what the floor shows", () => {
     // audience it was written for.
     expect(floor.attention[0].reason).toContain("REVOCATION NOT PROVEN");
     expect(floor.attention[0].ageMs).toBe(0);
-    store.close();
+    await store.close();
   });
 
-  test("a FAILED operation past its ceiling is still on the floor", () => {
+  test("a FAILED operation past its ceiling is still on the floor", async () => {
     // liveOperations excludes terminal rows, so scanning it hid exactly the
     // operation an operator most needs: one that blew its ceiling and then
     // failed. Succeeded work stays out - a step that finished late is history.
-    const store = tempStore();
-    const { operator } = seed(store);
+    const store = await tempStore();
+    const { operator } = await seed(store);
     for (const [id, kind, status] of [
       ["op-dead", "revoke_access", "failed"],
       ["op-old", "run_installer", "succeeded"],
     ] as const) {
-      const op = store.enqueue({
+      const op = await store.enqueue({
         id,
         instance_id: "inst-1",
         kind,
         inactivity_deadline_at: NOW - 20_000,
         absolute_deadline_at: NOW - 10_000,
       });
-      store.flagDeadline(op.id, op.version, "absolute", NOW);
-      store.db.run("update operations set status = ? where id = ?", [
+      await store.flagDeadline(op.id, op.version, "absolute", NOW);
+      await store.sqlRun("update operations set status = ? where id = ?", [
         status,
         id,
       ]);
     }
-    const floor = opsFloor(store, operator)!;
+    const floor = (await opsFloor(store, operator))!;
     expect(floor.overdue.map((o) => o.operationId)).toEqual(["op-dead"]);
     expect(floor.overdue[0].status).toBe("failed");
-    store.close();
+    await store.close();
   });
 
-  test("operations past their ABSOLUTE ceiling, and only those", () => {
-    const store = tempStore();
-    const { operator } = seed(store);
-    const late = store.enqueue({
+  test("operations past their ABSOLUTE ceiling, and only those", async () => {
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    const late = await store.enqueue({
       id: "op-late",
       instance_id: "inst-1",
       kind: "revoke_access",
       inactivity_deadline_at: NOW - 20_000,
       absolute_deadline_at: NOW - 10_000,
     });
-    store.enqueue({
+    await store.enqueue({
       id: "op-fine",
       instance_id: "inst-1",
       kind: "reboot",
@@ -271,78 +284,78 @@ describe("what the floor shows", () => {
     });
     // Not flagged yet: the floor reads the FLAG the ticker writes, not the
     // clock, so an operator and the machine agree on what is overdue.
-    expect(opsFloor(store, operator)!.overdue).toEqual([]);
-    store.flagDeadline(late.id, late.version, "absolute", NOW);
-    const floor = opsFloor(store, operator)!;
+    expect((await opsFloor(store, operator))!.overdue).toEqual([]);
+    await store.flagDeadline(late.id, late.version, "absolute", NOW);
+    const floor = (await opsFloor(store, operator))!;
     expect(floor.overdue.map((o) => o.operationId)).toEqual(["op-late"]);
     expect(floor.overdue[0].overdueMs).toBe(10_000);
-    store.close();
+    await store.close();
   });
 
-  test("one office carries its attention history, operations and audit", () => {
-    const store = tempStore();
-    const { operator } = seed(store);
-    raiseAttention(store, {
+  test("one office carries its attention history, operations and audit", async () => {
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    await raiseAttention(store, {
       instanceId: "inst-1",
       reasonClass: "operation_condition",
       sourceOpId: "op-a",
       reason: "a thing happened",
       severity: "info",
     });
-    const view = opsInstance(store, operator, "inst-1")!;
+    const view = (await opsInstance(store, operator, "inst-1"))!;
     expect(view.officeName).toBe("cp2.test.isomux.app");
     expect(view.attention).toHaveLength(1);
     expect(view.audit.some((e) => e.action === "raise_attention")).toBe(true);
     // Its audit only, never another office's.
     expect(view.audit.every((e) => e.instance_id === "inst-1")).toBe(true);
-    store.close();
+    await store.close();
   });
 
-  test("an office that does not exist is null even for an operator", () => {
-    const store = tempStore();
-    const { operator } = seed(store);
-    expect(opsInstance(store, operator, "inst-nope")).toBeNull();
-    expect(acknowledgeInstance(store, operator, "inst-nope")).toBeNull();
-    store.close();
+  test("an office that does not exist is null even for an operator", async () => {
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    expect(await opsInstance(store, operator, "inst-nope")).toBeNull();
+    expect(await acknowledgeInstance(store, operator, "inst-nope")).toBeNull();
+    await store.close();
   });
 });
 
 describe("acknowledging", () => {
-  test("it marks the reasons, writes audit, and does NOT clear them", () => {
-    const store = tempStore();
-    const { operator } = seed(store);
-    raiseAttention(store, {
+  test("it marks the reasons, writes audit, and does NOT clear them", async () => {
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    await raiseAttention(store, {
       instanceId: "inst-1",
       reasonClass: "absolute_deadline",
       sourceOpId: "op-a",
       reason: "a step passed its ceiling",
       severity: "warning",
     });
-    expect(acknowledgeInstance(store, operator, "inst-1")).toBe(1);
+    expect(await acknowledgeInstance(store, operator, "inst-1")).toBe(1);
 
-    const floor = opsFloor(store, operator)!;
+    const floor = (await opsFloor(store, operator))!;
     // Still open. An ack that cleared would let "I saw it" pass for "it is
     // fixed", which is exactly the lie a tired operator would act on.
     expect(floor.attention).toHaveLength(1);
     expect(floor.attention[0].acknowledgedAt).toBe(NOW);
     expect(floor.attention[0].acknowledgedBy).toBe(`account:${operator}`);
-    expect(store.getInstance("inst-1")!.attention_state).toBe("needs_operator");
+    expect((await store.getInstance("inst-1"))!.attention_state).toBe(
+      "needs_operator",
+    );
     expect(
-      store
-        .auditEvents()
-        .some(
-          (e) =>
-            e.action === "acknowledge_attention" &&
-            e.actor === `account:${operator}`,
-        ),
+      (await store.auditEvents()).some(
+        (e) =>
+          e.action === "acknowledge_attention" &&
+          e.actor === `account:${operator}`,
+      ),
     ).toBe(true);
-    store.close();
+    await store.close();
   });
 
-  test("acknowledging nothing says so rather than pretending", () => {
-    const store = tempStore();
-    const { operator } = seed(store);
-    expect(acknowledgeInstance(store, operator, "inst-1")).toBe(0);
-    store.close();
+  test("acknowledging nothing says so rather than pretending", async () => {
+    const store = await tempStore();
+    const { operator } = await seed(store);
+    expect(await acknowledgeInstance(store, operator, "inst-1")).toBe(0);
+    await store.close();
   });
 });

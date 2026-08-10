@@ -75,8 +75,8 @@ const adapter = new ContaboAdapter({
 });
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-ambiguous-"));
-const store = new Store(path.join(dir, "cp.db"));
-store.createInstance({
+const store = await Store.open(path.join(dir, "cp.db"));
+await store.createInstance({
   id: "inst-ambiguous",
   run_id: null,
   name: "cp-ambiguous.test.isomux.app",
@@ -121,23 +121,24 @@ const ticker = new Ticker({
  */
 async function tickWhenDue(): Promise<void> {
   for (;;) {
-    const due = store
-      .dueOperations(Date.now(), 8)
-      .some((o) => o.instance_id === "inst-ambiguous");
+    const due = (await store.dueOperations(Date.now(), 8)).some(
+      (o) => o.instance_id === "inst-ambiguous",
+    );
     if (due) break;
     await Bun.sleep(2000);
   }
   await ticker.once();
 }
 
-function show(label: string): void {
-  const op = store
-    .operationsFor("inst-ambiguous")
-    .find((o) => o.kind === "create_instance");
-  const inst = store.getInstance("inst-ambiguous");
+async function show(label: string): Promise<void> {
+  const op = (await store.operationsFor("inst-ambiguous")).find(
+    (o) => o.kind === "create_instance",
+  );
+  const inst = await store.getInstance("inst-ambiguous");
+  const intent = await store.getIntent(INTENT);
   reporter.line(
     `${label}: op=${op?.status} attempt=${op?.attempt} evidence=${op?.evidence} ` +
-      `intent=${store.getIntent(INTENT)?.state} attention=${inst?.attention_state}`,
+      `intent=${intent?.state} attention=${inst?.attention_state}`,
   );
 }
 
@@ -163,15 +164,15 @@ reporter.line(
 
 try {
   // 1. The faulted create.
-  ticker.enqueue("inst-ambiguous", "create_instance");
+  await ticker.enqueue("inst-ambiguous", "create_instance");
   await ticker.once();
-  show("after the faulted create");
+  await show("after the faulted create");
 
   // 2. Quarantine with nothing on the account carrying our stamp: find proves
   //    absence, and the operation keeps waiting rather than opening a second
   //    intent.
   await tickWhenDue();
-  show("quarantine, nothing stamped");
+  await show("quarantine, nothing stamped");
 
   // 3. The exact-adopt arm. Stamp the box, read it back, and let find see it.
   await setDisplayName(STAMP);
@@ -179,7 +180,7 @@ try {
     `displayName after PATCH (read back): ${await displayNameOf()}`,
   );
   await tickWhenDue();
-  show("quarantine, stamp present");
+  await show("quarantine, stamp present");
 } finally {
   // 4. Restore, read back, and prove the stamp is gone so no later find can
   //    adopt this box.
@@ -194,12 +195,12 @@ try {
 reporter.line(`POSTs to the create endpoint that were transmitted: 0`);
 reporter.line(`create attempts intercepted at the seam: ${createAttempts}`);
 reporter.line(
-  `intent rows: ${JSON.stringify(store.listIntents().map((i) => i.state))}`,
+  `intent rows: ${JSON.stringify((await store.listIntents()).map((i) => i.state))}`,
 );
 reporter.line(
   `attention: ${JSON.stringify(
-    store.openReasons("inst-ambiguous").map((r) => r.reason),
+    (await store.openReasons("inst-ambiguous")).map((r) => r.reason),
   )}`,
 );
-store.close();
+await store.close();
 fs.rmSync(dir, { recursive: true, force: true });

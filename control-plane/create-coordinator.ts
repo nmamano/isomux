@@ -32,7 +32,10 @@ import { auditOutcomeOf } from "./tick.ts";
  * provider asset row, the operation's completion. Run inside it, so losing the
  * fence rolls them back with everything else.
  */
-export type SettleCreate = (outcome: CreateOutcome, op: OperationRow) => void;
+export type SettleCreate = (
+  outcome: CreateOutcome,
+  op: OperationRow,
+) => Promise<void> | void;
 
 export class CreateCoordinator {
   constructor(
@@ -59,17 +62,22 @@ export class CreateCoordinator {
       plan: req.plan,
       region: req.region,
     };
-    const { permit, armed } = this.latch.armOnce(arm, fence);
+    const { permit, armed } = await this.latch.armOnce(arm, fence);
     permit.consume();
     if (!(permit instanceof CreatePermit) || !permit.spent) {
       throw new Error("refusing to call create without a spent permit");
     }
 
     let outcome: CreateOutcome;
-    this.audit(armed.instance_id, "provider_create", "started", req.intentId);
+    await this.audit(
+      armed.instance_id,
+      "provider_create",
+      "started",
+      req.intentId,
+    );
     try {
       outcome = await this.adapter.create(req);
-      this.audit(
+      await this.audit(
         armed.instance_id,
         "provider_create",
         outcome.outcome === "created"
@@ -80,14 +88,17 @@ export class CreateCoordinator {
         req.intentId,
       );
     } catch (err) {
-      this.audit(
+      await this.audit(
         armed.instance_id,
         "provider_create",
         "ambiguous",
         req.intentId,
       );
-      // A throw is not evidence that nothing was ordered.
-      this.settleOutcome(
+      // A throw is not evidence that nothing was ordered. AWAITED: an
+      // unawaited settle would let the throw below leave before the ambiguous
+      // outcome was written, and the intent would stay in a state whose only
+      // legal next act nobody had recorded.
+      await this.settleOutcome(
         req,
         armed,
         fence.holder,
@@ -99,7 +110,7 @@ export class CreateCoordinator {
       );
       throw err;
     }
-    this.settleOutcome(req, armed, fence.holder, outcome, settle);
+    await this.settleOutcome(req, armed, fence.holder, outcome, settle);
     return outcome;
   }
 
@@ -110,28 +121,28 @@ export class CreateCoordinator {
    * intent id and grants nothing: `find` cannot spend.
    */
   async resolve(intentId: string): Promise<FindResult | null> {
-    this.audit(null, "provider_find", "started", intentId);
+    await this.audit(null, "provider_find", "started", intentId);
     try {
       const found = await this.adapter.find(intentId);
-      this.audit(null, "provider_find", "succeeded", intentId);
+      await this.audit(null, "provider_find", "succeeded", intentId);
       return found;
     } catch (err) {
       // A find that cannot establish anything is ambiguity, not failure: it is
       // the state that keeps an intent in quarantine rather than resolving it.
-      this.audit(null, "provider_find", auditOutcomeOf(err), intentId);
+      await this.audit(null, "provider_find", auditOutcomeOf(err), intentId);
       throw err;
     }
   }
 
   /** One classified row per provider call, in its own transaction. Never a
    * response body, never a credential - an action, a target and an outcome. */
-  private audit(
+  private async audit(
     instanceId: string | null,
     action: string,
     outcome: "started" | "succeeded" | "failed" | "ambiguous",
     target: string,
-  ): void {
-    this.store.tx(() =>
+  ): Promise<void> {
+    await this.store.tx(() =>
       this.store.appendAudit({
         actor: "control-plane",
         instance_id: instanceId,
@@ -153,15 +164,15 @@ export class CreateCoordinator {
    * whose only legal next act is `find`. A blind retry of this transaction, or
    * of the call, is exactly what must not happen.
    */
-  private settleOutcome(
+  private async settleOutcome(
     req: CreateRequest,
     armed: OperationRow,
     holder: string,
     outcome: CreateOutcome,
     settle?: SettleCreate,
-  ): void {
-    this.store.tx(() => {
-      const intent = this.store.getIntent(req.intentId);
+  ): Promise<void> {
+    await this.store.tx(async () => {
+      const intent = await this.store.getIntent(req.intentId);
       if (!intent) {
         throw new Error(
           `intent ${req.intentId} vanished between arming and settling`,
@@ -173,12 +184,12 @@ export class CreateCoordinator {
           : outcome.outcome === "rejected"
             ? { state: "rejected" as const, reason: outcome.reason }
             : { state: "ambiguous" as const, reason: outcome.reason };
-      if (!this.store.casIntent(req.intentId, intent.version, patch)) {
+      if (!(await this.store.casIntent(req.intentId, intent.version, patch))) {
         throw new FenceLostError(
           `intent ${req.intentId} moved while settling the create outcome`,
         );
       }
-      const op = this.store.casOperation(
+      const op = await this.store.casOperation(
         { id: armed.id, version: armed.version, holder },
         {
           status:
@@ -209,8 +220,8 @@ export class CreateCoordinator {
             `act is find`,
         );
       }
-      settle?.(outcome, op);
-      this.store.appendAudit({
+      await settle?.(outcome, op);
+      await this.store.appendAudit({
         actor: "control-plane",
         instance_id: op.instance_id,
         action: "create_instance",

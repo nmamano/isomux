@@ -39,15 +39,15 @@ const REC: RunRecord = {
   secretId: 444452,
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "isomux-cp-runs-"));
 });
-afterEach(() => {
+afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe("durability", () => {
-  test("everything needed to reconnect is on disk, not just in memory", () => {
+  test("everything needed to reconnect is on disk, not just in memory", async () => {
     saveRun(dir, REC);
     const raw = JSON.parse(
       fs.readFileSync(runFile(dir, "cycleX"), "utf8"),
@@ -67,13 +67,13 @@ describe("durability", () => {
     }
   });
 
-  test("leaves no temp file behind, so a reader never sees a half-written record", () => {
+  test("leaves no temp file behind, so a reader never sees a half-written record", async () => {
     saveRun(dir, REC);
     expect(fs.readdirSync(dir).filter((f) => f.endsWith(".tmp"))).toEqual([]);
     expect(fs.readdirSync(dir)).toEqual(["cycleX.json"]);
   });
 
-  test("a missing record reads as absent; a broken one is not silently absent", () => {
+  test("a missing record reads as absent; a broken one is not silently absent", async () => {
     expect(loadRun(dir, "never-existed")).toBeNull();
     fs.writeFileSync(runFile(dir, "broken"), "{ not json");
     expect(() => loadRun(dir, "broken")).toThrow();
@@ -83,7 +83,7 @@ describe("durability", () => {
 // M8. The record must already exist at the instant the provider is asked to
 // rebuild, because after that instant we may never get another chance to write.
 describe("M8: death between the provider call and the record write", () => {
-  test("a restart after the reinstall was issued can still reach the box", () => {
+  test("a restart after the reinstall was issued can still reach the box", async () => {
     // What the CLI does, in order: persist, THEN reinstall.
     saveRun(dir, REC);
     const reinstallIssued = () => {
@@ -99,12 +99,12 @@ describe("M8: death between the provider call and the record write", () => {
     expect(recovered!.ipv4).toBe(REC.ipv4);
   });
 
-  test("the resumed run waits for SSH; it does NOT reinstall or mint a second key", () => {
+  test("the resumed run waits for SSH; it does NOT reinstall or mint a second key", async () => {
     saveRun(dir, REC);
     expect(resumeAction(loadRun(dir, "cycleX")!)).toBe("wait_for_ssh");
   });
 
-  test("each later state resumes at its own point, and none of them rebuild", () => {
+  test("each later state resumes at its own point, and none of them rebuild", async () => {
     const actions = (
       ["reachable", "first_contact_done", "revoked"] as const
     ).map((state) => resumeAction({ ...REC, state }));

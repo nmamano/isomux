@@ -13,14 +13,14 @@ import { powerOffHandler } from "./suspension.ts";
 const NOW = 1_770_000_000_000;
 const temps: string[] = [];
 
-function tempStore(): Store {
+async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-suspend-"));
   temps.push(dir);
-  return new Store(path.join(dir, "cp.db"), () => NOW);
+  return await Store.open(path.join(dir, "cp.db"), () => NOW);
 }
 
-function seed(store: Store, withAsset = true): string {
-  store.createInstance({
+async function seed(store: Store, withAsset = true): Promise<string> {
+  await store.createInstance({
     id: "inst-1",
     run_id: "run-1",
     name: "cp1.test.isomux.app",
@@ -31,54 +31,57 @@ function seed(store: Store, withAsset = true): string {
     access_window_expires_at: null,
   });
   if (withAsset) {
-    store.tx(() =>
-      store.createAsset({
-        id: "asset-1",
-        instance_id: "inst-1",
-        provider: "contabo",
-        provider_id: "203474835",
-        intent_id: null,
-        asset_state: "active",
-        ipv4: "169.58.97.2",
-        service_ends_at: null,
-        host_key_fingerprint: null,
-        next_reconcile_at: NOW + 60_000,
-      }),
+    await store.tx(
+      async () =>
+        await store.createAsset({
+          id: "asset-1",
+          instance_id: "inst-1",
+          provider: "contabo",
+          provider_id: "203474835",
+          intent_id: null,
+          asset_state: "active",
+          ipv4: "169.58.97.2",
+          service_ends_at: null,
+          host_key_fingerprint: null,
+          next_reconcile_at: NOW + 60_000,
+        }),
     );
   }
   return "inst-1";
 }
 
-function context(store: Store, opId: string) {
-  const op = store.getOperation(opId)!;
-  const leased = store.tryLease(
+async function context(store: Store, opId: string) {
+  const op = (await store.getOperation(opId))!;
+  const leased = (await store.tryLease(
     opId,
     op.version,
     "holder-1",
     NOW + 300_000,
     NOW,
-  )!;
+  ))!;
   const audits: string[] = [];
   return {
     audits,
     ctx: {
       store,
       op: leased,
-      instance: store.getInstance("inst-1")!,
-      asset: store.assetForInstance("inst-1"),
+      instance: (await store.getInstance("inst-1"))!,
+      asset: await store.assetForInstance("inst-1"),
       fence: { id: opId, version: leased.version, holder: "holder-1" },
       budget: new RemoteBudget(NOW + 60_000, NOW + 300_000, () => NOW),
       now: NOW,
       report: () => {},
-      audit: (action: string, outcome: string, detail?: string) =>
-        audits.push(`${action}:${outcome}${detail ? `:${detail}` : ""}`),
+      audit: (action: string, outcome: string, detail?: string) => {
+        audits.push(`${action}:${outcome}${detail ? `:${detail}` : ""}`);
+        return Promise.resolve();
+      },
     },
   };
 }
 
-function enqueuePowerOff(store: Store, id = "op-power_off-dun-1") {
+async function enqueuePowerOff(store: Store, id = "op-power_off-dun-1") {
   const d = deadlinesFor("power_off");
-  return store.enqueue({
+  return await store.enqueue({
     id,
     instance_id: "inst-1",
     kind: "power_off",
@@ -87,21 +90,21 @@ function enqueuePowerOff(store: Store, id = "op-power_off-dun-1") {
   });
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe("the operation model", () => {
-  test("power_off has deadlines, so it can be enqueued at all", () => {
+  test("power_off has deadlines, so it can be enqueued at all", async () => {
     expect(deadlinesFor("power_off")).toMatchObject({
       inactivityMs: 300_000,
       absoluteMs: 1_800_000,
     });
   });
 
-  test("power_on is driven now, and set_dns is the one left undeclared", () => {
+  test("power_on is driven now, and set_dns is the one left undeclared", async () => {
     // Slice 5 built the resume: suspension without it leaves a PAYING
     // customer's box switched off, which is worse than the unruled automation
     // slice 3 declined to invent. set_dns stays undriven because no deployment
@@ -112,7 +115,7 @@ describe("the operation model", () => {
     expect(() => deadlinesFor("set_dns")).toThrow(/does not drive it/);
   });
 
-  test("a proven power-off moves the coarse service state to suspended", () => {
+  test("a proven power-off moves the coarse service state to suspended", async () => {
     expect(serviceStateAfter("power_off")).toBe("suspended");
     expect(serviceStateAfter("verify_https")).toBe("live");
     expect(serviceStateAfter("mint_invite")).toBeNull();
@@ -121,16 +124,16 @@ describe("the operation model", () => {
 
 describe("the handler", () => {
   test("calls the provider once and reports done", async () => {
-    const store = tempStore();
-    seed(store);
-    enqueuePowerOff(store);
+    const store = await tempStore();
+    await seed(store);
+    await enqueuePowerOff(store);
     const called: string[] = [];
     const handler = powerOffHandler({
       powerOff: async (providerId) => {
         called.push(providerId);
       },
     });
-    const { ctx, audits } = context(store, "op-power_off-dun-1");
+    const { ctx, audits } = await context(store, "op-power_off-dun-1");
     const result = await handler.run(ctx);
     expect(called).toEqual(["203474835"]);
     expect(result).toMatchObject({ kind: "done" });
@@ -141,30 +144,30 @@ describe("the handler", () => {
   });
 
   test("an instance with no provider asset is fatal, not retried forever", async () => {
-    const store = tempStore();
-    seed(store, false);
-    enqueuePowerOff(store);
+    const store = await tempStore();
+    await seed(store, false);
+    await enqueuePowerOff(store);
     const handler = powerOffHandler({
       powerOff: async () => {
         throw new Error("must not be called");
       },
     });
-    const { ctx } = context(store, "op-power_off-dun-1");
+    const { ctx } = await context(store, "op-power_off-dun-1");
     expect(await handler.run(ctx)).toMatchObject({ kind: "fatal" });
   });
 
   test("a throw is rethrown for the ticker to classify, with an ambiguous audit row", async () => {
     // A power action is a mutation: a failed call proves nothing about whether the
     // provider applied it.
-    const store = tempStore();
-    seed(store);
-    enqueuePowerOff(store);
+    const store = await tempStore();
+    await seed(store);
+    await enqueuePowerOff(store);
     const handler = powerOffHandler({
       powerOff: async () => {
         throw new Error("provider API timed out");
       },
     });
-    const { ctx, audits } = context(store, "op-power_off-dun-1");
+    const { ctx, audits } = await context(store, "op-power_off-dun-1");
     expect(handler.run(ctx)).rejects.toThrow(/timed out/);
     expect(audits.at(-1)).toContain("power_off:ambiguous");
     expect(handler.timeoutIsRetryable).toBeFalsy();
@@ -173,9 +176,9 @@ describe("the handler", () => {
 
 describe("driven through a ticker", () => {
   test("a successful suspension marks the instance suspended", async () => {
-    const store = tempStore();
-    seed(store);
-    enqueuePowerOff(store);
+    const store = await tempStore();
+    await seed(store);
+    await enqueuePowerOff(store);
     const ticker = new Ticker({
       store,
       handlers: [powerOffHandler({ powerOff: async () => {} })],
@@ -183,23 +186,31 @@ describe("driven through a ticker", () => {
     });
     const summary = await ticker.once();
     expect(summary.completed).toBe(1);
-    expect(store.getOperation("op-power_off-dun-1")?.status).toBe("succeeded");
-    expect(store.getInstance("inst-1")?.service_state).toBe("suspended");
+    expect((await store.getOperation("op-power_off-dun-1"))?.status).toBe(
+      "succeeded",
+    );
+    expect((await store.getInstance("inst-1"))?.service_state).toBe(
+      "suspended",
+    );
   });
 
   test("with NO handler registered, the operation fails loudly and raises attention", async () => {
     // This is what a runnable command in this slice actually does: billing can
     // request a suspension, and nothing here may power a real box off.
-    const store = tempStore();
-    seed(store);
-    enqueuePowerOff(store);
+    const store = await tempStore();
+    await seed(store);
+    await enqueuePowerOff(store);
     const ticker = new Ticker({ store, handlers: [], now: () => NOW });
     await ticker.once();
-    expect(store.getOperation("op-power_off-dun-1")?.status).toBe("failed");
-    expect(store.getInstance("inst-1")?.attention_state).toBe("needs_operator");
-    expect(store.openReasons("inst-1")[0]?.reason).toContain(
+    expect((await store.getOperation("op-power_off-dun-1"))?.status).toBe(
+      "failed",
+    );
+    expect((await store.getInstance("inst-1"))?.attention_state).toBe(
+      "needs_operator",
+    );
+    expect((await store.openReasons("inst-1"))[0]?.reason).toContain(
       "no handler registered",
     );
-    expect(store.getInstance("inst-1")?.service_state).toBe("live");
+    expect((await store.getInstance("inst-1"))?.service_state).toBe("live");
   });
 });

@@ -24,16 +24,16 @@ import { suspensionOperationId } from "./stripe/dunning.ts";
 import { Store, type AssetRow, type OperationRow } from "./store.ts";
 
 const temps: string[] = [];
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-function tempStore(now: () => number): Store {
+async function tempStore(now: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-life-"));
   temps.push(dir);
-  return new Store(path.join(dir, "cp.db"), now);
+  return await Store.open(path.join(dir, "cp.db"), now);
 }
 
 const T = (iso: string): number => Date.parse(iso);
@@ -60,43 +60,43 @@ function clearsOf(d: {
 describe("addUtcMonth: a month, not thirty days", () => {
   // The clamp cases. 31 January plus 30 days is 2 March, which would make the
   // retention promise mean something different in February than in July.
-  test("31 January clamps to the last day of February, non-leap", () => {
+  test("31 January clamps to the last day of February, non-leap", async () => {
     expect(new Date(addUtcMonth(T("2027-01-31T12:00:00Z"))).toISOString()).toBe(
       "2027-02-28T12:00:00.000Z",
     );
   });
 
-  test("31 January clamps to 29 February in a leap year", () => {
+  test("31 January clamps to 29 February in a leap year", async () => {
     expect(new Date(addUtcMonth(T("2028-01-31T12:00:00Z"))).toISOString()).toBe(
       "2028-02-29T12:00:00.000Z",
     );
   });
 
-  test("30 January also clamps, and to the same leap-year day", () => {
+  test("30 January also clamps, and to the same leap-year day", async () => {
     expect(new Date(addUtcMonth(T("2028-01-30T00:00:00Z"))).toISOString()).toBe(
       "2028-02-29T00:00:00.000Z",
     );
   });
 
-  test("31 March clamps into a 30-day month", () => {
+  test("31 March clamps into a 30-day month", async () => {
     expect(new Date(addUtcMonth(T("2027-03-31T00:00:00Z"))).toISOString()).toBe(
       "2027-04-30T00:00:00.000Z",
     );
   });
 
-  test("December rolls the year over and keeps the milliseconds", () => {
+  test("December rolls the year over and keeps the milliseconds", async () => {
     expect(
       new Date(addUtcMonth(T("2027-12-31T23:59:59.999Z"))).toISOString(),
     ).toBe("2028-01-31T23:59:59.999Z");
   });
 
-  test("a day that needs no clamp is not moved", () => {
+  test("a day that needs no clamp is not moved", async () => {
     expect(new Date(addUtcMonth(T("2027-02-28T00:00:00Z"))).toISOString()).toBe(
       "2027-03-28T00:00:00.000Z",
     );
   });
 
-  test("it is NOT thirty days, and February is where that shows", () => {
+  test("it is NOT thirty days, and February is where that shows", async () => {
     const jan = T("2027-01-31T00:00:00Z");
     expect(addUtcMonth(jan) - jan).not.toBe(30 * 86_400_000);
     expect(addUtcMonth(jan)).toBe(T("2027-02-28T00:00:00Z"));
@@ -112,7 +112,7 @@ describe("phaseAt boundaries", () => {
     assetGone: false,
   };
 
-  test("grace is exactly seven days, and the boundary fires ON the instant", () => {
+  test("grace is exactly seven days, and the boundary fires ON the instant", async () => {
     const graceEnd = endedAt + GRACE_MS;
     expect(GRACE_MS).toBe(7 * 24 * 60 * 60 * 1000);
     expect(phaseAt(cancelled, graceEnd - 1).phase).toBe("grace");
@@ -120,7 +120,7 @@ describe("phaseAt boundaries", () => {
     expect(phaseAt(cancelled, graceEnd + 1).phase).toBe("power_off_due");
   });
 
-  test("retention is a calendar month from the power-off, same three points", () => {
+  test("retention is a calendar month from the power-off, same three points", async () => {
     const poweredOffAt = T("2027-01-31T09:00:00Z");
     const facts = { ...cancelled, poweredOffAt };
     const retentionEnd = T("2027-02-28T09:00:00Z");
@@ -130,7 +130,7 @@ describe("phaseAt boundaries", () => {
     expect(phaseAt(facts, retentionEnd + 1).phase).toBe("deprovision_due");
   });
 
-  test("a scheduled cancellation that has not taken effect is still serving", () => {
+  test("a scheduled cancellation that has not taken effect is still serving", async () => {
     // No ended_at: the customer can still change their mind, and no operation of
     // this lifecycle may be opened while they can.
     const scheduled = { ...cancelled, endedAt: null };
@@ -138,14 +138,14 @@ describe("phaseAt boundaries", () => {
     expect(phaseAt(scheduled, 0).graceEnd).toBeNull();
   });
 
-  test("a dunning cancellation is not this machine's business", () => {
+  test("a dunning cancellation is not this machine's business", async () => {
     const dunning = { ...cancelled, cancellationReason: "payment_failed" };
     expect(phaseAt(dunning, T("2030-01-01T00:00:00Z")).phase).toBe("serving");
     expect(isCustomerCancellation(dunning)).toBe(false);
     expect(isCustomerCancellation(cancelled)).toBe(true);
   });
 
-  test("provider truth, not our deadline, is what ends it", () => {
+  test("provider truth, not our deadline, is what ends it", async () => {
     const facts = {
       ...cancelled,
       poweredOffAt: T("2027-01-31T09:00:00Z"),
@@ -203,7 +203,7 @@ describe("the retention anchor is THIS cancellation's power_off", () => {
   const endedAt = T("2027-06-10T00:00:00Z");
   const mine = lifecycleOperationId("power_off", "sub_1", endedAt);
 
-  test("an old dunning suspension cannot advance the deletion clock", () => {
+  test("an old dunning suspension cannot advance the deletion clock", async () => {
     // The failure this guards: a customer suspended for non-payment in January,
     // recovered, then cancelled in June. Anchoring on "the latest succeeded
     // power_off" would read January's row and make deprovision due immediately.
@@ -237,7 +237,7 @@ describe("the retention anchor is THIS cancellation's power_off", () => {
     expect(decision.open.map((o) => o.kind)).toEqual(["power_off"]);
   });
 
-  test("after a resume, the LATER lifecycle power_off is the anchor", () => {
+  test("after a resume, the LATER lifecycle power_off is the anchor", async () => {
     const dunning = op({
       id: suspensionOperationId("dun-evt_1"),
       evidence: JSON.stringify({
@@ -273,7 +273,7 @@ describe("the retention anchor is THIS cancellation's power_off", () => {
     ).toBe("deprovision_due");
   });
 
-  test("a power-off that lands after midnight moves the month with it", () => {
+  test("a power-off that lands after midnight moves the month with it", async () => {
     // The client used to project this from the GRACE END, which is a different
     // day whenever the power-off crosses midnight or a month boundary. The
     // machine measures from the instant it actually happened.
@@ -293,7 +293,7 @@ describe("the retention anchor is THIS cancellation's power_off", () => {
     expect(day(addUtcMonth(late))).toBe("2027-03-01");
   });
 
-  test("a power_off that has not succeeded is not an anchor", () => {
+  test("a power_off that has not succeeded is not an anchor", async () => {
     const running = op({
       id: mine,
       status: "running",
@@ -319,7 +319,7 @@ describe("decideLifecycle", () => {
     cancellationReason: CUSTOMER_CANCELLATION_REASON,
   };
 
-  test("inside the grace week it opens nothing at all", () => {
+  test("inside the grace week it opens nothing at all", async () => {
     const d = decideLifecycle({
       instance,
       asset: asset(),
@@ -331,7 +331,7 @@ describe("decideLifecycle", () => {
     expect(d.phase).toBe("grace");
   });
 
-  test("at the retention deadline it opens BOTH, and neither waits for the other", () => {
+  test("at the retention deadline it opens BOTH, and neither waits for the other", async () => {
     const poweredOffAt = T("2027-06-17T00:00:00Z");
     const d = decideLifecycle({
       instance,
@@ -359,7 +359,7 @@ describe("decideLifecycle", () => {
     }
   });
 
-  test("lifecycle rows on a non-terminal subscription raise a person", () => {
+  test("lifecycle rows on a non-terminal subscription raise a person", async () => {
     const d = decideLifecycle({
       instance,
       asset: asset(),
@@ -377,7 +377,7 @@ describe("decideLifecycle", () => {
     expect(raiseOf(d)?.reason).toContain("is not terminal");
   });
 
-  test("data end is recorded from provider truth, once", () => {
+  test("data end is recorded from provider truth, once", async () => {
     const gone = decideLifecycle({
       instance,
       asset: asset({ asset_state: "cancelled" }),
@@ -418,7 +418,7 @@ describe("an asset that goes BEFORE the promise expires", () => {
     }),
   });
 
-  test("gone DURING THE GRACE WEEK is a broken promise, not a normal end", () => {
+  test("gone DURING THE GRACE WEEK is a broken promise, not a normal end", async () => {
     // The whole failure this covers: the data is gone while the customer was
     // told they had until March, and the ordinary ended arm would have recorded
     // the data end silently.
@@ -436,7 +436,7 @@ describe("an asset that goes BEFORE the promise expires", () => {
     expect(d.note).toContain("promise broken");
   });
 
-  test("gone DURING THE RETENTION MONTH is a broken promise too", () => {
+  test("gone DURING THE RETENTION MONTH is a broken promise too", async () => {
     const d = decideLifecycle({
       instance,
       asset: asset({ asset_state: "absent" }),
@@ -448,7 +448,7 @@ describe("an asset that goes BEFORE the promise expires", () => {
     expect(d.finish).toBe(true);
   });
 
-  test("a term that ended early is a BROKEN promise however late we notice", () => {
+  test("a term that ended early is a BROKEN promise however late we notice", async () => {
     // The failure this covers: retention deadline 7 March, provider term ended
     // 1 March, and the first reconcile that sees `cancelled` runs on 20 March.
     // Keying on the observation time alone made that a silent, ordinary data
@@ -466,7 +466,7 @@ describe("an asset that goes BEFORE the promise expires", () => {
     expect(d.note).toContain("promise broken");
   });
 
-  test("a term that ran past the deadline is an ordinary end, however we look", () => {
+  test("a term that ran past the deadline is an ordinary end, however we look", async () => {
     const d = decideLifecycle({
       instance,
       asset: asset({ asset_state: "cancelled", service_ends_at: "2027-08-29" }),
@@ -478,7 +478,7 @@ describe("an asset that goes BEFORE the promise expires", () => {
     expect(clearsOf(d)).toEqual([PROMISE_AT_RISK]);
   });
 
-  test("gone AT the deadline, and after it, is the ordinary end", () => {
+  test("gone AT the deadline, and after it, is the ordinary end", async () => {
     const retentionEnd = addUtcMonth(T("2027-02-07T09:00:00Z"));
     for (const now of [retentionEnd, retentionEnd + 86_400_000]) {
       const d = decideLifecycle({
@@ -494,7 +494,7 @@ describe("an asset that goes BEFORE the promise expires", () => {
     }
   });
 
-  test("the promise has a PROJECTED deadline before the power-off exists", () => {
+  test("the promise has a PROJECTED deadline before the power-off exists", async () => {
     // Otherwise the whole grace week is unwatched: there is no retentionEnd
     // yet, so a term lapsing inside it would compare against nothing.
     const timeline = phaseAt(
@@ -532,7 +532,7 @@ describe("conditions have a stable identity", () => {
     cancellationReason: CUSTOMER_CANCELLATION_REASON,
   };
 
-  test("the broken-promise sentence does not move with the clock", () => {
+  test("the broken-promise sentence does not move with the clock", async () => {
     const at = (now: number) =>
       raiseOf(
         decideLifecycle({
@@ -548,7 +548,7 @@ describe("conditions have a stable identity", () => {
     expect(at(endedAt + 1000)).toBe(at(endedAt + 7 * 86_400_000));
   });
 
-  test("the at-risk sentence does not move when the provider's date does", () => {
+  test("the at-risk sentence does not move when the provider's date does", async () => {
     const reason = (ends: string) =>
       promiseAtRisk(asset({ service_ends_at: ends }), T("2027-07-17T00:00:00Z"))
         ?.reason;
@@ -560,7 +560,7 @@ describe("conditions have a stable identity", () => {
 describe("a provider term that would break the promise", () => {
   const retentionEnd = T("2027-07-17T00:00:00Z");
 
-  test("a term ending BEFORE the retention deadline is a critical attention case", () => {
+  test("a term ending BEFORE the retention deadline is a critical attention case", async () => {
     const risk = promiseAtRisk(
       asset({ service_ends_at: "2027-07-01" }),
       retentionEnd,
@@ -569,7 +569,7 @@ describe("a provider term that would break the promise", () => {
     expect(risk?.reason).toContain("BEFORE the retention deadline");
   });
 
-  test("a term ending after it is not, and never shortens anything", () => {
+  test("a term ending after it is not, and never shortens anything", async () => {
     expect(
       promiseAtRisk(asset({ service_ends_at: "2027-08-29" }), retentionEnd),
     ).toBeNull();
@@ -582,7 +582,7 @@ describe("a provider term that would break the promise", () => {
     ).toBeNull();
   });
 
-  test("a date we cannot parse is unknown, not safe", () => {
+  test("a date we cannot parse is unknown, not safe", async () => {
     expect(parseServiceEndsAt("not a date")).toBeNull();
     expect(parseServiceEndsAt("2026-08-29")).toBe(T("2026-08-29T00:00:00Z"));
     expect(
@@ -592,25 +592,25 @@ describe("a provider term that would break the promise", () => {
 });
 
 describe("operation ids", () => {
-  test("the lifecycle's ids cannot collide with a dunning suspension's", () => {
+  test("the lifecycle's ids cannot collide with a dunning suspension's", async () => {
     const endedAt = T("2027-06-10T00:00:00Z");
     expect(lifecycleOperationId("power_off", "sub_1", endedAt)).not.toBe(
       suspensionOperationId("dun-evt_1"),
     );
   });
 
-  test("they are stable under replay: same anchor, same id", () => {
+  test("they are stable under replay: same anchor, same id", async () => {
     const endedAt = T("2027-06-10T00:00:00Z");
     expect(lifecycleOperationId("cancel_asset", "sub_1", endedAt)).toBe(
       lifecycleOperationId("cancel_asset", "sub_1", endedAt),
     );
   });
 
-  test("a store can hold one, which is what makes the id the arbiter", () => {
-    const store = tempStore(() => 1_000);
+  test("a store can hold one, which is what makes the id the arbiter", async () => {
+    const store = await tempStore(() => 1_000);
     const endedAt = T("2027-06-10T00:00:00Z");
     const id = lifecycleOperationId("power_off", "sub_1", endedAt);
-    store.createInstance({
+    await store.createInstance({
       id: "inst-1",
       run_id: null,
       name: "cp1.test.isomux.app",
@@ -620,14 +620,14 @@ describe("operation ids", () => {
       goal: "live",
       access_window_expires_at: null,
     });
-    store.enqueue({
+    await store.enqueue({
       id,
       instance_id: "inst-1",
       kind: "power_off",
       inactivity_deadline_at: 2_000,
       absolute_deadline_at: 3_000,
     });
-    expect(() =>
+    expect(
       store.enqueue({
         id,
         instance_id: "inst-1",
@@ -635,7 +635,7 @@ describe("operation ids", () => {
         inactivity_deadline_at: 2_000,
         absolute_deadline_at: 3_000,
       }),
-    ).toThrow();
-    store.close();
+    ).rejects.toThrow();
+    await store.close();
   });
 });

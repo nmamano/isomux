@@ -38,20 +38,21 @@ export interface LifecycleTickSummary {
  * examined. Narrowing the scan to terminal rows would have made that arm
  * unreachable, which is the same as not having written it.
  */
-function cancelledSubscriptions(store: Store): SubscriptionRow[] {
-  return store.db
-    .query<
-      SubscriptionRow,
-      []
-    >("select * from subscriptions where instance_id is not null " + "and (ended_at is not null or cancellation_reason is not null) " + "order by ended_at")
-    .all();
+async function cancelledSubscriptions(
+  store: Store,
+): Promise<SubscriptionRow[]> {
+  return store.sqlAll<SubscriptionRow>(
+    "select * from subscriptions where instance_id is not null " +
+      "and (ended_at is not null or cancellation_reason is not null) " +
+      "order by ended_at",
+  );
 }
 
-export function lifecycleTick(
+export async function lifecycleTick(
   store: Store,
   now: number = store.now(),
   report: (line: string) => void = () => {},
-): LifecycleTickSummary {
+): Promise<LifecycleTickSummary> {
   const summary: LifecycleTickSummary = {
     examined: 0,
     opened: 0,
@@ -61,7 +62,7 @@ export function lifecycleTick(
     phases: {},
   };
 
-  for (const scanned of cancelledSubscriptions(store)) {
+  for (const scanned of await cancelledSubscriptions(store)) {
     summary.examined++;
     let committed: {
       opened: string[];
@@ -72,28 +73,28 @@ export function lifecycleTick(
       note: string;
     } | null = null;
     try {
-      committed = store.tx(() => {
+      // Awaited inside the try: the catch below is what keeps one failing
+      // subscription from ending the whole pass.
+      committed = await store.tx(async () => {
         // RE-READ AND RE-DECIDE. A webhook can move this subscription between
         // the scan and here, and the field that moves is the one that decides
         // whether somebody's box gets powered off.
-        const sub = store.db
-          .query<
-            SubscriptionRow,
-            [string]
-          >("select * from subscriptions where id = ?")
-          .get(scanned.id);
+        const sub = await store.sqlGet<SubscriptionRow>(
+          "select * from subscriptions where id = ?",
+          [scanned.id],
+        );
         // Deliberately NOT short-circuiting on a null ended_at. decideLifecycle
         // is what decides that a non-terminal subscription is not this
         // machine's business - and it is also what notices the one case where
         // that is alarming rather than ordinary.
         if (!sub || !sub.instance_id) return null;
-        const instance = store.getInstance(sub.instance_id);
+        const instance = await store.getInstance(sub.instance_id);
         if (!instance) return null;
 
         const decision = decideLifecycle({
           instance,
-          asset: store.assetForInstance(instance.id),
-          operations: store.operationsFor(instance.id),
+          asset: await store.assetForInstance(instance.id),
+          operations: await store.operationsFor(instance.id),
           subscription: {
             id: sub.id,
             endedAt: sub.ended_at,
@@ -109,9 +110,9 @@ export function lifecycleTick(
           // terminal one - means this rung has been walked and must not be
           // walked twice. The index alone stops holding the moment a row goes
           // terminal, which is the exact hole suspension.ts documents.
-          if (store.getOperation(spec.id)) continue;
+          if (await store.getOperation(spec.id)) continue;
           const d = deadlinesFor(spec.kind);
-          store.enqueue({
+          await store.enqueue({
             id: spec.id,
             instance_id: instance.id,
             kind: spec.kind,
@@ -119,7 +120,7 @@ export function lifecycleTick(
             absolute_deadline_at: now + d.absoluteMs,
             evidence: spec.evidence,
           });
-          store.appendAudit({
+          await store.appendAudit({
             actor: LIFECYCLE_TICK_ACTOR,
             instance_id: instance.id,
             action: `lifecycle_${spec.kind}`,
@@ -135,15 +136,15 @@ export function lifecycleTick(
           // The data end, and the ONE place it is recorded. Provider truth said
           // the asset is gone; our deadline passing never says that.
           if (
-            !store.casInstance(instance.id, instance.version, {
+            !(await store.casInstance(instance.id, instance.version, {
               service_state: "deprovisioned",
-            })
+            }))
           ) {
             throw new Error(
               `instance ${instance.id} moved while its data end was being recorded`,
             );
           }
-          store.appendAudit({
+          await store.appendAudit({
             actor: LIFECYCLE_TICK_ACTOR,
             instance_id: instance.id,
             action: "data_end",
@@ -166,7 +167,7 @@ export function lifecycleTick(
             // opening another critical row. The dated evidence rides in the
             // audit detail, never in the identity.
             raised =
-              raiseAttentionIn(store, {
+              (await raiseAttentionIn(store, {
                 instanceId: instance.id,
                 reasonClass: "operation_condition",
                 sourceOpId: action.key,
@@ -174,15 +175,20 @@ export function lifecycleTick(
                 severity: action.severity,
                 actor: LIFECYCLE_TICK_ACTOR,
                 ...(action.detail ? { detail: action.detail } : {}),
-              }) || raised;
+              })) || raised;
             continue;
           }
           // ONLY the keyed condition, and only that one. A broken promise is
           // irreversible and carries a different key, so nothing here can
           // clear it.
-          for (const open of store.openReasons(instance.id)) {
+          for (const open of await store.openReasons(instance.id)) {
             if (open.source_op_id !== action.key) continue;
-            clearAttentionIn(store, instance.id, open.id, LIFECYCLE_TICK_ACTOR);
+            await clearAttentionIn(
+              store,
+              instance.id,
+              open.id,
+              LIFECYCLE_TICK_ACTOR,
+            );
             cleared++;
           }
         }

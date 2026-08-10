@@ -19,19 +19,19 @@ export type BillingAttention =
 
 /** Must run inside the caller's transaction: the condition and its audit row are
  * halves of one transition. */
-export function applyBillingAttention(
+export async function applyBillingAttention(
   store: Store,
   sub: SubscriptionRow,
   attention: BillingAttention,
   actor: string,
-): void {
+): Promise<void> {
   if (!store.inTransaction()) {
     throw new Error("applyBillingAttention must run inside a transaction");
   }
   if (attention.kind === "none") return;
 
   if (!sub.instance_id) {
-    store.appendAudit({
+    await store.appendAudit({
       actor,
       instance_id: null,
       action:
@@ -49,7 +49,7 @@ export function applyBillingAttention(
   }
 
   if (attention.kind === "raise") {
-    raiseAttentionIn(store, {
+    await raiseAttentionIn(store, {
       instanceId: sub.instance_id,
       // The SUBSCRIPTION is the source of this condition. Not an operation id and
       // not empty: keying on it is what lets a billing condition be cleared
@@ -63,8 +63,8 @@ export function applyBillingAttention(
     return;
   }
 
-  for (const reason of store.openReasons(sub.instance_id)) {
+  for (const reason of await store.openReasons(sub.instance_id)) {
     if (reason.source_op_id !== sub.id) continue;
-    clearAttentionIn(store, sub.instance_id, reason.id, actor);
+    await clearAttentionIn(store, sub.instance_id, reason.id, actor);
   }
 }

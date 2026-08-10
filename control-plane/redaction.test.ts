@@ -26,14 +26,14 @@ let stdout: string[] = [];
 let stderr: string[] = [];
 let sink: Sink;
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "isomux-cp-redact-"));
   auditFile = path.join(dir, "audit.jsonl");
   stdout = [];
   stderr = [];
   sink = { out: (l) => stdout.push(l), err: (l) => stderr.push(l) };
 });
-afterEach(() => {
+afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -42,7 +42,7 @@ function auditBytes(): string {
 }
 
 describe("the audit log", () => {
-  test("records that a mint happened, never the URL", () => {
+  test("records that a mint happened, never the URL", async () => {
     const audit = new AuditLog(auditFile, "isomuxer2");
     audit.record("mint_invite", "cp1.test.isomux.app", "succeeded");
     const bytes = auditBytes();
@@ -51,7 +51,7 @@ describe("the audit log", () => {
     expect(bytes).not.toContain("/i/");
   });
 
-  test("has no field that accepts raw output, so key material cannot arrive", () => {
+  test("has no field that accepts raw output, so key material cannot arrive", async () => {
     const audit = new AuditLog(auditFile, "isomuxer2");
     // `detail` is the only free-ish field, and it takes a classified reason.
     // Even handed something secret-shaped, the log must not grow a key.
@@ -61,7 +61,7 @@ describe("the audit log", () => {
     expect(bytes).toContain("host key mismatch");
   });
 
-  test("is append-only across records", () => {
+  test("is append-only across records", async () => {
     const audit = new AuditLog(auditFile, "isomuxer2");
     audit.record("run_installer", "r1", "started");
     audit.record("run_installer", "r1", "succeeded");
@@ -70,7 +70,7 @@ describe("the audit log", () => {
 });
 
 describe("the operator transcript", () => {
-  test("the operator sees the invite live; the transcript does not keep it", () => {
+  test("the operator sees the invite live; the transcript does not keep it", async () => {
     const reporter = new Reporter(sink);
     reporter.invite(FAKE_INVITE);
 
@@ -82,7 +82,7 @@ describe("the operator transcript", () => {
     expect(reporter.transcript.join("\n")).toContain("<invite url redacted>");
   });
 
-  test("key material in an ordinary line is redacted from the transcript", () => {
+  test("key material in an ordinary line is redacted from the transcript", async () => {
     const reporter = new Reporter(sink);
     reporter.problem(`command failed, output was:\n${FAKE_KEY}`);
     expect(reporter.transcript.join("\n")).not.toContain(
@@ -93,7 +93,7 @@ describe("the operator transcript", () => {
     );
   });
 
-  test("an invite anywhere in a line is caught, not just a bare one", () => {
+  test("an invite anywhere in a line is caught, not just a bare one", async () => {
     expect(redactForTranscript(`see ${FAKE_INVITE} now`)).not.toContain(
       "NOTAREALTOKEN",
     );
@@ -101,7 +101,7 @@ describe("the operator transcript", () => {
 });
 
 describe("no stream leaks", () => {
-  test("nothing secret-shaped reaches audit, stderr or the transcript", () => {
+  test("nothing secret-shaped reaches audit, stderr or the transcript", async () => {
     const audit = new AuditLog(auditFile, "isomuxer2");
     const reporter = new Reporter(sink);
 

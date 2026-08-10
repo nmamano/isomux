@@ -101,8 +101,8 @@ export class CreateLatch {
    * read. Database unavailability is a reason to refuse to spend, never a reason
    * to proceed.
    */
-  armOnce(req: ArmRequest, fence: Fence): ArmResult {
-    const armed = this.store.tx(() => {
+  async armOnce(req: ArmRequest, fence: Fence): Promise<ArmResult> {
+    const armed = await this.store.tx(async () => {
       // The legacy journal can only veto. It fails closed on its own terms:
       // only ENOENT reads as absent, and a permission error or corrupt JSON
       // throws - which rolls this transaction back and refuses the create.
@@ -116,7 +116,10 @@ export class CreateLatch {
       // No SELECT in front of this. The primary key is the arbiter, exactly as
       // O_EXCL was: two workers holding the same pre-read cannot both pass.
       try {
-        this.store.db.run(
+        // Awaited inside the try: an unawaited insert would reject after this
+        // frame has left, and the LatchRefused below - which is what forbids a
+        // create - would never be raised.
+        await this.store.sqlRun(
           "insert into create_intents (intent_id, state, latched_at, plan, region, version) " +
             "values (?, 'intended', ?, ?, ?, 1)",
           [req.intentId, this.store.now(), req.plan, req.region],
@@ -129,7 +132,7 @@ export class CreateLatch {
         );
       }
 
-      const op = this.store.casOperation(fence, {
+      const op = await this.store.casOperation(fence, {
         status: "running",
         evidence: { phase: CREATE_ARMED_PHASE, intentId: req.intentId },
         evidence_at: this.store.now(),
@@ -144,7 +147,7 @@ export class CreateLatch {
         );
       }
 
-      this.store.appendAudit({
+      await this.store.appendAudit({
         actor: "control-plane",
         instance_id: op.instance_id,
         action: "arm_create",
@@ -167,7 +170,10 @@ export class CreateLatch {
  * forbidding. The legacy files are never deleted or rewritten: they stay as
  * evidence and keep vetoing for the whole slice.
  */
-export function migrateLegacyIntents(store: Store, dir: string): number {
+export async function migrateLegacyIntents(
+  store: Store,
+  dir: string,
+): Promise<number> {
   let names: string[];
   try {
     names = fs.readdirSync(dir);
@@ -187,7 +193,7 @@ export function migrateLegacyIntents(store: Store, dir: string): number {
   for (const name of names) {
     if (!name.endsWith(".json")) continue;
     const intentId = name.slice(0, -".json".length);
-    if (store.getIntent(intentId)) continue;
+    if (await store.getIntent(intentId)) continue;
     let state: "intended" | "created" | "rejected" | "ambiguous" = "ambiguous";
     let plan = "unknown";
     let region = "unknown";
@@ -220,13 +226,13 @@ export function migrateLegacyIntents(store: Store, dir: string): number {
       state = "ambiguous";
       reason = "legacy journal record unreadable";
     }
-    store.tx(() => {
-      store.db.run(
+    await store.tx(() =>
+      store.sqlRun(
         "insert into create_intents (intent_id, state, latched_at, plan, region, " +
           "provider_id, reason, version) values (?, ?, ?, ?, ?, ?, ?, 1)",
         [intentId, state, store.now(), plan, region, providerId, reason],
-      );
-    });
+      ),
+    );
     imported++;
   }
   return imported;

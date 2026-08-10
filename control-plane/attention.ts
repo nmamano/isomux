@@ -38,18 +38,21 @@ export interface RaiseArgs {
 }
 
 /** Must run inside a transaction the caller owns. */
-export function raiseAttentionIn(store: Store, args: RaiseArgs): boolean {
+export async function raiseAttentionIn(
+  store: Store,
+  args: RaiseArgs,
+): Promise<boolean> {
   if (!store.inTransaction()) {
     throw new Error("raiseAttentionIn must run inside a transaction");
   }
   const sourceOpId = args.sourceOpId ?? "";
-  const already = store
-    .openReasons(args.instanceId)
-    .some((r) => r.source_op_id === sourceOpId && r.reason === args.reason);
+  const already = (await store.openReasons(args.instanceId)).some(
+    (r) => r.source_op_id === sourceOpId && r.reason === args.reason,
+  );
   if (already) return false;
 
-  store.insertReason({
-    id: `att-${store.nextSeq("audit")}-${sourceOpId || "none"}`,
+  await store.insertReason({
+    id: `att-${await store.nextSeq("audit")}-${sourceOpId || "none"}`,
     instance_id: args.instanceId,
     source_op_id: sourceOpId,
     reason_class: args.reasonClass,
@@ -60,8 +63,8 @@ export function raiseAttentionIn(store: Store, args: RaiseArgs): boolean {
     acknowledged_at: null,
     acknowledged_by: null,
   });
-  summarise(store, args.instanceId);
-  store.appendAudit({
+  await summarise(store, args.instanceId);
+  await store.appendAudit({
     actor: args.actor ?? "control-plane",
     instance_id: args.instanceId,
     action: "raise_attention",
@@ -73,37 +76,42 @@ export function raiseAttentionIn(store: Store, args: RaiseArgs): boolean {
 }
 
 /** Read the instance, then CAS its summary against exactly that read. */
-function summarise(store: Store, instanceId: string): void {
-  const inst = store.getInstance(instanceId);
+async function summarise(store: Store, instanceId: string): Promise<void> {
+  const inst = await store.getInstance(instanceId);
   if (!inst) throw new Error(`no instance ${instanceId} to summarise`);
-  store.refreshAttentionSummary(instanceId, inst.version);
+  await store.refreshAttentionSummary(instanceId, inst.version);
 }
 
-export function raiseAttention(store: Store, args: RaiseArgs): boolean {
+export async function raiseAttention(
+  store: Store,
+  args: RaiseArgs,
+): Promise<boolean> {
   return store.tx(() => raiseAttentionIn(store, args));
 }
 
 /** Clear ONE reason by id. Clearing is a statement about that condition, never
  * about the instance as a whole. */
-export function clearAttentionIn(
+export async function clearAttentionIn(
   store: Store,
   instanceId: string,
   reasonId: string,
   actor = "control-plane",
-): void {
+): Promise<void> {
   if (!store.inTransaction()) {
     throw new Error("clearAttentionIn must run inside a transaction");
   }
-  const row = store.openReasons(instanceId).find((r) => r.id === reasonId);
+  const row = (await store.openReasons(instanceId)).find(
+    (r) => r.id === reasonId,
+  );
   if (!row) return;
-  if (!store.clearReason(reasonId, row.version, store.now())) {
+  if (!(await store.clearReason(reasonId, row.version, store.now()))) {
     throw new Error(
       `attention reason ${reasonId} moved while being cleared; re-read rather ` +
         `than overwriting the winner`,
     );
   }
-  summarise(store, instanceId);
-  store.appendAudit({
+  await summarise(store, instanceId);
+  await store.appendAudit({
     actor,
     instance_id: instanceId,
     action: "clear_attention",
@@ -113,13 +121,13 @@ export function clearAttentionIn(
   });
 }
 
-export function clearAttention(
+export async function clearAttention(
   store: Store,
   instanceId: string,
   reasonId: string,
   actor = "control-plane",
-): void {
-  store.tx(() => clearAttentionIn(store, instanceId, reasonId, actor));
+): Promise<void> {
+  await store.tx(() => clearAttentionIn(store, instanceId, reasonId, actor));
 }
 
 // Acknowledgement used to live here and MOVED to attention-ack.ts in slice 5.

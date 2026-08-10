@@ -9,22 +9,22 @@ import { TokenProvider, type FetchLike } from "./contabo/auth.ts";
 
 let dir = "";
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "isomux-cp-intents-"));
 });
-afterEach(() => {
+afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
 describe("the pre-call latch", () => {
-  test("an unlatched intent may create; a latched one never may again", () => {
+  test("an unlatched intent may create; a latched one never may again", async () => {
     const j = new IntentJournal(dir);
     expect(j.canCreate("i1")).toBe(true);
     j.latchBeforeCreate("i1", { plan: "V153", region: "EU" });
     expect(j.canCreate("i1")).toBe(false);
   });
 
-  test("latching twice is refused rather than silently allowed", () => {
+  test("latching twice is refused rather than silently allowed", async () => {
     const j = new IntentJournal(dir);
     j.latchBeforeCreate("i1", { plan: "V153", region: "EU" });
     expect(() =>
@@ -32,7 +32,7 @@ describe("the pre-call latch", () => {
     ).toThrow(/permanently forbidden/);
   });
 
-  test("even a clean rejection does not unlock the intent", () => {
+  test("even a clean rejection does not unlock the intent", async () => {
     const j = new IntentJournal(dir);
     j.latchBeforeCreate("i1", { plan: "V153", region: "EU" });
     j.recordOutcome("i1", { state: "rejected", reason: "HTTP 400" });
@@ -41,7 +41,7 @@ describe("the pre-call latch", () => {
     expect(j.canCreate("i1")).toBe(false);
   });
 
-  test("a latched-but-unresolved intent is reported as pending, for find/list only", () => {
+  test("a latched-but-unresolved intent is reported as pending, for find/list only", async () => {
     const j = new IntentJournal(dir);
     j.latchBeforeCreate("i1", { plan: "V153", region: "EU" });
     j.latchBeforeCreate("i2", { plan: "V153", region: "EU" });
@@ -95,7 +95,7 @@ describe("M5: death at the network boundary", () => {
     expect(afterRestart.read(intentId)?.state).toBe("intended");
   });
 
-  test("the latch is on disk before the call could possibly have been made", () => {
+  test("the latch is on disk before the call could possibly have been made", async () => {
     const journal = new IntentJournal(dir);
     journal.latchBeforeCreate("ordering", { plan: "V153", region: "EU" });
     // Read the bytes, not the object: the guarantee is durability, not that we
@@ -112,13 +112,13 @@ describe("M5: death at the network boundary", () => {
 // permissions slip or a corrupt file into permission to buy another box, which
 // is the single outcome this file exists to prevent.
 describe("failing closed", () => {
-  test("a corrupt journal throws rather than reporting absence", () => {
+  test("a corrupt journal throws rather than reporting absence", async () => {
     const j = new IntentJournal(dir);
     fs.writeFileSync(path.join(dir, "corrupt.json"), "{ not json");
     expect(() => j.canCreate("corrupt")).toThrow(/corrupt/i);
   });
 
-  test("an unreadable journal throws rather than reporting absence", () => {
+  test("an unreadable journal throws rather than reporting absence", async () => {
     const j = new IntentJournal(dir);
     const f = path.join(dir, "locked.json");
     fs.writeFileSync(
@@ -133,7 +133,7 @@ describe("failing closed", () => {
     }
   });
 
-  test("a genuinely absent record is the ONLY thing that reads as absent", () => {
+  test("a genuinely absent record is the ONLY thing that reads as absent", async () => {
     expect(new IntentJournal(dir).canCreate("never-seen")).toBe(true);
   });
 });
@@ -141,7 +141,7 @@ describe("failing closed", () => {
 // Two workers can both observe "no record" before either writes. The
 // reservation therefore has to be the filesystem's decision, not ours.
 describe("single writer", () => {
-  test("only one of two racing reservations can win", () => {
+  test("only one of two racing reservations can win", async () => {
     const a = new IntentJournal(dir);
     const b = new IntentJournal(dir);
     const meta = { plan: "V153", region: "EU" };
@@ -154,7 +154,7 @@ describe("single writer", () => {
     expect(() => b.reserve("raced", meta)).toThrow(/permanently forbidden/);
   });
 
-  test("the loser leaves the winner's record untouched", () => {
+  test("the loser leaves the winner's record untouched", async () => {
     const a = new IntentJournal(dir);
     const b = new IntentJournal(dir);
     a.reserve("raced2", { plan: "V153", region: "EU" }, 111);

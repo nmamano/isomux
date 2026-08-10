@@ -39,12 +39,12 @@ if (!dbPath || !id || !providerId || providerId === "true") {
       "(999999999) unless an exercise genuinely needs the real one.",
   );
 }
-const store = new Store(dbPath);
-if (store.getInstance(id)) {
+const store = await Store.open(dbPath);
+if (await store.getInstance(id)) {
   console.log(`${id} already exists`);
 } else {
-  store.tx(() => {
-    store.createInstance({
+  await store.tx(async () => {
+    await store.createInstance({
       id,
       run_id: null,
       name: args.get("name") ?? `${id}.test.isomux.app`,
@@ -55,7 +55,7 @@ if (store.getInstance(id)) {
       goal: "handed_off",
       access_window_expires_at: null,
     });
-    store.createAsset({
+    await store.createAsset({
       id: `asset-${id}`,
       instance_id: id,
       provider: "contabo",
@@ -72,4 +72,4 @@ if (store.getInstance(id)) {
   });
   console.log(`${id} seeded (provider ${providerId})`);
 }
-store.close();
+await store.close();

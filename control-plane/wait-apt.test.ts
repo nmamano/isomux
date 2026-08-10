@@ -19,7 +19,7 @@ let dir = "";
 let script = "";
 let lockFile = "";
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "isomux-cp-apt-"));
   script = path.join(dir, "wait-apt.sh");
   lockFile = path.join(dir, "lock-frontend");
@@ -28,7 +28,7 @@ beforeEach(() => {
     mode: 0o755,
   });
 });
-afterEach(() => {
+afterEach(async () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

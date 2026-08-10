@@ -98,7 +98,7 @@ function failure(args: {
 }
 
 describe("the exhaustion predicate", () => {
-  test("an unpaid invoice with no next attempt, on an unpaid subscription", () => {
+  test("an unpaid invoice with no next attempt, on an unpaid subscription", async () => {
     expect(
       observedExhaustion(
         invoice({ nextPaymentAttempt: null }),
@@ -107,13 +107,13 @@ describe("the exhaustion predicate", () => {
     ).toBe(true);
   });
 
-  test("a scheduled retry is not exhaustion", () => {
+  test("a scheduled retry is not exhaustion", async () => {
     expect(
       observedExhaustion(invoice(), snapshot({ status: "past_due" })),
     ).toBe(false);
   });
 
-  test("a paid invoice is never exhaustion, whatever the schedule says", () => {
+  test("a paid invoice is never exhaustion, whatever the schedule says", async () => {
     expect(
       observedExhaustion(
         invoice({ paid: true, nextPaymentAttempt: null }),
@@ -122,7 +122,7 @@ describe("the exhaustion predicate", () => {
     ).toBe(false);
   });
 
-  test("a draft invoice is not exhaustion: it was never attempted", () => {
+  test("a draft invoice is not exhaustion: it was never attempted", async () => {
     expect(
       observedExhaustion(
         invoice({ status: "draft", nextPaymentAttempt: null }),
@@ -131,13 +131,13 @@ describe("the exhaustion predicate", () => {
     ).toBe(false);
   });
 
-  test("no invoice at all is not exhaustion", () => {
+  test("no invoice at all is not exhaustion", async () => {
     expect(observedExhaustion(null, snapshot({ status: "past_due" }))).toBe(
       false,
     );
   });
 
-  test("an uncollectible invoice counts even if the subscription reads active", () => {
+  test("an uncollectible invoice counts even if the subscription reads active", async () => {
     expect(
       observedExhaustion(
         invoice({ status: "uncollectible", nextPaymentAttempt: null }),
@@ -148,7 +148,7 @@ describe("the exhaustion predicate", () => {
 });
 
 describe("the ordinary ladder", () => {
-  test("a first failure opens an episode and suspends nothing", () => {
+  test("a first failure opens an episode and suspends nothing", async () => {
     const d = failure({
       row: row(),
       subscription: snapshot({ status: "past_due" }),
@@ -162,7 +162,7 @@ describe("the ordinary ladder", () => {
     expect(d.suspension).toBeNull();
   });
 
-  test("further failures count up while Stripe is still retrying", () => {
+  test("further failures count up while Stripe is still retrying", async () => {
     const d = failure({
       row: row({
         episode_state: "open",
@@ -177,7 +177,7 @@ describe("the ordinary ladder", () => {
     expect(d.episode.episode_state).toBeUndefined();
   });
 
-  test("exhaustion requests suspension for the OPEN episode's id", () => {
+  test("exhaustion requests suspension for the OPEN episode's id", async () => {
     const d = failure({
       row: row({
         episode_state: "open",
@@ -198,7 +198,7 @@ describe("the ordinary ladder", () => {
     expect(suspensionOperationId("dun-evt_1")).toBe("op-power_off-dun-evt_1");
   });
 
-  test("a second exhaustion event for the same episode asks for nothing more", () => {
+  test("a second exhaustion event for the same episode asks for nothing more", async () => {
     const d = failure({
       row: row({
         episode_state: "suspension_requested",
@@ -216,7 +216,7 @@ describe("the ordinary ladder", () => {
     expect(d.episode.exhaustion_observed_at).toBe(NOW - 1000);
   });
 
-  test("exhaustion on the very first event we see opens and requests at once", () => {
+  test("exhaustion on the very first event we see opens and requests at once", async () => {
     const d = failure({
       row: null,
       subscription: snapshot({ status: "past_due" }),
@@ -232,7 +232,7 @@ describe("the ordinary ladder", () => {
 });
 
 describe("the couponed diversion", () => {
-  test("a lapsed 100%-off account holds instead of entering the ladder", () => {
+  test("a lapsed 100%-off account holds instead of entering the ladder", async () => {
     const d = failure({
       row: row({ ever_full_discount: 1 }),
       subscription: snapshot({ status: "past_due", discount: null }),
@@ -246,7 +246,7 @@ describe("the couponed diversion", () => {
     expect(d.attention).toMatchObject({ kind: "raise", severity: "warning" });
   });
 
-  test("the divert happens on the FIRST failure, not at exhaustion", () => {
+  test("the divert happens on the FIRST failure, not at exhaustion", async () => {
     const d = failure({
       row: row({ ever_full_discount: 1 }),
       subscription: snapshot({ status: "past_due" }),
@@ -256,7 +256,7 @@ describe("the couponed diversion", () => {
     expect(d.episode.episode_state).toBe("coupon_hold");
   });
 
-  test("a still-comped subscription is not a lapse", () => {
+  test("a still-comped subscription is not a lapse", async () => {
     const d = failure({
       row: row({ ever_full_discount: 1 }),
       subscription: snapshot({
@@ -268,7 +268,7 @@ describe("the couponed diversion", () => {
     expect(d.episode.episode_state).toBe("open");
   });
 
-  test("an account that was never comped goes straight into the ladder", () => {
+  test("an account that was never comped goes straight into the ladder", async () => {
     const d = failure({
       row: row({ ever_full_discount: 0 }),
       subscription: snapshot({ status: "past_due" }),
@@ -277,7 +277,7 @@ describe("the couponed diversion", () => {
     expect(d.episode.episode_state).toBe("open");
   });
 
-  test("ever_full_discount is sticky once a full discount has been seen", () => {
+  test("ever_full_discount is sticky once a full discount has been seen", async () => {
     const first = decide({
       row: row(),
       subscription: snapshot({
@@ -302,7 +302,7 @@ describe("the couponed diversion", () => {
     expect(later.stripeOwned.ever_full_discount).toBe(1);
   });
 
-  test("exhaustion during the hold is RECORDED but does not suspend", () => {
+  test("exhaustion during the hold is RECORDED but does not suspend", async () => {
     const d = failure({
       row: row({
         ever_full_discount: 1,
@@ -320,7 +320,7 @@ describe("the couponed diversion", () => {
 });
 
 describe("recovery", () => {
-  test("an authoritative return to active closes the episode and clears attention", () => {
+  test("an authoritative return to active closes the episode and clears attention", async () => {
     const d = decide({
       row: row({
         status: "past_due",
@@ -345,7 +345,7 @@ describe("recovery", () => {
     expect(d.attention).toEqual({ kind: "clear" });
   });
 
-  test("a healthy subscription with no episode is left alone", () => {
+  test("a healthy subscription with no episode is left alone", async () => {
     const d = decide({
       row: row(),
       subscription: snapshot({ status: "active" }),
@@ -358,7 +358,7 @@ describe("recovery", () => {
     expect(d.attention).toEqual({ kind: "none" });
   });
 
-  test("a cancellation with an OPEN episode is cached and escalated to a human", () => {
+  test("a cancellation with an OPEN episode is cached and escalated to a human", async () => {
     // OBSERVED 2026-08-09 live: on an account set to cancel at retry exhaustion,
     // this is how exhaustion actually arrives. Suspension is not requested -
     // ending a service is slice 5's boundary - but it must not pass in silence.
@@ -380,7 +380,7 @@ describe("recovery", () => {
     expect(d.attention).toMatchObject({ kind: "raise", severity: "critical" });
   });
 
-  test("a cancellation with NO episode open says nothing", () => {
+  test("a cancellation with NO episode open says nothing", async () => {
     const d = decide({
       row: row({ status: "active" }),
       subscription: snapshot({ status: "canceled" }),
@@ -395,7 +395,7 @@ describe("recovery", () => {
 });
 
 describe("the hold expiring", () => {
-  test("with exhaustion observed and still unpaid, it requests suspension", () => {
+  test("with exhaustion observed and still unpaid, it requests suspension", async () => {
     const d = decideHoldExpiry(
       row({
         status: "past_due",
@@ -410,7 +410,7 @@ describe("the hold expiring", () => {
     expect(d.suspension).toEqual({ episodeId: "dun-evt_1" });
   });
 
-  test("without exhaustion evidence it resumes the ordinary ladder and WAITS", () => {
+  test("without exhaustion evidence it resumes the ordinary ladder and WAITS", async () => {
     // The calendar is not evidence that Stripe gave up. This is the branch that
     // must not suspend.
     const d = decideHoldExpiry(
@@ -431,7 +431,7 @@ describe("the hold expiring", () => {
     expect(d.attention).toMatchObject({ kind: "raise" });
   });
 
-  test("a subscription that got paid in the meantime just closes its episode", () => {
+  test("a subscription that got paid in the meantime just closes its episode", async () => {
     const d = decideHoldExpiry(
       row({
         status: "active",
@@ -446,7 +446,7 @@ describe("the hold expiring", () => {
     expect(d.suspension).toBeNull();
   });
 
-  test("a hold that has not expired does nothing", () => {
+  test("a hold that has not expired does nothing", async () => {
     const d = decideHoldExpiry(
       row({
         status: "past_due",
@@ -461,7 +461,7 @@ describe("the hold expiring", () => {
     expect(d.suspension).toBeNull();
   });
 
-  test("a row that is not on a hold does nothing", () => {
+  test("a row that is not on a hold does nothing", async () => {
     const d = decideHoldExpiry(
       row({ episode_state: "open", coupon_grace_until: NOW - 1 }),
       NOW,

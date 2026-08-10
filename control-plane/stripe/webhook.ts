@@ -202,12 +202,17 @@ export class WebhookProcessor {
       if (type === "checkout.session.completed") {
         const sessionId = stringField(object, "id");
         if (!sessionId) {
-          return this.recordIgnored(id, type, created, "session has no id");
+          return await this.recordIgnored(
+            id,
+            type,
+            created,
+            "session has no id",
+          );
         }
         const read = await this.deps.reader.getCheckoutSession(sessionId);
         if (read.kind === "unavailable") return retry(read.reason);
         if (read.kind === "absent") {
-          return this.recordIgnored(
+          return await this.recordIgnored(
             id,
             type,
             created,
@@ -219,7 +224,7 @@ export class WebhookProcessor {
         if (!subscriptionId) {
           // A one-off payment session, or a subscription that was not created.
           // Nothing to cache, and Stripe should not retry.
-          return this.recordIgnored(
+          return await this.recordIgnored(
             id,
             type,
             created,
@@ -229,12 +234,17 @@ export class WebhookProcessor {
       } else if (type === "invoice.payment_failed") {
         const invoiceId = stringField(object, "id");
         if (!invoiceId) {
-          return this.recordIgnored(id, type, created, "invoice has no id");
+          return await this.recordIgnored(
+            id,
+            type,
+            created,
+            "invoice has no id",
+          );
         }
         const read = await this.deps.reader.getInvoice(invoiceId);
         if (read.kind === "unavailable") return retry(read.reason);
         if (read.kind === "absent") {
-          return this.recordIgnored(
+          return await this.recordIgnored(
             id,
             type,
             created,
@@ -244,7 +254,7 @@ export class WebhookProcessor {
         invoice = read.object;
         subscriptionId = invoice.subscriptionId;
         if (!subscriptionId) {
-          return this.recordIgnored(
+          return await this.recordIgnored(
             id,
             type,
             created,
@@ -254,7 +264,7 @@ export class WebhookProcessor {
       } else {
         subscriptionId = stringField(object, "id");
         if (!subscriptionId) {
-          return this.recordIgnored(
+          return await this.recordIgnored(
             id,
             type,
             created,
@@ -265,9 +275,12 @@ export class WebhookProcessor {
 
       const subRead = await this.deps.reader.getSubscription(subscriptionId);
       if (subRead.kind === "unavailable") return retry(subRead.reason);
-      const subscription = this.subscriptionOrDeleted(subRead, subscriptionId);
+      const subscription = await this.subscriptionOrDeleted(
+        subRead,
+        subscriptionId,
+      );
       if (!subscription) {
-        return this.recordIgnored(
+        return await this.recordIgnored(
           id,
           type,
           created,
@@ -275,7 +288,7 @@ export class WebhookProcessor {
         );
       }
 
-      const outcome = this.deps.store.tx(() =>
+      const outcome = await this.deps.store.tx(() =>
         applyEvent(
           this.deps.store,
           {
@@ -320,25 +333,21 @@ export class WebhookProcessor {
    * reconciled as `canceled` from the cached identity; with nothing cached there
    * is nothing to say.
    */
-  private subscriptionOrDeleted(
+  private async subscriptionOrDeleted(
     read: ReadResult<SubscriptionSnapshot>,
     subscriptionId: string,
-  ): SubscriptionSnapshot | null {
+  ): Promise<SubscriptionSnapshot | null> {
     if (read.kind === "ok") return read.object;
-    const cached = this.deps.store.db
-      .query<
-        {
-          stripe_customer_id: string;
-          ended_at: number | null;
-          canceled_at: number | null;
-          cancellation_reason: string | null;
-        },
-        [string]
-      >(
-        "select stripe_customer_id, ended_at, canceled_at, cancellation_reason " +
-          "from subscriptions where id = ?",
-      )
-      .get(subscriptionId);
+    const cached = await this.deps.store.sqlGet<{
+      stripe_customer_id: string;
+      ended_at: number | null;
+      canceled_at: number | null;
+      cancellation_reason: string | null;
+    }>(
+      "select stripe_customer_id, ended_at, canceled_at, cancellation_reason " +
+        "from subscriptions where id = ?",
+      [subscriptionId],
+    );
     if (!cached) return null;
     return {
       id: subscriptionId,
@@ -362,13 +371,13 @@ export class WebhookProcessor {
     };
   }
 
-  private recordIgnored(
+  private async recordIgnored(
     id: string,
     type: string,
     created: number,
     note: string,
-  ): WebhookOutcome {
-    const outcome = this.deps.store.tx(() =>
+  ): Promise<WebhookOutcome> {
+    const outcome = await this.deps.store.tx(() =>
       recordIgnoredEvent(this.deps.store, {
         eventId: id,
         eventType: type,

@@ -33,13 +33,13 @@ import type { Handler, HandlerContext, HandlerResult } from "../tick.ts";
  * Must run inside the caller's transaction, so the episode transition and the
  * operation appear together or not at all.
  */
-export function requestSuspension(
+export async function requestSuspension(
   store: Store,
   sub: SubscriptionRow,
   episodeId: string,
   now: number,
   actor: string,
-): string | null {
+): Promise<string | null> {
   if (!store.inTransaction()) {
     throw new Error("requestSuspension must run inside a transaction");
   }
@@ -47,7 +47,7 @@ export function requestSuspension(
   if (!sub.instance_id) {
     // Nothing to power off. Recorded rather than dropped: a paid-for subscription
     // with no box is itself something for a human to look at.
-    store.appendAudit({
+    await store.appendAudit({
       actor,
       instance_id: null,
       action: "suspension_requested",
@@ -59,8 +59,8 @@ export function requestSuspension(
     });
     return null;
   }
-  if (store.getOperation(opId)) {
-    store.appendAudit({
+  if (await store.getOperation(opId)) {
+    await store.appendAudit({
       actor,
       instance_id: sub.instance_id,
       action: "suspension_requested",
@@ -73,7 +73,7 @@ export function requestSuspension(
   // The same deadline table the ticker uses, so an operation opened by billing is
   // indistinguishable from one the provisioning chain opened.
   const d = deadlinesFor("power_off");
-  store.enqueue({
+  await store.enqueue({
     id: opId,
     instance_id: sub.instance_id,
     kind: "power_off",
@@ -81,7 +81,7 @@ export function requestSuspension(
     absolute_deadline_at: now + d.absoluteMs,
     evidence: { reason: "dunning", subscription: sub.id, episode: episodeId },
   });
-  store.appendAudit({
+  await store.appendAudit({
     actor,
     instance_id: sub.instance_id,
     action: "suspension_requested",
@@ -118,17 +118,17 @@ export function powerOffHandler(deps: SuspensionDeps): Handler {
         };
       }
       ctx.budget.claim("power_off");
-      ctx.audit("power_off", "started", `provider ${providerId}`);
+      await ctx.audit("power_off", "started", `provider ${providerId}`);
       try {
         await deps.powerOff(providerId);
       } catch (err) {
         // Rethrown for the ticker's classifier, which is the one place that
         // decides what a transport failure means. The audit row goes down here
         // because this is where we know the call was issued.
-        ctx.audit("power_off", "ambiguous", messageOf(err));
+        await ctx.audit("power_off", "ambiguous", messageOf(err));
         throw err;
       }
-      ctx.audit("power_off", "succeeded", `provider ${providerId}`);
+      await ctx.audit("power_off", "succeeded", `provider ${providerId}`);
       deps.report?.(`suspended: provider ${providerId} powered off`);
       // `poweredOffAt` is written ON PURPOSE, and the cancellation timeline's
       // retention month is measured from it. A row timestamp would have been the

@@ -236,6 +236,31 @@ REFUSES TO OPEN rather than failing somewhere in the middle of a run: `create
 table if not exists` is silent about a table that exists with the wrong columns,
 so the store checks for the columns it needs and names the file to move aside.
 
+### The store API is Promise-based, and the engine handle is private
+
+Every method that reaches the database returns a promise, readers included, and
+`Store.open` replaces `new Store` - even though bun:sqlite answers
+synchronously. That is deliberate groundwork rather than present-tense need: the
+engine behind this class becomes Postgres, whose driver cannot answer
+synchronously and whose opening cannot happen in a constructor. Flipping the API
+on its own keeps that change narrow instead of re-touching every caller twice.
+`now()` and `inTransaction()` stay synchronous, because neither reaches the
+database on either engine.
+
+`db` is private. The handful of callers whose SQL does not fit a typed method -
+the create latch's INSERT, the name reservation, the billing tables - go through
+`sqlAll` / `sqlGet` / `sqlRun`, which carry the SQL text verbatim. The names are
+deliberately ugly so `grep 'sql[A-Z]'` finds every one of them, and the web
+app's boundary test forbids them outright. `tx` issues its own `begin
+immediate`, `commit` and `rollback` through `sqlRun` like everything else, so a
+test that needs to make a COMMIT fail has one seam to patch rather than a
+private path it cannot reach.
+
+One rule this imposes on callers, which the Postgres port will replace with
+per-transaction connections: **a transaction body may await only store calls,
+never remote I/O and never a timer.** There is one connection, so a body that
+awaited a network round trip would hold `begin immediate` open across it.
+
 The slice-1 audit JSONL is still written, as a post-commit mirror. It is not half
 of a state transition: an attention raise and its `audit_events` row commit
 together, and a failure there fails the tick loudly rather than persisting one

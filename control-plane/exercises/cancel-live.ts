@@ -61,7 +61,7 @@ async function readBack(subscriptionId: string): Promise<boolean> {
 }
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp5-cancel-live-"));
-const store = new Store(path.join(dir, "control-plane.db"));
+const store = await Store.open(path.join(dir, "control-plane.db"));
 let clockId: string | null = null;
 
 try {
@@ -123,8 +123,8 @@ try {
   console.log(`subscription ${subscriptionId} ${String(sub.status)}`);
 
   // The local rows a signup would have written.
-  const account = accountForDevSignIn(store, `${RUN}@example.invalid`);
-  const reserved = reserveOffice(store, {
+  const account = await accountForDevSignIn(store, `${RUN}@example.invalid`);
+  const reserved = await reserveOffice(store, {
     accountId: account.id,
     officeName: "cplive",
     plan: "office",
@@ -134,7 +134,7 @@ try {
   const periodEnd =
     ((sub.items as { data?: { current_period_end?: number }[] }).data?.[0]
       ?.current_period_end ?? 0) * 1000;
-  store.tx(() =>
+  await store.tx(() =>
     insertSubscription(store, {
       id: subscriptionId,
       account_id: account.id,
@@ -164,7 +164,7 @@ try {
   /** The webhook's job, done by hand: this exercise has no endpoint listening,
    * and cancel.ts deliberately never writes this column itself. */
   const mirror = (to: number) =>
-    store.db.run(
+    store.sqlRun(
       "update subscriptions set cancel_at_period_end = ? where id = ?",
       [to, subscriptionId],
     );
@@ -173,7 +173,7 @@ try {
   console.log(`cancel   -> ${JSON.stringify(first)}`);
   check("the first cancel was accepted", first.ok === true);
   check("Stripe reports it scheduled to end", await readBack(subscriptionId));
-  mirror(1);
+  await mirror(1);
 
   const second = await requestUncancel(store, client, req);
   console.log(`uncancel -> ${JSON.stringify(second)}`);
@@ -182,7 +182,7 @@ try {
     "Stripe reports it NOT scheduled to end",
     !(await readBack(subscriptionId)),
   );
-  mirror(0);
+  await mirror(0);
 
   const third = await requestCancel(store, client, req);
   console.log(`cancel   -> ${JSON.stringify(third)}`);
@@ -195,8 +195,7 @@ try {
     await readBack(subscriptionId),
   );
 
-  const keys = store
-    .auditEvents()
+  const keys = (await store.auditEvents())
     .filter((e) => e.outcome === "started" && e.detail?.startsWith("cp-"))
     .map((e) => e.detail);
   console.log(`keys: ${JSON.stringify(keys)}`);
@@ -213,6 +212,6 @@ try {
       process.exitCode = 1;
     }
   }
-  store.close();
+  await store.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }

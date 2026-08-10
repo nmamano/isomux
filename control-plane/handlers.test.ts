@@ -31,7 +31,7 @@ function tempDir(): string {
   return dir;
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -61,12 +61,12 @@ interface Bed {
   reporter: Reporter;
   rec: RunRecord;
   audits: string[];
-  ctx(evidence: unknown, budget?: RemoteBudget): HandlerContext;
+  ctx(evidence: unknown, budget?: RemoteBudget): Promise<HandlerContext>;
 }
 
-function bed(exec: Exec): Bed {
+async function bed(exec: Exec): Promise<Bed> {
   const dir = tempDir();
-  const store = new Store(path.join(dir, "cp.db"));
+  const store = await Store.open(path.join(dir, "cp.db"));
   const lines: string[] = [];
   const audits: string[] = [];
   const sink: Sink = {
@@ -91,7 +91,7 @@ function bed(exec: Exec): Bed {
   saveRun(dir, rec);
   const installer = path.join(dir, "install.sh");
   fs.writeFileSync(installer, "#!/bin/bash\necho installer\n");
-  store.createInstance({
+  await store.createInstance({
     id: "inst-1",
     run_id: "run-1",
     name: "cp1.test.isomux.app",
@@ -116,9 +116,12 @@ function bed(exec: Exec): Bed {
     reporter,
     rec,
     audits,
-    ctx(evidence: unknown, budget?: RemoteBudget): HandlerContext {
+    async ctx(
+      evidence: unknown,
+      budget?: RemoteBudget,
+    ): Promise<HandlerContext> {
       const nonce = Math.random().toString(36).slice(2);
-      const op = store.enqueue({
+      const op = await store.enqueue({
         id: `op-${nonce}`,
         instance_id: "inst-1",
         // Unique per context: the one-active index is real, and these fakes are
@@ -130,17 +133,17 @@ function bed(exec: Exec): Bed {
       });
       // Leased, because that is what a handler always receives - and the mint
       // now writes through its fence, which an unleased row would refuse.
-      const leased = store.tryLease(
+      const leased = (await store.tryLease(
         op.id,
         op.version,
         "holder-a",
         Date.now() + 300_000,
         Date.now(),
-      )!;
+      ))!;
       return {
         store,
         op: leased,
-        instance: store.getInstance("inst-1")!,
+        instance: (await store.getInstance("inst-1"))!,
         asset: null,
         fence: { id: leased.id, version: leased.version, holder: "holder-a" },
         budget:
@@ -152,6 +155,7 @@ function bed(exec: Exec): Bed {
         report: (l) => lines.push(l),
         audit: (action, outcome, detail) => {
           audits.push(`${action}:${outcome}${detail ? `:${detail}` : ""}`);
+          return Promise.resolve();
         },
       };
     },
@@ -161,9 +165,9 @@ function bed(exec: Exec): Bed {
 describe("wait_for_ssh", () => {
   test("removes the pin FIRST and records that it did SECOND", async () => {
     const exec = new FakeExec(() => OK);
-    const b = bed(exec);
+    const b = await bed(exec);
     fs.writeFileSync(b.rec.knownHostsFile, "stale pin from a previous life\n");
-    const result = await waitForSshHandler(b.deps).run(b.ctx({}));
+    const result = await waitForSshHandler(b.deps).run(await b.ctx({}));
     // The removal has happened; the evidence recording it is only now being
     // returned. A crash here repeats a harmless removal - the other order could
     // skip it and leave the stale pin in place.
@@ -184,9 +188,9 @@ describe("wait_for_ssh", () => {
       if (kh) fs.writeFileSync(kh, "169.58.97.2 ssh-ed25519 AAAAHOSTKEY\n");
       return OK;
     });
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await waitForSshHandler(b.deps).run(
-      b.ctx({ pinReset: true, probes: 0 }),
+      await b.ctx({ pinReset: true, probes: 0 }),
     );
     expect(result.kind).toBe("done");
     expect(fs.readFileSync(b.rec.knownHostsFile, "utf8")).toContain(
@@ -202,9 +206,9 @@ describe("wait_for_ssh", () => {
       if (kh) fs.writeFileSync(kh, "the box being destroyed\n");
       return { code: 255, stdout: "", stderr: "Connection timed out" };
     });
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await waitForSshHandler(b.deps).run(
-      b.ctx({ pinReset: true, probes: 0 }),
+      await b.ctx({ pinReset: true, probes: 0 }),
     );
     expect(result.kind).toBe("progress");
     expect(fs.existsSync(b.rec.knownHostsFile)).toBe(false);
@@ -221,14 +225,16 @@ describe("wait_for_package_manager", () => {
       stdout: "RESULT: busy (kernel lock on /var/lib/dpkg/lock-frontend)\n",
       stderr: "",
     }));
-    const b = bed(exec);
-    const result = await waitForPackageManagerHandler(b.deps).run(b.ctx({}));
+    const b = await bed(exec);
+    const result = await waitForPackageManagerHandler(b.deps).run(
+      await b.ctx({}),
+    );
     expect(exec.calls[0]?.argv).toContain("once");
     expect(result).toMatchObject({ kind: "progress" });
     // Same reason next time: still busy, but no new evidence, so the inactivity
     // deadline is allowed to run down.
     const again = await waitForPackageManagerHandler(b.deps).run(
-      b.ctx({
+      await b.ctx({
         busy: "RESULT: busy (kernel lock on /var/lib/dpkg/lock-frontend)",
       }),
     );
@@ -241,9 +247,9 @@ describe("wait_for_package_manager", () => {
       stdout: "RESULT: ready\n",
       stderr: "",
     }));
-    const b = bed(exec);
+    const b = await bed(exec);
     expect(
-      (await waitForPackageManagerHandler(b.deps).run(b.ctx({}))).kind,
+      (await waitForPackageManagerHandler(b.deps).run(await b.ctx({}))).kind,
     ).toBe("done");
   });
 });
@@ -266,8 +272,8 @@ describe("run_installer", () => {
 
   test("staging does not launch anything", async () => {
     const exec = installerExec("state=none");
-    const b = bed(exec);
-    const result = await runInstallerHandler(b.deps).run(b.ctx({}));
+    const b = await bed(exec);
+    const result = await runInstallerHandler(b.deps).run(await b.ctx({}));
     expect((result as { evidence: { phase: string } }).evidence.phase).toBe(
       "staged",
     );
@@ -279,9 +285,9 @@ describe("run_installer", () => {
 
   test("the runId is persisted BEFORE any launch is issued", async () => {
     const exec = installerExec("state=none");
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await runInstallerHandler(b.deps).run(
-      b.ctx({ phase: "staged", attempts: [] }),
+      await b.ctx({ phase: "staged", attempts: [] }),
     );
     const ev = (result as { evidence: { phase: string; runId: string } })
       .evidence;
@@ -299,9 +305,9 @@ describe("run_installer", () => {
       "state=none",
       "FAILED generation install-1 already exists",
     );
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await runInstallerHandler(b.deps).run(
-      b.ctx({ phase: "launching", runId: "install-1", attempts: [] }),
+      await b.ctx({ phase: "launching", runId: "install-1", attempts: [] }),
     );
     const ev = (result as { evidence: { phase: string; runId: string } })
       .evidence;
@@ -316,18 +322,18 @@ describe("run_installer", () => {
       "state=none",
       "UNCONFIRMED publication timed out; resolve with tick, do not relaunch",
     );
-    const b = bed(exec);
+    const b = await bed(exec);
     const first = await runInstallerHandler(b.deps).run(
-      b.ctx({ phase: "launching", runId: "install-1", attempts: [] }),
+      await b.ctx({ phase: "launching", runId: "install-1", attempts: [] }),
     );
     expect((first as { evidence: { phase: string } }).evidence.phase).toBe(
       "awaiting_publication",
     );
 
     const exec2 = installerExec("state=none");
-    const b2 = bed(exec2);
+    const b2 = await bed(exec2);
     const second = await runInstallerHandler(b2.deps).run(
-      b2.ctx({
+      await b2.ctx({
         phase: "awaiting_publication",
         runId: "install-1",
         attempts: [],
@@ -341,9 +347,9 @@ describe("run_installer", () => {
     const exec = installerExec(
       "state=finished runId=install-OTHER exit=0 step=done",
     );
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await runInstallerHandler(b.deps).run(
-      b.ctx({ phase: "running", runId: "install-1", attempts: [] }),
+      await b.ctx({ phase: "running", runId: "install-1", attempts: [] }),
     );
     expect(result.kind).toBe("ambiguous");
     expect((result as { reason: string }).reason).toMatch(/not ours/);
@@ -358,9 +364,9 @@ describe("run_installer", () => {
       "state=crashed runId=install-OLD step=install-browser",
       "CONFIRMED install-NEW",
     );
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await runInstallerHandler(b.deps).run(
-      b.ctx({ phase: "launching", runId: "install-NEW", attempts: [] }),
+      await b.ctx({ phase: "launching", runId: "install-NEW", attempts: [] }),
     );
     const ev = (result as { evidence: { phase: string; runId: string } })
       .evidence;
@@ -375,9 +381,9 @@ describe("run_installer", () => {
     const exec = installerExec(
       "state=finished runId=install-1 exit=0 step=assert-hardening",
     );
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await runInstallerHandler(b.deps).run(
-      b.ctx({ phase: "running", runId: "install-1", attempts: [] }),
+      await b.ctx({ phase: "running", runId: "install-1", attempts: [] }),
     );
     expect(result.kind).toBe("done");
   });
@@ -386,9 +392,9 @@ describe("run_installer", () => {
     const exec = installerExec(
       "state=crashed runId=install-1 step=install-browser",
     );
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await runInstallerHandler(b.deps).run(
-      b.ctx({ phase: "running", runId: "install-1", attempts: [] }),
+      await b.ctx({ phase: "running", runId: "install-1", attempts: [] }),
     );
     expect(result.kind).toBe("retry");
     const ev = (result as { evidence: { phase: string; attempts: unknown[] } })
@@ -410,8 +416,8 @@ describe("mint_invite", () => {
       stdout: `${URL}\n`,
       stderr: "",
     }));
-    const b = bed(exec);
-    const ctx = b.ctx({ phase: "minting" });
+    const b = await bed(exec);
+    const ctx = await b.ctx({ phase: "minting" });
     const result = await mintInviteHandler(b.deps).run(ctx);
     expect(result.kind).toBe("done");
     expect(b.lines.join("\n")).toContain(URL);
@@ -420,17 +426,20 @@ describe("mint_invite", () => {
     expect(
       JSON.stringify((result as { evidence: unknown }).evidence),
     ).not.toContain("abc123secret");
-    b.store.tx(() =>
-      b.store.appendAudit({
-        actor: "t",
-        instance_id: "inst-1",
-        action: "mint_invite",
-        target: "cp1.test.isomux.app",
-        outcome: "succeeded",
-        detail: null,
-      }),
+    await b.store.tx(
+      async () =>
+        await b.store.appendAudit({
+          actor: "t",
+          instance_id: "inst-1",
+          action: "mint_invite",
+          target: "cp1.test.isomux.app",
+          outcome: "succeeded",
+          detail: null,
+        }),
     );
-    expect(JSON.stringify(b.store.auditEvents())).not.toContain("abc123secret");
+    expect(JSON.stringify(await b.store.auditEvents())).not.toContain(
+      "abc123secret",
+    );
     expect(b.reporter.transcript.join("\n")).not.toContain("abc123secret");
   });
 
@@ -440,9 +449,9 @@ describe("mint_invite", () => {
       stdout: `${URL}\n`,
       stderr: "",
     }));
-    const b = bed(exec);
+    const b = await bed(exec);
     await mintInviteHandler(b.deps).run(
-      b.ctx({ phase: "minting", minted: true }),
+      await b.ctx({ phase: "minting", minted: true }),
     );
     expect(b.lines.join("\n")).toContain(
       "the invite printed earlier is no longer valid; use this one",
@@ -455,9 +464,9 @@ describe("mint_invite", () => {
       stdout: URL,
       stderr: `failed after ${URL}`,
     }));
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await mintInviteHandler(b.deps).run(
-      b.ctx({ phase: "minting" }),
+      await b.ctx({ phase: "minting" }),
     );
     expect(result.kind).toBe("retry");
     expect((result as { reason: string }).reason).toBe(
@@ -493,9 +502,9 @@ describe("mint_invite for the dashboard", () => {
       stdout: `${URL}\n`,
       stderr: "",
     }));
-    const b = bed(exec);
+    const b = await bed(exec);
     const deliver = held();
-    const ctx = b.ctx({ phase: "minting", via: "dashboard" });
+    const ctx = await b.ctx({ phase: "minting", via: "dashboard" });
     const result = await mintInviteHandler({ ...b.deps, deliver }).run(ctx);
 
     expect(result.kind).toBe("done");
@@ -521,9 +530,9 @@ describe("mint_invite for the dashboard", () => {
       stdout: `${URL}\n`,
       stderr: "",
     }));
-    const b = bed(exec);
+    const b = await bed(exec);
     const result = await mintInviteHandler(b.deps).run(
-      b.ctx({ via: "dashboard" }),
+      await b.ctx({ via: "dashboard" }),
     );
     expect(result.kind).toBe("fatal");
     // BEFORE the remote call, which is the point: a URL that exists has to go
@@ -540,11 +549,11 @@ describe("mint_invite for the dashboard", () => {
       stdout: `${URL}\n`,
       stderr: "",
     }));
-    const b = bed(exec);
+    const b = await bed(exec);
     const deliver = held();
-    const ctx = b.ctx({ via: "dashboard" });
+    const ctx = await b.ctx({ via: "dashboard" });
     await mintInviteHandler({ ...b.deps, deliver }).run(ctx);
-    const after = b.store.getOperation(ctx.op.id)!;
+    const after = (await b.store.getOperation(ctx.op.id))!;
     expect(JSON.parse(after.evidence).via).toBe("dashboard");
   });
 });
@@ -558,12 +567,12 @@ describe("mint_invite after an unrecorded attempt", () => {
       stdout: `${URL2}\n`,
       stderr: "",
     }));
-    const b = bed(exec);
-    const ctx = b.ctx({});
+    const b = await bed(exec);
+    const ctx = await b.ctx({});
     const result = await mintInviteHandler(b.deps).run(ctx);
     expect(result.kind).toBe("done");
     // The marker was persisted through the fence in THIS invocation...
-    const after = b.store.getOperation(ctx.op.id)!;
+    const after = (await b.store.getOperation(ctx.op.id))!;
     expect(after.version).toBeGreaterThan(ctx.op.version);
     // ...and the mint happened in the same one, so the operator sees exactly
     // one link and is told nothing about a link that never existed.
@@ -582,8 +591,8 @@ describe("mint_invite after an unrecorded attempt", () => {
       stdout: `${URL2}\n`,
       stderr: "",
     }));
-    const b = bed(exec);
-    const ctx = b.ctx({ phase: "minting" });
+    const b = await bed(exec);
+    const ctx = await b.ctx({ phase: "minting" });
     expect(ctx.op.attempt).toBe(0);
     await mintInviteHandler(b.deps).run(ctx);
     expect(b.lines.join("\n")).toContain(
@@ -596,8 +605,8 @@ describe("mint_invite after an unrecorded attempt", () => {
 describe("every ssh child is recorded", () => {
   test("a step that issues two commands leaves two started/outcome pairs", async () => {
     const exec = new FakeExec(() => OK);
-    const b = bed(exec);
-    const ctx = b.ctx({ pinReset: true, probes: 0 });
+    const b = await bed(exec);
+    const ctx = await b.ctx({ pinReset: true, probes: 0 });
     // wait_for_package_manager runs one child; arm_revocation's unit install
     // runs two. Drive the two-child shape directly through a labelled client.
     const { SshClient } = await import("./ssh.ts");
@@ -628,8 +637,8 @@ describe("every ssh child is recorded", () => {
     const exec = new FakeExec(() => {
       throw new RemoteTimeoutError("killed");
     });
-    const b = bed(exec);
-    const ctx = b.ctx({});
+    const b = await bed(exec);
+    const ctx = await b.ctx({});
     const ssh = new SshClient(
       {
         host: "h",
@@ -657,8 +666,8 @@ describe("every ssh child is recorded", () => {
 
   test("a call whose recording fails is recorded as ambiguous too", async () => {
     const exec = new FakeExec(() => OK);
-    const b = bed(exec);
-    const ctx = b.ctx({});
+    const b = await bed(exec);
+    const ctx = await b.ctx({});
     const { SshClient } = await import("./ssh.ts");
     let firstSucceeded = true;
     const ssh = new SshClient(
@@ -676,7 +685,7 @@ describe("every ssh child is recorded", () => {
           firstSucceeded = false;
           throw new Error("disk full");
         }
-        ctx.audit("mint_invite", phase, kind);
+        return ctx.audit("mint_invite", phase, kind);
       },
     );
     try {
@@ -692,8 +701,8 @@ describe("every ssh child is recorded", () => {
 
   test("a child whose recording fails reports the call as unrecorded, not failed", async () => {
     const exec = new FakeExec(() => OK);
-    const b = bed(exec);
-    const ctx = b.ctx({});
+    const b = await bed(exec);
+    const ctx = await b.ctx({});
     const { ObserverWriteFailed, SshClient } = await import("./ssh.ts");
     const ssh = new SshClient(
       {

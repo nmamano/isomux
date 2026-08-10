@@ -91,17 +91,23 @@ export interface OpsInstanceView {
 
 /** The floor. Null when the caller is not an operator - see the header on why
  * that is not a distinguishable refusal. */
-export function opsFloor(store: Store, accountId: string): OpsFloor | null {
+export async function opsFloor(
+  store: Store,
+  accountId: string,
+): Promise<OpsFloor | null> {
   return store.tx(() => floorIn(store, accountId));
 }
 
-function floorIn(store: Store, accountId: string): OpsFloor | null {
-  if (!isOperator(store, accountId)) return null;
+async function floorIn(
+  store: Store,
+  accountId: string,
+): Promise<OpsFloor | null> {
+  if (!(await isOperator(store, accountId))) return null;
   const now = store.now();
   const attention: OpsAttentionItem[] = [];
   const overdue: OpsOperationItem[] = [];
-  for (const instance of store.listInstances()) {
-    for (const reason of store.openReasons(instance.id)) {
+  for (const instance of await store.listInstances()) {
+    for (const reason of await store.openReasons(instance.id)) {
       attention.push(attentionItem(instance, reason, now));
     }
   }
@@ -109,8 +115,8 @@ function floorIn(store: Store, accountId: string): OpsFloor | null {
   // is the one an operator most needs, and it is precisely the row that has
   // left the live set. Succeeded work stays out - a step that finished late is
   // history, not an alert.
-  for (const op of store.overdueOperations()) {
-    const instance = store.getInstance(op.instance_id);
+  for (const op of await store.overdueOperations()) {
+    const instance = await store.getInstance(op.instance_id);
     if (!instance) continue;
     overdue.push(operationItem(instance, op, now));
   }
@@ -124,23 +130,24 @@ function floorIn(store: Store, accountId: string): OpsFloor | null {
 }
 
 /** One office in full: its attention, its operations and its audit trail. */
-export function opsInstance(
+export async function opsInstance(
   store: Store,
   accountId: string,
   instanceId: string,
-): OpsInstanceView | null {
+): Promise<OpsInstanceView | null> {
   return store.tx(() => instanceIn(store, accountId, instanceId));
 }
 
-function instanceIn(
+async function instanceIn(
   store: Store,
   accountId: string,
   instanceId: string,
-): OpsInstanceView | null {
-  if (!isOperator(store, accountId)) return null;
-  const instance = store.getInstance(instanceId);
+): Promise<OpsInstanceView | null> {
+  if (!(await isOperator(store, accountId))) return null;
+  const instance = await store.getInstance(instanceId);
   if (!instance) return null;
   const now = store.now();
+  const audit = await store.auditEvents();
   return {
     instanceId: instance.id,
     officeName: instance.name,
@@ -150,13 +157,13 @@ function instanceIn(
     // ALL reasons, not only open ones: a floor that hides resolved incidents
     // cannot answer "has this happened before", which is the question that
     // distinguishes a blip from a pattern.
-    attention: store
-      .allReasons(instance.id)
-      .map((r) => attentionItem(instance, r, now)),
-    operations: store
-      .operationsFor(instance.id)
-      .map((op) => operationItem(instance, op, now)),
-    audit: store.auditEvents().filter((e) => e.instance_id === instance.id),
+    attention: (await store.allReasons(instance.id)).map((r) =>
+      attentionItem(instance, r, now),
+    ),
+    operations: (await store.operationsFor(instance.id)).map((op) =>
+      operationItem(instance, op, now),
+    ),
+    audit: audit.filter((e) => e.instance_id === instance.id),
   };
 }
 
@@ -168,14 +175,14 @@ function instanceIn(
  * were marked, which is what lets a caller tell a real acknowledgement from an
  * acknowledgement of nothing.
  */
-export function acknowledgeInstance(
+export async function acknowledgeInstance(
   store: Store,
   accountId: string,
   instanceId: string,
-): number | null {
-  return store.tx(() => {
-    if (!isOperator(store, accountId)) return null;
-    if (!store.getInstance(instanceId)) return null;
+): Promise<number | null> {
+  return store.tx(async () => {
+    if (!(await isOperator(store, accountId))) return null;
+    if (!(await store.getInstance(instanceId))) return null;
     // The ACCOUNT ID goes in the audit row, not an email: the id is the durable
     // identity and the address is display data that can change under it.
     return acknowledgeAttentionIn(store, instanceId, `account:${accountId}`);

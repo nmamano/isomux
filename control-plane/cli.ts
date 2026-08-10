@@ -205,23 +205,25 @@ async function waitForSsh(
  * The import is conservative and read-only: a legacy record can only ever add a
  * row that FORBIDS a create, and the files themselves are never touched.
  */
-function openStore(): Store {
+async function openStore(): Promise<Store> {
   fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
-  const store = new Store(DB_FILE);
-  migrateLegacyIntents(store, INTENTS_DIR);
+  const store = await Store.open(DB_FILE);
+  await migrateLegacyIntents(store, INTENTS_DIR);
   return store;
 }
 
 /** The instance row for a run. The rule that makes the ceiling mean something
  * lives in instance.ts, where a crash boundary can be tested. */
-function ensureInstance(
+async function ensureInstance(
   store: Store,
   rec: RunRecord,
   goal: Goal,
   expiresAt?: Date,
-): string {
+): Promise<string> {
   try {
-    return ensureInstanceRow({ store, rec, goal, expiresAt });
+    // Awaited inside the try: the CeilingIsImmutable arm below is what turns a
+    // re-run with a different window into a sentence instead of a stack trace.
+    return await ensureInstanceRow({ store, rec, goal, expiresAt });
   } catch (err) {
     if (err instanceof CeilingIsImmutable) die(err.message);
     throw err;
@@ -406,8 +408,8 @@ async function driveTicks(
           );
         }
       }
-      for (const inst of store.listInstances()) {
-        for (const reason of store.openReasons(inst.id)) {
+      for (const inst of await store.listInstances()) {
+        for (const reason of await store.openReasons(inst.id)) {
           if (announced.has(reason.id)) continue;
           announced.add(reason.id);
           reporter.problem(
@@ -426,8 +428,10 @@ async function driveTicks(
 }
 
 /** Non-zero when a human is still owed something. */
-function exitCodeFor(store: Store): number {
-  return store.listInstances().some((i) => i.attention_state !== "clear")
+async function exitCodeFor(store: Store): Promise<number> {
+  return (await store.listInstances()).some(
+    (i) => i.attention_state !== "clear",
+  )
     ? 1
     : 0;
 }
@@ -558,20 +562,20 @@ async function cmdRecycle(args: Map<string, string>): Promise<void> {
 async function cmdProvision(args: Map<string, string>): Promise<void> {
   const rec = loadRun(required(args, "run"));
   const expiresAt = accessWindowInstant(args);
-  const store = openStore();
+  const store = await openStore();
   const goal = goalFrom(args);
-  const instanceId = ensureInstance(store, rec, goal, expiresAt);
+  const instanceId = await ensureInstance(store, rec, goal, expiresAt);
   const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
-  if (store.operationsFor(instanceId).length === 0) {
-    ticker.enqueue(instanceId, FIRST_KIND);
+  if ((await store.operationsFor(instanceId)).length === 0) {
+    await ticker.enqueue(instanceId, FIRST_KIND);
   }
   reporter.step(
     "provision",
     `goal=${goal}, ceiling=${expiresAt.toISOString()}`,
   );
   await driveTicks(store, ticker, { forever: false });
-  printOperations(store, instanceId);
-  process.exitCode = exitCodeFor(store);
+  await printOperations(store, instanceId);
+  process.exitCode = await exitCodeFor(store);
 }
 
 /**
@@ -583,7 +587,7 @@ async function cmdProvision(args: Map<string, string>): Promise<void> {
  * from here, which is exactly why it cannot become a second source of truth.
  */
 async function cmdRun(args: Map<string, string>): Promise<void> {
-  const store = openStore();
+  const store = await openStore();
   const hold = new InviteHold();
   const token = process.env.CONTROL_PLANE_MINT_TOKEN ?? "";
   let seam: RunningMintSeam | null = null;
@@ -624,25 +628,25 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   } finally {
     await seam?.stop();
   }
-  process.exitCode = exitCodeFor(store);
+  process.exitCode = await exitCodeFor(store);
 }
 
 async function cmdTick(args: Map<string, string>): Promise<void> {
-  const store = openStore();
+  const store = await openStore();
   const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
   reporter.line(JSON.stringify(await ticker.once()));
-  process.exitCode = exitCodeFor(store);
+  process.exitCode = await exitCodeFor(store);
 }
 
 /** Enqueue one more operation of a kind that is legitimately repeatable. */
-function enqueueOnce(
+async function enqueueOnce(
   store: Store,
   ticker: Ticker,
   instanceId: string,
   kind: OperationKind,
-): void {
-  if (!store.activeOperation(instanceId, kind)) {
-    ticker.enqueue(instanceId, kind);
+): Promise<void> {
+  if (!(await store.activeOperation(instanceId, kind))) {
+    await ticker.enqueue(instanceId, kind);
   }
 }
 
@@ -652,24 +656,24 @@ function enqueueOnce(
  */
 async function cmdFinish(args: Map<string, string>): Promise<void> {
   const rec = loadRun(required(args, "run"));
-  const store = openStore();
+  const store = await openStore();
   const goal = args.get("handoff-now") === "true" ? "handed_off" : "live";
-  const instanceId = ensureInstance(store, rec, goal);
+  const instanceId = await ensureInstance(store, rec, goal);
   const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
-  enqueueOnce(store, ticker, instanceId, "verify_https");
+  await enqueueOnce(store, ticker, instanceId, "verify_https");
   await driveTicks(store, ticker, { forever: false });
-  printOperations(store, instanceId);
-  process.exitCode = exitCodeFor(store);
+  await printOperations(store, instanceId);
+  process.exitCode = await exitCodeFor(store);
 }
 
 async function cmdMint(args: Map<string, string>): Promise<void> {
   const rec = loadRun(required(args, "run"));
-  const store = openStore();
-  const instanceId = ensureInstance(store, rec, "live");
+  const store = await openStore();
+  const instanceId = await ensureInstance(store, rec, "live");
   const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
-  enqueueOnce(store, ticker, instanceId, "mint_invite");
+  await enqueueOnce(store, ticker, instanceId, "mint_invite");
   await driveTicks(store, ticker, { forever: false });
-  process.exitCode = exitCodeFor(store);
+  process.exitCode = await exitCodeFor(store);
 }
 
 /**
@@ -678,15 +682,15 @@ async function cmdMint(args: Map<string, string>): Promise<void> {
  */
 async function cmdRevoke(args: Map<string, string>): Promise<void> {
   const rec = loadRun(required(args, "run"));
-  const store = openStore();
-  const instanceId = ensureInstance(store, rec, "handed_off");
+  const store = await openStore();
+  const instanceId = await ensureInstance(store, rec, "handed_off");
   const ticker = makeTicker(store);
-  enqueueOnce(store, ticker, instanceId, "revoke_access");
+  await enqueueOnce(store, ticker, instanceId, "revoke_access");
   await driveTicks(store, ticker, {
     forever: args.get("until-proven") === "true",
   });
-  printOperations(store, instanceId);
-  process.exitCode = exitCodeFor(store);
+  await printOperations(store, instanceId);
+  process.exitCode = await exitCodeFor(store);
 }
 
 function flagLabel(op: {
@@ -701,16 +705,19 @@ function flagLabel(op: {
 }
 
 /** What the dashboard will render one day, as text. */
-function printOperations(store: Store, instanceId?: string): void {
+async function printOperations(
+  store: Store,
+  instanceId?: string,
+): Promise<void> {
   const instances = instanceId
-    ? [store.getInstance(instanceId)].filter((i) => i !== null)
-    : store.listInstances();
+    ? [await store.getInstance(instanceId)].filter((i) => i !== null)
+    : await store.listInstances();
   for (const inst of instances) {
     reporter.line(
       `${inst.id}  ${inst.service_state}  goal=${inst.goal}  ` +
         `attention=${inst.attention_state}${inst.attention_reason ? ` (${inst.attention_reason})` : ""}`,
     );
-    for (const op of store.operationsFor(inst.id)) {
+    for (const op of await store.operationsFor(inst.id)) {
       reporter.line(
         `  ${op.kind.padEnd(24)} ${op.status.padEnd(10)} attempt=${op.attempt} ` +
           `flagged=${flagLabel(op)} ${op.evidence}`,
@@ -719,10 +726,13 @@ function printOperations(store: Store, instanceId?: string): void {
   }
 }
 
-function cmdOps(args: Map<string, string>): void {
-  const store = openStore();
+async function cmdOps(args: Map<string, string>): Promise<void> {
+  const store = await openStore();
   const run = args.get("run");
-  printOperations(store, run && run !== "true" ? `inst-${run}` : undefined);
+  await printOperations(
+    store,
+    run && run !== "true" ? `inst-${run}` : undefined,
+  );
 }
 
 /**
@@ -734,15 +744,15 @@ function cmdOps(args: Map<string, string>): void {
  * route on purpose - an app that can grant its own session the flag has no
  * authorization at all, only the appearance of it.
  */
-function cmdOperator(args: Map<string, string>): void {
-  const store = openStore();
+async function cmdOperator(args: Map<string, string>): Promise<void> {
+  const store = await openStore();
   const email = required(args, "email");
   const grant = args.has("grant");
   const revoke = args.has("revoke");
   if (grant === revoke) {
     die("pass exactly one of --grant or --revoke");
   }
-  const outcome = setOperator(store, {
+  const outcome = await setOperator(store, {
     email,
     on: grant,
     actor: `cli:${process.env.USER ?? "unknown"}`,
@@ -755,17 +765,21 @@ function cmdOperator(args: Map<string, string>): void {
   );
 }
 
-function cmdAttention(args: Map<string, string>): void {
-  const store = openStore();
+async function cmdAttention(args: Map<string, string>): Promise<void> {
+  const store = await openStore();
   const ack = args.get("ack");
   if (ack && ack !== "true") {
-    const n = acknowledgeAttention(store, ack, args.get("by") ?? "operator");
+    const n = await acknowledgeAttention(
+      store,
+      ack,
+      args.get("by") ?? "operator",
+    );
     // Acknowledging is not clearing: the reasons stay open and the instance
     // keeps reporting needs_operator until the condition itself goes away.
     reporter.line(`acknowledged ${n} open reason(s) on ${ack}`);
   }
-  for (const inst of store.listInstances()) {
-    for (const r of store.openReasons(inst.id)) {
+  for (const inst of await store.listInstances()) {
+    for (const r of await store.openReasons(inst.id)) {
       reporter.line(
         `${inst.id}  ${r.severity.padEnd(8)} ${r.reason}` +
           (r.acknowledged_at ? `  (acknowledged by ${r.acknowledged_by})` : ""),
@@ -1019,8 +1033,7 @@ async function main(): Promise<void> {
     case "ops":
       return cmdOps(args);
     case "operator":
-      cmdOperator(args);
-      break;
+      return cmdOperator(args);
     case "attention":
       return cmdAttention(args);
     case "expiry-test":

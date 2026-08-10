@@ -11,13 +11,13 @@ import type { Store } from "./store.ts";
 
 export class CeilingIsImmutable extends Error {}
 
-function createAssetFor(
+async function createAssetFor(
   store: Store,
   rec: RunRecord,
   instanceId: string,
   now: number,
-): void {
-  store.createAsset({
+): Promise<void> {
+  await store.createAsset({
     id: `asset-${rec.runId}`,
     instance_id: instanceId,
     provider: "contabo",
@@ -60,19 +60,21 @@ export interface EnsureInstanceArgs {
  * silently honoured or silently ignored. `run` continues an instance without
  * naming a window at all, which is the path out.
  */
-export function ensureInstance(args: EnsureInstanceArgs): string {
+export async function ensureInstance(
+  args: EnsureInstanceArgs,
+): Promise<string> {
   const { store, rec, goal, expiresAt } = args;
   const now = args.now ?? (() => Date.now());
   const id = `inst-${rec.runId}`;
-  let existing = store.getInstance(id);
+  let existing = await store.getInstance(id);
   if (!existing) {
     try {
       // ONE transaction. A death between the instance row and its provider
       // asset would leave an instance with no provider axis at all, and the
       // restart would take the "already exists" branch and never look again -
       // the four-axis model quietly down to three.
-      store.tx(() => {
-        store.createInstance({
+      await store.tx(async () => {
+        await store.createInstance({
           id,
           run_id: rec.runId,
           name: rec.host,
@@ -82,14 +84,16 @@ export function ensureInstance(args: EnsureInstanceArgs): string {
           goal,
           access_window_expires_at: expiresAt ? expiresAt.getTime() : null,
         });
-        if (args.createAsset !== false) createAssetFor(store, rec, id, now());
+        if (args.createAsset !== false) {
+          await createAssetFor(store, rec, id, now());
+        }
       });
       return id;
     } catch (err) {
       // The primary key is the arbiter of creation, exactly as it is for the
       // create intent. A loser re-reads and falls through to the immutability
       // check below, where it discovers the winner's ceiling.
-      existing = store.getInstance(id);
+      existing = await store.getInstance(id);
       if (!existing) throw err;
     }
   }
@@ -97,8 +101,8 @@ export function ensureInstance(args: EnsureInstanceArgs): string {
   // Repair rather than assume: a row created by an older build, or by a crash
   // between the two inserts before they shared a transaction, can be missing its
   // provider axis. Restart is where that gets noticed.
-  if (args.createAsset !== false && !store.assetForInstance(id)) {
-    store.tx(() => createAssetFor(store, rec, id, now()));
+  if (args.createAsset !== false && !(await store.assetForInstance(id))) {
+    await store.tx(() => createAssetFor(store, rec, id, now()));
   }
 
   if (
@@ -118,13 +122,13 @@ export function ensureInstance(args: EnsureInstanceArgs): string {
   }
   // Only the goal. The ceiling is deliberately absent from this patch.
   const patch = { goal };
-  if (!store.casInstance(id, existing.version, patch)) {
+  if (!(await store.casInstance(id, existing.version, patch))) {
     // A loser RE-READS and decides from current state. The goal is ours to set
     // and carries no claim about the box, so re-reading and re-applying it is
     // safe in a way that re-applying a provider response is not.
-    const fresh = store.getInstance(id);
+    const fresh = await store.getInstance(id);
     if (!fresh) throw new Error(`instance ${id} vanished`);
-    if (!store.casInstance(id, fresh.version, patch)) {
+    if (!(await store.casInstance(id, fresh.version, patch))) {
       throw new Error(
         `instance ${id} is being changed by another process; try again`,
       );

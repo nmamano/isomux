@@ -14,7 +14,7 @@ import {
 const PERIOD_END_SEC = 1_772_000_000;
 
 describe("a subscription's period end", () => {
-  test("comes from the subscription ITEM, where the pinned version puts it", () => {
+  test("comes from the subscription ITEM, where the pinned version puts it", async () => {
     const snap = normalizeSubscription({
       id: "sub_1",
       customer: "cus_1",
@@ -25,7 +25,7 @@ describe("a subscription's period end", () => {
     expect(snap.currentPeriodEnd).toBe(PERIOD_END_SEC * 1000);
   });
 
-  test("falls back to the top-level field, for an older pin", () => {
+  test("falls back to the top-level field, for an older pin", async () => {
     const snap = normalizeSubscription({
       id: "sub_1",
       customer: "cus_1",
@@ -36,7 +36,7 @@ describe("a subscription's period end", () => {
     expect(snap.currentPeriodEnd).toBe(PERIOD_END_SEC * 1000);
   });
 
-  test("takes the latest item period when there are several", () => {
+  test("takes the latest item period when there are several", async () => {
     const snap = normalizeSubscription({
       id: "sub_1",
       customer: "cus_1",
@@ -52,7 +52,7 @@ describe("a subscription's period end", () => {
     expect(snap.currentPeriodEnd).toBe((PERIOD_END_SEC + 86_400) * 1000);
   });
 
-  test("is null when the object carries no period at all", () => {
+  test("is null when the object carries no period at all", async () => {
     expect(
       normalizeSubscription({
         id: "sub_1",
@@ -65,7 +65,7 @@ describe("a subscription's period end", () => {
 });
 
 describe("a subscription's discount", () => {
-  test("comes through discount.source.coupon, the shape the pinned version returns", () => {
+  test("comes through discount.source.coupon, the shape the pinned version returns", async () => {
     // OBSERVED 2026-08-09 on 2026-07-29.dahlia: this is the real shape of a coupon
     // applied at Checkout, fetched with expand[]=discounts.source.coupon.
     const snap = normalizeSubscription({
@@ -98,7 +98,7 @@ describe("a subscription's discount", () => {
     });
   });
 
-  test("an UNEXPANDED discount is a hard stop, never read as 'no discount'", () => {
+  test("an UNEXPANDED discount is a hard stop, never read as 'no discount'", async () => {
     // Reading an unexpanded discount as absence would tell the ladder that a comped
     // subscription is no longer comped - the wrong answer, silently.
     for (const discounts of [
@@ -123,7 +123,7 @@ describe("a subscription's discount", () => {
     }
   });
 
-  test("an amount-off coupon has a null percentage, which is NOT unknown", () => {
+  test("an amount-off coupon has a null percentage, which is NOT unknown", async () => {
     const snap = normalizeSubscription({
       id: "sub_1",
       customer: "cus_1",
@@ -147,7 +147,7 @@ describe("a subscription's discount", () => {
     });
   });
 
-  test("the older discounts[].coupon shape still works", () => {
+  test("the older discounts[].coupon shape still works", async () => {
     const snap = normalizeSubscription({
       id: "sub_1",
       customer: "cus_1",
@@ -168,7 +168,7 @@ describe("a subscription's discount", () => {
     });
   });
 
-  test("falls back to the singular discount field", () => {
+  test("falls back to the singular discount field", async () => {
     const snap = normalizeSubscription({
       id: "sub_1",
       customer: "cus_1",
@@ -183,7 +183,7 @@ describe("a subscription's discount", () => {
     });
   });
 
-  test("keeps the largest percentage when Stripe reports several", () => {
+  test("keeps the largest percentage when Stripe reports several", async () => {
     const snap = normalizeSubscription({
       id: "sub_1",
       customer: "cus_1",
@@ -197,7 +197,7 @@ describe("a subscription's discount", () => {
     expect(snap.discount?.couponId).toBe("co_full");
   });
 
-  test("is null when there is none", () => {
+  test("is null when there is none", async () => {
     expect(
       normalizeSubscription({
         id: "sub_1",
@@ -211,7 +211,7 @@ describe("a subscription's discount", () => {
 });
 
 describe("an invoice's subscription", () => {
-  test("comes from parent.subscription_details, where the pinned version puts it", () => {
+  test("comes from parent.subscription_details, where the pinned version puts it", async () => {
     const snap = normalizeInvoice({
       id: "in_1",
       status: "open",
@@ -221,7 +221,7 @@ describe("an invoice's subscription", () => {
     expect(snap.subscriptionId).toBe("sub_9");
   });
 
-  test("falls back to the top-level subscription field", () => {
+  test("falls back to the top-level subscription field", async () => {
     expect(
       normalizeInvoice({
         id: "in_1",
@@ -232,14 +232,14 @@ describe("an invoice's subscription", () => {
     ).toBe("sub_8");
   });
 
-  test("is null for a one-off invoice", () => {
+  test("is null for a one-off invoice", async () => {
     expect(
       normalizeInvoice({ id: "in_1", status: "paid", livemode: false })
         .subscriptionId,
     ).toBeNull();
   });
 
-  test("is settled without a `paid` boolean, which the pinned version omits", () => {
+  test("is settled without a `paid` boolean, which the pinned version omits", async () => {
     // OBSERVED 2026-08-09 on 2026-07-29.dahlia: invoices carry no `paid` field.
     // Reading it alone called every invoice unpaid.
     expect(
@@ -271,7 +271,7 @@ describe("an invoice's subscription", () => {
     ).toBe(true);
   });
 
-  test("carries the retry evidence the ladder reads", () => {
+  test("carries the retry evidence the ladder reads", async () => {
     const snap = normalizeInvoice({
       id: "in_1",
       status: "open",
@@ -291,7 +291,7 @@ describe("an invoice's subscription", () => {
 });
 
 describe("livemode", () => {
-  test("a missing livemode is MALFORMED, not assumed to be test mode", () => {
+  test("a missing livemode is MALFORMED, not assumed to be test mode", async () => {
     // Treating absence as false is exactly how live data would slip through.
     expect(() =>
       normalizeSubscription({
@@ -302,13 +302,13 @@ describe("livemode", () => {
     ).toThrow(MalformedStripeObject);
   });
 
-  test("a non-boolean livemode is malformed too", () => {
+  test("a non-boolean livemode is malformed too", async () => {
     expect(() =>
       normalizeInvoice({ id: "in_1", status: "open", livemode: "false" }),
     ).toThrow(MalformedStripeObject);
   });
 
-  test("live mode is carried through, for the refusal above to act on", () => {
+  test("live mode is carried through, for the refusal above to act on", async () => {
     expect(normalizeSession({ id: "cs_1", livemode: true }).livemode).toBe(
       true,
     );
@@ -316,7 +316,7 @@ describe("livemode", () => {
 });
 
 describe("required fields", () => {
-  test("a subscription with no id, status or customer is malformed", () => {
+  test("a subscription with no id, status or customer is malformed", async () => {
     expect(() => normalizeSubscription({ livemode: false })).toThrow(
       MalformedStripeObject,
     );
@@ -328,7 +328,7 @@ describe("required fields", () => {
     ).toThrow(MalformedStripeObject);
   });
 
-  test("a session reports what Checkout decided about collecting a card", () => {
+  test("a session reports what Checkout decided about collecting a card", async () => {
     const snap = normalizeSession({
       id: "cs_1",
       livemode: false,

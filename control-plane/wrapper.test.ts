@@ -15,12 +15,12 @@ const WRAPPER = path.join(import.meta.dir, "wrapper.sh");
 let root = "";
 let bin = "";
 
-beforeEach(() => {
+beforeEach(async () => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "isomux-cp-wrap-"));
   bin = path.join(root, "bin");
   fs.mkdirSync(bin, { recursive: true });
 });
-afterEach(() => {
+afterEach(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 

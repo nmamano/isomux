@@ -55,7 +55,7 @@ describe("SpawnExec", () => {
 });
 
 describe("the timeout source", () => {
-  test("a budget with nothing left refuses before anything is spawned", () => {
+  test("a budget with nothing left refuses before anything is spawned", async () => {
     expect(() => resolveTimeout(() => 0)).toThrow(RemoteTimeoutError);
     expect(() => resolveTimeout(() => -1)).toThrow(RemoteTimeoutError);
     expect(resolveTimeout(() => 5_000)).toBe(5_000);

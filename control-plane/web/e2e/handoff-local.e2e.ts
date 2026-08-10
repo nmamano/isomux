@@ -103,16 +103,26 @@ async function collect(page: Page): Promise<string> {
   return (await page.getAttribute('[data-testid="invite-link"]', "href")) ?? "";
 }
 
-function succeed(store: Store, instanceId: string, kind: string): void {
-  const op = store.enqueue({
-    id: `op-${kind}-${store.nextSeq("audit")}`,
+async function succeed(
+  store: Store,
+  instanceId: string,
+  kind: string,
+): Promise<void> {
+  const op = await store.enqueue({
+    id: `op-${kind}-${await store.nextSeq("audit")}`,
     instance_id: instanceId,
     kind,
     inactivity_deadline_at: 0,
     absolute_deadline_at: 0,
   });
-  const leased = store.tryLease(op.id, op.version, "seed", 0, Date.now())!;
-  store.casOperation(
+  const leased = (await store.tryLease(
+    op.id,
+    op.version,
+    "seed",
+    0,
+    Date.now(),
+  ))!;
+  await store.casOperation(
     { id: leased.id, version: leased.version, holder: "seed" },
     { status: "succeeded" },
   );
@@ -121,12 +131,12 @@ function succeed(store: Store, instanceId: string, kind: string): void {
 async function main(): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp4b-local-"));
   const db = path.join(dir, "control-plane.db");
-  const store = new Store(db);
+  const store = await Store.open(db);
   say("# slice 4b local transcript: the handoff surface with the box faked");
   say(`database: ${db}`);
 
-  const account = accountForDevSignIn(store, "local@example.com");
-  const reserved = reserveOffice(store, {
+  const account = await accountForDevSignIn(store, "local@example.com");
+  const reserved = await reserveOffice(store, {
     accountId: account.id,
     officeName: "cp1",
     plan: "office",
@@ -148,21 +158,21 @@ async function main(): Promise<void> {
     knownHostsFile: path.join(dir, "known_hosts"),
   };
   saveRun(dir, rec);
-  const instance = store.getInstance(instanceId)!;
-  store.casInstance(instance.id, instance.version, {
+  const instance = (await store.getInstance(instanceId))!;
+  await store.casInstance(instance.id, instance.version, {
     run_id: "run-local",
     service_state: "live",
   });
-  const asset = store.assetForInstance(instanceId)!;
-  store.casAsset(asset.id, asset.version, {
+  const asset = (await store.assetForInstance(instanceId))!;
+  await store.casAsset(asset.id, asset.version, {
     // An obviously synthetic provider id: nothing in this file may act on a
     // real box, and the seed-instance helper's rule applies here too.
     provider_id: "999999999",
     ipv4: "203.0.113.10",
     asset_state: "active",
   });
-  succeed(store, instanceId, "first_contact");
-  succeed(store, instanceId, "verify_https");
+  await succeed(store, instanceId, "first_contact");
+  await succeed(store, instanceId, "verify_https");
 
   const hold = new InviteHold();
   const lines: string[] = [];
@@ -245,8 +255,7 @@ async function main(): Promise<void> {
     say(`resend caveat: ${await textOf(page, "resend-caveat")}`);
 
     // The seam refuses a second collection of the same one.
-    const opId = store
-      .operationsFor(instanceId)
+    const opId = (await store.operationsFor(instanceId))
       .filter((o) => o.kind === "mint_invite")
       .map((o) => o.id)
       .pop()!;
@@ -270,7 +279,7 @@ async function main(): Promise<void> {
     );
 
     // ---- the window closes
-    succeed(store, instanceId, "revoke_access");
+    await succeed(store, instanceId, "revoke_access");
     await page.reload();
     await waitFor(page, "handoff");
     say(`access after revocation: ${await textOf(page, "access-window")}`);
@@ -326,7 +335,7 @@ async function main(): Promise<void> {
     if (browser) await browser.close();
     server.kill();
     await seam.stop();
-    store.close();
+    await store.close();
     fs.rmSync(dir, { recursive: true, force: true });
   }
 

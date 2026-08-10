@@ -58,6 +58,17 @@ export default tseslint.config(
           caughtErrorsIgnorePattern: "^_",
         },
       ],
+      // The control-plane store fence, repeated here because the ROOT config
+      // ignores this directory: a block written there cannot reach these
+      // files, and the facade awaits the same Promise-based store. See the
+      // matching block in the repository root's eslint.config.js.
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": "error",
+      "@typescript-eslint/await-thenable": "error",
+      "@typescript-eslint/return-await": [
+        "error",
+        "error-handling-correctness-only",
+      ],
     },
   },
 );

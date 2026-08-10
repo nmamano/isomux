@@ -22,13 +22,13 @@ import { createOwnedCustomer, ownedCustomerParams } from "./test-clock.ts";
 const TEST_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
 const temps: string[] = [];
 
-function tempStore(): Store {
+async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-checkout-"));
   temps.push(dir);
-  return new Store(path.join(dir, "cp.db"));
+  return await Store.open(path.join(dir, "cp.db"));
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -84,7 +84,7 @@ describe("the comped path", () => {
     expect(params["discounts[0][coupon]"]).toBe("co_full");
   });
 
-  test("without a coupon the card is collected, stated explicitly", () => {
+  test("without a coupon the card is collected, stated explicitly", async () => {
     // NO TRIAL (ruling 1): the only reason a card is not collected is that a 100%
     // discount leaves nothing to charge. Relying on Stripe's default here would
     // make that silent.
@@ -93,7 +93,7 @@ describe("the comped path", () => {
     expect(params["discounts[0][coupon]"]).toBeUndefined();
   });
 
-  test("our metadata rides on the session AND the subscription", () => {
+  test("our metadata rides on the session AND the subscription", async () => {
     const params = checkoutParams({ ...base, instanceId: "inst-1" });
     const encoded = formEncode(params);
     for (const key of [
@@ -106,7 +106,7 @@ describe("the comped path", () => {
     }
   });
 
-  test("a pre-made customer replaces the email, never both", () => {
+  test("a pre-made customer replaces the email, never both", async () => {
     const withCustomer = checkoutParams({ ...base, customerId: "cus_clock" });
     expect(withCustomer.customer).toBe("cus_clock");
     expect(withCustomer.customer_email).toBeUndefined();
@@ -237,13 +237,13 @@ describe("verifying a coupon before trusting it", () => {
 });
 
 describe("office names", () => {
-  test("a plain label is accepted", () => {
+  test("a plain label is accepted", async () => {
     for (const name of ["acme", "a", "acme-corp", "acme2", "a1-b2-c3"]) {
       expect(validateOfficeName(name)).toEqual({ ok: true });
     }
   });
 
-  test("anything that is not one DNS label is refused", () => {
+  test("anything that is not one DNS label is refused", async () => {
     for (const name of [
       "",
       "-acme",
@@ -259,7 +259,7 @@ describe("office names", () => {
     }
   });
 
-  test("hostnames we serve centrally are refused", () => {
+  test("hostnames we serve centrally are refused", async () => {
     for (const name of ["www", "api", "admin", "cloud", "apps", "mail"]) {
       expect(RESERVED_OFFICE_NAMES.has(name)).toBe(true);
       expect(validateOfficeName(name).ok).toBe(false);
@@ -314,7 +314,7 @@ describe("checkout writes nothing", () => {
     // Webhooks are the only writer of subscription state. A session is a Stripe
     // object and a redirect; if this test ever fails, something has started
     // trusting one of those.
-    const store = tempStore();
+    const store = await tempStore();
     const { client } = clientReturning({
       id: "cs_1",
       url: "https://checkout.stripe.com/c/pay/cs_test_x",
@@ -322,9 +322,9 @@ describe("checkout writes nothing", () => {
       livemode: false,
     });
     await createCheckoutSession(client, base, "k");
-    expect(listSubscriptions(store)).toEqual([]);
-    expect(listAccounts(store)).toEqual([]);
-    expect(store.auditEvents()).toEqual([]);
+    expect(await listSubscriptions(store)).toEqual([]);
+    expect(await listAccounts(store)).toEqual([]);
+    expect(await store.auditEvents()).toEqual([]);
   });
 });
 

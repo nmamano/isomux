@@ -55,23 +55,23 @@ export type ResumeOutcome =
  * Must run inside the caller's transaction, so the predicates and the enqueue
  * cannot be separated by another writer.
  */
-export function requestResume(
+export async function requestResume(
   store: Store,
   sub: SubscriptionRow,
   now: number,
   actor: string = RESUME_ACTOR,
-): ResumeOutcome {
+): Promise<ResumeOutcome> {
   if (!store.inTransaction()) {
     throw new Error("requestResume must run inside a transaction");
   }
   if (!sub.instance_id) return { ok: false, code: "no_episode" };
-  const instance = store.getInstance(sub.instance_id);
+  const instance = await store.getInstance(sub.instance_id);
   if (!instance || instance.service_state !== "suspended") {
     return { ok: false, code: "not_suspended" };
   }
   if (!HEALTHY.has(sub.status)) return { ok: false, code: "not_healthy" };
 
-  const operations = store.operationsFor(sub.instance_id);
+  const operations = await store.operationsFor(sub.instance_id);
 
   // PREDICATE 4, and the one a careless implementation gets wrong: a
   // cancellation-retention box is suspended and recovered-looking too. Any
@@ -90,10 +90,11 @@ export function requestResume(
   if (!episodeId) return { ok: false, code: "no_dunning_suspension" };
 
   const opId = resumeOperationId(episodeId);
-  if (store.getOperation(opId)) return { ok: false, code: "already_open" };
+  if (await store.getOperation(opId))
+    return { ok: false, code: "already_open" };
 
   const d = deadlinesFor("power_on");
-  store.enqueue({
+  await store.enqueue({
     id: opId,
     instance_id: sub.instance_id,
     kind: "power_on",
@@ -101,7 +102,7 @@ export function requestResume(
     absolute_deadline_at: now + d.absoluteMs,
     evidence: { reason: "dunning", subscription: sub.id, episode: episodeId },
   });
-  store.appendAudit({
+  await store.appendAudit({
     actor,
     instance_id: sub.instance_id,
     action: "resume_requested",
@@ -207,14 +208,14 @@ export function powerOnHandler(deps: ResumeDeps): Handler {
         };
       }
       ctx.budget.claim("power_on");
-      ctx.audit("power_on", "started", `provider ${providerId}`);
+      await ctx.audit("power_on", "started", `provider ${providerId}`);
       try {
         await deps.powerOn(providerId);
       } catch (err) {
-        ctx.audit("power_on", "ambiguous", messageOf(err));
+        await ctx.audit("power_on", "ambiguous", messageOf(err));
         throw err;
       }
-      ctx.audit("power_on", "succeeded", `provider ${providerId}`);
+      await ctx.audit("power_on", "succeeded", `provider ${providerId}`);
       deps.report?.(`resumed: provider ${providerId} powered on`);
       // It concludes when the PROVIDER has accepted the power-on, not when the
       // office answers again - the same boundary reboot draws, and for the same

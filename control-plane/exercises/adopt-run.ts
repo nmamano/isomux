@@ -52,18 +52,18 @@ function required(name: string): string {
   return value;
 }
 
-function enqueueIn(
+async function enqueueIn(
   store: Store,
   instanceId: string,
   kind: OperationKind,
   now: number,
-): string {
+): Promise<string> {
   if (!ALLOWED_KINDS.includes(kind)) {
     throw new Error(`this file may not open a ${kind} operation`);
   }
   const d = deadlinesFor(kind);
-  const id = newOperationId(kind, store.nextSeq("audit"));
-  store.enqueue({
+  const id = newOperationId(kind, await store.nextSeq("audit"));
+  await store.enqueue({
     id,
     instance_id: instanceId,
     kind,
@@ -73,7 +73,7 @@ function enqueueIn(
   return id;
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const dbPath = required("db");
   const instanceId = required("instance");
   const runId = required("run");
@@ -88,13 +88,13 @@ function main(): void {
   if (!rec) throw new Error(`no run record ${runId} under ${runsDir}`);
   if (!rec.ipv4) throw new Error(`run ${runId} has no address yet`);
 
-  const store = new Store(dbPath);
+  const store = await Store.open(dbPath);
   try {
-    const line = store.tx(() => {
+    const line = await store.tx(async () => {
       const now = store.now();
-      const instance = store.getInstance(instanceId);
+      const instance = await store.getInstance(instanceId);
       if (!instance) throw new Error(`no instance ${instanceId}`);
-      const asset = store.assetForInstance(instanceId);
+      const asset = await store.assetForInstance(instanceId);
       if (!asset)
         throw new Error(`instance ${instanceId} has no provider asset`);
       // Identity, checked the same way in both modes: the box being talked
@@ -119,7 +119,7 @@ function main(): void {
               `${asset.provider_id}; refusing to replace a provider asset`,
           );
         }
-        if (store.operationsFor(instanceId).length > 0) {
+        if ((await store.operationsFor(instanceId)).length > 0) {
           throw new Error(
             `instance ${instanceId} already has operations; adoption is for a ` +
               `row nothing has run yet`,
@@ -130,23 +130,23 @@ function main(): void {
         // somebody else is changing is not one we adopt - so the whole thing
         // rolls back and nothing is half-linked.
         if (
-          !store.casInstance(instanceId, instance.version, {
+          !(await store.casInstance(instanceId, instance.version, {
             run_id: rec.runId,
-          })
+          }))
         ) {
           throw new Error(`instance ${instanceId} changed under us; try again`);
         }
         if (
-          !store.casAsset(asset.id, asset.version, {
+          !(await store.casAsset(asset.id, asset.version, {
             provider_id: rec.instanceId,
             ipv4: rec.ipv4,
             asset_state: "active",
-          })
+          }))
         ) {
           throw new Error(`asset ${asset.id} changed under us; try again`);
         }
-        const opId = enqueueIn(store, instanceId, "wait_for_ssh", now);
-        store.appendAudit({
+        const opId = await enqueueIn(store, instanceId, "wait_for_ssh", now);
+        await store.appendAudit({
           actor: "operator",
           instance_id: instanceId,
           action: "adopt_run",
@@ -170,20 +170,20 @@ function main(): void {
             `(${asset.ipv4}), which is not run ${runId}'s box`,
         );
       }
-      const verified = store
-        .operationsFor(instanceId)
-        .some((op) => op.kind === "verify_https" && op.status === "succeeded");
+      const verified = (await store.operationsFor(instanceId)).some(
+        (op) => op.kind === "verify_https" && op.status === "succeeded",
+      );
       if (!verified) {
         throw new Error(
           `instance ${instanceId} has no succeeded verify_https: refusing to ` +
             `revoke access to a box we never proved was live`,
         );
       }
-      const active = store.activeOperation(instanceId, "revoke_access");
+      const active = await store.activeOperation(instanceId, "revoke_access");
       if (active) {
         // Idempotent: no enqueue, no state change. The attempt is still
         // recorded, because an operator trying twice is real history.
-        store.appendAudit({
+        await store.appendAudit({
           actor: "operator",
           instance_id: instanceId,
           action: "adopt_run_revoke",
@@ -196,17 +196,17 @@ function main(): void {
         });
         return `${active.id} is already ${active.status}; nothing to do`;
       }
-      const proven = store
-        .operationsFor(instanceId)
-        .some((op) => op.kind === "revoke_access" && op.status === "succeeded");
+      const proven = (await store.operationsFor(instanceId)).some(
+        (op) => op.kind === "revoke_access" && op.status === "succeeded",
+      );
       if (proven) {
         throw new Error(
           `run ${runId}'s access was already revoked and proven; there is ` +
             `nothing left to remove`,
         );
       }
-      const opId = enqueueIn(store, instanceId, "revoke_access", now);
-      store.appendAudit({
+      const opId = await enqueueIn(store, instanceId, "revoke_access", now);
+      await store.appendAudit({
         actor: "operator",
         instance_id: instanceId,
         action: "adopt_run_revoke",
@@ -218,12 +218,15 @@ function main(): void {
     });
     console.log(line);
   } finally {
-    store.close();
+    await store.close();
   }
 }
 
 try {
-  main();
+  // AWAITED: without it the rejection would arrive after this frame has left
+  // and the catch below - the whole error report for this exercise - would
+  // never run, leaving an unhandled rejection instead of a message.
+  await main();
 } catch (err) {
   console.error(err instanceof Error ? err.message : String(err));
   process.exitCode = 1;

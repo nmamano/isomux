@@ -358,17 +358,15 @@ interface SubscriptionFacts {
   discount_ends_at: number | null;
 }
 
-function subscriptionRowFor(
+async function subscriptionRowFor(
   store: Store,
   instanceId: string,
-): SubscriptionFacts | null {
-  return (
-    store.db
-      .query<
-        SubscriptionFacts,
-        [string]
-      >("select status, current_period_end, cancel_at_period_end, ended_at, " + "cancellation_reason, discount_percent_off, discount_ends_at " + "from subscriptions where instance_id = ? order by created_at desc")
-      .get(instanceId) ?? null
+): Promise<SubscriptionFacts | null> {
+  return store.sqlGet<SubscriptionFacts>(
+    "select status, current_period_end, cancel_at_period_end, ended_at, " +
+      "cancellation_reason, discount_percent_off, discount_ends_at " +
+      "from subscriptions where instance_id = ? order by created_at desc",
+    [instanceId],
   );
 }
 
@@ -394,13 +392,13 @@ function subscriptionViewOf(
 /** The timeline, from the SAME functions the machine decides with. A second
  * implementation here would eventually show the customer a date the tick does
  * not act on. */
-function lifecycleViewOf(
+async function lifecycleViewOf(
   store: Store,
   instanceId: string,
   row: SubscriptionFacts | null,
   operations: OperationRow[],
   now: number,
-): LifecycleView | null {
+): Promise<LifecycleView | null> {
   if (
     !row ||
     !isCustomerCancellation({
@@ -410,13 +408,11 @@ function lifecycleViewOf(
   ) {
     return null;
   }
-  const subscriptionId = store.db
-    .query<
-      { id: string },
-      [string]
-    >("select id from subscriptions where instance_id = ? order by created_at desc")
-    .get(instanceId);
-  const asset = store.assetForInstance(instanceId);
+  const subscriptionId = await store.sqlGet<{ id: string }>(
+    "select id from subscriptions where instance_id = ? order by created_at desc",
+    [instanceId],
+  );
+  const asset = await store.assetForInstance(instanceId);
   const timeline = phaseAt(
     {
       endedAt: row.ended_at,
@@ -445,13 +441,13 @@ function lifecycleViewOf(
  * fresh signup fails the second and third tests and is `created` with its
  * create step waiting, which is exactly true - nothing has been ordered yet.
  */
-function originOf(
+async function originOf(
   store: Store,
   instanceId: string,
   operations: OperationRow[],
-): "created" | "adopted" {
+): Promise<"created" | "adopted"> {
   if (operations.some((op) => op.kind === "create_instance")) return "created";
-  const asset = store.assetForInstance(instanceId);
+  const asset = await store.assetForInstance(instanceId);
   // LINKED MEANS IT HAS A PROVIDER ID, and nothing more. Requiring
   // asset_state 'active' looked equivalent and is not: asset state tracks the
   // PROVIDER'S lifecycle, so the first reconcile against a box with a cancel
@@ -562,19 +558,19 @@ export interface ProgressArgs {
  * Null covers "no such instance" AND "not yours", and the caller answers 404 to
  * both: which of the two it was is not the asker's business.
  */
-export function projectionFor(
+export async function projectionFor(
   store: Store,
   args: ProgressArgs,
-): ProgressView | null {
-  const reservation: ReservationRow | null = reservationForInstance(
+): Promise<ProgressView | null> {
+  const reservation: ReservationRow | null = await reservationForInstance(
     store,
     args.instanceId,
   );
   if (!reservation || reservation.account_id !== args.accountId) return null;
-  const instance: InstanceRow | null = store.getInstance(args.instanceId);
+  const instance: InstanceRow | null = await store.getInstance(args.instanceId);
   if (!instance) return null;
 
-  const operations = store.operationsFor(instance.id);
+  const operations = await store.operationsFor(instance.id);
   // Latest row per kind: a retried step opens a new row, and the newest is the
   // one that describes where the machine is now.
   const byKind = new Map<string, OperationRow>();
@@ -584,7 +580,7 @@ export function projectionFor(
   }
 
   const goal = instance.goal as Goal;
-  const origin = originOf(store, instance.id, operations);
+  const origin = await originOf(store, instance.id, operations);
   const ladder = ladderFor(goal).filter(
     (kind) => !(origin === "adopted" && kind === "create_instance"),
   );
@@ -594,8 +590,17 @@ export function projectionFor(
     .sort();
 
   const verifyHttps = byKind.get("verify_https");
-  const access = accessFor(store, instance, operations, store.now());
-  const subscriptionRow = subscriptionRowFor(store, instance.id);
+  const access = await accessFor(store, instance, operations, store.now());
+  const subscriptionRow = await subscriptionRowFor(store, instance.id);
+  const attention = attentionViews(await store.openReasons(instance.id));
+  const liveness = livenessFor(await store.getLiveness(instance.id));
+  const lifecycle = await lifecycleViewOf(
+    store,
+    instance.id,
+    subscriptionRow,
+    operations,
+    store.now(),
+  );
 
   return {
     instanceId: instance.id,
@@ -612,21 +617,15 @@ export function projectionFor(
     // The one terminal claim, and it rests on a SUCCEEDED probe rather than on
     // how far down the ladder we are.
     ready: verifyHttps?.status === "succeeded",
-    attention: attentionViews(store.openReasons(instance.id)),
+    attention,
     access,
     handoff: handoffFor(access, byKind, operations),
-    liveness: livenessFor(store.getLiveness(instance.id)),
+    liveness,
     restart: restartFor(byKind),
     subscription: subscriptionRow
       ? subscriptionViewOf(subscriptionRow, store.now())
       : null,
-    lifecycle: lifecycleViewOf(
-      store,
-      instance.id,
-      subscriptionRow,
-      operations,
-      store.now(),
-    ),
+    lifecycle,
   };
 }
 

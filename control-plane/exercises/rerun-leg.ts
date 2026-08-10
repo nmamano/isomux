@@ -47,12 +47,12 @@ const dbPath =
   dbFlag >= 0 && rest[dbFlag + 1]
     ? rest[dbFlag + 1]
     : path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cp-rerun-")), "cp.db");
-const store = new Store(dbPath);
+const store = await Store.open(dbPath);
 reporter.line(`store: ${dbPath}`);
 
 const instanceId = `inst-${runId}`;
-if (!store.getInstance(instanceId)) {
-  store.createInstance({
+if (!(await store.getInstance(instanceId))) {
+  await store.createInstance({
     id: instanceId,
     run_id: runId,
     name: rec.host,
@@ -79,8 +79,9 @@ const ticker = new Ticker({
 });
 // A restart ADOPTS the operation the dead process left behind rather than
 // opening a second one - the partial unique index would refuse it anyway.
-const existing = store.activeOperation(instanceId, kind);
-const op = existing ?? ticker.enqueue(instanceId, kind as OperationKind);
+const existing = await store.activeOperation(instanceId, kind);
+const op =
+  existing ?? (await ticker.enqueue(instanceId, kind as OperationKind));
 reporter.line(
   `${existing ? "adopted" : "enqueued"} ${op.id} (${kind}) for ${runId} on ${rec.ipv4}`,
 );
@@ -92,14 +93,14 @@ process.on("SIGINT", () => {
 
 for (;;) {
   await ticker.once();
-  const row = store.getOperation(op.id);
-  const inst = store.getInstance(instanceId);
+  const row = await store.getOperation(op.id);
+  const inst = await store.getInstance(instanceId);
   reporter.line(
     `${new Date().toISOString()} ${row?.status} attempt=${row?.attempt} ` +
       `flags=${row?.inactivity_flagged}/${row?.absolute_flagged} ` +
       `attention=${inst?.attention_state} evidence=${row?.evidence}`,
   );
-  for (const r of store.openReasons(instanceId)) {
+  for (const r of await store.openReasons(instanceId)) {
     reporter.line(`  OPEN [${r.reason_class}/${r.severity}] ${r.reason}`);
   }
   if (stopping) break;
@@ -108,7 +109,7 @@ for (;;) {
 }
 
 reporter.line("--- audit events ---");
-for (const e of store.auditEvents()) {
+for (const e of await store.auditEvents()) {
   reporter.line(
     `  ${e.action} ${e.outcome}${e.detail ? ` (${e.detail})` : ""}`,
   );

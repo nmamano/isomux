@@ -114,13 +114,13 @@ export function cancelAssetHandler(deps: CancelAssetDeps): Handler {
       }
 
       ctx.budget.claim("cancel_asset");
-      ctx.audit("cancel_asset", "started", `provider ${providerId}`);
+      await ctx.audit("cancel_asset", "started", `provider ${providerId}`);
       let result: { assetState: AssetState; serviceEndsAt?: string };
       let refusal: string | null = null;
       try {
         result = await deps.cancel(providerId);
       } catch (err) {
-        ctx.audit("cancel_asset", "ambiguous", messageOf(err));
+        await ctx.audit("cancel_asset", "ambiguous", messageOf(err));
         // RECONCILE AGAINST PROVIDER TRUTH before deciding what the refusal
         // meant. This is the design's own recovery rule - "if cancel_asset
         // succeeds and our write fails, the next tick's reconcile against get
@@ -135,7 +135,7 @@ export function cancelAssetHandler(deps: CancelAssetDeps): Handler {
           throw err;
         }
         if (!ALREADY_ENDING.has(truth.assetState)) throw err;
-        ctx.audit(
+        await ctx.audit(
           "cancel_asset",
           "succeeded",
           `provider ${providerId} was already ${truth.assetState}`,
@@ -144,7 +144,7 @@ export function cancelAssetHandler(deps: CancelAssetDeps): Handler {
         result = truth;
       }
       if (!refusal) {
-        ctx.audit(
+        await ctx.audit(
           "cancel_asset",
           "succeeded",
           `provider ${providerId} -> ${result.assetState}`,
@@ -154,12 +154,12 @@ export function cancelAssetHandler(deps: CancelAssetDeps): Handler {
       // next reconcile: `serviceEndsAt` is the only proven deletion date there
       // is, and the ops floor needs it the moment it exists.
       if (
-        !ctx.store.casAsset(asset.id, asset.version, {
+        !(await ctx.store.casAsset(asset.id, asset.version, {
           asset_state: result.assetState,
           ...(result.serviceEndsAt === undefined
             ? {}
             : { service_ends_at: result.serviceEndsAt }),
-        })
+        }))
       ) {
         // The call HAPPENED. Ambiguous rather than a retry: a plain retry would
         // ask the provider to cancel something it has already cancelled.
@@ -278,7 +278,7 @@ export function removeDnsHandler(deps: RemoveDnsDeps = {}): Handler {
       const unprovableV6 = answers.aaaa.length > 0;
 
       if (stillOurs || unprovableV6) {
-        ctx.store.tx(() =>
+        await ctx.store.tx(() =>
           raiseAttentionIn(ctx.store, {
             instanceId: ctx.instance.id,
             reasonClass: "operation_condition",
@@ -306,10 +306,15 @@ export function removeDnsHandler(deps: RemoveDnsDeps = {}): Handler {
       // operation raised is genuinely resolved and the row is cleared with its
       // audit - an incident that stayed open after being fixed would train an
       // operator to ignore the floor.
-      ctx.store.tx(() => {
-        for (const open of ctx.store.openReasons(ctx.instance.id)) {
+      await ctx.store.tx(async () => {
+        for (const open of await ctx.store.openReasons(ctx.instance.id)) {
           if (open.source_op_id === ctx.op.id) {
-            clearAttentionIn(ctx.store, ctx.instance.id, open.id, "lifecycle");
+            await clearAttentionIn(
+              ctx.store,
+              ctx.instance.id,
+              open.id,
+              "lifecycle",
+            );
           }
         }
       });

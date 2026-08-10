@@ -95,21 +95,19 @@ interface Prepared {
  * only crash boundary available: a process that dies mid-call leaves a started
  * row with no outcome, and that is exactly the state a human needs to see.
  */
-function prepare(
+async function prepare(
   store: Store,
   req: CancelRequest,
   verb: Verb,
-): Prepared | CancelOutcome {
-  return store.tx(() => {
-    if (!instanceOwnedBy(store, req.accountId, req.instanceId)) {
+): Promise<Prepared | CancelOutcome> {
+  return store.tx(async () => {
+    if (!(await instanceOwnedBy(store, req.accountId, req.instanceId))) {
       return refuse("not_yours");
     }
-    const row = store.db
-      .query<
-        SubscriptionRow,
-        [string]
-      >("select * from subscriptions where instance_id = ? order by created_at desc")
-      .get(req.instanceId);
+    const row = await store.sqlGet<SubscriptionRow>(
+      "select * from subscriptions where instance_id = ? order by created_at desc",
+      [req.instanceId],
+    );
     if (!row) return refuse("no_subscription");
     // A terminal subscription cannot be cancelled or reactivated. Stripe does
     // not un-delete one, so offering either would be a button that always fails.
@@ -120,8 +118,8 @@ function prepare(
     if (verb === "uncancel" && row.cancel_at_period_end === 0) {
       return refuse("not_cancelled");
     }
-    const requestKey = `cp-${verb}-${store.nextSeq("audit")}`;
-    store.appendAudit({
+    const requestKey = `cp-${verb}-${await store.nextSeq("audit")}`;
+    await store.appendAudit({
       actor: `account:${req.accountId}`,
       instance_id: req.instanceId,
       action: verb === "cancel" ? "request_cancel" : "request_uncancel",
@@ -145,7 +143,7 @@ async function apply(
   req: CancelRequest,
   verb: Verb,
 ): Promise<CancelOutcome> {
-  const prepared = prepare(store, req, verb);
+  const prepared = await prepare(store, req, verb);
   if (!isPrepared(prepared)) return prepared;
   const { subscription, requestKey } = prepared;
 
@@ -166,7 +164,10 @@ async function apply(
         : "failed";
   let recorded = true;
   try {
-    store.tx(() => {
+    // Awaited inside the try: the catch below is what turns a storage failure
+    // into `recorded: false` rather than into a thrown request the customer is
+    // told failed after Stripe already accepted it.
+    await store.tx(() =>
       store.appendAudit({
         actor: `account:${req.accountId}`,
         instance_id: req.instanceId,
@@ -174,8 +175,8 @@ async function apply(
         target: subscription.id,
         outcome,
         detail: requestKey,
-      });
-    });
+      }),
+    );
   } catch {
     // THE CALL STILL HAPPENED. A storage failure here costs us history, not the
     // change: the webhook is what writes subscription state, and it does not

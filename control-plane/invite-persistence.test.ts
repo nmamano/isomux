@@ -33,7 +33,7 @@ const INVITE_URL = `https://cp1.test.isomux.app/i/${SECRET}`;
 
 const temps: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -58,7 +58,7 @@ interface Surfaces {
  * Returns WHERE it was found, so a failure names the surface rather than saying
  * "somewhere".
  */
-function scan(s: Surfaces): string[] {
+async function scan(s: Surfaces): Promise<string[]> {
   const hits: string[] = [];
   const look = (where: string, text: string): void => {
     if (text.includes(SECRET)) hits.push(`${where}: sentinel`);
@@ -78,12 +78,12 @@ function scan(s: Surfaces): string[] {
         .toString("latin1"),
     );
   }
-  for (const instance of s.store.listInstances()) {
-    for (const op of s.store.operationsFor(instance.id)) {
+  for (const instance of await s.store.listInstances()) {
+    for (const op of await s.store.operationsFor(instance.id)) {
       look(`evidence ${op.kind}`, op.evidence);
     }
   }
-  look("audit", JSON.stringify(s.store.auditEvents()));
+  look("audit", JSON.stringify(await s.store.auditEvents()));
   look("transcript", s.reporter.transcript.join("\n"));
   look("output", s.lines.join("\n"));
   return hits;
@@ -97,17 +97,17 @@ interface Bed extends Surfaces {
   opId: string;
 }
 
-function bed(opts: { deliver?: boolean } = {}): Bed {
+async function bed(opts: { deliver?: boolean } = {}): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-invite-persist-"));
   temps.push(dir);
   const dbFile = path.join(dir, "cp.db");
-  const store = new Store(dbFile);
+  const store = await Store.open(dbFile);
   const lines: string[] = [];
   const sink: Sink = { out: (l) => lines.push(l), err: (l) => lines.push(l) };
   const reporter = new Reporter(sink);
 
-  const account = accountForDevSignIn(store, "persist@example.com");
-  const reserved = reserveOffice(store, {
+  const account = await accountForDevSignIn(store, "persist@example.com");
+  const reserved = await reserveOffice(store, {
     accountId: account.id,
     officeName: "cp1",
     plan: "office",
@@ -129,31 +129,31 @@ function bed(opts: { deliver?: boolean } = {}): Bed {
     knownHostsFile: path.join(dir, "run-1.known_hosts"),
   };
   saveRun(dir, rec);
-  const instance = store.getInstance(instanceId)!;
-  store.casInstance(instance.id, instance.version, { run_id: "run-1" });
-  const asset = store.assetForInstance(instanceId)!;
-  store.casAsset(asset.id, asset.version, {
+  const instance = (await store.getInstance(instanceId))!;
+  await store.casInstance(instance.id, instance.version, { run_id: "run-1" });
+  const asset = (await store.assetForInstance(instanceId))!;
+  await store.casAsset(asset.id, asset.version, {
     provider_id: "203474835",
     ipv4: "169.58.97.2",
     asset_state: "active",
   });
   // A proven first contact is what makes the window open, which is what lets a
   // mint be requested at all.
-  const contact = store.enqueue({
+  const contact = await store.enqueue({
     id: "op-first_contact-0",
     instance_id: instanceId,
     kind: "first_contact",
     inactivity_deadline_at: 0,
     absolute_deadline_at: 0,
   });
-  const leased = store.tryLease(
+  const leased = (await store.tryLease(
     contact.id,
     contact.version,
     "h",
     0,
     Date.now(),
-  )!;
-  store.casOperation(
+  ))!;
+  await store.casOperation(
     { id: leased.id, version: leased.version, holder: "h" },
     { status: "succeeded" },
   );
@@ -171,7 +171,10 @@ function bed(opts: { deliver?: boolean } = {}): Bed {
     report: (l) => lines.push(l),
   });
 
-  const asked = requestInvite(store, { accountId: account.id, instanceId });
+  const asked = await requestInvite(store, {
+    accountId: account.id,
+    instanceId,
+  });
   if (!asked.ok) throw new Error(asked.reason);
   return {
     dbFile,
@@ -188,19 +191,19 @@ function bed(opts: { deliver?: boolean } = {}): Bed {
 
 describe("a dashboard mint leaves no trace", () => {
   test("the URL is in memory, and in nothing that survives the process", async () => {
-    const b = bed();
+    const b = await bed();
     await b.ticker.once();
 
     // It really was minted: a scan of an empty run would pass for free.
     const taken = b.hold.take(b.opId, b.instanceId);
     expect(taken).toEqual({ found: true, url: INVITE_URL });
-    expect(b.store.getOperation(b.opId)!.status).toBe("succeeded");
+    expect((await b.store.getOperation(b.opId))!.status).toBe("succeeded");
 
-    expect(scan(b)).toEqual([]);
+    expect(await scan(b)).toEqual([]);
   });
 
   test("and it is gone from memory once collected", async () => {
-    const b = bed();
+    const b = await bed();
     await b.ticker.once();
     b.hold.take(b.opId, b.instanceId);
     expect(b.hold.size()).toBe(0);
@@ -208,11 +211,11 @@ describe("a dashboard mint leaves no trace", () => {
   });
 
   test("without a delivery channel, nothing is minted to leave a trace of", async () => {
-    const b = bed({ deliver: false });
+    const b = await bed({ deliver: false });
     await b.ticker.once();
-    expect(b.store.getOperation(b.opId)!.status).toBe("failed");
+    expect((await b.store.getOperation(b.opId))!.status).toBe("failed");
     expect(b.hold.size()).toBe(0);
-    expect(scan(b)).toEqual([]);
+    expect(await scan(b)).toEqual([]);
   });
 });
 
@@ -221,28 +224,35 @@ describe("the scan would catch a leak", () => {
     // THE POSITIVE CONTROL. Without this, the test above is a search whose
     // sensitivity nobody has checked - and a scanner that never matches
     // anything passes every run.
-    const b = bed();
+    const b = await bed();
     await b.ticker.once();
     b.hold.take(b.opId, b.instanceId);
-    expect(scan(b)).toEqual([]);
+    expect(await scan(b)).toEqual([]);
 
-    const op = b.store.getOperation(b.opId)!;
-    const leased = b.store.tryLease(op.id, op.version, "leak", 0, Date.now())!;
-    b.store.casOperation(
+    const op = (await b.store.getOperation(b.opId))!;
+    const leased = (await b.store.tryLease(
+      op.id,
+      op.version,
+      "leak",
+      0,
+      Date.now(),
+    ))!;
+    await b.store.casOperation(
       { id: leased.id, version: leased.version, holder: "leak" },
       { evidence: { url: INVITE_URL } },
     );
-    b.store.tx(() =>
-      b.store.appendAudit({
-        actor: "leak",
-        instance_id: b.instanceId,
-        action: "mint_invite",
-        target: b.opId,
-        outcome: "succeeded",
-        detail: INVITE_URL,
-      }),
+    await b.store.tx(
+      async () =>
+        await b.store.appendAudit({
+          actor: "leak",
+          instance_id: b.instanceId,
+          action: "mint_invite",
+          target: b.opId,
+          outcome: "succeeded",
+          detail: INVITE_URL,
+        }),
     );
-    const hits = scan(b);
+    const hits = await scan(b);
     expect(hits).toContain("evidence mint_invite: sentinel");
     expect(hits).toContain("audit: sentinel");
     // A committed value lands in the WRITE-AHEAD LOG before it is checkpointed
@@ -255,9 +265,9 @@ describe("the scan would catch a leak", () => {
   });
 
   test("and it would catch one printed to the operator's output", async () => {
-    const b = bed();
+    const b = await bed();
     b.reporter.line(`OWNER INVITE: ${INVITE_URL}`);
-    const hits = scan(b);
+    const hits = await scan(b);
     expect(hits).toContain("output: sentinel");
     // The transcript redacts URL shapes, which is slice 1's contract - so the
     // live output is the surface that catches this, and it does.

@@ -80,10 +80,15 @@ export interface ExecOptions {
  * driver primitive issuing three commands produces three of these. */
 export type CallPhase = "started" | "succeeded" | "failed" | "ambiguous";
 
+/** Awaited at every call site below. The observer writes an audit row, which is
+ * a database write on both engines, and its THROW is load-bearing: a
+ * `succeeded` notification that cannot be recorded turns into
+ * ObserverWriteFailed rather than a plain failure a scheduler would retry. An
+ * unawaited call would reject outside those catches and lose that. */
 export type CallObserver = (
   phase: CallPhase,
   kind: "script" | "pipe" | "probe",
-) => void;
+) => Promise<void> | void;
 
 /** The process seam, so driver logic is testable without a box. */
 export interface Exec {
@@ -265,7 +270,7 @@ export class SshClient {
     kind: "script" | "pipe" | "probe",
     fn: () => Promise<ExecResult>,
   ): Promise<ExecResult> {
-    this.observer?.("started", kind);
+    await this.observer?.("started", kind);
     let res: ExecResult;
     try {
       res = await fn();
@@ -274,7 +279,7 @@ export class SshClient {
         // "failed" is a claim that nothing happened on the box. A timeout has
         // not earned it: the command may well have run and only the answer was
         // lost.
-        this.observer?.(
+        await this.observer?.(
           err instanceof AmbiguousRemoteError ? "ambiguous" : "failed",
           kind,
         );
@@ -284,12 +289,12 @@ export class SshClient {
       throw err;
     }
     try {
-      this.observer?.("succeeded", kind);
+      await this.observer?.("succeeded", kind);
     } catch (err) {
       // The command ran. Record what we know - that its outcome could not be
       // written - rather than leaving the trail claiming a failure.
       try {
-        this.observer?.("ambiguous", kind);
+        await this.observer?.("ambiguous", kind);
       } catch {
         // Nothing else to try; the throw below carries the story.
       }

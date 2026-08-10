@@ -34,7 +34,7 @@ let dir = "";
 let keyDir = "";
 let akFile = "";
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "isomux-cp-ak-"));
   // authorized_keys lives in its own subdirectory so a test can make THAT
   // unwritable without also blocking the composed script next to it.
@@ -43,7 +43,7 @@ beforeEach(() => {
   akFile = path.join(keyDir, "authorized_keys");
   fs.writeFileSync(akFile, `${FIXTURE}\n`, { mode: 0o600 });
 });
-afterEach(() => {
+afterEach(async () => {
   try {
     fs.chmodSync(keyDir, 0o700);
   } catch {
@@ -67,24 +67,24 @@ function runComposed(
 }
 
 describe("the TypeScript reader", () => {
-  test("finds the blob past options that contain spaces", () => {
+  test("finds the blob past options that contain spaces", async () => {
     expect(
       blobOf(`expiry-time="20260809140000Z" ssh-ed25519 ${OURS} isomux-cp`),
     ).toBe(OURS);
   });
-  test("does not confuse a longer key that contains ours", () => {
+  test("does not confuse a longer key that contains ours", async () => {
     expect(blobOf(`ssh-ed25519 ${OURS}EXTRA c`)).not.toBe(OURS);
   });
-  test("does not read a blob out of a comment", () => {
+  test("does not read a blob out of a comment", async () => {
     expect(blobOf(`ssh-ed25519 AAAAother ${OURS}`)).toBe("AAAAother");
   });
-  test("returns null for a line with no key", () => {
+  test("returns null for a line with no key", async () => {
     expect(blobOf("# just a comment")).toBeNull();
   });
 });
 
 describe("revoke-key.sh removes exactly one line", () => {
-  test("takes ours and leaves every impostor byte-for-byte", () => {
+  test("takes ours and leaves every impostor byte-for-byte", async () => {
     const before = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
     const res = runComposed(
       ["remote/authorized-keys.sh", "remote/revoke-key.sh"],
@@ -101,7 +101,7 @@ describe("revoke-key.sh removes exactly one line", () => {
     expect(after.some((l) => l.endsWith(OURS))).toBe(true);
   });
 
-  test("is idempotent: a second run changes nothing and still succeeds", () => {
+  test("is idempotent: a second run changes nothing and still succeeds", async () => {
     runComposed(
       ["remote/authorized-keys.sh", "remote/revoke-key.sh"],
       [akFile, OURS],
@@ -117,7 +117,7 @@ describe("revoke-key.sh removes exactly one line", () => {
 });
 
 describe("rewrite-key.sh rewrites exactly one line", () => {
-  test("puts the expiry on ours and leaves the impostors alone", () => {
+  test("puts the expiry on ours and leaves the impostors alone", async () => {
     const res = runComposed(
       ["remote/authorized-keys.sh", "remote/rewrite-key.sh"],
       [akFile, "ssh-ed25519", OURS, "20260810060000Z"],
@@ -131,7 +131,7 @@ describe("rewrite-key.sh rewrites exactly one line", () => {
     expect(lines.filter((l) => l.includes("expiry-time"))).toHaveLength(1);
   });
 
-  test("refuses when our key is not on the box", () => {
+  test("refuses when our key is not on the box", async () => {
     const res = runComposed(
       ["remote/authorized-keys.sh", "remote/rewrite-key.sh"],
       [akFile, "ssh-ed25519", "AAAAnotpresent", "20260810060000Z"],
@@ -140,7 +140,7 @@ describe("rewrite-key.sh rewrites exactly one line", () => {
     expect(res.stdout).toContain("key-not-present");
   });
 
-  test("the read-back reports our line and only ours", () => {
+  test("the read-back reports our line and only ours", async () => {
     const res = runComposed(
       ["remote/authorized-keys.sh", "remote/rewrite-key.sh"],
       [akFile, "ssh-ed25519", OURS, "20260810060000Z"],
@@ -156,7 +156,7 @@ describe("rewrite-key.sh rewrites exactly one line", () => {
 describe("the cleanup backstop refuses to claim success it did not achieve", () => {
   const CLEANUP = ["remote/authorized-keys.sh", "cleanup.sh"];
 
-  test("fails, and stays installed, when the file cannot be replaced", () => {
+  test("fails, and stays installed, when the file cannot be replaced", async () => {
     // A read-only directory: mktemp and the rename inside it cannot work, so
     // the removal cannot happen. The script must fail rather than write a
     // success record - the unit deletes this script and the timer on success,

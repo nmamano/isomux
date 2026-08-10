@@ -21,14 +21,14 @@ export type OperatorChange =
   | { ok: true; account: AccountRow; changed: boolean }
   | { ok: false; reason: string };
 
-export function setOperator(
+export async function setOperator(
   store: Store,
   args: { email: string; on: boolean; actor: string },
-): OperatorChange {
-  return store.tx(() => {
+): Promise<OperatorChange> {
+  return store.tx(async () => {
     // Re-read inside the transaction, like every other transition here: a check
     // in front of a write is a check two callers can both pass.
-    const account = accountByEmail(store, args.email);
+    const account = await accountByEmail(store, args.email);
     if (!account) {
       return {
         ok: false as const,
@@ -39,12 +39,11 @@ export function setOperator(
     if (account.is_operator === want) {
       return { ok: true as const, account, changed: false };
     }
-    const updated = store.db
-      .query<
-        AccountRow,
-        [number, number, string, number]
-      >("update accounts set is_operator = ?, updated_at = ?, version = version + 1 " + "where id = ? and version = ? returning *")
-      .get(want, store.now(), account.id, account.version);
+    const updated = await store.sqlGet<AccountRow>(
+      "update accounts set is_operator = ?, updated_at = ?, version = version + 1 " +
+        "where id = ? and version = ? returning *",
+      [want, store.now(), account.id, account.version],
+    );
     if (!updated) {
       return {
         ok: false as const,
@@ -53,7 +52,7 @@ export function setOperator(
     }
     // Audited, because "who could see customer data, and since when" is exactly
     // the question this column will one day have to answer.
-    store.appendAudit({
+    await store.appendAudit({
       actor: args.actor,
       instance_id: null,
       action: args.on ? "grant_operator" : "revoke_operator",

@@ -71,20 +71,20 @@ export type ReconcileOutcome =
  * the ledger, which is the durable dedupe: the id is a primary key, claimed in
  * this same transaction.
  */
-export function applyEvent(
+export async function applyEvent(
   store: Store,
   input: ReconcileInput,
   report: (line: string) => void = () => {},
-): ReconcileOutcome {
+): Promise<ReconcileOutcome> {
   if (!store.inTransaction()) {
     throw new Error("applyEvent must run inside a transaction");
   }
-  const already = eventSeen(store, input.eventId);
+  const already = await eventSeen(store, input.eventId);
   if (already) {
     return { kind: "duplicate", subscriptionId: already.subscription_id };
   }
 
-  const row = ensureRow(store, input, report);
+  const row = await ensureRow(store, input, report);
   const decision = decide({
     row,
     subscription: input.subscription,
@@ -100,7 +100,7 @@ export function applyEvent(
   const linkage = linkageFrom(input, row);
   const owned = { ...decision.stripeOwned, ...linkage };
 
-  const afterOwned = casStripeOwnedSubscription(
+  const afterOwned = await casStripeOwnedSubscription(
     store,
     row.id,
     row.version,
@@ -116,7 +116,7 @@ export function applyEvent(
 
   let current: SubscriptionRow = afterOwned;
   if (Object.keys(decision.episode).length > 0) {
-    const afterEpisode = casEpisodeBookkeeping(
+    const afterEpisode = await casEpisodeBookkeeping(
       store,
       current.id,
       current.version,
@@ -130,10 +130,10 @@ export function applyEvent(
     current = afterEpisode;
   }
 
-  mirrorToInstance(store, current);
+  await mirrorToInstance(store, current);
 
   const suspensionOpId = decision.suspension
-    ? requestSuspension(
+    ? await requestSuspension(
         store,
         current,
         decision.suspension.episodeId,
@@ -147,7 +147,7 @@ export function applyEvent(
   // outcome and is not an error: most recoveries have no suspended box.
   let resumeOpId: string | null = null;
   if (decision.resume) {
-    const asked = requestResume(store, current, input.now, WEBHOOK_ACTOR);
+    const asked = await requestResume(store, current, input.now, WEBHOOK_ACTOR);
     if (asked.ok) {
       resumeOpId = asked.operationId;
       report(
@@ -155,9 +155,14 @@ export function applyEvent(
       );
     }
   }
-  applyBillingAttention(store, current, decision.attention, WEBHOOK_ACTOR);
+  await applyBillingAttention(
+    store,
+    current,
+    decision.attention,
+    WEBHOOK_ACTOR,
+  );
 
-  claimEvent(store, {
+  await claimEvent(store, {
     id: input.eventId,
     type: input.eventType,
     created: input.eventCreated,
@@ -165,7 +170,7 @@ export function applyEvent(
     outcome: "applied",
     detail: decision.note,
   });
-  store.appendAudit({
+  await store.appendAudit({
     actor: WEBHOOK_ACTOR,
     instance_id: current.instance_id,
     action: input.eventType,
@@ -187,7 +192,7 @@ export function applyEvent(
  * Record an event we understand but that changes nothing, so a redelivery is not
  * reprocessed and the ledger shows what arrived.
  */
-export function recordIgnoredEvent(
+export async function recordIgnoredEvent(
   store: Store,
   args: {
     eventId: string;
@@ -195,12 +200,12 @@ export function recordIgnoredEvent(
     eventCreated: number;
     note: string;
   },
-): "recorded" | "duplicate" {
+): Promise<"recorded" | "duplicate"> {
   if (!store.inTransaction()) {
     throw new Error("recordIgnoredEvent must run inside a transaction");
   }
-  if (eventSeen(store, args.eventId)) return "duplicate";
-  claimEvent(store, {
+  if (await eventSeen(store, args.eventId)) return "duplicate";
+  await claimEvent(store, {
     id: args.eventId,
     type: args.eventType,
     created: args.eventCreated,
@@ -215,12 +220,12 @@ export function recordIgnoredEvent(
 
 /** The cache row for this subscription, created from the FETCHED object if this
  * is the first event we have applied for it. */
-function ensureRow(
+async function ensureRow(
   store: Store,
   input: ReconcileInput,
   report: (line: string) => void,
-): SubscriptionRow {
-  const existing = getSubscription(store, input.subscription.id);
+): Promise<SubscriptionRow> {
+  const existing = await getSubscription(store, input.subscription.id);
   if (existing) return existing;
 
   const meta = {
@@ -231,7 +236,7 @@ function ensureRow(
   const accountId = meta[META_ACCOUNT];
   let account;
   if (accountId && email) {
-    account = ensureAccount(store, { id: accountId, email });
+    account = await ensureAccount(store, { id: accountId, email });
   } else {
     // An event for a subscription that carries none of our metadata - a manually
     // created test object, or a Stripe-generated fixture. It is still cached,
@@ -242,7 +247,7 @@ function ensureRow(
       `subscription ${input.subscription.id} carries no isomux metadata; ` +
         `caching it under an unattributed account`,
     );
-    account = ensureAccount(store, {
+    account = await ensureAccount(store, {
       id: synthetic,
       email: `${input.subscription.customerId}+unattributed@stripe.test`,
     });
@@ -297,14 +302,17 @@ function linkageFrom(
 
 /** Slice 2 left `instances.subscription_state` as a stub column. This is the only
  * writer of it. */
-function mirrorToInstance(store: Store, sub: SubscriptionRow): void {
+async function mirrorToInstance(
+  store: Store,
+  sub: SubscriptionRow,
+): Promise<void> {
   if (!sub.instance_id) return;
-  const inst = store.getInstance(sub.instance_id);
+  const inst = await store.getInstance(sub.instance_id);
   if (!inst || inst.subscription_state === sub.status) return;
   if (
-    !store.casInstance(inst.id, inst.version, {
+    !(await store.casInstance(inst.id, inst.version, {
       subscription_state: sub.status,
-    })
+    }))
   ) {
     throw new Error(
       `instance ${inst.id} moved while its subscription state was being mirrored`,

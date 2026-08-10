@@ -16,7 +16,7 @@ import {
 import { reserveOffice } from "./signup.ts";
 
 const temps: string[] = [];
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -25,10 +25,10 @@ afterEach(() => {
 const NOW = Date.parse("2027-06-10T00:00:00Z");
 const TEST_KEY = "sk_test_fixture_key_not_real";
 
-function tempStore(): Store {
+async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-cancel-"));
   temps.push(dir);
-  return new Store(path.join(dir, "cp.db"), () => NOW);
+  return await Store.open(path.join(dir, "cp.db"), () => NOW);
 }
 
 interface Call {
@@ -40,12 +40,13 @@ interface Call {
   storeInTransaction: boolean;
 }
 
-function bed(over: Partial<SubscriptionRow> = {}) {
-  const store = tempStore();
-  const account = store.tx(() =>
-    ensureAccount(store, { id: "acct-1", email: "buyer@example.test" }),
+async function bed(over: Partial<SubscriptionRow> = {}) {
+  const store = await tempStore();
+  const account = await store.tx(
+    async () =>
+      await ensureAccount(store, { id: "acct-1", email: "buyer@example.test" }),
   );
-  const reserved = reserveOffice(store, {
+  const reserved = await reserveOffice(store, {
     accountId: account.id,
     officeName: "acme",
     plan: "office",
@@ -53,31 +54,32 @@ function bed(over: Partial<SubscriptionRow> = {}) {
   });
   if (!reserved.ok) throw new Error(reserved.reason);
   const instanceId = reserved.reservation.instance_id;
-  store.tx(() =>
-    insertSubscription(store, {
-      id: "sub_1",
-      account_id: account.id,
-      instance_id: instanceId,
-      stripe_customer_id: "cus_1",
-      status: "active",
-      current_period_end: Date.parse("2027-07-10T00:00:00Z"),
-      cancel_at_period_end: 0,
-      ended_at: null,
-      canceled_at: null,
-      cancellation_reason: null,
-      discount_percent_off: null,
-      discount_coupon_id: null,
-      discount_ends_at: null,
-      ever_full_discount: 0,
-      latest_invoice_id: null,
-      payment_failures: 0,
-      exhaustion_observed_at: null,
-      coupon_grace_until: null,
-      episode_id: null,
-      last_event_id: null,
-      last_event_created: null,
-      ...over,
-    }),
+  await store.tx(
+    async () =>
+      await insertSubscription(store, {
+        id: "sub_1",
+        account_id: account.id,
+        instance_id: instanceId,
+        stripe_customer_id: "cus_1",
+        status: "active",
+        current_period_end: Date.parse("2027-07-10T00:00:00Z"),
+        cancel_at_period_end: 0,
+        ended_at: null,
+        canceled_at: null,
+        cancellation_reason: null,
+        discount_percent_off: null,
+        discount_coupon_id: null,
+        discount_ends_at: null,
+        ever_full_discount: 0,
+        latest_invoice_id: null,
+        payment_failures: 0,
+        exhaustion_observed_at: null,
+        coupon_grace_until: null,
+        episode_id: null,
+        last_event_id: null,
+        last_event_created: null,
+        ...over,
+      }),
   );
   return { store, accountId: account.id, instanceId };
 }
@@ -115,7 +117,7 @@ function clientRecording(
 describe("the durable key", () => {
   test("it is recorded BEFORE the call, and the wire carries that exact key", async () => {
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     const outcome = await requestCancel(
       b.store,
       clientRecording(calls, b.store),
@@ -126,23 +128,23 @@ describe("the durable key", () => {
     );
     expect(outcome).toMatchObject({ ok: true, recorded: true });
     expect(calls).toHaveLength(1);
-    const started = b.store
-      .auditEvents()
-      .find((e) => e.action === "request_cancel" && e.outcome === "started")!;
+    const started = (await b.store.auditEvents()).find(
+      (e) => e.action === "request_cancel" && e.outcome === "started",
+    )!;
     expect(started.detail).toBe(calls[0].idempotencyKey);
     expect(calls[0].body).toBe("cancel_at_period_end=true");
-    b.store.close();
+    await b.store.close();
   });
 
   test("NO STORE TRANSACTION IS OPEN while Stripe is being called", async () => {
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     await requestCancel(b.store, clientRecording(calls, b.store), {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
     expect(calls[0].storeInTransaction).toBe(false);
-    b.store.close();
+    await b.store.close();
   });
 
   test("cancel, un-cancel, cancel again inside 24h use THREE distinct keys", async () => {
@@ -150,25 +152,25 @@ describe("the durable key", () => {
     // for 24 hours, so the third call would return the FIRST response and report
     // success while Stripe applied nothing.
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     const client = clientRecording(calls, b.store);
     const req = { accountId: b.accountId, instanceId: b.instanceId };
 
     await requestCancel(b.store, client, req);
-    flip(b.store, 1);
+    await flip(b.store, 1);
     await requestUncancel(b.store, client, req);
-    flip(b.store, 0);
+    await flip(b.store, 0);
     await requestCancel(b.store, client, req);
 
     const keys = calls.map((c) => c.idempotencyKey);
     expect(new Set(keys).size).toBe(3);
     expect(keys[2]).not.toBe(keys[0]);
-    b.store.close();
+    await b.store.close();
   });
 
   test("one logical request reuses its key across an ambiguous retry", async () => {
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     // 500 then 200: the client's own retry loop, which is the ONLY same-key
     // retry this module claims.
     const client = clientRecording(calls, b.store, [
@@ -182,13 +184,13 @@ describe("the durable key", () => {
     expect(outcome).toMatchObject({ ok: true });
     expect(calls).toHaveLength(2);
     expect(calls[0].idempotencyKey).toBe(calls[1].idempotencyKey);
-    b.store.close();
+    await b.store.close();
   });
 });
 
 /** Move the cached flag the way a webhook would, so the next verb is legal. */
-function flip(store: Store, to: number): void {
-  store.db.run(
+async function flip(store: Store, to: number): Promise<void> {
+  await store.sqlRun(
     "update subscriptions set cancel_at_period_end = ? where id = ?",
     [to, "sub_1"],
   );
@@ -197,7 +199,7 @@ function flip(store: Store, to: number): void {
 describe("honest outcomes", () => {
   test("an ambiguous transport says CHECK, not 'it failed'", async () => {
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     const client = clientRecording(calls, b.store, [
       () => ({ status: 500, body: {} }),
     ]);
@@ -207,18 +209,16 @@ describe("honest outcomes", () => {
     });
     expect(outcome).toMatchObject({ ok: false, code: "stripe_ambiguous" });
     expect(
-      b.store
-        .auditEvents()
-        .some(
-          (e) => e.action === "request_cancel" && e.outcome === "ambiguous",
-        ),
+      (await b.store.auditEvents()).some(
+        (e) => e.action === "request_cancel" && e.outcome === "ambiguous",
+      ),
     ).toBe(true);
-    b.store.close();
+    await b.store.close();
   });
 
   test("a refusal Stripe is sure about is recorded as failed", async () => {
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     const client = clientRecording(calls, b.store, [
       () => ({
         status: 400,
@@ -231,16 +231,16 @@ describe("honest outcomes", () => {
     });
     expect(outcome).toMatchObject({ ok: false, code: "stripe_unavailable" });
     expect(
-      b.store
-        .auditEvents()
-        .some((e) => e.action === "request_cancel" && e.outcome === "failed"),
+      (await b.store.auditEvents()).some(
+        (e) => e.action === "request_cancel" && e.outcome === "failed",
+      ),
     ).toBe(true);
-    b.store.close();
+    await b.store.close();
   });
 
   test("remote success plus a failed local write does NOT report failure", async () => {
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     const client = clientRecording(calls, b.store, [
       () => ({ status: 200, body: { id: "sub_1" } }),
     ]);
@@ -262,24 +262,21 @@ describe("honest outcomes", () => {
     expect(outcome).toMatchObject({ ok: true, recorded: false });
     expect(calls).toHaveLength(1);
     b.store.tx = realTx;
-    b.store.close();
+    await b.store.close();
   });
 
   test("nothing here writes subscription state - the webhook still owns it", async () => {
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     await requestCancel(b.store, clientRecording(calls, b.store), {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
-    const row = b.store.db
-      .query<
-        { cancel_at_period_end: number },
-        []
-      >("select cancel_at_period_end from subscriptions where id = 'sub_1'")
-      .get()!;
+    const row = (await b.store.sqlGet<{ cancel_at_period_end: number }>(
+      "select cancel_at_period_end from subscriptions where id = 'sub_1'",
+    ))!;
     expect(row.cancel_at_period_end).toBe(0);
-    b.store.close();
+    await b.store.close();
   });
 });
 
@@ -322,7 +319,7 @@ describe("refusals", () => {
   for (const [label, over, verb, code] of cases) {
     test(`${label} is refused as ${code}, without calling Stripe`, async () => {
       const calls: Call[] = [];
-      const b = bed(over);
+      const b = await bed(over);
       const client = clientRecording(calls, b.store);
       const req = { accountId: b.accountId, instanceId: b.instanceId };
       const outcome =
@@ -331,13 +328,13 @@ describe("refusals", () => {
           : await requestUncancel(b.store, client, req);
       expect(outcome).toMatchObject({ ok: false, code });
       expect(calls).toHaveLength(0);
-      b.store.close();
+      await b.store.close();
     });
   }
 
   test("another account's office is not found, and Stripe is never called", async () => {
     const calls: Call[] = [];
-    const b = bed();
+    const b = await bed();
     const outcome = await requestCancel(
       b.store,
       clientRecording(calls, b.store),
@@ -348,13 +345,13 @@ describe("refusals", () => {
     );
     expect(outcome).toMatchObject({ ok: false, code: "not_yours" });
     expect(calls).toHaveLength(0);
-    b.store.close();
+    await b.store.close();
   });
 
   test("an office with no subscription says so", async () => {
     const calls: Call[] = [];
-    const b = bed();
-    b.store.db.run("delete from subscriptions");
+    const b = await bed();
+    await b.store.sqlRun("delete from subscriptions");
     const outcome = await requestCancel(
       b.store,
       clientRecording(calls, b.store),
@@ -364,6 +361,6 @@ describe("refusals", () => {
       },
     );
     expect(outcome).toMatchObject({ ok: false, code: "no_subscription" });
-    b.store.close();
+    await b.store.close();
   });
 });

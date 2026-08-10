@@ -17,10 +17,21 @@
 // Durability is not decoration here: `create_intents` is the latch that stops us
 // buying a box twice, so the database opens WAL with synchronous=FULL and a
 // commit is fsynced before it returns.
+//
+// EVERY METHOD THAT TOUCHES THE DATABASE IS ASYNC, including the readers, even
+// though bun:sqlite answers synchronously. The engine behind this class becomes
+// Postgres, whose driver cannot answer synchronously at all; flipping the API
+// separately from the engine is what keeps that change narrow instead of
+// re-touching every caller twice. `now()` and `inTransaction()` stay
+// synchronous, because neither reaches the database on either engine.
 
 import { Database } from "bun:sqlite";
 
 export type Clock = () => number;
+
+/** What a statement may be bound to. Deliberately narrow: times are integers,
+ * booleans are 0/1, and JSON arrives already serialised. */
+export type SqlArgs = (string | number | null)[];
 
 /** Identifies a leaseholder's claim on a row: only this holder, at this
  * version, may write. Produced by the lease/headroom check immediately before
@@ -467,30 +478,86 @@ create unique index if not exists accounts_google_subject
 `;
 
 export class Store {
-  readonly db: Database;
   private depth = 0;
 
-  constructor(
-    private readonly file: string,
-    readonly now: Clock = () => Date.now(),
-  ) {
-    this.db = new Database(file, { create: true });
-    // A commit that has not reached the disk is not a latch. WAL plus
-    // synchronous=FULL is what makes "the row exists" survive the machine.
-    this.db.run("pragma journal_mode = wal");
-    this.db.run("pragma synchronous = full");
-    this.db.run("pragma busy_timeout = 5000");
-    this.db.run(SCHEMA);
-    this.assertSchemaIsCurrent();
-    this.db.run(LATE_INDEXES);
-    this.db.run(
-      "insert into sequences (name, value) select 'audit', 0 " +
-        "where not exists (select 1 from sequences where name = 'audit')",
-    );
+  /** Inert on purpose: it assigns fields and touches nothing. Opening is
+   * `Store.open`, so there is no path to a Store that skipped the schema
+   * check. */
+  private constructor(
+    readonly file: string,
+    readonly now: Clock,
+    private readonly db: Database,
+  ) {}
+
+  /**
+   * Open the database and bring the schema up.
+   *
+   * The order below is the contract, not an implementation detail: the pragmas
+   * come before any statement that writes, the column check comes before the
+   * indexes (an index names a column, so creating one on an older database
+   * fails with a raw engine error instead of the sentence that names the file),
+   * and the sequence seed comes last.
+   *
+   * A failure at any step CLOSES THE HANDLE and rethrows the original error
+   * unwrapped. A half-opened Store must not escape: every caller of this class
+   * is entitled to assume the schema check has run.
+   */
+  static async open(
+    file: string,
+    now: Clock = () => Date.now(),
+  ): Promise<Store> {
+    const db = new Database(file, { create: true });
+    const store = new Store(file, now, db);
+    try {
+      // A commit that has not reached the disk is not a latch. WAL plus
+      // synchronous=FULL is what makes "the row exists" survive the machine.
+      await store.sqlRun("pragma journal_mode = wal");
+      await store.sqlRun("pragma synchronous = full");
+      await store.sqlRun("pragma busy_timeout = 5000");
+      await store.sqlRun(SCHEMA);
+      await store.assertSchemaIsCurrent();
+      await store.sqlRun(LATE_INDEXES);
+      await store.sqlRun(
+        "insert into sequences (name, value) select 'audit', 0 " +
+          "where not exists (select 1 from sequences where name = 'audit')",
+      );
+    } catch (err) {
+      try {
+        db.close();
+      } catch {
+        // A handle that will not close says nothing about why the open failed,
+        // and the original error describes that better than this one would.
+      }
+      throw err;
+    }
+    return store;
   }
 
-  close(): void {
+  async close(): Promise<void> {
     this.db.close();
+  }
+
+  // ------------------------------------------------------- raw statements
+  //
+  // The escape hatch, for the handful of callers whose SQL does not fit a typed
+  // method - the create latch's INSERT, the name reservation, the billing
+  // tables. Deliberately ugly names so `grep sql[A-Z]` finds every one of them,
+  // and the web app's boundary test forbids them outright.
+  //
+  // They exist so that NOTHING outside this file holds an engine handle: `db` is
+  // private, so the whole codebase reaches the database through this class and
+  // the engine can be replaced underneath it.
+
+  async sqlAll<T>(sql: string, args: SqlArgs = []): Promise<T[]> {
+    return this.db.query<T, SqlArgs>(sql).all(...args);
+  }
+
+  async sqlGet<T>(sql: string, args: SqlArgs = []): Promise<T | null> {
+    return this.db.query<T, SqlArgs>(sql).get(...args) ?? null;
+  }
+
+  async sqlRun(sql: string, args: SqlArgs = []): Promise<void> {
+    this.db.run(sql, args);
   }
 
   /**
@@ -510,7 +577,7 @@ export class Store {
    * table, and an empty one is not ambiguous state - nothing was signed up
    * before this build existed.
    */
-  private assertSchemaIsCurrent(): void {
+  private async assertSchemaIsCurrent(): Promise<void> {
     const required: [string, string][] = [
       ["operations", "inactivity_flagged"],
       ["operations", "absolute_flagged"],
@@ -527,10 +594,9 @@ export class Store {
       ["stripe_events", "type"],
     ];
     for (const [table, column] of required) {
-      const cols = this.db
-        .query<{ name: string }, []>(`pragma table_info(${table})`)
-        .all()
-        .map((c) => c.name);
+      const cols = (
+        await this.sqlAll<{ name: string }>(`pragma table_info(${table})`)
+      ).map((c) => c.name);
       if (cols.length > 0 && !cols.includes(column)) {
         throw new Error(
           `the database at ${this.file} predates this version of the control ` +
@@ -546,19 +612,32 @@ export class Store {
    * and then deadlock on upgrade. Nesting is a programming error rather than a
    * silently-flattened savepoint: every money and attention invariant in this
    * file is stated as "these statements commit together", and a nested call
-   * would quietly widen someone else's boundary.
+   * would quietly widen someone else's boundary. The guard holds across an
+   * await too, which is the case an async body newly makes reachable.
+   *
+   * A RULE THIS SLICE IMPOSES, not a property of the engine: a transaction body
+   * may await only store calls and the helpers built on them, never remote I/O
+   * and never a timer. Under bun:sqlite every store call settles immediately,
+   * so a body that keeps to the rule cannot be suspended part-way; a body that
+   * broke it would hold `begin immediate` open across a network round trip on
+   * the one connection this class owns. Per-transaction connections are the
+   * real answer and they arrive with the Postgres engine.
+   *
+   * The control statements go through `sqlRun` like everything else, so a test
+   * that needs to make a COMMIT fail has one seam to patch rather than a
+   * private path it cannot reach.
    */
-  tx<T>(fn: () => T): T {
+  async tx<T>(fn: () => Promise<T> | T): Promise<T> {
     if (this.depth > 0) throw new Error("nested transaction");
     this.depth = 1;
-    this.db.run("begin immediate");
+    await this.sqlRun("begin immediate");
     try {
-      const out = fn();
-      this.db.run("commit");
+      const out = await fn();
+      await this.sqlRun("commit");
       return out;
     } catch (err) {
       try {
-        this.db.run("rollback");
+        await this.sqlRun("rollback");
       } catch {
         // A rollback that cannot run leaves the connection unusable, which the
         // original error already describes better than this one would.
@@ -577,20 +656,18 @@ export class Store {
 
   /** Portable monotonic id. AUTOINCREMENT is SQLite-only and would break the
    * stated portability rule. */
-  nextSeq(name: string): number {
-    const row = this.db
-      .query<
-        { value: number },
-        [string]
-      >("update sequences set value = value + 1 where name = ? returning value")
-      .get(name);
+  async nextSeq(name: string): Promise<number> {
+    const row = await this.sqlGet<{ value: number }>(
+      "update sequences set value = value + 1 where name = ? returning value",
+      [name],
+    );
     if (!row) throw new Error(`no sequence named ${name}`);
     return row.value;
   }
 
   // ------------------------------------------------------------- instances
 
-  createInstance(
+  async createInstance(
     row: Omit<
       InstanceRow,
       | "version"
@@ -604,9 +681,9 @@ export class Store {
       | "acknowledged_by"
       | "subscription_state"
     > & { subscription_state?: string },
-  ): InstanceRow {
+  ): Promise<InstanceRow> {
     const ts = this.now();
-    this.db.run(
+    await this.sqlRun(
       "insert into instances (id, run_id, name, plan, region, service_state, goal, " +
         "subscription_state, attention_state, access_window_expires_at, version, created_at, updated_at) " +
         "values (?, ?, ?, ?, ?, ?, ?, ?, 'clear', ?, 1, ?, ?)",
@@ -624,23 +701,21 @@ export class Store {
         ts,
       ],
     );
-    const made = this.getInstance(row.id);
+    const made = await this.getInstance(row.id);
     if (!made) throw new Error("instance insert did not land");
     return made;
   }
 
-  getInstance(id: string): InstanceRow | null {
-    return (
-      this.db
-        .query<InstanceRow, [string]>("select * from instances where id = ?")
-        .get(id) ?? null
-    );
+  async getInstance(id: string): Promise<InstanceRow | null> {
+    return this.sqlGet<InstanceRow>("select * from instances where id = ?", [
+      id,
+    ]);
   }
 
-  listInstances(): InstanceRow[] {
-    return this.db
-      .query<InstanceRow, []>("select * from instances order by created_at")
-      .all();
+  async listInstances(): Promise<InstanceRow[]> {
+    return this.sqlAll<InstanceRow>(
+      "select * from instances order by created_at",
+    );
   }
 
   /**
@@ -654,7 +729,7 @@ export class Store {
    * convention in one caller rather than a property of the store, and any later
    * caller - or a cast - could reopen the race it exists to close.
    */
-  casInstance(
+  async casInstance(
     id: string,
     expectedVersion: number,
     patch: Partial<
@@ -663,7 +738,7 @@ export class Store {
         "run_id" | "service_state" | "goal" | "subscription_state"
       >
     >,
-  ): InstanceRow | null {
+  ): Promise<InstanceRow | null> {
     if ("access_window_expires_at" in patch) {
       throw new Error(
         "the access-window ceiling is written once, with the instance row: it " +
@@ -671,30 +746,27 @@ export class Store {
       );
     }
     const sets: string[] = [];
-    const args: (string | number | null)[] = [];
+    const args: SqlArgs = [];
     for (const [k, v] of Object.entries(patch)) {
       sets.push(`${k} = ?`);
       args.push(v);
     }
     sets.push("updated_at = ?");
     args.push(this.now());
-    return (
-      this.db
-        .query<
-          InstanceRow,
-          (string | number | null)[]
-        >(`update instances set ${sets.join(", ")}, version = version + 1 ` + "where id = ? and version = ? returning *")
-        .get(...args, id, expectedVersion) ?? null
+    return this.sqlGet<InstanceRow>(
+      `update instances set ${sets.join(", ")}, version = version + 1 ` +
+        "where id = ? and version = ? returning *",
+      [...args, id, expectedVersion],
     );
   }
 
   // --------------------------------------------------------------- assets
 
-  createAsset(
+  async createAsset(
     row: Omit<AssetRow, "version" | "created_at" | "updated_at">,
-  ): AssetRow {
+  ): Promise<AssetRow> {
     const ts = this.now();
-    this.db.run(
+    await this.sqlRun(
       "insert into provider_assets (id, instance_id, provider, provider_id, intent_id, " +
         "asset_state, ipv4, service_ends_at, host_key_fingerprint, next_reconcile_at, " +
         "version, created_at, updated_at) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
@@ -713,40 +785,33 @@ export class Store {
         ts,
       ],
     );
-    const made = this.getAsset(row.id);
+    const made = await this.getAsset(row.id);
     if (!made) throw new Error("asset insert did not land");
     return made;
   }
 
-  getAsset(id: string): AssetRow | null {
-    return (
-      this.db
-        .query<AssetRow, [string]>("select * from provider_assets where id = ?")
-        .get(id) ?? null
+  async getAsset(id: string): Promise<AssetRow | null> {
+    return this.sqlGet<AssetRow>("select * from provider_assets where id = ?", [
+      id,
+    ]);
+  }
+
+  async assetForInstance(instanceId: string): Promise<AssetRow | null> {
+    return this.sqlGet<AssetRow>(
+      "select * from provider_assets where instance_id = ? order by created_at limit 1",
+      [instanceId],
     );
   }
 
-  assetForInstance(instanceId: string): AssetRow | null {
-    return (
-      this.db
-        .query<
-          AssetRow,
-          [string]
-        >("select * from provider_assets where instance_id = ? order by created_at limit 1")
-        .get(instanceId) ?? null
+  async assetsDueForReconcile(now: number): Promise<AssetRow[]> {
+    return this.sqlAll<AssetRow>(
+      "select * from provider_assets where provider_id is not null " +
+        "and next_reconcile_at <= ? order by next_reconcile_at",
+      [now],
     );
   }
 
-  assetsDueForReconcile(now: number): AssetRow[] {
-    return this.db
-      .query<
-        AssetRow,
-        [number]
-      >("select * from provider_assets where provider_id is not null " + "and next_reconcile_at <= ? order by next_reconcile_at")
-      .all(now);
-  }
-
-  casAsset(
+  async casAsset(
     id: string,
     expectedVersion: number,
     patch: Partial<
@@ -760,22 +825,19 @@ export class Store {
         | "next_reconcile_at"
       >
     >,
-  ): AssetRow | null {
+  ): Promise<AssetRow | null> {
     const sets: string[] = [];
-    const args: (string | number | null)[] = [];
+    const args: SqlArgs = [];
     for (const [k, v] of Object.entries(patch)) {
       sets.push(`${k} = ?`);
       args.push(v);
     }
     sets.push("updated_at = ?");
     args.push(this.now());
-    return (
-      this.db
-        .query<
-          AssetRow,
-          (string | number | null)[]
-        >(`update provider_assets set ${sets.join(", ")}, version = version + 1 ` + "where id = ? and version = ? returning *")
-        .get(...args, id, expectedVersion) ?? null
+    return this.sqlGet<AssetRow>(
+      `update provider_assets set ${sets.join(", ")}, version = version + 1 ` +
+        "where id = ? and version = ? returning *",
+      [...args, id, expectedVersion],
     );
   }
 
@@ -786,7 +848,7 @@ export class Store {
    * row for the same (instance, kind) is refused by the database, not by a
    * check in front of it.
    */
-  enqueue(row: {
+  async enqueue(row: {
     id: string;
     instance_id: string;
     kind: string;
@@ -795,9 +857,9 @@ export class Store {
     inactivity_deadline_at: number;
     absolute_deadline_at: number;
     evidence?: unknown;
-  }): OperationRow {
+  }): Promise<OperationRow> {
     const ts = this.now();
-    this.db.run(
+    await this.sqlRun(
       "insert into operations (id, instance_id, kind, status, attempt, next_attempt_at, " +
         "lease_until, lease_holder, inactivity_deadline_at, absolute_deadline_at, " +
         "evidence, evidence_at, inactivity_flagged, absolute_flagged, version, created_at, updated_at) " +
@@ -818,36 +880,32 @@ export class Store {
         ts,
       ],
     );
-    const made = this.getOperation(row.id);
+    const made = await this.getOperation(row.id);
     if (!made) throw new Error("operation insert did not land");
     return made;
   }
 
-  getOperation(id: string): OperationRow | null {
-    return (
-      this.db
-        .query<OperationRow, [string]>("select * from operations where id = ?")
-        .get(id) ?? null
+  async getOperation(id: string): Promise<OperationRow | null> {
+    return this.sqlGet<OperationRow>("select * from operations where id = ?", [
+      id,
+    ]);
+  }
+
+  async operationsFor(instanceId: string): Promise<OperationRow[]> {
+    return this.sqlAll<OperationRow>(
+      "select * from operations where instance_id = ? order by created_at",
+      [instanceId],
     );
   }
 
-  operationsFor(instanceId: string): OperationRow[] {
-    return this.db
-      .query<
-        OperationRow,
-        [string]
-      >("select * from operations where instance_id = ? order by created_at")
-      .all(instanceId);
-  }
-
-  activeOperation(instanceId: string, kind: string): OperationRow | null {
-    return (
-      this.db
-        .query<
-          OperationRow,
-          [string, string]
-        >("select * from operations where instance_id = ? and kind = ? " + "and status in ('pending', 'running', 'ambiguous')")
-        .get(instanceId, kind) ?? null
+  async activeOperation(
+    instanceId: string,
+    kind: string,
+  ): Promise<OperationRow | null> {
+    return this.sqlGet<OperationRow>(
+      "select * from operations where instance_id = ? and kind = ? " +
+        "and status in ('pending', 'running', 'ambiguous')",
+      [instanceId, kind],
     );
   }
 
@@ -860,31 +918,27 @@ export class Store {
    * the live set. Succeeded work is excluded because a step that finished late
    * is history, not an alert.
    */
-  overdueOperations(): OperationRow[] {
-    return this.db
-      .query<
-        OperationRow,
-        []
-      >("select * from operations where absolute_flagged = 1 and status != 'succeeded' " + "order by absolute_deadline_at")
-      .all();
+  async overdueOperations(): Promise<OperationRow[]> {
+    return this.sqlAll<OperationRow>(
+      "select * from operations where absolute_flagged = 1 and status != 'succeeded' " +
+        "order by absolute_deadline_at",
+    );
   }
 
-  liveOperations(): OperationRow[] {
-    return this.db
-      .query<
-        OperationRow,
-        []
-      >("select * from operations where status in ('pending', 'running', 'ambiguous') " + "order by created_at")
-      .all();
+  async liveOperations(): Promise<OperationRow[]> {
+    return this.sqlAll<OperationRow>(
+      "select * from operations where status in ('pending', 'running', 'ambiguous') " +
+        "order by created_at",
+    );
   }
 
-  dueOperations(now: number, limit: number): OperationRow[] {
-    return this.db
-      .query<
-        OperationRow,
-        [number, number, number]
-      >("select * from operations where status in ('pending', 'running', 'ambiguous') " + "and next_attempt_at <= ? and (lease_until is null or lease_until <= ?) " + "order by next_attempt_at limit ?")
-      .all(now, now, limit);
+  async dueOperations(now: number, limit: number): Promise<OperationRow[]> {
+    return this.sqlAll<OperationRow>(
+      "select * from operations where status in ('pending', 'running', 'ambiguous') " +
+        "and next_attempt_at <= ? and (lease_until is null or lease_until <= ?) " +
+        "order by next_attempt_at limit ?",
+      [now, now, limit],
+    );
   }
 
   /**
@@ -896,33 +950,32 @@ export class Store {
    * it - the UPDATE is the arbiter, so two contenders holding the same pre-read
    * version cannot both win.
    */
-  tryLease(
+  async tryLease(
     id: string,
     expectedVersion: number,
     holder: string,
     leaseUntil: number,
     now: number,
-  ): OperationRow | null {
-    return (
-      this.db
-        .query<
-          OperationRow,
-          [number, string, number, string, number, number]
-        >("update operations set lease_until = ?, lease_holder = ?, status = " + "case when status = 'pending' then 'running' else status end, " + "version = version + 1, updated_at = ? " + "where id = ? and version = ? and (lease_until is null or lease_until <= ?) " + "returning *")
-        .get(leaseUntil, holder, now, id, expectedVersion, now) ?? null
+  ): Promise<OperationRow | null> {
+    return this.sqlGet<OperationRow>(
+      "update operations set lease_until = ?, lease_holder = ?, status = " +
+        "case when status = 'pending' then 'running' else status end, " +
+        "version = version + 1, updated_at = ? " +
+        "where id = ? and version = ? and (lease_until is null or lease_until <= ?) " +
+        "returning *",
+      [leaseUntil, holder, now, id, expectedVersion, now],
     );
   }
 
   /** Extend a lease we already hold. Fenced by holder AND version. */
-  renewLease(fence: Fence, leaseUntil: number): OperationRow | null {
-    return (
-      this.db
-        .query<
-          OperationRow,
-          [number, number, string, number, string]
-        >("update operations set lease_until = ?, version = version + 1, updated_at = ? " + "where id = ? and version = ? and lease_holder = ? returning *")
-        .get(leaseUntil, this.now(), fence.id, fence.version, fence.holder) ??
-      null
+  async renewLease(
+    fence: Fence,
+    leaseUntil: number,
+  ): Promise<OperationRow | null> {
+    return this.sqlGet<OperationRow>(
+      "update operations set lease_until = ?, version = version + 1, updated_at = ? " +
+        "where id = ? and version = ? and lease_holder = ? returning *",
+      [leaseUntil, this.now(), fence.id, fence.version, fence.holder],
     );
   }
 
@@ -948,7 +1001,7 @@ export class Store {
    *
    * A losing holder gets null and must re-read. It must not retry the write.
    */
-  casOperation(
+  async casOperation(
     fence: Fence,
     patch: Partial<{
       status: OperationStatus;
@@ -963,9 +1016,9 @@ export class Store {
       inactivity_flagged: number;
       absolute_flagged: number;
     }>,
-  ): OperationRow | null {
+  ): Promise<OperationRow | null> {
     const sets: string[] = [];
-    const args: (string | number | null)[] = [];
+    const args: SqlArgs = [];
     for (const [k, v] of Object.entries(patch)) {
       sets.push(`${k} = ?`);
       args.push(
@@ -976,13 +1029,10 @@ export class Store {
     }
     sets.push("updated_at = ?");
     args.push(this.now());
-    return (
-      this.db
-        .query<
-          OperationRow,
-          (string | number | null)[]
-        >(`update operations set ${sets.join(", ")}, version = version + 1 ` + "where id = ? and version = ? and lease_holder = ? returning *")
-        .get(...args, fence.id, fence.version, fence.holder) ?? null
+    return this.sqlGet<OperationRow>(
+      `update operations set ${sets.join(", ")}, version = version + 1 ` +
+        "where id = ? and version = ? and lease_holder = ? returning *",
+      [...args, fence.id, fence.version, fence.holder],
     );
   }
 
@@ -997,45 +1047,39 @@ export class Store {
    * evidence answers an inactivity flag, and nothing except the operation
    * finishing answers a crossed absolute ceiling.
    */
-  flagDeadline(
+  async flagDeadline(
     id: string,
     expectedVersion: number,
     which: "inactivity" | "absolute",
     now: number = this.now(),
-  ): OperationRow | null {
+  ): Promise<OperationRow | null> {
     const column =
       which === "absolute" ? "absolute_flagged" : "inactivity_flagged";
     // The LEASE PREDICATE is in the SQL, not in a check the caller made
     // earlier. Reading "unleased" and then flagging is a check-then-act: a
     // holder can lease in between, and the flag would bump the version out from
     // under a fence that is already at a remote seam.
-    return (
-      this.db
-        .query<
-          OperationRow,
-          [number, string, number, number]
-        >(`update operations set ${column} = 1, version = version + 1, ` + `updated_at = ? where id = ? and version = ? and ${column} = 0 ` + "and (lease_until is null or lease_until <= ?) returning *")
-        .get(now, id, expectedVersion, now) ?? null
+    return this.sqlGet<OperationRow>(
+      `update operations set ${column} = 1, version = version + 1, ` +
+        `updated_at = ? where id = ? and version = ? and ${column} = 0 ` +
+        "and (lease_until is null or lease_until <= ?) returning *",
+      [now, id, expectedVersion, now],
     );
   }
 
   // -------------------------------------------------------------- intents
 
-  getIntent(intentId: string): IntentRow | null {
-    return (
-      this.db
-        .query<
-          IntentRow,
-          [string]
-        >("select * from create_intents where intent_id = ?")
-        .get(intentId) ?? null
+  async getIntent(intentId: string): Promise<IntentRow | null> {
+    return this.sqlGet<IntentRow>(
+      "select * from create_intents where intent_id = ?",
+      [intentId],
     );
   }
 
-  listIntents(): IntentRow[] {
-    return this.db
-      .query<IntentRow, []>("select * from create_intents order by latched_at")
-      .all();
+  async listIntents(): Promise<IntentRow[]> {
+    return this.sqlAll<IntentRow>(
+      "select * from create_intents order by latched_at",
+    );
   }
 
   /**
@@ -1043,40 +1087,33 @@ export class Store {
    * no statement anywhere that writes state='intended' except the INSERT in
    * create-latch.ts, so a row can never return to a state that permits a call.
    */
-  casIntent(
+  async casIntent(
     intentId: string,
     expectedVersion: number,
     patch: Partial<Pick<IntentRow, "state" | "provider_id" | "reason">>,
-  ): IntentRow | null {
+  ): Promise<IntentRow | null> {
     if (patch.state === "intended") {
       throw new Error("an intent may never be returned to the intended state");
     }
     const sets: string[] = [];
-    const args: (string | number | null)[] = [];
+    const args: SqlArgs = [];
     for (const [k, v] of Object.entries(patch)) {
       sets.push(`${k} = ?`);
       args.push(v);
     }
-    return (
-      this.db
-        .query<
-          IntentRow,
-          (string | number | null)[]
-        >(`update create_intents set ${sets.join(", ")}, version = version + 1 ` + "where intent_id = ? and version = ? returning *")
-        .get(...args, intentId, expectedVersion) ?? null
+    return this.sqlGet<IntentRow>(
+      `update create_intents set ${sets.join(", ")}, version = version + 1 ` +
+        "where intent_id = ? and version = ? returning *",
+      [...args, intentId, expectedVersion],
     );
   }
 
   // ------------------------------------------------------------ liveness
 
-  getLiveness(instanceId: string): LivenessRow | null {
-    return (
-      this.db
-        .query<
-          LivenessRow,
-          [string]
-        >("select * from instance_liveness where instance_id = ?")
-        .get(instanceId) ?? null
+  async getLiveness(instanceId: string): Promise<LivenessRow | null> {
+    return this.sqlGet<LivenessRow>(
+      "select * from instance_liveness where instance_id = ?",
+      [instanceId],
     );
   }
 
@@ -1085,9 +1122,9 @@ export class Store {
    * rather than a SELECT in front of one: two ticks starting together must not
    * both insert, and the primary key is what decides that.
    */
-  ensureLiveness(instanceId: string, dueAt: number): void {
+  async ensureLiveness(instanceId: string, dueAt: number): Promise<void> {
     const ts = this.now();
-    this.db.run(
+    await this.sqlRun(
       "insert into instance_liveness (instance_id, rung, strikes, checked_at, " +
         "next_check_at, claim_until, claim_holder, version, created_at, updated_at) " +
         "select ?, 'unknown', 0, null, ?, null, null, 1, ?, ? " +
@@ -1104,19 +1141,18 @@ export class Store {
    * and both count the same failure - which is exactly the double-counted strike
    * this row exists to prevent. A caller that gets null does not probe.
    */
-  claimLiveness(
+  async claimLiveness(
     instanceId: string,
     holder: string,
     claimUntil: number,
     now: number,
-  ): LivenessRow | null {
-    return (
-      this.db
-        .query<
-          LivenessRow,
-          [number, string, number, string, number, number]
-        >("update instance_liveness set claim_until = ?, claim_holder = ?, " + "version = version + 1, updated_at = ? where instance_id = ? " + "and next_check_at <= ? and (claim_until is null or claim_until <= ?) " + "returning *")
-        .get(claimUntil, holder, now, instanceId, now, now) ?? null
+  ): Promise<LivenessRow | null> {
+    return this.sqlGet<LivenessRow>(
+      "update instance_liveness set claim_until = ?, claim_holder = ?, " +
+        "version = version + 1, updated_at = ? where instance_id = ? " +
+        "and next_check_at <= ? and (claim_until is null or claim_until <= ?) " +
+        "returning *",
+      [claimUntil, holder, now, instanceId, now, now],
     );
   }
 
@@ -1125,28 +1161,27 @@ export class Store {
    * it. A holder that lost its claim writes nothing rather than adding its
    * strike on top of the winner's.
    */
-  recordLiveness(
+  async recordLiveness(
     instanceId: string,
     expectedVersion: number,
     holder: string,
     patch: { rung: string; strikes: number; checkedAt: number; nextAt: number },
-  ): LivenessRow | null {
-    return (
-      this.db
-        .query<
-          LivenessRow,
-          [string, number, number, number, number, string, number, string]
-        >("update instance_liveness set rung = ?, strikes = ?, checked_at = ?, " + "next_check_at = ?, claim_until = null, claim_holder = null, " + "version = version + 1, updated_at = ? where instance_id = ? " + "and version = ? and claim_holder = ? returning *")
-        .get(
-          patch.rung,
-          patch.strikes,
-          patch.checkedAt,
-          patch.nextAt,
-          this.now(),
-          instanceId,
-          expectedVersion,
-          holder,
-        ) ?? null
+  ): Promise<LivenessRow | null> {
+    return this.sqlGet<LivenessRow>(
+      "update instance_liveness set rung = ?, strikes = ?, checked_at = ?, " +
+        "next_check_at = ?, claim_until = null, claim_holder = null, " +
+        "version = version + 1, updated_at = ? where instance_id = ? " +
+        "and version = ? and claim_holder = ? returning *",
+      [
+        patch.rung,
+        patch.strikes,
+        patch.checkedAt,
+        patch.nextAt,
+        this.now(),
+        instanceId,
+        expectedVersion,
+        holder,
+      ],
     );
   }
 
@@ -1156,13 +1191,15 @@ export class Store {
    * Append one classified event. Must run inside a transaction: an audit row is
    * half of a state transition, not a log line that happens to be nearby.
    */
-  appendAudit(ev: Omit<AuditRow, "seq" | "ts"> & { ts?: number }): AuditRow {
+  async appendAudit(
+    ev: Omit<AuditRow, "seq" | "ts"> & { ts?: number },
+  ): Promise<AuditRow> {
     if (!this.inTransaction()) {
       throw new Error("appendAudit must run inside a transaction");
     }
-    const seq = this.nextSeq("audit");
+    const seq = await this.nextSeq("audit");
     const ts = ev.ts ?? this.now();
-    this.db.run(
+    await this.sqlRun(
       "insert into audit_events (seq, ts, actor, instance_id, action, target, outcome, detail) " +
         "values (?, ?, ?, ?, ?, ?, ?, ?)",
       [
@@ -1179,34 +1216,29 @@ export class Store {
     return { ...ev, seq, ts, detail: ev.detail ?? null };
   }
 
-  auditEvents(): AuditRow[] {
-    return this.db
-      .query<AuditRow, []>("select * from audit_events order by seq")
-      .all();
+  async auditEvents(): Promise<AuditRow[]> {
+    return this.sqlAll<AuditRow>("select * from audit_events order by seq");
   }
 
   // --------------------------------------------------------- attention
 
-  openReasons(instanceId: string): AttentionReasonRow[] {
-    return this.db
-      .query<
-        AttentionReasonRow,
-        [string]
-      >("select * from attention_reasons where instance_id = ? and cleared_at is null " + "order by raised_at")
-      .all(instanceId);
+  async openReasons(instanceId: string): Promise<AttentionReasonRow[]> {
+    return this.sqlAll<AttentionReasonRow>(
+      "select * from attention_reasons where instance_id = ? and cleared_at is null " +
+        "order by raised_at",
+      [instanceId],
+    );
   }
 
-  allReasons(instanceId: string): AttentionReasonRow[] {
-    return this.db
-      .query<
-        AttentionReasonRow,
-        [string]
-      >("select * from attention_reasons where instance_id = ? order by raised_at")
-      .all(instanceId);
+  async allReasons(instanceId: string): Promise<AttentionReasonRow[]> {
+    return this.sqlAll<AttentionReasonRow>(
+      "select * from attention_reasons where instance_id = ? order by raised_at",
+      [instanceId],
+    );
   }
 
-  insertReason(row: Omit<AttentionReasonRow, "version">): void {
-    this.db.run(
+  async insertReason(row: Omit<AttentionReasonRow, "version">): Promise<void> {
+    await this.sqlRun(
       "insert into attention_reasons (id, instance_id, source_op_id, reason_class, reason, " +
         "severity, raised_at, cleared_at, acknowledged_at, acknowledged_by, version) " +
         "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)",
@@ -1226,53 +1258,52 @@ export class Store {
   }
 
   /** Version CAS, like every other transition. A loser re-reads. */
-  clearReason(
+  async clearReason(
     id: string,
     expectedVersion: number,
     at: number,
-  ): AttentionReasonRow | null {
-    return (
-      this.db
-        .query<
-          AttentionReasonRow,
-          [number, string, number]
-        >("update attention_reasons set cleared_at = ?, version = version + 1 " + "where id = ? and version = ? and cleared_at is null returning *")
-        .get(at, id, expectedVersion) ?? null
+  ): Promise<AttentionReasonRow | null> {
+    return this.sqlGet<AttentionReasonRow>(
+      "update attention_reasons set cleared_at = ?, version = version + 1 " +
+        "where id = ? and version = ? and cleared_at is null returning *",
+      [at, id, expectedVersion],
     );
   }
 
-  acknowledgeReasons(instanceId: string, at: number, by: string): number {
+  async acknowledgeReasons(
+    instanceId: string,
+    at: number,
+    by: string,
+  ): Promise<number> {
     // Acknowledging is NOT clearing: cleared_at is deliberately untouched, so
     // the instance keeps reporting needs_operator until the condition itself
     // goes away. Each row is a version CAS; a row that moved under us is left
     // for the caller to re-read rather than overwritten.
     const ack = (id: string, version: number) =>
-      this.db
-        .query<
-          AttentionReasonRow,
-          [number, string, string, number]
-        >("update attention_reasons set acknowledged_at = ?, acknowledged_by = ?, " + "version = version + 1 where id = ? and version = ? and cleared_at is null " + "returning *")
-        .get(at, by, id, version);
+      this.sqlGet<AttentionReasonRow>(
+        "update attention_reasons set acknowledged_at = ?, acknowledged_by = ?, " +
+          "version = version + 1 where id = ? and version = ? and cleared_at is null " +
+          "returning *",
+        [at, by, id, version],
+      );
 
     let acked = 0;
-    for (const row of this.openReasons(instanceId)) {
+    for (const row of await this.openReasons(instanceId)) {
       if (row.acknowledged_at !== null) continue;
-      if (ack(row.id, row.version)) {
+      if (await ack(row.id, row.version)) {
         acked++;
         continue;
       }
       // A loser RE-READS and decides from current state rather than skipping.
       // The row may have been cleared (nothing to acknowledge), already
       // acknowledged by someone else (nothing to do), or simply moved.
-      const fresh = this.db
-        .query<
-          AttentionReasonRow,
-          [string]
-        >("select * from attention_reasons where id = ?")
-        .get(row.id);
+      const fresh = await this.sqlGet<AttentionReasonRow>(
+        "select * from attention_reasons where id = ?",
+        [row.id],
+      );
       if (!fresh || fresh.cleared_at !== null) continue;
       if (fresh.acknowledged_at !== null) continue;
-      if (ack(fresh.id, fresh.version)) acked++;
+      if (await ack(fresh.id, fresh.version)) acked++;
     }
     return acked;
   }
@@ -1288,28 +1319,28 @@ export class Store {
    * failure: it cannot reach that row, and the summary takes the highest
    * severity among everything still open.
    */
-  refreshAttentionSummary(
+  async refreshAttentionSummary(
     instanceId: string,
     /** The version the CALLER read. Passing it in is what makes this a real
      * compare-and-swap rather than a read-and-write that happens to be inside a
      * transaction: a caller working from a stale copy loses here and has to
      * re-read, instead of silently overwriting whoever won. */
     expectedVersion: number,
-  ): InstanceRow {
-    const open = this.openReasons(instanceId);
-    const inst = this.getInstance(instanceId);
+  ): Promise<InstanceRow> {
+    const open = await this.openReasons(instanceId);
+    const inst = await this.getInstance(instanceId);
     if (!inst) throw new Error(`no instance ${instanceId} to summarise`);
 
     // A version CAS like every other transition. It runs inside a write
     // transaction, so a loser here means the row genuinely moved under us -
     // which must roll the transition back rather than overwrite the winner.
-    const write = (
-      sql: string,
-      args: (string | number | null)[],
-    ): InstanceRow => {
-      const row = this.db
-        .query<InstanceRow, (string | number | null)[]>(sql)
-        .get(...args, this.now(), instanceId, expectedVersion);
+    const write = async (sql: string, args: SqlArgs): Promise<InstanceRow> => {
+      const row = await this.sqlGet<InstanceRow>(sql, [
+        ...args,
+        this.now(),
+        instanceId,
+        expectedVersion,
+      ]);
       if (!row) {
         throw new Error(
           `instance ${instanceId} moved while its attention summary was being ` +

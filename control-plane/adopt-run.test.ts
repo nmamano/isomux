@@ -22,7 +22,7 @@ function tempDir(): string {
   return dir;
 }
 
-afterEach(() => {
+afterEach(async () => {
   while (temps.length)
     fs.rmSync(temps.pop()!, { recursive: true, force: true });
 });
@@ -34,20 +34,20 @@ interface Bed {
   runId: string;
 }
 
-function bed(over: Partial<RunRecord> = {}): Bed {
+async function bed(over: Partial<RunRecord> = {}): Promise<Bed> {
   const dir = tempDir();
   const db = path.join(dir, "cp.db");
   const runsDir = path.join(dir, "runs");
   fs.mkdirSync(runsDir);
-  const store = new Store(db);
-  const account = accountForDevSignIn(store, "a@example.com");
-  const out = reserveOffice(store, {
+  const store = await Store.open(db);
+  const account = await accountForDevSignIn(store, "a@example.com");
+  const out = await reserveOffice(store, {
     accountId: account.id,
     officeName: "cp1",
     plan: "office",
   });
   if (!out.ok) throw new Error("signup failed");
-  store.close();
+  await store.close();
 
   const rec: RunRecord = {
     runId: "run-test-1",
@@ -96,130 +96,137 @@ function run(b: Bed, mode: string, over: Partial<Bed> = {}) {
   };
 }
 
-function open(b: Bed): Store {
-  return new Store(b.db);
+async function open(b: Bed): Promise<Store> {
+  return await Store.open(b.db);
 }
 
 describe("--start", () => {
-  test("links the instance, adopts the asset and opens wait_for_ssh in one go", () => {
-    const b = bed();
+  test("links the instance, adopts the asset and opens wait_for_ssh in one go", async () => {
+    const b = await bed();
     const r = run(b, "--start");
     expect(r.code).toBe(0);
-    const store = open(b);
-    const instance = store.getInstance(b.instanceId)!;
-    const asset = store.assetForInstance(b.instanceId)!;
+    const store = await open(b);
+    const instance = (await store.getInstance(b.instanceId))!;
+    const asset = (await store.assetForInstance(b.instanceId))!;
     expect(instance.run_id).toBe(b.runId);
     expect(asset.provider_id).toBe("203474835");
     expect(asset.ipv4).toBe("169.58.97.2");
     expect(asset.asset_state).toBe("active");
-    const ops = store.operationsFor(b.instanceId);
+    const ops = await store.operationsFor(b.instanceId);
     expect(ops.map((o) => o.kind)).toEqual(["wait_for_ssh"]);
-    expect(store.auditEvents().some((e) => e.action === "adopt_run")).toBe(
-      true,
-    );
-    store.close();
+    expect(
+      (await store.auditEvents()).some((e) => e.action === "adopt_run"),
+    ).toBe(true);
+    await store.close();
   });
 
-  test("a hostname that is not the run's box is refused, and writes nothing", () => {
-    const b = bed({ host: "somebody-else.test.isomux.app" });
+  test("a hostname that is not the run's box is refused, and writes nothing", async () => {
+    const b = await bed({ host: "somebody-else.test.isomux.app" });
     const r = run(b, "--start");
     expect(r.code).toBe(1);
     expect(r.err).toContain("refusing to point one office at another");
-    const store = open(b);
-    expect(store.getInstance(b.instanceId)!.run_id).toBeNull();
-    expect(store.assetForInstance(b.instanceId)!.provider_id).toBeNull();
-    expect(store.operationsFor(b.instanceId)).toEqual([]);
-    store.close();
+    const store = await open(b);
+    expect((await store.getInstance(b.instanceId))!.run_id).toBeNull();
+    expect(
+      (await store.assetForInstance(b.instanceId))!.provider_id,
+    ).toBeNull();
+    expect(await store.operationsFor(b.instanceId)).toEqual([]);
+    await store.close();
   });
 
-  test("a second --start never re-points a linked instance", () => {
-    const b = bed();
+  test("a second --start never re-points a linked instance", async () => {
+    const b = await bed();
     expect(run(b, "--start").code).toBe(0);
     const second = run(b, "--start");
     expect(second.code).toBe(1);
     expect(second.err).toContain("already linked");
-    const store = open(b);
-    expect(store.operationsFor(b.instanceId)).toHaveLength(1);
-    store.close();
+    const store = await open(b);
+    expect(await store.operationsFor(b.instanceId)).toHaveLength(1);
+    await store.close();
   });
 });
 
 describe("--revoke", () => {
-  function live(b: Bed): void {
-    const store = open(b);
-    store.enqueue({
+  async function live(b: Bed): Promise<void> {
+    const store = await open(b);
+    await store.enqueue({
       id: "op-verify_https-99",
       instance_id: b.instanceId,
       kind: "verify_https",
       inactivity_deadline_at: store.now() + 60_000,
       absolute_deadline_at: store.now() + 60_000,
     });
-    store.db.run("update operations set status = 'succeeded' where id = ?", [
-      "op-verify_https-99",
-    ]);
-    store.close();
+    await store.sqlRun(
+      "update operations set status = 'succeeded' where id = ?",
+      ["op-verify_https-99"],
+    );
+    await store.close();
   }
 
-  test("refuses an instance this run never linked", () => {
-    const b = bed();
+  test("refuses an instance this run never linked", async () => {
+    const b = await bed();
     const r = run(b, "--revoke");
     expect(r.code).toBe(1);
     expect(r.err).toContain("not to run");
   });
 
-  test("refuses a box we never proved was live", () => {
-    const b = bed();
+  test("refuses a box we never proved was live", async () => {
+    const b = await bed();
     run(b, "--start");
     const r = run(b, "--revoke");
     expect(r.code).toBe(1);
     expect(r.err).toContain("never proved was live");
-    const store = open(b);
-    expect(store.activeOperation(b.instanceId, "revoke_access")).toBeNull();
-    store.close();
+    const store = await open(b);
+    expect(
+      await store.activeOperation(b.instanceId, "revoke_access"),
+    ).toBeNull();
+    await store.close();
   });
 
-  test("opens one revocation, and a repeat is an idempotent no-op", () => {
-    const b = bed();
+  test("opens one revocation, and a repeat is an idempotent no-op", async () => {
+    const b = await bed();
     run(b, "--start");
-    live(b);
+    await live(b);
     const first = run(b, "--revoke");
     expect(first.code).toBe(0);
     const second = run(b, "--revoke");
     expect(second.code).toBe(0);
     expect(second.out).toContain("already");
-    const store = open(b);
-    const revocations = store
-      .operationsFor(b.instanceId)
-      .filter((o) => o.kind === "revoke_access");
+    const store = await open(b);
+    const revocations = (await store.operationsFor(b.instanceId)).filter(
+      (o) => o.kind === "revoke_access",
+    );
     expect(revocations).toHaveLength(1);
     // The attempt is recorded even though nothing changed.
     expect(
-      store.auditEvents().filter((e) => e.outcome === "already_active"),
+      (await store.auditEvents()).filter((e) => e.outcome === "already_active"),
     ).toHaveLength(1);
     // And it never touches the linkage.
-    expect(store.getInstance(b.instanceId)!.run_id).toBe(b.runId);
-    expect(store.assetForInstance(b.instanceId)!.provider_id).toBe("203474835");
-    store.close();
+    expect((await store.getInstance(b.instanceId))!.run_id).toBe(b.runId);
+    expect((await store.assetForInstance(b.instanceId))!.provider_id).toBe(
+      "203474835",
+    );
+    await store.close();
   });
 
-  test("refuses once a revocation has already been proven", () => {
-    const b = bed();
+  test("refuses once a revocation has already been proven", async () => {
+    const b = await bed();
     run(b, "--start");
-    live(b);
+    await live(b);
     run(b, "--revoke");
-    const store = open(b);
-    store.db.run(
+    const store = await open(b);
+    await store.sqlRun(
       "update operations set status = 'succeeded' where kind = 'revoke_access'",
     );
-    store.close();
+    await store.close();
     const again = run(b, "--revoke");
     expect(again.code).toBe(1);
     expect(again.err).toContain("already revoked and proven");
   });
 });
 
-test("exactly one mode is required", () => {
-  const b = bed();
+test("exactly one mode is required", async () => {
+  const b = await bed();
   const proc = Bun.spawnSync([
     "bun",
     SCRIPT,

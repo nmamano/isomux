@@ -44,13 +44,13 @@ function read(file: string): string {
 
 const FILES = appFiles();
 
-test("the app has files to check", () => {
+test("the app has files to check", async () => {
   expect(FILES.length).toBeGreaterThan(5);
   expect(FILES).toContain(FACADE);
 });
 
 describe("only one file reaches the store", () => {
-  test("nothing else names the store, its engine, or opens one", () => {
+  test("nothing else names the store, its engine, or opens one", async () => {
     for (const file of FILES) {
       if (file === FACADE) continue;
       const source = read(file);
@@ -60,7 +60,7 @@ describe("only one file reaches the store", () => {
     }
   });
 
-  test("the facade's exports are a fixed list", () => {
+  test("the facade's exports are a fixed list", async () => {
     const source = read(FACADE);
     const exported = [...source.matchAll(/export (?:async )?function (\w+)/g)]
       .map((m) => m[1])
@@ -88,7 +88,7 @@ describe("only one file reaches the store", () => {
     expect(source).not.toMatch(/export .*\bStore\b/);
   });
 
-  test("every control-plane import in the facade is request-time", () => {
+  test("every control-plane import in the facade is request-time", async () => {
     const source = read(FACADE);
     for (const line of source.split("\n")) {
       if (!/from\s+"\.\.\/\.\./.test(line)) continue;
@@ -99,7 +99,7 @@ describe("only one file reaches the store", () => {
     }
   });
 
-  test("the facade imports only the typed services it is allowed to", () => {
+  test("the facade imports only the typed services it is allowed to", async () => {
     const source = read(FACADE);
     const specifiers = [
       ...source.matchAll(/(?:import\(|from )"(\.\.\/\.\.[^"]*)"/g),
@@ -178,7 +178,7 @@ describe("the privileged half of the control plane is unreachable", () => {
     "operator-admin",
   ];
 
-  test("no app file imports the driver, the provider or the webhook path", () => {
+  test("no app file imports the driver, the provider or the webhook path", async () => {
     for (const file of FILES) {
       const source = read(file);
       for (const module of FORBIDDEN_MODULES) {
@@ -194,7 +194,7 @@ describe("the privileged half of the control plane is unreachable", () => {
     }
   });
 
-  test("no app file reads provider credentials or the webhook secret", () => {
+  test("no app file reads provider credentials or the webhook secret", async () => {
     for (const file of FILES) {
       const source = read(file);
       expect(source).not.toContain("CONTABO_");
@@ -204,11 +204,15 @@ describe("the privileged half of the control plane is unreachable", () => {
     }
   });
 
-  test("no app file calls a raw store, transaction or mutation method", () => {
+  test("no app file calls a raw store, transaction or mutation method", async () => {
     // `new Store` and `close()` are the facade's business; everything below
     // would be a handler reaching past the typed services.
     const FORBIDDEN = [
       /\.db\b/,
+      // The raw-SQL escape hatch on the store. Named to be greppable, and
+      // forbidden here for the same reason `.db` is: a page one method call
+      // away from arbitrary SQL has no boundary at all.
+      /\bsql[A-Z]/,
       /\.tx\(/,
       /\.enqueue\(/,
       /\bcas[A-Z]/,
@@ -236,7 +240,7 @@ describe("the privileged half of the control plane is unreachable", () => {
     }
   });
 
-  test("no app file names an operation kind, so none can be routed in", () => {
+  test("no app file names an operation kind, so none can be routed in", async () => {
     const KINDS = [
       "create_instance",
       "wait_for_ssh",
@@ -269,7 +273,7 @@ describe("the privileged half of the control plane is unreachable", () => {
     }
   });
 
-  test("the browser-driver harness is not part of the app", () => {
+  test("the browser-driver harness is not part of the app", async () => {
     for (const file of FILES) {
       expect(read(file)).not.toMatch(/["'][^"']*e2e\//);
     }
@@ -286,7 +290,7 @@ describe("the privileged half of the control plane is unreachable", () => {
    * Type-only imports are followed by the compiler but erased by the bundler,
    * so they are excluded: what is being asserted is what the app RUNS.
    */
-  test("nothing forbidden is reachable from the facade, however indirectly", () => {
+  test("nothing forbidden is reachable from the facade, however indirectly", async () => {
     const CONTROL_PLANE = import.meta.dir;
     const seen = new Set<string>();
     const forbidden: string[] = [];
@@ -358,7 +362,7 @@ describe("the privileged half of the control plane is unreachable", () => {
    * reuse summarise" - the graph walk above would light up, and this says the
    * same thing one layer earlier, where the fix is obvious.
    */
-  test("acknowledgement cannot reach raise or clear", () => {
+  test("acknowledgement cannot reach raise or clear", async () => {
     const source = read(path.join(import.meta.dir, "attention-ack.ts"));
     expect(source).not.toMatch(/from\s+"\.\/attention/);
     expect(source).not.toContain("raiseAttention");
@@ -371,9 +375,9 @@ describe("the privileged half of the control plane is unreachable", () => {
    * Pinned for the same reason the facade's export list is: the operator side
    * of the product must not grow as a side effect of writing a page.
    */
-  test("the ops verb surface is a fixed list", () => {
+  test("the ops verb surface is a fixed list", async () => {
     const source = read(path.join(import.meta.dir, "ops.ts"));
-    const exported = [...source.matchAll(/export function (\w+)/g)]
+    const exported = [...source.matchAll(/export (?:async )?function (\w+)/g)]
       .map((m) => m[1])
       .sort();
     expect(exported).toEqual([
@@ -392,7 +396,7 @@ describe("the privileged half of the control plane is unreachable", () => {
    * can change under a stable account, so an address-gated floor would silently
    * follow the address.
    */
-  test("no app file spells the operator column, and no email gates ops", () => {
+  test("no app file spells the operator column, and no email gates ops", async () => {
     for (const file of FILES) {
       expect([path.basename(file), read(file).includes("is_operator")]).toEqual(
         [path.basename(file), false],
@@ -420,7 +424,7 @@ describe("the privileged half of the control plane is unreachable", () => {
    * door the boundary opens. It is allowed node's fetch and a type, and
    * nothing else.
    */
-  test("the seam client reaches no control-plane runtime module", () => {
+  test("the seam client reaches no control-plane runtime module", async () => {
     const source = read(path.join(import.meta.dir, "mint-client.ts"));
     for (const line of source.split("\n")) {
       if (!/^\s*(?:import|export)\s[^;]*\sfrom\s/.test(line)) continue;
@@ -440,7 +444,7 @@ describe("the privileged half of the control plane is unreachable", () => {
    * would break it - the hold must not import a store or a filesystem, and the
    * handler must put the URL in exactly one place.
    */
-  test("the invite hold cannot persist anything", () => {
+  test("the invite hold cannot persist anything", async () => {
     const source = read(path.join(import.meta.dir, "invite-hold.ts"));
     expect(source).not.toContain("bun:sqlite");
     expect(source).not.toMatch(/from\s+"\.\/store/);

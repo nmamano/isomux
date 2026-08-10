@@ -141,7 +141,7 @@ async function remote<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   ctx.budget.claim(action);
-  ctx.audit(action, "started");
+  await ctx.audit(action, "started");
   let out: T;
   try {
     out = await fn();
@@ -149,17 +149,17 @@ async function remote<T>(
     // A call that threw may still have acted, so the audit says ambiguous
     // rather than failed whenever the transport is what gave up.
     try {
-      ctx.audit(action, auditOutcomeOf(err));
+      await ctx.audit(action, auditOutcomeOf(err));
     } catch {
       // The original error describes the situation better than this one.
     }
     throw err;
   }
   try {
-    ctx.audit(action, "succeeded");
+    await ctx.audit(action, "succeeded");
   } catch (err) {
     try {
-      ctx.audit(action, "ambiguous");
+      await ctx.audit(action, "ambiguous");
     } catch {
       // The store is the thing that is failing; there is nowhere else to say so.
     }
@@ -665,7 +665,7 @@ export function mintInviteHandler(deps: HandlerDeps): Handler {
       // before the result is written comes back with the marker and knows to
       // warn.
       if (!isRecovery) {
-        const marked = ctx.store.casOperation(ctx.fence, {
+        const marked = await ctx.store.casOperation(ctx.fence, {
           // THE STAMP IS CARRIED FORWARD. This write replaces the evidence
           // wholesale, and a later attempt re-reads it to decide where the URL
           // goes - so dropping `via` here would make a retried customer mint
@@ -811,7 +811,7 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
       const ev = evidenceOf(ctx);
       const req = build(ctx.instance.id);
       const intentId = str(ev.intentId) || req.intentId;
-      const intent = ctx.store.getIntent(intentId);
+      const intent = await ctx.store.getIntent(intentId);
 
       // ---- find-only recovery. Reached by every state except "nothing yet".
       if (
@@ -836,7 +836,7 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
           };
         }
         try {
-          adoptAsset(ctx, providerId, intentId);
+          await adoptAsset(ctx, providerId, intentId);
         } catch (err) {
           return { kind: "ambiguous", reason: messageOf(err) };
         }
@@ -856,9 +856,14 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
         const outcome = await coordinator.armAndCreate(
           req,
           ctx.fence,
-          (settled, op) => {
+          async (settled, op) => {
             if (settled.outcome === "created") {
-              adoptAssetIn(ctx, op.instance_id, settled.providerId, intentId);
+              await adoptAssetIn(
+                ctx,
+                op.instance_id,
+                settled.providerId,
+                intentId,
+              );
             }
           },
         );
@@ -909,7 +914,7 @@ async function quarantineFind(
       };
     }
     try {
-      adoptAsset(ctx, found.providerId, intentId);
+      await adoptAsset(ctx, found.providerId, intentId);
     } catch (err) {
       return { kind: "ambiguous", reason: messageOf(err) };
     }
@@ -932,12 +937,14 @@ async function quarantineFind(
   return { kind: "waiting", evidence: { phase: "quarantine", intentId } };
 }
 
-function adoptAsset(
+async function adoptAsset(
   ctx: HandlerContext,
   providerId: string,
   intentId: string,
-): void {
-  ctx.store.tx(() => adoptAssetIn(ctx, ctx.instance.id, providerId, intentId));
+): Promise<void> {
+  await ctx.store.tx(() =>
+    adoptAssetIn(ctx, ctx.instance.id, providerId, intentId),
+  );
 }
 
 /**
@@ -946,16 +953,16 @@ function adoptAsset(
  * turns that into attention, because an operation that reports done without a
  * provider asset has certified a box nobody can find again.
  */
-function adoptAssetIn(
+async function adoptAssetIn(
   ctx: HandlerContext,
   instanceId: string,
   providerId: string,
   intentId: string,
-): void {
+): Promise<void> {
   if (!providerId) {
     throw new Error(`refusing to adopt an empty provider id for ${intentId}`);
   }
-  const existing = ctx.store.assetForInstance(instanceId);
+  const existing = await ctx.store.assetForInstance(instanceId);
   if (existing?.provider_id === providerId) return;
   if (existing?.provider_id && existing.provider_id !== providerId) {
     // Two different boxes for one instance is the failure class the whole
@@ -967,10 +974,10 @@ function adoptAssetIn(
   }
   if (existing) {
     if (
-      !ctx.store.casAsset(existing.id, existing.version, {
+      !(await ctx.store.casAsset(existing.id, existing.version, {
         provider_id: providerId,
         asset_state: "active",
-      })
+      }))
     ) {
       throw new Error(
         `provider asset ${existing.id} moved while adopting ${providerId}`,
@@ -978,7 +985,7 @@ function adoptAssetIn(
     }
     return;
   }
-  ctx.store.createAsset({
+  await ctx.store.createAsset({
     id: `asset-${instanceId}`,
     instance_id: instanceId,
     provider: "contabo",

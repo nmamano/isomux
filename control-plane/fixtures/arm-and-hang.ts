@@ -16,14 +16,14 @@ import { Store } from "../store.ts";
 import type { CreateOutcome, ProviderAdapter } from "../provider.ts";
 
 const [dbPath, opId, intentId] = process.argv.slice(2);
-const store = new Store(dbPath);
-const op = store.getOperation(opId);
+const store = await Store.open(dbPath);
+const op = await store.getOperation(opId);
 if (!op) throw new Error(`no operation ${opId}`);
 
 const now = Date.now();
 // A SHORT lease: this process is about to be killed, and a crashed holder's
 // lease has to expire for the next one to adopt the row.
-const leased = store.tryLease(
+const leased = await store.tryLease(
   op.id,
   op.version,
   "crashed-child",

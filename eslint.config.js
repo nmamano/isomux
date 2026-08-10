@@ -67,6 +67,28 @@ export default tseslint.config(
     },
   },
   {
+    // The control plane's store is Promise-based, and a DROPPED AWAIT there is
+    // silent: `if (!store.casX(...))` on a promise is always falsy, which
+    // deletes the "loser re-reads" path without failing anything. These four
+    // rules are the fence, and they are pinned here rather than left to the
+    // recommended preset so a future trim of that preset cannot remove them.
+    // The same block exists in control-plane/web/eslint.config.mjs, because
+    // this config ignores that directory.
+    files: ["control-plane/**/*.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": "error",
+      "@typescript-eslint/await-thenable": "error",
+      // Fences the other half of the class: `try { return store.tx(...) }`
+      // settles the promise after this frame has left, so the catch never
+      // runs. The narrow mode flags only that case rather than every return.
+      "@typescript-eslint/return-await": [
+        "error",
+        "error-handling-correctness-only",
+      ],
+    },
+  },
+  {
     files: ["ui/**/*.{ts,tsx}"],
     plugins: {
       "react-hooks": reactHooks,

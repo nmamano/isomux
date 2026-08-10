@@ -20,7 +20,7 @@
 // A source-ownership test asserts that split, so a later redirect handler or
 // dashboard button cannot quietly become a writer of Stripe truth.
 
-import type { Store } from "../store.ts";
+import type { SqlArgs, Store } from "../store.ts";
 
 export interface AccountRow {
   id: string;
@@ -148,57 +148,55 @@ export interface StripeEventRow {
  * Google sign-in; the email uniqueness index is what keeps that migration from
  * finding duplicates.
  */
-export function ensureAccount(
+export async function ensureAccount(
   store: Store,
   args: { id: string; email: string },
-): AccountRow {
+): Promise<AccountRow> {
   assertInTx(store, "ensureAccount");
-  const existing = accountByEmail(store, args.email);
+  const existing = await accountByEmail(store, args.email);
   if (existing) return existing;
   const ts = store.now();
   // is_operator is written as 0 EXPLICITLY rather than left to the column
   // default. Every account arrives through here or through a sign-in that calls
   // here, so the literal is the proof that no sign-in path can create a
   // privileged account.
-  store.db.run(
+  await store.sqlRun(
     "insert into accounts (id, email, google_subject, stripe_customer_id, is_operator, " +
       "version, created_at, updated_at) values (?, ?, null, null, 0, 1, ?, ?)",
     [args.id, args.email, ts, ts],
   );
-  const made = getAccount(store, args.id);
+  const made = await getAccount(store, args.id);
   if (!made) throw new Error("account insert did not land");
   return made;
 }
 
-export function getAccount(store: Store, id: string): AccountRow | null {
-  return (
-    store.db
-      .query<AccountRow, [string]>("select * from accounts where id = ?")
-      .get(id) ?? null
-  );
+export async function getAccount(
+  store: Store,
+  id: string,
+): Promise<AccountRow | null> {
+  return store.sqlGet<AccountRow>("select * from accounts where id = ?", [id]);
 }
 
-export function accountByEmail(store: Store, email: string): AccountRow | null {
-  return (
-    store.db
-      .query<AccountRow, [string]>("select * from accounts where email = ?")
-      .get(email) ?? null
-  );
+export async function accountByEmail(
+  store: Store,
+  email: string,
+): Promise<AccountRow | null> {
+  return store.sqlGet<AccountRow>("select * from accounts where email = ?", [
+    email,
+  ]);
 }
 
-export function listAccounts(store: Store): AccountRow[] {
-  return store.db
-    .query<AccountRow, []>("select * from accounts order by created_at")
-    .all();
+export async function listAccounts(store: Store): Promise<AccountRow[]> {
+  return store.sqlAll<AccountRow>("select * from accounts order by created_at");
 }
 
 /** Version CAS, like every other transition in this schema. A loser re-reads. */
-export function casAccount(
+export async function casAccount(
   store: Store,
   id: string,
   expectedVersion: number,
   patch: Partial<Pick<AccountRow, "google_subject" | "stripe_customer_id">>,
-): AccountRow | null {
+): Promise<AccountRow | null> {
   assertInTx(store, "casAccount");
   return casRow<AccountRow>(
     store,
@@ -219,16 +217,16 @@ export function casAccount(
  * object - never from a Checkout redirect and never from an event payload taken
  * as truth.
  */
-export function insertSubscription(
+export async function insertSubscription(
   store: Store,
   row: Omit<
     SubscriptionRow,
     "version" | "created_at" | "updated_at" | "episode_state"
   > & { episode_state?: EpisodeState },
-): SubscriptionRow {
+): Promise<SubscriptionRow> {
   assertInTx(store, "insertSubscription");
   const ts = store.now();
-  store.db.run(
+  await store.sqlRun(
     "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, status, " +
       "current_period_end, cancel_at_period_end, ended_at, canceled_at, cancellation_reason, " +
       "discount_percent_off, discount_coupon_id, " +
@@ -263,42 +261,40 @@ export function insertSubscription(
       ts,
     ],
   );
-  const made = getSubscription(store, row.id);
+  const made = await getSubscription(store, row.id);
   if (!made) throw new Error("subscription insert did not land");
   return made;
 }
 
-export function getSubscription(
+export async function getSubscription(
   store: Store,
   id: string,
-): SubscriptionRow | null {
-  return (
-    store.db
-      .query<
-        SubscriptionRow,
-        [string]
-      >("select * from subscriptions where id = ?")
-      .get(id) ?? null
+): Promise<SubscriptionRow | null> {
+  return store.sqlGet<SubscriptionRow>(
+    "select * from subscriptions where id = ?",
+    [id],
   );
 }
 
-export function listSubscriptions(store: Store): SubscriptionRow[] {
-  return store.db
-    .query<
-      SubscriptionRow,
-      []
-    >("select * from subscriptions order by created_at")
-    .all();
+export async function listSubscriptions(
+  store: Store,
+): Promise<SubscriptionRow[]> {
+  return store.sqlAll<SubscriptionRow>(
+    "select * from subscriptions order by created_at",
+  );
 }
 
 /** Subscriptions whose coupon-lapse hold has run out. The tick's only query. */
-export function holdsExpiredAt(store: Store, now: number): SubscriptionRow[] {
-  return store.db
-    .query<
-      SubscriptionRow,
-      [number]
-    >("select * from subscriptions where episode_state = 'coupon_hold' " + "and coupon_grace_until is not null and coupon_grace_until <= ? " + "order by coupon_grace_until")
-    .all(now);
+export async function holdsExpiredAt(
+  store: Store,
+  now: number,
+): Promise<SubscriptionRow[]> {
+  return store.sqlAll<SubscriptionRow>(
+    "select * from subscriptions where episode_state = 'coupon_hold' " +
+      "and coupon_grace_until is not null and coupon_grace_until <= ? " +
+      "order by coupon_grace_until",
+    [now],
+  );
 }
 
 /**
@@ -308,12 +304,12 @@ export function holdsExpiredAt(store: Store, now: number): SubscriptionRow[] {
  * else: that is the thing the design forbids. Fetch the object and reconcile,
  * or leave the row alone.
  */
-export function casStripeOwnedSubscription(
+export async function casStripeOwnedSubscription(
   store: Store,
   id: string,
   expectedVersion: number,
   patch: StripeOwnedPatch,
-): SubscriptionRow | null {
+): Promise<SubscriptionRow | null> {
   assertInTx(store, "casStripeOwnedSubscription");
   return casRow<SubscriptionRow>(
     store,
@@ -326,12 +322,12 @@ export function casStripeOwnedSubscription(
 }
 
 /** Our dunning bookkeeping. Reconciliation and the coupon-hold tick. */
-export function casEpisodeBookkeeping(
+export async function casEpisodeBookkeeping(
   store: Store,
   id: string,
   expectedVersion: number,
   patch: EpisodePatch,
-): SubscriptionRow | null {
+): Promise<SubscriptionRow | null> {
   assertInTx(store, "casEpisodeBookkeeping");
   return casRow<SubscriptionRow>(
     store,
@@ -352,14 +348,13 @@ export function casEpisodeBookkeeping(
  * fetch happens with no transaction open and a concurrent delivery of the same
  * event could have landed in the meantime.
  */
-export function eventSeen(store: Store, id: string): StripeEventRow | null {
-  return (
-    store.db
-      .query<
-        StripeEventRow,
-        [string]
-      >("select * from stripe_events where id = ?")
-      .get(id) ?? null
+export async function eventSeen(
+  store: Store,
+  id: string,
+): Promise<StripeEventRow | null> {
+  return store.sqlGet<StripeEventRow>(
+    "select * from stripe_events where id = ?",
+    [id],
   );
 }
 
@@ -370,13 +365,13 @@ export function eventSeen(store: Store, id: string): StripeEventRow | null {
  * in its own transaction would turn a crash mid-apply into a silently dropped
  * event.
  */
-export function claimEvent(
+export async function claimEvent(
   store: Store,
   row: Omit<StripeEventRow, "received_at"> & { received_at?: number },
-): StripeEventRow {
+): Promise<StripeEventRow> {
   assertInTx(store, "claimEvent");
   const receivedAt = row.received_at ?? store.now();
-  store.db.run(
+  await store.sqlRun(
     "insert into stripe_events (id, type, created, received_at, subscription_id, outcome, detail) " +
       "values (?, ?, ?, ?, ?, ?, ?)",
     [
@@ -392,13 +387,14 @@ export function claimEvent(
   return { ...row, received_at: receivedAt };
 }
 
-export function listEvents(store: Store, limit = 50): StripeEventRow[] {
-  return store.db
-    .query<
-      StripeEventRow,
-      [number]
-    >("select * from stripe_events order by received_at desc limit ?")
-    .all(limit);
+export async function listEvents(
+  store: Store,
+  limit = 50,
+): Promise<StripeEventRow[]> {
+  return store.sqlAll<StripeEventRow>(
+    "select * from stripe_events order by received_at desc limit ?",
+    [limit],
+  );
 }
 
 // ----------------------------------------------------------------- helpers
@@ -411,16 +407,16 @@ function assertInTx(store: Store, what: string): void {
 
 /** One statement, version predicate, `returning *`. The same shape slice 2 uses
  * for every row it owns. */
-function casRow<T>(
+async function casRow<T>(
   store: Store,
   table: string,
   key: string,
   id: string,
   expectedVersion: number,
   patch: Record<string, unknown>,
-): T | null {
+): Promise<T | null> {
   const sets: string[] = [];
-  const args: (string | number | null)[] = [];
+  const args: SqlArgs = [];
   for (const [k, v] of Object.entries(patch)) {
     sets.push(`${k} = ?`);
     args.push(v as string | number | null);
@@ -428,12 +424,8 @@ function casRow<T>(
   if (sets.length === 0) return null;
   sets.push("updated_at = ?");
   args.push(store.now());
-  return (
-    store.db
-      .query<
-        T,
-        (string | number | null)[]
-      >(`update ${table} set ${sets.join(", ")}, version = version + 1 where ${key} = ? and version = ? returning *`)
-      .get(...args, id, expectedVersion) ?? null
+  return store.sqlGet<T>(
+    `update ${table} set ${sets.join(", ")}, version = version + 1 where ${key} = ? and version = ? returning *`,
+    [...args, id, expectedVersion],
   );
 }

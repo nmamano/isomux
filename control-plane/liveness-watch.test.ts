@@ -14,7 +14,7 @@ import { Store } from "./store.ts";
 
 const temps: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -26,15 +26,15 @@ interface Bed {
   now: { value: number };
   /** One pass with a scripted probe outcome. */
   pass(rung: Rung, holder?: string): Promise<number>;
-  reasons(): string[];
+  reasons(): Promise<string[]>;
 }
 
-function bed(): Bed {
+async function bed(): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-liveness-"));
   temps.push(dir);
   const now = { value: 1_000_000 };
-  const store = new Store(path.join(dir, "cp.db"), () => now.value);
-  store.createInstance({
+  const store = await Store.open(path.join(dir, "cp.db"), () => now.value);
+  await store.createInstance({
     id: "inst-1",
     run_id: null,
     name: "cp1.test.isomux.app",
@@ -44,7 +44,7 @@ function bed(): Bed {
     goal: "live",
     access_window_expires_at: now.value + 1_000_000,
   });
-  store.createAsset({
+  await store.createAsset({
     id: "asset-1",
     instance_id: "inst-1",
     provider: "contabo",
@@ -60,8 +60,8 @@ function bed(): Bed {
     store,
     instanceId: "inst-1",
     now,
-    pass: (rung, holder = "prober-a") =>
-      watchLiveness(store, {
+    pass: async (rung, holder = "prober-a") =>
+      await watchLiveness(store, {
         holder,
         // The ladder itself is tested in liveness.test.ts; here the probe is
         // scripted so the COUNTING is what is under test.
@@ -75,9 +75,8 @@ function bed(): Bed {
           return new Response("", { status: rung === "ok" ? 200 : 503 });
         },
       }),
-    reasons: () =>
-      store
-        .openReasons("inst-1")
+    reasons: async () =>
+      (await store.openReasons("inst-1"))
         .filter((r) => r.reason === LIVENESS_REASON)
         .map((r) => r.severity),
   };
@@ -85,24 +84,24 @@ function bed(): Bed {
 
 describe("strikes are consecutive", () => {
   test("failures accumulate and an ok resets them", async () => {
-    const b = bed();
+    const b = await bed();
     for (const expected of [1, 2]) {
       await b.pass("tcp");
-      expect(b.store.getLiveness("inst-1")!.strikes).toBe(expected);
+      expect((await b.store.getLiveness("inst-1"))!.strikes).toBe(expected);
       b.now.value += LIVENESS_INTERVAL_MS;
     }
     await b.pass("ok");
-    expect(b.store.getLiveness("inst-1")!.strikes).toBe(0);
-    expect(b.store.getLiveness("inst-1")!.rung).toBe("ok");
+    expect((await b.store.getLiveness("inst-1"))!.strikes).toBe(0);
+    expect((await b.store.getLiveness("inst-1"))!.rung).toBe("ok");
   });
 
   test("a probe is not repeated before it is due", async () => {
-    const b = bed();
+    const b = await bed();
     expect(await b.pass("tcp")).toBe(1);
     // No clock movement: the claim's due test is in the UPDATE, so a second
     // pass in the same instant does nothing at all.
     expect(await b.pass("tcp")).toBe(0);
-    expect(b.store.getLiveness("inst-1")!.strikes).toBe(1);
+    expect((await b.store.getLiveness("inst-1"))!.strikes).toBe(1);
   });
 
   test("a crashed prober's claim is not adoptable until it expires", async () => {
@@ -117,10 +116,10 @@ describe("strikes are consecutive", () => {
     // showed it.
     expect(LIVENESS_CLAIM_MS).toBe(5 * 60_000);
 
-    const b = bed();
+    const b = await bed();
     const now = b.now.value;
-    b.store.ensureLiveness("inst-1", now);
-    const claimed = b.store.claimLiveness(
+    await b.store.ensureLiveness("inst-1", now);
+    const claimed = await b.store.claimLiveness(
       "inst-1",
       "prober-that-dies",
       now + LIVENESS_CLAIM_MS,
@@ -131,7 +130,7 @@ describe("strikes are consecutive", () => {
     // One second before the claim expires: still refused, however due the row.
     b.now.value = now + LIVENESS_CLAIM_MS - 1_000;
     expect(
-      b.store.claimLiveness(
+      await b.store.claimLiveness(
         "inst-1",
         "prober-b",
         b.now.value + 1_000,
@@ -143,7 +142,7 @@ describe("strikes are consecutive", () => {
     // One second after: adoptable, so a dead holder cannot stall the ladder.
     b.now.value = now + LIVENESS_CLAIM_MS + 1_000;
     expect(
-      b.store.claimLiveness(
+      await b.store.claimLiveness(
         "inst-1",
         "prober-b",
         b.now.value + 1_000,
@@ -153,7 +152,7 @@ describe("strikes are consecutive", () => {
   });
 
   test("a second prober cannot double-count one outage", async () => {
-    const b = bed();
+    const b = await bed();
     await b.pass("tcp", "prober-a");
     b.now.value += LIVENESS_INTERVAL_MS;
     // Two provisioners, same due row, same instant. The claim is taken by the
@@ -163,59 +162,63 @@ describe("strikes are consecutive", () => {
       b.pass("tcp", "prober-b"),
     ]);
     expect(first + second).toBe(1);
-    expect(b.store.getLiveness("inst-1")!.strikes).toBe(2);
+    expect((await b.store.getLiveness("inst-1"))!.strikes).toBe(2);
   });
 });
 
 describe("three strikes gets a person", () => {
   test("raised on the third, and not before", async () => {
-    const b = bed();
+    const b = await bed();
     for (let i = 0; i < 2; i++) {
       await b.pass("tls");
       b.now.value += LIVENESS_INTERVAL_MS;
     }
-    expect(b.reasons()).toEqual([]);
+    expect(await b.reasons()).toEqual([]);
     await b.pass("tls");
-    expect(b.reasons()).toEqual(["critical"]);
-    expect(b.store.getInstance("inst-1")!.attention_state).toBe(
+    expect(await b.reasons()).toEqual(["critical"]);
+    expect((await b.store.getInstance("inst-1"))!.attention_state).toBe(
       "needs_operator",
     );
   });
 
   test("raised once, not once per failed check", async () => {
-    const b = bed();
+    const b = await bed();
     for (let i = 0; i < 5; i++) {
       await b.pass("tcp");
       b.now.value += LIVENESS_INTERVAL_MS;
     }
-    expect(b.reasons()).toEqual(["critical"]);
+    expect(await b.reasons()).toEqual(["critical"]);
   });
 
   test("cleared only by a probe that actually succeeds", async () => {
-    const b = bed();
+    const b = await bed();
     for (let i = 0; i < 3; i++) {
       await b.pass("tcp");
       b.now.value += LIVENESS_INTERVAL_MS;
     }
-    expect(b.reasons()).toEqual(["critical"]);
+    expect(await b.reasons()).toEqual(["critical"]);
     // A DIFFERENT failure is not a recovery. An office failing dns, then tls,
     // then tcp would otherwise look like it keeps getting better.
     await b.pass("tls");
     b.now.value += LIVENESS_INTERVAL_MS;
-    expect(b.reasons()).toEqual(["critical"]);
+    expect(await b.reasons()).toEqual(["critical"]);
     await b.pass("ok");
-    expect(b.reasons()).toEqual([]);
-    expect(b.store.getInstance("inst-1")!.attention_state).toBe("clear");
+    expect(await b.reasons()).toEqual([]);
+    expect((await b.store.getInstance("inst-1"))!.attention_state).toBe(
+      "clear",
+    );
   });
 });
 
 test("only live offices are probed", async () => {
-  const b = bed();
-  const inst = b.store.getInstance("inst-1")!;
-  b.store.casInstance(inst.id, inst.version, { service_state: "provisioning" });
+  const b = await bed();
+  const inst = (await b.store.getInstance("inst-1"))!;
+  await b.store.casInstance(inst.id, inst.version, {
+    service_state: "provisioning",
+  });
   // An office still being built has verify_https walking the same ladder with
   // its own deadlines; probing it here would raise attention for a box that is
   // progressing normally.
   expect(await b.pass("tcp")).toBe(0);
-  expect(b.store.getLiveness("inst-1")).toBeNull();
+  expect(await b.store.getLiveness("inst-1")).toBeNull();
 });

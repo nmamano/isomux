@@ -27,22 +27,22 @@ import type { Store } from "./store.ts";
  * Returns how many reasons it marked, so a caller can tell a real
  * acknowledgement from an acknowledgement of nothing.
  */
-export function acknowledgeAttentionIn(
+export async function acknowledgeAttentionIn(
   store: Store,
   instanceId: string,
   by: string,
-): number {
+): Promise<number> {
   if (!store.inTransaction()) {
     throw new Error("acknowledgeAttentionIn must run inside a transaction");
   }
-  const n = store.acknowledgeReasons(instanceId, store.now(), by);
+  const n = await store.acknowledgeReasons(instanceId, store.now(), by);
   // The instance's summary columns are a written summary of the open rows, so
   // they are recomputed inside this same transaction rather than left to drift
   // from the rows they summarise.
-  const inst = store.getInstance(instanceId);
+  const inst = await store.getInstance(instanceId);
   if (!inst) throw new Error(`no instance ${instanceId} to acknowledge`);
-  store.refreshAttentionSummary(instanceId, inst.version);
-  store.appendAudit({
+  await store.refreshAttentionSummary(instanceId, inst.version);
+  await store.appendAudit({
     actor: by,
     instance_id: instanceId,
     action: "acknowledge_attention",
@@ -61,10 +61,10 @@ export function acknowledgeAttentionIn(
  * write have to commit as one thing: a role read outside the transaction that
  * writes is a role that can be revoked between the check and the write.
  */
-export function acknowledgeAttention(
+export async function acknowledgeAttention(
   store: Store,
   instanceId: string,
   by: string,
-): number {
+): Promise<number> {
   return store.tx(() => acknowledgeAttentionIn(store, instanceId, by));
 }

@@ -77,19 +77,19 @@ function fixtureFiles(): string[] {
     .map((f) => path.join(FIXTURES, f));
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe("the fixtures directory", () => {
-  test("holds at least the live-mode refusal fixture", () => {
+  test("holds at least the live-mode refusal fixture", async () => {
     // Otherwise the scans below would pass by having nothing to scan.
     expect(fixtureFiles().length).toBeGreaterThan(0);
   });
 
-  test("carries no credential of any shape", () => {
+  test("carries no credential of any shape", async () => {
     for (const file of fixtureFiles()) {
       const bytes = fs.readFileSync(file, "utf8");
       for (const shape of CREDENTIAL_SHAPES) {
@@ -105,7 +105,7 @@ describe("the fixtures directory", () => {
     }
   });
 
-  test("carries no personal data", () => {
+  test("carries no personal data", async () => {
     for (const file of fixtureFiles()) {
       const bytes = fs.readFileSync(file, "utf8");
       for (const [shape, what] of PERSONAL_SHAPES) {
@@ -117,7 +117,7 @@ describe("the fixtures directory", () => {
     }
   });
 
-  test("every fixture is valid JSON and says which mode it is", () => {
+  test("every fixture is valid JSON and says which mode it is", async () => {
     for (const file of fixtureFiles()) {
       const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as {
         livemode?: unknown;
@@ -131,7 +131,10 @@ describe("the synthetic live-mode delivery", () => {
   test("is refused with a valid signature, and nothing is fetched or written", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-fixture-"));
     temps.push(dir);
-    const store = new Store(path.join(dir, "cp.db"), () => 1_770_000_000_000);
+    const store = await Store.open(
+      path.join(dir, "cp.db"),
+      () => 1_770_000_000_000,
+    );
     const calls: string[] = [];
     const reader: StripeObjectReader = {
       getSubscription: async (id) => {
@@ -168,9 +171,9 @@ describe("the synthetic live-mode delivery", () => {
     // The signature was GOOD. The refusal is about the mode, and it happens before
     // anything is read or written.
     expect(calls).toEqual([]);
-    expect(listEvents(store)).toEqual([]);
-    expect(listSubscriptions(store)).toEqual([]);
-    store.close();
+    expect(await listEvents(store)).toEqual([]);
+    expect(await listSubscriptions(store)).toEqual([]);
+    await store.close();
   });
 });
 
@@ -185,7 +188,7 @@ describe("recorded deliveries still parse", () => {
     return raw.data.object;
   }
 
-  test("a completed comped session reports if_required and names its subscription", () => {
+  test("a completed comped session reports if_required and names its subscription", async () => {
     const snap = normalizeSession(objectOf("recorded-session-comped"));
     expect(snap.paymentMethodCollection).toBe("if_required");
     // OBSERVED 2026-08-09: a fully discounted session completes with
@@ -198,7 +201,7 @@ describe("recorded deliveries still parse", () => {
     expect(Object.keys(snap.metadata)).toContain("isomux_account");
   });
 
-  test("a discounted subscription EVENT cannot be normalised at all, and says why", () => {
+  test("a discounted subscription EVENT cannot be normalised at all, and says why", async () => {
     // THIS is why reconciliation fetches instead of trusting the payload: the event
     // body carries the discount as a bare id, so the percentage - the whole signal
     // for "comped" - is simply not in it. Refusing is the honest answer.
@@ -207,14 +210,14 @@ describe("recorded deliveries still parse", () => {
     ).toThrow(/bare id/);
   });
 
-  test("a failed invoice still being retried names its subscription through parent", () => {
+  test("a failed invoice still being retried names its subscription through parent", async () => {
     const snap = normalizeInvoice(objectOf("recorded-invoice-failed-retrying"));
     expect(snap.subscriptionId).toMatch(/^sub_/);
     expect(snap.nextPaymentAttempt).not.toBeNull();
     expect(snap.paid).toBe(false);
   });
 
-  test("the exhausted invoice is the shape the ladder reads as exhaustion", () => {
+  test("the exhausted invoice is the shape the ladder reads as exhaustion", async () => {
     const snap = normalizeInvoice(
       objectOf("recorded-invoice-failed-exhausted"),
     );
@@ -225,7 +228,7 @@ describe("recorded deliveries still parse", () => {
     expect(snap.paid).toBe(false);
   });
 
-  test("a deleted subscription reads as canceled", () => {
+  test("a deleted subscription reads as canceled", async () => {
     const snap = normalizeSubscription(
       objectOf("recorded-subscription-deleted"),
     );

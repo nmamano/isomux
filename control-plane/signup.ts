@@ -98,58 +98,46 @@ export function hostnameFor(officeName: string): string {
   return `${officeName}.${OFFICE_DOMAIN}`;
 }
 
-export function reservationByName(
+export async function reservationByName(
   store: Store,
   name: string,
-): ReservationRow | null {
-  return (
-    store.db
-      .query<
-        ReservationRow,
-        [string]
-      >("select * from name_reservations where name = ?")
-      .get(name) ?? null
+): Promise<ReservationRow | null> {
+  return store.sqlGet<ReservationRow>(
+    "select * from name_reservations where name = ?",
+    [name],
   );
 }
 
-export function reservationForInstance(
+export async function reservationForInstance(
   store: Store,
   instanceId: string,
-): ReservationRow | null {
-  return (
-    store.db
-      .query<
-        ReservationRow,
-        [string]
-      >("select * from name_reservations where instance_id = ?")
-      .get(instanceId) ?? null
+): Promise<ReservationRow | null> {
+  return store.sqlGet<ReservationRow>(
+    "select * from name_reservations where instance_id = ?",
+    [instanceId],
   );
 }
 
 /** At most one, because account_id is unique: one office per account is the
  * MVP's shape, and the constraint is what makes it true. */
-export function reservationForAccount(
+export async function reservationForAccount(
   store: Store,
   accountId: string,
-): ReservationRow | null {
-  return (
-    store.db
-      .query<
-        ReservationRow,
-        [string]
-      >("select * from name_reservations where account_id = ?")
-      .get(accountId) ?? null
+): Promise<ReservationRow | null> {
+  return store.sqlGet<ReservationRow>(
+    "select * from name_reservations where account_id = ?",
+    [accountId],
   );
 }
 
 /** The instance an account may read. Tenant scope is the reservation row, and
  * there is no other path: nothing takes an account id from a caller. */
-export function instanceOwnedBy(
+export async function instanceOwnedBy(
   store: Store,
   accountId: string,
   instanceId: string,
-): ReservationRow | null {
-  const res = reservationForInstance(store, instanceId);
+): Promise<ReservationRow | null> {
+  const res = await reservationForInstance(store, instanceId);
   if (!res || res.account_id !== accountId) return null;
   return res;
 }
@@ -158,17 +146,13 @@ export function instanceOwnedBy(
 
 export class SubjectBindingConflict extends Error {}
 
-export function accountByGoogleSubject(
+export async function accountByGoogleSubject(
   store: Store,
   subject: string,
-): AccountRow | null {
-  return (
-    store.db
-      .query<
-        AccountRow,
-        [string]
-      >("select * from accounts where google_subject = ?")
-      .get(subject) ?? null
+): Promise<AccountRow | null> {
+  return store.sqlGet<AccountRow>(
+    "select * from accounts where google_subject = ?",
+    [subject],
   );
 }
 
@@ -182,14 +166,14 @@ export function accountByGoogleSubject(
  * reads still ends in a constraint failure rather than two accounts sharing an
  * identity.
  */
-export function bindGoogleSubject(
+export async function bindGoogleSubject(
   store: Store,
   args: { subject: string; email: string; now?: () => number },
-): AccountRow {
+): Promise<AccountRow> {
   const newId = () => `acct-${crypto.randomUUID()}`;
-  return store.tx(() => {
-    const bySubject = accountByGoogleSubject(store, args.subject);
-    const byEmail = accountByEmail(store, args.email);
+  return store.tx(async () => {
+    const bySubject = await accountByGoogleSubject(store, args.subject);
+    const byEmail = await accountByEmail(store, args.email);
     if (bySubject && byEmail && bySubject.id !== byEmail.id) {
       throw new SubjectBindingConflict(
         `this Google account is already signed in as ${bySubject.email}; ` +
@@ -203,7 +187,7 @@ export function bindGoogleSubject(
           `${args.email} is already bound to a different Google account`,
         );
       }
-      const bound = casAccount(store, byEmail.id, byEmail.version, {
+      const bound = await casAccount(store, byEmail.id, byEmail.version, {
         google_subject: args.subject,
       });
       if (!bound) {
@@ -213,8 +197,8 @@ export function bindGoogleSubject(
       }
       return bound;
     }
-    const made = ensureAccount(store, { id: newId(), email: args.email });
-    const bound = casAccount(store, made.id, made.version, {
+    const made = await ensureAccount(store, { id: newId(), email: args.email });
+    const bound = await casAccount(store, made.id, made.version, {
       google_subject: args.subject,
     });
     if (!bound) throw new Error("account binding did not land");
@@ -229,7 +213,10 @@ export function bindGoogleSubject(
  * account is the tenant key, and a session that carried only an email would put
  * a mutable field in the authorization path.
  */
-export function accountForDevSignIn(store: Store, email: string): AccountRow {
+export async function accountForDevSignIn(
+  store: Store,
+  email: string,
+): Promise<AccountRow> {
   return store.tx(() =>
     ensureAccount(store, { id: `acct-${crypto.randomUUID()}`, email }),
   );
@@ -330,11 +317,11 @@ function isUniqueViolation(err: unknown): boolean {
  * plan and a bad or reserved name are decided by pure functions, so neither
  * reaches the database and neither can reach Stripe.
  */
-export function reserveOffice(
+export async function reserveOffice(
   store: Store,
   req: SignupRequest,
   deps: SignupDeps = {},
-): SignupOutcome {
+): Promise<SignupOutcome> {
   const now = deps.now ?? (() => store.now());
   const newId = deps.newId ?? (() => crypto.randomUUID());
 
@@ -346,14 +333,17 @@ export function reserveOffice(
   const uuid = newId();
   const ts = now();
 
-  return store.tx((): SignupOutcome => {
-    const account = getAccount(store, req.accountId);
+  return store.tx(async (): Promise<SignupOutcome> => {
+    const account = await getAccount(store, req.accountId);
     if (!account) {
       return { ok: false, reason: "we do not recognise this account" };
     }
     const instanceId = `inst-${uuid}`;
     try {
-      store.db.run(
+      // AWAITED INSIDE THE TRY. Without the await the UNIQUE violation would
+      // reject after this frame has left, so the catch below - the arm that
+      // reads both constraints back and refuses a taken name - would never run.
+      await store.sqlRun(
         "insert into name_reservations (name, id, account_id, instance_id, plan, " +
           "coupon_id, version, created_at, updated_at) values (?, ?, ?, ?, ?, ?, 1, ?, ?)",
         [
@@ -372,9 +362,9 @@ export function reserveOffice(
       // TWO unique constraints can refuse this insert, and they mean different
       // things: the name is somebody else's, or this account already has an
       // office. Read both back rather than guessing from the error text.
-      const held = reservationByName(store, req.officeName);
+      const held = await reservationByName(store, req.officeName);
       if (!held) {
-        const mine = reservationForAccount(store, account.id);
+        const mine = await reservationForAccount(store, account.id);
         if (mine) {
           return {
             ok: false,
@@ -417,7 +407,7 @@ export function reserveOffice(
       return { ok: true, reservation: held, account, reused: true };
     }
 
-    store.createInstance({
+    await store.createInstance({
       id: instanceId,
       run_id: null,
       name: hostnameFor(req.officeName),
@@ -429,7 +419,7 @@ export function reserveOffice(
       goal: "live",
       access_window_expires_at: ts + ACCESS_WINDOW_MS,
     });
-    store.createAsset({
+    await store.createAsset({
       id: `asset-${uuid}`,
       instance_id: instanceId,
       provider: "contabo",
@@ -443,7 +433,7 @@ export function reserveOffice(
       host_key_fingerprint: null,
       next_reconcile_at: ts,
     });
-    store.appendAudit({
+    await store.appendAudit({
       actor: `account:${account.id}`,
       instance_id: instanceId,
       action: "reserve_office",
@@ -452,7 +442,7 @@ export function reserveOffice(
       detail: JSON.stringify({ plan: plan.id, coupon: coupon ?? null }),
       ts,
     });
-    const made = reservationByName(store, req.officeName);
+    const made = await reservationByName(store, req.officeName);
     if (!made) throw new Error("reservation insert did not land");
     return { ok: true, reservation: made, account, reused: false };
   });

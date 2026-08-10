@@ -53,8 +53,8 @@ const adapter = new ContaboAdapter({
 });
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-power-"));
-const store = new Store(path.join(dir, "cp.db"));
-const instance = store.createInstance({
+const store = await Store.open(path.join(dir, "cp.db"));
+const instance = await store.createInstance({
   id: "inst-power",
   run_id: null,
   name: HOST,
@@ -64,7 +64,7 @@ const instance = store.createInstance({
   goal: "live",
   access_window_expires_at: null,
 });
-const asset = store.createAsset({
+const asset = await store.createAsset({
   id: "asset-power",
   instance_id: instance.id,
   provider: "contabo",
@@ -77,8 +77,8 @@ const asset = store.createAsset({
   next_reconcile_at: 0,
 });
 
-function contextFor(id: string, kind: string): HandlerContext {
-  const op = store.enqueue({
+async function contextFor(id: string, kind: string): Promise<HandlerContext> {
+  const op = await store.enqueue({
     id,
     instance_id: instance.id,
     kind,
@@ -97,8 +97,10 @@ function contextFor(id: string, kind: string): HandlerContext {
     ),
     now: Date.now(),
     report: (line) => console.log(`  ${line}`),
-    audit: (action, outcome, detail) =>
-      console.log(`  audit ${action}:${outcome}${detail ? ` ${detail}` : ""}`),
+    audit: (action, outcome, detail) => {
+      console.log(`  audit ${action}:${outcome}${detail ? ` ${detail}` : ""}`);
+      return Promise.resolve();
+    },
   };
 }
 
@@ -133,7 +135,7 @@ try {
   const off = await powerOffHandler({
     powerOff: (id) => adapter.powerOff(id),
     report: (l) => console.log(`  ${l}`),
-  }).run(contextFor("op-power_off-probe", "power_off"));
+  }).run(await contextFor("op-power_off-probe", "power_off"));
   console.log(
     `${t()}  power_off -> ${off.kind} ${JSON.stringify(off.evidence)}`,
   );
@@ -144,7 +146,7 @@ try {
   const on = await powerOnHandler({
     powerOn: (id) => adapter.powerOn(id),
     report: (l) => console.log(`  ${l}`),
-  }).run(contextFor("op-power_on-probe", "power_on"));
+  }).run(await contextFor("op-power_on-probe", "power_on"));
   console.log(`${t()}  power_on -> ${on.kind} ${JSON.stringify(on.evidence)}`);
 
   await until((r) => r === "ok", "the office never came back", 900_000);
@@ -169,7 +171,7 @@ try {
   } catch (err) {
     console.error(`SAFETY CHECK FAILED: ${String(err)}`);
   }
-  store.close();
+  await store.close();
   fs.rmSync(dir, { recursive: true, force: true });
 }
 

@@ -43,17 +43,17 @@ export function rebootHandler(deps: RebootDeps): Handler {
         };
       }
       ctx.budget.claim("reboot");
-      ctx.audit("reboot", "started", `provider ${providerId}`);
+      await ctx.audit("reboot", "started", `provider ${providerId}`);
       try {
         await deps.reboot(providerId);
       } catch (err) {
         // Rethrown for the ticker's classifier, which is the one place that
         // decides what a transport failure means. The audit row goes down here
         // because this is where we know the call was issued.
-        ctx.audit("reboot", "ambiguous", messageOf(err));
+        await ctx.audit("reboot", "ambiguous", messageOf(err));
         throw err;
       }
-      ctx.audit("reboot", "succeeded", `provider ${providerId}`);
+      await ctx.audit("reboot", "succeeded", `provider ${providerId}`);
       deps.report?.(`reboot requested at the provider for ${providerId}`);
       // It concludes when the PROVIDER has accepted the restart, not when the
       // office answers again. Coming back is what liveness reports, and tying

@@ -35,14 +35,18 @@ function databasePath(): string {
 }
 
 async function withStore<T>(
-  fn: (store: InstanceType<typeof import("../../store").Store>) => T,
+  // The class named directly rather than through InstanceType: the constructor
+  // is private now, and only `Store.open` may produce one.
+  fn: (store: import("../../store").Store) => Promise<T> | T,
 ): Promise<T> {
   const { Store } = await import("../../store");
-  const store = new Store(databasePath());
+  const store = await Store.open(databasePath());
   try {
-    return fn(store);
+    // Awaited inside the try, so the store is closed by the finally rather
+    // than left open by a rejection that escaped this frame.
+    return await fn(store);
   } finally {
-    store.close();
+    await store.close();
   }
 }
 
@@ -225,8 +229,8 @@ export async function officeForAccount(
     import("../../signup"),
     import("../../progress"),
   ]);
-  return withStore((store) => {
-    const reservation = reservationForAccount(store, accountId);
+  return withStore(async (store) => {
+    const reservation = await reservationForAccount(store, accountId);
     if (!reservation) return null;
     return projectionFor(store, {
       accountId,
@@ -326,7 +330,7 @@ async function billingVerb(
     import("../../stripe/client"),
   ]);
   const { Store } = await import("../../store");
-  const store = new Store(databasePath());
+  const store = await Store.open(databasePath());
   try {
     const outcome = await cancel[verb](store, new StripeClient({ key }), {
       accountId,
@@ -334,7 +338,7 @@ async function billingVerb(
     });
     return outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason };
   } finally {
-    store.close();
+    await store.close();
   }
 }
 

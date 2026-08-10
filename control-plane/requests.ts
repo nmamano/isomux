@@ -111,18 +111,18 @@ function isUniqueViolation(err: unknown): boolean {
  *
  * Must run inside the caller's transaction.
  */
-function openCustomerOperation(
+async function openCustomerOperation(
   store: Store,
   instanceId: string,
   kind: OperationKind,
   now: number,
-): string {
+): Promise<string> {
   if (!CUSTOMER_KINDS.includes(kind)) {
     throw new Error(`a customer may not open a ${kind} operation`);
   }
   const d = deadlinesFor(kind);
-  const id = newOperationId(kind, store.nextSeq("audit"));
-  store.enqueue({
+  const id = newOperationId(kind, await store.nextSeq("audit"));
+  await store.enqueue({
     id,
     instance_id: instanceId,
     kind,
@@ -133,15 +133,15 @@ function openCustomerOperation(
   return id;
 }
 
-function audit(
+async function audit(
   store: Store,
   accountId: string,
   instanceId: string,
   action: string,
   outcome: string,
   detail: string,
-): void {
-  store.appendAudit({
+): Promise<void> {
+  await store.appendAudit({
     actor: `account:${accountId}`,
     instance_id: instanceId,
     action,
@@ -164,19 +164,19 @@ export interface CustomerRequest {
  * from the provisioner's memory. What this decides is whether a mint may happen
  * at all.
  */
-export function requestInvite(
+export async function requestInvite(
   store: Store,
   req: CustomerRequest,
-): RequestOutcome {
-  return store.tx(() => {
-    if (!instanceOwnedBy(store, req.accountId, req.instanceId)) {
+): Promise<RequestOutcome> {
+  return store.tx(async () => {
+    if (!(await instanceOwnedBy(store, req.accountId, req.instanceId))) {
       return refuse("not_yours");
     }
-    const access = accessForInstance(store, req.instanceId);
+    const access = await accessForInstance(store, req.instanceId);
     if (!access) return refuse("not_yours");
     if (!windowIsOpen(access)) {
       const code = windowRefusal(access);
-      audit(
+      await audit(
         store,
         req.accountId,
         req.instanceId,
@@ -186,11 +186,11 @@ export function requestInvite(
       );
       return refuse(code);
     }
-    const active = store.activeOperation(req.instanceId, "mint_invite");
+    const active = await store.activeOperation(req.instanceId, "mint_invite");
     if (active) return refuse("mint_in_progress");
     let id: string;
     try {
-      id = openCustomerOperation(
+      id = await openCustomerOperation(
         store,
         req.instanceId,
         "mint_invite",
@@ -202,7 +202,7 @@ export function requestInvite(
       if (isUniqueViolation(err)) return refuse("mint_in_progress");
       throw err;
     }
-    audit(
+    await audit(
       store,
       req.accountId,
       req.instanceId,
@@ -225,20 +225,20 @@ export function requestInvite(
  * will not revoke access to a box it never proved was serving: a customer who
  * cannot reach their office yet is not a customer who is safely in.
  */
-export function confirmHandoff(
+export async function confirmHandoff(
   store: Store,
   req: CustomerRequest,
-): RequestOutcome {
-  return store.tx(() => {
-    if (!instanceOwnedBy(store, req.accountId, req.instanceId)) {
+): Promise<RequestOutcome> {
+  return store.tx(async () => {
+    if (!(await instanceOwnedBy(store, req.accountId, req.instanceId))) {
       return refuse("not_yours");
     }
-    const access = accessForInstance(store, req.instanceId);
+    const access = await accessForInstance(store, req.instanceId);
     if (!access) return refuse("not_yours");
     if (access.state === "gone") return refuse("already_revoked");
     if (access.state === "not_started") return refuse("no_box");
 
-    const operations = store.operationsFor(req.instanceId);
+    const operations = await store.operationsFor(req.instanceId);
     const live = operations.some(
       (op) => op.kind === "verify_https" && op.status === "succeeded",
     );
@@ -251,7 +251,7 @@ export function confirmHandoff(
     if (active) {
       // Clicking twice is not an error. The attempt is still recorded, because
       // an anxious customer pressing it again is real history.
-      audit(
+      await audit(
         store,
         req.accountId,
         req.instanceId,
@@ -263,7 +263,7 @@ export function confirmHandoff(
     }
     let id: string;
     try {
-      id = openCustomerOperation(
+      id = await openCustomerOperation(
         store,
         req.instanceId,
         "revoke_access",
@@ -273,7 +273,7 @@ export function confirmHandoff(
       if (isUniqueViolation(err)) return refuse("revocation_in_progress");
       throw err;
     }
-    audit(
+    await audit(
       store,
       req.accountId,
       req.instanceId,
@@ -292,26 +292,31 @@ export function confirmHandoff(
  * is the only lever the customer has left, and it is the whole reason the
  * design keeps a provider-level reboot in the MVP.
  */
-export function requestRestart(
+export async function requestRestart(
   store: Store,
   req: CustomerRequest,
-): RequestOutcome {
-  return store.tx(() => {
-    if (!instanceOwnedBy(store, req.accountId, req.instanceId)) {
+): Promise<RequestOutcome> {
+  return store.tx(async () => {
+    if (!(await instanceOwnedBy(store, req.accountId, req.instanceId))) {
       return refuse("not_yours");
     }
-    const asset = store.assetForInstance(req.instanceId);
+    const asset = await store.assetForInstance(req.instanceId);
     if (!asset || !asset.provider_id) return refuse("no_box");
-    const active = store.activeOperation(req.instanceId, "reboot");
+    const active = await store.activeOperation(req.instanceId, "reboot");
     if (active) return refuse("restart_in_progress");
     let id: string;
     try {
-      id = openCustomerOperation(store, req.instanceId, "reboot", store.now());
+      id = await openCustomerOperation(
+        store,
+        req.instanceId,
+        "reboot",
+        store.now(),
+      );
     } catch (err) {
       if (isUniqueViolation(err)) return refuse("restart_in_progress");
       throw err;
     }
-    audit(
+    await audit(
       store,
       req.accountId,
       req.instanceId,

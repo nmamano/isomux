@@ -66,12 +66,12 @@ export function windowIsOpen(access: AccessView): boolean {
 
 /** The one place a claim about our key is decided. Order matters: proof of
  * removal outranks everything, and an absent box outranks a ceiling. */
-export function accessFor(
+export async function accessFor(
   store: Store,
   instance: InstanceRow,
   operations: OperationRow[],
   now: number,
-): AccessView {
+): Promise<AccessView> {
   const ceiling = instance.access_window_expires_at;
   const succeeded = (kind: OperationKind): boolean =>
     operations.some((op) => op.kind === kind && op.status === "succeeded");
@@ -83,7 +83,7 @@ export function accessFor(
 
   if (succeeded("revoke_access")) return { ...base, state: "gone" };
 
-  const asset = store.assetForInstance(instance.id);
+  const asset = await store.assetForInstance(instance.id);
   if (!asset || asset.provider_id === null) {
     // "No box" is a CLAIM, and only a pristine signup has earned it: the
     // placeholder asset untouched, and no create ever attempted. A create row
@@ -110,16 +110,16 @@ export function accessFor(
  * Used by the request seam and by the invite fetch, so a gate on a credential
  * and the sentence the customer reads come from one computation.
  */
-export function accessForInstance(
+export async function accessForInstance(
   store: Store,
   instanceId: string,
-): AccessView | null {
-  const instance = store.getInstance(instanceId);
+): Promise<AccessView | null> {
+  const instance = await store.getInstance(instanceId);
   if (!instance) return null;
   return accessFor(
     store,
     instance,
-    store.operationsFor(instanceId),
+    await store.operationsFor(instanceId),
     store.now(),
   );
 }

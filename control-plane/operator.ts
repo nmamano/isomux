@@ -20,12 +20,13 @@ import type { Store } from "./store.ts";
  * or a facade to have done it. A gate one layer above the work is a gate that a
  * second caller of that work does not have.
  */
-export function isOperator(store: Store, accountId: string): boolean {
-  const row = store.db
-    .query<
-      { is_operator: number },
-      [string]
-    >("select is_operator from accounts where id = ?")
-    .get(accountId);
+export async function isOperator(
+  store: Store,
+  accountId: string,
+): Promise<boolean> {
+  const row = await store.sqlGet<{ is_operator: number }>(
+    "select is_operator from accounts where id = ?",
+    [accountId],
+  );
   return row?.is_operator === 1;
 }

@@ -19,13 +19,13 @@ const TEST_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
 
 describe("ownership of a metadata-bearing object", () => {
   // Coupons, customers, prices, products. The tag is the ONLY proof.
-  test("our exact tag is proof", () => {
+  test("our exact tag is proof", async () => {
     expect(
       ownsTaggedObject({ id: "co_1", metadata: { isomux_test: "slice3" } }),
     ).toBe(true);
   });
 
-  test("a cp3 NAME is not proof, and someone else's tag beats it", () => {
+  test("a cp3 NAME is not proof, and someone else's tag beats it", async () => {
     // The fail-open path this replaces: one predicate accepted `tag OR name` for
     // every type, so a coupon carrying slice5's tag was deleted because we happened
     // to have named something similarly.
@@ -39,7 +39,7 @@ describe("ownership of a metadata-bearing object", () => {
     expect(ownsTaggedObject({ id: "co_3", name: "cp3 anything" })).toBe(false);
   });
 
-  test("a missing, wrong-shaped or near-miss tag is not ours", () => {
+  test("a missing, wrong-shaped or near-miss tag is not ours", async () => {
     expect(ownsTaggedObject({ id: "co_4" })).toBe(false);
     expect(
       ownsTaggedObject({ id: "co_5", metadata: "isomux_test=slice3" }),
@@ -52,7 +52,7 @@ describe("ownership of a metadata-bearing object", () => {
     ).toBe(false);
   });
 
-  test("a customer we create carries the tag, so cleanup can find it", () => {
+  test("a customer we create carries the tag, so cleanup can find it", async () => {
     const params = ownedCustomerParams({
       email: "a@example.com",
       label: "acme",
@@ -65,16 +65,16 @@ describe("ownership of a metadata-bearing object", () => {
 describe("ownership of a test clock", () => {
   // A clock has no metadata field at all, so its name is the only signal - and this
   // is the ONLY type where a name counts.
-  test("a cp3 name is proof", () => {
+  test("a cp3 name is proof", async () => {
     expect(ownsClock({ name: "cp3-comped" })).toBe(true);
   });
 
-  test("someone else's clock, and an unnamed one, are kept", () => {
+  test("someone else's clock, and an unnamed one, are kept", async () => {
     expect(ownsClock({ name: "someone-elses-clock" })).toBe(false);
     expect(ownsClock({ name: null })).toBe(false);
   });
 
-  test("the match is the NAMESPACE we mint into, not the bare prefix", () => {
+  test("the match is the NAMESPACE we mint into, not the bare prefix", async () => {
     // We only ever create `cp3-<label>`. Anything else that merely begins with the
     // three characters belongs to somebody else, and on a shared account that
     // difference is whose clock gets deleted.
@@ -89,7 +89,7 @@ describe("ownership of a test clock", () => {
 });
 
 describe("selecting what to delete", () => {
-  test("keeps everything unproven, and says why", () => {
+  test("keeps everything unproven, and says why", async () => {
     const objects = [
       { id: "clock_ours", name: "cp3-dunning" },
       { id: "clock_theirs", name: "someone-elses" },
@@ -111,11 +111,11 @@ describe("selecting what to delete", () => {
     ]);
   });
 
-  test("an empty account selects nothing rather than everything", () => {
+  test("an empty account selects nothing rather than everything", async () => {
     expect(selectOwned([], ownsTaggedObject).owned).toEqual([]);
   });
 
-  test("a foreign tag is skipped with a reason that says so", () => {
+  test("a foreign tag is skipped with a reason that says so", async () => {
     const picked = selectOwned(
       [{ id: "co_theirs", metadata: { isomux_test: "slice5" } }],
       ownsTaggedObject,
@@ -141,7 +141,7 @@ describe("listing every page", () => {
     return { client: new StripeClient({ key: TEST_KEY, fetchImpl }), urls };
   }
 
-  test("walks the cursor until Stripe says there is no more", () => {
+  test("walks the cursor until Stripe says there is no more", async () => {
     const { client, urls } = pagedClient([
       { data: [{ id: "a" }, { id: "b" }], has_more: true },
       { data: [{ id: "c" }], has_more: false },
@@ -153,7 +153,7 @@ describe("listing every page", () => {
     });
   });
 
-  test("an incomplete walk is REPORTED, not treated as the whole account", () => {
+  test("an incomplete walk is REPORTED, not treated as the whole account", async () => {
     // Treating one page as everything is how a cleanup leaves objects behind and
     // then claims success.
     const { client } = pagedClient([{ data: [{ id: "a" }], has_more: true }]);
@@ -163,7 +163,7 @@ describe("listing every page", () => {
     });
   });
 
-  test("a failed read is incomplete rather than empty-and-fine", () => {
+  test("a failed read is incomplete rather than empty-and-fine", async () => {
     const fetchImpl: FetchLike = async () => ({
       ok: false,
       status: 500,

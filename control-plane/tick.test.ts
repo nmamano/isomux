@@ -29,13 +29,13 @@ import { raiseAttention } from "./attention.ts";
 
 const temps: string[] = [];
 
-function tempStore(now: () => number): Store {
+async function tempStore(now: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-tick-"));
   temps.push(dir);
-  return new Store(path.join(dir, "cp.db"), now);
+  return await Store.open(path.join(dir, "cp.db"), now);
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -52,8 +52,8 @@ function clock(start = 1_000_000) {
   };
 }
 
-function seed(store: Store, goal = "live"): string {
-  store.createInstance({
+async function seed(store: Store, goal = "live"): Promise<string> {
+  await store.createInstance({
     id: "inst-1",
     run_id: "run-1",
     name: "cp1.test.isomux.app",
@@ -77,16 +77,18 @@ function fakeHandler(
 describe("the chain", () => {
   test("completion and the successor enqueue are one transaction", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [fakeHandler("first_contact", async () => ({ kind: "done" }))],
       holder: "a",
     });
-    ticker.enqueue(inst, "first_contact");
+    await ticker.enqueue(inst, "first_contact");
     await ticker.once();
-    const kinds = store.operationsFor(inst).map((o) => `${o.kind}:${o.status}`);
+    const kinds = (await store.operationsFor(inst)).map(
+      (o) => `${o.kind}:${o.status}`,
+    );
     expect(kinds).toEqual([
       "first_contact:succeeded",
       "arm_revocation:pending",
@@ -95,18 +97,18 @@ describe("the chain", () => {
 
   test("if the successor already exists, the completion rolls back whole", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [fakeHandler("first_contact", async () => ({ kind: "done" }))],
       holder: "a",
     });
-    const first = ticker.enqueue(inst, "first_contact");
+    const first = await ticker.enqueue(inst, "first_contact");
     // Another holder already opened the successor: the partial unique index is
     // the arbiter, and this holder must lose the whole transaction. It is
     // parked in the future so this tick dispatches only the row under test.
-    store.enqueue({
+    await store.enqueue({
       id: "op-arm-existing",
       instance_id: inst,
       kind: "arm_revocation",
@@ -115,13 +117,15 @@ describe("the chain", () => {
       absolute_deadline_at: c.now() + 600_000,
     });
     await ticker.once();
-    expect(store.getOperation(first.id)?.status).not.toBe("succeeded");
+    expect((await store.getOperation(first.id))?.status).not.toBe("succeeded");
     expect(
-      store.operationsFor(inst).filter((o) => o.kind === "arm_revocation"),
+      (await store.operationsFor(inst)).filter(
+        (o) => o.kind === "arm_revocation",
+      ),
     ).toHaveLength(1);
   });
 
-  test("the goal decides where the chain stops", () => {
+  test("the goal decides where the chain stops", async () => {
     expect(nextKind("arm_revocation", "first_contact")).toBeNull();
     expect(nextKind("arm_revocation", "live")).toBe("wait_for_package_manager");
     expect(nextKind("run_installer", "installed")).toBeNull();
@@ -133,16 +137,16 @@ describe("the chain", () => {
 describe("fencing", () => {
   test("a handler whose lease was adopted mid-act cannot record its result", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [
         fakeHandler("verify_https", async (ctx) => {
           // While we are "at the remote seam", the lease expires and another
           // holder adopts the row.
-          const live = store.getOperation(ctx.op.id)!;
-          store.tryLease(
+          const live = (await store.getOperation(ctx.op.id))!;
+          await store.tryLease(
             live.id,
             live.version,
             "other",
@@ -154,18 +158,18 @@ describe("fencing", () => {
       ],
       holder: "a",
     });
-    const op = ticker.enqueue(inst, "verify_https");
+    const op = await ticker.enqueue(inst, "verify_https");
     await ticker.once();
     // The result is dropped, not applied: acting on a lost lease is exactly what
     // the fence exists to stop.
-    expect(store.getOperation(op.id)?.status).not.toBe("succeeded");
-    expect(store.getOperation(op.id)?.lease_holder).toBe("other");
+    expect((await store.getOperation(op.id))?.status).not.toBe("succeeded");
+    expect((await store.getOperation(op.id))?.lease_holder).toBe("other");
   });
 
   test("a row someone else holds is not dispatched at all", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     let ran = 0;
     const ticker = new Ticker({
       store,
@@ -177,8 +181,8 @@ describe("fencing", () => {
       ],
       holder: "a",
     });
-    const op = ticker.enqueue(inst, "verify_https");
-    store.tryLease(
+    const op = await ticker.enqueue(inst, "verify_https");
+    await store.tryLease(
       op.id,
       op.version,
       "someone-else",
@@ -191,8 +195,8 @@ describe("fencing", () => {
 
   test("the fence a handler receives carries the CURRENT holder and version", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     let seenFence: { version: number; holder: string } | null = null;
     const ticker = new Ticker({
       store,
@@ -204,7 +208,7 @@ describe("fencing", () => {
       ],
       holder: "a",
     });
-    const op = ticker.enqueue(inst, "verify_https");
+    const op = await ticker.enqueue(inst, "verify_https");
     await ticker.once();
     expect(seenFence!.holder).toBe("a");
     // The lease write bumped the version, so the pre-lease copy is already stale.
@@ -215,8 +219,8 @@ describe("fencing", () => {
 describe("remote timeouts", () => {
   test("are ambiguous by default: a killed child proves nothing", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [
@@ -226,16 +230,18 @@ describe("remote timeouts", () => {
       ],
       holder: "a",
     });
-    const op = ticker.enqueue(inst, "revoke_access");
+    const op = await ticker.enqueue(inst, "revoke_access");
     await ticker.once();
-    expect(store.getOperation(op.id)?.status).toBe("ambiguous");
-    expect(store.getInstance(inst)?.attention_state).toBe("needs_operator");
+    expect((await store.getOperation(op.id))?.status).toBe("ambiguous");
+    expect((await store.getInstance(inst))?.attention_state).toBe(
+      "needs_operator",
+    );
   });
 
   test("read-only work may opt down to a plain retry", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [
@@ -249,20 +255,20 @@ describe("remote timeouts", () => {
       ],
       holder: "a",
     });
-    const op = ticker.enqueue(inst, "verify_https");
+    const op = await ticker.enqueue(inst, "verify_https");
     await ticker.once();
-    const after = store.getOperation(op.id)!;
+    const after = (await store.getOperation(op.id))!;
     expect(after.status).toBe("running");
     expect(after.attempt).toBe(1);
-    expect(store.getInstance(inst)?.attention_state).toBe("clear");
+    expect((await store.getInstance(inst))?.attention_state).toBe("clear");
   });
 });
 
 describe("deadlines flag, they do not conclude", () => {
   test("a blown inactivity deadline raises attention and keeps the operation alive", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [
@@ -270,23 +276,23 @@ describe("deadlines flag, they do not conclude", () => {
       ],
       holder: "a",
     });
-    const op = ticker.enqueue(inst, "run_installer");
+    const op = await ticker.enqueue(inst, "run_installer");
     c.advance(DEADLINES.run_installer.inactivityMs + 1000);
     await ticker.once();
-    const after = store.getOperation(op.id)!;
+    const after = (await store.getOperation(op.id))!;
     expect(after.inactivity_flagged).toBe(1);
     expect(after.absolute_flagged).toBe(0);
     expect(after.status).not.toBe("failed");
     expect(["pending", "running"]).toContain(after.status);
-    const inst1 = store.getInstance(inst)!;
+    const inst1 = (await store.getInstance(inst))!;
     expect(inst1.attention_state).toBe("needs_operator");
     expect(inst1.attention_reason).toMatch(/inactivity deadline/);
   });
 
   test("progress after a flag clears the attention it raised", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     let step = 0;
     const ticker = new Ticker({
       store,
@@ -298,56 +304,66 @@ describe("deadlines flag, they do not conclude", () => {
       ],
       holder: "a",
     });
-    const op = ticker.enqueue(inst, "run_installer");
+    const op = await ticker.enqueue(inst, "run_installer");
     c.advance(DEADLINES.run_installer.inactivityMs + 1000);
-    ticker.evaluateDeadlines();
-    expect(store.getInstance(inst)?.attention_state).toBe("needs_operator");
+    await ticker.evaluateDeadlines();
+    expect((await store.getInstance(inst))?.attention_state).toBe(
+      "needs_operator",
+    );
     await ticker.once();
-    expect(store.getOperation(op.id)?.inactivity_flagged).toBe(0);
-    expect(store.getInstance(inst)?.attention_state).toBe("clear");
+    expect((await store.getOperation(op.id))?.inactivity_flagged).toBe(0);
+    expect((await store.getInstance(inst))?.attention_state).toBe("clear");
   });
 
   test("waiting does not reset the inactivity deadline; progress does", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     let result: HandlerResult = { kind: "waiting" };
     const ticker = new Ticker({
       store,
       handlers: [fakeHandler("run_installer", async () => result)],
       holder: "a",
     });
-    const op = ticker.enqueue(inst, "run_installer");
-    const seeded = store.getOperation(op.id)!.inactivity_deadline_at;
+    const op = await ticker.enqueue(inst, "run_installer");
+    const seeded = (await store.getOperation(op.id))!.inactivity_deadline_at;
     c.advance(60_000);
     await ticker.once();
-    expect(store.getOperation(op.id)!.inactivity_deadline_at).toBe(seeded);
+    expect((await store.getOperation(op.id))!.inactivity_deadline_at).toBe(
+      seeded,
+    );
     result = { kind: "progress", evidence: { step: "moved" } };
     c.advance(60_000);
     await ticker.once();
-    expect(store.getOperation(op.id)!.inactivity_deadline_at).toBeGreaterThan(
-      seeded,
-    );
+    expect(
+      (await store.getOperation(op.id))!.inactivity_deadline_at,
+    ).toBeGreaterThan(seeded);
   });
 
-  test("an operation someone is acting on right now is not flagged", () => {
+  test("an operation someone is acting on right now is not flagged", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({ store, handlers: [], holder: "a" });
-    const op = ticker.enqueue(inst, "run_installer");
+    const op = await ticker.enqueue(inst, "run_installer");
     c.advance(DEADLINES.run_installer.absoluteMs + 1000);
-    store.tryLease(op.id, op.version, "busy", c.now() + LEASE_MS, c.now());
-    expect(ticker.evaluateDeadlines()).toBe(0);
+    await store.tryLease(
+      op.id,
+      op.version,
+      "busy",
+      c.now() + LEASE_MS,
+      c.now(),
+    );
+    expect(await ticker.evaluateDeadlines()).toBe(0);
   });
 });
 
 describe("reconcile", () => {
   test("moves the asset row toward what the provider says", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
-    store.createAsset({
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
       id: "asset-1",
       instance_id: inst,
       provider: "contabo",
@@ -370,7 +386,7 @@ describe("reconcile", () => {
       }),
     });
     await ticker.once();
-    const asset = store.getAsset("asset-1")!;
+    const asset = (await store.getAsset("asset-1"))!;
     expect(asset.asset_state).toBe("cancel_scheduled");
     expect(asset.ipv4).toBe("169.58.97.2");
     expect(asset.next_reconcile_at).toBeGreaterThan(c.now());
@@ -378,25 +394,25 @@ describe("reconcile", () => {
 });
 
 describe("enqueue", () => {
-  test("a kind this slice does not drive cannot be enqueued", () => {
+  test("a kind this slice does not drive cannot be enqueued", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({ store, handlers: [], holder: "a" });
     // `set_dns` is the last kind the design names that nothing drives: slice 3
     // gave power_off its deadlines, slice 5 gave power_on, cancel_asset and
     // remove_dns theirs, and no deployment here creates a DNS record.
-    expect(() =>
+    expect(
       ticker.enqueue(inst, "set_dns" as unknown as Handler["kind"]),
-    ).toThrow(/does not drive it/);
+    ).rejects.toThrow(/does not drive it/);
   });
 });
 
 describe("the whole-handler remote budget", () => {
   test("a multi-call handler cannot begin a call after its budget is gone", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const started: string[] = [];
     const ticker = new Ticker({
       store,
@@ -416,15 +432,15 @@ describe("the whole-handler remote budget", () => {
       holder: "a",
       now: c.now,
     });
-    const op = ticker.enqueue(inst, "arm_revocation");
+    const op = await ticker.enqueue(inst, "arm_revocation");
     await ticker.once();
     // The budget for arm_revocation is 150s, so four 40s calls exhaust it and
     // the fifth is refused BEFORE it starts.
     expect(started).toEqual(["call-0", "call-1", "call-2", "call-3"]);
-    expect(store.getOperation(op.id)?.status).toBe("ambiguous");
+    expect((await store.getOperation(op.id))?.status).toBe("ambiguous");
   });
 
-  test("the budget is also capped by the lease, not just by the kind's bound", () => {
+  test("the budget is also capped by the lease, not just by the kind's bound", async () => {
     const now = 1_000_000;
     // Bound says 150s from now; the lease says only 30s remain after the safety
     // margin. The lease wins.
@@ -434,7 +450,7 @@ describe("the whole-handler remote budget", () => {
     expect(() => spent.claim("x")).toThrow(LeaseHeadroomLost);
   });
 
-  test("once the lease is SPENT, no remote work may begin at all", () => {
+  test("once the lease is SPENT, no remote work may begin at all", async () => {
     // This is the other half of the two-fence rule. An expired holder may still
     // record what it did (the store's version token decides that), but it may
     // not START anything new - and time is what says so, not the token.
@@ -454,7 +470,7 @@ describe("the whole-handler remote budget", () => {
 });
 
 describe("the lease is long enough for what it authorises", () => {
-  test("every kind's whole-handler budget plus the margin fits inside a lease", () => {
+  test("every kind's whole-handler budget plus the margin fits inside a lease", async () => {
     for (const [kind, d] of Object.entries(DEADLINES)) {
       expect(
         d.maxRemoteMs + LEASE_SAFETY_MS,
@@ -467,8 +483,8 @@ describe("the lease is long enough for what it authorises", () => {
 describe("attention clearing is about the condition, not the operation", () => {
   test("progress does NOT clear an operation-condition reason", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [
@@ -480,8 +496,8 @@ describe("attention clearing is about the condition, not the operation", () => {
       holder: "a",
       now: c.now,
     });
-    const op = ticker.enqueue(inst, "revoke_access");
-    raiseAttention(store, {
+    const op = await ticker.enqueue(inst, "revoke_access");
+    await raiseAttention(store, {
       instanceId: inst,
       sourceOpId: op.id,
       reasonClass: "operation_condition",
@@ -490,24 +506,26 @@ describe("attention clearing is about the condition, not the operation", () => {
     });
     await ticker.once();
     // The operation moved; the revocation still has not happened.
-    expect(store.openReasons(inst).map((r) => r.reason)).toEqual([
+    expect((await store.openReasons(inst)).map((r) => r.reason)).toEqual([
       "the box did not confirm our key was removed from disk",
     ]);
-    expect(store.getInstance(inst)?.attention_state).toBe("needs_operator");
+    expect((await store.getInstance(inst))?.attention_state).toBe(
+      "needs_operator",
+    );
   });
 
   test("terminal success clears the conditions the operation resolved", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [fakeHandler("revoke_access", async () => ({ kind: "done" }))],
       holder: "a",
       now: c.now,
     });
-    const op = ticker.enqueue(inst, "revoke_access");
-    raiseAttention(store, {
+    const op = await ticker.enqueue(inst, "revoke_access");
+    await raiseAttention(store, {
       instanceId: inst,
       sourceOpId: op.id,
       reasonClass: "operation_condition",
@@ -515,22 +533,22 @@ describe("attention clearing is about the condition, not the operation", () => {
       severity: "warning",
     });
     await ticker.once();
-    expect(store.openReasons(inst)).toHaveLength(0);
-    expect(store.getInstance(inst)?.attention_state).toBe("clear");
+    expect(await store.openReasons(inst)).toHaveLength(0);
+    expect((await store.getInstance(inst))?.attention_state).toBe("clear");
   });
 
   test("a reason raised by ANOTHER operation is never touched", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [fakeHandler("verify_https", async () => ({ kind: "done" }))],
       holder: "a",
       now: c.now,
     });
-    ticker.enqueue(inst, "verify_https");
-    raiseAttention(store, {
+    await ticker.enqueue(inst, "verify_https");
+    await raiseAttention(store, {
       instanceId: inst,
       sourceOpId: "op-someone-else",
       reasonClass: "operation_condition",
@@ -538,7 +556,7 @@ describe("attention clearing is about the condition, not the operation", () => {
       severity: "critical",
     });
     await ticker.once();
-    expect(store.openReasons(inst).map((r) => r.reason)).toEqual([
+    expect((await store.openReasons(inst)).map((r) => r.reason)).toEqual([
       "revocation failed",
     ]);
   });
@@ -547,8 +565,8 @@ describe("attention clearing is about the condition, not the operation", () => {
 describe("absolute deadlines do not flap", () => {
   test("progress clears the inactivity flag and leaves the absolute one crossed", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     let step = 0;
     const ticker = new Ticker({
       store,
@@ -561,22 +579,24 @@ describe("absolute deadlines do not flap", () => {
       holder: "a",
       now: c.now,
     });
-    const op = ticker.enqueue(inst, "run_installer");
+    const op = await ticker.enqueue(inst, "run_installer");
     c.advance(DEADLINES.run_installer.absoluteMs + 1000);
-    ticker.evaluateDeadlines();
-    const flagged = store.getOperation(op.id)!;
+    await ticker.evaluateDeadlines();
+    const flagged = (await store.getOperation(op.id))!;
     expect(flagged.absolute_flagged).toBe(1);
     expect(flagged.inactivity_flagged).toBe(1);
 
     await ticker.once();
-    const after = store.getOperation(op.id)!;
+    const after = (await store.getOperation(op.id))!;
     // New evidence answers "nothing has happened lately". It does not un-cross
     // a ceiling that has been crossed.
     expect(after.inactivity_flagged).toBe(0);
     expect(after.absolute_flagged).toBe(1);
-    const reasons = store.openReasons(inst).map((r) => r.reason_class);
+    const reasons = (await store.openReasons(inst)).map((r) => r.reason_class);
     expect(reasons).toEqual(["absolute_deadline"]);
-    expect(store.getInstance(inst)?.attention_state).toBe("needs_operator");
+    expect((await store.getInstance(inst))?.attention_state).toBe(
+      "needs_operator",
+    );
   });
 });
 
@@ -587,8 +607,8 @@ describe("service state", () => {
     expect(serviceStateAfter("first_contact")).toBeNull();
 
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [
@@ -598,12 +618,12 @@ describe("service state", () => {
       holder: "a",
       now: c.now,
     });
-    ticker.enqueue(inst, "run_installer");
+    await ticker.enqueue(inst, "run_installer");
     await ticker.once();
-    expect(store.getInstance(inst)?.service_state).toBe("provisioning");
+    expect((await store.getInstance(inst))?.service_state).toBe("provisioning");
     c.advance(POLL);
     await ticker.once();
-    expect(store.getInstance(inst)?.service_state).toBe("live");
+    expect((await store.getInstance(inst))?.service_state).toBe("live");
   });
 });
 
@@ -612,23 +632,25 @@ const POLL = 6000;
 describe("audit", () => {
   test("a handler's remote steps are recorded, started before the outcome", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [
         fakeHandler("verify_https", async (ctx) => {
-          ctx.audit("liveness_probe", "started");
-          ctx.audit("liveness_probe", "succeeded");
+          await ctx.audit("liveness_probe", "started");
+          await ctx.audit("liveness_probe", "succeeded");
           return { kind: "done" };
         }),
       ],
       holder: "a",
       now: c.now,
     });
-    ticker.enqueue(inst, "verify_https");
+    await ticker.enqueue(inst, "verify_https");
     await ticker.once();
-    const actions = store.auditEvents().map((e) => `${e.action}:${e.outcome}`);
+    const actions = (await store.auditEvents()).map(
+      (e) => `${e.action}:${e.outcome}`,
+    );
     expect(actions).toContain("liveness_probe:started");
     expect(actions).toContain("liveness_probe:succeeded");
     expect(actions.indexOf("liveness_probe:started")).toBeLessThan(
@@ -640,8 +662,8 @@ describe("audit", () => {
 describe("a failure to RECORD is not a failure to act", () => {
   test("an audit write that throws after the call is ambiguous, never a retry", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
     const ticker = new Ticker({
       store,
       handlers: [
@@ -659,19 +681,21 @@ describe("a failure to RECORD is not a failure to act", () => {
       holder: "a",
       now: c.now,
     });
-    const op = ticker.enqueue(inst, "verify_https");
+    const op = await ticker.enqueue(inst, "verify_https");
     await ticker.once();
-    expect(store.getOperation(op.id)?.status).toBe("ambiguous");
-    expect(store.getInstance(inst)?.attention_state).toBe("needs_operator");
+    expect((await store.getOperation(op.id))?.status).toBe("ambiguous");
+    expect((await store.getInstance(inst))?.attention_state).toBe(
+      "needs_operator",
+    );
   });
 });
 
 describe("reconcile losers re-read", () => {
   test("a losing writer DISCARDS its provider response instead of replaying it", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
-    store.createAsset({
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
       id: "asset-1",
       instance_id: inst,
       provider: "contabo",
@@ -691,7 +715,7 @@ describe("reconcile losers re-read", () => {
       reconcile: async (asset) => {
         // Another ticker got a NEWER answer from the provider and wrote it
         // while our older request was still in flight.
-        store.casAsset(asset.id, asset.version, {
+        await store.casAsset(asset.id, asset.version, {
           asset_state: "cancelled",
           ipv4: "10.0.0.1",
         });
@@ -700,7 +724,7 @@ describe("reconcile losers re-read", () => {
       },
     });
     await ticker.once();
-    const asset = store.getAsset("asset-1")!;
+    const asset = (await store.getAsset("asset-1"))!;
     // The winner's newer truth stands. Re-reading and re-applying our older
     // response on their version would be a blind retry wearing a fresh version
     // number, which is the trap this rule exists to close.
@@ -710,9 +734,9 @@ describe("reconcile losers re-read", () => {
 
   test("a failed read does not push out a newer schedule set by someone else", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
-    store.createAsset({
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
       id: "asset-3",
       instance_id: inst,
       provider: "contabo",
@@ -732,19 +756,21 @@ describe("reconcile losers re-read", () => {
       now: c.now,
       reconcile: async (asset) => {
         // A successful reconcile elsewhere schedules an urgent re-check.
-        store.casAsset(asset.id, asset.version, { next_reconcile_at: urgent });
+        await store.casAsset(asset.id, asset.version, {
+          next_reconcile_at: urgent,
+        });
         throw new Error("our own read failed");
       },
     });
     await ticker.once();
-    expect(store.getAsset("asset-3")?.next_reconcile_at).toBe(urgent);
+    expect((await store.getAsset("asset-3"))?.next_reconcile_at).toBe(urgent);
   });
 
   test("provider reads are audited", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
-    store.createAsset({
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
       id: "asset-2",
       instance_id: inst,
       provider: "contabo",
@@ -764,7 +790,9 @@ describe("reconcile losers re-read", () => {
       reconcile: async () => ({ assetState: "active" }),
     });
     await ticker.once();
-    const actions = store.auditEvents().map((e) => `${e.action}:${e.outcome}`);
+    const actions = (await store.auditEvents()).map(
+      (e) => `${e.action}:${e.outcome}`,
+    );
     expect(actions).toContain("provider_get:started");
     expect(actions).toContain("provider_get:succeeded");
   });
@@ -773,9 +801,9 @@ describe("reconcile losers re-read", () => {
 describe("audit outcomes distinguish ambiguous from failed", () => {
   test("a provider read that establishes nothing is ambiguous, not failed", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
-    store.createAsset({
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
       id: "asset-4",
       instance_id: inst,
       provider: "contabo",
@@ -798,12 +826,14 @@ describe("audit outcomes distinguish ambiguous from failed", () => {
         ),
     });
     await ticker.once();
-    const actions = store.auditEvents().map((e) => `${e.action}:${e.outcome}`);
+    const actions = (await store.auditEvents()).map(
+      (e) => `${e.action}:${e.outcome}`,
+    );
     expect(actions).toContain("provider_get:ambiguous");
     expect(actions).not.toContain("provider_get:failed");
   });
 
-  test("classification is by what the error establishes", () => {
+  test("classification is by what the error establishes", async () => {
     expect(auditOutcomeOf(new RemoteTimeoutError("killed"))).toBe("ambiguous");
     expect(auditOutcomeOf(new ObserverWriteFailed("disk full"))).toBe(
       "ambiguous",
@@ -821,9 +851,9 @@ describe("audit outcomes distinguish ambiguous from failed", () => {
 describe("a real faulted provider seam reaches the audit trail as ambiguous", () => {
   test("adapter.get through the ticker, with the transport failing", async () => {
     const c = clock();
-    const store = tempStore(c.now);
-    const inst = seed(store);
-    store.createAsset({
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
       id: "asset-real",
       instance_id: inst,
       provider: "contabo",
@@ -868,7 +898,9 @@ describe("a real faulted provider seam reaches the audit trail as ambiguous", ()
       },
     });
     await ticker.once();
-    const actions = store.auditEvents().map((e) => `${e.action}:${e.outcome}`);
+    const actions = (await store.auditEvents()).map(
+      (e) => `${e.action}:${e.outcome}`,
+    );
     expect(actions).toContain("provider_get:ambiguous");
     expect(actions).not.toContain("provider_get:failed");
   });

@@ -102,8 +102,10 @@ export interface HandlerContext {
   budget: RemoteBudget;
   now: number;
   report(line: string): void;
-  /** One classified audit row. Never remote output, never a URL. */
-  audit(action: string, outcome: AuditOutcome, detail?: string): void;
+  /** One classified audit row. Never remote output, never a URL. Awaited by
+   * every caller: it opens its own transaction, so a dropped await would let a
+   * handler's next statement race the row it is writing. */
+  audit(action: string, outcome: AuditOutcome, detail?: string): Promise<void>;
 }
 
 export type AuditOutcome = "started" | "succeeded" | "failed" | "ambiguous";
@@ -182,15 +184,15 @@ export class Ticker {
    * partial unique index refuses a second active row for the same
    * (instance, kind); that refusal is the arbiter, not a check in front of it.
    */
-  enqueue(
+  async enqueue(
     instanceId: string,
     kind: OperationKind,
     evidence?: unknown,
-  ): OperationRow {
+  ): Promise<OperationRow> {
     const d = deadlinesFor(kind);
     const now = this.now();
     return this.store.enqueue({
-      id: newOperationId(kind, this.store.nextSeq("audit")),
+      id: newOperationId(kind, await this.store.nextSeq("audit")),
       instance_id: instanceId,
       kind,
       inactivity_deadline_at: now + d.inactivityMs,
@@ -209,7 +211,7 @@ export class Ticker {
     };
     await this.reconcileAssets();
 
-    for (const candidate of this.store.dueOperations(
+    for (const candidate of await this.store.dueOperations(
       this.now(),
       MAX_OPS_PER_TICK,
     )) {
@@ -223,19 +225,19 @@ export class Ticker {
       }
     }
 
-    summary.flagged = this.evaluateDeadlines();
-    summary.live = this.store.liveOperations().length;
+    summary.flagged = await this.evaluateDeadlines();
+    summary.live = (await this.store.liveOperations()).length;
     return summary;
   }
 
   /** One classified audit row, in its own transaction. */
-  auditRow(
+  async auditRow(
     instanceId: string | null,
     action: string,
     outcome: AuditOutcome,
     detail?: string,
-  ): void {
-    this.store.tx(() =>
+  ): Promise<void> {
+    await this.store.tx(() =>
       this.store.appendAudit({
         actor: "control-plane",
         instance_id: instanceId,
@@ -251,16 +253,20 @@ export class Ticker {
 
   private async reconcileAssets(): Promise<void> {
     if (!this.reconcileFn) return;
-    for (const asset of this.store.assetsDueForReconcile(this.now())) {
+    for (const asset of await this.store.assetsDueForReconcile(this.now())) {
       let truth;
-      this.auditRow(asset.instance_id, "provider_get", "started");
+      await this.auditRow(asset.instance_id, "provider_get", "started");
       try {
         truth = await this.reconcileFn(asset);
-        this.auditRow(asset.instance_id, "provider_get", "succeeded");
+        await this.auditRow(asset.instance_id, "provider_get", "succeeded");
       } catch (err) {
-        this.auditRow(asset.instance_id, "provider_get", auditOutcomeOf(err));
+        await this.auditRow(
+          asset.instance_id,
+          "provider_get",
+          auditOutcomeOf(err),
+        );
         this.report(`reconcile ${asset.provider_id} failed: ${messageOf(err)}`);
-        this.rescheduleReconcile(asset.id, asset.version);
+        await this.rescheduleReconcile(asset.id, asset.version);
         continue;
       }
       if (!truth) continue;
@@ -274,7 +280,7 @@ export class Ticker {
           : { service_ends_at: truth.serviceEndsAt }),
         next_reconcile_at: this.now() + RECONCILE_INTERVAL_MS,
       };
-      if (!this.store.casAsset(asset.id, asset.version, patch)) {
+      if (!(await this.store.casAsset(asset.id, asset.version, patch))) {
         // A losing writer re-reads and DECIDES - and the decision here is to
         // DROP this response. Re-applying it on the winner's version would put
         // our older provider answer on top of their newer one, which is the
@@ -284,7 +290,7 @@ export class Ticker {
         // Re-read to CLASSIFY, not to replay: the decision this loser makes is
         // that no mutation of ours is needed, and saying whose answer stands is
         // what makes that a decision rather than a shrug.
-        const winner = this.store.getAsset(asset.id);
+        const winner = await this.store.getAsset(asset.id);
         this.report(
           `asset ${asset.id} was reconciled by another holder ` +
             `(now ${winner?.asset_state ?? "gone"}); discarding this provider ` +
@@ -302,9 +308,16 @@ export class Ticker {
    * could push out an urgent re-check that a successful reconcile just set, so
    * a loser here does nothing at all.
    */
-  private rescheduleReconcile(id: string, expectedVersion: number): void {
+  private async rescheduleReconcile(
+    id: string,
+    expectedVersion: number,
+  ): Promise<void> {
     const at = this.now() + RECONCILE_INTERVAL_MS;
-    if (!this.store.casAsset(id, expectedVersion, { next_reconcile_at: at })) {
+    if (
+      !(await this.store.casAsset(id, expectedVersion, {
+        next_reconcile_at: at,
+      }))
+    ) {
       this.report(
         `asset ${id} moved while rescheduling a failed reconcile; leaving the ` +
           `newer schedule alone`,
@@ -318,7 +331,7 @@ export class Ticker {
     candidate: OperationRow,
   ): Promise<"not-leased" | "acted" | "completed"> {
     const now = this.now();
-    const leased = this.store.tryLease(
+    const leased = await this.store.tryLease(
       candidate.id,
       candidate.version,
       this.holder,
@@ -331,7 +344,7 @@ export class Ticker {
     if (!handler) {
       // Unreachable through enqueue (deadlinesFor refuses an unknown kind), and
       // still not a silent no-op if it ever happens.
-      this.finish(
+      await this.finish(
         { id: leased.id, version: leased.version, holder: this.holder },
         leased,
         {
@@ -342,7 +355,7 @@ export class Ticker {
       return "acted";
     }
 
-    const held = this.headroom(leased, handler);
+    const held = await this.headroom(leased, handler);
     if (!held) {
       this.report(
         `skipping ${leased.id}: cannot prove enough lease for ${handler.kind}`,
@@ -351,9 +364,9 @@ export class Ticker {
     }
     const { fence, leaseUntil } = held;
 
-    const instance = this.store.getInstance(leased.instance_id);
+    const instance = await this.store.getInstance(leased.instance_id);
     if (!instance) {
-      this.finish(fence, leased, {
+      await this.finish(fence, leased, {
         kind: "fatal",
         reason: `operation ${leased.id} has no instance row`,
       });
@@ -364,9 +377,9 @@ export class Ticker {
     try {
       result = await handler.run({
         store: this.store,
-        op: this.store.getOperation(leased.id) ?? leased,
+        op: (await this.store.getOperation(leased.id)) ?? leased,
         instance,
-        asset: this.store.assetForInstance(instance.id),
+        asset: await this.store.assetForInstance(instance.id),
         fence,
         budget: new RemoteBudget(
           this.now() + deadlinesFor(handler.kind).maxRemoteMs,
@@ -375,8 +388,8 @@ export class Ticker {
         ),
         now: this.now(),
         report: this.report,
-        audit: (action, outcome, detail) => {
-          this.store.tx(() =>
+        audit: async (action, outcome, detail) => {
+          await this.store.tx(() =>
             this.store.appendAudit({
               actor: "control-plane",
               instance_id: instance.id,
@@ -392,7 +405,7 @@ export class Ticker {
       result = this.classifyThrow(err, handler);
     }
 
-    const completed = this.finish(fence, leased, result);
+    const completed = await this.finish(fence, leased, result);
     return completed ? "completed" : "acted";
   }
 
@@ -404,10 +417,10 @@ export class Ticker {
    * handler's hard bound, renew first - and if the renewal loses, DO NOT ACT. A
    * losing or expired holder must never touch a remote seam.
    */
-  private headroom(
+  private async headroom(
     op: OperationRow,
     handler: Handler,
-  ): { fence: Fence; leaseUntil: number } | null {
+  ): Promise<{ fence: Fence; leaseUntil: number } | null> {
     // The budget is for the WHOLE handler, however many children it runs.
     const need = deadlinesFor(handler.kind).maxRemoteMs + LEASE_SAFETY_MS;
     const fence: Fence = {
@@ -418,7 +431,7 @@ export class Ticker {
     if ((op.lease_until ?? 0) - this.now() >= need) {
       return { fence, leaseUntil: op.lease_until ?? 0 };
     }
-    const renewed = this.store.renewLease(fence, this.now() + LEASE_MS);
+    const renewed = await this.store.renewLease(fence, this.now() + LEASE_MS);
     if (!renewed) return null;
     if ((renewed.lease_until ?? 0) - this.now() < need) return null;
     return {
@@ -450,15 +463,19 @@ export class Ticker {
    * unique index as the final arbiter: if another holder already opened the
    * successor, the whole thing rolls back and this holder re-reads.
    */
-  private finish(
+  private async finish(
     fence: Fence,
     op: OperationRow,
     result: HandlerResult,
-  ): boolean {
+  ): Promise<boolean> {
     const d = deadlinesFor(op.kind);
     const now = this.now();
     try {
-      return this.store.tx(() => {
+      // AWAITED INSIDE THE TRY on purpose. Returning the promise instead would
+      // settle it after this frame has left, so the catch below - the arm that
+      // turns a rolled-back result into a reported line rather than a dead tick
+      // - would never run.
+      return await this.store.tx(async () => {
         const patch: Parameters<Store["casOperation"]>[1] = {
           lease_until: null,
           lease_holder: null,
@@ -508,13 +525,13 @@ export class Ticker {
         // The fence carries the CURRENT version; a handler that wrote through
         // the store has already moved it, so re-read rather than trusting the
         // copy taken before the remote call.
-        const current = this.store.getOperation(fence.id);
+        const current = await this.store.getOperation(fence.id);
         const live: Fence = {
           id: fence.id,
           version: current?.version ?? fence.version,
           holder: fence.holder,
         };
-        const written = this.store.casOperation(live, patch);
+        const written = await this.store.casOperation(live, patch);
         if (!written) {
           throw new Error(
             `lost the fence on ${fence.id} while recording a ${result.kind} result`,
@@ -537,15 +554,15 @@ export class Ticker {
               ? ["inactivity_deadline"]
               : [];
         if (clearable.length > 0) {
-          for (const r of this.store.openReasons(op.instance_id)) {
+          for (const r of await this.store.openReasons(op.instance_id)) {
             if (r.source_op_id !== op.id) continue;
             if (!clearable.includes(r.reason_class)) continue;
-            clearAttentionIn(this.store, op.instance_id, r.id);
+            await clearAttentionIn(this.store, op.instance_id, r.id);
           }
         }
 
         if (result.kind === "fatal" || result.kind === "ambiguous") {
-          raiseAttentionIn(this.store, {
+          await raiseAttentionIn(this.store, {
             instanceId: op.instance_id,
             sourceOpId: op.id,
             reasonClass: "operation_condition",
@@ -555,7 +572,7 @@ export class Ticker {
         }
 
         if (result.kind === "done") {
-          this.store.appendAudit({
+          await this.store.appendAudit({
             actor: "control-plane",
             instance_id: op.instance_id,
             action: op.kind,
@@ -568,18 +585,18 @@ export class Ticker {
           // the office answered at its own address, which is the first moment
           // the customer has something.
           const becomes = serviceStateAfter(op.kind as OperationKind);
-          const instance = this.store.getInstance(op.instance_id);
+          const instance = await this.store.getInstance(op.instance_id);
           if (instance && becomes && instance.service_state !== becomes) {
             if (
-              !this.store.casInstance(instance.id, instance.version, {
+              !(await this.store.casInstance(instance.id, instance.version, {
                 service_state: becomes,
-              })
+              }))
             ) {
               throw new Error(
                 `instance ${instance.id} moved while ${op.kind} was marking it ${becomes}`,
               );
             }
-            this.store.appendAudit({
+            await this.store.appendAudit({
               actor: "control-plane",
               instance_id: instance.id,
               action: "service_state",
@@ -594,8 +611,8 @@ export class Ticker {
           );
           if (next) {
             const nd = deadlinesFor(next);
-            this.store.enqueue({
-              id: newOperationId(next, this.store.nextSeq("audit")),
+            await this.store.enqueue({
+              id: newOperationId(next, await this.store.nextSeq("audit")),
               instance_id: op.instance_id,
               kind: next,
               inactivity_deadline_at: now + nd.inactivityMs,
@@ -604,7 +621,7 @@ export class Ticker {
           }
         }
         if (result.kind === "fatal") {
-          this.store.appendAudit({
+          await this.store.appendAudit({
             actor: "control-plane",
             instance_id: op.instance_id,
             action: op.kind,
@@ -632,10 +649,10 @@ export class Ticker {
    * right now is not stuck, and bumping its version from outside would knock the
    * holder's fence out from under an in-flight remote call.
    */
-  evaluateDeadlines(): number {
+  async evaluateDeadlines(): Promise<number> {
     const now = this.now();
     let flagged = 0;
-    for (const op of this.store.liveOperations()) {
+    for (const op of await this.store.liveOperations()) {
       if ((op.lease_until ?? 0) > now) continue;
       // Both are examined, and they flag separately: an operation can be past
       // its ceiling AND stalled, and answering one does not answer the other.
@@ -657,19 +674,21 @@ export class Ticker {
           severity: which === "absolute" ? "critical" : "warning",
         };
         try {
-          this.store.tx(() => {
+          // Awaited inside the try for the same reason finish() is: the catch
+          // below is what keeps one unflaggable operation from ending the pass.
+          await this.store.tx(async () => {
             // CAS without a holder predicate: nobody holds this row (checked
             // above), and the version predicate is what makes a loser re-read.
-            const fresh = this.store.getOperation(op.id);
+            const fresh = await this.store.getOperation(op.id);
             if (!fresh) return;
-            const written = this.store.flagDeadline(
+            const written = await this.store.flagDeadline(
               op.id,
               fresh.version,
               which,
               now,
             );
             if (!written) return;
-            raiseAttentionIn(this.store, args);
+            await raiseAttentionIn(this.store, args);
             flagged++;
           });
         } catch (err) {

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Store } from "../store.ts";
+import { Store, type SqlArgs } from "../store.ts";
 import {
   ensureAccount,
   getSubscription,
@@ -19,14 +19,14 @@ import { suspensionOperationId } from "./dunning.ts";
 const NOW = 1_770_000_000_000;
 const temps: string[] = [];
 
-function tempStore(): Store {
+async function tempStore(): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-billing-tick-"));
   temps.push(dir);
-  return new Store(path.join(dir, "cp.db"), () => NOW);
+  return await Store.open(path.join(dir, "cp.db"), () => NOW);
 }
 
-function seedInstance(store: Store, id = "inst-1"): string {
-  store.createInstance({
+async function seedInstance(store: Store, id = "inst-1"): Promise<string> {
+  await store.createInstance({
     id,
     run_id: "run-1",
     name: "cp1.test.isomux.app",
@@ -39,13 +39,13 @@ function seedInstance(store: Store, id = "inst-1"): string {
   return id;
 }
 
-function seedHold(
+async function seedHold(
   store: Store,
   over: Partial<SubscriptionRow> = {},
-): SubscriptionRow {
-  return store.tx(() => {
-    ensureAccount(store, { id: "acct-1", email: "a@example.com" });
-    return insertSubscription(store, {
+): Promise<SubscriptionRow> {
+  return await store.tx(async () => {
+    await ensureAccount(store, { id: "acct-1", email: "a@example.com" });
+    return await insertSubscription(store, {
       id: over.id ?? "sub_1",
       account_id: "acct-1",
       // `??` would swallow an explicit null, which is exactly the case one test
@@ -75,135 +75,143 @@ function seedHold(
   });
 }
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
 describe("an expired hold with exhaustion already observed", () => {
-  test("requests suspension exactly once, and a second pass adds nothing", () => {
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { exhaustion_observed_at: NOW - 86_400_000 });
+  test("requests suspension exactly once, and a second pass adds nothing", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: NOW - 86_400_000 });
 
-    const first = billingTick(store, NOW);
+    const first = await billingTick(store, NOW);
     expect(first).toMatchObject({ examined: 1, suspensionsRequested: 1 });
-    expect(getSubscription(store, "sub_1")?.episode_state).toBe(
+    expect((await getSubscription(store, "sub_1"))?.episode_state).toBe(
       "suspension_requested",
     );
     const opId = suspensionOperationId("dun-evt_1");
-    expect(store.getOperation(opId)).not.toBeNull();
+    expect(await store.getOperation(opId)).not.toBeNull();
 
     // The row has left the hold state, so the second pass does not even see it.
-    const second = billingTick(store, NOW);
+    const second = await billingTick(store, NOW);
     expect(second.examined).toBe(0);
     expect(
-      store.operationsFor("inst-1").filter((o) => o.kind === "power_off"),
+      (await store.operationsFor("inst-1")).filter(
+        (o) => o.kind === "power_off",
+      ),
     ).toHaveLength(1);
   });
 
-  test("the audit trail says what happened", () => {
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { exhaustion_observed_at: NOW - 10 });
-    billingTick(store, NOW);
-    const actions = store.auditEvents().map((e) => e.action);
+  test("the audit trail says what happened", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: NOW - 10 });
+    await billingTick(store, NOW);
+    const actions = (await store.auditEvents()).map((e) => e.action);
     expect(actions).toContain("suspension_requested");
     expect(actions).toContain("coupon_hold_expired");
   });
 });
 
 describe("an expired hold with NO exhaustion evidence", () => {
-  test("resumes the ordinary ladder and suspends nothing", () => {
+  test("resumes the ordinary ladder and suspends nothing", async () => {
     // The 14 days running out is not evidence that Stripe stopped retrying.
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { exhaustion_observed_at: null });
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: null });
 
-    const summary = billingTick(store, NOW);
+    const summary = await billingTick(store, NOW);
     expect(summary).toMatchObject({
       examined: 1,
       resumedToLadder: 1,
       suspensionsRequested: 0,
     });
-    const row = getSubscription(store, "sub_1")!;
+    const row = (await getSubscription(store, "sub_1"))!;
     expect(row.episode_state).toBe("open");
     expect(row.coupon_grace_until).toBeNull();
     // Same episode id: the account has not started a NEW failure sequence, it has
     // only stopped being held back from the ordinary one.
     expect(row.episode_id).toBe("dun-evt_1");
     expect(
-      store.operationsFor("inst-1").filter((o) => o.kind === "power_off"),
+      (await store.operationsFor("inst-1")).filter(
+        (o) => o.kind === "power_off",
+      ),
     ).toEqual([]);
-    expect(store.openReasons("inst-1")[0]?.reason).toContain(
+    expect((await store.openReasons("inst-1"))[0]?.reason).toContain(
       "ordinary dunning ladder",
     );
   });
 });
 
 describe("holds that should not be acted on", () => {
-  test("one whose deadline has not passed is left alone", () => {
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { coupon_grace_until: NOW + 60_000 });
-    expect(billingTick(store, NOW).examined).toBe(0);
-    expect(getSubscription(store, "sub_1")?.episode_state).toBe("coupon_hold");
+  test("one whose deadline has not passed is left alone", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { coupon_grace_until: NOW + 60_000 });
+    expect((await billingTick(store, NOW)).examined).toBe(0);
+    expect((await getSubscription(store, "sub_1"))?.episode_state).toBe(
+      "coupon_hold",
+    );
   });
 
-  test("one that got paid closes without suspension", () => {
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { status: "active", exhaustion_observed_at: NOW - 10 });
-    const summary = billingTick(store, NOW);
+  test("one that got paid closes without suspension", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, {
+      status: "active",
+      exhaustion_observed_at: NOW - 10,
+    });
+    const summary = await billingTick(store, NOW);
     expect(summary).toMatchObject({ closed: 1, suspensionsRequested: 0 });
-    expect(getSubscription(store, "sub_1")).toMatchObject({
+    expect(await getSubscription(store, "sub_1")).toMatchObject({
       episode_state: "none",
       episode_id: null,
       coupon_grace_until: null,
     });
   });
 
-  test("one a webhook moved out of the hold between select and transaction", () => {
+  test("one a webhook moved out of the hold between select and transaction", async () => {
     // The row is selected outside the transaction, so the state is re-read inside
     // it; a webhook that closed the episode in the gap must win.
-    const store = tempStore();
-    seedInstance(store);
-    const sub = seedHold(store, { exhaustion_observed_at: NOW - 10 });
+    const store = await tempStore();
+    await seedInstance(store);
+    const sub = await seedHold(store, { exhaustion_observed_at: NOW - 10 });
     const lines: string[] = [];
-    // Simulate the race by moving the row after the select the tick will do.
-    const realHolds = store.db.query.bind(store.db);
+    // Simulate the race by moving the row AFTER the scan has read it. The seam
+    // is the public SQL primitive now that the engine handle is private; the
+    // ordering it produces is the same one the wrapped statement produced -
+    // rows read, row moved, rows returned.
+    const realHolds = store.sqlAll.bind(store);
     let moved = false;
-    store.db.query = ((sql: string) => {
-      const q = realHolds(sql);
+    store.sqlAll = (async (sql: string, args?: unknown[]) => {
+      const rows = await realHolds(sql, args as never);
       if (!moved && sql.includes("episode_state = 'coupon_hold'")) {
-        const wrapped = {
-          ...q,
-          all: (...args: unknown[]) => {
-            const rows = (q as { all: (...a: unknown[]) => unknown[] }).all(
-              ...args,
-            );
-            moved = true;
-            store.tx(() =>
-              store.db.run(
-                "update subscriptions set episode_state = 'none', version = version + 1 where id = ?",
-                [sub.id],
-              ),
-            );
-            return rows;
-          },
-        };
-        return wrapped;
+        moved = true;
+        await store.tx(() =>
+          store.sqlRun(
+            "update subscriptions set episode_state = 'none', version = version + 1 where id = ?",
+            [sub.id],
+          ),
+        );
       }
-      return q;
-    }) as typeof store.db.query;
+      return rows;
+    }) as unknown as typeof store.sqlAll;
 
-    const summary = billingTick(store, NOW, (l) => lines.push(l));
-    store.db.query = realHolds;
+    let summary;
+    try {
+      summary = await billingTick(store, NOW, (l) => lines.push(l));
+    } finally {
+      store.sqlAll = realHolds;
+    }
     expect(summary.suspensionsRequested).toBe(0);
     expect(lines.join("\n")).toContain("left its coupon-lapse hold");
     expect(
-      store.operationsFor("inst-1").filter((o) => o.kind === "power_off"),
+      (await store.operationsFor("inst-1")).filter(
+        (o) => o.kind === "power_off",
+      ),
     ).toEqual([]);
   });
 });
@@ -220,121 +228,126 @@ describe("the row can change between the scan and the transaction", () => {
     sql: string,
     args: unknown[] = [],
   ): () => void {
-    const realQuery = store.db.query.bind(store.db);
+    const realAll = store.sqlAll.bind(store);
     let done = false;
-    store.db.query = ((text: string) => {
-      const q = realQuery(text);
-      if (done || !text.includes("episode_state = 'coupon_hold'")) return q;
-      return {
-        ...q,
-        all: (...a: unknown[]) => {
-          const rows = (q as { all: (...x: unknown[]) => unknown[] }).all(...a);
-          done = true;
-          store.tx(() => store.db.run(sql, args as never));
-          return rows;
-        },
-      };
-    }) as typeof store.db.query;
+    store.sqlAll = (async (text: string, a?: unknown[]) => {
+      const rows = await realAll(text, a as never);
+      if (done || !text.includes("episode_state = 'coupon_hold'")) return rows;
+      done = true;
+      await store.tx(() => store.sqlRun(sql, args as never));
+      return rows;
+    }) as unknown as typeof store.sqlAll;
     return () => {
-      store.db.query = realQuery;
+      store.sqlAll = realAll;
     };
   }
 
-  test("exhaustion arriving in the gap turns a resume into a SUSPENSION", () => {
+  test("exhaustion arriving in the gap turns a resume into a SUSPENSION", async () => {
     // The dangerous direction: the scanned row said "no evidence, resume the
     // ordinary ladder", and a webhook recorded exhaustion a moment later. Acting on
     // the stale decision would leave an unpaid box running with the episode
     // reopened and nobody asking for a suspension.
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { exhaustion_observed_at: null });
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: null });
     const restore = mutateAfterScan(
       store,
       "update subscriptions set exhaustion_observed_at = ?, version = version + 1 where id = ?",
       [NOW - 60_000, "sub_1"],
     );
-    const summary = billingTick(store, NOW);
+    const summary = await billingTick(store, NOW);
     restore();
 
     expect(summary).toMatchObject({
       suspensionsRequested: 1,
       resumedToLadder: 0,
     });
-    expect(getSubscription(store, "sub_1")?.episode_state).toBe(
+    expect((await getSubscription(store, "sub_1"))?.episode_state).toBe(
       "suspension_requested",
     );
     expect(
-      store.getOperation(suspensionOperationId("dun-evt_1")),
+      await store.getOperation(suspensionOperationId("dun-evt_1")),
     ).not.toBeNull();
   });
 
-  test("evidence withdrawn in the gap turns a suspension into a resume", () => {
+  test("evidence withdrawn in the gap turns a suspension into a resume", async () => {
     // The other direction, for the same reason: whatever the fresh row says is what
     // gets acted on.
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
     const restore = mutateAfterScan(
       store,
       "update subscriptions set exhaustion_observed_at = null, version = version + 1 where id = ?",
       ["sub_1"],
     );
-    const summary = billingTick(store, NOW);
+    const summary = await billingTick(store, NOW);
     restore();
 
     expect(summary).toMatchObject({
       suspensionsRequested: 0,
       resumedToLadder: 1,
     });
-    expect(getSubscription(store, "sub_1")?.episode_state).toBe("open");
+    expect((await getSubscription(store, "sub_1"))?.episode_state).toBe("open");
     expect(
-      store.operationsFor("inst-1").filter((o) => o.kind === "power_off"),
+      (await store.operationsFor("inst-1")).filter(
+        (o) => o.kind === "power_off",
+      ),
     ).toEqual([]);
   });
 
-  test("a hold whose deadline moved out in the gap is left alone", () => {
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
+  test("a hold whose deadline moved out in the gap is left alone", async () => {
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
     const restore = mutateAfterScan(
       store,
       "update subscriptions set coupon_grace_until = ?, version = version + 1 where id = ?",
       [NOW + 86_400_000, "sub_1"],
     );
     const lines: string[] = [];
-    const summary = billingTick(store, NOW, (l) => lines.push(l));
+    const summary = await billingTick(store, NOW, (l) => lines.push(l));
     restore();
 
     expect(summary).toMatchObject({
       suspensionsRequested: 0,
       resumedToLadder: 0,
     });
-    expect(getSubscription(store, "sub_1")?.episode_state).toBe("coupon_hold");
+    expect((await getSubscription(store, "sub_1"))?.episode_state).toBe(
+      "coupon_hold",
+    );
     expect(lines.join("\n")).toContain("has not expired");
   });
 });
 
 describe("nothing is counted or printed before it commits", () => {
-  test("a failed COMMIT rolls the transition back and the summary claims nothing", () => {
+  test("a failed COMMIT rolls the transition back and the summary claims nothing", async () => {
     // The counters and the report line used to be written inside the transaction, so
     // a commit that failed left a summary claiming a suspension that does not exist.
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
 
-    const realRun = store.db.run.bind(store.db);
+    // The COMMIT is issued through the same public primitive as every other
+    // statement, which is what keeps this injection point reachable now that
+    // the engine handle is private.
+    const realRun = store.sqlRun.bind(store);
     let broken = true;
-    store.db.run = (sql: string, ...rest: never[]) => {
+    store.sqlRun = async (sql: string, args?: SqlArgs) => {
       if (broken && sql.trim().toLowerCase() === "commit") {
         throw new Error("disk went away at commit time");
       }
-      return realRun(sql, ...rest);
+      return realRun(sql, args);
     };
 
     const lines: string[] = [];
-    const summary = billingTick(store, NOW, (l) => lines.push(l));
-    broken = false;
-    store.db.run = realRun;
+    let summary;
+    try {
+      summary = await billingTick(store, NOW, (l) => lines.push(l));
+    } finally {
+      broken = false;
+      store.sqlRun = realRun;
+    }
 
     expect(summary).toMatchObject({
       examined: 1,
@@ -343,44 +356,53 @@ describe("nothing is counted or printed before it commits", () => {
       closed: 0,
     });
     // The row and the operation are both gone with the rolled-back transaction.
-    expect(getSubscription(store, "sub_1")?.episode_state).toBe("coupon_hold");
-    expect(store.getOperation(suspensionOperationId("dun-evt_1"))).toBeNull();
+    expect((await getSubscription(store, "sub_1"))?.episode_state).toBe(
+      "coupon_hold",
+    );
+    expect(
+      await store.getOperation(suspensionOperationId("dun-evt_1")),
+    ).toBeNull();
     expect(lines.join("\n")).toContain("could not expire");
     // And the failure is REPORTED rather than passed over.
     expect(lines.join("\n")).toContain("disk went away");
   });
 
-  test("a reporter that throws cannot undo or hide committed work", () => {
+  test("a reporter that throws cannot undo or hide committed work", async () => {
     // The other side of the same coin: once the transition is durable, a broken
     // reporter must not turn it into an apparent failure.
-    const store = tempStore();
-    seedInstance(store);
-    seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
+    const store = await tempStore();
+    await seedInstance(store);
+    await seedHold(store, { exhaustion_observed_at: NOW - 60_000 });
 
-    const summary = billingTick(store, NOW, () => {
+    const summary = await billingTick(store, NOW, () => {
       throw new Error("the reporter is broken");
     });
 
     expect(summary.suspensionsRequested).toBe(1);
-    expect(getSubscription(store, "sub_1")?.episode_state).toBe(
+    expect((await getSubscription(store, "sub_1"))?.episode_state).toBe(
       "suspension_requested",
     );
     expect(
-      store.getOperation(suspensionOperationId("dun-evt_1")),
+      await store.getOperation(suspensionOperationId("dun-evt_1")),
     ).not.toBeNull();
   });
 });
 
 describe("a hold on a subscription with no instance", () => {
-  test("records the request instead of enqueueing anything", () => {
-    const store = tempStore();
-    seedHold(store, { instance_id: null, exhaustion_observed_at: NOW - 10 });
-    const summary = billingTick(store, NOW);
+  test("records the request instead of enqueueing anything", async () => {
+    const store = await tempStore();
+    await seedHold(store, {
+      instance_id: null,
+      exhaustion_observed_at: NOW - 10,
+    });
+    const summary = await billingTick(store, NOW);
     expect(summary).toMatchObject({ examined: 1, suspensionsRequested: 0 });
-    expect(getSubscription(store, "sub_1")?.episode_state).toBe(
+    expect((await getSubscription(store, "sub_1"))?.episode_state).toBe(
       "suspension_requested",
     );
-    const audit = store.auditEvents().map((e) => `${e.action}:${e.outcome}`);
+    const audit = (await store.auditEvents()).map(
+      (e) => `${e.action}:${e.outcome}`,
+    );
     expect(audit).toContain("suspension_requested:failed");
   });
 });

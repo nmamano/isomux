@@ -15,7 +15,7 @@ describe("the flags the revocation proof depends on", () => {
   // ~/.ssh, from a forwarded agent, or from a Host stanza, the proof would pass
   // for the wrong reason - and it is the one assertion the zero-standing-access
   // guarantee rests on.
-  test("no user config, no agent, only the identity we name", () => {
+  test("no user config, no agent, only the identity we name", async () => {
     expect(args).toContain("-F");
     expect(args).toContain("/dev/null");
     expect(args).toContain("IdentitiesOnly=yes");
@@ -24,12 +24,12 @@ describe("the flags the revocation proof depends on", () => {
     expect(args).toContain("BatchMode=yes");
   });
 
-  test("the host key is pinned to our own known_hosts", () => {
+  test("the host key is pinned to our own known_hosts", async () => {
     expect(args).toContain("StrictHostKeyChecking=yes");
     expect(args).toContain(`UserKnownHostsFile=${target.knownHostsFile}`);
   });
 
-  test("first contact is the only place accept-new is allowed", () => {
+  test("first contact is the only place accept-new is allowed", async () => {
     expect(sshBaseArgs(target, "accept-new")).toContain(
       "StrictHostKeyChecking=accept-new",
     );
@@ -37,13 +37,13 @@ describe("the flags the revocation proof depends on", () => {
 });
 
 describe("classifyAuth", () => {
-  test("exit 0 is authentication", () => {
+  test("exit 0 is authentication", async () => {
     expect(classifyAuth({ code: 0, stdout: "", stderr: "" })).toEqual({
       kind: "authenticated",
     });
   });
 
-  test("a publickey refusal is the ONLY proof of absence or expiry", () => {
+  test("a publickey refusal is the ONLY proof of absence or expiry", async () => {
     expect(
       classifyAuth({
         code: 255,
@@ -78,7 +78,7 @@ describe("classifyAuth", () => {
     if (out.kind === "inconclusive") expect(out.reason).toBe(reason);
   });
 
-  test("an unrecognised ssh failure is inconclusive, not proof", () => {
+  test("an unrecognised ssh failure is inconclusive, not proof", async () => {
     const out = classifyAuth({
       code: 255,
       stdout: "",
@@ -87,7 +87,7 @@ describe("classifyAuth", () => {
     expect(out.kind).toBe("inconclusive");
   });
 
-  test("a remote command failing on its own terms still means we got in", () => {
+  test("a remote command failing on its own terms still means we got in", async () => {
     // ssh reserves 255 for its own errors; anything else came from the far end,
     // which can only happen after authentication succeeded.
     expect(

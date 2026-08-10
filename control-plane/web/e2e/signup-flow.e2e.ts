@@ -129,15 +129,15 @@ async function main(): Promise<void> {
   // A name another account already holds, so the "taken" refusal is a real
   // cross-account refusal rather than the same owner's retry.
   {
-    const store = new Store(db);
-    const other = accountForDevSignIn(store, "someone-else@example.com");
-    const seeded = reserveOffice(store, {
+    const store = await Store.open(db);
+    const other = await accountForDevSignIn(store, "someone-else@example.com");
+    const seeded = await reserveOffice(store, {
       accountId: other.id,
       officeName: "taken",
       plan: "office",
     });
     check("seeded another account's reservation", seeded.ok);
-    store.close();
+    await store.close();
   }
 
   const server = Bun.spawn(
@@ -210,41 +210,44 @@ async function main(): Promise<void> {
     }
 
     {
-      const store = new Store(db);
-      const rows = store.db
-        .query<{ n: number }, []>("select count(*) as n from name_reservations")
-        .get();
+      const store = await Store.open(db);
+      const rows = await store.sqlGet<{ n: number }>(
+        "select count(*) as n from name_reservations",
+      );
       check(
         "no reservation was created by any refusal",
         rows?.n === 1,
         `rows=${rows?.n}`,
       );
-      store.close();
+      await store.close();
     }
 
     // ---- a post from somewhere else must write nothing and spend nothing
     {
-      const before = new Store(db);
-      const rowsBefore = before.db
-        .query<{ n: number }, []>("select count(*) as n from name_reservations")
-        .get()?.n;
-      before.close();
+      const before = await Store.open(db);
+      const rowsBefore = (
+        await before.sqlGet<{ n: number }>(
+          "select count(*) as n from name_reservations",
+        )
+      )?.n;
+      await before.close();
       const foreign = await page.request.post(`${BASE}/api/signup`, {
         headers: { origin: "https://evil.example" },
         form: { officeName: "stolen", plan: "office", couponId: "" },
         maxRedirects: 0,
       });
-      const after = new Store(db);
-      const rowsAfter = after.db
-        .query<{ n: number }, []>("select count(*) as n from name_reservations")
-        .get()?.n;
-      const stolen = after.db
-        .query<
-          { n: number },
-          []
-        >("select count(*) as n from name_reservations where name = 'stolen'")
-        .get()?.n;
-      after.close();
+      const after = await Store.open(db);
+      const rowsAfter = (
+        await after.sqlGet<{ n: number }>(
+          "select count(*) as n from name_reservations",
+        )
+      )?.n;
+      const stolen = (
+        await after.sqlGet<{ n: number }>(
+          "select count(*) as n from name_reservations where name = 'stolen'",
+        )
+      )?.n;
+      await after.close();
       say(`cross-site POST /api/signup -> ${foreign.status()}`);
       check(
         "a foreign-origin signup is refused and writes nothing",
@@ -288,15 +291,16 @@ async function main(): Promise<void> {
         `status=${posted.status()}`,
       );
 
-      const store = new Store(db);
-      const reservation = store.db
-        .query<
-          { name: string; instance_id: string; coupon_id: string | null },
-          []
-        >("select name, instance_id, coupon_id from name_reservations where name = 'cp1'")
-        .get();
+      const store = await Store.open(db);
+      const reservation = await store.sqlGet<{
+        name: string;
+        instance_id: string;
+        coupon_id: string | null;
+      }>(
+        "select name, instance_id, coupon_id from name_reservations where name = 'cp1'",
+      );
       const instance = reservation
-        ? store.getInstance(reservation.instance_id)
+        ? await store.getInstance(reservation.instance_id)
         : null;
       check(
         "the reservation row exists",
@@ -309,7 +313,7 @@ async function main(): Promise<void> {
           instance.access_window_expires_at !== null,
         `${instance?.name} ${instance?.service_state} ceiling=${instance?.access_window_expires_at}`,
       );
-      store.close();
+      await store.close();
 
       // The comped page collects no card: one button, no card accordion. Only
       // touched when we actually reached Stripe - clicking a "submit" on our
@@ -404,16 +408,14 @@ async function main(): Promise<void> {
 
     // ---- progress rendering, driven from rows
     {
-      const store = new Store(db);
-      const res = store.db
-        .query<
-          { instance_id: string },
-          []
-        >("select instance_id from name_reservations where account_id = " + "(select id from accounts where email = 'customer@example.com')")
-        .get();
+      const store = await Store.open(db);
+      const res = await store.sqlGet<{ instance_id: string }>(
+        "select instance_id from name_reservations where account_id = " +
+          "(select id from accounts where email = 'customer@example.com')",
+      );
       if (res) {
-        const seq = store.nextSeq("audit");
-        store.enqueue({
+        const seq = await store.nextSeq("audit");
+        await store.enqueue({
           id: `op-wait_for_ssh-${seq}`,
           instance_id: res.instance_id,
           kind: "wait_for_ssh",
@@ -421,7 +423,7 @@ async function main(): Promise<void> {
           absolute_deadline_at: store.now() + 900_000,
           evidence: { probes: 3 },
         });
-        store.close();
+        await store.close();
         await page
           .goto(`${BASE}/office/${res.instance_id}`, { timeout: 60_000 })
           .catch((err: Error) =>
@@ -449,25 +451,25 @@ async function main(): Promise<void> {
         // there is no key. The rows are written here rather than by ordering a
         // box: this driver never spends money.
         {
-          const amb = new Store(db);
-          const asset = amb.assetForInstance(res.instance_id)!;
-          amb.tx(() => {
-            amb.casAsset(asset.id, asset.version, {
+          const amb = await Store.open(db);
+          const asset = (await amb.assetForInstance(res.instance_id))!;
+          await amb.tx(async () => {
+            await amb.casAsset(asset.id, asset.version, {
               asset_state: "order_ambiguous",
             });
           });
-          const seq = amb.nextSeq("audit");
-          amb.enqueue({
+          const seq = await amb.nextSeq("audit");
+          await amb.enqueue({
             id: `op-create_instance-${seq}`,
             instance_id: res.instance_id,
             kind: "create_instance",
             inactivity_deadline_at: amb.now() + 900_000,
             absolute_deadline_at: amb.now() + 900_000,
           });
-          amb.db.run(
+          await amb.sqlRun(
             "update operations set status = 'ambiguous' where kind = 'create_instance'",
           );
-          amb.close();
+          await amb.close();
           await page.reload();
           const ambText = (
             await page.evaluate(() => document.body.innerText ?? "")
@@ -485,19 +487,19 @@ async function main(): Promise<void> {
         // The other end of the same claim, rendered from a SYNTHETIC succeeded
         // revocation row (this driver has no box to revoke on). The real one is
         // in the live-box transcript.
-        const after = new Store(db);
-        const revokeSeq = after.nextSeq("audit");
-        after.enqueue({
+        const after = await Store.open(db);
+        const revokeSeq = await after.nextSeq("audit");
+        await after.enqueue({
           id: `op-revoke_access-${revokeSeq}`,
           instance_id: res.instance_id,
           kind: "revoke_access",
           inactivity_deadline_at: after.now() + 600_000,
           absolute_deadline_at: after.now() + 900_000,
         });
-        after.db.run(
+        await after.sqlRun(
           "update operations set status = 'succeeded' where kind = 'revoke_access'",
         );
-        after.close();
+        await after.close();
         await page.reload();
         const revokedText = (
           await page.evaluate(() => document.body.innerText ?? "")
@@ -509,21 +511,18 @@ async function main(): Promise<void> {
             revokedText.includes("Removing our access - done"),
         );
       } else {
-        store.close();
+        await store.close();
         say("SKIP: no office to render (the Stripe leg did not run)");
       }
     }
 
     // ---- another account cannot read it
     {
-      const store = new Store(db);
-      const other = store.db
-        .query<
-          { instance_id: string },
-          []
-        >("select instance_id from name_reservations where name = 'taken'")
-        .get();
-      store.close();
+      const store = await Store.open(db);
+      const other = await store.sqlGet<{ instance_id: string }>(
+        "select instance_id from name_reservations where name = 'taken'",
+      );
+      await store.close();
       if (other) {
         const res = await page.request.get(
           `${BASE}/api/progress/${other.instance_id}`,

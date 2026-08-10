@@ -16,7 +16,7 @@ import { Store, type AssetRow, type OperationRow } from "./store.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 
 const temps: string[] = [];
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -29,15 +29,15 @@ interface Bed {
   lines: string[];
 }
 
-function bed(opts: {
+async function bed(opts: {
   kind: "cancel_asset" | "remove_dns";
   assetState?: AssetState | null;
   ipv4?: string | null;
-}): Bed {
+}): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-deprov-"));
   temps.push(dir);
-  const store = new Store(path.join(dir, "cp.db"));
-  const instance = store.createInstance({
+  const store = await Store.open(path.join(dir, "cp.db"));
+  const instance = await store.createInstance({
     id: "inst-1",
     run_id: null,
     name: "cp2.test.isomux.app",
@@ -49,7 +49,7 @@ function bed(opts: {
   });
   let asset: AssetRow | null = null;
   if (opts.assetState !== null) {
-    asset = store.createAsset({
+    asset = await store.createAsset({
       id: "asset-1",
       instance_id: "inst-1",
       provider: "contabo",
@@ -62,7 +62,7 @@ function bed(opts: {
       next_reconcile_at: 0,
     });
   }
-  const op = store.enqueue({
+  const op = await store.enqueue({
     id: `op-${opts.kind}-cancel-sub_1-1`,
     instance_id: "inst-1",
     kind: opts.kind,
@@ -87,8 +87,10 @@ function bed(opts: {
       ),
       now: Date.now(),
       report: (l) => lines.push(l),
-      audit: (action, outcome, detail) =>
-        audits.push(`${action}:${outcome}${detail ? `:${detail}` : ""}`),
+      audit: (action, outcome, detail) => {
+        audits.push(`${action}:${outcome}${detail ? `:${detail}` : ""}`);
+        return Promise.resolve();
+      },
     },
   };
 }
@@ -106,7 +108,7 @@ describe("cancel_asset", () => {
   test("it cancels from the states the product actually reaches", async () => {
     for (const state of ["active", "cancel_scheduled"] as AssetState[]) {
       const asked: string[] = [];
-      const b = bed({ kind: "cancel_asset", assetState: state });
+      const b = await bed({ kind: "cancel_asset", assetState: state });
       const result = await cancelAssetHandler({
         cancel: async (id) => {
           asked.push(id);
@@ -126,14 +128,19 @@ describe("cancel_asset", () => {
       expect(evidenceOf(result).reason).toBe(LIFECYCLE_REASON);
       // And the proven end date is adopted immediately - it is the only
       // deletion date that exists.
-      expect(b.store.getAsset("asset-1")!.service_ends_at).toBe("2026-08-29");
-      b.store.close();
+      expect((await b.store.getAsset("asset-1"))!.service_ends_at).toBe(
+        "2026-08-29",
+      );
+      await b.store.close();
     }
   });
 
   test("a state outside the allowed set is refused WITHOUT calling the provider", async () => {
     let called = 0;
-    const b = bed({ kind: "cancel_asset", assetState: "order_ambiguous" });
+    const b = await bed({
+      kind: "cancel_asset",
+      assetState: "order_ambiguous",
+    });
     const result = await cancelAssetHandler({
       cancel: async () => {
         called++;
@@ -146,13 +153,13 @@ describe("cancel_asset", () => {
     // The point of the guard is the call that did not happen.
     expect(called).toBe(0);
     expect(b.audits).toEqual([]);
-    b.store.close();
+    await b.store.close();
   });
 
   test("an asset the provider already ended is DONE, and is not called again", async () => {
     for (const state of ["cancelled", "absent"] as AssetState[]) {
       let called = 0;
-      const b = bed({ kind: "cancel_asset", assetState: state });
+      const b = await bed({ kind: "cancel_asset", assetState: state });
       const result = await cancelAssetHandler({
         cancel: async () => {
           called++;
@@ -164,23 +171,23 @@ describe("cancel_asset", () => {
       expect(result.kind).toBe("done");
       expect(evidenceOf(result).alreadyGone).toBe(true);
       expect(called).toBe(0);
-      b.store.close();
+      await b.store.close();
     }
   });
 
   test("no provider asset is deterministically fatal, not a retry", async () => {
-    const b = bed({ kind: "cancel_asset", assetState: null });
+    const b = await bed({ kind: "cancel_asset", assetState: null });
     const result = await cancelAssetHandler({
       cancel: async () => ({ assetState: "cancelled" as AssetState }),
       get: async () => unreachableGet(),
       allowedAssetStates: ["active"],
     }).run(b.ctx);
     expect(result.kind).toBe("fatal");
-    b.store.close();
+    await b.store.close();
   });
 
   test("a throw is audited ambiguous and rethrown for the ticker to classify", async () => {
-    const b = bed({ kind: "cancel_asset", assetState: "active" });
+    const b = await bed({ kind: "cancel_asset", assetState: "active" });
     const handler = cancelAssetHandler({
       cancel: async () => {
         throw new Error("connection reset");
@@ -196,7 +203,7 @@ describe("cancel_asset", () => {
     );
     // A killed cancellation proves nothing about whether it landed.
     expect(handler.timeoutIsRetryable).toBe(false);
-    b.store.close();
+    await b.store.close();
   });
 
   test("a REFUSED cancel reconciles against provider truth instead of retrying forever", async () => {
@@ -204,7 +211,7 @@ describe("cancel_asset", () => {
     // with HTTP 422 and changes nothing. Without this arm, a crash between an
     // accepted cancel and our write would leave the operation retrying into a
     // permanent 422. The live probe is what found it.
-    const b = bed({ kind: "cancel_asset", assetState: "active" });
+    const b = await bed({ kind: "cancel_asset", assetState: "active" });
     const result = await cancelAssetHandler({
       cancel: async () => {
         throw new Error(
@@ -219,16 +226,18 @@ describe("cancel_asset", () => {
     }).run(b.ctx);
     expect(result.kind).toBe("done");
     expect(evidenceOf(result).adoptedAfterRefusal).toBe(true);
-    expect(b.store.getAsset("asset-1")!.service_ends_at).toBe("2026-08-29");
+    expect((await b.store.getAsset("asset-1"))!.service_ends_at).toBe(
+      "2026-08-29",
+    );
     // Both are recorded: the call was refused AND the end state is right.
     expect(b.audits.some((a) => a.startsWith("cancel_asset:ambiguous"))).toBe(
       true,
     );
     expect(b.audits.some((a) => a.includes("was already"))).toBe(true);
-    b.store.close();
+    await b.store.close();
   });
 
-  test("its dependency surface is a cancel and a READ, so renewal is unreachable", () => {
+  test("its dependency surface is a cancel and a READ, so renewal is unreachable", async () => {
     const deps = {
       cancel: async () => ({ assetState: "cancelled" as AssetState }),
       get: async () => ({ assetState: "cancelled" as AssetState }),
@@ -250,26 +259,26 @@ describe("remove_dns removes nothing and proves everything", () => {
   });
 
   test("while the record still points at the box it stays open and raises a person", async () => {
-    const b = bed({ kind: "remove_dns" });
+    const b = await bed({ kind: "remove_dns" });
     const result = await removeDnsHandler({
       resolve: async () => answers(["169.58.97.2"]),
     }).run(b.ctx);
     expect(result.kind).not.toBe("done");
-    const open = b.store.openReasons("inst-1");
+    const open = await b.store.openReasons("inst-1");
     expect(open).toHaveLength(1);
     expect(open[0].reason).toBe(
       dnsReasonFor("cp2.test.isomux.app", "169.58.97.2"),
     );
-    b.store.close();
+    await b.store.close();
   });
 
   test("it succeeds when the name resolves somewhere else, and clears its own reason", async () => {
-    const b = bed({ kind: "remove_dns" });
+    const b = await bed({ kind: "remove_dns" });
     const handler = removeDnsHandler({
       resolve: async () => answers(["169.58.97.2"]),
     });
     await handler.run(b.ctx);
-    expect(b.store.openReasons("inst-1")).toHaveLength(1);
+    expect(await b.store.openReasons("inst-1")).toHaveLength(1);
 
     // The wildcard under this domain answers 116.203.73.126, so a removed
     // specific record does not become NXDOMAIN - measured 2026-08-10, and the
@@ -278,49 +287,49 @@ describe("remove_dns removes nothing and proves everything", () => {
       resolve: async () => answers(["116.203.73.126"]),
     }).run(b.ctx);
     expect(after.kind).toBe("done");
-    expect(b.store.openReasons("inst-1")).toHaveLength(0);
+    expect(await b.store.openReasons("inst-1")).toHaveLength(0);
     // Cleared, with its audit row - a resolved incident that stayed open would
     // train an operator to ignore the floor.
     expect(
-      b.store.auditEvents().some((e) => e.action === "clear_attention"),
+      (await b.store.auditEvents()).some((e) => e.action === "clear_attention"),
     ).toBe(true);
-    b.store.close();
+    await b.store.close();
   });
 
   test("NXDOMAIN is success", async () => {
-    const b = bed({ kind: "remove_dns" });
+    const b = await bed({ kind: "remove_dns" });
     const result = await removeDnsHandler({
       resolve: async () => answers([]),
     }).run(b.ctx);
     expect(result.kind).toBe("done");
     expect(evidenceOf(result).absent).toBe(true);
-    b.store.close();
+    await b.store.close();
   });
 
   test("an AAAA answer BLOCKS, because we hold no v6 address to compare", async () => {
-    const b = bed({ kind: "remove_dns" });
+    const b = await bed({ kind: "remove_dns" });
     const result = await removeDnsHandler({
       resolve: async () => answers(["116.203.73.126"], ["2a01:4f8::1"]),
     }).run(b.ctx);
     // "We cannot check" is not "it is gone".
     expect(result.kind).not.toBe("done");
-    expect(b.store.openReasons("inst-1")[0].reason).toContain("(AAAA)");
-    b.store.close();
+    expect((await b.store.openReasons("inst-1"))[0].reason).toContain("(AAAA)");
+    await b.store.close();
   });
 
   test("a resolver failure is a retry, never a success", async () => {
-    const b = bed({ kind: "remove_dns" });
+    const b = await bed({ kind: "remove_dns" });
     const result = await removeDnsHandler({
       resolve: async () => {
         throw new Error("SERVFAIL");
       },
     }).run(b.ctx);
     expect(result.kind).toBe("retry");
-    b.store.close();
+    await b.store.close();
   });
 
   test("an unchanged answer waits; a changed one is progress", async () => {
-    const b = bed({ kind: "remove_dns" });
+    const b = await bed({ kind: "remove_dns" });
     const handler = removeDnsHandler({
       resolve: async () => answers(["169.58.97.2"]),
     });
@@ -333,6 +342,6 @@ describe("remove_dns removes nothing and proves everything", () => {
     };
     const second = await handler.run({ ...b.ctx, op: carried });
     expect(second.kind).toBe("waiting");
-    b.store.close();
+    await b.store.close();
   });
 });

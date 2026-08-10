@@ -11,7 +11,7 @@ import { RemoteTimeoutError } from "./ssh.ts";
 
 const temps: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -23,11 +23,11 @@ interface Bed {
   lines: string[];
 }
 
-function bed(withAsset: boolean): Bed {
+async function bed(withAsset: boolean): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-reboot-"));
   temps.push(dir);
-  const store = new Store(path.join(dir, "cp.db"));
-  const instance = store.createInstance({
+  const store = await Store.open(path.join(dir, "cp.db"));
+  const instance = await store.createInstance({
     id: "inst-1",
     run_id: null,
     name: "cp1.test.isomux.app",
@@ -39,7 +39,7 @@ function bed(withAsset: boolean): Bed {
   });
   let asset: AssetRow | null = null;
   if (withAsset) {
-    asset = store.createAsset({
+    asset = await store.createAsset({
       id: "asset-1",
       instance_id: "inst-1",
       provider: "contabo",
@@ -52,7 +52,7 @@ function bed(withAsset: boolean): Bed {
       next_reconcile_at: 0,
     });
   }
-  const op = store.enqueue({
+  const op = await store.enqueue({
     id: "op-reboot-1",
     instance_id: "inst-1",
     kind: "reboot",
@@ -76,15 +76,17 @@ function bed(withAsset: boolean): Bed {
       ),
       now: Date.now(),
       report: (l) => lines.push(l),
-      audit: (action, outcome, detail) =>
-        audits.push(`${action}:${outcome}${detail ? `:${detail}` : ""}`),
+      audit: (action, outcome, detail) => {
+        audits.push(`${action}:${outcome}${detail ? `:${detail}` : ""}`);
+        return Promise.resolve();
+      },
     },
   };
 }
 
 test("a restart reaches the provider and concludes on ITS answer", async () => {
   const asked: string[] = [];
-  const b = bed(true);
+  const b = await bed(true);
   const result = await rebootHandler({
     reboot: async (id) => {
       asked.push(id);
@@ -102,7 +104,7 @@ test("a restart reaches the provider and concludes on ITS answer", async () => {
 });
 
 test("no provider asset is fatal, not a retry", async () => {
-  const b = bed(false);
+  const b = await bed(false);
   let called = false;
   const result = await rebootHandler({
     reboot: async () => {
@@ -115,7 +117,7 @@ test("no provider asset is fatal, not a retry", async () => {
 });
 
 test("a throw is rethrown for the ticker, and audited as ambiguous", async () => {
-  const b = bed(true);
+  const b = await bed(true);
   const handler = rebootHandler({
     reboot: async () => {
       throw new RemoteTimeoutError("killed");

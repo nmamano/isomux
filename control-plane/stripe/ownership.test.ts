@@ -43,7 +43,7 @@ function callersOf(symbol: string): string[] {
 }
 
 describe("the Stripe-owned setter", () => {
-  test("is called only from reconciliation", () => {
+  test("is called only from reconciliation", async () => {
     // If this fails: something other than webhook reconciliation is writing the
     // cache of Stripe truth. Fetch the object and reconcile, or leave the row
     // alone - do not add the caller to this list.
@@ -56,7 +56,7 @@ describe("the Stripe-owned setter", () => {
 });
 
 describe("the episode setter", () => {
-  test("is called only from reconciliation and the coupon-hold tick", () => {
+  test("is called only from reconciliation and the coupon-hold tick", async () => {
     // The tick is the ONE non-webhook writer the design asks for, and it is
     // deliberately narrow: episode bookkeeping only, never Stripe truth.
     expect(callersOf("casEpisodeBookkeeping")).toEqual([
@@ -69,7 +69,7 @@ describe("the episode setter", () => {
 });
 
 describe("the subscription insert", () => {
-  test("happens only where a fetched object establishes the row", () => {
+  test("happens only where a fetched object establishes the row", async () => {
     // Test files that SEED a row are listed rather than excluded by a pattern:
     // the point of this pin is that adding a caller is a deliberate edit here,
     // and a rule that skipped tests would let a "just for the fixture" writer in.
@@ -89,7 +89,7 @@ describe("the subscription insert", () => {
 });
 
 describe("live-mode credentials", () => {
-  test("no literal live key appears anywhere in control-plane/", () => {
+  test("no literal live key appears anywhere in control-plane/", async () => {
     // The guards themselves must name the sk_live_ prefix, so the scan looks for a
     // credential-shaped BODY after it rather than for the prefix alone.
     const credential = /\b(?:sk|rk)_live_[A-Za-z0-9]{20,}/;
@@ -102,7 +102,7 @@ describe("live-mode credentials", () => {
     }
   });
 
-  test("no webhook signing secret appears anywhere in control-plane/", () => {
+  test("no webhook signing secret appears anywhere in control-plane/", async () => {
     const credential = /\bwhsec_[A-Za-z0-9]{20,}/;
     for (const file of sourceFiles(CONTROL_PLANE)) {
       const bytes = fs.readFileSync(file, "utf8");

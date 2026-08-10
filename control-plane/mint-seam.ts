@@ -60,26 +60,26 @@ export interface FetchRequest {
  *      acting for is checked against the reservation, never believed;
  *   2. the operation belongs to that instance;
  *   3. THE WINDOW, before anything is handed over. A closed window empties the
- *      hold in the same synchronous block, so a link nobody may collect stops
+ *      hold before the refusal returns, so a link nobody may collect stops
  *      existing rather than waiting for its TTL;
  *   4. only then, the one-shot take.
  */
-export function fetchInvite(
+export async function fetchInvite(
   store: Store,
   hold: InviteHold,
   req: FetchRequest,
-): FetchResult {
-  if (!instanceOwnedBy(store, req.accountId, req.instanceId)) {
+): Promise<FetchResult> {
+  if (!(await instanceOwnedBy(store, req.accountId, req.instanceId))) {
     // The same answer for "not yours" and "no such office", per 4a: which of
     // the two it was is not the asker's business.
     return { status: "forbidden", reason: "no such office" };
   }
-  const op = store.getOperation(req.operationId);
+  const op = await store.getOperation(req.operationId);
   if (!op || op.instance_id !== req.instanceId || op.kind !== "mint_invite") {
     return { status: "forbidden", reason: "no such request" };
   }
 
-  const access = accessForInstance(store, req.instanceId);
+  const access = await accessForInstance(store, req.instanceId);
   if (!access || !windowIsOpen(access)) {
     // Ruled by the manager and confirmed by the reviewer: a fetch after the
     // window closes refuses AND deletes. The customer is already in - that is
@@ -214,7 +214,7 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
         return new Response("bad request\n", { status: 400 });
       }
 
-      const result = fetchInvite(opts.store, opts.hold, request);
+      const result = await fetchInvite(opts.store, opts.hold, request);
       // The STATUS is logged, never the result. This line is the only thing
       // this endpoint ever writes anywhere, and a URL cannot reach it.
       report(`invite fetch ${request.operationId}: ${result.status}`);

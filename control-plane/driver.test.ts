@@ -63,12 +63,12 @@ const clockReply: ExecResult = {
 };
 
 describe("expiry formatting", () => {
-  test("renders sshd's absolute UTC instant", () => {
+  test("renders sshd's absolute UTC instant", async () => {
     expect(formatExpiry(new Date(Date.UTC(2026, 7, 9, 5, 4, 3)))).toBe(
       "20260809050403Z",
     );
   });
-  test("renders systemd's OnCalendar for the same instant", () => {
+  test("renders systemd's OnCalendar for the same instant", async () => {
     expect(formatOnCalendar(new Date(Date.UTC(2026, 7, 9, 5, 4, 3)))).toBe(
       "2026-08-09 05:04:03 UTC",
     );
@@ -195,7 +195,7 @@ describe("first contact", () => {
     expect(userExec.calls[0]?.argv).toContain("sudo");
   });
 
-  test("the authorized_keys path follows the account our key landed on", () => {
+  test("the authorized_keys path follows the account our key landed on", async () => {
     expect(authorizedKeysPathFor("root")).toBe("/root/.ssh/authorized_keys");
     expect(authorizedKeysPathFor("ubuntu")).toBe(
       "/home/ubuntu/.ssh/authorized_keys",
@@ -204,7 +204,7 @@ describe("first contact", () => {
 });
 
 describe("launch outcomes", () => {
-  test("CONFIRMED carries the runId", () => {
+  test("CONFIRMED carries the runId", async () => {
     expect(
       parseLaunch({ code: 0, stdout: "CONFIRMED run-7\n", stderr: "" }),
     ).toEqual({
@@ -215,7 +215,7 @@ describe("launch outcomes", () => {
 
   // A timeout is NOT a failure. Relaunching an unconfirmed run is the same
   // error class as replaying an ambiguous create.
-  test("a publication timeout is unconfirmed, not failed", () => {
+  test("a publication timeout is unconfirmed, not failed", async () => {
     expect(
       parseLaunch({
         code: 5,
@@ -225,7 +225,7 @@ describe("launch outcomes", () => {
     ).toBe("unconfirmed");
   });
 
-  test("a held lock is unconfirmed, not failed", () => {
+  test("a held lock is unconfirmed, not failed", async () => {
     expect(
       parseLaunch({
         code: 3,
@@ -235,7 +235,7 @@ describe("launch outcomes", () => {
     ).toBe("unconfirmed");
   });
 
-  test("a supervisor that died before publishing is a real failure", () => {
+  test("a supervisor that died before publishing is a real failure", async () => {
     expect(
       parseLaunch({
         code: 4,
@@ -247,7 +247,7 @@ describe("launch outcomes", () => {
 });
 
 describe("tick parsing", () => {
-  test("reads a finished generation's verdict", () => {
+  test("reads a finished generation's verdict", async () => {
     expect(parseTick("state=finished runId=r1 exit=0 step=report\n")).toEqual({
       state: "finished",
       runId: "r1",
@@ -255,7 +255,7 @@ describe("tick parsing", () => {
       step: "report",
     });
   });
-  test("reads a running generation", () => {
+  test("reads a running generation", async () => {
     expect(
       parseTick("state=running runId=r1 pid=42 step=build-isomux\n"),
     ).toEqual({
@@ -265,12 +265,12 @@ describe("tick parsing", () => {
       step: "build-isomux",
     });
   });
-  test("distinguishes a crash from progress", () => {
+  test("distinguishes a crash from progress", async () => {
     expect(parseTick("state=crashed runId=r1 step=fetch-isomux\n").state).toBe(
       "crashed",
     );
   });
-  test("no generation at all", () => {
+  test("no generation at all", async () => {
     expect(parseTick("state=none\n")).toEqual({ state: "none" });
   });
 });
@@ -331,14 +331,14 @@ describe("cleanup units", () => {
     new Date(Date.UTC(2026, 7, 10, 6, 0, 0)),
   );
 
-  test("an overdue timer still fires after a boot", () => {
+  test("an overdue timer still fires after a boot", async () => {
     expect(units.timer).toContain("Persistent=true");
     expect(units.timer).toContain("OnCalendar=2026-08-10 06:00:00 UTC");
   });
 
   // Revocation deletes /var/lib/isomux-cp while this timer is still armed, so
   // nothing it needs may live there.
-  test("the cleanup command does not live in the directory revocation deletes", () => {
+  test("the cleanup command does not live in the directory revocation deletes", async () => {
     const execStart = units.service
       .split("\n")
       .find((l) => l.startsWith("ExecStart="));
@@ -347,7 +347,7 @@ describe("cleanup units", () => {
     expect(execStart).toContain("/usr/local/sbin/isomux-cp-cleanup");
   });
 
-  test("the unit removes the script and itself, rather than the script doing it mid-read", () => {
+  test("the unit removes the script and itself, rather than the script doing it mid-read", async () => {
     expect(units.service).toContain(
       "ExecStartPost=-/bin/rm -f /usr/local/sbin/isomux-cp-cleanup",
     );
@@ -609,7 +609,7 @@ describe("timer evidence", () => {
     `TimersCalendar={ OnCalendar=${WANTED} ; next_elapse=Sun 2026-08-09 16:34:07 UTC }`,
   ].join("\n");
 
-  test("reads systemd's own answer, including the loaded OnCalendar", () => {
+  test("reads systemd's own answer, including the loaded OnCalendar", async () => {
     const ev = parseTimerEvidence(armed);
     expect(ev).toEqual({
       enabled: true,
@@ -625,7 +625,7 @@ describe("timer evidence", () => {
   // active and persistent - it satisfies every check except the only one that
   // says which deadline it enforces. Accepting it would unlock the scratch-key
   // tests against a ceiling that is not ours.
-  test("a stale timer for a DIFFERENT deadline is not armed for us", () => {
+  test("a stale timer for a DIFFERENT deadline is not armed for us", async () => {
     // Replace the LOADED SPEC only. A naive string replace hits
     // NextElapseUSecRealtime first and leaves OnCalendar alone, which is a test
     // that cannot fail - it caught me once.
@@ -643,7 +643,7 @@ describe("timer evidence", () => {
     expect(timerIsArmed(ev, WANTED)).toBe(false);
   });
 
-  test("an absent OnCalendar cannot pass, and neither can an absent expectation", () => {
+  test("an absent OnCalendar cannot pass, and neither can an absent expectation", async () => {
     const noCal = armed
       .split("\n")
       .filter((l) => !l.startsWith("TimersCalendar"))
@@ -666,11 +666,11 @@ describe("timer evidence", () => {
     expect(timerIsArmed(parseTimerEvidence(text), WANTED)).toBe(false);
   });
 
-  test("output that says nothing at all is not armed", () => {
+  test("output that says nothing at all is not armed", async () => {
     expect(timerIsArmed(parseTimerEvidence(""), WANTED)).toBe(false);
   });
 
-  test("the recorded expiry renders back to the OnCalendar we armed", () => {
+  test("the recorded expiry renders back to the OnCalendar we armed", async () => {
     // So a later command can re-check the timer without trusting a second copy
     // of the instant.
     expect(onCalendarFromExpiry("20260809163407Z")).toBe(WANTED);

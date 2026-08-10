@@ -19,7 +19,7 @@ import { Store, type OperationStatus } from "./store.ts";
 
 const temps: string[] = [];
 
-afterEach(() => {
+afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -29,16 +29,16 @@ interface Bed {
   store: Store;
   accountId: string;
   instanceId: string;
-  succeed(kind: string): void;
-  open(kind: string, status?: OperationStatus): string;
+  succeed(kind: string): Promise<void>;
+  open(kind: string, status?: OperationStatus): Promise<string>;
 }
 
-function bed(opts: { linked?: boolean } = {}): Bed {
+async function bed(opts: { linked?: boolean } = {}): Promise<Bed> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-requests-"));
   temps.push(dir);
-  const store = new Store(path.join(dir, "cp.db"));
-  const account = accountForDevSignIn(store, "asker@example.com");
-  const reserved = reserveOffice(store, {
+  const store = await Store.open(path.join(dir, "cp.db"));
+  const account = await accountForDevSignIn(store, "asker@example.com");
+  const reserved = await reserveOffice(store, {
     accountId: account.id,
     officeName: "cp1",
     plan: "office",
@@ -46,15 +46,18 @@ function bed(opts: { linked?: boolean } = {}): Bed {
   if (!reserved.ok) throw new Error(reserved.reason);
   const instanceId = reserved.reservation.instance_id;
   if (opts.linked !== false) {
-    const asset = store.assetForInstance(instanceId)!;
-    store.casAsset(asset.id, asset.version, {
+    const asset = (await store.assetForInstance(instanceId))!;
+    await store.casAsset(asset.id, asset.version, {
       provider_id: "203474835",
       asset_state: "active",
     });
   }
   let n = 0;
-  const open = (kind: string, status: OperationStatus = "pending"): string => {
-    const op = store.enqueue({
+  const open = async (
+    kind: string,
+    status: OperationStatus = "pending",
+  ): Promise<string> => {
+    const op = await store.enqueue({
       id: `op-${kind}-${n++}`,
       instance_id: instanceId,
       kind,
@@ -62,8 +65,14 @@ function bed(opts: { linked?: boolean } = {}): Bed {
       absolute_deadline_at: 0,
     });
     if (status !== "pending") {
-      const leased = store.tryLease(op.id, op.version, "h", 0, Date.now())!;
-      store.casOperation(
+      const leased = (await store.tryLease(
+        op.id,
+        op.version,
+        "h",
+        0,
+        Date.now(),
+      ))!;
+      await store.casOperation(
         { id: leased.id, version: leased.version, holder: "h" },
         { status },
       );
@@ -75,16 +84,16 @@ function bed(opts: { linked?: boolean } = {}): Bed {
     accountId: account.id,
     instanceId,
     open,
-    succeed: (kind) => void open(kind, "succeeded"),
+    succeed: async (kind) => void (await open(kind, "succeeded")),
   };
 }
 
 describe("who may ask", () => {
-  test("another account's office is not found", () => {
-    const b = bed();
-    const other = accountForDevSignIn(b.store, "other@example.com");
+  test("another account's office is not found", async () => {
+    const b = await bed();
+    const other = await accountForDevSignIn(b.store, "other@example.com");
     for (const verb of [requestInvite, confirmHandoff, requestRestart]) {
-      const out = verb(b.store, {
+      const out = await verb(b.store, {
         accountId: other.id,
         instanceId: b.instanceId,
       });
@@ -94,36 +103,36 @@ describe("who may ask", () => {
 });
 
 describe("the access window gates minting", () => {
-  test("a pristine signup is refused with the reason that fits it", () => {
-    const b = bed({ linked: false });
-    const out = requestInvite(b.store, {
+  test("a pristine signup is refused with the reason that fits it", async () => {
+    const b = await bed({ linked: false });
+    const out = await requestInvite(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
     expect(out).toMatchObject({ ok: false, code: "window_not_started" });
   });
 
-  test("a held window mints, and the row carries the dashboard stamp", () => {
-    const b = bed();
-    b.succeed("first_contact");
-    const out = requestInvite(b.store, {
+  test("a held window mints, and the row carries the dashboard stamp", async () => {
+    const b = await bed();
+    await b.succeed("first_contact");
+    const out = await requestInvite(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
     expect(out.ok).toBe(true);
-    const op = b.store.getOperation(
+    const op = (await b.store.getOperation(
       (out as { operationId: string }).operationId,
-    )!;
+    ))!;
     expect(op.kind).toBe("mint_invite");
     // The stamp is what routes the URL to the customer instead of an operator.
     expect(JSON.parse(op.evidence).via).toBe("dashboard");
   });
 
-  test("a proven revocation ends minting for good", () => {
-    const b = bed();
-    b.succeed("first_contact");
-    b.succeed("revoke_access");
-    const out = requestInvite(b.store, {
+  test("a proven revocation ends minting for good", async () => {
+    const b = await bed();
+    await b.succeed("first_contact");
+    await b.succeed("revoke_access");
+    const out = await requestInvite(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
@@ -133,67 +142,69 @@ describe("the access window gates minting", () => {
     expect(REFUSAL_WORDS.window_gone).toContain("Contact support");
   });
 
-  test("a refused mint is audited as the customer's, and opens nothing", () => {
-    const b = bed({ linked: false });
-    requestInvite(b.store, {
+  test("a refused mint is audited as the customer's, and opens nothing", async () => {
+    const b = await bed({ linked: false });
+    await requestInvite(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
-    const audits = b.store
-      .auditEvents()
-      .filter((a) => a.action === "request_invite");
+    const audits = (await b.store.auditEvents()).filter(
+      (a) => a.action === "request_invite",
+    );
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
       actor: `account:${b.accountId}`,
       outcome: "failed",
     });
-    expect(b.store.operationsFor(b.instanceId)).toHaveLength(0);
+    expect(await b.store.operationsFor(b.instanceId)).toHaveLength(0);
   });
 });
 
 describe("one active operation, whatever the caller does", () => {
-  test("a second mint is refused while one is live", () => {
-    const b = bed();
-    b.succeed("first_contact");
-    const first = requestInvite(b.store, {
+  test("a second mint is refused while one is live", async () => {
+    const b = await bed();
+    await b.succeed("first_contact");
+    const first = await requestInvite(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
     expect(first.ok).toBe(true);
     expect(
-      requestInvite(b.store, {
+      await requestInvite(b.store, {
         accountId: b.accountId,
         instanceId: b.instanceId,
       }),
     ).toMatchObject({ ok: false, code: "mint_in_progress" });
     expect(
-      b.store
-        .operationsFor(b.instanceId)
-        .filter((o) => o.kind === "mint_invite"),
+      (await b.store.operationsFor(b.instanceId)).filter(
+        (o) => o.kind === "mint_invite",
+      ),
     ).toHaveLength(1);
   });
 
-  test("a resend is allowed once the previous one is terminal", () => {
-    const b = bed();
-    b.succeed("first_contact");
-    b.succeed("mint_invite");
-    const again = requestInvite(b.store, {
+  test("a resend is allowed once the previous one is terminal", async () => {
+    const b = await bed();
+    await b.succeed("first_contact");
+    await b.succeed("mint_invite");
+    const again = await requestInvite(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
     expect(again.ok).toBe(true);
   });
 
-  test("a second restart is refused while one is live", () => {
-    const b = bed();
+  test("a second restart is refused while one is live", async () => {
+    const b = await bed();
     expect(
-      requestRestart(b.store, {
-        accountId: b.accountId,
-        instanceId: b.instanceId,
-      }).ok,
+      (
+        await requestRestart(b.store, {
+          accountId: b.accountId,
+          instanceId: b.instanceId,
+        })
+      ).ok,
     ).toBe(true);
     expect(
-      requestRestart(b.store, {
+      await requestRestart(b.store, {
         accountId: b.accountId,
         instanceId: b.instanceId,
       }),
@@ -207,66 +218,66 @@ describe("one active operation, whatever the caller does", () => {
    * same instant, so it is asserted against the database directly rather than
    * through the function that also asks nicely first.
    */
-  test("the database itself refuses the second row", () => {
-    const b = bed();
-    b.open("reboot");
-    expect(() => b.open("reboot")).toThrow(/UNIQUE|constraint/i);
+  test("the database itself refuses the second row", async () => {
+    const b = await bed();
+    await b.open("reboot");
+    expect(b.open("reboot")).rejects.toThrow(/UNIQUE|constraint/i);
   });
 
-  test("a restart with no box is refused before anything is opened", () => {
-    const b = bed({ linked: false });
+  test("a restart with no box is refused before anything is opened", async () => {
+    const b = await bed({ linked: false });
     expect(
-      requestRestart(b.store, {
+      await requestRestart(b.store, {
         accountId: b.accountId,
         instanceId: b.instanceId,
       }),
     ).toMatchObject({ ok: false, code: "no_box" });
-    expect(b.store.operationsFor(b.instanceId)).toHaveLength(0);
+    expect(await b.store.operationsFor(b.instanceId)).toHaveLength(0);
   });
 });
 
 describe("confirming the handoff", () => {
-  test("an office that is not serving yet cannot be handed off", () => {
+  test("an office that is not serving yet cannot be handed off", async () => {
     // The same rule the operator path keeps: we do not give up the only access
     // we have to a box we never proved was live.
-    const b = bed();
-    b.succeed("first_contact");
+    const b = await bed();
+    await b.succeed("first_contact");
     expect(
-      confirmHandoff(b.store, {
+      await confirmHandoff(b.store, {
         accountId: b.accountId,
         instanceId: b.instanceId,
       }),
     ).toMatchObject({ ok: false, code: "not_live" });
   });
 
-  test("confirming opens the revocation and stamps it as theirs", () => {
-    const b = bed();
-    b.succeed("first_contact");
-    b.succeed("verify_https");
-    const out = confirmHandoff(b.store, {
+  test("confirming opens the revocation and stamps it as theirs", async () => {
+    const b = await bed();
+    await b.succeed("first_contact");
+    await b.succeed("verify_https");
+    const out = await confirmHandoff(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
     expect(out.ok).toBe(true);
-    const op = b.store.getOperation(
+    const op = (await b.store.getOperation(
       (out as { operationId: string }).operationId,
-    )!;
+    ))!;
     expect(op.kind).toBe("revoke_access");
     expect(JSON.parse(op.evidence).via).toBe("dashboard");
     expect(
-      b.store.auditEvents().some((a) => a.action === "confirm_handoff"),
+      (await b.store.auditEvents()).some((a) => a.action === "confirm_handoff"),
     ).toBe(true);
   });
 
-  test("clicking twice is not an error and opens nothing new", () => {
-    const b = bed();
-    b.succeed("first_contact");
-    b.succeed("verify_https");
-    const first = confirmHandoff(b.store, {
+  test("clicking twice is not an error and opens nothing new", async () => {
+    const b = await bed();
+    await b.succeed("first_contact");
+    await b.succeed("verify_https");
+    const first = await confirmHandoff(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
-    const second = confirmHandoff(b.store, {
+    const second = await confirmHandoff(b.store, {
       accountId: b.accountId,
       instanceId: b.instanceId,
     });
@@ -275,19 +286,19 @@ describe("confirming the handoff", () => {
       (first as { operationId: string }).operationId,
     );
     expect(
-      b.store
-        .operationsFor(b.instanceId)
-        .filter((o) => o.kind === "revoke_access"),
+      (await b.store.operationsFor(b.instanceId)).filter(
+        (o) => o.kind === "revoke_access",
+      ),
     ).toHaveLength(1);
   });
 
-  test("an already-proven revocation says so rather than trying again", () => {
-    const b = bed();
-    b.succeed("first_contact");
-    b.succeed("verify_https");
-    b.succeed("revoke_access");
+  test("an already-proven revocation says so rather than trying again", async () => {
+    const b = await bed();
+    await b.succeed("first_contact");
+    await b.succeed("verify_https");
+    await b.succeed("revoke_access");
     expect(
-      confirmHandoff(b.store, {
+      await confirmHandoff(b.store, {
         accountId: b.accountId,
         instanceId: b.instanceId,
       }),

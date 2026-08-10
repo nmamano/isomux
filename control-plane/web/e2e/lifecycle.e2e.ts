@@ -86,22 +86,22 @@ async function waitFor(
   return textOf(page, testid);
 }
 
-function succeed(
+async function succeed(
   store: Store,
   instanceId: string,
   kind: string,
   id?: string,
   evidence?: object,
-): void {
-  const op = store.enqueue({
-    id: id ?? `op-${kind}-${store.nextSeq("audit")}`,
+): Promise<void> {
+  const op = await store.enqueue({
+    id: id ?? `op-${kind}-${await store.nextSeq("audit")}`,
     instance_id: instanceId,
     kind,
     inactivity_deadline_at: 0,
     absolute_deadline_at: 0,
     ...(evidence ? { evidence } : {}),
   });
-  store.db.run(
+  await store.sqlRun(
     "update operations set status = 'succeeded', version = version + 1 where id = ?",
     [op.id],
   );
@@ -109,14 +109,14 @@ function succeed(
 
 /** Move the cached Stripe columns the way reconciliation would. Nothing in the
  * app writes these; a webhook does, and this stands in for one. */
-function stripeSays(
+async function stripeSays(
   store: Store,
   patch: Record<string, string | number | null>,
-): void {
+): Promise<void> {
   const sets = Object.keys(patch)
     .map((k) => `${k} = ?`)
     .join(", ");
-  store.db.run(`update subscriptions set ${sets} where id = 'sub_e2e'`, [
+  await store.sqlRun(`update subscriptions set ${sets} where id = 'sub_e2e'`, [
     ...Object.values(patch),
   ]);
 }
@@ -124,18 +124,18 @@ function stripeSays(
 async function main(): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp5-lifecycle-"));
   const db = path.join(dir, "control-plane.db");
-  const store = new Store(db);
+  const store = await Store.open(db);
   say("# slice 5 transcript: cancellation copy and the ops floor");
   say(`database: ${db}`);
 
-  const customer = accountForDevSignIn(store, "customer@example.com");
-  const operator = accountForDevSignIn(store, "operator@example.com");
-  setOperator(store, {
+  const customer = await accountForDevSignIn(store, "customer@example.com");
+  const operator = await accountForDevSignIn(store, "operator@example.com");
+  await setOperator(store, {
     email: "operator@example.com",
     on: true,
     actor: "e2e",
   });
-  const reserved = reserveOffice(store, {
+  const reserved = await reserveOffice(store, {
     accountId: customer.id,
     officeName: "cp5",
     plan: "office",
@@ -143,24 +143,26 @@ async function main(): Promise<void> {
   if (!reserved.ok) throw new Error(reserved.reason);
   const instanceId = reserved.reservation.instance_id;
 
-  const instance = store.getInstance(instanceId)!;
-  store.casInstance(instance.id, instance.version, { service_state: "live" });
-  const asset = store.assetForInstance(instanceId)!;
-  store.casAsset(asset.id, asset.version, {
+  const instance = (await store.getInstance(instanceId))!;
+  await store.casInstance(instance.id, instance.version, {
+    service_state: "live",
+  });
+  const asset = (await store.assetForInstance(instanceId))!;
+  await store.casAsset(asset.id, asset.version, {
     // Obviously synthetic: nothing in this file may act on a real box.
     provider_id: "999999999",
     ipv4: "203.0.113.10",
     asset_state: "active",
   });
-  succeed(store, instanceId, "verify_https");
+  await succeed(store, instanceId, "verify_https");
 
   const periodEnd = Date.parse("2027-01-31T09:00:00Z");
-  store.tx(() => {
-    const account = ensureAccount(store, {
+  await store.tx(async () => {
+    const account = await ensureAccount(store, {
       id: customer.id,
       email: "customer@example.com",
     });
-    insertSubscription(store, {
+    await insertSubscription(store, {
       id: "sub_e2e",
       account_id: account.id,
       instance_id: instanceId,
@@ -237,7 +239,7 @@ async function main(): Promise<void> {
     );
 
     // ---- S3: Stripe has confirmed a SCHEDULED cancellation
-    stripeSays(store, { cancel_at_period_end: 1 });
+    await stripeSays(store, { cancel_at_period_end: 1 });
     await page.goto(office);
     const scheduled = await waitFor(page, "cancel-scheduled");
     say(`S3: ${scheduled}`);
@@ -274,7 +276,7 @@ async function main(): Promise<void> {
     );
 
     // ---- S5: the period has ended and the grace week is running
-    stripeSays(store, {
+    await stripeSays(store, {
       status: "canceled",
       ended_at: periodEnd,
       cancellation_reason: CUSTOMER_CANCELLATION_REASON,
@@ -304,7 +306,7 @@ async function main(): Promise<void> {
 
     // ---- S6: powered off, inside the retention month
     const poweredOffAt = periodEnd + GRACE_MS;
-    succeed(
+    await succeed(
       store,
       instanceId,
       "power_off",
@@ -335,7 +337,7 @@ async function main(): Promise<void> {
     );
 
     // ---- the ops floor. A real raised attention from the DNS rung.
-    raiseAttention(store, {
+    await raiseAttention(store, {
       instanceId,
       reasonClass: "operation_condition",
       sourceOpId: "op-remove_dns-e2e",
@@ -384,17 +386,15 @@ async function main(): Promise<void> {
     check(
       "the acknowledgement is shown as seen, and the reason is STILL open",
       acked.includes("(we have seen it: account:") &&
-        store.openReasons(instanceId).length === 1,
+        (await store.openReasons(instanceId)).length === 1,
     );
     check(
       "and it wrote an audit row",
-      store
-        .auditEvents()
-        .some(
-          (e) =>
-            e.action === "acknowledge_attention" &&
-            e.actor === `account:${operator.id}`,
-        ),
+      (await store.auditEvents()).some(
+        (e) =>
+          e.action === "acknowledge_attention" &&
+          e.actor === `account:${operator.id}`,
+      ),
     );
 
     // ---- the operator's own dashboard is unaffected by the flag
@@ -406,7 +406,7 @@ async function main(): Promise<void> {
     const out = path.join(dir, "transcript.txt");
     fs.writeFileSync(out, `${transcript.join("\n")}\n`);
     say(`transcript: ${out}`);
-    store.close();
+    await store.close();
   }
 }
 

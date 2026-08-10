@@ -50,7 +50,7 @@ function recorder(
 const noSleep = async () => {};
 
 describe("the live-key refusal", () => {
-  test("a live secret key is refused by name, before any request", () => {
+  test("a live secret key is refused by name, before any request", async () => {
     const { fetchImpl, calls } = recorder([{ status: 200, body: {} }]);
     expect(() => new StripeClient({ key: LIVE_SHAPE, fetchImpl })).toThrow(
       LiveKeyRefused,
@@ -58,24 +58,24 @@ describe("the live-key refusal", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("a live restricted key is refused too", () => {
+  test("a live restricted key is refused too", async () => {
     expect(() => assertTestKey("rk_live_ANOTHER_SHAPE")).toThrow(
       LiveKeyRefused,
     );
   });
 
-  test("an unrecognisable key is refused rather than guessed at", () => {
+  test("an unrecognisable key is refused rather than guessed at", async () => {
     for (const key of ["", "sk_", "pk_test_something", "hunter2"]) {
       expect(() => assertTestKey(key)).toThrow(LiveKeyRefused);
     }
   });
 
-  test("test keys are accepted", () => {
+  test("test keys are accepted", async () => {
     expect(() => assertTestKey(TEST_KEY)).not.toThrow();
     expect(() => assertTestKey("rk_test_A_SHAPE")).not.toThrow();
   });
 
-  test("the refusal message does not echo the key", () => {
+  test("the refusal message does not echo the key", async () => {
     try {
       assertTestKey(LIVE_SHAPE);
       throw new Error("expected a refusal");
@@ -86,7 +86,7 @@ describe("the live-key refusal", () => {
 });
 
 describe("form encoding", () => {
-  test("nests objects and indexes arrays the way Stripe expects", () => {
+  test("nests objects and indexes arrays the way Stripe expects", async () => {
     expect(
       formEncode({
         mode: "subscription",
@@ -99,7 +99,7 @@ describe("form encoding", () => {
     );
   });
 
-  test("drops undefined and keeps null, because they mean different things", () => {
+  test("drops undefined and keeps null, because they mean different things", async () => {
     // undefined lets a caller spread an optional parameter; null is how Stripe is
     // told to CLEAR a field. Collapsing them would silently clear things.
     expect(formEncode({ a: undefined, b: null, c: 0, d: false })).toBe(
@@ -107,7 +107,7 @@ describe("form encoding", () => {
     );
   });
 
-  test("escapes values", () => {
+  test("escapes values", async () => {
     expect(formEncode({ email: "a+b@example.com" })).toBe(
       "email=a%2Bb%40example.com",
     );

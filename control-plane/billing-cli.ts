@@ -113,11 +113,11 @@ function makeClient(): StripeClient {
  * database written before this slice refuses to open by name anyway - deliberately,
  * since there is no migration.
  */
-function openStore(args: Map<string, string>): Store {
+async function openStore(args: Map<string, string>): Promise<Store> {
   const override = args.get("db");
-  if (override && override !== "true") return new Store(override);
+  if (override && override !== "true") return Store.open(override);
   fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
-  return new Store(DB_FILE);
+  return Store.open(DB_FILE);
 }
 
 function newId(prefix: string): string {
@@ -201,10 +201,10 @@ async function cmdCheckout(args: Map<string, string>): Promise<void> {
   const officeName = required(args, "office-name");
   const priceId = required(args, "price");
 
-  const store = openStore(args);
+  const store = await openStore(args);
   try {
-    const accountId = store.tx(
-      () => ensureAccount(store, { id: newId("acct"), email }).id,
+    const accountId = await store.tx(
+      async () => (await ensureAccount(store, { id: newId("acct"), email })).id,
     );
     const client = makeClient();
     // openCheckout owns the ORDER: verify the coupon (read-only) before creating a
@@ -243,7 +243,7 @@ async function cmdCheckout(args: Map<string, string>): Promise<void> {
     // customer-specific link, treated exactly like slice 1 treats an invite.
     if (opened.session.url) reporter.invite(opened.session.url);
   } finally {
-    store.close();
+    await store.close();
   }
 }
 
@@ -256,7 +256,7 @@ async function cmdServe(args: Map<string, string>): Promise<void> {
         "signing secret it prints, without echoing it.",
     );
   }
-  const store = openStore(args);
+  const store = await openStore(args);
   const client = makeClient();
   const processor = new WebhookProcessor({
     store,
@@ -280,13 +280,13 @@ async function cmdServe(args: Map<string, string>): Promise<void> {
     process.on("SIGTERM", stop);
   });
   await running.stop();
-  store.close();
+  await store.close();
 }
 
-function cmdSubs(args: Map<string, string>): void {
-  const store = openStore(args);
+async function cmdSubs(args: Map<string, string>): Promise<void> {
+  const store = await openStore(args);
   try {
-    const rows = listSubscriptions(store);
+    const rows = await listSubscriptions(store);
     if (rows.length === 0) {
       reporter.line("no cached subscriptions");
       return;
@@ -306,14 +306,14 @@ function cmdSubs(args: Map<string, string>): void {
       );
     }
   } finally {
-    store.close();
+    await store.close();
   }
 }
 
-function cmdEvents(args: Map<string, string>): void {
-  const store = openStore(args);
+async function cmdEvents(args: Map<string, string>): Promise<void> {
+  const store = await openStore(args);
   try {
-    const rows = listEvents(store, Number(args.get("limit") ?? 25));
+    const rows = await listEvents(store, Number(args.get("limit") ?? 25));
     if (rows.length === 0) {
       reporter.line("no events have been applied");
       return;
@@ -325,14 +325,14 @@ function cmdEvents(args: Map<string, string>): void {
       );
     }
   } finally {
-    store.close();
+    await store.close();
   }
 }
 
-function cmdTick(args: Map<string, string>): void {
-  const store = openStore(args);
+async function cmdTick(args: Map<string, string>): Promise<void> {
+  const store = await openStore(args);
   try {
-    const summary = billingTick(store, store.now(), (line) =>
+    const summary = await billingTick(store, store.now(), (line) =>
       reporter.line(line),
     );
     reporter.line(
@@ -343,7 +343,7 @@ function cmdTick(args: Map<string, string>): void {
     // The cancellation timeline rides the same pass. Both are non-webhook
     // billing transitions over the same rows, and running them apart would let
     // an operator run one and believe they had run the machine.
-    const life = lifecycleTick(store, store.now(), (line) =>
+    const life = await lifecycleTick(store, store.now(), (line) =>
       reporter.line(line),
     );
     reporter.line(
@@ -357,7 +357,7 @@ function cmdTick(args: Map<string, string>): void {
           : ""),
     );
   } finally {
-    store.close();
+    await store.close();
   }
 }
 
@@ -506,25 +506,25 @@ async function cmdCleanup(): Promise<void> {
 }
 
 /** Attach a Stripe customer id to a local account, for a test-clock customer. */
-function cmdAdopt(args: Map<string, string>): void {
+async function cmdAdopt(args: Map<string, string>): Promise<void> {
   const accountId = required(args, "account");
   const customerId = required(args, "customer");
-  const store = openStore(args);
+  const store = await openStore(args);
   try {
-    store.tx(() => {
-      const account = getAccount(store, accountId);
+    await store.tx(async () => {
+      const account = await getAccount(store, accountId);
       if (!account) die(`no account ${accountId}`);
       if (
-        !casAccount(store, account.id, account.version, {
+        !(await casAccount(store, account.id, account.version, {
           stripe_customer_id: customerId,
-        })
+        }))
       ) {
         die(`account ${accountId} moved; re-read and try again`);
       }
     });
     reporter.line(`${accountId} -> ${customerId}`);
   } finally {
-    store.close();
+    await store.close();
   }
 }
 
