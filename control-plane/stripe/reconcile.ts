@@ -27,6 +27,7 @@ import {
   type SubscriptionRow,
 } from "./billing-store.ts";
 import { decide } from "./dunning.ts";
+import { requestResume } from "../resume.ts";
 import { requestSuspension } from "./suspension.ts";
 import type {
   InvoiceSnapshot,
@@ -56,6 +57,9 @@ export type ReconcileOutcome =
       kind: "applied";
       subscriptionId: string;
       suspensionOpId: string | null;
+      /** Set when this recovery also turned a suspended box back on. Null is the
+       * normal answer: most recoveries have nothing to resume. */
+      resumeOpId: string | null;
       note: string;
     }
   | { kind: "duplicate"; subscriptionId: string | null };
@@ -137,6 +141,20 @@ export function applyEvent(
         WEBHOOK_ACTOR,
       )
     : null;
+  // The resume is a REQUEST that re-checks its own predicates against rows this
+  // function cannot see - including the one that matters most, that a
+  // cancellation-retention box is never powered back on. A refusal is the normal
+  // outcome and is not an error: most recoveries have no suspended box.
+  let resumeOpId: string | null = null;
+  if (decision.resume) {
+    const asked = requestResume(store, current, input.now, WEBHOOK_ACTOR);
+    if (asked.ok) {
+      resumeOpId = asked.operationId;
+      report(
+        `resume requested for ${current.instance_id}: ${asked.operationId}`,
+      );
+    }
+  }
   applyBillingAttention(store, current, decision.attention, WEBHOOK_ACTOR);
 
   claimEvent(store, {
@@ -160,6 +178,7 @@ export function applyEvent(
     kind: "applied",
     subscriptionId: current.id,
     suspensionOpId,
+    resumeOpId,
     note: decision.note,
   };
 }
@@ -240,6 +259,9 @@ function ensureRow(
     status: "unknown",
     current_period_end: null,
     cancel_at_period_end: 0,
+    ended_at: null,
+    canceled_at: null,
+    cancellation_reason: null,
     discount_percent_off: null,
     discount_coupon_id: null,
     discount_ends_at: null,

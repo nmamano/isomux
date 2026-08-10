@@ -70,11 +70,20 @@ describe("the episode setter", () => {
 
 describe("the subscription insert", () => {
   test("happens only where a fetched object establishes the row", () => {
+    // Test files that SEED a row are listed rather than excluded by a pattern:
+    // the point of this pin is that adding a caller is a deliberate edit here,
+    // and a rule that skipped tests would let a "just for the fixture" writer in.
+    // reconcile.ts is still the only production caller.
     expect(callersOf("insertSubscription")).toEqual([
+      "cancel.test.ts",
+      "exercises/cancel-live.ts",
+      "lifecycle-tick.test.ts",
+      "resume.test.ts",
       "stripe/billing-store.test.ts",
       "stripe/billing-store.ts",
       "stripe/billing-tick.test.ts",
       "stripe/reconcile.ts",
+      "web/e2e/lifecycle.e2e.ts",
     ]);
   });
 });

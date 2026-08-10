@@ -32,6 +32,7 @@ import {
   listSubscriptions,
 } from "./stripe/billing-store.ts";
 import { billingTick } from "./stripe/billing-tick.ts";
+import { lifecycleTick } from "./lifecycle-tick.ts";
 import { StripeClient, type StripeResult } from "./stripe/client.ts";
 import { openCheckout } from "./stripe/checkout.ts";
 import {
@@ -338,6 +339,22 @@ function cmdTick(args: Map<string, string>): void {
       `holds examined ${summary.examined}, resumed to the ladder ` +
         `${summary.resumedToLadder}, suspensions requested ` +
         `${summary.suspensionsRequested}, closed ${summary.closed}`,
+    );
+    // The cancellation timeline rides the same pass. Both are non-webhook
+    // billing transitions over the same rows, and running them apart would let
+    // an operator run one and believe they had run the machine.
+    const life = lifecycleTick(store, store.now(), (line) =>
+      reporter.line(line),
+    );
+    reporter.line(
+      `cancellations examined ${life.examined}, operations opened ` +
+        `${life.opened}, data ends recorded ${life.finished}, attention raised ` +
+        `${life.raised}` +
+        (Object.keys(life.phases).length > 0
+          ? ` (${Object.entries(life.phases)
+              .map(([k, v]) => `${k}=${v}`)
+              .join(", ")})`
+          : ""),
     );
   } finally {
     store.close();

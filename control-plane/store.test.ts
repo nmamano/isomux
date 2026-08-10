@@ -9,11 +9,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { Database } from "bun:sqlite";
 import { Store } from "./store.ts";
-import {
-  acknowledgeAttention,
-  clearAttention,
-  raiseAttention,
-} from "./attention.ts";
+import { acknowledgeAttention } from "./attention-ack.ts";
+import { clearAttention, raiseAttention } from "./attention.ts";
 
 const temps: string[] = [];
 
@@ -459,7 +456,72 @@ describe("a database from before this slice", () => {
     legacy.close();
     expect(() => new Store(file)).toThrow(/predates this version/);
   });
+
+  test("every column slice 5 added is pinned, one at a time", () => {
+    // One database per column, each missing exactly that column, so the pin is
+    // proven per name rather than by one table that happens to be old. A column
+    // added to the schema and forgotten here opens cleanly and fails somewhere
+    // in the middle of a cancellation instead.
+    const SLICE_5: [string, string, string][] = [
+      [
+        "accounts",
+        "is_operator",
+        "create table accounts (id text primary key, email text, google_subject text, " +
+          "stripe_customer_id text, version integer, created_at integer, updated_at integer)",
+      ],
+      ["subscriptions", "ended_at", subscriptionsWithout("ended_at")],
+      ["subscriptions", "canceled_at", subscriptionsWithout("canceled_at")],
+      [
+        "subscriptions",
+        "cancellation_reason",
+        subscriptionsWithout("cancellation_reason"),
+      ],
+    ];
+    for (const [table, column, ddl] of SLICE_5) {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-col-"));
+      temps.push(dir);
+      const file = path.join(dir, "old.db");
+      const legacy = new Database(file, { create: true });
+      legacy.run(ddl);
+      legacy.close();
+      expect([
+        `${table}.${column}`,
+        (() => {
+          try {
+            new Store(file);
+            return "opened";
+          } catch (err) {
+            return (err as Error).message.includes(`${table} has no ${column}`)
+              ? "refused by name"
+              : (err as Error).message;
+          }
+        })(),
+      ]).toEqual([`${table}.${column}`, "refused by name"]);
+    }
+  });
 });
+
+/** The subscriptions table with one column left out, and nothing else changed. */
+function subscriptionsWithout(missing: string): string {
+  const columns = [
+    "id text primary key",
+    "account_id text",
+    "instance_id text",
+    "stripe_customer_id text",
+    "status text",
+    "current_period_end integer",
+    "cancel_at_period_end integer",
+    "ended_at integer",
+    "canceled_at integer",
+    "cancellation_reason text",
+    "episode_state text",
+    "exhaustion_observed_at integer",
+    "version integer",
+    "created_at integer",
+    "updated_at integer",
+  ].filter((c) => !c.startsWith(`${missing} `));
+  return `create table subscriptions (${columns.join(", ")})`;
+}
 
 describe("the access-window ceiling is a store invariant, not a convention", () => {
   test("casInstance refuses to write it, whatever the caller believes", () => {

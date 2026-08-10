@@ -21,8 +21,9 @@
 // process-lifetime handle would outlive dev-server hot reloads.
 
 import type { ProgressView } from "../../progress";
+import type { OpsFloor, OpsInstanceView } from "../../ops";
 
-export type { ProgressView };
+export type { ProgressView, OpsFloor, OpsInstanceView };
 
 function databasePath(): string {
   const configured = process.env.CONTROL_PLANE_DB;
@@ -296,6 +297,95 @@ export async function requestRestart(
   instanceId: string,
 ): Promise<RequestResult> {
   return customerRequest("requestRestart", accountId, instanceId);
+}
+
+// ------------------------------------------------------------ cancellation
+//
+// Cancel and un-cancel reach Stripe from here, exactly as signup reaches
+// Checkout from here. The store is NOT in a transaction while that happens -
+// cancel.ts owns that discipline - and neither verb writes subscription state:
+// webhooks remain the only writer, so the page says "we asked, waiting for
+// Stripe" until the projection catches up.
+
+export type CancelResult = { ok: true } | { ok: false; reason: string };
+
+async function billingVerb(
+  verb: "requestCancel" | "requestUncancel",
+  accountId: string,
+  instanceId: string,
+): Promise<CancelResult> {
+  const key = process.env.STRIPE_TEST_SECRET_KEY;
+  if (!key) {
+    return {
+      ok: false,
+      reason: "this deployment has no Stripe key configured",
+    };
+  }
+  const [cancel, { StripeClient }] = await Promise.all([
+    import("../../cancel"),
+    import("../../stripe/client"),
+  ]);
+  const { Store } = await import("../../store");
+  const store = new Store(databasePath());
+  try {
+    const outcome = await cancel[verb](store, new StripeClient({ key }), {
+      accountId,
+      instanceId,
+    });
+    return outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason };
+  } finally {
+    store.close();
+  }
+}
+
+/** "Cancel my office": schedule the subscription to end at the period end. */
+export async function requestCancel(
+  accountId: string,
+  instanceId: string,
+): Promise<CancelResult> {
+  return billingVerb("requestCancel", accountId, instanceId);
+}
+
+/** "Keep my office": Stripe reactivation, while the period is still open. */
+export async function requestUncancel(
+  accountId: string,
+  instanceId: string,
+): Promise<CancelResult> {
+  return billingVerb("requestUncancel", accountId, instanceId);
+}
+
+// -------------------------------------------------------------- ops floor
+//
+// Three pass-throughs, and they hold NO authority of their own. Every one of
+// them is gated inside the ops service, which re-reads the account and its
+// operator column before it reads or writes anything - so this file never names
+// that column, and a page cannot become an ops page by calling the wrong thing.
+// A non-operator gets the same null a missing office gets; the caller answers
+// 404 to both.
+
+export async function opsFloor(accountId: string): Promise<OpsFloor | null> {
+  const { opsFloor: read } = await import("../../ops");
+  return withStore((store) => read(store, accountId));
+}
+
+export async function opsInstance(
+  accountId: string,
+  instanceId: string,
+): Promise<OpsInstanceView | null> {
+  const { opsInstance: read } = await import("../../ops");
+  return withStore((store) => read(store, accountId, instanceId));
+}
+
+/** Record that a human has seen an office's open reasons. Null means refused,
+ * which is deliberately the same answer a missing office gives. */
+export async function acknowledgeOpsInstance(
+  accountId: string,
+  instanceId: string,
+): Promise<number | null> {
+  const { acknowledgeInstance } = await import("../../ops");
+  return withStore((store) =>
+    acknowledgeInstance(store, accountId, instanceId),
+  );
 }
 
 export type RevealResult =

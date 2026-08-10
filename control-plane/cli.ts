@@ -55,7 +55,7 @@ import {
 import { destroyPrivateKey, generateKeyPair } from "./keys.ts";
 import { Reporter } from "./report.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
-import { acknowledgeAttention } from "./attention.ts";
+import { acknowledgeAttention } from "./attention-ack.ts";
 import { migrateLegacyIntents } from "./create-latch.ts";
 import { boxHandlers, type HandlerDeps } from "./handlers.ts";
 import {
@@ -67,6 +67,11 @@ import { watchLiveness } from "./liveness-watch.ts";
 import { startMintSeam, type RunningMintSeam } from "./mint-seam.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
 import { rebootHandler } from "./reboot.ts";
+import { cancelAssetHandler, removeDnsHandler } from "./deprovision.ts";
+import { powerOnHandler } from "./resume.ts";
+import { powerOffHandler } from "./stripe/suspension.ts";
+import { setOperator } from "./operator-admin.ts";
+import type { AssetState } from "./provider.ts";
 import { Store } from "./store.ts";
 import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
 
@@ -268,14 +273,44 @@ function reconcileFn():
  * attention raised - instead of looking like a restart that quietly did
  * nothing.
  */
-function rebootFn(): ((providerId: string) => Promise<void>) | undefined {
+/**
+ * The provider verbs this process may drive, or nothing at all.
+ *
+ * Bound one by one rather than handing the adapter around: a handler that holds
+ * the adapter holds `create` too, and the one rule this CLI has never bent is
+ * that no command in it can reach a paid create.
+ */
+function adapterOrNothing(): {
+  reboot: (id: string) => Promise<void>;
+  powerOff: (id: string) => Promise<void>;
+  powerOn: (id: string) => Promise<void>;
+  cancel: (
+    id: string,
+  ) => Promise<{ assetState: AssetState; serviceEndsAt?: string }>;
+  getAsset: (
+    id: string,
+  ) => Promise<{ assetState: AssetState; serviceEndsAt?: string }>;
+} | null {
   let adapter: ContaboAdapter;
   try {
     adapter = makeAdapter();
   } catch {
-    return undefined;
+    return null;
   }
-  return (providerId) => adapter.reboot(providerId);
+  return {
+    reboot: (id) => adapter.reboot(id),
+    powerOff: (id) => adapter.powerOff(id),
+    powerOn: (id) => adapter.powerOn(id),
+    cancel: (id) => adapter.cancel(id),
+    getAsset: async (id) => {
+      const view = await adapter.get(id);
+      const raw = view.raw as { cancelDate?: string | null } | null;
+      return {
+        assetState: view.assetState,
+        ...(raw?.cancelDate ? { serviceEndsAt: raw.cancelDate } : {}),
+      };
+    },
+  };
 }
 
 function makeTicker(
@@ -286,7 +321,8 @@ function makeTicker(
    * credential into a process that cannot hand it over. */
   deliver?: HandlerDeps["deliver"],
 ): Ticker {
-  const reboot = rebootFn();
+  const provider = adapterOrNothing();
+  const line = (l: string) => reporter.line(l);
   return new Ticker({
     store,
     // create_instance is deliberately absent: no flag in this file can reach a
@@ -300,9 +336,35 @@ function makeTicker(
         ownerName,
         deliver,
       }),
-      ...(reboot
-        ? [rebootHandler({ reboot, report: (l) => reporter.line(l) })]
+      // Without credentials these stay UNREGISTERED rather than stubbed, the
+      // same choice slice 3 made for power_off: an enqueued operation then
+      // surfaces as slice 2's no-handler condition - a failed operation with
+      // attention raised - instead of looking like work that quietly did
+      // nothing.
+      ...(provider
+        ? [
+            rebootHandler({ reboot: provider.reboot, report: line }),
+            powerOffHandler({ powerOff: provider.powerOff, report: line }),
+            powerOnHandler({ powerOn: provider.powerOn, report: line }),
+            cancelAssetHandler({
+              cancel: provider.cancel,
+              // The reconcile read after a refused cancel. Contabo answers a
+              // second cancel with 422 (measured 2026-08-10), so without this
+              // the operation would retry into a permanent error.
+              get: provider.getAsset,
+              // THE PRODUCT SET, not a test-box guard. After R-2026-08-10-3 the
+              // asset is deliberately not cancel-scheduled during retention, so
+              // `active` is the state that legitimately exists at
+              // deprovision_due; `cancel_scheduled` is here because a term that
+              // was already ending is not a reason to refuse. The loop's
+              // one-box restriction lives in exercises/cancel-asset-probe.ts.
+              allowedAssetStates: ["active", "cancel_scheduled"],
+              report: line,
+            }),
+          ]
         : []),
+      // No credentials needed: it removes nothing and only READS DNS.
+      removeDnsHandler({ report: line }),
     ],
     reconcile: reconcileFn(),
     report: (line) => reporter.line(line),
@@ -663,6 +725,36 @@ function cmdOps(args: Map<string, string>): void {
   printOperations(store, run && run !== "true" ? `inst-${run}` : undefined);
 }
 
+/**
+ * Grant or revoke the ops floor, by email.
+ *
+ * The email is a LOOKUP KEY and nothing else: what gets stored, and what every
+ * request gate reads, is the account id plus the `is_operator` column. This is
+ * the only writer of that column anywhere, and it is a CLI command rather than a
+ * route on purpose - an app that can grant its own session the flag has no
+ * authorization at all, only the appearance of it.
+ */
+function cmdOperator(args: Map<string, string>): void {
+  const store = openStore();
+  const email = required(args, "email");
+  const grant = args.has("grant");
+  const revoke = args.has("revoke");
+  if (grant === revoke) {
+    die("pass exactly one of --grant or --revoke");
+  }
+  const outcome = setOperator(store, {
+    email,
+    on: grant,
+    actor: `cli:${process.env.USER ?? "unknown"}`,
+  });
+  if (!outcome.ok) die(outcome.reason);
+  reporter.line(
+    outcome.changed
+      ? `${outcome.account.id} is ${grant ? "now" : "no longer"} an operator`
+      : `${outcome.account.id} was already ${grant ? "" : "not "}an operator`,
+  );
+}
+
 function cmdAttention(args: Map<string, string>): void {
   const store = openStore();
   const ack = args.get("ack");
@@ -926,6 +1018,9 @@ async function main(): Promise<void> {
       return cmdTick(args);
     case "ops":
       return cmdOps(args);
+    case "operator":
+      cmdOperator(args);
+      break;
     case "attention":
       return cmdAttention(args);
     case "expiry-test":
@@ -933,7 +1028,7 @@ async function main(): Promise<void> {
     default:
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|finish|mint|status|revoke|expiry-test> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test> [--flags]",
       );
       process.exit(2);
   }

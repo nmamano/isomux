@@ -21,6 +21,12 @@
 //   no other verb.
 
 import { accessFor, windowIsOpen, type AccessView } from "./access.ts";
+import {
+  isCustomerCancellation,
+  phaseAt,
+  poweredOffAtFrom,
+  type LifecyclePhase,
+} from "./lifecycle.ts";
 import { LIVENESS_STRIKES } from "./liveness.ts";
 import {
   type Goal,
@@ -70,6 +76,32 @@ export interface SubscriptionView {
    * "Active" is load-bearing - a cached 100% discount that has already ended is
    * not a reason to tell somebody they are not being charged. */
   comped: boolean;
+  /** Set once service has actually ended. Null while it still runs, including
+   * while a cancellation is merely SCHEDULED - which is why the page can say
+   * "scheduled to end" without claiming it has. */
+  endedAt: number | null;
+  /** True only for the customer's own cancellation. A dunning cancellation ends
+   * the same subscription and means something completely different. */
+  customerCancelled: boolean;
+}
+
+/**
+ * The end-of-life timeline, as dates the customer can plan around.
+ *
+ * Only ever built from PROVEN instants. Before service ends there is no
+ * timeline at all, because a scheduled cancellation is reversible and a page
+ * that counted its grace week down from a projection would be counting down
+ * something the customer can still cancel.
+ *
+ * `retentionEnd` is when we REQUEST permanent deletion (manager ruling
+ * R-2026-08-10-3), not when the provider performs it. The copy says exactly
+ * that, and a provider term that would end sooner raises attention instead of
+ * shortening the promise.
+ */
+export interface LifecycleView {
+  phase: LifecyclePhase;
+  graceEnd: number | null;
+  retentionEnd: number | null;
 }
 
 /**
@@ -157,6 +189,8 @@ export interface ProgressView {
   liveness: LivenessView | null;
   restart: RestartView;
   subscription: SubscriptionView | null;
+  /** Null until the customer's cancellation has actually taken effect. */
+  lifecycle: LifecycleView | null;
 }
 
 /** Human labels. Functional copy only; the provisioning actor is "Hosted Isomux
@@ -173,6 +207,9 @@ const LABELS: Record<OperationKind, string> = {
   revoke_access: "Removing our access",
   power_off: "Suspending the office",
   reboot: "Restarting your server",
+  power_on: "Bringing your office back",
+  cancel_asset: "Cancelling your server with the provider",
+  remove_dns: "Removing your office's address",
 };
 
 /**
@@ -311,28 +348,34 @@ function attentionViews(reasons: AttentionReasonRow[]): AttentionView[] {
   }));
 }
 
-function subscriptionFor(
+interface SubscriptionFacts {
+  status: string;
+  current_period_end: number | null;
+  cancel_at_period_end: number;
+  ended_at: number | null;
+  cancellation_reason: string | null;
+  discount_percent_off: number | null;
+  discount_ends_at: number | null;
+}
+
+function subscriptionRowFor(
   store: Store,
   instanceId: string,
+): SubscriptionFacts | null {
+  return (
+    store.db
+      .query<
+        SubscriptionFacts,
+        [string]
+      >("select status, current_period_end, cancel_at_period_end, ended_at, " + "cancellation_reason, discount_percent_off, discount_ends_at " + "from subscriptions where instance_id = ? order by created_at desc")
+      .get(instanceId) ?? null
+  );
+}
+
+function subscriptionViewOf(
+  row: SubscriptionFacts,
   now: number,
-): SubscriptionView | null {
-  const row = store.db
-    .query<
-      {
-        status: string;
-        current_period_end: number | null;
-        cancel_at_period_end: number;
-        discount_percent_off: number | null;
-        discount_ends_at: number | null;
-      },
-      [string]
-    >(
-      "select status, current_period_end, cancel_at_period_end, " +
-        "discount_percent_off, discount_ends_at from subscriptions " +
-        "where instance_id = ? order by created_at desc",
-    )
-    .get(instanceId);
-  if (!row) return null;
+): SubscriptionView {
   const discountLive =
     row.discount_ends_at === null || row.discount_ends_at > now;
   return {
@@ -340,6 +383,57 @@ function subscriptionFor(
     currentPeriodEnd: row.current_period_end,
     cancelAtPeriodEnd: row.cancel_at_period_end === 1,
     comped: row.discount_percent_off === 100 && discountLive,
+    endedAt: row.ended_at,
+    customerCancelled: isCustomerCancellation({
+      endedAt: row.ended_at,
+      cancellationReason: row.cancellation_reason,
+    }),
+  };
+}
+
+/** The timeline, from the SAME functions the machine decides with. A second
+ * implementation here would eventually show the customer a date the tick does
+ * not act on. */
+function lifecycleViewOf(
+  store: Store,
+  instanceId: string,
+  row: SubscriptionFacts | null,
+  operations: OperationRow[],
+  now: number,
+): LifecycleView | null {
+  if (
+    !row ||
+    !isCustomerCancellation({
+      endedAt: row.ended_at,
+      cancellationReason: row.cancellation_reason,
+    })
+  ) {
+    return null;
+  }
+  const subscriptionId = store.db
+    .query<
+      { id: string },
+      [string]
+    >("select id from subscriptions where instance_id = ? order by created_at desc")
+    .get(instanceId);
+  const asset = store.assetForInstance(instanceId);
+  const timeline = phaseAt(
+    {
+      endedAt: row.ended_at,
+      cancellationReason: row.cancellation_reason,
+      poweredOffAt: subscriptionId
+        ? poweredOffAtFrom(operations, subscriptionId.id, row.ended_at!)
+        : null,
+      assetGone:
+        !!asset &&
+        (asset.asset_state === "cancelled" || asset.asset_state === "absent"),
+    },
+    now,
+  );
+  return {
+    phase: timeline.phase,
+    graceEnd: timeline.graceEnd,
+    retentionEnd: timeline.retentionEnd,
   };
 }
 
@@ -501,6 +595,7 @@ export function projectionFor(
 
   const verifyHttps = byKind.get("verify_https");
   const access = accessFor(store, instance, operations, store.now());
+  const subscriptionRow = subscriptionRowFor(store, instance.id);
 
   return {
     instanceId: instance.id,
@@ -522,7 +617,16 @@ export function projectionFor(
     handoff: handoffFor(access, byKind, operations),
     liveness: livenessFor(store.getLiveness(instance.id)),
     restart: restartFor(byKind),
-    subscription: subscriptionFor(store, instance.id, store.now()),
+    subscription: subscriptionRow
+      ? subscriptionViewOf(subscriptionRow, store.now())
+      : null,
+    lifecycle: lifecycleViewOf(
+      store,
+      instance.id,
+      subscriptionRow,
+      operations,
+      store.now(),
+    ),
   };
 }
 

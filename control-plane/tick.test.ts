@@ -383,11 +383,11 @@ describe("enqueue", () => {
     const store = tempStore(c.now);
     const inst = seed(store);
     const ticker = new Ticker({ store, handlers: [], holder: "a" });
-    // `power_on` rather than `power_off`: slice 3 gave power_off deadlines and a
-    // handler for the dunning suspension boundary, so the example of a kind that is
-    // declared but not driven is now its counterpart.
+    // `set_dns` is the last kind the design names that nothing drives: slice 3
+    // gave power_off its deadlines, slice 5 gave power_on, cancel_asset and
+    // remove_dns theirs, and no deployment here creates a DNS record.
     expect(() =>
-      ticker.enqueue(inst, "power_on" as unknown as Handler["kind"]),
+      ticker.enqueue(inst, "set_dns" as unknown as Handler["kind"]),
     ).toThrow(/does not drive it/);
   });
 });

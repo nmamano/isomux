@@ -155,8 +155,21 @@ flow against a local instance seeded via `exercises/seed-instance.ts`.
   customer whose window closes between mint and fetch has NO self-serve
   invite path; the panel says so plainly and points at support. The
   string joins the copy sign-off list.
+- Cost line from R-2026-08-10-3, for Nil's price-table math: up to ONE
+  ADDITIONAL PROVIDER MONTH PER CHURN to honour the retention deadline, on
+  top of the grace month ruling 9 already bought. Implied by rulings 8 and 9,
+  so implementation did not wait on it; the number belongs in the cost model
+  behind ruling 2 (design doc "still open" item 2).
+- PUBLISHED-COPY DRIFT (slice 5, parked for Nil): `site/hosted-terms.html`
+  "Cancelling" says the office runs to the period end "plus a week after that
+  to take your work out ... Then the server is wiped and released". The shipped
+  machine keeps the data for a further calendar month after the power-off
+  (ruling 8 applied to the cancellation path, per the slice-5 pickup) before it
+  requests deletion. The page understates what customers get, so nothing is
+  broken, but the sentence should say so. Terms and privacy pages are drafts
+  and noindex; no page was edited in this loop.
 - Copy sign-off at close, slice-3 precedent (4a strings recorded in
-  the slice-4a report, 2026-08-10).
+  the slice-4a report, 2026-08-10; slice-5 strings in the slice-5 report).
 
 ## Slice checklist
 

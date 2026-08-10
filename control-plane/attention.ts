@@ -24,6 +24,17 @@ export interface RaiseArgs {
   reason: string;
   severity: Severity;
   actor?: string;
+  /**
+   * Extra evidence for the AUDIT ROW ONLY. Never part of the dedup identity.
+   *
+   * The identity is (sourceOpId, reason), so anything that moves - a provider's
+   * date, an observation time - has to stay out of the reason or it opens a new
+   * row on every reading. It still has to be recorded somewhere immutable, and
+   * the audit log is that place: it is append-only, so a later renewal
+   * overwriting `provider_assets.service_ends_at` cannot erase what the term
+   * said when the incident was raised.
+   */
+  detail?: string;
 }
 
 /** Must run inside a transaction the caller owns. */
@@ -56,7 +67,7 @@ export function raiseAttentionIn(store: Store, args: RaiseArgs): boolean {
     action: "raise_attention",
     target: sourceOpId || args.instanceId,
     outcome: "started",
-    detail: args.reason,
+    detail: args.detail ? `${args.reason} [${args.detail}]` : args.reason,
   });
   return true;
 }
@@ -111,29 +122,9 @@ export function clearAttention(
   store.tx(() => clearAttentionIn(store, instanceId, reasonId, actor));
 }
 
-/**
- * Record that a human has seen the open reasons.
- *
- * Acknowledging is NOT clearing. The reasons stay open, the instance stays
- * `needs_operator`, and the underlying condition is what eventually clears it.
- * An ack that cleared would let "I saw it" masquerade as "it is fixed".
- */
-export function acknowledgeAttention(
-  store: Store,
-  instanceId: string,
-  by: string,
-): number {
-  return store.tx(() => {
-    const n = store.acknowledgeReasons(instanceId, store.now(), by);
-    summarise(store, instanceId);
-    store.appendAudit({
-      actor: by,
-      instance_id: instanceId,
-      action: "acknowledge_attention",
-      target: instanceId,
-      outcome: "succeeded",
-      detail: `${n} reason(s)`,
-    });
-    return n;
-  });
-}
+// Acknowledgement used to live here and MOVED to attention-ack.ts in slice 5.
+// Not a tidy-up: the ops floor runs inside the public web app, whose module
+// graph may not reach anything able to raise or clear attention, and
+// acknowledgement is the one half of this file an operator needs from a browser.
+// Keeping all three together would have forced a graph exception that handed the
+// app raise and clear as well. See attention-ack.ts.

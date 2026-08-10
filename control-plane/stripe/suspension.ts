@@ -130,11 +130,53 @@ export function powerOffHandler(deps: SuspensionDeps): Handler {
       }
       ctx.audit("power_off", "succeeded", `provider ${providerId}`);
       deps.report?.(`suspended: provider ${providerId} powered off`);
-      return { kind: "done", evidence: { poweredOff: true, providerId } };
+      // `poweredOffAt` is written ON PURPOSE, and the cancellation timeline's
+      // retention month is measured from it. A row timestamp would have been the
+      // obvious substitute and is not one: `updated_at` and `evidence_at` are
+      // metadata other writers may move, while this is a fact this handler
+      // recorded at the instant it established it.
+      //
+      // THE OPENER'S STAMP IS CARRIED FORWARD. A done result REPLACES evidence
+      // wholesale, so returning only these three fields would erase the `reason`
+      // the opener wrote - and `reason` is what tells a dunning suspension
+      // (resumable) from a cancellation one (never resumed). Same hazard the
+      // mint handler documents for `via`.
+      return {
+        kind: "done",
+        evidence: {
+          ...openerStamp(ctx.op.evidence),
+          poweredOff: true,
+          providerId,
+          poweredOffAt: ctx.now,
+        },
+      };
     },
   };
 }
 
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * The fields the OPENER put on the row that a completion must not lose.
+ *
+ * An allowlist rather than a spread of everything: evidence is ours, but only
+ * these three say who opened the row and why, and copying the rest forward would
+ * make a completion carry whatever a future opener happened to attach.
+ */
+export function openerStamp(raw: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+  const ev = parsed as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of ["reason", "subscription", "episode"]) {
+    if (typeof ev[key] === "string") out[key] = ev[key];
+  }
+  return out;
 }

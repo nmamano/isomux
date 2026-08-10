@@ -14,6 +14,18 @@ const READY_MS = 30_000;
  * link that was minted successfully. */
 const COLLECT_POLL_MS = 2_000;
 const COLLECT_TIMEOUT_MS = 120_000;
+/**
+ * The grace week, for the PROJECTED date shown before service ends.
+ *
+ * The only piece of the timeline this file computes, and it is a fixed span
+ * rather than calendar arithmetic. The retention month is deliberately NOT
+ * computed here: it runs from the instant the box is actually powered off, so a
+ * second implementation working from the grace end would print a different day
+ * whenever the power-off lands after midnight or across a month end. Before the
+ * power-off the copy says "one calendar month after that" and names no date;
+ * afterwards it renders the machine's own `retentionEnd`.
+ */
+const GRACE_DAYS = 7;
 
 const STATE_WORDS: Record<string, string> = {
   waiting: "waiting",
@@ -119,6 +131,11 @@ export function OfficeView({
   const [view, setView] = useState(initial);
   const [invite, setInvite] = useState<InviteState>({ phase: "idle" });
   const [action, setAction] = useState<string | null>(null);
+  /** Which billing change we have asked Stripe for and not yet seen land.
+   * Cleared by the poll, because the WEBHOOK is what makes it true - this side
+   * never writes subscription state, so it must not claim it either. */
+  const [billing, setBilling] = useState<"cancel" | "uncancel" | null>(null);
+  const [billingProblem, setBillingProblem] = useState<string | null>(null);
 
   // FAST WHILE SOMETHING THE CUSTOMER ASKED FOR IS IN FLIGHT, not only while
   // the office is being built. An invite takes a few seconds to mint, and a
@@ -126,6 +143,7 @@ export function OfficeView({
   // half a minute after a button press.
   const busy =
     !view.ready ||
+    billing !== null ||
     invite.phase === "waiting" ||
     view.restart.active ||
     view.handoff.invite.state === "active" ||
@@ -140,7 +158,18 @@ export function OfficeView({
         });
         if (!res.ok) return;
         const next = (await res.json()) as ProgressView;
-        if (!cancelled) setView(next);
+        if (cancelled) return;
+        setView(next);
+        // Stripe has confirmed when the CACHED flag matches what we asked for.
+        // Anything else and the pending sentence stands, which is the truth.
+        setBilling((asked) => {
+          if (!asked || !next.subscription) return asked;
+          const landed =
+            asked === "cancel"
+              ? next.subscription.cancelAtPeriodEnd
+              : !next.subscription.cancelAtPeriodEnd;
+          return landed ? null : asked;
+        });
       } catch {
         // A failed poll is a poll that did not happen. The next one decides.
       }
@@ -222,6 +251,21 @@ export function OfficeView({
     setInvite({ phase: "waiting", operationId });
   };
 
+  const billingAct = async (
+    path: "/api/cancel" | "/api/uncancel",
+    label: "cancel" | "uncancel",
+  ): Promise<void> => {
+    setBillingProblem(null);
+    const { data, status } = await postJson(path, { instanceId });
+    if (status !== 200 || data.ok !== true) {
+      setBillingProblem(
+        reasonOf(data, "we could not change your plan just now."),
+      );
+      return;
+    }
+    setBilling(label);
+  };
+
   const act = async (path: string, label: string): Promise<void> => {
     setAction(null);
     const { data, status } = await postJson(path, { instanceId });
@@ -283,18 +327,14 @@ export function OfficeView({
         </>
       )}
 
-      <h2>Plan</h2>
-      <p data-testid="subscription">
-        {view.subscription
-          ? `${view.plan} - ${view.subscription.status}` +
-            (view.subscription.comped ? ", no charge" : "") +
-            (view.subscription.currentPeriodEnd
-              ? `, next invoice ${new Date(view.subscription.currentPeriodEnd)
-                  .toISOString()
-                  .slice(0, 10)}`
-              : "")
-          : `${view.plan} - waiting for payment to be confirmed`}
-      </p>
+      <h2>Your plan</h2>
+      <p data-testid="subscription">{planLine(view)}</p>
+      <CancelPanel
+        view={view}
+        pending={billing}
+        onAct={(path, label) => void billingAct(path, label)}
+      />
+      {billingProblem && <p data-testid="billing-problem">{billingProblem}</p>}
 
       <h2>Getting in</h2>
       <section data-testid="handoff">
@@ -446,4 +486,157 @@ function revocationSentence(
     default:
       return "We are removing our key from your server.";
   }
+}
+
+/** Dates as yyyy-mm-dd, the format the rest of this page already uses. */
+function day(instant: number): string {
+  return new Date(instant).toISOString().slice(0, 10);
+}
+
+/**
+ * Cancelling, un-cancelling, and what happens on each date.
+ *
+ * Every sentence here states what we can PROVE or what we will DO, never what
+ * the provider will do at an exact instant. Manager ruling R-2026-08-10-3: the
+ * retention deadline is ours and it is fixed, the provider's term is its own
+ * business, and a provider term that would end sooner raises attention rather
+ * than quietly shortening what the customer was told.
+ *
+ * The pre-end sentence says SCHEDULED. `cancel_at_period_end` means Stripe will
+ * end it at the period end, not that it has ended, and the office serves
+ * normally until then.
+ */
+function CancelPanel({
+  view,
+  pending,
+  onAct,
+}: {
+  view: ProgressView;
+  pending: "cancel" | "uncancel" | null;
+  onAct: (
+    path: "/api/cancel" | "/api/uncancel",
+    label: "cancel" | "uncancel",
+  ) => void;
+}) {
+  const sub = view.subscription;
+  if (!sub) return null;
+  const life = view.lifecycle;
+
+  if (pending === "cancel") {
+    return (
+      <p data-testid="cancel-pending">
+        We have asked Stripe to cancel your subscription. This page updates when
+        Stripe confirms it.
+      </p>
+    );
+  }
+  if (pending === "uncancel") {
+    return (
+      <p data-testid="uncancel-pending">
+        We have asked Stripe to keep your subscription. This page updates when
+        Stripe confirms it.
+      </p>
+    );
+  }
+
+  // Service has ended: the timeline is real, and every date in it is proven.
+  if (life) {
+    if (life.phase === "ended") {
+      return <p data-testid="cancel-ended">This office has been deleted.</p>;
+    }
+    if (life.retentionEnd !== null) {
+      // A PROVEN date: the machine measured this calendar month from the
+      // instant the box was actually powered off, and this is that same number
+      // carried across rather than a second computation of it.
+      return (
+        <p data-testid="cancel-suspended">
+          Your office is powered off. We will keep your data until{" "}
+          {day(life.retentionEnd)} and then request permanent deletion. Contact
+          support if you need help before deletion.
+        </p>
+      );
+    }
+    return (
+      <>
+        <p data-testid="cancel-grace">
+          Your subscription ended on {day(sub.endedAt!)}. Your office keeps
+          serving until {day(life.graceEnd!)} so you can take your work out.
+          After that your server is powered off.
+        </p>
+        <p data-testid="cancel-restart-refused">
+          This subscription has ended, so it cannot be restarted here. Contact
+          support if you need help.
+        </p>
+      </>
+    );
+  }
+
+  if (sub.cancelAtPeriodEnd && sub.currentPeriodEnd !== null) {
+    const graceEnd = sub.currentPeriodEnd + GRACE_DAYS * 24 * 60 * 60 * 1000;
+    return (
+      <section data-testid="cancel-scheduled">
+        <p>
+          Your subscription is scheduled to end on {day(sub.currentPeriodEnd)}.
+          Your office keeps serving until {day(sub.currentPeriodEnd)}, and then
+          for a further 7 days until {day(graceEnd)}.
+        </p>
+        <p>
+          After {day(graceEnd)} your server is powered off. We will keep your
+          data for one calendar month after that, and then request permanent
+          deletion.
+        </p>
+        <p>
+          <button
+            data-testid="uncancel-button"
+            onClick={() => onAct("/api/uncancel", "uncancel")}
+          >
+            Keep my office
+          </button>
+          <span data-testid="uncancel-caveat">
+            {" "}
+            Keeping your office means your subscription renews on{" "}
+            {day(sub.currentPeriodEnd)} and normal billing continues.
+          </span>
+        </p>
+      </section>
+    );
+  }
+
+  return (
+    <section data-testid="cancel-offer">
+      <p style={{ color: "#555" }} data-testid="cancel-caveat">
+        Cancelling keeps your office running until the end of the period you
+        have paid for.
+      </p>
+      <p>
+        <button
+          data-testid="cancel-button"
+          onClick={() => onAct("/api/cancel", "cancel")}
+        >
+          Cancel my office
+        </button>
+      </p>
+    </section>
+  );
+}
+
+/**
+ * The plan line, and what the period-end date MEANS in each state.
+ *
+ * One label for every state was a lie in two of them: a scheduled cancellation
+ * has no next invoice, and a subscription that has already ended has one in the
+ * past. The date is the same number throughout - what changes is whether it is
+ * a bill or an ending.
+ */
+function planLine(view: ProgressView): string {
+  const sub = view.subscription;
+  if (!sub) return `${view.plan} - waiting for payment to be confirmed`;
+  const head = `${view.plan} - ${sub.status}${sub.comped ? ", no charge" : ""}`;
+  // Ended: the period end is history, so it is not shown at all. The
+  // cancellation panel below is where the remaining dates live.
+  if (sub.endedAt !== null) return head;
+  if (sub.currentPeriodEnd === null) return head;
+  return sub.cancelAtPeriodEnd
+    ? `${head}, period ends ${day(sub.currentPeriodEnd)}`
+    : `${head}, next invoice ${day(sub.currentPeriodEnd)}`;
 }

@@ -949,6 +949,266 @@ handed over and was told, correctly, that it was gone. The box had minted
 perfectly well both times. The click now carries the id its own request
 returned, and `handoff-local.e2e.ts` pins it.
 
+## Cancellation, retention and the end of life (slice 5)
+
+Three dates, and collapsing them is the mistake this section exists to prevent:
+
+| date                              | whose           | what it is                                                                                                                                               |
+| --------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `graceEnd`                        | ours, proven    | `subscriptions.ended_at` + 7 days. The office **keeps serving** through it (design ruling 9 bought the provider month for exactly this).                 |
+| `retentionEnd`                    | ours, an intent | one **calendar month** after the box was powered off (ruling 8: "1 month", not 30 days). The instant we ASK the provider to cancel. Not a deletion date. |
+| `provider_assets.service_ends_at` | the provider's  | its paid-term end. The only date on which data actually disappears.                                                                                      |
+
+Manager ruling **R-2026-08-10-3** settles the collision between the middle and
+the last: "The asset is NOT cancel-scheduled during suspension - `cancel_asset`
+is issued only at `deprovision_due`, and if the provider term renews meanwhile,
+that renewal is an accepted cost, not a bug." So retention beats provider
+billing convenience, up to one extra provider month per churn on top of the
+grace month. Two consequences in the code:
+
+- `service_state` becomes `deprovisioned` **only** when reconciliation reports
+  the asset `cancelled` or `absent`. Our own deadline passing is a request, and
+  a request is not a deletion.
+- a reconciled `service_ends_at` EARLIER than `retentionEnd` raises a critical
+  attention row (a promise at risk) and never shortens the customer's date.
+
+### The anchor, and why it is `ended_at`
+
+`lifecycle.ts` is pure arithmetic over durable rows - no store, no clock, no
+I/O - so a month is tested without waiting one. Its anchor is
+`subscriptions.ended_at`, which does not exist until the lifecycle may begin and
+never changes afterwards. That choice removes a question rather than answering
+it: **measured 2026-08-10**, cancel / un-cancel / re-cancel inside one period
+leaves `current_period_end` untouched, so a period-derived operation id would
+have been the SAME id across a reversal. With `ended_at` there is no id to
+collide with until the subscription is terminal, and no lifecycle operation may
+be opened before then.
+
+Operation ids are derived - `op-<kind>-cancel-<subscriptionId>-<endedAt>` - so
+the operations primary key refuses a second row permanently, terminal or not.
+That is the same construction `suspensionOperationId` uses, and for the same
+reason: the one-active index stops holding the moment a row goes terminal.
+
+The retention clock reads `poweredOffAt` **from that exact operation's
+evidence**, written on purpose by the power_off handler. Not "the latest
+succeeded power_off": an account can carry a dunning suspension from months
+earlier, and anchoring on it would start the deletion clock before the customer
+had even cancelled.
+
+### Deprovision is two operations, not one destroy
+
+`cancel_asset` and `remove_dns` open together at `deprovision_due` and neither
+waits for the other, per the design. Chaining them would let a DNS record nobody
+has reaped hold open an asset we are still paying for.
+
+`remove_dns` **removes nothing**: this deployment automates no DNS. It raises an
+operator attention row naming the record, and then VERIFIES - it succeeds only
+once the hostname no longer resolves to the instance's recorded `ipv4`, read
+with `dns.resolve4`/`resolve6` (the record queries; `dns.lookup` consults
+/etc/hosts and collapses the answer set). On success it CLEARS the reason it
+raised, with its audit row. Two deliberate details:
+
+- the condition is "not OUR address", not "does not resolve". **Measured
+  2026-08-10**: `*.test.isomux.app` has a wildcard A record answering
+  116.203.73.126, so a removed specific record never becomes NXDOMAIN here.
+- an AAAA answer BLOCKS. We record no ipv6 for an instance, so an AAAA record is
+  unprovable, and unprovable is not removed. (No AAAA exists under this domain
+  today; that instances carry no ipv6 at all is a real gap.)
+
+### Contabo refuses a second cancel (measured 2026-08-10)
+
+`POST /v1/compute/instances/203474835/cancel` against an already
+cancel-scheduled instance returns **HTTP 422**, and changes nothing:
+`assetState`, `powerState` and `cancelDate` are identical before and after. So
+the no-op is in the EFFECT, not in the status code.
+
+That matters because a crash between an accepted cancel and our own write would
+otherwise leave the operation retrying into a permanent 422. `cancel_asset`
+therefore RECONCILES on a refusal - it re-reads provider truth and, if the asset
+is already cancelled or cancel-scheduled, concludes on that (evidence records
+`adoptedAfterRefusal`). This is the design's own recovery rule; the live probe
+is what showed it was load bearing rather than theoretical.
+
+`exercises/cancel-asset-probe.ts` is that probe, and its guards are executable
+rather than procedural: it refuses any provider id but 203474835, refuses unless
+the provider ALREADY reports the instance cancelled or cancel-scheduled, and
+exits non-zero on any delta in state, power state or cancel date. It is a
+LOOP-SCOPED rig. The product handler deliberately accepts `active` too, because
+after R-2026-08-10-3 that is the state a real deprovision meets - **and that
+path is not exercised in this loop.** No live asset is cancelled here.
+
+### A gone asset before the deadline is a BROKEN promise
+
+`assetGone` ends the timeline whatever phase it was in - provider truth is
+truth - but ending is not the same as ending on time. If the asset is
+`cancelled` or `absent` before the instant the customer was promised, the data
+end is still recorded (it is already gone; a row disagreeing with the world
+helps nobody) and a CRITICAL attention row is raised alongside it. Without that,
+the ordinary ended arm would record `deprovisioned` and `data_end` silently for
+a promise we failed to keep.
+
+PROVIDER TRUTH OUTRANKS THE OBSERVATION TIME here. A term that ended on 1 July
+against a 17 July deadline broke the promise whether the reconcile that noticed
+ran on the 2nd or the 18th, so the ended arm keys on the asset's own
+`service_ends_at` and falls back to "is it early right now" only for a provider
+that gives no usable end instant at all.
+
+Both conditions carry a stable IDENTITY (`lifecycle-promise-at-risk`,
+`lifecycle-promise-broken`) as the attention row's source id, and stable
+sentences with no clock or provider date interpolated. Attention deduplicates on
+(source, reason), so a sentence that moved would have opened a fresh critical
+row on every tick - and lifecycle rows keep being scanned after
+`deprovisioned`. The row's own `raised_at` is where "when we first saw it"
+lives.
+
+One of the two is REVERSIBLE and the other is not. A provider term that lapses
+too early can be renewed, so the at-risk condition is raised while unsafe and
+CLEARED with its audit when provider truth becomes safe again - an incident that
+survived the fix is indistinguishable from one nobody dealt with. A promise that
+was actually broken cannot be un-broken, so nothing clears it.
+
+The transition between them is a PROMOTION, and it is why the decision carries a
+LIST of attention actions rather than one: an at-risk incident whose term then
+lapses for real must clear the superseded row and raise the broken one IN THE
+SAME TRANSACTION. Two commits would put a stale "renew the term" instruction on
+the ops floor beside the incident saying the data is already gone.
+
+The dated evidence lives in the AUDIT DETAIL, not in the reason. Both instants
+that matter move or get overwritten - the provider's `service_ends_at` on
+renewal, the observation time by definition - so neither may enter the dedup
+identity, and neither may be left only on a row that a later write replaces.
+`raiseAttentionIn` takes an optional `detail` for exactly this: the append-only
+audit row carries `service_ends_at=... promisedUntil=... observed=...` while the
+reason stays stable. A test asserts both exact instants are still readable after
+the asset row has moved.
+
+The comparison is against `promisedUntil`, not `retentionEnd`: before the
+power-off there is no retention end yet, so a term lapsing inside the GRACE WEEK
+would have been compared against nothing and the whole week left unwatched.
+`promisedUntil` is `retentionEnd` once it exists and a projection from the grace
+end before that - the power-off cannot land earlier than the grace end, so the
+promise cannot expire earlier either.
+
+### Resume, and the box that must never be resumed
+
+`power_on` undoes a DUNNING suspension and nothing else. Four predicates, all
+re-read inside the writing transaction: the latest relevant power_off was
+dunning-driven, the cached Stripe status is healthy, the instance is
+`suspended`, and no cancellation lifecycle has started. The fourth is the one
+that matters - a cancellation-retention box is ALSO suspended and ALSO has a
+succeeded power_off, and resuming it would restart a server the customer
+cancelled. The resume's id is derived from the dunning episode, so a redelivered
+recovery event cannot open a second one.
+
+The suspension it selects is the LATEST succeeded dunning power_off, decided by
+the `poweredOffAt` the handler recorded rather than by row order. Row order was
+the first fix and is not a rule: operations are ordered by `created_at`,
+millisecond timestamps TIE, and SQL promises nothing about tied rows - so
+reversing whatever came back was a coin flip. The operation id breaks a genuine
+tie deterministically. Getting this wrong left a paying customer's box off after
+a SECOND dunning episode: the older row was selected, its `power_on` was already
+there, and the answer was "already open". Also skipping episodes whose resume already
+exists looks like the obvious extra safeguard and is worse: if the newest
+suspension was already resumed, skipping it opens a resume on a STALE episode's
+authority. Newest-first with no skipping says the honest thing instead.
+
+`serviceStateAfter("power_on")` is `live`: `suspended` is a claim about what we
+did to the box, and after a proven power_on it is no longer true. Whether the
+office ANSWERS is the liveness axis, which the design keeps separate.
+
+### Cancel and un-cancel
+
+Stripe `cancel_at_period_end`, set from `cancel.ts` in three phases with **no
+store transaction open across the network call**: a transaction that re-reads
+ownership and writes the started audit row (which carries the idempotency key),
+then the call, then a transaction recording the outcome.
+
+The key is minted per user-initiated request from the audit sequence, not fixed
+per subscription. Stripe replays a key for 24 hours, so with a fixed key a
+cancel / un-cancel / cancel-again inside one day would replay the first response
+and report success while Stripe applied nothing. A second key is safe here
+because `cancel_at_period_end` is a STATE SET, not a create.
+
+Nothing in this path writes subscription state: webhooks stay the only writer,
+so the dashboard says "we asked, waiting for Stripe" until the projection
+catches up. A remote success whose local audit write fails returns
+`recorded: false` and is still reported to the customer as sent.
+
+### What Stripe actually does at period end (measured 2026-08-10, API `2026-07-29.dahlia`)
+
+Test-clock exercise: create, `cancel_at_period_end=true`, un-cancel, re-cancel,
+then advance past the period end.
+
+- **The terminal object keeps everything.** `status: canceled`,
+  `cancel_at_period_end` still **true**, `items[].current_period_end` intact,
+  `ended_at` present and **equal to the item period end exactly**,
+  `cancellation_details.reason` still `cancellation_requested`.
+- **`current_period_end` is null at the top level on every snapshot**, terminal
+  included. `shapes.ts` reading the ITEM first is not a fallback nicety on this
+  pin - it is the only correct reader.
+- **Un-cancel fully reverts** `cancel_at`, `canceled_at` and
+  `cancellation_details.reason` to null, so the reason tracks the CURRENT intent
+  rather than a history. Re-cancelling restores the same values and leaves the
+  period end untouched.
+- **Only `customer.subscription.deleted` fires at period end** - no trailing
+  `updated`, no invoice event. The event sequence was `created` ->
+  `updated`(cape=true) -> `updated`(cape=false) -> `updated`(cape=true) ->
+  `deleted`, and **the two middle updates share a `created` second**, which is
+  live corroboration of why reconciliation re-fetches the object instead of
+  ordering by event timestamp.
+- Dunning cancellations arrive as `payment_failed` (observed 2026-08-09), so
+  `cancellation_reason` is a usable discriminator between the two machines.
+
+Incidental: attaching `pm_card_visa` returns a CUSTOMER-SCOPED payment-method
+id, and the shared handle cannot be set as the invoice default.
+
+## The ops floor (slice 5)
+
+`ops.ts` is to operators what `requests.ts` is to customers: a listed verb
+surface, pinned by the boundary test, so the operator side cannot grow as a side
+effect of writing a page. Three verbs - `opsFloor`, `opsInstance`,
+`acknowledgeInstance`.
+
+Two rules shape all three:
+
+- **the authority check and the work are ONE TRANSACTION.** Not merely "inside
+  the service": a role read that commits separately from the work it guards is
+  a role that can be revoked in between while the protected read or write still
+  goes through. Each verb opens one `begin immediate`, re-reads `is_operator`
+  inside it, and does the whole protected operation there - which is why
+  acknowledgement needs `acknowledgeAttentionIn` rather than the wrapper that
+  opens its own transaction.
+- **refusal is indistinguishable from absence.** A non-operator gets the same
+  `null` a missing instance gets, and the caller answers 404 to both. A 403
+  would confirm the floor exists and that this account is not on it.
+
+The overdue list reads `overdueOperations`, not `liveOperations`: a FAILED
+operation past its ceiling is the one an operator most needs, and it is
+precisely the row that leaves the live set. Succeeded work stays out.
+
+The floor carries the operator-facing reason STRING, unlike the customer
+projection, which strips it to a class. That difference is the point: an
+operator is the audience the reason was written for, and a floor showing only "a
+step needs a person" would be a pager with the message removed.
+
+Authority is a column, granted only by the CLI:
+
+```
+bun control-plane/cli.ts operator --db <file> --email <addr> --grant
+bun control-plane/cli.ts operator --db <file> --email <addr> --revoke
+```
+
+The email is a lookup key; what is stored and what every gate reads is the
+account id plus the column. No sign-in path writes it (`ensureAccount` inserts
+`is_operator` as an explicit 0), `casAccount`'s patch type excludes it, and the
+one writer - `operator-admin.ts` - is forbidden in the web app's module graph.
+
+`attention.ts` stays forbidden in that graph too, with no exception:
+acknowledgement moved to `attention-ack.ts`, which imports the store and nothing
+else, so the app can record "we have seen it" without reaching raise or clear.
+Acknowledging is still not clearing - the reasons stay open and the instance
+stays `needs_operator` until the condition itself goes away.
+
 ## Tests
 
 ```

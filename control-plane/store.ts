@@ -330,11 +330,18 @@ create table if not exists audit_events (
 -- whether to apply an event: ordering is settled by re-fetching the object,
 -- because Stripe timestamps have one-second resolution and two same-second
 -- snapshots would otherwise regress each other.
+-- is_operator (slice 5) is the ops floor's ONLY authority. A column rather than a
+-- hardcoded email, because an email is a display string that changes and a
+-- deployment cannot audit who holds a constant. It is written by the operator
+-- CLI and by nothing else: no sign-in path, no web route and no environment
+-- variable touches it, which is what makes "sign-in cannot self-assign" a
+-- property of the writer set rather than of a check somebody could forget.
 create table if not exists accounts (
   id text primary key,
   email text not null,
   google_subject text,
   stripe_customer_id text,
+  is_operator integer not null default 0,
   version integer not null,
   created_at integer not null,
   updated_at integer not null
@@ -348,6 +355,17 @@ create table if not exists subscriptions (
   status text not null,
   current_period_end integer,
   cancel_at_period_end integer not null default 0,
+  -- Slice 5, and all three are STRIPE-OWNED like the columns above them.
+  -- ended_at is the instant service actually ended, and it is the cancellation
+  -- timeline's anchor: measured 2026-08-10 on API 2026-07-29.dahlia, a terminal
+  -- subscription carries it and it equals the item period end exactly. The
+  -- period end is a PROJECTION until then; ended_at is the proven fact.
+  -- cancellation_reason is the discriminator between a customer cancellation
+  -- ("cancellation_requested") and a dunning one ("payment_failed", observed
+  -- 2026-08-09) - the two walk completely different machines.
+  ended_at integer,
+  canceled_at integer,
+  cancellation_reason text,
   discount_percent_off integer,
   discount_coupon_id text,
   discount_ends_at integer,
@@ -500,8 +518,12 @@ export class Store {
       ["attention_reasons", "version"],
       ["accounts", "stripe_customer_id"],
       ["accounts", "google_subject"],
+      ["accounts", "is_operator"],
       ["subscriptions", "episode_state"],
       ["subscriptions", "exhaustion_observed_at"],
+      ["subscriptions", "ended_at"],
+      ["subscriptions", "canceled_at"],
+      ["subscriptions", "cancellation_reason"],
       ["stripe_events", "type"],
     ];
     for (const [table, column] of required) {
@@ -830,6 +852,23 @@ export class Store {
   }
 
   /** Every non-terminal operation, for deadline evaluation. */
+  /**
+   * Operations that crossed their ABSOLUTE ceiling and have not succeeded.
+   *
+   * Deliberately NOT a subset of `liveOperations`: a failed operation is the
+   * one an operator most needs to see, and it is exactly the row that leaves
+   * the live set. Succeeded work is excluded because a step that finished late
+   * is history, not an alert.
+   */
+  overdueOperations(): OperationRow[] {
+    return this.db
+      .query<
+        OperationRow,
+        []
+      >("select * from operations where absolute_flagged = 1 and status != 'succeeded' " + "order by absolute_deadline_at")
+      .all();
+  }
+
   liveOperations(): OperationRow[] {
     return this.db
       .query<

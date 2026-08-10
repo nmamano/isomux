@@ -462,6 +462,19 @@ one end-to-end run at `cp1.test.isomux.app`):
   hyphen-based. Found by the slice-2 live adopt exercise; the create leg
   itself remains not live-verified (no paid create in the loop).
 
+**Measured 2026-08-10** (slice 5, same box, the suspend/resume legs and the
+cancel no-op):
+
+- **Power off to observable outage: about 20s**, and **power on to serving
+  again: about 31s** (liveness `ok` -> `tcp` -> `ok`, probed every 10s on
+  `cp2.test.isomux.app`). The whole cycle was under a minute, which is why the
+  60s liveness cadence of R-2026-08-10-2 is the one that can see it at all.
+- **Contabo REFUSES a second cancel.** `POST .../cancel` on an already
+  cancel-scheduled instance returns **HTTP 422** and changes nothing: asset
+  state, power state and `cancelDate` are identical before and after. The no-op
+  is in the effect, not the status code - so `cancel_asset` reconciles against
+  `get` on a refusal instead of retrying into a permanent error.
+
 ## Naming, DNS, TLS
 
 The customer picks `<name>` at Checkout, validated as a DNS label, refused if it
@@ -545,6 +558,27 @@ shape-change list in `control-plane/README.md`):
   treats a cancellation with an open dunning episode as a critical attention case
   rather than passing over it in silence.
 
+**Observed 2026-08-10** (slice 5, same API version, test-clock cancel at period
+end):
+
+- **A terminal subscription keeps everything the timeline needs.** After the
+  period end: `status: canceled`, `cancel_at_period_end` still true,
+  `items[].current_period_end` intact, `ended_at` present and **equal to the item
+  period end exactly**, and `cancellation_details.reason` still
+  `cancellation_requested`. So the cancellation timeline anchors on `ended_at`,
+  and `cancellation_reason` distinguishes a customer cancellation from a dunning
+  one (`payment_failed`, 2026-08-09) - two completely different machines.
+- **`current_period_end` is null at the top level on every snapshot**, terminal
+  included. The item-first reader is the only correct one on this pin.
+- **Un-cancel fully reverts** `cancel_at`, `canceled_at` and the cancellation
+  reason to null; re-cancelling restores them and leaves the period end
+  untouched. A cancel / un-cancel / re-cancel inside one period therefore does
+  not move the period end at all.
+- **Only `customer.subscription.deleted` fires at period end.** No trailing
+  `updated`, no invoice event. Two of the earlier `updated` events shared a
+  `created` second, which is live corroboration of why reconciliation re-fetches
+  the object rather than ordering by event timestamp.
+
 Plan tiers map to provider products in configuration, not code. Pricing is a
 small margin over the provider's list price plus the non-EU surcharge for
 Seattle (ruling 2); the exact table is still open.
@@ -598,6 +632,19 @@ Two things we must fill in ourselves, both **needing Nil's nod**:
    cancellation. Proposal: buy it. A week to get your work out is the difference
    between a churned customer and an angry one, and the cost is bounded by
    churn.
+
+**Settled 2026-08-10 (manager ruling R-2026-08-10-3), on the collision between
+the retention deadline and the provider's term.** Contabo cancels at its paid
+term end and bills whole months, so the two dates are independent and the
+provider's can fall first. The retention ruling wins: a suspended customer's
+data survives until the 1-calendar-month deadline. Mechanically, **the asset is
+NOT cancel-scheduled during suspension** - `cancel_asset` is issued only at the
+deprovision deadline, and if the provider term renews meanwhile, that renewal is
+an accepted cost rather than a bug. Consequence for the cost model in "still
+open" item 2: up to one additional provider month per churn to honour retention,
+on top of the grace month. Customer copy states only proven dates; a reconciled
+provider `serviceEndsAt` that falls before the promised retention deadline
+raises attention (a promise at risk) and never silently shortens the promise.
 
 Three mechanical consequences. The backup promise is only real once task
 962965dc lands a tested restore procedure, and it is P1 for exactly that reason.

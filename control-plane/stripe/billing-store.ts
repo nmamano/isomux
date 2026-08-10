@@ -27,6 +27,10 @@ export interface AccountRow {
   email: string;
   google_subject: string | null;
   stripe_customer_id: string | null;
+  /** 0 or 1. The ops floor's only authority (slice 5). Deliberately NOT in
+   * casAccount's patch type: the one writer is operator-admin.ts, so a future
+   * caller cannot raise its own privilege through the generic account CAS. */
+  is_operator: number;
   version: number;
   created_at: number;
   updated_at: number;
@@ -48,6 +52,27 @@ export interface SubscriptionRow {
   status: string;
   current_period_end: number | null;
   cancel_at_period_end: number;
+  /**
+   * When service actually ENDED, per Stripe. Null while the subscription lives.
+   *
+   * This is the cancellation timeline's anchor, and it is deliberately not
+   * current_period_end: the period end is a projection that moves with the
+   * subscription, while ended_at appears once and never changes. Measured
+   * 2026-08-10 on API 2026-07-29.dahlia: a terminal subscription carries it and
+   * it equals the item period end exactly.
+   */
+  ended_at: number | null;
+  /** When cancellation was REQUESTED. Reverted to null by an un-cancel, so it
+   * tracks the current intent rather than the history (measured 2026-08-10). */
+  canceled_at: number | null;
+  /**
+   * cancellation_details.reason. The discriminator between the two completely
+   * different machines a cancelled subscription can be in:
+   * "cancellation_requested" is the customer's own act and walks the grace ->
+   * power_off -> retention -> deprovision timeline; "payment_failed" (observed
+   * 2026-08-09) is dunning and walks the suspension ladder, which is resumable.
+   */
+  cancellation_reason: string | null;
   discount_percent_off: number | null;
   discount_coupon_id: string | null;
   discount_ends_at: number | null;
@@ -77,6 +102,9 @@ export type StripeOwnedPatch = Partial<
     | "status"
     | "current_period_end"
     | "cancel_at_period_end"
+    | "ended_at"
+    | "canceled_at"
+    | "cancellation_reason"
     | "discount_percent_off"
     | "discount_coupon_id"
     | "discount_ends_at"
@@ -128,9 +156,13 @@ export function ensureAccount(
   const existing = accountByEmail(store, args.email);
   if (existing) return existing;
   const ts = store.now();
+  // is_operator is written as 0 EXPLICITLY rather than left to the column
+  // default. Every account arrives through here or through a sign-in that calls
+  // here, so the literal is the proof that no sign-in path can create a
+  // privileged account.
   store.db.run(
-    "insert into accounts (id, email, google_subject, stripe_customer_id, version, " +
-      "created_at, updated_at) values (?, ?, null, null, 1, ?, ?)",
+    "insert into accounts (id, email, google_subject, stripe_customer_id, is_operator, " +
+      "version, created_at, updated_at) values (?, ?, null, null, 0, 1, ?, ?)",
     [args.id, args.email, ts, ts],
   );
   const made = getAccount(store, args.id);
@@ -198,11 +230,12 @@ export function insertSubscription(
   const ts = store.now();
   store.db.run(
     "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, status, " +
-      "current_period_end, cancel_at_period_end, discount_percent_off, discount_coupon_id, " +
+      "current_period_end, cancel_at_period_end, ended_at, canceled_at, cancellation_reason, " +
+      "discount_percent_off, discount_coupon_id, " +
       "discount_ends_at, ever_full_discount, latest_invoice_id, payment_failures, " +
       "exhaustion_observed_at, coupon_grace_until, episode_id, episode_state, last_event_id, " +
       "last_event_created, version, created_at, updated_at) " +
-      "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+      "values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
     [
       row.id,
       row.account_id,
@@ -211,6 +244,9 @@ export function insertSubscription(
       row.status,
       row.current_period_end,
       row.cancel_at_period_end,
+      row.ended_at,
+      row.canceled_at,
+      row.cancellation_reason,
       row.discount_percent_off,
       row.discount_coupon_id,
       row.discount_ends_at,

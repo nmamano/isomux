@@ -30,6 +30,15 @@ export interface SubscriptionSnapshot {
   /** Milliseconds, or null when the object carries no period at all. */
   currentPeriodEnd: number | null;
   cancelAtPeriodEnd: boolean;
+  /** Milliseconds. Null while the subscription is alive; set once, at the instant
+   * service ended, and measured 2026-08-10 to survive on the terminal object. */
+  endedAt: number | null;
+  /** Milliseconds. Reverted to null by an un-cancel (measured 2026-08-10), so it
+   * carries the CURRENT intent rather than a history. */
+  canceledAt: number | null;
+  /** `cancellation_details.reason`: "cancellation_requested" for the customer's
+   * own act, "payment_failed" for a dunning cancellation. */
+  cancellationReason: string | null;
   discount: {
     couponId: string;
     percentOff: number | null;
@@ -80,6 +89,9 @@ export function normalizeSubscription(raw: unknown): SubscriptionSnapshot {
     status,
     currentPeriodEnd: periodEndOf(o),
     cancelAtPeriodEnd: o.cancel_at_period_end === true,
+    endedAt: secondsToMs(o.ended_at),
+    canceledAt: secondsToMs(o.canceled_at),
+    cancellationReason: cancellationReasonOf(o),
     discount: discountOf(o),
     latestInvoiceId: optionalId(o.latest_invoice),
     metadata: metadataOf(o.metadata),
@@ -160,6 +172,20 @@ function periodEndOf(o: Raw): number | null {
     if (ends.length > 0) return Math.max(...ends);
   }
   return secondsToMs(o.current_period_end);
+}
+
+/**
+ * `cancellation_details.reason`, and nothing else out of that object.
+ *
+ * `comment` and `feedback` are customer-authored free text - a cancellation
+ * survey - so they are deliberately not read: nothing in this codebase needs
+ * them, and a durable column holding text somebody typed is a liability the
+ * timeline gains nothing from.
+ */
+function cancellationReasonOf(o: Raw): string | null {
+  const details = o.cancellation_details as Raw | null | undefined;
+  const reason = details?.reason;
+  return typeof reason === "string" && reason ? reason : null;
 }
 
 /**

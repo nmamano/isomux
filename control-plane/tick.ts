@@ -692,6 +692,11 @@ export function serviceStateAfter(kind: OperationKind): ServiceState | null {
   // changes: suspension is a provider-level power state, because ruling 3 leaves
   // no way to stop a service from inside.
   if (kind === "power_off") return "suspended";
+  // And its inverse. `suspended` is a claim about something WE did to the box,
+  // and after a proven power_on it is no longer true. Whether the office ANSWERS
+  // is the liveness axis, which the design keeps separate on purpose - folding
+  // "is it up" into service state is exactly the collapse it warns about.
+  if (kind === "power_on") return "live";
   return null;
 }
 

@@ -68,14 +68,19 @@ describe("only one file reaches the store", () => {
     // Adding an entry here is a deliberate act, which is the point: a new way
     // into the control plane cannot appear as a side effect of writing a page.
     expect(exported).toEqual([
+      "acknowledgeOpsInstance",
       "checkTrustedOrigin",
       "confirmHandoff",
       "identityForSignIn",
       "officeForAccount",
+      "opsFloor",
+      "opsInstance",
       "plans",
       "progressForAccount",
+      "requestCancel",
       "requestInvite",
       "requestRestart",
+      "requestUncancel",
       "revealInvite",
       "signUpOffice",
     ]);
@@ -112,6 +117,14 @@ describe("only one file reaches the store", () => {
       // proves neither drags the driver in behind it.
       "../../requests",
       "../../mint-client",
+      // Slice 5. `cancel` is the customer's two billing verbs and reaches
+      // Stripe the same way signup does; `ops` is the operator's verb surface,
+      // and its authority check lives INSIDE it rather than in a page. The
+      // graph walk below is what proves neither drags the driver in behind it -
+      // and, for ops, that it reaches acknowledgement without reaching raise or
+      // clear.
+      "../../cancel",
+      "../../ops",
     ]);
     for (const specifier of specifiers) {
       expect([specifier, allowed.has(specifier)]).toEqual([specifier, true]);
@@ -151,6 +164,18 @@ describe("the privileged half of the control plane is unreachable", () => {
     "invite-hold",
     "liveness-watch",
     "reboot",
+    // Slice 5. `attention` STAYS FORBIDDEN WITH NO EXCEPTION - it exports raise
+    // and clear, and an app that can raise attention can manufacture an
+    // incident while one that can clear it can hide a real failure. The ops
+    // floor needs only acknowledgement, which is why that one function lives in
+    // attention-ack.ts. The rest is the lifecycle machinery and the operator
+    // flag's WRITER: an app that could grant its own session the flag would
+    // have no ops authorization at all, only the appearance of it.
+    "attention",
+    "lifecycle-tick",
+    "deprovision",
+    "resume",
+    "operator-admin",
   ];
 
   test("no app file imports the driver, the provider or the webhook path", () => {
@@ -226,6 +251,11 @@ describe("the privileged half of the control plane is unreachable", () => {
       // Added in 4b, and the reason the customer-facing vocabulary is RESTART:
       // the app asks for one through a named verb, and cannot spell the kind.
       "reboot",
+      // Added in 5. The lifecycle's kinds are opened by a tick, never by a
+      // page, and the app cannot name one to ask for it.
+      "power_on",
+      "cancel_asset",
+      "remove_dns",
     ];
     for (const file of FILES) {
       const source = read(file);
@@ -284,6 +314,10 @@ describe("the privileged half of the control plane is unreachable", () => {
       // chain function, and the projection derives its ladder from it. It
       // performs no I/O and reaches nothing that does. Everything else on the
       // list stays forbidden however indirectly it arrives.
+      // operations.ts is the one module on the direct list that legitimately
+      // appears in the graph, and the exception is narrow BY NAME. Nothing else
+      // is excused - in particular attention.ts, which the ops floor reaches
+      // around by depending on attention-ack.ts instead.
       if (FORBIDDEN_MODULES.includes(name) && name !== "operations")
         forbidden.push(name);
       const source = read(file);
@@ -308,6 +342,73 @@ describe("the privileged half of the control plane is unreachable", () => {
     expect(seen.has(path.join(CONTROL_PLANE, "requests.ts"))).toBe(true);
     expect(seen.has(path.join(CONTROL_PLANE, "mint-client.ts"))).toBe(true);
     expect(seen.has(path.join(CONTROL_PLANE, "liveness.ts"))).toBe(true);
+    // Slice 5's three, including the one that proves the split worked: the app
+    // reaches attention-ack.ts and NOT attention.ts.
+    expect(seen.has(path.join(CONTROL_PLANE, "cancel.ts"))).toBe(true);
+    expect(seen.has(path.join(CONTROL_PLANE, "ops.ts"))).toBe(true);
+    expect(seen.has(path.join(CONTROL_PLANE, "attention-ack.ts"))).toBe(true);
+    expect(seen.has(path.join(CONTROL_PLANE, "attention.ts"))).toBe(false);
+  });
+
+  /**
+   * The least-privilege split, asserted at the module that has to stay small.
+   *
+   * attention-ack.ts exists so the ops floor can acknowledge without the app's
+   * graph reaching raise or clear. If it ever imported attention.ts - "just to
+   * reuse summarise" - the graph walk above would light up, and this says the
+   * same thing one layer earlier, where the fix is obvious.
+   */
+  test("acknowledgement cannot reach raise or clear", () => {
+    const source = read(path.join(import.meta.dir, "attention-ack.ts"));
+    expect(source).not.toMatch(/from\s+"\.\/attention/);
+    expect(source).not.toContain("raiseAttention");
+    expect(source).not.toContain("clearAttention");
+  });
+
+  /**
+   * The ops surface is a LISTED set of verbs, like the customer's three.
+   *
+   * Pinned for the same reason the facade's export list is: the operator side
+   * of the product must not grow as a side effect of writing a page.
+   */
+  test("the ops verb surface is a fixed list", () => {
+    const source = read(path.join(import.meta.dir, "ops.ts"));
+    const exported = [...source.matchAll(/export function (\w+)/g)]
+      .map((m) => m[1])
+      .sort();
+    expect(exported).toEqual([
+      "acknowledgeInstance",
+      "opsFloor",
+      "opsInstance",
+    ]);
+  });
+
+  /**
+   * The operator flag is a COLUMN, and authority comes from nowhere else.
+   *
+   * Two halves. The app may not spell the column, so a page cannot read or
+   * write it directly and has to go through a service that gates on it. And no
+   * email address gates the ops floor: an address is display data that Google
+   * can change under a stable account, so an address-gated floor would silently
+   * follow the address.
+   */
+  test("no app file spells the operator column, and no email gates ops", () => {
+    for (const file of FILES) {
+      expect([path.basename(file), read(file).includes("is_operator")]).toEqual(
+        [path.basename(file), false],
+      );
+    }
+    const EMAIL = /["'][^"'\s]+@[^"'\s]+\.[a-z]{2,}["']/i;
+    for (const file of [
+      path.join(import.meta.dir, "ops.ts"),
+      path.join(import.meta.dir, "operator.ts"),
+      FACADE,
+    ]) {
+      expect([path.basename(file), EMAIL.test(read(file))]).toEqual([
+        path.basename(file),
+        false,
+      ]);
+    }
   });
 
   /**

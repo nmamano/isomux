@@ -22,7 +22,22 @@ export type OperationKind =
   | "power_off"
   /** The customer's own lever (slice 4b). Like `power_off` it is opened on
    * demand rather than by the chain, so `nextKind` never returns it. */
-  | "reboot";
+  | "reboot"
+  /**
+   * Suspension resume (slice 5). The mirror of a DUNNING power_off and of
+   * nothing else: a cancellation-retention box is never resumed, because its
+   * suspension is not a lever we pulled on an unpaid account, it is the
+   * customer's own cancellation running its course.
+   */
+  | "power_on"
+  /**
+   * End of life (slice 5), opened by the lifecycle tick at the retention
+   * deadline. Both are separate retryable operations rather than one "destroy",
+   * per the design: Stripe's clock and the provider's term are independent, so
+   * if one succeeds and our write fails the next reconcile adopts the truth.
+   */
+  | "cancel_asset"
+  | "remove_dns";
 
 /**
  * Kinds the design names that this slice does not drive. They are listed rather
@@ -31,13 +46,10 @@ export type OperationKind =
  * worse than an error: it would look like the operation ran.
  */
 export const DECLARED_UNIMPLEMENTED_KINDS = [
+  // The only one left. Slice 5 drove power_on, cancel_asset and remove_dns;
+  // `set_dns` stays undriven because no deployment here creates a record, and a
+  // silent no-op arm would look like work that ran.
   "set_dns",
-  "remove_dns",
-  // `power_on` is deliberately still here. Slice 3 suspends on dunning
-  // exhaustion; RESUMING a suspended box is a billing recovery transition that
-  // has not been ruled on, and half a ladder is better than an invented one.
-  "power_on",
-  "cancel_asset",
 ] as const;
 
 export type Goal = "first_contact" | "installed" | "live" | "handed_off";
@@ -148,6 +160,31 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     absoluteMs: 30 * MINUTE,
     maxRemoteMs: 60_000,
   },
+  // Suspension resume. One provider call, same retry shape as the power_off it
+  // undoes: a provider API that is down for a few minutes must not leave a
+  // paying customer's box switched off.
+  power_on: {
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 30 * MINUTE,
+    maxRemoteMs: 60_000,
+  },
+  // The money-ending call. Its ceiling is wide because giving up is not an
+  // option a deprovision has: an asset we asked to cancel and then forgot about
+  // is a bill that renews forever.
+  cancel_asset: {
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 60 * MINUTE,
+    maxRemoteMs: 60_000,
+  },
+  // NOT a remote mutation: nothing here writes DNS. It re-reads the record until
+  // the record is gone, so its ceiling is measured in the time a HUMAN takes to
+  // reap a record after being told to. A day, and then it flags - which is the
+  // point, because a flagged one is what puts it on the ops floor a second time.
+  remove_dns: {
+    inactivityMs: 6 * 60 * MINUTE,
+    absoluteMs: 24 * 60 * MINUTE,
+    maxRemoteMs: 30_000,
+  },
 };
 
 export function deadlinesFor(kind: string): Deadlines {
@@ -203,10 +240,18 @@ export function nextKind(
       return goal === "handed_off" ? "revoke_access" : null;
     case "revoke_access":
       return null;
-    // Not part of the provisioning chain: billing and the customer open these
-    // on their own evidence, and nothing follows them.
+    // Not part of the provisioning chain: billing, the customer and the
+    // lifecycle tick open these on their own evidence, and nothing follows them.
+    //
+    // cancel_asset and remove_dns are the design's "separate retryable
+    // operations rather than one destroy", so deprovision is deliberately NOT a
+    // chain either: neither one's completion opens the other, and the tick
+    // opens both at the retention deadline.
     case "power_off":
     case "reboot":
+    case "power_on":
+    case "cancel_asset":
+    case "remove_dns":
       return null;
   }
 }

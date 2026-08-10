@@ -327,9 +327,17 @@ export class WebhookProcessor {
     if (read.kind === "ok") return read.object;
     const cached = this.deps.store.db
       .query<
-        { stripe_customer_id: string },
+        {
+          stripe_customer_id: string;
+          ended_at: number | null;
+          canceled_at: number | null;
+          cancellation_reason: string | null;
+        },
         [string]
-      >("select stripe_customer_id from subscriptions where id = ?")
+      >(
+        "select stripe_customer_id, ended_at, canceled_at, cancellation_reason " +
+          "from subscriptions where id = ?",
+      )
       .get(subscriptionId);
     if (!cached) return null;
     return {
@@ -338,6 +346,15 @@ export class WebhookProcessor {
       status: "canceled",
       currentPeriodEnd: null,
       cancelAtPeriodEnd: false,
+      // CARRIED FORWARD, not nulled. This snapshot is an INFERENCE FROM ABSENCE,
+      // not a fetched object, and the Stripe-owned patch it feeds overwrites
+      // whatever it names - so nulling these three here would erase the
+      // cancellation timeline's anchor and its customer-vs-dunning
+      // discriminator for an office that is mid-retention. Absence says the
+      // subscription is gone; it says nothing about when it ended or why.
+      endedAt: cached.ended_at,
+      canceledAt: cached.canceled_at,
+      cancellationReason: cached.cancellation_reason,
       discount: null,
       latestInvoiceId: null,
       metadata: {},

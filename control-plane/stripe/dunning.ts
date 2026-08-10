@@ -56,6 +56,14 @@ export interface LadderDecision {
   /** Set when this event is the one that asks for suspension. The caller enqueues
    * `suspensionOperationId(episodeId)` and nothing else. */
   suspension: { episodeId: string } | null;
+  /**
+   * Set on an AUTHORITATIVE recovery, which is the only thing that closes an
+   * episode - and therefore the only thing that may power a suspended box back
+   * on. It is a REQUEST, not an instruction: resume.ts re-checks every predicate
+   * (still suspended, no cancellation lifecycle, a dunning suspension to undo)
+   * inside the writing transaction, because this function cannot see rows.
+   */
+  resume: boolean;
   attention:
     | { kind: "raise"; reason: string; severity: "warning" | "critical" }
     | { kind: "clear" }
@@ -126,6 +134,13 @@ function ownedFrom(
     status: s.status,
     current_period_end: s.currentPeriodEnd,
     cancel_at_period_end: s.cancelAtPeriodEnd ? 1 : 0,
+    // Cached like every other Stripe-owned field, and by the same single writer.
+    // The ladder itself never reads them - a cancellation timeline is not a
+    // dunning decision - but the cancellation machine cannot run without them,
+    // and reconciliation is the only thing allowed to write them.
+    ended_at: s.endedAt,
+    canceled_at: s.canceledAt,
+    cancellation_reason: s.cancellationReason,
     discount_percent_off: s.discount?.percentOff ?? null,
     discount_coupon_id: s.discount?.couponId ?? null,
     discount_ends_at: s.discount?.endsAt ?? null,
@@ -148,6 +163,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
         stripeOwned,
         episode: {},
         suspension: null,
+        resume: false,
         attention: { kind: "none" },
         note: `${subscription.status} (no episode open)`,
       };
@@ -164,6 +180,9 @@ export function decide(inputs: LadderInputs): LadderDecision {
         coupon_grace_until: null,
       },
       suspension: null,
+      // The recovery that closes the episode is also the recovery that may turn
+      // a suspended box back on. Nothing else in this file sets it.
+      resume: true,
       attention: { kind: "clear" },
       note: `recovered to ${subscription.status}; dunning episode closed`,
     };
@@ -194,6 +213,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
           coupon_grace_until: now + COUPON_HOLD_MS,
         },
         suspension: null,
+        resume: false,
         attention: {
           kind: "raise",
           reason:
@@ -221,6 +241,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
             exhaustion_observed_at: exhaustionAt,
           },
           suspension: { episodeId },
+          resume: false,
           attention: {
             kind: "raise",
             reason: `Stripe has stopped retrying an unpaid invoice; suspension requested`,
@@ -238,6 +259,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
           exhaustion_observed_at: exhaustionAt,
         },
         suspension: null,
+        resume: false,
         attention: { kind: "none" },
         note: `dunning episode opened (${subscription.status})`,
       };
@@ -253,6 +275,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
             exhaustion_observed_at: exhaustionAt,
           },
           suspension: { episodeId: row.episode_id },
+          resume: false,
           attention: {
             kind: "raise",
             reason: `Stripe has stopped retrying an unpaid invoice; suspension requested`,
@@ -268,6 +291,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
           exhaustion_observed_at: exhaustionAt,
         },
         suspension: null,
+        resume: false,
         attention: { kind: "none" },
         note: `dunning continues (${failures} failure(s), Stripe still retrying)`,
       };
@@ -283,6 +307,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
           exhaustion_observed_at: exhaustionAt,
         },
         suspension: null,
+        resume: false,
         attention: { kind: "none" },
         note: exhausted
           ? `coupon-lapse hold stands; Stripe has stopped retrying (recorded)`
@@ -299,6 +324,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
         exhaustion_observed_at: exhaustionAt,
       },
       suspension: null,
+      resume: false,
       attention: { kind: "none" },
       note: `suspension already requested for this episode`,
     };
@@ -326,6 +352,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
       stripeOwned,
       episode: {},
       suspension: null,
+      resume: false,
       attention: {
         kind: "raise",
         reason:
@@ -345,6 +372,7 @@ export function decide(inputs: LadderInputs): LadderDecision {
     stripeOwned,
     episode: {},
     suspension: null,
+    resume: false,
     attention: { kind: "none" },
     note: `status ${subscription.status}; no ladder transition`,
   };
