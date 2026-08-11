@@ -145,7 +145,25 @@ the slice.
       tidiness item for Nil, nothing depends on it anymore. Three tests'
       assertions moved from engine prose to SQLSTATE codes (worker
       self-edit, reviewer-approved as stricter and portable).
-- [ ] D2: provisioner to fly.io (I1/R1)
+- [x] D2: provisioner to fly.io (I1/R1) - approved fingerprint 77ab640 /
+      2828 / f461eb8ed7d30d2ffdde65c0322e955e, commit dcef44f. Facts that
+      outlive the slice: the provisioner is LIVE - app isomux-provisioner
+      (org personal), machine 080e977db16d18 (shared-cpu-1x 256MB, fra),
+      volume vol_rnz65n6qm378pn1r (1GB, encrypted, scheduled snapshots
+      OFF - a manual snapshot would still carry 5-day retention, parked
+      to the D4 ops floor with task 962965dc). Surface
+      https://isomux-provisioner.fly.dev, bearer-enforced, /internal/health
+      behind the same bearer. Spend: ~USD 1.94/mo machine + ~EUR 0.15/mo
+      volume + Depot minutes (all reported live, 2026-08-11). Boot refuses
+      without a proved branch pin or writable state marker; tick loop
+      idles gracefully without Contabo creds (37-min measured window,
+      zero operations, zero restarts). D3 reads the SAME bearer file
+      (~/nil/secrets/control-plane-mint.env) and sets
+      CONTROL_PLANE_MINT_URL to the fly surface. flyctl writes per-app
+      bookkeeping into ~/.fly/config.yml - a changed md5 there is not an
+      incident. Process lesson: scripted edits (sed) can silently no-op
+      and report success - assert the change applied before running the
+      check that depends on it.
 - [ ] D3: web to Vercel (I2/R2)
 - [ ] D4: end-to-end + ops floor (I1/R1)
 
@@ -291,5 +309,95 @@ with the token from the secrets file and no token or DSN in any output,
 (c) external health check green, (d) a measured idle window with zero
 operations and zero restarts, (e) an idempotent redeploy, (f) full
 `bun run ci` green locally, (g) docs updated with dates.
+
+Report to Isomux Manager with the standard format when done.
+
+(D2 closed 2026-08-11, commit dcef44f - pickup kept as history; the tick
+note in the Slices list carries what outlives it.)
+
+## PICKUP - SLICE D3: web to Vercel (Isomuxer2 / Reviewer2)
+
+Goal: the control-plane web app deployed on Vercel as a production build
+under Node against Neon production, serving cloud.isomux.com with Google
+sign-in live and dev-auth structurally absent, wired to the provisioner's
+bearer surface. Hobby plan (ruling 3).
+
+Nil-side dependencies - the manager owns chasing these; plan around them,
+do not wait idle:
+- Vercel API token at ~/nil/secrets/vercel.token (requested; boolean-check
+  for presence).
+- Google OAuth client id + secret at ~/nil/secrets/control-plane-oauth.env
+  (requested; the redirect URI is
+  https://cloud.isomux.com/api/auth/callback/google).
+- The `cloud` CNAME lives in Namecheap and only Nil writes DNS: when the
+  Vercel project names its target, hand the exact record to the manager
+  and continue on what does not need the hostname.
+
+What exists:
+- Neon production: schema-ready, empty, direct-host DSN built the D1 way,
+  sslmode=verify-full, no options incantation (Store.open self-governs
+  and refuses if the engine drops the bounds). The `suites` branch is for
+  tests; production never sees test data (ruling 4).
+- The provisioner surface and bearer (D2 tick note above). D3 sets
+  CONTROL_PLANE_MINT_URL to the fly surface and reads the SAME bearer
+  file, in-process, per ruling 8.
+- e2e/production-server.e2e.ts proves `next start` under Node serves
+  store-backed authenticated pages; its session-cookie minting pattern is
+  the documented way to prove store-backed pages without an interactive
+  OAuth click (README documents it).
+- Vercel: Nil's personal team. NEW project, default name
+  isomux-control-plane; the existing `isomux` project is the landing page
+  and is not touched.
+
+The work:
+1. Local production posture first (needs nothing from Nil): `next build`
+   + `node next start` against Neon (suites branch), the full env
+   contract enumerated and documented (names only, never values).
+2. Vercel project via CLI with the token: root directory
+   control-plane/web in a monorepo whose web app imports from ../
+   (store, auth) - whether Vercel's build includes files outside the
+   root directory is a MEASURED plan-gate item, not an assumption. So is
+   the install path (the repo is bun.lock-only).
+3. Env vars into Vercel without values in argv (vercel env add reads
+   stdin) - ruling 8 mechanics, plan-gate the exact commands.
+4. Preview deploy, verify, then production deploy. Add the domain; hand
+   the exact DNS record to the manager for Nil; TLS follows DNS.
+5. Auth: Google provider wired once Nil's client exists; prove from
+   OUTSIDE the deployment that dev-auth is absent in the production
+   build and that an unauthenticated request cannot reach store-backed
+   pages. The interactive OAuth click-through lands in the acceptance as
+   a Nil action at the end (his account, his browser) - stage it last.
+6. Provisioner wiring: one authenticated round-trip from the deployed
+   web to the fly surface (health is enough; minting real invites can
+   wait for D4).
+7. Docs with dates; documentation.md check.
+
+Traps:
+- The deployed web app holds NO provider credentials and no key material
+  (design: that is the whole reason the provisioner exists).
+- Vercel serverless means many concurrent connections: the DIRECT
+  endpoint is correct for the always-on provisioner, but the web side's
+  connection posture (direct vs pooled + how the driver pools per
+  lambda) is a plan-gate topic with the D1 finding in hand - the pooled
+  host drops governed bounds silently, so any pooled choice must prove
+  its bounds the D1 way or be refused.
+- next-env.d.ts is rewritten by any next command: restore before
+  fingerprinting (standing caveat).
+- Vercel CLI output can echo env NAMES freely but must never receive a
+  value as an argument; deployment URLs are fine to print.
+- Hobby-plan ceilings (function duration, no cron) are fine for this
+  slice; anything that needs Pro is a finding, not a workaround.
+- Locked: no Contabo, no fly.io changes (reading the D2 surface is not a
+  change), no DNS writes, no schema changes, no pricing or customer copy
+  changes (pricing sits with Nil), no store-semantics changes.
+
+Acceptance: a transcript showing (a) local `node next start` production
+posture green against Neon, (b) Vercel production deployment serving
+store-backed authenticated pages against Neon production, (c) dev-auth
+proven absent from outside, (d) unauthenticated requests refused, (e) one
+bearer round-trip web -> provisioner, (f) the DNS record handed over and,
+once Nil lands it, cloud.isomux.com serving with TLS, (g) full
+`bun run ci` green locally, (h) docs dated. The final interactive Google
+sign-in is verified by Nil and recorded as his action.
 
 Report to Isomux Manager with the standard format when done.
