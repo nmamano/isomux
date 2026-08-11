@@ -106,6 +106,14 @@ Cut (approved 2026-08-11):
    diagnosis. The public-before-probed interval is covered by the
    zero-customer justification and expires with it - this ordering is
    not a precedent for deploys after customers exist.
+   AMENDED 2026-08-11 ~16:20Z: Vercel accepted the DNS (misconfigured
+   false, ownership verified) but issued no certificate ~35 min on -
+   plausibly because issuance waits for a production deployment
+   (unproven hypothesis, worker-flagged). TLS confirmation moves INSIDE
+   the one-sequence: production deploy first, bounded cert wait (15
+   min, spaced reads), then the full probe suite over TLS. 'vercel
+   certs issue' stays unapproved (LE rate-limit exposure on the loop's
+   one hostname); if the bounded wait expires, park and escalate.
 
 ## Lanes
 
