@@ -180,8 +180,21 @@ all user-visible prose verbatim in the report.
       outran holder) - "passed in isolation" is how that class
       survives. 14/14 mutations caught. Contributor README wording
       queued for Nil sign-off at close.
-- [ ] Slice P3: production server, live proof, Neon-readiness, docs
-      (Isomuxer1 / Reviewer1) - pickup finalized after P2 lands
+- [x] Slice P3: production server, live proof, Neon-readiness, docs
+      (Isomuxer1 / Reviewer1). DONE 2026-08-11: approved pre-format
+      fingerprint d59485ab2cd84aece1dd293eb1cdb840 (verified
+      byte-exact), committed 8c37bda. 6 files, +918 net with the
+      committed e2e driver. The loop's claim is PROVEN: node next
+      start serves store-backed authenticated pages against Postgres
+      (runtime read off the listening socket's process). One rejected
+      round: a checked-in transcript secret (ruling said never
+      committed; now randomBytes per run). Web store: one per
+      process, promise-cached, eviction-on-rejection (measured 62.6ms
+      Store.open vs 1.3ms read). Neon docs: DIRECT endpoint required
+      (pooled rejects startup-parameter timeouts - future work shape
+      named). Real-box power-cycle leg EUR 0, box left serving.
+      bun next start defect MOVED (boots then 500s) - matrix records
+      it. Product-visible consequences: none (docs + web internals).
 
 ## PICKUP: Slice P3 - production server, live proof, Neon-readiness,
 docs (Isomuxer1 / Reviewer1)
