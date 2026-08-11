@@ -199,7 +199,26 @@ the slice.
       incident. Process lesson: scripted edits (sed) can silently no-op
       and report success - assert the change applied before running the
       check that depends on it.
-- [ ] D3: web to Vercel (I2/R2)
+- [x] D3: web to Vercel (I2/R2) - approved fingerprint 439ef15 / 9097 /
+      35ff0b12590119c02b18c76ae4501a93, commits 439ef15 (mid-slice
+      sign-in fix, so the archive artifact carried it) + ce7954d. Facts
+      that outlive the slice: cloud.isomux.com LIVE, browser-verified by
+      Nil 2026-08-11 - Google-only sign-in, dev-auth structurally absent,
+      one idempotently-bound account row. Cert ordering (inference,
+      bounded): attach -> DNS -> DEPLOY -> bounded TLS wait -> probe; the
+      reverse produced no cert in 97 observed minutes. Pooled Neon host
+      refuses the options channel outright (08P01) - D1's README claim
+      corrected. AUTH_SECRET is write-only: synthetic authenticated
+      probes are unrepeatable on redeploys, by design; real acceptance is
+      a human in a private window. Vercel automation bypass permanently
+      rejected (injects its secret into the app runtime). Carried into
+      D3.5/D4 pickups: intent-to-add guard fix (classify against HEAD
+      path set, not porcelain prefix); redeploy row expectation must
+      become before/after comparison before customer #2; NO SIGN-OUT
+      ROUTE in the app (task candidate). R-2026-08-11-1 stays OPEN, only
+      its no-customers half standing - D3.5 closes it before D4. Process
+      lesson (bitten twice this slice): scripted edits verified by grep
+      after application, always.
 - [ ] D3.5: connection governance - role-enforced bounds + provisioner
       reserve, closes the R-2026-08-11-1 finding (I1/R1; pickup authored
       at D3 close)
@@ -353,6 +372,88 @@ Report to Isomux Manager with the standard format when done.
 
 (D2 closed 2026-08-11, commit dcef44f - pickup kept as history; the tick
 note in the Slices list carries what outlives it.)
+
+## PICKUP - SLICE D3.5: connection governance (Isomuxer1 / Reviewer1)
+
+Goal: close the R-2026-08-11-1 finding (ruling 10) - give the deployed
+tiers an engine-or-pooler-enforced aggregate connection posture with a
+provisioner reserve, so D4 may open a real signup path. The acceptance
+bar is Reviewer2's original predicate: a NUMERIC worst-case aggregate
+that fits Neon's 901 with a stated reserve, engine- or pooler-enforced,
+not client-promised.
+
+Read first: this whole file (rulings 10 and 11 especially), the D1-D3
+tick notes, control-plane/README.md (connection-posture section, Neon
+sections, the deploy runbook), internal-docs/control-plane-design.md.
+
+What exists (all measured 2026-08-11):
+- Neon direct endpoint: max_connections 901; proves governed bounds and
+  branch identity (D1 machinery in testing/target.ts, exercises/).
+- The pooled -pooler endpoint REFUSES the store's options startup
+  channel outright (SQLSTATE 08P01) - Store.open cannot open against it
+  today. Vercel publishes no concurrency ceiling on any plan.
+- Deployed consumers: the fly provisioner (one machine, direct DSN) and
+  the Vercel web tier (direct DSN, per-instance pool).
+- Ruling 10 pre-authorizes the shape: option B preferred - move the two
+  bounds (statement_timeout, idle_in_transaction_session_timeout) to
+  role level via ALTER ROLE ... SET, keeping the open-time read-back
+  that refuses to run unproved (that preserves the design's guarantee;
+  ruled implementation-locus, not semantics). Option A (a web role with
+  CONNECTION LIMIT n) may compose with it. The plan-gate settles the
+  design with measurements - including whether role-level bounds make
+  the POOLED endpoint eligible for the web tier, which would hand the
+  aggregate ceiling to the pooler where a serverless tier wants it.
+
+The work (plan-gate the exact cut with Reviewer1):
+1. Roles and bounds: the role/grant layout (e.g. a web role and the
+   provisioner's role, each with engine-enforced limits and role-level
+   bounds), expressed in bootstrap so a fresh database gets it, and
+   applied to the live Neon production branch as a gated migration.
+2. Store: keep the bounds read-back; adjust where the bounds come from
+   (role SET vs options) per the plan; prove both endpoints' behavior
+   with measurements on the suites branch first.
+3. The numeric posture, written down: worst-case web aggregate + the
+   provisioner reserve + headroom vs 901, in the README with dates.
+4. Rotate the deployed configuration if the plan changes DSNs or roles:
+   the provisioner via fly secrets (D2 wrappers), the web via a gated
+   Vercel env change - note AUTH_SECRET is write-only and untouchable;
+   only CONTROL_PLANE_DB may move, via its env id, PATCH not recreate.
+5. Carried defects to fix in this slice (from D3, small and gated):
+   the coordinator pre-flight guard classifies against the HEAD path
+   set instead of porcelain prefixes (intent-to-add collision).
+6. Docs: README posture section replaces the R-2026-08-11-1 finding
+   with the enforced answer; the finding's expiry is recorded as met.
+
+Traps:
+- Production carries ONE real account row (Nil's). No test data on
+  production, ever (ruling 4). Suites-branch first for every measured
+  claim; the live migration is its own gated, reversible step.
+- ALTER ROLE ... SET takes effect on NEW sessions: the running fly
+  provisioner must be restarted or redeployed to inherit changes, and
+  its boot proof must confirm the bounds post-change.
+- The web tier's live deployment reads CONTROL_PLANE_DB at build/boot:
+  a DSN change needs a redeploy (the --redeploy mode; remember its
+  fixed 1/0/0/0 row expectation - it is correct while Nil is the only
+  account, but do not let a test signup invalidate it mid-slice).
+- Neon roles created via API vs SQL differ in password management -
+  measure, do not assume; the API key is at ~/nil/secrets/neon.token,
+  read in-process only (ruling 8 throughout).
+- Locked: no signup-path changes, no Contabo, no fly app changes beyond
+  configuration/redeploy, no schema changes to product tables, no
+  customer copy. R-2026-08-11-2's detach lever and the TLS exception
+  stand for any web redeploy.
+
+Acceptance: (a) measured proof on the suites branch of the chosen
+mechanism (bounds via role, read-back green, and the pooled-endpoint
+answer settled with data); (b) the live migration applied and proved on
+production (roles, limits, bounds - boolean evidence, zero user-data
+changes, account count still exactly 1); (c) provisioner and web both
+running under the new posture with their proofs green (fly boot line;
+web probe subset); (d) the numeric aggregate + reserve documented with
+dates; (e) the guard fix landed with tests; (f) full bun run ci green;
+(g) docs updated per documentation.md.
+
+Report to Isomux Manager with the standard format when done.
 
 ## PICKUP - SLICE D3: web to Vercel (Isomuxer2 / Reviewer2)
 
