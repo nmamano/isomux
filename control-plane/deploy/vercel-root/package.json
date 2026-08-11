@@ -1,0 +1,10 @@
+{
+  "name": "isomux-control-plane-artifact-root",
+  "private": true,
+  "dependencies": {
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.21.0"
+  }
+}

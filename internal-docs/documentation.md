@@ -146,6 +146,13 @@ These aren't user-facing docs, but they do describe features and can fall out of
 - `internal-docs/` - design documents for individual features. Historical/reference only; not expected to stay current, with two maintained exceptions (below). (Operator-facing docs live in `docs/`; see section 4.)
 - `internal-docs/backup-restore.md` - the **maintained** break-glass runbook for the daily `~/.isomux` backup: what the tarballs hold, and the stop-service / move-aside / extract / restart restore procedure. Linked from `server/backup.ts`. It stays in `internal-docs/` rather than the docs site because it is an emergency procedure for whoever runs the box, not a feature page; the one-paragraph user-facing summary lives in `docs/features.md`. Keep it current when the backup schedule, archive layout, or state-root resolution changes.
 - `internal-docs/testing-guide.md` - the **maintained** living reference for the test suite: the tiers (T0-T3), how to run (`bun test` vs `bun run test:live`), the seam-to-test-file map, and conventions. Unlike the rest of `internal-docs/`, keep this current as the test suite evolves. (Its companion `internal-docs/generic-runtime-refactor.md` stays the historical design/decision record.)
+- `control-plane/README.md` - the **maintained** reference for the hosted control
+  plane: its store and driver protocol, the web app, billing, invites,
+  cancellation, and the deployed topology (Neon, fly.io, Vercel) with the
+  operator procedures for each. Unlike the design documents in `internal-docs/`,
+  keep it current as the control plane changes - it is what the next person
+  reads before touching a deployment, and every measured claim in it carries a
+  date.
 - `internal-docs/private/` - gitignored, so it lives only on the box it was written on. Business and legal facts behind hosted isomux: entity and account identifiers, API key scopes, recurring filing deadlines, and a pointer to the session transcript where each was set up. `legal-entity.md` is the entry point.
 - `server/commands.ts` - per-command `description` fields surface in the slash-command autocomplete UI.
 - `server/system-prompt.ts` `buildSystemPrompt()` - the system prompt injected into every spawned agent (called from `server/agent-manager.ts`). Update when the agent's role or capabilities change.

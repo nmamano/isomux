@@ -352,15 +352,22 @@ paragraph of it was wrong in a way that mattered.
   and warns that a future major will stop doing so, so leaving it at `require`
   is a certificate check that expires on somebody else's release schedule.
   `exercises/neon-api.ts` sets `verify-full` on every string it builds.
-- **The DIRECT endpoint, not the pooled one.** The earlier claim that the
-  pooled endpoint REJECTS unsupported startup parameters did not reproduce: a
-  pooled connection was accepted and behaved like the direct one, ignoring both
-  bounds. The reason to stay on the direct endpoint is therefore not a refusal
-  we can point at - it is that the pooled endpoint is a second connection
-  machine we have measured nothing else about, and `options` is the channel
-  this build now depends on. `exercises/neon-api.ts` takes the direct host from
-  the API's endpoint record rather than by editing a hostname, and refuses a
-  pooled one outright.
+- **The DIRECT endpoint, not the pooled one - and the answer depends on the
+  CHANNEL, which is why this paragraph has been measured twice.** As pool
+  startup FIELDS, the two bounds were silently dropped by both endpoints: a
+  pooled connection was accepted and reported neither bound, exactly as the
+  direct one did. That is the reading behind the earlier note here, and it was
+  a reading about a channel this build no longer uses. Through the `options`
+  startup PARAMETER, which is the authoritative channel now, the two endpoints
+  differ: the direct one accepts it and applies both bounds, and the pooled one
+  REFUSES THE CONNECTION with SQLSTATE 08P01. Measured 2026-08-11, four
+  connections with the same credentials against the same branch - direct plain
+  connects, direct with `options` connects, pooled plain connects, pooled with
+  `options` fails 08P01. So `Store.open` cannot open against the pooled
+  endpoint at all, and it fails closed rather than running unbounded.
+  `exercises/neon-api.ts` takes the direct host from the API's endpoint record
+  rather than by editing a hostname, and refuses a pooled one outright;
+  `deploy/endpoint-posture.ts` is the standing re-measurement.
 - **What bounds connections**, and why the direct endpoint is affordable: the
   web app holds ONE store per process with a pool capped at 4 and a 10s idle
   timeout, so a warm instance holds a handful of connections and an idle one
@@ -386,6 +393,94 @@ if not exists` and nothing else. Confirmed by running the bootstrap against
   branch. That is what makes the branch guards below proofs rather than
   conventions: a connection string can name any host, and the branch serving
   the connection is the only thing that knows which branch it is.
+
+### The web tier's connection posture, and the bound that does not exist yet
+
+The provisioner is one always-on machine, so "direct endpoint, small pool" is a
+complete answer for it. A Vercel deployment is not one machine, and that turns
+the same choice into a different question: the platform decides how many
+instances exist, each one holds its own pool, and what the database sees is the
+product of the two. `WEB_POOL` caps one factor and says nothing about the other.
+
+`deploy/endpoint-posture.ts` asks the question with the app's own open path.
+Measured 2026-08-11 against the production branch, writing nothing:
+
+```
+direct_opens: true   direct_bounds_governed: true   direct_branch_proved: true
+pooled_opens: false  pooled_bounds_governed: false  pooled_branch_proved: true
+pooled_failure: connect_or_open_failed
+direct_max_connections: 901        pooled_max_connections: 901
+```
+
+(Its real output is one key per line; the pairs are folded here for width.)
+
+The pooled endpoint is not a posture this build can hold - not as a preference,
+but because the channel its bounds travel in is refused at the protocol level
+(the paragraph above). That matters more than it looks: **a pooler is the
+standard way a serverless tier bounds its connections, and this build cannot use
+one.**
+
+So the aggregate is ungoverned, and the numbers say why. Vercel publishes no
+function concurrency or instance ceiling on Hobby - `/docs/limits` (page dated
+2026-08-03) carries no such row, and `/docs/fluid-compute` (dated 2026-07-01)
+lists CPU, duration and failover per plan and nothing about concurrency, while
+describing scaling as automatic. There is no `vercel.json` property and no
+dashboard setting that caps it. The worst case is therefore (unbounded
+instances) x 4 against a hard 901.
+
+**What is missing is not capacity, it is ALLOCATION.** The engine does enforce
+901; nothing reserves any of it. An unbounded web tier can exhaust the
+connections the PROVISIONER needs, and the provisioner is the component holding
+the keys and running revocations. A frozen Vercel instance also does not run
+pg's 10s idle timer, so idle instances can hold connections until the provider
+reaps them.
+
+**This is a dated finding with an expiry, not a solved problem** (ruling
+R-2026-08-11-1). It is accepted for this deployment on measured grounds rather
+than hopeful ones. **Those grounds are stated as they stood when
+R-2026-08-11-1 was granted, and one of them has since expired:** at that moment
+there were no customers, the public hostname did not exist, and the exposure
+needed traffic that could not arrive before DNS did. The hostname exists now and
+serves (2026-08-11), so only the no-customers half of the justification is still
+standing - which is exactly why the finding has an expiry rather than a
+promise. The
+per-instance half stays governed meanwhile - `WEB_POOL` is 4 connections with a
+10s idle timeout, and both bounds are proved at `Store.open` or the store
+refuses to open.
+
+The expiry is the part that matters: the aggregate posture lands before the
+end-to-end slice, and no real signup path opens while this finding is open. The
+preferred shape is to move the two bounds off the `options` parameter and onto
+role-level settings that every session inherits - which keeps the open-time
+read-back that makes them real, and makes the pooled endpoint eligible again,
+handing the aggregate bound back to a pooler. An engine-enforced `connection
+limit` on a role the web alone uses, with a measured reserve for the
+provisioner's own role, composes with it. Moving the enforcement point while
+keeping the read-back is a change of locus, not of the guarantee. Either way it
+still owes a measurement of the pooler's own backend limit and its isolation
+from the provisioner, which is why it is its own slice and not a paragraph here.
+
+### What the web deployment may carry
+
+An allowlist in `deploy/vercel-api.ts`, and the absences are as much of the
+contract as the entries. Present: `CONTROL_PLANE_DB`, `AUTH_SECRET`, `AUTH_URL`,
+`CONTROL_PLANE_MINT_URL`, `CONTROL_PLANE_MINT_TOKEN`, and Google's two.
+
+Refused by name, not merely absent: every Contabo credential, the Neon API key,
+the fly token, the branch pin, both dev-auth flags, and all three Stripe values.
+The last group is a posture rather than an omission - `signUpOffice` judges the
+customer's input first and the price id second, and reserves a name only after
+both, so a deployment with no price configured cannot write a reservation row or
+reach Stripe at all.
+
+The boundary is worth stating precisely, because the web app plainly DOES hold
+credentials: a Production database DSN, its own `AUTH_SECRET`, Google's client
+secret, and the provisioner's bearer. What it holds none of is
+INFRASTRUCTURE-PROVIDER credentials or provisioning key material - no Contabo
+credential, no Neon API key, no fly token, no Vercel token, no protection-bypass
+secret. It can talk to its own database and ask the provisioner for something;
+it cannot create, destroy or reach a customer's box, and it holds nothing that
+would let it. That is the whole reason the provisioner exists.
 
 ### Branches: which database a command is allowed to touch
 
@@ -560,6 +655,358 @@ filename; an unrecognised state imports as `ambiguous` rather than being trusted
 because a legacy file is bytes on disk and the column's type is a claim about our
 own writes; a directory that cannot be enumerated refuses to open the store at
 all. It is never deleted or rewritten, and it can only ever refuse a create.
+
+## Deployed: the web app on Vercel
+
+The storefront is a Next.js app inside a repository that already belongs to
+something else, and that sentence is the whole difficulty. Every step below is
+here because a deployment failed without it, and the failures are recorded
+rather than tidied away: a procedure that reads as though it were designed in
+one pass would hide the two constraints that will still be true next year.
+
+The project is `isomux-control-plane` in Nil's personal scope, Root Directory
+`control-plane/web`, framework `nextjs`, with `sourceFilesOutsideRootDirectory`
+enabled. `buildCommand` and `outputDirectory` are deliberately unset, so
+framework detection chooses them; `installCommand` is set, and is the one thing
+that could not be left to detection.
+
+```
+bun control-plane/deploy/vercel-capability.ts     # read-only: token, CLI, live settings, upload size
+bun control-plane/deploy/artifact-local.ts        # build the artifact and prove it, locally
+bun control-plane/deploy/vercel-archive-deploy.ts # the settings, the artifact, one preview
+bun control-plane/deploy/vercel-diagnose.ts       # why did a build fail? closed vocabulary
+```
+
+### The artifact is not the repository, and three files say so
+
+A CLI deployment uploads a directory, and **the directory it uploads is what
+governs the build** - not the project's Root Directory setting. That single fact
+produced two of the four failures. So the artifact is a `git archive` of HEAD
+into a throwaway directory, with exactly three transformations
+(`deploy/artifact.ts`), each proved by comparing file manifests before and
+after rather than by trusting the code that made them:
+
+| transformation         | why                                                              |
+| ---------------------- | ---------------------------------------------------------------- |
+| remove `vercel.json`   | it is the landing page's build configuration, and it wins        |
+| replace `package.json` | dependencies must resolve from `control-plane/`, which is above  |
+| replace `bun.lock`     | a lock describing the office manifest cannot be frozen-installed |
+
+The replacements come from `control-plane/deploy/vercel-root/`, a manifest pair
+of its own: `pg` and `@types/pg`, private, no scripts. It is deliberately NOT
+the provisioner's `deploy/package.json`, which is a runtime manifest for an
+image holding provider credentials and has no business carrying a build-only
+type declaration. `deploy/artifact.test.ts` pins the two as separate contracts
+and requires every spec in either to match both the repository root and
+`control-plane/web` exactly, so neither can drift.
+
+The repository itself is never touched. Every original is digested before the
+artifact is built and compared afterwards, and the digests stay in memory.
+
+### The install command, and why detection could not choose it
+
+```
+cd ../.. && test -f control-plane/web/package.json && bun install --frozen-lockfile && cd control-plane/web && bun install --frozen-lockfile
+```
+
+Two frozen installs, root first. Vercel installs in the Root Directory, so
+dependencies land in `control-plane/web/node_modules` - and `pg` is imported by
+`control-plane/store.ts`, which sits ABOVE that directory, where a bare
+specifier resolves by walking UP and finds nothing. The root install is the
+ancestor install that fixes it, which is the same move `deploy/Dockerfile`
+already makes for the provisioner by installing its manifest at `/app`.
+
+`@types/pg` is there for the same reason one level further out: `next build`
+type-checks `../store.ts`, and TypeScript resolves TYPES from the importing
+file's directory upward, so the web package's own devDependency is invisible to
+it. Measured 2026-08-11: without it the build fails `TS7016` while every module
+resolves perfectly well.
+
+The `test -f` is a fail-closed anchor. The command starts in the Root
+Directory, so `cd ../..` is the artifact root only while that holds; if it ever
+stops holding, the build stops rather than installing something somewhere else.
+
+### What the four preview deployments measured
+
+Every one of these was a real deployment, and each answered exactly one
+question (2026-08-11, source `d294c96`).
+
+1. **CLI run inside `control-plane/web`** - `rootDirectoryMissing`. Vercel
+   applied the Root Directory to the uploaded directory and looked for
+   `control-plane/web/control-plane/web`. The upload's root is what counts.
+2. **CLI run at the archive root, `vercel.json` kept** - the build ran the
+   LANDING PAGE's demo-and-docs command and never mentioned `control-plane/web`
+   at all. A `vercel.json` at the upload root outranks the project's settings,
+   so the artifact has to drop it.
+3. **`vercel.json` removed** - a real Next.js build inside `control-plane/web`,
+   with no trace of the landing page, and `../../` imports RESOLVED. That is the
+   answer to the question the whole approach rested on:
+   `sourceFilesOutsideRootDirectory` works. It failed on one package, `pg`.
+4. **Ancestor manifest and install command** - `READY`.
+
+The fourth was run only after the entire shape reached a green `next build` on
+a developer box through `deploy/artifact-local.ts`, which makes the same
+artifact, runs the same install command from the same starting directory, and
+runs the same build. Three deployments had failed for three different reasons by
+then, and moving the loop off the network is what stopped it being four.
+
+### Who can reach it, and when that changes
+
+The project was created with Vercel Authentication already on, at
+`ssoProtection.deploymentType: all_except_custom_domains`. Two consequences, and
+they are opposite in sign:
+
+- **Before a custom domain exists, the `*.vercel.app` URLs are not publicly
+  reachable at all** (measured 2026-08-11): every request, including
+  `/api/auth/providers`, answers `302` to Vercel's own SSO. That is a real
+  safety property while the deployment is being built out, and it is also why
+  the first round of application probes proved nothing - they were talking to
+  Vercel, not to us, and are recorded as inconclusive rather than as passes.
+- **`cloud.isomux.com` is attached, so the exemption applies to it**, and the
+  intended public exposure has begun (2026-08-11). Any Google account can sign
+  in, and a sign-in BINDS AN ACCOUNT ROW in Neon production. That write surface
+  is the deliberate one; there is no other, and it is the reason the production
+  probes mint a cookie for an account that does not exist rather than seeding
+  one.
+
+Automated probing of a protected deployment needs Vercel's Protection Bypass for
+Automation. Worth knowing before reaching for it: Vercel places that secret into
+the deployment's own environment as `VERCEL_AUTOMATION_BYPASS_SECRET`, so it is
+not invisible to the application, and its documentation offers the value as a
+query parameter as well as a header.
+
+### The certificate, and the ordering it forced
+
+`cloud.isomux.com` is live: a production deployment serving it against Neon
+production, with a verified certificate and Google as the only configured
+sign-in provider (2026-08-11). Getting there settled an ordering question that
+is worth recording, because the obvious sequence did not produce a
+certificate while it was watched.
+
+What the deployment holds, measured 2026-08-11 after the first real sign-in: ONE
+`accounts` row, bound to a Google subject, and zero rows in every other user
+table. That row is the deliberate write surface and the only one - a sign-in
+binds an account, and nothing else in this deployment writes user data. It was
+created by the first real sign-in and confirmed from a browser at ~18:3xZ the
+same day: the home page showed the signed-in identity and the no-office card,
+which is the whole store-backed path working against Neon production. A second
+sign-in from a fresh private window later the same evening bound to the SAME
+account rather than making another - `bindGoogleSubject` finds the existing
+Google subject - so the count is one because the binding is idempotent, not
+because nobody tried twice.
+
+**The first interactive sign-in also found a bug, and it is recorded here
+because the transcript reads as a failure and was not one.** The OAuth round
+trip completed, the account bound on the first attempt, no error was logged, and
+the browser still returned to a sign-in page offering to sign in. The cause was
+in this repository rather than in any deployment setting: `app/signin/page.tsx`
+called `signIn("google")` with no `callbackUrl`, and Auth.js therefore returned
+the user to the page the flow started on - `/signin`, a client component that
+never asks whether anyone is signed in, served from the prerender cache. Every
+click succeeded and every click looked identical to failure. The dev provider
+next to it passes `callbackUrl: "/"`, which is why no earlier transcript caught
+it: dev-auth is what every previous run exercised, and Google only becomes
+reachable on a real deployment.
+
+Both halves of the fix shipped the same evening (commit `439ef15`, redeployed
+2026-08-11): the Google call now names `callbackUrl: "/"` like the dev call
+beside it, and `/signin` became a server component that asks `auth()` and sends
+an already-authenticated visitor to `/`. Either alone ends the loop; together
+they also cover a visitor who reaches `/signin` by some other route while
+holding a session. The build output is the proof that the second half is real -
+`/signin` moved from `○` (static, prerendered) to `ƒ` (dynamic), because a
+prerendered page cannot know whether anyone is signed in.
+
+**The redeploy proved less than the first deployment did, on purpose.** It read
+no credential and wrote no environment variable, so it could not mint a session
+cookie: the synthetic authenticated store checks and the deployed-web bearer
+round trip were NOT repeated. `AUTH_SECRET` is write-only by design and the
+coordinator that generated it is gone, which is exactly the cost the environment
+section above describes rather than a new concession. What it did prove: the
+artifact came from the committed fix, no credential was read, no environment
+entry changed, the inventory was exactly 2+7 before and after, the row counts
+were unchanged at one account throughout, and the anonymous suite was green.
+
+The authenticated half of the acceptance is therefore a browser, not a probe,
+and it is recorded as measured on 2026-08-11: a private-window sign-in from
+`/signin` landed on `/` showing "Signed in as ... / You have no office yet",
+with no bounce and no loop. Taken with the root-page check from the same
+evening - which proved the ORIGINAL session had survived the whole time - the
+defect and its fix are both confirmed from a real browser against the deployed
+production, which is the only place either could be seen at all.
+
+The obvious sequence is: attach the domain, wait for DNS, wait for TLS, then
+deploy something once the hostname is known good. What was measured instead is
+below, all times UTC on 2026-08-11.
+
+The continuous readings are not this tooling's: they come from a 15-second HTTPS
+watcher run by the operator in a separate session - one uninterrupted background
+`curl` loop, started around 15:45Z, exiting on its first non-000 answer. Its
+first-success timestamp is the mtime of that loop's output file, and the file
+recorded HTTP 200 with a verified Let's Encrypt certificate. The manual 000
+readings at 16:03:18Z, ~16:25Z, 16:45:27Z and 17:06:17Z are from the same
+operator's transcript. The `READY` timestamp is from the Vercel deployment
+record.
+
+| time      | observation                                                                                                                                                     |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 12:51Z    | domain attached; the authoritative per-project CNAME derived and handed over                                                                                    |
+| ~15:40Z   | the CNAME installed at the registrar                                                                                                                            |
+| ~15:45Z   | a watcher begins polling `https://cloud.isomux.com` every 15 seconds                                                                                            |
+| 16:04Z    | Vercel reports the configuration accepted: `misconfigured` false, ownership verified, zero outstanding challenges, observed CNAME exactly the handed-off target |
+| 16:05Z    | a read-only certificate-list query finds no account certificate covering the hostname; the TLS handshake closes without a response                              |
+| 17:21:51Z | the first production deployment reaches `READY`                                                                                                                 |
+| 17:22:02Z | the watcher still records no HTTPS answer - `READY` + 10.5s                                                                                                     |
+| 17:22:17Z | the watcher's first success: HTTP 200 with a verified certificate - `READY` + 25.5s                                                                             |
+
+So the certificate appeared inside a 15-second window beginning ten seconds
+after the deployment went READY, ending **97 minutes of continuous
+15-second-resolution absence** - 77 of those minutes with Vercel reporting the
+configuration entirely correct. The certificate's own validity window is
+consistent with issuance in the minutes before 17:22Z.
+
+**This is an inference, not an established platform rule.** It is one
+chronology. It does not prove that Vercel never issues a certificate for an
+attached domain before a production deployment exists, and the closing sentence
+of a run is a bad place to legislate somebody else's platform. What it does
+establish is the procedure that works, and the one that does not:
+
+```
+attach the domain -> land DNS -> DEPLOY TO PRODUCTION -> bounded TLS wait -> probe
+```
+
+The reverse - waiting for TLS before deploying - produced nothing across 97
+minutes of observation. Whether it would EVENTUALLY have produced one is not
+something a single run can answer, and this does not claim it. `deploy/`'s
+production phase therefore deploys first and waits for the certificate
+afterwards, at absolute offsets from `READY` (+60s, +180s, +360s, +600s, +900s)
+with a hard fifteen-minute deadline. In the live run the first check was enough:
+`tls_reads: 1`.
+
+### Running the production phase after a freeze
+
+TWO COMMANDS, and the difference matters more than the flag suggests: the
+default one WRITES the environment.
+
+```
+bun control-plane/deploy/production-phase.ts             # FIRST deploy: creates the seven Production entries
+bun control-plane/deploy/production-phase.ts --redeploy  # ships new code, writes nothing
+```
+
+Anything else - a typo, an extra argument, `--redeploy=true` - refuses before
+the token file is opened rather than falling through to the writing mode.
+
+**First-deploy mode** expects Preview-only environment and an empty database: it
+refuses unless Production carries no entries of its own and every user table
+reads zero. That is why it cannot be re-run against a live deployment, and why
+running it "just to see" is the wrong instinct - it is the mode that creates
+credentials.
+
+**Redeploy mode** is the one proved live on 2026-08-11 and the one to reach for
+when only the application changed. It requires the environment to be ALREADY
+exact at 2+7, reads no credential file, generates nothing, and performs no
+environment create, update or delete - the list of writes it iterates is empty,
+so no mutating call is reachable. It deploys the committed `HEAD` artifact once,
+waits for the certificate on the same bounded schedule, and runs the ANONYMOUS
+suite only. It cannot repeat the synthetic authenticated store checks or the
+deployed-web bearer round trip, for the reason the environment section gives:
+`AUTH_SECRET` is write-only and the process that generated it is gone. Real
+authenticated acceptance is a human signing in from a private window.
+Detach-before-diagnosis and the TLS-timeout exception apply to both modes.
+
+**Redeploy mode is D3 ACCEPTANCE TOOLING, not a general redeploy command.** It
+asserts the row state measured in this slice - exactly one account and nothing
+else - before and after. The moment a second customer exists that assertion is
+wrong and the mode will refuse a perfectly healthy deployment. Whoever ships the
+next redeploy after customers arrive must replace that fixed expectation with a
+before/after comparison rather than a constant.
+
+The rest of this section describes first-deploy mode. One process, because a
+`sensitive` value cannot be read back and only the process that generated
+`AUTH_SECRET` can mint a session cookie for the deployment. It writes the seven
+Production variables, deploys once from the
+transformed artifact, waits for the certificate, probes over HTTPS, and detaches
+the domain before reporting anything if a predicate fails after the deploy was
+invoked - including a failure that arrives as a thrown error rather than as a
+verdict. There is ONE ruled exception: if the certificate never arrives inside
+the fifteen-minute deadline, it parks with the domain still attached and
+detaches nothing, because production never began serving and there is nothing
+public to roll back.
+
+**Unstage before running it, if the tree is frozen for review.** The phase
+refuses to run when a runtime path under `control-plane/` has an uncommitted
+non-doc change - the artifact is `git archive HEAD`, so anything uncommitted
+would silently not be in it. The review convention freezes a tree with
+`git add --intent-to-add .`, which turns every untracked file into an ` A` index
+entry, and the guard reads those as dirty runtime paths. Measured 2026-08-11:
+27 counted, all of them intent-to-add deploy tooling, and zero genuinely
+modified tracked files. The property being protected still holds - `git archive
+HEAD` cannot carry an untracked file - so the collision is in the TEST, not in
+the guarantee. `git reset` (unstage only, working tree untouched), run, then
+`git add --intent-to-add .` to restore the frozen fingerprint byte-exact.
+The guard should classify against the HEAD path set rather than the porcelain
+prefix; that fix is owed and is not yet made.
+
+### The environment, and what a `sensitive` value costs
+
+Preview carries exactly `CONTROL_PLANE_DB` (the Neon **suites** branch) and its
+own `AUTH_SECRET`. Production carries the production DSN, its own `AUTH_SECRET`,
+`AUTH_URL`, the two Google credentials and the mint URL and bearer. The two
+names that appear in both scopes hold different values under disjoint targets,
+which is the point of scoping rather than duplication.
+
+That shape is also why the inventory is judged PER TARGET rather than by name.
+Vercel's environment list is a flat set of entries, and a check that maps them
+by key lets the Production `CONTROL_PLANE_DB` stand in for the Preview one - so
+a missing Preview entry reads as a complete inventory. `deploy/`'s production
+phase partitions by target first, requires every entry to name exactly one known
+target, refuses a repeated key on the same target, and requires nine entries in
+total: two on Preview and seven on Production. Verified exact on the live run,
+2026-08-11.
+
+Every credential is stored `sensitive`, which on Vercel means **non-readable
+once created** - not by the dashboard, and not by the token that wrote it. Three
+values are deliberately `encrypted` instead, because all three are public by
+construction: the site's own address, the provisioner's hostname, and Google's
+client id, which is sent to the browser on every sign-in. Making those
+write-only would cost the ability to verify them and buy nothing.
+
+The price of write-only is worth stating plainly, because it shapes the
+procedure. A deployment never needs to know its own secrets - Vercel injects
+them - so **redeploying is unaffected and nothing has to be rotated**. But
+minting a session cookie to prove an authenticated page DOES need the secret, so
+that proof can only happen in the same process that generated it, or through a
+real sign-in. After that process exits, the secret still exists inside Vercel
+and still serves the deployment; what is gone is our readable copy.
+
+### What the instruments may say
+
+Every program here prints booleans, counts, and values matched against fixed
+shapes. The boundary is not "nothing identifying" - the production coordinator
+prints the source commit, and the deploy tooling prints fixed public values such
+as the DNS record it derived and the public origin it probed, because a DNS
+record is meant to be read. What never leaves is a secret value, a raw response
+body or header, a build log, a provider ACCOUNT or PROJECT identifier, a
+fragment of a credential, or any child byte that did not match a fixed shape.
+A public provider NAME is a different thing and is printed deliberately - the
+probe reports that `google` is the only configured sign-in provider, which is
+the point of the check. A build log
+is fetched, judged into booleans, and dropped. `deploy/vercel-diagnose.ts`
+carries a CLOSED vocabulary of failure classes and answers `unclassified` rather
+than guessing, because a cause nobody listed is not a cause to invent.
+
+Two of those instruments were wrong in ways only a working deployment could
+expose, and both are now pinned by tests: an evidence boolean demanded the
+literal string `bun.lock` and so reported failure on an artifact that
+deliberately uses two lockfiles, and a failure classifier matched the bare
+`--frozen-lockfile` flag that this build's own successful install command
+carries.
+
+**The repository root is linked to the landing page** (`.vercel/project.json`,
+gitignored), so the CLI's default target in this tree is somebody else's
+production site. The tooling never runs the CLI in the repository root, never
+reads that link, keeps `isomux` on a refusal list checked by name AND by id, and
+deploys from a copy that has no link file for a fallback to find.
 
 ## Deployed: the provisioner on fly.io
 
