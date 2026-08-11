@@ -96,6 +96,16 @@ Cut (approved 2026-08-11):
    that refuses to run unproved preserves the design's guarantee -
    implementation locus, not semantics. Per-instance pool hygiene stays
    an ordinary D3 plan-gate item.
+11. R-2026-08-11-2 (D3 phase reorder): Vercel's automation bypass is
+   REJECTED permanently - the bypass secret is injected into the app's
+   runtime environment, a provider-side protection credential on the web
+   tier. D3 therefore attaches the custom domain first (the only
+   credential-free probe surface), Nil lands the CNAME, and the
+   production deploy + full probe suite run as ONE sequence the moment
+   DNS+TLS confirm; any failing probe detaches the domain before
+   diagnosis. The public-before-probed interval is covered by the
+   zero-customer justification and expires with it - this ordering is
+   not a precedent for deploys after customers exist.
 
 ## Lanes
 
