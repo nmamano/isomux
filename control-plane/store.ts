@@ -630,7 +630,7 @@ export const DATABASE_NAME = "the database named by CONTROL_PLANE_DB";
  * reads them back: a provider that swallows `options` too is caught at open
  * instead of during an incident.
  */
-const GOVERNED_SETTINGS: [string, string][] = [
+export const GOVERNED_SETTINGS: [string, string][] = [
   // Seconds, because that is the unit `current_setting` answers in: the
   // read-back compares the engine's own rendering, so asking in milliseconds
   // would fail a comparison against a value that is actually correct.
@@ -904,24 +904,8 @@ export class Store {
     now: Clock = () => Date.now(),
     limits?: PoolLimits,
   ): Promise<Store> {
-    // ONE mechanism, not two: the bounds travel in `options` (see
-    // GOVERNED_SETTINGS) and the pool's startup fields are not used for them,
-    // so there is a single place where the answer to "is the bound in effect"
-    // comes from - and `assertBoundsInEffect` reads that answer back.
-    const pool = new pg.Pool({
-      connectionString: withGovernedOptions(url),
-      types: TYPES,
-      connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
-      ...(limits ?? {}),
-    });
-    // A pool emits an error when an IDLE connection dies with nobody awaiting
-    // it - a server restart, a network drop. Unhandled, that is a process-level
-    // crash on an event nothing was waiting for; the pool discards the client
-    // and the next checkout makes a new one.
-    pool.on("error", () => {});
-    const store = new Store(url, now, pool);
+    const store = await Store.connect(url, now, limits);
     try {
-      await store.assertBoundsInEffect();
       await store.sqlRun(SCHEMA);
       await store.assertSchemaIsCurrent();
       await store.sqlRun(LATE_INDEXES);
@@ -930,15 +914,134 @@ export class Store {
           "where not exists (select 1 from sequences where name = 'audit')",
       );
     } catch (err) {
-      try {
-        await pool.end();
-      } catch {
-        // A pool that will not close says nothing about why the open failed,
-        // and the original error describes that better than this one would.
-      }
+      await store.discard();
       throw err;
     }
     return store;
+  }
+
+  /**
+   * Open a database this process may USE but must not build.
+   *
+   * The two deployed components - the web tier and the provisioner - reach a
+   * database that a bootstrap already prepared, and they hold a role that is
+   * granted rows rather than the schema. That is not a convenience: measured
+   * 2026-08-11, a role with USAGE and full DML still cannot run `create table
+   * if not exists` on a table that already exists, because Postgres checks
+   * CREATE on the schema during parse analysis and never reaches the
+   * IF NOT EXISTS skip. So a runtime process that runs the schema statements
+   * cannot be a least-privileged one, and the cheaper half of that trade is to
+   * stop running them.
+   *
+   * IT WRITES NOTHING. No schema, no index, no audit seed - the seed is
+   * ASSERTED instead, so a database that was never bootstrapped fails here
+   * rather than at the first event that needs a sequence. A runtime process
+   * migrating the database it connects to is a habit this build no longer has:
+   * bringing a database up is `Store.open`, run by an operator's own role.
+   */
+  static async openRuntime(
+    url: string,
+    now: Clock = () => Date.now(),
+    limits?: PoolLimits,
+  ): Promise<Store> {
+    const store = await Store.connect(url, now, limits);
+    try {
+      await store.assertSchemaIsCurrent();
+      const seed = await store.sqlGet<{ name: string }>(
+        "select name from sequences where name = 'audit'",
+      );
+      if (!seed) {
+        throw new Error(
+          `${DATABASE_NAME} has no audit sequence, so it has not been ` +
+            `bootstrapped. A runtime process reads and writes rows; bringing a ` +
+            `database up is a separate step run by an operator's own role.`,
+        );
+      }
+    } catch (err) {
+      await store.discard();
+      throw err;
+    }
+    return store;
+  }
+
+  /**
+   * Connect, and prove the two bounds are in effect - by whichever route this
+   * database is supposed to deliver them.
+   *
+   * THE ROUTE IS READ FROM THE ENGINE, NOT FROM A CALLER. A session on a
+   * managed branch says so itself (`neon.branch_id` is present on every Neon
+   * session and on nothing else), and on that path the bounds MUST come from
+   * the role: `rolconfig` must carry exactly the governed pair and the engine
+   * must report both. There is no fallback there, and that absence is the
+   * point - a fallback would answer a reverted `ALTER ROLE` by quietly
+   * reinstating the client-side mechanism, which is the posture the deployment
+   * moved away from, and nothing would look wrong.
+   *
+   * Everywhere else - a local container, CI - the older mechanism stands
+   * unchanged: if the bounds are already in effect the session is kept, and
+   * otherwise the pool is rebuilt with `withGovernedOptions` and the answer is
+   * read back. A contributor's `bun test` needs no setup step it did not need
+   * before.
+   *
+   * The first connection is a READ ONLY one either way, and it is the only
+   * session that exists before the bounds are proved.
+   */
+  private static async connect(
+    url: string,
+    now: Clock,
+    limits?: PoolLimits,
+  ): Promise<Store> {
+    const build = (connectionString: string): Pool => {
+      const pool = new pg.Pool({
+        connectionString,
+        types: TYPES,
+        connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+        ...(limits ?? {}),
+      });
+      // A pool emits an error when an IDLE connection dies with nobody awaiting
+      // it - a server restart, a network drop. Unhandled, that is a
+      // process-level crash on an event nothing was waiting for; the pool
+      // discards the client and the next checkout makes a new one.
+      pool.on("error", () => {});
+      return pool;
+    };
+
+    let store = new Store(url, now, build(url));
+    try {
+      const managed = await store.onManagedBranch();
+      if (managed) {
+        await store.assertBoundsAreRoleConfiguration();
+        await store.assertBoundsInEffect();
+        return store;
+      }
+      if (await store.boundsAlreadyInEffect()) return store;
+    } catch (err) {
+      await store.discard();
+      throw err;
+    }
+
+    // Unmanaged and ungoverned: the store builds the connection string it uses,
+    // exactly as it did before role configuration existed.
+    await store.discard();
+    store = new Store(url, now, build(withGovernedOptions(url)));
+    try {
+      await store.assertBoundsInEffect();
+    } catch (err) {
+      await store.discard();
+      throw err;
+    }
+    return store;
+  }
+
+  /** Close a pool that is being abandoned. A pool that will not close says
+   * nothing about why the open failed, and the original error describes that
+   * better than this one would. */
+  private async discard(): Promise<void> {
+    try {
+      await this.pool.end();
+    } catch {
+      // Deliberately swallowed - see above.
+    }
   }
 
   /**
@@ -1055,6 +1158,73 @@ export class Store {
    * answer is the evidence: a provider that accepts `options` and ignores it
    * looks identical to one that honours it until the day it matters.
    */
+  /**
+   * Is this session served by a managed branch?
+   *
+   * `neon.branch_id` is present on every session of the managed engine this
+   * build deploys on and absent everywhere else, so it answers "is this a
+   * deployment" without any configuration being trusted. This is the ONLY place
+   * the store knows anything about the provider, and it is deliberately a
+   * presence test rather than a value: what the branch IS remains `boot.ts`'s
+   * question, and the id is never read here, compared here or printed here.
+   */
+  private async onManagedBranch(): Promise<boolean> {
+    const row = await this.sqlGet<{ v: string | null }>(
+      "select current_setting('neon.branch_id', true) as v",
+    );
+    return (row?.v ?? "").length > 0;
+  }
+
+  /** Are both bounds already what this build asks for, without being asked? */
+  private async boundsAlreadyInEffect(): Promise<boolean> {
+    for (const [name, expected] of GOVERNED_SETTINGS) {
+      const row = await this.sqlGet<{ value: string | null }>(
+        `select current_setting('${name}', true) as value`,
+      );
+      if (row?.value !== expected) return false;
+    }
+    return true;
+  }
+
+  /**
+   * Refuse a managed database whose ROLE does not carry the bounds.
+   *
+   * Reading them back from the session is not enough on this path: a session
+   * can report the right answer because somebody put it in the connection
+   * string, and the deployment's guarantee is that every session of that role
+   * inherits it whether or not the caller asked. So the catalog is checked as
+   * well as the session, and EXACTLY - an extra governed entry, a missing one
+   * or a changed value all refuse, because "close enough" in a posture that
+   * exists to be a number is not a posture.
+   */
+  private async assertBoundsAreRoleConfiguration(): Promise<void> {
+    const row = await this.sqlGet<{ config: string[] | null }>(
+      "select coalesce(rolconfig, '{}') as config from pg_roles " +
+        "where rolname = current_user",
+    );
+    const config = row?.config ?? null;
+    if (config === null) {
+      throw new Error(
+        `${DATABASE_NAME} did not report this role's configuration, so the ` +
+          `bounds this build guarantees cannot be shown to come from the role. ` +
+          `The store refuses to open rather than run on a bound it cannot ` +
+          `account for.`,
+      );
+    }
+    const want = GOVERNED_SETTINGS.map(([name, value]) => `${name}=${value}`);
+    const same =
+      config.length === want.length && want.every((e) => config.includes(e));
+    if (!same) {
+      throw new Error(
+        `${DATABASE_NAME} is a managed database whose role does not carry ` +
+          `exactly the ${want.length} governed settings this build guarantees. ` +
+          `On a managed engine those bounds come from the role, so every ` +
+          `session inherits them; a session that has them only because the ` +
+          `caller asked is not the guarantee. The store refuses to open.`,
+      );
+    }
+  }
+
   private async assertBoundsInEffect(): Promise<void> {
     for (const [name, expected] of GOVERNED_SETTINGS) {
       const row = await this.sqlGet<{ value: string }>(

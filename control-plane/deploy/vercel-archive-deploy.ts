@@ -147,6 +147,15 @@ export function removable(
   return real !== work && !real.startsWith(`${work}${path.sep}`);
 }
 
+import {
+  classifyAgainstHead,
+  headPathsFrom,
+  parsePorcelain,
+} from "./tree-state.ts";
+
+/** The paths whose staleness would matter to the artifact. */
+const GUARDED_PATHS = ["control-plane/web", "control-plane"];
+
 const SHA = /^[0-9a-f]{40}$/;
 const TERMINAL = ["READY", "ERROR", "CANCELED"] as const;
 const STATE_SHAPE = /^[A-Z_]+$/;
@@ -170,25 +179,32 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const modified = new TextDecoder()
-    .decode(
-      Bun.spawnSync([
-        "git",
-        "status",
-        "--porcelain",
-        "--",
-        "control-plane/web",
-        "control-plane",
-      ]).stdout,
-    )
-    .split("\n")
-    .filter((l) => l.trim().length > 0 && !l.startsWith("??"))
-    .map((l) => l.slice(3));
-  const runtimeDirty = modified.filter((f) => !f.endsWith(".md"));
-  console.log(`runtime_paths_uncommitted_changes: ${runtimeDirty.length}`);
-  console.log(
-    `doc_only_uncommitted_changes: ${modified.length - runtimeDirty.length}`,
+  // Classified against what HEAD CARRIES, not against the status prefix: the
+  // archive is `git archive HEAD`, so a path HEAD does not carry cannot make it
+  // stale however the index is staged. See deploy/tree-state.ts.
+  const status = new TextDecoder().decode(
+    Bun.spawnSync(["git", "status", "--porcelain", "--", ...GUARDED_PATHS])
+      .stdout,
   );
+  const tracked = new TextDecoder().decode(
+    Bun.spawnSync([
+      "git",
+      "ls-tree",
+      "-r",
+      "--name-only",
+      "HEAD",
+      "--",
+      ...GUARDED_PATHS,
+    ]).stdout,
+  );
+  const verdict = classifyAgainstHead(
+    parsePorcelain(status),
+    headPathsFrom(tracked),
+  );
+  const runtimeDirty = verdict.runtimeDirty;
+  console.log(`runtime_paths_uncommitted_changes: ${runtimeDirty.length}`);
+  console.log(`doc_only_uncommitted_changes: ${verdict.docOnly.length}`);
+  console.log(`paths_not_in_head: ${verdict.notInHead.length}`);
   if (runtimeDirty.length > 0) {
     console.log("stopping: a runtime path has uncommitted changes");
     process.exitCode = 1;

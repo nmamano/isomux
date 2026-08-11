@@ -52,6 +52,19 @@ export const TEST_DATABASE_URL =
   process.env.CONTROL_PLANE_DB ?? LOCAL_DATABASE_URL;
 
 /**
+ * Is this run pointed at the local throwaway container, or at a managed branch?
+ *
+ * Some properties can only be exercised on an engine we control the shape of -
+ * a session that reports NO Neon branch id, for instance, which is what the
+ * unmanaged half of the store's bounds contract is about and what `boot.ts`'s
+ * null case describes. A managed branch reports one on every session, so those
+ * cases cannot be staged there at all: they are skipped rather than rewritten
+ * into something that passes, because a test that cannot fail is worse than one
+ * that does not run.
+ */
+export const TARGET_IS_LOCAL = TEST_DATABASE_URL === LOCAL_DATABASE_URL;
+
+/**
  * NAMES NO DATABASE.
  *
  * This message used to interpolate the connection string, which was harmless

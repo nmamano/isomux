@@ -334,8 +334,12 @@ paragraph of it was wrong in a way that mattered.
   deployed on Neon before this was found had no statement_timeout at all, which
   is the bound the paragraph below argues is load bearing.
 - **They DO apply through `options`**, the same startup parameter the test DSNs
-  already use for `search_path`, and the two travel together in one value. So
-  `Store.open` now BUILDS the string it connects with: `withGovernedOptions`
+  already use for `search_path`, and the two travel together in one value. That
+  was the store's route on every engine until 2026-08-11, and it is now the
+  route on UNMANAGED ones only - on a managed branch the bounds come from the
+  role, because the pooled endpoint refuses `options` and a serverless tier
+  wants a pooler (see the posture section below). Where it still applies,
+  `withGovernedOptions`
   merges `-c statement_timeout=30s -c idle_in_transaction_session_timeout=30s`
   into whatever `options` the DSN carries, dropping any conflicting token first
   (both the `-c name=value` and the `--name=value` form, and duplicates) and
@@ -394,71 +398,175 @@ if not exists` and nothing else. Confirmed by running the bootstrap against
   conventions: a connection string can name any host, and the branch serving
   the connection is the only thing that knows which branch it is.
 
-### The web tier's connection posture, and the bound that does not exist yet
+### The connection posture, and the number it is stated as
 
 The provisioner is one always-on machine, so "direct endpoint, small pool" is a
 complete answer for it. A Vercel deployment is not one machine, and that turns
 the same choice into a different question: the platform decides how many
 instances exist, each one holds its own pool, and what the database sees is the
-product of the two. `WEB_POOL` caps one factor and says nothing about the other.
+product of the two. A client-side pool cap bounds one factor and says nothing
+about the other, which is how this section came to carry a dated FINDING
+(R-2026-08-11-1) rather than an answer: the aggregate was ungoverned, and
+nothing reserved any of the ceiling for the component that holds the keys.
 
-`deploy/endpoint-posture.ts` asks the question with the app's own open path.
-Measured 2026-08-11 against the production branch, writing nothing:
+**The finding is closed for the deployed tiers, and the enforcement is in the
+engine.** Two login roles, each with a `rolconnlimit` the engine checks when a
+backend is created (manager ruling R-2026-08-11-3):
 
 ```
-direct_opens: true   direct_bounds_governed: true   direct_branch_proved: true
-pooled_opens: false  pooled_bounds_governed: false  pooled_branch_proved: true
-pooled_failure: connect_or_open_failed
-direct_max_connections: 901        pooled_max_connections: 901
+web budget          40      cp_web, pooled endpoint
+provisioner budget  12      cp_provisioner, direct endpoint
+deployed worst case 52      the sum, and nothing else
+usable ceiling     894      max_connections 901 - superuser_reserved 7
+unallocated        842
 ```
 
-(Its real output is one key per line; the pairs are folded here for width.)
+Every term is a catalog fact rather than a promise, and no term can borrow from
+another - which is what makes the provisioner's twelve a RESERVE rather than an
+expectation. The budgets are not predictions about how many processes will
+exist: a budget is what the engine allows whatever the platform does, and that
+is the whole difference between this posture and the one it replaces.
 
-The pooled endpoint is not a posture this build can hold - not as a preference,
-but because the channel its bounds travel in is refused at the protocol level
-(the paragraph above). That matters more than it looks: **a pooler is the
-standard way a serverless tier bounds its connections, and this build cannot use
-one.**
+**What the number does NOT cover, stated rather than implied.** Three facts,
+all measured 2026-08-11, and the third follows from the first two:
 
-So the aggregate is ungoverned, and the numbers say why. Vercel publishes no
-function concurrency or instance ceiling on Hobby - `/docs/limits` (page dated
-2026-08-03) carries no such row, and `/docs/fluid-compute` (dated 2026-07-01)
-lists CPU, duration and failover per plan and nothing about concurrency, while
-describing scaling as automatic. There is no `vercel.json` property and no
-dashboard setting that caps it. The worst case is therefore (unbounded
-instances) x 4 against a hard 901.
+- **The project's owner role cannot be capped.** `ALTER ROLE ... CONNECTION
+LIMIT` against it is refused with 42501 from every identity available to us,
+  including after `set role neon_superuser`. Locking it out instead - transfer
+  the database to a capped role, revoke CONNECT from PUBLIC and the owner - was
+  measured and rejected as UNENTERABLE rather than merely hard: no role is a
+  member of the owner, no grant of it carries admin option, and creating that
+  membership is refused 42501, so a transferred database could never be handed
+  back. The owner is therefore MANUAL BREAK-GLASS, outside the aggregate: after
+  the deployment rotation its DSN is deployed nowhere, and it is used for
+  migrations, bootstrap and operator tooling only.
+- **Two provider login roles already hold CONNECT on this database** and are
+  Neon's rather than ours. No design of ours removes them, and no aggregate we
+  state can include them.
+- **So every aggregate claim here is a claim about the roles WE create.** That
+  was true of every option considered, including the one that tried to cap the
+  owner - which is why the narrowing is a change in what is CLAIMED rather than
+  in what is enforced.
 
-**What is missing is not capacity, it is ALLOCATION.** The engine does enforce
-901; nothing reserves any of it. An unbounded web tier can exhaust the
-connections the PROVISIONER needs, and the provisioner is the component holding
-the keys and running revocations. A frozen Vercel instance also does not run
-pg's 10s idle timer, so idle instances can hold connections until the provider
-reaps them.
+**894, not 901, and it is proved for one configuration.** Both endpoints report
+`max_connections` 901 and `superuser_reserved_connections` 7, and every role
+here is non-superuser. The reading was taken on the suites branch 2026-08-11
+from a compute that had just COLD-STARTED at the minimum autoscaling size (the
+API reported the endpoint inactive before the run), so it is the smallest
+ceiling this configuration can present rather than the value at whatever size
+happened to be serving - and `max_connections` is a postmaster setting that
+cannot move while a compute runs. It follows the endpoint's autoscaling MAXIMUM,
+so the number is proved for the 0.25-2 CU configuration measured on that date
+and must be re-measured BEFORE any change to it, not after.
 
-**This is a dated finding with an expiry, not a solved problem** (ruling
-R-2026-08-11-1). It is accepted for this deployment on measured grounds rather
-than hopeful ones. **Those grounds are stated as they stood when
-R-2026-08-11-1 was granted, and one of them has since expired:** at that moment
-there were no customers, the public hostname did not exist, and the exposure
-needed traffic that could not arrive before DNS did. The hostname exists now and
-serves (2026-08-11), so only the no-customers half of the justification is still
-standing - which is exactly why the finding has an expiry rather than a
-promise. The
-per-instance half stays governed meanwhile - `WEB_POOL` is 4 connections with a
-10s idle timeout, and both bounds are proved at `Store.open` or the store
-refuses to open.
+**The bounds moved to the role, and that is what made a pooler usable.** They
+used to travel in the `options` startup parameter, which the pooled endpoint
+refuses outright (SQLSTATE 08P01), so the standard way a serverless tier bounds
+its connections was closed to this build. On the role they are delivered by both
+endpoints - measured 2026-08-11, a fresh session with no `options` at all
+reports `30s` for each through the direct endpoint AND through the pooler.
 
-The expiry is the part that matters: the aggregate posture lands before the
-end-to-end slice, and no real signup path opens while this finding is open. The
-preferred shape is to move the two bounds off the `options` parameter and onto
-role-level settings that every session inherits - which keeps the open-time
-read-back that makes them real, and makes the pooled endpoint eligible again,
-handing the aggregate bound back to a pooler. An engine-enforced `connection
-limit` on a role the web alone uses, with a measured reserve for the
-provisioner's own role, composes with it. Moving the enforcement point while
-keeping the read-back is a change of locus, not of the guarantee. Either way it
-still owes a measurement of the pooler's own backend limit and its isolation
-from the provisioner, which is why it is its own slice and not a paragraph here.
+**The web is pooled, and the cap is what the pooler enforces.** Measured on the
+suites branch with a role capped at 10 before its first connection: 80
+concurrent clients, 80 statements of four seconds each, ZERO failures, server
+backends pinned at exactly 10, and 32 seconds of wall clock for 320 seconds of
+work. The pooler queued inside the cap. Pooled CLIENT sessions are not charged
+against `rolconnlimit` - server backends are - so the cap bounds the aggregate
+without refusing clients, and a frozen Vercel instance holding a client session
+costs the engine nothing. Uncapped, the same load opened 80 server backends and
+held them: the pooler's own ceiling is at least 80 and is not a number this
+posture leans on. THE CAP IS THE BOUND; the pooler is what turns exceeding it
+into a queue instead of an error.
+
+One ordering fact that a rollback has to know: `rolconnlimit` is checked when a
+backend is CREATED, so sessions that already exist are grandfathered. A cap
+applied while more sessions than the budget are open leaves them running and
+refuses the next one.
+
+### Roles, and what each one may touch
+
+Created in SQL, not through the Neon API. Measured 2026-08-11: an API-created
+role arrives as a member of `neon_superuser` - owner-equivalent by construction -
+and the project's own owner cannot ALTER it at all (42501 for both a connection
+limit and a role SET), so it can carry neither half of the posture. A
+SQL-created role arrives with zero memberships and is ours to govern.
+
+`roles.ts` holds the matrix, and each entry names the caller that needs it. The
+grants are per table and per verb, and the absences are the point:
+
+- **Neither role may DELETE anything**, because nothing in this build deletes a
+  row.
+- **Neither role may run DDL.** A role with USAGE and full DML still cannot run
+  `create table if not exists` on a table that ALREADY EXISTS - Postgres checks
+  CREATE on the schema during parse analysis and never reaches the IF NOT EXISTS
+  skip (measured 2026-08-11). That is why `Store.openRuntime` exists.
+- **The web cannot reach the create latch** (`create_intents`), the table that
+  stops a second box being bought for one intent.
+- **The web may enqueue work but not drive it**: `insert` and `select` on
+  `operations`, no `update`. Leasing, completing and re-driving belong to the
+  provisioner, and that sentence is now a grant rather than a convention.
+- **The web cannot read the billing event journal** (`stripe_events`).
+- **Subscription state is read-only on both tiers.** Webhooks remain its only
+  writer, and the reconciler runs operator-side.
+- **The provisioner is not granted `instances` INSERT or `name_reservations` at
+  all**, because instance rows and reservations are created at signup. Both were
+  reachable through a shared module and neither is provably needed; the live
+  boot is their test rather than a guess, and if the tick loop turns out to need
+  one it is added with the evidence attached.
+
+No `ALTER DEFAULT PRIVILEGES`. Default privileges can only say "every future
+table, these verbs", which cannot mirror a per-table matrix and would grant on
+tables nobody has reviewed. The statement list in `roles.ts` is the one place a
+table's grants are decided, and it is re-run after any migration that adds a
+table - so a table nobody granted is a 42501 inside a gated step rather than a
+silent widening.
+
+**It CONVERGES rather than being merely idempotent, and the difference is the
+whole point.** `GRANT` only ever adds, so re-running a narrowed matrix would
+leave the wider privilege standing in the catalog while this repo's tests went
+on asserting it was absent - a boundary that exists in prose and not in the
+database. So each role's privileges are REVOKED first and then granted exactly,
+and its role configuration is `RESET ALL` before the two bounds are set. The
+same applies to the read-back: the live check compares the actual per-table,
+per-verb matrix and reports EXCESS as well as missing, because excess is the
+direction a floor-shaped posture drifts in. The owner is deliberately not
+converged - its configuration may carry provider or operator settings this build
+did not put there, so a governance run REFUSES BEFORE MUTATING if it finds
+anything outside "empty, or exactly our pair".
+
+### Where a session's bounds come from, and what refuses
+
+`Store` still refuses to hand back a handle unless both bounds are in effect.
+What moved is where they come from, and the route is read from the ENGINE rather
+than from any caller:
+
+- **A managed session says so itself.** `neon.branch_id` is present on every
+  session of the managed engine and on nothing else. On that path the bounds
+  MUST come from the role: `rolconfig` has to carry exactly the governed pair
+  and the engine has to report both. THERE IS NO FALLBACK THERE, and the absence
+  is the point - a fallback would answer a reverted `ALTER ROLE` by quietly
+  reinstating the client-side mechanism, and nothing would look wrong.
+- **Everywhere else** - a local container, CI - the older mechanism is
+  unchanged: if the bounds are already in effect the session is kept, and
+  otherwise the pool is rebuilt with `withGovernedOptions` and the answer is
+  read back. A contributor's `bun test` needs no setup it did not need before.
+- The first connection is READ ONLY either way, and it is the only session that
+  exists before the bounds are proved.
+
+`store-governance.test.ts` holds the cases, and the one that matters is the last:
+a role whose configuration was reverted, on a connection string that still asks
+for both bounds the old way, REFUSES - the session would have reported the right
+answer, and the deployment would have looked healthy while the guarantee had
+stopped being true.
+
+**Two entry points, and only one of them builds a database.** `Store.open` runs
+the schema statements, the catalog check, the late indexes and the audit seed:
+it is the bootstrap and operator path, and it is what every test and exercise
+uses. `Store.openRuntime` proves the bounds, checks the catalog and ASSERTS the
+audit seed exists - it writes nothing at all. The web tier and the provisioner's
+tick loop are its only two callers. A runtime process no longer migrates the
+database it connects to, and one that finds an unbootstrapped database fails at
+boot instead of quietly building itself.
 
 ### What the web deployment may carry
 
@@ -497,6 +605,8 @@ bun control-plane/exercises/neon.ts branch --delete suites
 bun control-plane/exercises/neon.ts measure --branch suites
 bun control-plane/exercises/neon.ts run --branch suites -- bun test control-plane --timeout 30000
 bun control-plane/exercises/neon.ts bootstrap --branch production
+bun control-plane/exercises/neon.ts govern --branch suites
+bun control-plane/exercises/neon.ts ungovern --branch suites
 ```
 
 - **A connection string is never read whole.** The direct endpoint host comes
@@ -540,9 +650,20 @@ zero-user-data: true
   ...
 ```
 
-The procedure is `Store.open` and nothing else. What the command adds is
-evidence produced by the same run that did the work, and a refusal to exit zero
-if either boolean is false. It deliberately does NOT go through `cli.ts`'s
+The procedure is THREE steps in the one order that works: the ROLES (created and
+governed, naming no table), then the SCHEMA built by the owner, then the GRANTS.
+Each half of the posture is one transaction. The order is forced from both ends -
+on a managed engine the store refuses to open unless the connecting role already
+carries the governed bounds, so role configuration cannot go through the store;
+and a grant names a table, so it cannot run before the tables exist. An earlier
+version put the grants first and worked everywhere the schema already existed,
+which was every database anybody had run it against. If the schema step fails,
+the roles created by the first step are left behind - NOLOGIN, with no grants and
+no password, so they can reach nothing - and that residue is disclosed rather
+than cleaned up, because a rollback that dropped roles an earlier successful run
+had created would be worse than the residue. What the command adds is evidence produced by
+the same run that did the work, and a refusal to exit zero if either boolean is
+false. It deliberately does NOT go through `cli.ts`'s
 `openStore`, which also imports this box's legacy intent journal - a bootstrap
 that carried an operator's local intent files into a customer database would be
 putting rows there that ruling 4 forbids.
@@ -933,19 +1054,20 @@ the fifteen-minute deadline, it parks with the domain still attached and
 detaches nothing, because production never began serving and there is nothing
 public to roll back.
 
-**Unstage before running it, if the tree is frozen for review.** The phase
-refuses to run when a runtime path under `control-plane/` has an uncommitted
-non-doc change - the artifact is `git archive HEAD`, so anything uncommitted
-would silently not be in it. The review convention freezes a tree with
-`git add --intent-to-add .`, which turns every untracked file into an ` A` index
-entry, and the guard reads those as dirty runtime paths. Measured 2026-08-11:
-27 counted, all of them intent-to-add deploy tooling, and zero genuinely
-modified tracked files. The property being protected still holds - `git archive
-HEAD` cannot carry an untracked file - so the collision is in the TEST, not in
-the guarantee. `git reset` (unstage only, working tree untouched), run, then
-`git add --intent-to-add .` to restore the frozen fingerprint byte-exact.
-The guard should classify against the HEAD path set rather than the porcelain
-prefix; that fix is owed and is not yet made.
+**It runs against a frozen tree, and that took a fix.** The phase refuses to run
+when a runtime path under `control-plane/` has an uncommitted non-doc change -
+the artifact is `git archive HEAD`, so anything uncommitted would silently not
+be in it. The guard used to test for that by dropping `??` lines from
+`git status --porcelain` and treating the rest as modified tracked files, which
+collides with the convention this repo freezes a tree with: `git add
+--intent-to-add .` turns every untracked file into an ` A` index entry.
+Measured 2026-08-11, 27 paths counted as dirty runtime paths and not one of them
+was tracked, and the operator's workaround was to unstage, run, and re-add.
+`deploy/tree-state.ts` now classifies against WHAT HEAD CARRIES instead: a path
+HEAD does not carry cannot make the archive stale however the index is staged,
+which is a fact about the commit rather than about a two-character prefix. The
+phase also reports `paths_not_in_head`, so a freeze is visible rather than
+merely tolerated.
 
 ### The environment, and what a `sensitive` value costs
 

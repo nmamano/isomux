@@ -8,7 +8,11 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import { BRANCH_PIN_ENV, liveBranchId, provePinnedBranch } from "./boot.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  TARGET_IS_LOCAL,
+  openTestStore,
+  releaseTestStores,
+} from "./testing/pg.ts";
 
 afterEach(async () => {
   await releaseTestStores();
@@ -29,12 +33,15 @@ describe("the branch pin", () => {
     expect(await provePinnedBranch(store, "")).toBe(false);
   });
 
-  test("a pin against an engine with no branch id REFUSES", async () => {
-    const store = await openTestStore();
-    const failure = await refusalOf(provePinnedBranch(store, "br-something"));
-    expect(failure).toContain("refusing to start");
-    expect(failure).toContain("does not report a branch id");
-  });
+  test.skipIf(!TARGET_IS_LOCAL)(
+    "a pin against an engine with no branch id REFUSES",
+    async () => {
+      const store = await openTestStore();
+      const failure = await refusalOf(provePinnedBranch(store, "br-something"));
+      expect(failure).toContain("refusing to start");
+      expect(failure).toContain("does not report a branch id");
+    },
+  );
 
   test("the refusal names neither the pin nor any connection detail", async () => {
     const store = await openTestStore();
@@ -64,10 +71,17 @@ describe("the branch pin", () => {
     expect(await provePinnedBranch(store, "br-the-pinned-one")).toBe(true);
   });
 
-  test("an engine with no branch id answers null rather than throwing", async () => {
-    const store = await openTestStore();
-    expect(await liveBranchId(store)).toBeNull();
-  });
+  // LOCAL ENGINE ONLY: a managed branch reports a branch id on every session,
+  // so "no branch id" is not a state that can be staged there. The case is
+  // real - a non-Neon engine is what a contributor runs against - and it is
+  // skipped rather than rewritten into something that always passes.
+  test.skipIf(!TARGET_IS_LOCAL)(
+    "an engine with no branch id answers null rather than throwing",
+    async () => {
+      const store = await openTestStore();
+      expect(await liveBranchId(store)).toBeNull();
+    },
+  );
 
   test("the environment variable name is the product's, not a second one", () => {
     expect(BRANCH_PIN_ENV).toBe("CONTROL_PLANE_DB_BRANCH");

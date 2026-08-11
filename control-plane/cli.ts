@@ -76,6 +76,7 @@ import { setOperator } from "./operator-admin.ts";
 import type { AssetState } from "./provider.ts";
 import { readAndRefreshMarker } from "./state-marker.ts";
 import { Store } from "./store.ts";
+import { PROVISIONER_POOL } from "./roles.ts";
 import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
 
 const reporter = new Reporter();
@@ -211,6 +212,27 @@ async function waitForSsh(
 async function openStore(): Promise<Store> {
   fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
   const store = await Store.open(databaseUrl());
+  await migrateLegacyIntents(store, INTENTS_DIR);
+  return store;
+}
+
+/**
+ * The same, for the ONE command a deployed provisioner runs.
+ *
+ * `Store.open` runs the schema statements, and the deployed machine holds a
+ * role that is granted rows rather than the schema - measured 2026-08-11, an
+ * engine refuses `create table if not exists` from such a role even when the
+ * table already exists. So the tick loop opens a runtime store: same bounds
+ * proof, same catalog check, no DDL and no writes. Bringing a database up stays
+ * `bootstrap`, run by an operator's own role.
+ */
+async function openStoreForRuntime(): Promise<Store> {
+  fs.mkdirSync(STATE_ROOT, { recursive: true, mode: 0o700 });
+  const store = await Store.openRuntime(
+    databaseUrl(),
+    undefined,
+    PROVISIONER_POOL,
+  );
   await migrateLegacyIntents(store, INTENTS_DIR);
   return store;
 }
@@ -660,7 +682,7 @@ async function cmdProvision(args: Map<string, string>): Promise<void> {
  * from here, which is exactly why it cannot become a second source of truth.
  */
 async function cmdRun(args: Map<string, string>): Promise<void> {
-  const store = await openStore();
+  const store = await openStoreForRuntime();
 
   // The boot proof, before anything is served or ticked. `Store.open` returning
   // IS the bounds evidence - it read both back from the engine and would have

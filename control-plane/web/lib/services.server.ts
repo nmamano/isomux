@@ -15,13 +15,13 @@
 // what enforces that now; the build no longer does it for us.
 //
 // ONE STORE PER PROCESS, not one per request, and it is never closed while the
-// process lives. `Store.open` is not a connect: it runs the schema statements,
-// the catalog check and the sequence seed, and MEASURED 2026-08-10 against a
-// local Postgres that costs a median 62.6ms (20 runs, min 49.1, max 79.1)
-// against 9.1ms for a bare pool connect and 1.3ms for the read the request
-// actually came for. Per request, that was about 54ms of repeated schema work
-// wrapped around a millisecond of answer - and over a network-attached database
-// it is worse, not better.
+// process lives. Opening is not a connect: it proves the governed bounds and
+// checks the catalog, and the version that also ran the schema statements
+// MEASURED 2026-08-10 against a local Postgres at a median 62.6ms (20 runs, min
+// 49.1, max 79.1) against 9.1ms for a bare pool connect and 1.3ms for the read
+// the request actually came for. Per request, that was about 54ms of repeated
+// schema work wrapped around a millisecond of answer - and over a
+// network-attached database it is worse, not better.
 //
 // The cache is a PROMISE, not a resolved handle: two cold requests arriving
 // together must join one open rather than each build a pool. A rejected open is
@@ -72,9 +72,14 @@ function openedStore(): Promise<import("../../store").Store> {
   if (held.opening) return held.opening;
   const opening = (async () => {
     // The class named directly rather than through InstanceType: the
-    // constructor is private now, and only `Store.open` may produce one.
+    // constructor is private now, and only the two openers may produce one.
+    //
+    // RUNTIME, not `open`: this app holds a role that is granted rows and not
+    // the schema, and a schema statement from it is refused by the engine
+    // rather than tolerated. What it gets instead is the same bounds proof and
+    // a catalog check, and a database that was never bootstrapped fails here.
     const { Store } = await import("../../store");
-    return Store.open(databaseUrl(), undefined, WEB_POOL);
+    return Store.openRuntime(databaseUrl(), undefined, WEB_POOL);
   })();
   held.opening = opening;
   // An open that fails is not a state to keep. Evicting on rejection is what

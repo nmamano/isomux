@@ -1,12 +1,13 @@
 // The web app's store lives as long as its process, and the cache that makes
 // that true has two failure modes worth pinning.
 //
-// `Store.open` is not a connect: it runs the schema statements, the catalog
-// check and the sequence seed. Measured 2026-08-10 against the local Postgres,
-// that is a median 62.6ms (20 runs) where the read the request came for is
-// 1.3ms - so opening one per request was about 54ms of repeated schema work per
-// page. The facade caches it instead, and this file asserts the two properties
-// that make the cache safe rather than merely fast:
+// Opening is not a connect: it proves the governed bounds and checks the
+// catalog, and the version that also ran the schema statements measured
+// 2026-08-10 against the local Postgres at a median 62.6ms (20 runs) where the
+// read the request came for is 1.3ms - so opening one per request was about
+// 54ms of repeated schema work per page. The facade caches it instead, and this
+// file asserts the two properties that make the cache safe rather than merely
+// fast:
 //
 // - it caches the PROMISE, so two cold requests arriving together join one open
 //   rather than each building a pool (the second of which would be leaked, and
@@ -22,7 +23,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import pg from "pg";
 import { TEST_DATABASE_URL, releaseTestStores, testDsn } from "./testing/pg.ts";
-import type { Store } from "./store.ts";
+import { Store } from "./store.ts";
 import {
   officeForAccount,
   progressForAccount,
@@ -43,9 +44,21 @@ function cell(): Cell {
   return ((globalThis as { [STORE_SLOT]?: Cell })[STORE_SLOT] ??= {});
 }
 
-/** A DSN the app's backends can be recognised by. */
+/** A DSN the app's backends can be recognised by, on a database that has been
+ * BOOTSTRAPPED.
+ *
+ * The facade opens a RUNTIME store, which reads a prepared database and refuses
+ * to build one - the deployed web tier holds a role that is granted rows rather
+ * than the schema, so a process that ran the schema statements could not be a
+ * least-privileged one. This suite's schemas are recycled and wiped between
+ * tests, which removes the audit seed along with everything else, so the
+ * bootstrap that a deployment does once is done here explicitly. It runs
+ * WITHOUT the application name, so it is not one of the backends this file
+ * counts. */
 async function appDsn(): Promise<string> {
-  return `${await testDsn()}&application_name=${APP}`;
+  const dsn = await testDsn();
+  await (await Store.open(dsn)).close();
+  return `${dsn}&application_name=${APP}`;
 }
 
 const admin = new pg.Pool({ connectionString: TEST_DATABASE_URL, max: 2 });

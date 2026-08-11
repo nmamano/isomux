@@ -24,7 +24,32 @@ import {
   project,
   targetFor,
 } from "./neon-api.ts";
-import { bootstrapDatabase, reportBootstrap } from "../bootstrap.ts";
+import {
+  EXPECTED_TABLES,
+  applyGovernance,
+  bootstrapDatabase,
+  reportBootstrap,
+  ungovern,
+} from "../bootstrap.ts";
+import { GOVERNED_SETTINGS } from "../store.ts";
+import {
+  ALL_VERBS,
+  type EffectiveRow,
+  PROVISIONER_ROLE,
+  WEB_ROLE,
+  budgetFor,
+  effectivePrivilegeSql,
+  failedClaims,
+  judgeEffective,
+  judgeMatrix,
+  labelFor,
+  matrixSql,
+  postureLine,
+  readRolePosture,
+  runtimeRoles,
+  schemaPrivilegeSql,
+  sequencePrivilegeSql,
+} from "../roles.ts";
 
 function die(message: string): never {
   console.error(`REFUSED: ${message}`);
@@ -201,7 +226,279 @@ async function cmdBootstrap(branchName: string): Promise<void> {
 
   const result = await bootstrapDatabase(target.dsn);
   reportBootstrap(result);
-  if (!result.schemaReady || !result.zeroUserData) process.exit(1);
+  if (!result.schemaReady || !result.zeroUserData || !result.governanceExact) {
+    process.exit(1);
+  }
+}
+
+/**
+ * Put the connection posture on a branch, and prove what it did NOT change.
+ *
+ * The same program for every branch, because the risky one is production and a
+ * step that is rehearsed somewhere else is a step nobody has run. What differs
+ * is only the evidence it prints about the rows it found.
+ *
+ * TWO REFUSALS BEFORE ANY STATEMENT. The engine has to confirm which branch is
+ * answering - the same proof every other command here makes - and the OWNER's
+ * live backend count has to fit inside the budget it is about to be given.
+ * `rolconnlimit` is checked when a backend is created, so sessions that already
+ * exist are grandfathered and only the NEXT one would be refused: applying a
+ * cap of 30 while 31 owner sessions are open would leave a database nobody can
+ * open a new connection to, and finding that out afterwards is not a plan.
+ *
+ * Every line is a boolean or a small integer. Row counts are compared and
+ * reported as UNCHANGED rather than printed: what a customer database holds is
+ * not transcript material, and the question this step has to answer is whether
+ * it moved.
+ */
+async function cmdGovern(branchName: string): Promise<void> {
+  const target = await targetFor(branchName);
+  // ON PRODUCTION the account predicate is ruling 4's, and it is checked BEFORE
+  // any mutation as well as after: the default branch carries the one real
+  // account and nothing else. A child branch is where test rows belong, so the
+  // predicate is branched on PROVED branch identity rather than on a flag.
+  const isProduction = target.branch.isDefault && !target.branch.hasParent;
+  const verdict: [string, boolean][] = [];
+  const claim = (name: string, ok: boolean): boolean => {
+    verdict.push([name, ok]);
+    console.log(`${name}: ${ok}`);
+    return ok;
+  };
+
+  console.log("project matched: true");
+  console.log(`endpoint host came from the API: ${target.hostFromApi}`);
+  console.log(`targets_production: ${isProduction}`);
+  const live = await liveBranchId(target.dsn);
+  claim("engine_branch_matches_api", live === target.branch.id);
+  if (live !== target.branch.id) {
+    die("the engine did not confirm which branch is answering");
+  }
+
+  const pool = new pg.Pool({
+    connectionString: target.dsn,
+    connectionTimeoutMillis: 30_000,
+  });
+  pool.on("error", () => {});
+  const ask = async <T extends pg.QueryResultRow>(
+    sql: string,
+    args: unknown[] = [],
+  ): Promise<T[]> => {
+    try {
+      return (await pool.query<T>(sql, args)).rows;
+    } catch (err) {
+      throw redactConnectionDetails(err, target.dsn);
+    }
+  };
+
+  try {
+    const owner =
+      (await ask<{ owner: string }>("select current_user as owner"))[0]
+        ?.owner ?? "";
+
+    const backends = Number(
+      (
+        await ask<{ n: string }>(
+          "select count(*)::text as n from pg_stat_activity where usename = current_user",
+        )
+      )[0]?.n ?? -1,
+    );
+    console.log(`owner_backends_now: ${backends}`);
+
+    // THE OWNER'S BASELINE, fixed and proved before any write. `ungovern`
+    // resets the two bounds to nothing, so a rollback is only EXACT if the
+    // owner carried nothing when this ran. Requiring it here is what makes the
+    // reverse exact rather than approximately exact.
+    const ownerConfig =
+      (
+        await ask<{ config: string[] | null }>(
+          "select rolconfig as config from pg_roles where rolname = current_user",
+        )
+      )[0]?.config ?? [];
+    claim("owner_config_empty_before", ownerConfig.length === 0);
+
+    const counts = async (): Promise<Map<string, number>> => {
+      const out = new Map<string, number>();
+      for (const table of EXPECTED_TABLES) {
+        const row = await ask<{ c: number }>(
+          `select count(*)::int as c from ${table}`,
+        );
+        out.set(table, row[0]?.c ?? -1);
+      }
+      return out;
+    };
+    const before = await counts();
+    const accountsBefore = before.get("accounts") === 1;
+    if (isProduction) claim("accounts_exactly_1_before", accountsBefore);
+    else console.log(`accounts_before: ${before.get("accounts") !== -1}`);
+
+    // EVERY PREDICATE THAT MUST HOLD BEFORE A WRITE is settled here, so a
+    // refusal costs nothing. A program that mutates and then reports a failed
+    // predicate has already done the thing the predicate was guarding.
+    if (failedClaims(verdict).length > 0) {
+      die("a precondition does not hold; nothing was written");
+    }
+
+    const applied = await applyGovernance(target.dsn);
+    console.log(`governance_statements: ${applied.statements}`);
+
+    const after = await counts();
+    if (isProduction)
+      claim("accounts_exactly_1_after", after.get("accounts") === 1);
+    let moved = 0;
+    for (const table of EXPECTED_TABLES) {
+      const same = before.get(table) === after.get(table);
+      if (!same) moved++;
+      console.log(`  ${table}_unchanged: ${same}`);
+    }
+    claim("user_tables_unchanged", moved === 0);
+
+    // DIRECT grants, and then what the roles can ACTUALLY do - which accounts
+    // for PUBLIC and for memberships, and is the only one of the two that
+    // describes the boundary.
+    const matrixRows = await ask<{ role: string; table: string; verb: string }>(
+      matrixSql(),
+      [[WEB_ROLE, PROVISIONER_ROLE]],
+    );
+    const effectiveRows = await ask<EffectiveRow>(effectivePrivilegeSql(), [
+      [WEB_ROLE, PROVISIONER_ROLE],
+      [...EXPECTED_TABLES],
+      [...ALL_VERBS],
+    ]);
+    for (const { role, grants } of runtimeRoles()) {
+      const label = labelFor(role, owner);
+      const direct = judgeMatrix(matrixRows, role, grants);
+      const effective = judgeEffective(effectiveRows, role, grants);
+      claim(`${label}_matrix_exact`, direct.exact);
+      claim(`${label}_effective_privilege_exact`, effective.exact);
+      console.log(`    ${label}_effective_missing: ${effective.missing}`);
+      console.log(`    ${label}_effective_excess: ${effective.excess}`);
+    }
+
+    // The SCHEMA and the SEQUENCES, effectively. The statements intend usage
+    // without create and no sequence privilege at all; this proves it from the
+    // engine rather than inferring it from what was asked for.
+    const schemaRows = await ask<{
+      role: string;
+      usage: boolean;
+      create: boolean;
+    }>(schemaPrivilegeSql(), [[WEB_ROLE, PROVISIONER_ROLE]]);
+    for (const { role } of runtimeRoles()) {
+      const label = labelFor(role, owner);
+      const row = schemaRows.find((r) => r.role === role);
+      claim(
+        `${label}_schema_usage_only`,
+        row?.usage === true && row.create === false,
+      );
+    }
+    const heldSequences = await ask<{ held: number }>(sequencePrivilegeSql(), [
+      [WEB_ROLE, PROVISIONER_ROLE],
+    ]);
+    claim("no_sequence_privileges", (heldSequences[0]?.held ?? -1) === 0);
+
+    const posture = await readRolePosture(
+      (sql, args) => ask(sql, args),
+      GOVERNED_SETTINGS,
+      owner,
+    );
+    for (const [role, facts] of posture) {
+      const label = labelFor(role, owner);
+      const budget = budgetFor(role, owner);
+      claim(`${label}_role_present`, facts.present);
+      if (label === "owner") {
+        claim("owner_uncapped_break_glass", facts.connectionLimit === -1);
+      } else {
+        claim(
+          `${label}_connection_limit_exact`,
+          facts.connectionLimit === budget,
+        );
+        claim(`${label}_is_nologin`, facts.canLogin === false);
+        claim(`${label}_no_memberships`, facts.memberships === 0);
+      }
+      claim(`${label}_bounds_exact`, facts.boundsExact);
+    }
+    console.log(postureLine());
+
+    // ONE VERDICT, from every predicate, and the exit code is that verdict.
+    // Printing a false predicate and exiting zero is how a gate becomes a
+    // formality.
+    const failed = failedClaims(verdict);
+    console.log(`acceptance: ${failed.length === 0}`);
+    if (failed.length > 0) {
+      die(`${failed.length} acceptance predicates do not hold`);
+    }
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
+/**
+ * The reverse of `govern`, for a posture no deployment is using yet.
+ *
+ * Fixed output, so a rehearsal and a real rollback read the same. It refuses if
+ * either runtime role can log in - see `ungovern` - which is what keeps this
+ * from being an outage lever rather than a rollback one.
+ */
+async function cmdUngovern(branchName: string): Promise<void> {
+  const target = await targetFor(branchName);
+  console.log(`branch is default: ${target.branch.isDefault}`);
+  const live = await liveBranchId(target.dsn);
+  console.log(
+    `engine branch id matches the API branch id: ${live === target.branch.id}`,
+  );
+  if (live !== target.branch.id) {
+    die("the engine did not confirm which branch is answering");
+  }
+  const pool = new pg.Pool({
+    connectionString: target.dsn,
+    connectionTimeoutMillis: 30_000,
+  });
+  pool.on("error", () => {});
+  try {
+    const before = new Map<string, number>();
+    for (const table of EXPECTED_TABLES) {
+      const row = await pool.query<{ c: number }>(
+        `select count(*)::int as c from ${table}`,
+      );
+      before.set(table, row.rows[0]?.c ?? -1);
+    }
+    const result = await ungovern(target.dsn);
+    console.log(`ungovern_statements: ${result.statements}`);
+    console.log(`runtime_roles_remaining: ${result.rolesLeft}`);
+    console.log(`runtime_grants_remaining: ${result.grantsLeft}`);
+    console.log(`runtime_backends_remaining: ${result.backendsLeft}`);
+    console.log(`owner_config_entries_after: ${result.ownerConfigEntries}`);
+    let moved = 0;
+    for (const table of EXPECTED_TABLES) {
+      const row = await pool.query<{ c: number }>(
+        `select count(*)::int as c from ${table}`,
+      );
+      if ((row.rows[0]?.c ?? -1) !== before.get(table)) moved++;
+    }
+    console.log(`user_tables_unchanged: ${moved === 0}`);
+    const owner = await pool.query<{ n: string }>(
+      "select coalesce(array_length(rolconfig, 1), 0)::text as n from pg_roles " +
+        "where rolname = current_user",
+    );
+    console.log(`owner_rolconfig_entries: ${owner.rows[0]?.n ?? "unreadable"}`);
+    // The reverse is judged by every one of its own predicates, not by two of
+    // them: roles gone, grants gone, nobody connected as either, the owner's
+    // configuration back to the baseline this build requires before it writes,
+    // and no user row moved.
+    const acceptance =
+      result.rolesLeft === 0 &&
+      result.grantsLeft === 0 &&
+      result.backendsLeft === 0 &&
+      result.ownerConfigEntries === 0 &&
+      moved === 0;
+    console.log(`acceptance: ${acceptance}`);
+    if (!acceptance) {
+      die("the reverse did not leave the database as it found it");
+    }
+  } catch (err) {
+    throw redactConnectionDetails(err, target.dsn);
+  } finally {
+    await pool.end().catch(() => {});
+  }
 }
 
 async function main(): Promise<void> {
@@ -223,10 +520,15 @@ async function main(): Promise<void> {
       return cmdRun(flags.get("branch") ?? SUITES_BRANCH, rest);
     case "bootstrap":
       return cmdBootstrap(flags.get("branch") ?? PRODUCTION_BRANCH);
+    case "govern":
+      return cmdGovern(flags.get("branch") ?? SUITES_BRANCH);
+    case "ungovern":
+      return cmdUngovern(flags.get("branch") ?? SUITES_BRANCH);
     default:
       console.error(
         "usage: bun control-plane/exercises/neon.ts " +
-          "<branches|branch|measure|run|bootstrap> [--flags] [-- command...]",
+          "<branches|branch|measure|run|bootstrap|govern|ungovern> [--flags] " +
+          "[-- command...]",
       );
       process.exit(2);
   }

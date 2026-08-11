@@ -192,6 +192,17 @@ async function main(): Promise<void> {
   const store = await Store.open(db);
   say(`database: ${store.describe()}`);
 
+  // WHAT THE SERVER CONNECTS AS, which since D3.5 need not be what this file
+  // connects as. The deployed web tier holds a role that is granted rows and
+  // not the schema, so it opens a RUNTIME store and cannot run a schema
+  // statement at all - which means the harness cannot seed through the same
+  // credential the app serves under. That split is the deployment's shape, so
+  // the transcript reproduces it rather than papering over it: this file seeds
+  // as the operator, and the server is handed whatever `CONTROL_PLANE_DB_APP`
+  // names. Unset, both are the same DSN and the run is exactly what it was.
+  const appDb = process.env.CONTROL_PLANE_DB_APP ?? db;
+  say(`server runs as a separate least-privileged role: ${appDb !== db}`);
+
   // The rows a signed-up customer would have, written by the product's own
   // signup path rather than by hand.
   const stamp = Date.now().toString(36);
@@ -232,7 +243,7 @@ async function main(): Promise<void> {
     say(`build: ${build.join(" ")}`);
     const proc = Bun.spawnSync(build, {
       cwd: WEB_DIR,
-      env: { ...process.env, CONTROL_PLANE_DB: db },
+      env: { ...process.env, CONTROL_PLANE_DB: appDb },
     });
     // On a failure the useful line is the FIRST error, not the last four lines
     // of stack: a tail alone reported "at processTicksAndRejections" for a
@@ -277,7 +288,7 @@ async function main(): Promise<void> {
     cwd: WEB_DIR,
     env: {
       ...process.env,
-      CONTROL_PLANE_DB: db,
+      CONTROL_PLANE_DB: appDb,
       AUTH_SECRET: SECRET,
       AUTH_URL: BASE,
       // Set on purpose, to show it does NOT bring the dev provider back in a
