@@ -201,6 +201,32 @@ describe("the privileged half of the control plane is unreachable", () => {
     }
   });
 
+  /**
+   * The dev sign-in cannot exist in a production build, and that is structural.
+   *
+   * It matters because the production transcript's `/api/auth/providers` came
+   * back `{}` - which is the gate working, not a gap in the app. A behavioural
+   * test cannot pin this: the second condition is settled when Next compiles,
+   * so a test process could never observe the production answer. So the source
+   * is what is asserted, exactly as the boundary rules above are.
+   *
+   * Both halves are named. The flag alone would let a deployment that sets it
+   * ship a password-free sign-in; the build check alone would make the provider
+   * appear in every developer's tree.
+   */
+  test("the dev sign-in is gated on the flag AND a non-production build", async () => {
+    const source = read(path.join(WEB, "auth.ts"));
+    const gate = source.match(/const devAuthEnabled\s*=([\s\S]*?);\n/)?.[1];
+    expect(gate).toBeDefined();
+    expect(gate).toContain('process.env.CONTROL_PLANE_DEV_AUTH === "1"');
+    expect(gate).toContain('process.env.NODE_ENV !== "production"');
+    // And the provider is reached only through that gate, rather than being
+    // registered beside it and filtered somewhere else later.
+    expect(source).toMatch(
+      /if \(devAuthEnabled\) \{\s*providers\.push\(\s*Credentials\(/,
+    );
+  });
+
   test("no app file reads provider credentials or the webhook secret", async () => {
     for (const file of FILES) {
       const source = read(file);

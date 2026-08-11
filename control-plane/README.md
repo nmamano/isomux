@@ -256,6 +256,49 @@ checks the catalog for the columns it needs and names the database to move aside
 It names it with the password stripped - the value that used to be a file path is
 now a credential, and an error message is a place credentials get copied to.
 
+### What a managed Postgres has to give this build (Neon, undeployed)
+
+Documentation, not a deployment: nothing here has run against Neon, no account
+exists, and every statement below is either about OUR code or about a published
+provider behaviour, so a claim about an account-side default nobody inspected is
+not made at all.
+
+- **TLS is DSN configuration.** `sslmode=require` goes in `CONTROL_PLANE_DB`,
+  where `pg` reads it from the connection string like any other parameter. It is
+  not a code change and not a second knob.
+- **The DIRECT endpoint, not the pooled one.** Neon publishes a pooled
+  (PgBouncer) endpoint on a `-pooler` host, which is the usual answer to a
+  serverless deployment opening many connections - and it REJECTS startup
+  parameters it does not support. This build sends `statement_timeout` and
+  `idle_in_transaction_session_timeout` as connection parameters, which travel
+  at startup, and the test DSNs additionally carry `options=-c search_path=...`.
+  So the pooled endpoint is not usable here today. The right response is not to
+  drop those timeouts to fit: they bound a wedged row lock and a holder that
+  died with `begin` open, which is exactly the failure a pooled connection makes
+  more likely rather than less. Supporting the pooled endpoint means applying
+  both bounds some other way (per session, per transaction) and is separate
+  work.
+- **What bounds connections instead**, and why the direct endpoint is
+  affordable: the web app holds ONE store per process with a pool capped at 4
+  and a 10s idle timeout, so a warm instance holds a handful of connections and
+  an idle one holds none. That is the same measurement the process-lifetime
+  store was made for.
+- **Nothing needs superuser, and nothing needs an extension.** Read from the
+  schema 2026-08-10: `SCHEMA` and `LATE_INDEXES` contain `create table if not
+exists` and `create unique index if not exists` and nothing else - no
+  `create extension`, no `alter system`, no role or tablespace statement. A
+  database whose owner may create tables in its own schema is enough.
+- **`synchronous_commit` is never turned off by this codebase**, in production
+  or in a test container, because `create_intents` is the latch that stops us
+  buying a box twice. That is a statement about our code; what a provider does
+  with the setting is the provider's to state.
+- **A serverless instance that is frozen and thawed can hold a dead
+  connection.** The pool's error handler covers the idle case - the client is
+  discarded and the next checkout makes a new one - but a query whose socket
+  dies mid-flight fails that request. It is one failed request, which the caller
+  must retry as a new HTTP request: nothing here retries it for them, and this
+  document does not pretend the recovery is transparent.
+
 ### The store API is Promise-based, and the engine handle is private
 
 Every method that reaches the database returns a promise, readers included, and
@@ -845,23 +888,30 @@ where it used not to.
 
 ### The runtime matrix, measured
 
-Next 16.3.0 (Turbopack), Bun 1.3.11, Node 24.18.0. **Measured 2026-08-10,
-BEFORE the Postgres port**, which is what the port was for:
+Next 16.3.0 (Turbopack), Bun 1.3.11, Node 24.18.0. **Measured 2026-08-10, AFTER
+the Postgres port**, one run of `e2e/production-server.e2e.ts` per cell. A cell
+counts as working only if a store-backed page came back: booting is not serving,
+and the previous version of this table could not tell the two apart.
 
-|              | `bun --bun`                                                                                         | `node`                      |
-| ------------ | --------------------------------------------------------------------------------------------------- | --------------------------- |
-| `next dev`   | works, and `bun:sqlite` opens inside route handlers and server components                           | cannot load `bun:sqlite`    |
-| `next build` | FAILS: "Expected CommonJS module to have a function wrapper" loading Next's compiled server runtime | works                       |
-| `next start` | FAILS, same defect                                                                                  | works, without `bun:sqlite` |
+|              | `bun --bun`                                                                                         | `node`                    |
+| ------------ | --------------------------------------------------------------------------------------------------- | ------------------------- |
+| `next dev`   | serves store-backed pages                                                                           | serves store-backed pages |
+| `next build` | FAILS: "Expected CommonJS module to have a function wrapper" loading Next's compiled server runtime | works                     |
+| `next start` | boots, then answers 500 to every dynamic route - the same defect, at request time                   | serves store-backed pages |
 
-The right-hand column is the one the port changes: the store's driver is `pg`,
-which loads under Node, so "works, without a store" stops being the ceiling.
-What is **verified as of the port** is only the build - `bun run ci:web` builds,
-type-checks and lints under Node with `pg` resolved from the nested package, and
-needs no `serverExternalPackages` entry to do it. Whether a Node `next start`
-actually serves store-backed pages against a real Postgres is not claimed here:
-it is the next slice's job, and this table will carry its measurement when there
-is one. The left-hand column is unchanged and still the way the app is developed.
+**The right-hand column is what the port bought.** Before it, Node could not
+load the store at all: `next dev` could not open `bun:sqlite`, and `next start`
+worked only in the sense that it served pages with no database behind them.
+Both cells now render the projection out of a real Postgres.
+
+**The left-hand column moved in a way worth writing down.** `bun --bun next
+start` used to fail at startup; it now BOOTS, prints "Ready", and owns the
+listening socket - and then answers 500 to the first dynamic request, with the
+same "function wrapper" error from the same compiled runtime. So the defect did
+not go away, it moved later, and a measurement that stopped at "Ready" would
+have recorded a fix that does not exist. (Reaching that cell at all needs a
+build Node produced, since the bun build still fails.) `bun --bun next dev`
+is unaffected and is still how the app is developed.
 
 The `next build` split is also why `lib/services.server.ts` reaches the control
 plane through **request-time dynamic imports** - but note that the reason has
@@ -879,10 +929,23 @@ webhook path out of the storefront's module graph.
   build drives every test, because no Google OAuth client exists yet. Sessions
   are JWTs with no database adapter: an adapter would make Auth.js a second
   writer of `accounts`.
-- One facade, `lib/services.server.ts`, with a fixed export list. It opens a
-  `Store` per request and closes it in a `finally`, and it hands no store out -
-  every export returns plain data, so no page or handler is one method call away
-  from mutating the control plane.
+- One facade, `lib/services.server.ts`, with a fixed export list. It holds ONE
+  store for the life of the process and hands no store out - every export
+  returns plain data, so no page or handler is one method call away from
+  mutating the control plane. It used to open one per request and close it in a
+  `finally`, which was right when the argument was a file path and wrong once it
+  was a pool: `Store.open` runs the schema statements, the catalog check and the
+  sequence seed, and measured 2026-08-10 against the local Postgres that is a
+  median 62.6ms over 20 runs, against 9.1ms for a bare connect and 1.3ms for the
+  read the request came for. The cache is a PROMISE rather than a resolved
+  handle, so two cold requests arriving together join one open instead of
+  building a pool each and leaking the loser, and a REJECTED open is evicted, so
+  a database that was briefly unreachable costs a request rather than the
+  process. It lives on a `globalThis` symbol because a dev server re-evaluates
+  the module on every hot reload. `web-store-lifetime.test.ts` pins both
+  properties through the engine - by counting the backends the app's connections
+  actually occupy - rather than through the module's own bookkeeping, which is
+  exactly what a cached handle gets wrong while looking right from the inside.
 - `web-boundary.test.ts` asserts that against the source: the export list, the
   modules the app may name, the credentials it may read, the absence of raw
   store methods anywhere in it, and - because direct imports are not enough -
@@ -1053,6 +1116,46 @@ PREVIOUS mint - so a resend asked the provisioner for a link it had already
 handed over and was told, correctly, that it was gone. The box had minted
 perfectly well both times. The click now carries the id its own request
 returned, and `handoff-local.e2e.ts` pins it.
+
+### The production-server transcript, and the one thing it does not drive
+
+`e2e/production-server.e2e.ts` is the evidence behind the matrix above. It
+builds and starts the app under the runtime named on its command line, seeds an
+office through the product's own `accountForDevSignIn` + `reserveOffice` path,
+and drives a real Chrome against it: the signed-out redirect, the dashboard
+showing THAT office's hostname and the ladder derived from its goal, the polled
+`/api/progress/<id>` route, a second signed-in account refused the same office,
+and the ops floor answering 404 before the operator grant and 200 after it. Its
+exit code means SERVES, not BOOTS.
+
+Two mechanics are load-bearing and were both earned rather than designed:
+
+- **The runtime is read off the process that owns the LISTENING SOCKET**
+  (`ss` for the pid, then `/proc/<pid>/exe`), not off the command we spawned. It
+  caught its own harness immediately: a previous cell's server outlived its
+  teardown, `next dev` quietly moved to the next free port, and every check
+  afterwards was interrogating the wrong process while passing. The port is now
+  asserted free before a run and chased down by pid after one.
+- **The sign-in ceremony is not driven, and that is a statement about the
+  product, not a shortcut.** Measured 2026-08-10: `/api/auth/providers` under
+  `next start` returns `{}`. The dev credentials provider is gated on
+  `CONTROL_PLANE_DEV_AUTH=1` AND a non-production build, a production build
+  settles the second half at build time, and `/signin` is prerendered - so no
+  runtime setting brings it back, which is exactly what that gate is for. Google
+  is the production ceremony and no OAuth client exists yet. The transcript
+  therefore mints a REAL Auth.js session cookie with the deployment's own secret
+  and proves what was actually in doubt: that an AUTHENTICATED request reaches
+  store-backed pages under a production server. The second account's refusal is
+  what makes that a claim about a durable account rather than about any signed-in
+  caller. Relaxing the gate to drive a login would have traded the property for
+  the proof of it.
+
+  The obstacle is asserted rather than described. The transcript REQUIRES an
+  empty provider list under `next start` and requires `dev` to be present under
+  `next dev` - the same gate from both sides - and `web-boundary.test.ts` pins
+  its two halves against the source of `auth.ts`, because the half that says
+  `NODE_ENV !== "production"` is settled when Next compiles and no test process
+  can observe the production answer from the inside.
 
 ## Cancellation, retention and the end of life (slice 5)
 

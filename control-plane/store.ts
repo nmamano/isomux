@@ -501,6 +501,22 @@ const STATEMENT_TIMEOUT_MS = 30_000;
 const IDLE_IN_TRANSACTION_TIMEOUT_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 5_000;
 
+/**
+ * What one process may hold open against the database.
+ *
+ * Optional, and absent everywhere but the web app: a CLI is one short-lived
+ * command and the tick loop is one process on a box we operate, so `pg`'s own
+ * defaults are the right answer for both. The web app is the caller that has to
+ * say a number out loud, because its process count is the platform's decision
+ * rather than ours - see the comment over its constants.
+ */
+export interface PoolLimits {
+  /** Connections this process may hold at once. */
+  max: number;
+  /** How long an unused connection is kept before it is dropped, ms. */
+  idleTimeoutMillis: number;
+}
+
 /** Postgres OID 20, int8. */
 const INT8_OID = 20;
 
@@ -640,6 +656,7 @@ export class Store {
   static async open(
     url: string,
     now: Clock = () => Date.now(),
+    limits?: PoolLimits,
   ): Promise<Store> {
     const pool = new pg.Pool({
       connectionString: url,
@@ -647,6 +664,7 @@ export class Store {
       connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
       statement_timeout: STATEMENT_TIMEOUT_MS,
       idle_in_transaction_session_timeout: IDLE_IN_TRANSACTION_TIMEOUT_MS,
+      ...(limits ?? {}),
     });
     // A pool emits an error when an IDLE connection dies with nobody awaiting
     // it - a server restart, a network drop. Unhandled, that is a process-level

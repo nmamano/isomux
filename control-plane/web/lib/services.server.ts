@@ -14,16 +14,84 @@
 // reaches keys, ssh, handlers or the webhook path. `web-boundary.test.ts` is
 // what enforces that now; the build no longer does it for us.
 //
-// One Store per request, closed in a finally, which under a pooled driver costs
-// a connection per request rather than a file handle. That is a deployment
-// question (a process-lifetime pool would also outlive dev-server hot reloads)
-// and it is deliberately not answered here: the boundary this file exists for
-// is that no page holds a store, and that is unchanged.
+// ONE STORE PER PROCESS, not one per request, and it is never closed while the
+// process lives. `Store.open` is not a connect: it runs the schema statements,
+// the catalog check and the sequence seed, and MEASURED 2026-08-10 against a
+// local Postgres that costs a median 62.6ms (20 runs, min 49.1, max 79.1)
+// against 9.1ms for a bare pool connect and 1.3ms for the read the request
+// actually came for. Per request, that was about 54ms of repeated schema work
+// wrapped around a millisecond of answer - and over a network-attached database
+// it is worse, not better.
+//
+// The cache is a PROMISE, not a resolved handle: two cold requests arriving
+// together must join one open rather than each build a pool. A rejected open is
+// evicted, so an unreachable database is retried by the next request instead of
+// poisoning the process. It lives on a globalThis symbol because a dev server
+// re-evaluates this module on every hot reload, and a module-scope variable
+// would leak a pool per reload.
+//
+// The boundary is unchanged and is the reason this file exists: no page holds a
+// store, every export still returns plain data, and the store is reachable only
+// through the accessor below.
 
+import type { PoolLimits } from "../../store";
 import type { ProgressView } from "../../progress";
 import type { OpsFloor, OpsInstanceView } from "../../ops";
 
 export type { ProgressView, OpsFloor, OpsInstanceView };
+
+/**
+ * What one web process may hold open against the database.
+ *
+ * A number rather than a default, because the platform decides how many of
+ * these processes exist: a serverless deployment scales instances out, and each
+ * one holding `pg`'s default ten idle connections is how a small managed
+ * Postgres runs out of them without a single slow query. Four is above the
+ * concurrency a page render needs (each request issues its statements in
+ * sequence) and low enough that a large fan-out of warm instances stays inside
+ * an ordinary connection limit. The idle timeout is what makes that true over
+ * time: an instance that stops serving gives its connections back rather than
+ * holding them until the platform freezes it.
+ */
+const WEB_POOL: PoolLimits = { max: 4, idleTimeoutMillis: 10_000 };
+
+/** Where the process-wide store lives across dev-server hot reloads. */
+const STORE_SLOT = Symbol.for("isomux.control-plane.web.store");
+
+interface StoreCell {
+  opening?: Promise<import("../../store").Store>;
+}
+
+function cell(): StoreCell {
+  const global = globalThis as { [STORE_SLOT]?: StoreCell };
+  return (global[STORE_SLOT] ??= {});
+}
+
+function openedStore(): Promise<import("../../store").Store> {
+  const held = cell();
+  if (held.opening) return held.opening;
+  const opening = (async () => {
+    // The class named directly rather than through InstanceType: the
+    // constructor is private now, and only `Store.open` may produce one.
+    const { Store } = await import("../../store");
+    return Store.open(databaseUrl(), undefined, WEB_POOL);
+  })();
+  held.opening = opening;
+  // An open that fails is not a state to keep. Evicting on rejection is what
+  // makes a database that was briefly unreachable a failed request rather than
+  // a process that answers every later request with the same stale error - and
+  // the identity check is what stops a late failure evicting a newer open.
+  opening.catch(() => {
+    if (held.opening === opening) delete held.opening;
+  });
+  return opening;
+}
+
+async function withStore<T>(
+  fn: (store: import("../../store").Store) => Promise<T> | T,
+): Promise<T> {
+  return fn(await openedStore());
+}
 
 function databaseUrl(): string {
   const configured = process.env.CONTROL_PLANE_DB;
@@ -32,22 +100,6 @@ function databaseUrl(): string {
     "CONTROL_PLANE_DB is not set: this app never guesses which control-plane " +
       "database it is talking to",
   );
-}
-
-async function withStore<T>(
-  // The class named directly rather than through InstanceType: the constructor
-  // is private now, and only `Store.open` may produce one.
-  fn: (store: import("../../store").Store) => Promise<T> | T,
-): Promise<T> {
-  const { Store } = await import("../../store");
-  const store = await Store.open(databaseUrl());
-  try {
-    // Awaited inside the try, so the store is closed by the finally rather
-    // than left open by a rejection that escaped this frame.
-    return await fn(store);
-  } finally {
-    await store.close();
-  }
 }
 
 /**
@@ -329,17 +381,16 @@ async function billingVerb(
     import("../../cancel"),
     import("../../stripe/client"),
   ]);
-  const { Store } = await import("../../store");
-  const store = await Store.open(databaseUrl());
-  try {
+  // The same process-wide store as every other verb. It used to open its own
+  // because it holds no transaction across the Stripe call and could afford to;
+  // "could afford to" is not a reason to pay the schema check twice.
+  return withStore(async (store) => {
     const outcome = await cancel[verb](store, new StripeClient({ key }), {
       accountId,
       instanceId,
     });
     return outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason };
-  } finally {
-    await store.close();
-  }
+  });
 }
 
 /** "Cancel my office": schedule the subscription to end at the period end. */
