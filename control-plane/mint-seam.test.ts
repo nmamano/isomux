@@ -13,6 +13,7 @@ import {
   fetchInvite,
   startMintSeam,
   tokenMatches,
+  HEALTH_PATH,
   MIN_SEAM_TOKEN_LENGTH,
 } from "./mint-seam.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
@@ -274,6 +275,98 @@ describe("over HTTP", () => {
         },
       );
       expect(elsewhere.status).toBe(404);
+    } finally {
+      await seam.stop();
+    }
+  });
+
+  test("health does not exist unless a deployment asked for it", async () => {
+    const b = await bed();
+    const token = "t".repeat(40);
+    const seam = startMintSeam({
+      store: b.store,
+      hold: b.hold,
+      token,
+      port: 0,
+    });
+    try {
+      const answer = await fetch(
+        `http://127.0.0.1:${seam.port}${HEALTH_PATH}`,
+        { headers: { authorization: `Bearer ${token}` } },
+      );
+      expect(answer.status).toBe(404);
+    } finally {
+      await seam.stop();
+    }
+  });
+
+  test("health is behind the same bearer, and answers booleans", async () => {
+    const b = await bed();
+    const token = "t".repeat(40);
+    const seam = startMintSeam({
+      store: b.store,
+      hold: b.hold,
+      token,
+      port: 0,
+      health: async () => ({ ok: true, tick_recent: false }),
+    });
+    try {
+      const url = `http://127.0.0.1:${seam.port}${HEALTH_PATH}`;
+
+      const anonymous = await fetch(url);
+      expect(anonymous.status).toBe(401);
+      expect(await anonymous.text()).not.toContain("tick_recent");
+
+      // Same length as the real one: a length check would have let this pass.
+      const wrong = await fetch(url, {
+        headers: { authorization: `Bearer ${"x".repeat(40)}` },
+      });
+      expect(wrong.status).toBe(401);
+
+      const posted = await fetch(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(posted.status).toBe(405);
+
+      const ok = await fetch(url, {
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(ok.status).toBe(200);
+      const body = (await ok.json()) as Record<string, unknown>;
+      expect(body).toEqual({ ok: true, tick_recent: false });
+      // Every value is a boolean: nothing derived from a credential, an id or a
+      // measurement can reach this surface by being added to the map.
+      expect(Object.values(body).every((v) => typeof v === "boolean")).toBe(
+        true,
+      );
+    } finally {
+      await seam.stop();
+    }
+  });
+
+  test("a degraded process still answers 200, so nothing cycles the machine", async () => {
+    const b = await bed();
+    const token = "t".repeat(40);
+    const seam = startMintSeam({
+      store: b.store,
+      hold: b.hold,
+      token,
+      port: 0,
+      health: async () => ({ ok: false, database_reachable: false }),
+    });
+    try {
+      const answer = await fetch(
+        `http://127.0.0.1:${seam.port}${HEALTH_PATH}`,
+        {
+          headers: { authorization: `Bearer ${token}` },
+        },
+      );
+      expect(answer.status).toBe(200);
+      expect(await answer.json()).toEqual({
+        ok: false,
+        database_reachable: false,
+      });
     } finally {
       await seam.stop();
     }

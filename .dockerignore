@@ -1,0 +1,16 @@
+# The build context for control-plane/deploy/Dockerfile, which is the only
+# image this repository builds.
+#
+# Deny first, then name what the provisioner is made of. The other order was not
+# an option worth having: an allowlist that starts from "everything" ships the
+# UI, the agent SDK, the site and 1.2 GB of node_modules the moment somebody
+# adds a directory.
+#
+# Measured 2026-08-11: control-plane/ is 903 MB, control-plane/web is 901 MB of
+# it, .git is 52 MB, the root node_modules is 1.2 GB. What is left after these
+# rules is about 1.7 MB. control-plane/dockerignore.test.ts holds the intent.
+*
+!control-plane
+control-plane/web
+**/node_modules
+**/*.test.ts

@@ -1,0 +1,60 @@
+# The provisioner's machine.
+#
+# One always-on machine in Frankfurt, beside the database. The design calls this
+# the one component we operate: it holds the provider credentials, the key
+# master and the tick loop, and it exists so none of those live in the public
+# web app.
+#
+# NOTHING SECRET IS IN THIS FILE. The repository is public. The database string,
+# the branch this deployment expects and the seam credential are fly secrets,
+# imported over stdin by control-plane/deploy/secrets.ts.
+
+app = "isomux-provisioner"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# The tick loop stops after the pass it is in when it sees either signal
+# (cli.ts driveTicks), so a deploy interrupts nothing half-done.
+kill_signal = "SIGINT"
+kill_timeout = "30s"
+
+# Private key material, run records, the intent journal and the audit log. A
+# deploy replaces a machine's filesystem; this is what it does not replace.
+# Scheduled snapshots are created OFF (see control-plane/README.md): a snapshot
+# would keep copies of keys the design destroys as soon as revocation is proven.
+[[mounts]]
+  source = "provisioner_state"
+  destination = "/data"
+
+# TLS terminates at fly's proxy and the seam speaks plain HTTP behind it. Port
+# 80 is deliberately not published, so there is no cleartext door at all.
+#
+# The check is TCP, not HTTP: the health route is behind the same bearer as the
+# invite verb, and an HTTP check would need that credential written into this
+# file. What the check answers is "the process is serving"; what the booleans
+# say is read by an operator through control-plane/deploy/probe.ts.
+[[services]]
+  protocol = "tcp"
+  internal_port = 4311
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [[services.tcp_checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+# 256 MB against a measured 66.3 MB idle peak (2026-08-11, local container) and
+# the deployed-shape reading in the README. An out-of-memory kill would show up
+# as a machine restart, which is the evidence the idle window collects.
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256

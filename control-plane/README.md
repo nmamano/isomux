@@ -21,7 +21,7 @@ bun control-plane/cli.ts provision --run <runId> --access-window 2h [--stop-afte
 bun control-plane/cli.ts finish  --run <runId> [--handoff-now]
 bun control-plane/cli.ts mint    --run <runId>
 bun control-plane/cli.ts revoke  --run <runId>
-bun control-plane/cli.ts run                     # the tick loop, as its own process
+bun control-plane/cli.ts run [--bind ADDR] [--deployment ID]  # the tick loop, as its own process
 bun control-plane/cli.ts tick                    # one pass
 bun control-plane/cli.ts ops     [--run <runId>] # the operation rows
 bun control-plane/cli.ts attention [--ack <instanceId>] [--by <name>]
@@ -45,6 +45,15 @@ it.
 There is no create command. The adapter can create a box and the tests exercise
 that path, but no flag reaches it: creating one is latched durably by
 `intents.ts` and is a thing a human does on purpose.
+
+`run`'s two deployment flags default to the operator's shape and are set by the
+image, not by a person: `--bind` moves the invite seam off loopback (`::` there,
+because fly reaches a machine over IPv6 and a Bun server bound to `0.0.0.0`
+answers IPv4 only - measured 2026-08-11), and
+`--deployment` carries an opaque release id that the state marker uses. Neither
+has an environment variable, because both are properties of how this process was
+started rather than of the machine it runs on. See "Deployed: the provisioner on
+fly.io".
 
 ## Contabo: what the API actually does
 
@@ -551,6 +560,310 @@ filename; an unrecognised state imports as `ambiguous` rather than being trusted
 because a legacy file is bytes on disk and the column's type is a claim about our
 own writes; a directory that cannot be enumerated refuses to open the store at
 all. It is never deleted or rewritten, and it can only ever refuse a create.
+
+## Deployed: the provisioner on fly.io
+
+The design calls the provisioner the one component we operate, and the reason is
+what it holds: the provider credentials, the key master and the tick loop, none
+of which belong in a public web app. Deployed, that is one always-on machine in
+Frankfurt, beside the database, in Nil's `personal` organisation.
+
+```
+bun control-plane/deploy/name-check.ts               # is the app name free?
+bun control-plane/deploy/secrets.ts --canary         # does flyctl echo what it is given?
+bun control-plane/deploy/secrets.ts --unset-canary   # remove that one fixed name
+bun control-plane/deploy/secrets.ts                  # the three secrets, over stdin
+bun control-plane/deploy/secrets.ts --verify         # are those three names set?
+bun control-plane/deploy/probe.ts                    # does the surface refuse everyone else?
+```
+
+Every one of those prints fixed names and booleans: no connection string, no
+token, no digest, no branch id, no app name other than this one, and nothing a
+child process wrote. Every operation that HANDLES A SECRET or reads a listing -
+the import, the canary and its cleanup, the name check, the external probe -
+goes through one of them, which is why the canary's cleanup is a wrapper rather
+than a bare `flyctl secrets unset` in the steps below.
+
+The three account and deploy commands - `apps create`, `volumes create` and
+`deploy` - are plain flyctl. The app-create command names `isomux-provisioner`
+positionally; volume creation and deploy name it with `-a`. All three receive
+`FLY_API_TOKEN` only in the child environment. Their argv and stdin carry no
+secret value, and no argument is derived from one.
+
+### The image, and why it has a manifest of its own
+
+`control-plane/deploy/Dockerfile` builds from the repository root and installs
+`control-plane/deploy/package.json`, which names ONE dependency. The
+provisioner's only runtime dependency is `pg`; the repository's manifest also
+carries a UI, an agent SDK and a native terminal, and a machine that holds
+provider credentials has no business running any of them.
+
+The manifest is installed at `/app`, an ANCESTOR of `/app/control-plane`, so
+every import inside the control plane resolves up into it - measured
+2026-08-11: an import from below `control-plane/` resolves to
+`/app/node_modules/pg`. Nothing is installed under `control-plane/deploy/`.
+The price of a second manifest is drift, and `deploy/image.test.ts` is what
+stops it: the two `pg` specs must be identical or the suite fails.
+
+`/.dockerignore` denies everything and then names what the provisioner is made
+of. That is not tidiness: `control-plane/` is 903 MB, of which
+`control-plane/web` is 901 MB, and `COPY control-plane` would otherwise ship a
+Next.js app into the machine holding the keys. The same test holds the intent of
+those rules, and a build whose reported context is not about 2 MB means they
+stopped working.
+
+### The three secrets, and how they get there
+
+`CONTROL_PLANE_DB` (the direct-endpoint DSN), `CONTROL_PLANE_DB_BRANCH` (the
+branch id that DSN must turn out to be) and `CONTROL_PLANE_MINT_TOKEN` (the seam
+bearer). They are fly secrets. Nothing secret is in `fly.toml`, because this
+repository is public.
+
+`deploy/secrets.ts` is one fail-closed process, and the shape is the point:
+
+- It reads every source file INSIDE the process. No env file is ever sourced by
+  a shell, and no value is ever expanded into a command line.
+- **It re-establishes the credential file's shape itself**, because a check
+  somebody ran earlier is a statement about a file that has since had time to
+  change. `inspectMintFile` opens the file ONCE with `O_NOFOLLOW` and does
+  everything through that descriptor: a symlink cannot be opened at all, and a
+  path swapped between the check and the read cannot be reached, because after
+  the open there is no path left to swap. From that descriptor it requires a
+  regular file, the EXACT mode `0600` (compared, not sampled - a "no group or
+  world bits" test passes `0400`), and CONTENTS that are exactly
+  `CONTROL_PLANE_MINT_TOKEN='<40 lowercase hex>'` with at most the usual final
+  newline. Not "one line after trimming": a leading space, a trailing space or a
+  blank line are bytes nobody ruled, and this is the seam where a promised shape
+  is enforced. The token is returned only when all four hold and is empty
+  otherwise, so a caller that ignores the booleans still cannot use a file that
+  failed them. What it prints is four booleans.
+- It proves the branch before it emits anything: the project must show exactly
+  one default branch with no parent, that branch must be `production`, and
+  `targetFor` must have taken the endpoint host from the API rather than from
+  the fallback. A deployment pointed at a scratch branch is the failure this
+  refuses, and it is the mirror image of what `testing/target.ts` refuses for
+  the suites.
+- It validates every line before any child exists - allowlisted name, no line
+  break, no NUL - because a value carrying a newline could set a name nobody
+  asked for.
+- It spawns `flyctl secrets import --stage` with the API token in the CHILD
+  ENVIRONMENT and the values on STDIN. Neither reaches argv, which the process
+  table shows to everyone on the box.
+- **It never hands the child's bytes back.** flyctl's stdout and stderr are
+  captured, scanned, and dropped. That is stronger than "scan and forward if
+  clean", deliberately: an exact-value scan cannot see a fragment, a
+  re-encoding, or a truncation. `deploy/secrets.test.ts` plants leaks of all
+  those shapes, including one the scanner is not expected to catch, and requires
+  that nothing a caller could print contains them.
+
+Diagnosing flyctl therefore means re-running it with a PUBLIC value, which is
+what `--canary` is: `PROBE_CANARY=isomux-d2-public-canary`, published here so a
+leak of it is an observation instead of an incident. It runs BEFORE the real
+import, and if flyctl echoes it, nothing real goes near it.
+
+The canary is an operation with NO ARGUMENTS, and `--unset-canary` removes that
+one constant name through the same captured-output spawn. A mode that took a
+name and a value would be a mode that could set any name, running at the moment
+when nothing real has been imported yet; and a procedure with a hand-typed
+secret name in it is one typo away from removing something the machine needs.
+The cleanup has to SUCCEED before the real import runs - a probe left staged on
+the app is a secret nobody meant to keep.
+
+`--verify` answers `required_secret_names_present` from a listing it parses and
+discards, because `flyctl secrets list` prints a digest beside each name and a
+digest is derived from the value.
+
+### What the machine proves about itself
+
+At boot, before it serves or ticks:
+
+- **The bounds.** `Store.open` returning IS the evidence - it built the
+  `options` string and read both timeouts back from the engine, and refuses to
+  return a store otherwise.
+- **The branch.** `boot.ts` asks the session which branch answered
+  (`neon.branch_id`, through the store's own scrubbed seam) and requires it to
+  equal `CONTROL_PLANE_DB_BRANCH`. A mismatch, or a session that reports no
+  branch at all, REFUSES to start. The pin is optional in code and mandatory in
+  the procedure: unset means no claim was made, so `branch_pinned` is false
+  rather than true, and a deployment that lost its pin is visibly not ok.
+
+Neither branch id is ever printed. The boot line is booleans.
+
+`GET /internal/health` answers the same booleans, behind the SAME bearer as the
+invite verb, and is the reason `deploy/probe.ts` exists:
+
+```
+ok  bounds_governed  branch_pinned  database_reachable  tick_recent  state_persisted
+```
+
+`ok` is the conjunction of the first four properties - not of all five, because
+`state_persisted` is correctly false on a first deploy and a healthy machine
+must not be reported sick for having been deployed once. `database_reachable` is
+a `select 1` whose failure discards the error object entirely. `tick_recent`
+means the last completed pass is younger than three poll intervals, which is the
+difference between "the port answers" and "the loop is running".
+
+The route ALWAYS answers 200 while the process is serving. A database that
+blinked is a boolean, not a dead machine: fly's check is TCP precisely so that
+health is behind a credential and cannot be turned into a restart loop by an
+outage upstream.
+
+`deploy/probe.ts` sends the real bearer, so the origin it sends it to is a
+CONSTANT in the file and there is no flag that can move it. An origin taken from
+a command line is a way to hand a credential to whatever host somebody typed,
+and every check in the output would still pass; there is one deployed
+provisioner, so there is nothing an override could be for.
+
+**And a 200 is not acceptance.** The probe requires the EXACT key set above - a missing key, an extra one, or a value that is not a boolean
+all fail - and then requires `ok`, `bounds_governed`, `branch_pinned`,
+`database_reachable` and `tick_recent` to be true. `state_persisted` is
+deliberately outside that set, because on a first deploy there is nothing for it
+to have survived. The keys are printed in a fixed order from that fixed list,
+and a field nobody designed is COUNTED rather than named: the answer comes from
+a machine, and a probe that echoes whatever it is sent is a way for that machine
+to write into our transcript.
+
+### The volume, and one thing it deliberately does not have
+
+`/data` is a 1 GB volume in `fra`, and `HOME=/data` in the image is what puts
+the state root (`~/.isomux-control-plane`) on it: the per-run private keys, the
+run records, the intent journal and the audit log. A deploy replaces a machine's
+filesystem, and the key it would have destroyed is the only thing that can
+revoke our own access to a customer's box.
+
+**Scheduled snapshots are off, explicitly.** `flyctl volumes create` turns them
+on by default with five-day retention, and `keys.ts` destroys a private key as
+soon as revocation is proven - a snapshot would keep copies of that material for
+five days after we destroyed it, which is the guarantee working in reverse.
+Nothing here is therefore backed up, and this document does not claim otherwise:
+what a provisioner's durable state deserves in the way of backup is an ops-floor
+question, alongside the restore procedure the design already owes.
+
+Proving the volume works needs more than a directory: a fresh filesystem
+recreates the state root the moment the store opens it. So `state-marker.ts`
+writes a file naming the deployment that wrote it, and `state_persisted` means
+THE MARKER was there - something no image can recreate. The boot line also
+reports `marker-crossed-release`, which is true only when the marker named a
+different release, and that is the one that discriminates a redeploy from a
+restart.
+
+Two rules about that write, and both are about not lying:
+
+- **A failed refresh REFUSES TO BOOT**, with a fixed sentence that quotes
+  nothing it read. Reporting "the state survived" from a marker this release
+  could not rewrite would be evidence about the LAST deployment presented as
+  evidence about this one - and a state root that cannot be written is not a key
+  master at all, it is a machine that will fail the first time a run needs to
+  store a private key.
+- **The rewrite is atomic**: temp file, then rename, with the temp removed if
+  the rename fails. A write interrupted halfway would otherwise destroy the
+  proof of the last deploy in the act of recording the current one.
+
+### Deploying it
+
+First deploy, in this order, with the token read per command and never echoed:
+
+```
+bun control-plane/deploy/name-check.ts
+FLY_API_TOKEN="$(cat ~/nil/secrets/fly.token)" ~/.fly/bin/flyctl apps create isomux-provisioner --org personal
+FLY_API_TOKEN="$(cat ~/nil/secrets/fly.token)" ~/.fly/bin/flyctl volumes create provisioner_state \
+    -a isomux-provisioner -r fra -s 1 --scheduled-snapshots=false -y
+bun control-plane/deploy/secrets.ts --canary
+bun control-plane/deploy/secrets.ts --unset-canary
+bun control-plane/deploy/secrets.ts
+FLY_API_TOKEN="$(cat ~/nil/secrets/fly.token)" ~/.fly/bin/flyctl deploy . \
+    --config control-plane/deploy/fly.toml --dockerfile control-plane/deploy/Dockerfile \
+    -a isomux-provisioner --depot=true --depot-scope app --ha=false --now
+bun control-plane/deploy/secrets.ts --verify
+bun control-plane/deploy/probe.ts
+```
+
+A redeploy is the last three lines, and nothing else. Measured 2026-08-11: the
+image and the machine's configuration are updated IN PLACE - the same machine id
+came back started, with its event counts unchanged - and the volume stays
+attached throughout.
+
+**The first deploy, measured 2026-08-11.** Build on Depot ("Building image with
+Depot"; no `fly-builder-*` app was created or reused). Context 940.20 kB, which
+is 96 files and matches the 911.8 kB those files hold plus archive overhead - so
+the ignore rules did what `deploy/image.test.ts` says they do. Image 61 MB. One
+machine, `shared-cpu-1x` 256 MB in `fra`, started in 4.7s, with a dedicated IPv6
+and a SHARED IPv4 (a dedicated v4 is the one that costs, and nothing here asks
+for it). The volume was initialised, encrypted and mounted at `/data` on first
+boot. First boot line:
+
+```
+boot: bounds-governed true, branch-pinned true, state-persisted false,
+      marker-crossed-release false, marker-supported true
+```
+
+`branch-pinned true` is the machine proving from its own session that it is
+talking to the Neon production branch; `state-persisted false` is the correct
+answer on a first deploy, and `marker-supported true` says fly supplied the
+release id the marker needs. Beside it, `no provider credentials in the
+environment: reconcile is off for this run` - the loop idles rather than
+crashing without provider credentials, which is what this slice deliberately
+does not give it.
+
+**The idle window and the redeploy, measured 2026-08-11.** From 05:39:37Z to
+06:16:49Z the machine stayed `started` with its event counts unchanged
+(`start: 1, launch: 2`, no restart of any kind), the log carried no exit, crash
+or out-of-memory line, and the external probe answered `accepted: true` at both
+ends. Neon production, re-checked after the provisioner had been attached to it
+for that whole window, still reported `schema-ready: true`, `zero-user-data:
+true`, `operations: 0 rows` and `instances: 0 rows`.
+
+The redeploy at 06:18Z then updated the same machine in place and printed:
+
+```
+boot: bounds-governed true, branch-pinned true, state-persisted true,
+      marker-crossed-release true, marker-supported true
+```
+
+Both booleans flipped, and the second one is the one that means something: the
+marker named a DIFFERENT release, so the state root survived a deploy rather
+than a restart. fly's own log agrees from the other side - the first boot said
+`Uninitialized volume 'provisioner_state', initializing... Formatting volume`
+and the second only said `Setting up volume 'provisioner_state'`.
+
+One line in the log is expected and is not a fault: the TCP check fires when the
+machine starts and fails once, about four seconds before Bun binds the port. The
+declared grace period does not suppress that first probe. It passes on the next
+one, and no restart follows.
+
+Two honest limits on the redeploy evidence. It proves the PROCEDURE is
+repeatable and that the volume outlives a release; it is not a byte-identical
+rebuild, because `control-plane/README.md` is inside the build context and this
+paragraph changed it (context 120.09 kB on the second build, against 940.20 kB
+cold, the rest being cache). And a 37-minute window says the loop is stable over
+37 minutes, not over a month.
+
+Three flags are load bearing rather than stylistic:
+
+- `--depot=true`. At the default (`auto`) flyctl may choose its classic remote
+  builder, which creates or REUSES a builder app in the organisation -
+  `--recreate-builder` exists precisely because reuse is the normal case - and
+  this token's organisation holds unrelated apps. Depot builds on fly's managed
+  service and creates no app here. If it is ever refused, the answer is to stop,
+  not to fall back.
+- `--depot-scope app`, so this build's cache is not the organisation-wide one
+  other projects share.
+- `--ha=false`. The default creates a spare machine, which is a second machine
+  nobody asked for and a second thing to pay for.
+
+No `flyctl auth` command is run: the token travels as `FLY_API_TOKEN` in one
+child's environment, and every call names `-a isomux-provisioner`.
+
+**That does not mean flyctl leaves its own configuration alone**, and the
+difference is worth stating because the obvious check reads as an incident.
+Measured 2026-08-11: the first deploy sequence rewrote `~/.fly/config.yml` at
+05:36:50Z, adding one `app_secrets_minvers` line for the new app to a list that
+already held eleven others (1917 -> 1948 bytes). The org token from
+`~/nil/secrets/fly.token` was NOT written into that file - checked as a boolean,
+with neither value printed. So a changed md5 on that file is ordinary flyctl
+bookkeeping, and by itself it says nothing about the login credential either
+way. An earlier draft of this file claimed `~/.fly` is never written to, which
+the first deploy disproved.
 
 ## The driver protocol
 
@@ -1673,6 +1986,12 @@ an injected transport, the driver against a fake process seam, and `wrapper.sh`
 against a fake installer in a temp tree - which is how generation isolation,
 exit capture, single-flight and crash detection are proven, since a live run
 cannot be made to violate them on demand.
+
+`deploy/secrets.test.ts` is the same move for the deployment: it drives the
+secrets wrapper against a FLYCTL THAT MISBEHAVES - echoing its own stdin on
+stdout, on stderr, and as a fragment no exact-value scan can see - because a
+real flyctl cannot be asked to leak on demand, and the property being proved is
+that nothing it writes can reach a caller either way.
 
 ## Working on control-plane/web: the next-env.d.ts trap
 

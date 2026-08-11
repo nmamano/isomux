@@ -26,6 +26,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
+import { BRANCH_PIN_ENV, provePinnedBranch } from "./boot.ts";
 import { bootstrapDatabase, reportBootstrap } from "./bootstrap.ts";
 import {
   AUDIT_FILE,
@@ -73,6 +74,7 @@ import { powerOnHandler } from "./resume.ts";
 import { powerOffHandler } from "./stripe/suspension.ts";
 import { setOperator } from "./operator-admin.ts";
 import type { AssetState } from "./provider.ts";
+import { readAndRefreshMarker } from "./state-marker.ts";
 import { Store } from "./store.ts";
 import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
 
@@ -384,7 +386,14 @@ function makeTicker(
 async function driveTicks(
   store: Store,
   ticker: Ticker,
-  opts: { forever: boolean; watch?: () => Promise<void> },
+  opts: {
+    forever: boolean;
+    watch?: () => Promise<void>;
+    /** Called after each completed pass. A deployed process reports how long
+     * ago that was, which is the difference between "the port answers" and
+     * "the loop is running". */
+    onTick?: () => void;
+  },
 ): Promise<void> {
   let stopping = false;
   const onSignal = () => {
@@ -397,6 +406,7 @@ async function driveTicks(
   try {
     for (;;) {
       const summary = await ticker.once();
+      opts.onTick?.();
       if (opts.watch) {
         // Liveness is a MEASUREMENT, not an operation, so it runs beside the
         // tick rather than inside it. A probe that throws must not stop the
@@ -426,6 +436,68 @@ async function driveTicks(
     process.off("SIGINT", onSignal);
     process.off("SIGTERM", onSignal);
   }
+}
+
+/**
+ * Where the invite seam listens.
+ *
+ * Loopback unless a deployment says otherwise, which keeps every operator run
+ * exactly as it was: a seam that started listening on every interface because
+ * of a default would be an authenticated endpoint nobody meant to expose.
+ */
+function bindAddressOf(args: Map<string, string>): string | undefined {
+  const value = args.get("bind");
+  return value && value !== "true" ? value : undefined;
+}
+
+/**
+ * An opaque id for the deployment this process belongs to, if it has one.
+ *
+ * Passed in rather than read from the environment, so nothing in the control
+ * plane knows the name of the platform it is deployed on. Absent locally, where
+ * there is no release to have crossed.
+ */
+function deploymentIdOf(args: Map<string, string>): string | undefined {
+  const value = args.get("deployment");
+  return value && value !== "true" ? value : undefined;
+}
+
+/**
+ * What a deployed provisioner says about itself. BOOLEANS ONLY - no id, host,
+ * count, duration or version, on any path.
+ *
+ * `ok` is the conjunction of the four properties that make this process able to
+ * do its job. `state_persisted` is deliberately NOT one of them: on a first
+ * deploy it is correctly false, and a healthy machine must not be reported sick
+ * for having been deployed once.
+ */
+async function healthReport(deps: {
+  store: Store;
+  branchPinned: boolean;
+  persisted: boolean;
+  lastTickAt: () => number;
+}): Promise<Record<string, boolean>> {
+  let databaseReachable = false;
+  try {
+    await deps.store.sqlGet("select 1 as ok");
+    databaseReachable = true;
+  } catch {
+    // The ERROR OBJECT IS DISCARDED, not inspected and not forwarded: the
+    // store's seam already strips connection detail, and this surface answers
+    // in booleans, so there is nothing here for a message to add.
+  }
+  const last = deps.lastTickAt();
+  // False until the first pass completes, which is a few seconds after boot.
+  const tickRecent = last > 0 && Date.now() - last < 3 * POLL_INTERVAL_MS;
+  const boundsGoverned = true; // Store.open read both bounds back, or threw.
+  return {
+    ok: boundsGoverned && deps.branchPinned && databaseReachable && tickRecent,
+    bounds_governed: boundsGoverned,
+    branch_pinned: deps.branchPinned,
+    database_reachable: databaseReachable,
+    tick_recent: tickRecent,
+    state_persisted: deps.persisted,
+  };
 }
 
 /** Non-zero when a human is still owed something. */
@@ -589,8 +661,27 @@ async function cmdProvision(args: Map<string, string>): Promise<void> {
  */
 async function cmdRun(args: Map<string, string>): Promise<void> {
   const store = await openStore();
+
+  // The boot proof, before anything is served or ticked. `Store.open` returning
+  // IS the bounds evidence - it read both back from the engine and would have
+  // refused otherwise - and the pin below refuses a database that is not the
+  // one this deployment was pointed at. Booleans only: neither branch id is
+  // printed here or anywhere else.
+  const branchPinned = await provePinnedBranch(
+    store,
+    process.env[BRANCH_PIN_ENV],
+  );
+  const marker = readAndRefreshMarker(STATE_ROOT, deploymentIdOf(args));
+  reporter.line(
+    `boot: bounds-governed true, branch-pinned ${branchPinned}, ` +
+      `state-persisted ${marker.persisted}, ` +
+      `marker-crossed-release ${marker.crossedRelease}, ` +
+      `marker-supported ${marker.supported}`,
+  );
+
   const hold = new InviteHold();
   const token = process.env.CONTROL_PLANE_MINT_TOKEN ?? "";
+  let lastTickAt = 0;
   let seam: RunningMintSeam | null = null;
   if (token) {
     seam = startMintSeam({
@@ -598,6 +689,14 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       hold,
       token,
       port: Number(process.env.CONTROL_PLANE_MINT_PORT ?? "") || undefined,
+      hostname: bindAddressOf(args),
+      health: () =>
+        healthReport({
+          store,
+          branchPinned,
+          persisted: marker.persisted,
+          lastTickAt: () => lastTickAt,
+        }),
       report: (line) => reporter.line(line),
     });
   } else {
@@ -620,6 +719,9 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   try {
     await driveTicks(store, ticker, {
       forever: args.get("once") !== "true",
+      onTick: () => {
+        lastTickAt = Date.now();
+      },
       watch: () =>
         watchLiveness(store, {
           holder: ticker.holder,

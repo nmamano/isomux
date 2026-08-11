@@ -3,9 +3,15 @@
 // R-2026-08-10-1-AMENDED clause 4 overrides the loop's "no new HTTP surface"
 // default for EXACTLY this: one authenticated fetch-once verb, by operation id,
 // for an instance the caller owns and whose window is still open. There is no
-// other route, no kind parameter, no host, no path and nothing else that
-// reaches a remote seam. A compromised front end can ask for the result of a
-// mint it already opened, and that is the whole of what it can do here.
+// kind parameter, no host, no path and nothing else that reaches a remote seam.
+// A compromised front end can ask for the result of a mint it already opened,
+// and that is the whole of what it can do here.
+//
+// A DEPLOYED provisioner also answers one read verb, and only when a caller
+// passes the reporter for it: GET /internal/health, behind the SAME bearer, is
+// how an operator asks a machine they cannot log into whether it is working.
+// Its answers are booleans - never an id, a host, a count or a duration - and a
+// process started without a health reporter has no such route at all.
 //
 // TRANSPORT. HTTP request-response, bound to loopback in this loop because both
 // processes are on one box. Deliberately NOT a unix socket: a socket path is
@@ -23,6 +29,7 @@ import { instanceOwnedBy } from "./signup.ts";
 import type { Store } from "./store.ts";
 
 export const MINT_SEAM_PATH = "/internal/invite";
+export const HEALTH_PATH = "/internal/health";
 /** A plain constant, like the webhook port. One local endpoint, one port. */
 export const DEFAULT_MINT_SEAM_PORT = 4311;
 
@@ -126,6 +133,15 @@ export interface MintSeamOptions {
   /** Loopback in this loop. Exposed so a deployment can bind elsewhere without
    * the interface changing. */
   hostname?: string;
+  /**
+   * What a deployed process says about itself, as booleans.
+   *
+   * ABSENT BY DEFAULT: an operator run on a box somebody can log into has no
+   * use for it, and a route that exists everywhere is a route to keep guarded
+   * everywhere. Supplying it is what creates GET /internal/health, and the
+   * bearer applies to it exactly as it does to the invite verb.
+   */
+  health?: () => Promise<Record<string, boolean>>;
   report?: (line: string) => void;
 }
 
@@ -182,16 +198,31 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
     hostname,
     async fetch(req) {
       const url = new URL(req.url);
+      // No detail on a refusal, on either route. An unauthenticated caller
+      // learns nothing beyond "no".
+      const authorized = () =>
+        tokenMatches(bearerOf(req.headers.get("authorization")), opts.token);
+
+      if (opts.health && url.pathname === HEALTH_PATH) {
+        if (req.method !== "GET") {
+          return new Response("method not allowed\n", { status: 405 });
+        }
+        if (!authorized()) {
+          return new Response("unauthorized\n", { status: 401 });
+        }
+        // ALWAYS 200 while the process is serving. The booleans carry the
+        // degraded state, so a database that blinked is reported rather than
+        // turned into a dead machine by whatever restarts unhealthy ones.
+        return Response.json(await opts.health());
+      }
+
       if (url.pathname !== MINT_SEAM_PATH) {
         return new Response("not found\n", { status: 404 });
       }
       if (req.method !== "POST") {
         return new Response("method not allowed\n", { status: 405 });
       }
-      if (
-        !tokenMatches(bearerOf(req.headers.get("authorization")), opts.token)
-      ) {
-        // No detail. An unauthenticated caller learns nothing beyond "no".
+      if (!authorized()) {
         return new Response("unauthorized\n", { status: 401 });
       }
 
