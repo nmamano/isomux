@@ -79,6 +79,23 @@ Cut (approved 2026-08-11):
    client (Nil creates it before D3; manager re-sends the walkthrough at
    D3 dispatch), CONTROL_PLANE_MINT_TOKEN/URL, pricing (bf127061),
    terms/privacy final read (c1d6ed82), Vercel Pro upgrade.
+10. R-2026-08-11-1 (connection governance, ruled on Isomuxer2's measured
+   escalation): D3 deploys with the ungoverned web-tier worst-case
+   aggregate recorded as a DATED FINDING (2026-08-11: Neon direct
+   max_connections 901; Vercel publishes no concurrency ceiling on any
+   plan; the pooled endpoint refuses the store's options string with
+   SQLSTATE 08P01, correcting D1's README). The finding has a hard
+   expiry: slice D3.5 lands an engine-or-pooler-enforced aggregate
+   posture with a provisioner reserve BEFORE D4 begins, and D4 must not
+   open any real signup path while the finding is open. Option B
+   (role-level ALTER ROLE ... SET for both bounds, open-time read-back
+   retained, pooled eligibility for the web tier) is the preferred
+   shape; option A (a web role with CONNECTION LIMIT) may compose with
+   it; the D3.5 plan-gate settles the design with measurements. Moving
+   the bounds' enforcement point to the role while keeping the read-back
+   that refuses to run unproved preserves the design's guarantee -
+   implementation locus, not semantics. Per-instance pool hygiene stays
+   an ordinary D3 plan-gate item.
 
 ## Lanes
 
@@ -165,7 +182,11 @@ the slice.
       and report success - assert the change applied before running the
       check that depends on it.
 - [ ] D3: web to Vercel (I2/R2)
-- [ ] D4: end-to-end + ops floor (I1/R1)
+- [ ] D3.5: connection governance - role-enforced bounds + provisioner
+      reserve, closes the R-2026-08-11-1 finding (I1/R1; pickup authored
+      at D3 close)
+- [ ] D4: end-to-end + ops floor (I1/R1 becomes I2/R2 - alternation
+      shifts with the inserted slice)
 
 ## PICKUP - SLICE D1: Neon readiness (Isomuxer2 / Reviewer2)
 
