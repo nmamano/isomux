@@ -1441,7 +1441,7 @@ The suite needs a local Postgres, and it does not skip without one:
 docker run -d --name isomux-cp-pg \
   -e POSTGRES_PASSWORD=isomux -e POSTGRES_USER=isomux \
   -e POSTGRES_DB=control_plane_test \
-  -p 127.0.0.1:5433:5432 postgres:16
+  -p 127.0.0.1:5433:5432 postgres:18
 
 bun test control-plane
 ```

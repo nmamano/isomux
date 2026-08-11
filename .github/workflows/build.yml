@@ -29,7 +29,7 @@ jobs:
     # contributor's green run and CI's green run mean the same thing.
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_USER: isomux
           POSTGRES_PASSWORD: isomux
