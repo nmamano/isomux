@@ -115,6 +115,31 @@ Cut (approved 2026-08-11):
    certs issue' stays unapproved (LE rate-limit exposure on the loop's
    one hostname); if the bounded wait expires, park and escalate.
 
+12. R-2026-08-11-3 (owner connection term; Nil delegated, manager ruled
+   2026-08-11): Path 1 (ownership-transfer lockout of neondb_owner) is
+   CLOSED INFEASIBLE on measurements - the reverse transfer requires
+   membership in the old owner role, which nothing holds (0 members, 0
+   admin-option grants) and which cannot be granted (42501), so the
+   transferred state could be entered but never exited. The acceptance
+   predicate is NARROWED to Isomux-created deployed automated consumers:
+   W=40 (cp_web) + P=12 (cp_provisioner) = 52, each engine-enforced via
+   rolconnlimit, vs usable ceiling 894 (842 unallocated, measured
+   2026-08-11). neondb_owner is reclassified MANUAL BREAK-GLASS outside
+   the aggregate: uncappable on managed Neon (ALTER refused 42501 from
+   every available identity, measured 2026-08-11), DSN deployed nowhere
+   after G3/G4 (held only in ~/nil/secrets/), used for
+   migrations/bootstrap/tooling. Docs must state, dated: the owner term
+   is provider-managed and uncappable; two provider login roles hold
+   CONNECT outside our control; every aggregate claim is therefore
+   scoped to roles we create (true of every design option, including
+   the originally approved one). R-2026-08-11-1's closure condition
+   adapts: post-G4 evidence shows legacy owner-DSN backends on
+   Fly/Vercel drained/terminated, live per-role counts within 40/12,
+   owner sessions zero in steady state; production evidence stays
+   boolean (unchanged per table, accounts exactly 1). G2/G3/G4 remain
+   separate reviewer gates; the live migration remains its own gated,
+   reversible step.
+
 ## Lanes
 
 Alternate Isomuxer1/Reviewer1 and Isomuxer2/Reviewer2 only (Nil,
