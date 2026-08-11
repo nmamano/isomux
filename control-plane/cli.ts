@@ -26,6 +26,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
+import { bootstrapDatabase, reportBootstrap } from "./bootstrap.ts";
 import {
   AUDIT_FILE,
   databaseUrl,
@@ -726,6 +727,22 @@ async function printOperations(
   }
 }
 
+/**
+ * Bring the database named by CONTROL_PLANE_DB to schema-ready, and report it.
+ *
+ * Deliberately NOT through `openStore`: that also imports the legacy intent
+ * journal from this box, and a bootstrap must put nothing in a fresh database
+ * except the schema. Whether the database is the one intended is the caller's
+ * proof to make - `exercises/neon.ts bootstrap` makes it from the provider's
+ * API and the engine's own branch id, because an empty database says nothing
+ * about which database it is.
+ */
+async function cmdBootstrap(): Promise<void> {
+  const result = await bootstrapDatabase(databaseUrl());
+  reportBootstrap(result);
+  if (!result.schemaReady || !result.zeroUserData) process.exit(1);
+}
+
 async function cmdOps(args: Map<string, string>): Promise<void> {
   const store = await openStore();
   const run = args.get("run");
@@ -1032,6 +1049,8 @@ async function main(): Promise<void> {
       return cmdTick(args);
     case "ops":
       return cmdOps(args);
+    case "bootstrap":
+      return cmdBootstrap();
     case "operator":
       return cmdOperator(args);
     case "attention":
@@ -1041,7 +1060,7 @@ async function main(): Promise<void> {
     default:
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap> [--flags]",
       );
       process.exit(2);
   }

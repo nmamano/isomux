@@ -7,7 +7,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { isUniqueViolation, Store } from "./store.ts";
+import {
+  DATABASE_NAME,
+  isUniqueViolation,
+  redactConnectionDetails,
+  Store,
+  withGovernedOptions,
+} from "./store.ts";
 import {
   freshDsn,
   openTestStore,
@@ -375,7 +381,11 @@ describe("a failure inside a transaction, and who is allowed to recover from it"
       return "committed";
     });
 
-    expect(attempt).rejects.toThrow(/check constraint/i);
+    // The SQLSTATE rather than the engine's prose: the store's error boundary
+    // does not forward a driver message (it can carry the role - see
+    // redactConnectionDetails), and 23514 is the portable fact anyway, where
+    // "check constraint" is wording a Postgres release may reword.
+    expect(attempt).rejects.toThrow(/SQLSTATE 23514/);
     expect((await store.getInstance(inst))?.service_state).toBe("provisioning");
   });
 
@@ -1006,7 +1016,7 @@ describe("finite state sets are enforced by the database", () => {
         host_key_fingerprint: null,
         next_reconcile_at: 0,
       }),
-    ).rejects.toThrow(/check constraint/i);
+    ).rejects.toThrow(/SQLSTATE 23514/);
   });
 
   test("an unknown service state is rejected", async () => {
@@ -1022,7 +1032,7 @@ describe("finite state sets are enforced by the database", () => {
         goal: "live",
         access_window_expires_at: null,
       }),
-    ).rejects.toThrow(/check constraint/i);
+    ).rejects.toThrow(/SQLSTATE 23514/);
   });
 });
 
@@ -1183,5 +1193,215 @@ describe("the two fences: time bounds ACTING, the token bounds RECORDING", () =>
         { status: "succeeded" },
       ),
     ).toBeNull();
+  });
+});
+
+// The two bounds this build states as guarantees, and the fact that a managed
+// engine can silently decline to apply them. Measured 2026-08-11: the local
+// Postgres honours the pg pool's startup fields and Neon's direct endpoint
+// ignores them without an error, so the store now carries them in `options` and
+// READS THEM BACK before it hands anybody a Store.
+describe("the governed connection options", () => {
+  afterEach(releaseTestStores);
+
+  function optionsOf(url: string): string {
+    return new URL(withGovernedOptions(url)).searchParams.get("options") ?? "";
+  }
+
+  test("a DSN with no options gets both bounds", () => {
+    const options = optionsOf("postgres://u:p@h:5432/db");
+    expect(options).toContain("-c statement_timeout=30s");
+    expect(options).toContain("-c idle_in_transaction_session_timeout=30s");
+  });
+
+  test("an unrelated option is preserved, and stays first", () => {
+    const options = optionsOf(
+      "postgres://u:p@h:5432/db?options=" +
+        encodeURIComponent("-c search_path=cp_test_1"),
+    );
+    expect(options.startsWith("-c search_path=cp_test_1")).toBe(true);
+    expect(options).toContain("-c statement_timeout=30s");
+  });
+
+  // AUTHORITATIVE, not a default: a caller who writes their own value into
+  // CONTROL_PLANE_DB does not get it, because these two are the store's own
+  // promise rather than something it offers.
+  test("a conflicting value is removed rather than appended after", () => {
+    const options = optionsOf(
+      "postgres://u:p@h:5432/db?options=" +
+        encodeURIComponent("-c statement_timeout=1ms"),
+    );
+    expect(options).not.toContain("1ms");
+    expect(options.match(/statement_timeout/g)).toHaveLength(1);
+  });
+
+  test("duplicate and long-form conflicting values are all removed", () => {
+    const options = optionsOf(
+      "postgres://u:p@h:5432/db?options=" +
+        encodeURIComponent(
+          "-c statement_timeout=1ms --idle_in_transaction_session_timeout=2ms " +
+            "-c statement_timeout=3ms -c search_path=keep",
+        ),
+    );
+    expect(options).not.toContain("1ms");
+    expect(options).not.toContain("2ms");
+    expect(options).not.toContain("3ms");
+    expect(options).toContain("-c search_path=keep");
+    expect(options.match(/statement_timeout=/g)).toHaveLength(1);
+    expect(options.match(/idle_in_transaction_session_timeout=/g)).toHaveLength(
+      1,
+    );
+  });
+
+  // The engine's own answer, through a real open. This is the test the whole
+  // change exists for: it fails if the merge stops happening.
+  test("both bounds are in effect on an opened store", async () => {
+    const store = await openTestStore();
+    const row = await store.sqlGet<{ s: string; i: string }>(
+      "select current_setting('statement_timeout') as s, " +
+        "current_setting('idle_in_transaction_session_timeout') as i",
+    );
+    expect(row?.s).toBe("30s");
+    expect(row?.i).toBe("30s");
+  });
+
+  // The merge cannot be defeated by writing the option without a space, which
+  // is a form Postgres accepts and a naive `-c ` split does not see.
+  test("the joined -cname=value form is caught too", () => {
+    const options = optionsOf(
+      "postgres://u:p@h:5432/db?options=" +
+        encodeURIComponent("-cstatement_timeout=1ms"),
+    );
+    expect(options).not.toContain("1ms");
+    expect(options.match(/statement_timeout=/g)).toHaveLength(1);
+  });
+
+  // There is deliberately NO test that provokes the refusal from a DSN, and the
+  // absence is the property: the merge strips every conflicting token, so no
+  // connection string can reach the engine with the wrong bound. What the
+  // refusal guards is an engine that ACCEPTS `options` and does not apply it -
+  // measured on Neon's startup fields, 2026-08-11 - and no local Postgres can
+  // be made to do that on demand. The mutation check for this pair is the test
+  // above: make `withGovernedOptions` return its input unchanged, and "both
+  // bounds are in effect on an opened store" fails.
+});
+
+describe("connection details on the error path", () => {
+  afterEach(releaseTestStores);
+
+  const dsn =
+    "postgres://therole:thepassword@ep-secret-endpoint.example.com:5432/thedb" +
+    "?sslmode=verify-full&options=" +
+    encodeURIComponent("-c search_path=cp_test_9");
+
+  // The property is not "the message is scrubbed" - it is that the driver's
+  // message is never copied. A test that only checked for known substrings
+  // would pass for a design that forwards an unknown one.
+  test("the driver's message is not carried at all", () => {
+    const err = redactConnectionDetails(
+      new Error("password authentication failed for user 'therole'"),
+      dsn,
+    );
+    expect(err.message).not.toContain("password authentication failed");
+    expect(err.message).not.toContain("therole");
+    expect(err.message).toContain("could not be reached");
+  });
+
+  // Every component, INCLUDING the ones a length filter used to skip and the
+  // host labels a whole-hostname check used to miss.
+  test("no component reaches the output, whatever its length", () => {
+    const short = "postgres://a:b@h.example.com:1/cd?sslmode=require";
+    for (const leaked of ["a", "b", "cd", "1", "h.example.com", "h"]) {
+      const err = redactConnectionDetails(
+        new Error(`connect failed near ${leaked}`),
+        short,
+      );
+      expect(err.message).not.toContain(`near ${leaked}`);
+      expect(err.stack ?? "").not.toContain(`near ${leaked}`);
+    }
+  });
+
+  // The stack is the back door: its first line is `Error: <driver message>`,
+  // so a stack that merely passed the component check would carry the driver's
+  // free text across a boundary whose whole claim is that it does not.
+  test("the driver's free text does not survive on the stack either", () => {
+    const original = new Error(
+      'duplicate key value violates unique constraint "operations_pkey"',
+    );
+    const err = redactConnectionDetails(original, dsn);
+    for (const surface of [err.message, err.stack ?? ""]) {
+      expect(surface).not.toContain("duplicate key value violates");
+    }
+    // And the debugging property the rebuild exists to keep: a real call-site
+    // frame is still there, under a header that is ours.
+    expect(err.stack ?? "").toMatch(/^RedactedDatabaseError: /);
+    expect(err.stack ?? "").toMatch(/\n\s+at\s/);
+    expect((err.stack ?? "").split("\n")[0]).toBe(
+      `RedactedDatabaseError: ${err.message}`,
+    );
+  });
+
+  test("the endpoint id alone is a component, not only the whole host", () => {
+    const err = redactConnectionDetails(
+      new Error("could not connect to ep-secret-endpoint"),
+      dsn,
+    );
+    expect(err.message).not.toContain("ep-secret-endpoint");
+  });
+
+  test("an options value and its tokens are components", () => {
+    for (const leaked of ["-c search_path=cp_test_9", "cp_test_9"]) {
+      const err = redactConnectionDetails(new Error(`bad ${leaked}`), dsn);
+      expect(err.message).not.toContain(leaked);
+    }
+  });
+
+  // A SQLSTATE keeps the structured fields, which are literals of ours - so a
+  // unique violation is still diagnosable without the engine's prose.
+  test("a statement error keeps its SQLSTATE and its own structured fields", () => {
+    const err = redactConnectionDetails(
+      Object.assign(
+        new Error("duplicate key value violates unique constraint"),
+        {
+          code: "23505",
+          constraint: "operations_pkey",
+          table: "operations",
+          schema: "cp_test_9",
+          detail: "Key (id)=(op-1) already exists.",
+        },
+      ),
+      dsn,
+    );
+    expect(err.message).toContain("SQLSTATE 23505");
+    expect(err.message).toContain("constraint=operations_pkey");
+    expect(err.message).toContain("table=operations");
+    // `schema` can be the search_path out of `options`, and `detail`
+    // interpolates values - neither is on the allowlist.
+    expect(err.message).not.toContain("cp_test_9");
+    expect(err.message).not.toContain("op-1");
+  });
+
+  // A cause is how a redacted message comes back one layer down, through any
+  // logger that walks the chain.
+  test("no cause is carried", () => {
+    const original = new Error("password authentication failed for therole");
+    const err = redactConnectionDetails(original, dsn) as Error & {
+      cause?: unknown;
+    };
+    expect(err.cause).toBeUndefined();
+  });
+
+  test("the driver's code survives, because it is what a reader needs", () => {
+    const original = Object.assign(new Error("nope"), { code: "28P01" });
+    expect(
+      (redactConnectionDetails(original, dsn) as { code?: string }).code,
+    ).toBe("28P01");
+  });
+
+  test("describe() names the variable, never the value", async () => {
+    const store = await openTestStore();
+    expect(store.describe()).toBe(DATABASE_NAME);
+    expect(store.describe()).not.toContain("postgres");
+    expect(store.describe()).not.toContain("5433");
   });
 });

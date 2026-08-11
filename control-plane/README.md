@@ -27,6 +27,7 @@ bun control-plane/cli.ts ops     [--run <runId>] # the operation rows
 bun control-plane/cli.ts attention [--ack <instanceId>] [--by <name>]
 bun control-plane/cli.ts status  --run <runId>
 bun control-plane/cli.ts expiry-test --run <runId> --variant boundary|powered-off [--seconds N]
+bun control-plane/cli.ts bootstrap                # an empty database -> schema-ready
 ```
 
 Credentials come from the environment (`CONTABO_CLIENT_ID`,
@@ -253,41 +254,114 @@ There is no schema migration, and a database written before this build REFUSES T
 OPEN rather than failing somewhere in the middle of a run: `create table if not
 exists` is silent about a table that exists with the wrong columns, so the store
 checks the catalog for the columns it needs and names the database to move aside.
-It names it with the password stripped - the value that used to be a file path is
-now a credential, and an error message is a place credentials get copied to.
 
-### What a managed Postgres has to give this build (Neon, undeployed)
+It names it by naming CONTROL_PLANE_DB, and nothing else. Stripping the password
+was the earlier answer and is not enough: measured 2026-08-11, the host carries
+the provider's endpoint id and the driver's own SQLSTATE 28P01 message carries
+the role, so every part of a DSN is something somebody could copy out of a log.
+`Store.describe()` is now a fixed sentence and `describeDatabase` is gone.
 
-Documentation, not a deployment: nothing here has run against Neon, no account
-exists, and every statement below is either about OUR code or about a published
-provider behaviour, so a claim about an account-side default nobody inspected is
-not made at all.
+**The driver's message is never forwarded.** `redactConnectionDetails` wraps
+every failure at the store's two seams and emits a fixed sentence chosen by
+error class plus an allowlist of the STRUCTURED fields a Postgres error carries
 
-- **TLS is DSN configuration.** `sslmode=require` goes in `CONTROL_PLANE_DB`,
-  where `pg` reads it from the connection string like any other parameter. It is
-  not a code change and not a second knob.
-- **The DIRECT endpoint, not the pooled one.** Neon publishes a pooled
-  (PgBouncer) endpoint on a `-pooler` host, which is the usual answer to a
-  serverless deployment opening many connections - and it REJECTS startup
-  parameters it does not support. This build sends `statement_timeout` and
-  `idle_in_transaction_session_timeout` as connection parameters, which travel
-  at startup, and the test DSNs additionally carry `options=-c search_path=...`.
-  So the pooled endpoint is not usable here today. The right response is not to
-  drop those timeouts to fit: they bound a wedged row lock and a holder that
-  died with `begin` open, which is exactly the failure a pooled connection makes
-  more likely rather than less. Supporting the pooled endpoint means applying
-  both bounds some other way (per session, per transaction) and is separate
-  work.
-- **What bounds connections instead**, and why the direct endpoint is
-  affordable: the web app holds ONE store per process with a pool capped at 4
-  and a 10s idle timeout, so a warm instance holds a handful of connections and
-  an idle one holds none. That is the same measurement the process-lifetime
-  store was made for.
-- **Nothing needs superuser, and nothing needs an extension.** Read from the
-  schema 2026-08-10: `SCHEMA` and `LATE_INDEXES` contain `create table if not
-exists` and `create unique index if not exists` and nothing else - no
-  `create extension`, no `alter system`, no role or tablespace statement. A
-  database whose owner may create tables in its own schema is enough.
+- severity, table, column, constraint, routine - which are literals of ours
+  rather than provider text. It keeps the SQLSTATE and attaches NO CAUSE, because
+  a cause is how the original message comes back one layer down.
+
+**The stack is rebuilt from frames, not copied.** A stack's first line is
+`Error: <the driver's own message>`, so retaining a stack that merely passed a
+component check would have carried the free text across this boundary through
+the back door, and put the completeness of a substring list back in the middle
+of the guarantee. The header is discarded unconditionally and replaced with the
+sanitized one; only `at ...` frames are kept, and only if every one of them is
+clean, so one suspect frame drops the lot instead of being filtered out
+quietly. The call site survives, which is what makes the thin message tolerable.
+
+Two designs were tried and rejected before this one, and both failed in review:
+replacing each component substring mangles a diagnostic into holes and cannot
+handle a one-character role, and skipping short components to avoid that lets a
+short role, a two-letter database or a port straight out. Forwarding a message
+that merely LOOKS clean is the same bet with an extra step - it depends on the
+component list being complete, and the list was not: a message quoting only the
+endpoint id passed a whole-hostname check. So the message is not forwarded at
+all, and what is left is checked against every component of the DSN (password,
+role, host and each of its non-numeric labels, port, database name, every query
+parameter name and value including `options`, and each token inside a value) at
+ANY length.
+
+The price is stated rather than hidden: a unique violation now reads `the
+database refused a statement (SQLSTATE 23505) constraint=operations_pkey
+table=operations` instead of the engine's prose, and three tests that asserted
+that prose now assert the SQLSTATE - which is the portable fact anyway.
+
+`exercises/neon-redaction.ts` is the standing check: four deliberate connection
+failures against a real endpoint, scanning message, stack, `String`,
+`JSON.stringify` and the whole cause chain, with one positive control PER
+COMPONENT - the password, the role, the host, the endpoint id alone, the
+database name, the whole `options` value and a single token out of it - each of
+which must be caught by the same scan, plus a synthetic DSN with a
+one-character role, password and port to pin that no length is exempt.
+
+It also carries the check no component scan can make: for each failure it asks a
+BARE pool for the same connection, captures what the driver itself said, and
+requires that exact sentence to appear on none of the surfaces we emit. A driver
+message is free text rather than a DSN component, so nothing else in this file
+would have noticed it crossing.
+
+### What a managed Postgres actually gives this build (Neon, measured 2026-08-11)
+
+The project is `isomux-control-plane` (Postgres 18.4, aws-eu-central-1). This
+section used to be documentation - "nothing here has run against Neon". It is
+now a record of runs, and the first thing those runs found is that one
+paragraph of it was wrong in a way that mattered.
+
+- **THE TWO BOUNDS DO NOT SURVIVE AS STARTUP FIELDS, AND NOTHING SAYS SO.**
+  `statement_timeout` and `idle_in_transaction_session_timeout` used to travel
+  as `pg` pool options, which the driver sends as protocol startup fields.
+  Against the local container `current_setting` reports `30s` for both. Against
+  Neon's DIRECT endpoint, with the identical pool configuration, it reports `0`
+  and Neon's own `5min` - no error, no warning, no failed connection. A build
+  deployed on Neon before this was found had no statement_timeout at all, which
+  is the bound the paragraph below argues is load bearing.
+- **They DO apply through `options`**, the same startup parameter the test DSNs
+  already use for `search_path`, and the two travel together in one value. So
+  `Store.open` now BUILDS the string it connects with: `withGovernedOptions`
+  merges `-c statement_timeout=30s -c idle_in_transaction_session_timeout=30s`
+  into whatever `options` the DSN carries, dropping any conflicting token first
+  (both the `-c name=value` and the `--name=value` form, and duplicates) and
+  preserving unrelated ones. It is the store's guarantee rather than a default
+  it offers, so a value written into `CONTROL_PLANE_DB` does not override it.
+- **And it is read back.** `assertBoundsInEffect` asks the engine what it
+  actually applied, before `Store.open` returns, and REFUSES to hand back a
+  store if either answer is wrong. A provider that accepts `options` and
+  ignores it looks exactly like one that honours it, right up to the incident;
+  this is the difference between a stated bound and an enforced one.
+- **TLS is DSN configuration.** `sslmode` goes in `CONTROL_PLANE_DB`, where
+  `pg` reads it from the connection string like any other parameter. Prefer
+  `verify-full` explicitly: pg 8.23 currently treats `require` as `verify-full`
+  and warns that a future major will stop doing so, so leaving it at `require`
+  is a certificate check that expires on somebody else's release schedule.
+  `exercises/neon-api.ts` sets `verify-full` on every string it builds.
+- **The DIRECT endpoint, not the pooled one.** The earlier claim that the
+  pooled endpoint REJECTS unsupported startup parameters did not reproduce: a
+  pooled connection was accepted and behaved like the direct one, ignoring both
+  bounds. The reason to stay on the direct endpoint is therefore not a refusal
+  we can point at - it is that the pooled endpoint is a second connection
+  machine we have measured nothing else about, and `options` is the channel
+  this build now depends on. `exercises/neon-api.ts` takes the direct host from
+  the API's endpoint record rather than by editing a hostname, and refuses a
+  pooled one outright.
+- **What bounds connections**, and why the direct endpoint is affordable: the
+  web app holds ONE store per process with a pool capped at 4 and a 10s idle
+  timeout, so a warm instance holds a handful of connections and an idle one
+  holds none. Round trip Helsinki to Frankfurt is 26ms warm; a cold connect,
+  TLS and first query together measured 764ms.
+- **Nothing needs superuser, and nothing needs an extension.** `SCHEMA` and
+  `LATE_INDEXES` contain `create table if not exists` and `create unique index
+if not exists` and nothing else. Confirmed by running the bootstrap against
+  the real production branch: it came up with no role, extension or system
+  statement of any kind.
 - **`synchronous_commit` is never turned off by this codebase**, in production
   or in a test container, because `create_intents` is the latch that stops us
   buying a box twice. That is a statement about our code; what a provider does
@@ -295,9 +369,86 @@ exists` and `create unique index if not exists` and nothing else - no
 - **A serverless instance that is frozen and thawed can hold a dead
   connection.** The pool's error handler covers the idle case - the client is
   discarded and the next checkout makes a new one - but a query whose socket
-  dies mid-flight fails that request. It is one failed request, which the caller
-  must retry as a new HTTP request: nothing here retries it for them, and this
-  document does not pretend the recovery is transparent.
+  dies mid-flight fails that request. It is one failed request, which the
+  caller must retry as a new HTTP request: nothing here retries it for them,
+  and this document does not pretend the recovery is transparent.
+- **The engine says which branch is answering.** `current_setting('neon.branch_id')`
+  is present on every session and equals the id the Neon API reports for that
+  branch. That is what makes the branch guards below proofs rather than
+  conventions: a connection string can name any host, and the branch serving
+  the connection is the only thing that knows which branch it is.
+
+### Branches: which database a command is allowed to touch
+
+Loop ruling 4: suites and transcripts run against a CHILD branch, and the
+production branch receives SCHEMA ONLY - no test row, ever. Two mechanisms
+enforce it, and they are independent on purpose.
+
+`exercises/neon-api.ts` is the library and `exercises/neon.ts` the commands:
+
+```
+bun control-plane/exercises/neon.ts branches
+bun control-plane/exercises/neon.ts branch --create suites
+bun control-plane/exercises/neon.ts branch --delete suites
+bun control-plane/exercises/neon.ts measure --branch suites
+bun control-plane/exercises/neon.ts run --branch suites -- bun test control-plane --timeout 30000
+bun control-plane/exercises/neon.ts bootstrap --branch production
+```
+
+- **A connection string is never read whole.** The direct endpoint host comes
+  from the API's endpoint record; the role, password and database name come
+  from the env DSN, whose host is discarded; the two are combined in the
+  running process and the result is never written to disk, echoed, or passed as
+  an argument. Manager ruling 2026-08-11, after the env file turned out to hold
+  the pooled host. Stripping the `-pooler` label is a fallback only, and it is
+  gated on a live connection whose branch id matches the API's.
+- **The project is matched by name**, and any other refused: the API key is
+  account-wide.
+- **`run` refuses the default branch**, and `bootstrap` refuses anything else.
+- **Every line these commands print is a boolean or a count.** No host, role,
+  endpoint id, database name, branch id or DSN, on any path, error paths
+  included.
+
+The second mechanism does not trust the first. `testing/target.ts` is called by
+`testing/pg.ts` before the first schema is acquired and by
+`e2e/production-server.e2e.ts` before it seeds anything: it reads
+`neon.branch_id` from the session, asks the API for the branch the tooling
+targets, and requires the two ids to be equal and that branch to be a
+non-default branch with a parent. An absent setting, an API that cannot answer,
+or any mismatch REFUSES. There is no "assume child" arm and no flag that skips
+it - so pointing `CONTROL_PLANE_DB` at production and running `bun test`
+directly is refused by the harness itself, which is the bypass the first
+mechanism cannot see.
+
+A local DSN is the other allowed target, allowed by identity rather than by
+exception: `LOCAL_DATABASE_URL` is the throwaway container on 5433, so CI and a
+contributor's `bun test` never reach the network and are unchanged.
+
+### Bootstrapping a branch, and the two booleans
+
+`bun control-plane/cli.ts bootstrap` brings the database named by
+`CONTROL_PLANE_DB` to schema-ready and reports what it did:
+
+```
+schema-ready: true
+zero-user-data: true
+  accounts: 0 rows
+  ...
+```
+
+The procedure is `Store.open` and nothing else. What the command adds is
+evidence produced by the same run that did the work, and a refusal to exit zero
+if either boolean is false. It deliberately does NOT go through `cli.ts`'s
+`openStore`, which also imports this box's legacy intent journal - a bootstrap
+that carried an operator's local intent files into a customer database would be
+putting rows there that ruling 4 forbids.
+
+Row counts are CONTENTS evidence and are not offered as identity evidence: an
+empty database says nothing about WHICH database it is. That proof belongs to
+`exercises/neon.ts bootstrap`, which establishes it from two directions before
+a single statement is written - the API says the branch is the default with no
+parent, and then the engine's own `neon.branch_id` says that is the branch
+answering.
 
 ### The store API is Promise-based, and the engine handle is private
 
@@ -810,7 +961,7 @@ the Stripe CLI, which holds a websocket to Stripe and forwards each event:
 
 ```
 stripe listen --forward-to http://localhost:4243/stripe/webhook   # STRIPE_API_KEY in the env
-bun control-plane/billing-cli.ts serve --db /tmp/billing.db       # STRIPE_WEBHOOK_SECRET in the env
+bun control-plane/billing-cli.ts serve --db <scratch dsn>          # STRIPE_WEBHOOK_SECRET in the env
 ```
 
 The signing secret is runtime-only state: capture it by redirection into a 0600
@@ -898,6 +1049,12 @@ and the previous version of this table could not tell the two apart.
 | `next dev`   | serves store-backed pages                                                                           | serves store-backed pages |
 | `next build` | FAILS: "Expected CommonJS module to have a function wrapper" loading Next's compiled server runtime | works                     |
 | `next start` | boots, then answers 500 to every dynamic route - the same defect, at request time                   | serves store-backed pages |
+
+The cells above were measured against the local container. The `node` /
+`next start` cell was re-measured on 2026-08-11 against the MANAGED engine (the
+Neon `suites` branch) and every check stayed green - see the Tests section for
+the command. That is the cell a deployment uses, so it is the one that needed a
+real database behind it rather than a convenient one.
 
 **The right-hand column is what the port bought.** Before it, Node could not
 load the store at all: `next dev` could not open `bun:sqlite`, and `next start`
@@ -1050,8 +1207,8 @@ Both modes decide every mutable precondition INSIDE the transaction that writes,
 so two callers cannot turn a pre-check into duplicate work:
 
 ```
-bun control-plane/exercises/adopt-run.ts --db <file> --instance inst-<id> --run <runId> --start
-bun control-plane/exercises/adopt-run.ts --db <file> --instance inst-<id> --run <runId> --revoke
+bun control-plane/exercises/adopt-run.ts --db <dsn> --instance inst-<id> --run <runId> --start
+bun control-plane/exercises/adopt-run.ts --db <dsn> --instance inst-<id> --run <runId> --revoke
 ```
 
 `--start` requires an unlinked instance, an asset with no provider id, and no
@@ -1418,8 +1575,8 @@ step needs a person" would be a pager with the message removed.
 Authority is a column, granted only by the CLI:
 
 ```
-bun control-plane/cli.ts operator --db <file> --email <addr> --grant
-bun control-plane/cli.ts operator --db <file> --email <addr> --revoke
+bun control-plane/cli.ts operator --email <addr> --grant
+bun control-plane/cli.ts operator --email <addr> --revoke
 ```
 
 The email is a lookup key; what is stored and what every gate reads is the
@@ -1459,6 +1616,51 @@ Each test gets a schema of its own, carried in the connection string, so two
 stores opened on the same string share state exactly as two stores on one file
 did. Schemas are recycled between tests rather than created per test, for
 efficiency.
+
+The same suite runs against the managed engine, on the `suites` child branch and
+never on production:
+
+```
+bun control-plane/exercises/neon.ts run --branch suites -- \
+    bun test control-plane --timeout 30000
+```
+
+Measured 2026-08-11: 728 tests across 46 files, 0 failures, **9m16s** wall
+against 50s on the local container. The suite issues about 11,200 round trips
+and each one costs 26ms to Frankfurt, which is the whole difference; the box's
+own CPU time was 1m12s of those nine minutes.
+
+`--timeout 30000` is on the command line rather than in any test file, and it
+is load bearing rather than precautionary: the same suite run at bun's default
+5s bound fails exactly two tests, both of them timeouts at 5001ms and 5002ms,
+both in `adopt-run.test.ts`'s `--revoke` block, which drives a whole adoption
+through one test. Wall clock was the same either way (9m14s), so the flag buys
+headroom and costs nothing. NO SOURCE TIMEOUT MOVED - a bound written into a
+test file would follow it to CI, where the same test finishes in milliseconds.
+
+The run is pointed at the branch through `CONTROL_PLANE_DB` - the product's own
+variable, not a second name for the same thing - and both branch guards above
+apply, so a mistyped target refuses instead of writing.
+
+The production web server is driven against the same branch, and that is the
+transcript that matters most here because it writes rows the product's own
+signup path wrote:
+
+```
+bun control-plane/exercises/neon.ts run --branch suites -- \
+    bun control-plane/web/e2e/production-server.e2e.ts --runtime node --mode start
+```
+
+Measured 2026-08-11: every check green in 17s, including the seeded office's
+hostname, the polled progress route, a second account refused the same office,
+and the ops floor before and after the operator grant. So the `node` / `next
+start` cell of the runtime matrix now has a managed engine behind it, not only
+a local container.
+
+One caveat that belongs to the harness rather than to the engine:
+`sweepAbandoned` decides "did the process that made this schema die" with
+`process.kill` on THIS machine, which is sound only because one machine uses the
+branch. Two machines sharing it would drop each other's live schemas.
 
 `deploy/install-sh.test.ts` also scans install.sh for the heredoc defect as a
 CLASS, at both stages: what install.sh's own shell expands, and what the helper

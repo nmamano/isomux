@@ -24,7 +24,8 @@
 
 import pg from "pg";
 import { LOCAL_POSTGRES_COMMAND } from "../config.ts";
-import { Store, type Clock } from "../store.ts";
+import { Store, redactConnectionDetails, type Clock } from "../store.ts";
+import { assertScratchTarget } from "./target.ts";
 
 /**
  * The local Postgres the suite talks to.
@@ -34,12 +35,36 @@ import { Store, type Clock } from "../store.ts";
  * suite silently writes to. The credentials are throwaway and belong to a
  * container the README's one-liner starts.
  */
-export const TEST_DATABASE_URL =
+export const LOCAL_DATABASE_URL =
   "postgres://isomux:isomux@127.0.0.1:5433/control_plane_test";
 
+/**
+ * The database this run creates its schemas in.
+ *
+ * `CONTROL_PLANE_DB` is how a run is pointed at the managed engine instead -
+ * the same variable the product reads, because a second name for "which
+ * database" is a second thing to keep true. Nothing is trusted on the strength
+ * of that variable: a remote target must PROVE it is the scratch branch
+ * (`assertScratchTarget`) before a schema is created, and the proof is refused
+ * by default rather than granted by default. CI sets nothing and is unaffected.
+ */
+export const TEST_DATABASE_URL =
+  process.env.CONTROL_PLANE_DB ?? LOCAL_DATABASE_URL;
+
+/**
+ * NAMES NO DATABASE.
+ *
+ * This message used to interpolate the connection string, which was harmless
+ * while that string was a throwaway local credential and is not harmless now
+ * that the same variable can carry a managed engine's DSN: an unreachable
+ * database would have printed the password into the test output and into CI
+ * logs. Ruling 8 says a DSN is redacted on the error path, not repaired after
+ * capture.
+ */
 const UNREACHABLE =
-  `cannot reach the test database at ${TEST_DATABASE_URL}. The suite needs a ` +
-  `real Postgres and does not skip without one. Start it with:\n\n  ` +
+  `cannot reach the database named by CONTROL_PLANE_DB (or, with that unset, ` +
+  `the local test container). The suite needs a real Postgres and does not ` +
+  `skip without one. Start the local one with:\n\n  ` +
   `${LOCAL_POSTGRES_COMMAND}\n`;
 
 /** Schema names this process may create, and the only shape it will quote. */
@@ -113,10 +138,18 @@ async function ask<T>(sql: string, args: unknown[] = []): Promise<T[]> {
     const result = await admin.query<T extends object ? T : never>(sql, args);
     return result.rows;
   } catch (err) {
+    // No cause on either arm: a driver error carries the address, and on a
+    // managed engine an authentication failure carries the role (measured
+    // 2026-08-11). What is left is the code, which is what a reader needs.
     if ((err as { code?: string }).code === "ECONNREFUSED") {
-      throw new Error(UNREACHABLE, { cause: err });
+      // The driver's error carries the address it could not reach, and on a
+      // managed engine an authentication failure carries the role. Ruling 8:
+      // redacted on the error path, not repaired after capture - so the cause
+      // is dropped on purpose here.
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error(UNREACHABLE);
     }
-    throw err;
+    throw redactConnectionDetails(err, TEST_DATABASE_URL);
   }
 }
 
@@ -188,14 +221,45 @@ async function wipe(schema: string): Promise<void> {
   );
 }
 
+/**
+ * The base DSN with this schema's search_path added.
+ *
+ * Through the URL rather than by concatenating `?options=`: a managed engine's
+ * DSN already carries `?sslmode=...`, and a second `?` produces a string that
+ * is not a URL at all. Existing parameters are preserved, and the store adds
+ * its own governed options on top of whatever is here.
+ */
 function dsnFor(schema: string): string {
-  return `${TEST_DATABASE_URL}?options=${encodeURIComponent(
-    `-c search_path=${schema}`,
-  )}`;
+  let url: URL;
+  try {
+    url = new URL(TEST_DATABASE_URL);
+  } catch {
+    // Node's own URL error carries the offending string on an `input`
+    // property, which a stringified error can print. Same class as the two
+    // above, found by auditing this file after the reviewer found seedRawSchema.
+    throw new Error(
+      "CONTROL_PLANE_DB is not a URL, so no test schema can be addressed",
+    );
+  }
+  url.searchParams.set("options", `-c search_path=${schema}`);
+  return url.toString();
+}
+
+/**
+ * The target proof, run once per process and before the first schema exists.
+ *
+ * Fail closed: a rejection is remembered and re-thrown, so a second acquisition
+ * cannot quietly retry its way past a refusal.
+ */
+let proven: Promise<void> | null = null;
+function proveTarget(): Promise<void> {
+  proven ??= assertScratchTarget(TEST_DATABASE_URL, LOCAL_DATABASE_URL);
+  return proven;
 }
 
 async function acquire(fresh: boolean): Promise<string> {
   return serialise(async () => {
+    await proveTarget();
     await sweepAbandoned();
     const recycled = fresh ? undefined : free.pop();
     const schema = recycled ?? `cp_test_${process.pid}_${nonce}_${counter++}`;
@@ -249,7 +313,8 @@ export async function openTestStoreOn(
     store = await Store.open(dsn, now);
   } catch (err) {
     if ((err as { code?: string }).code === "ECONNREFUSED") {
-      throw new Error(UNREACHABLE, { cause: err });
+      // eslint-disable-next-line preserve-caught-error
+      throw new Error(UNREACHABLE);
     }
     throw err;
   }
@@ -260,10 +325,28 @@ export async function openTestStoreOn(
 /** Run SQL the Store cannot: the deliberately-wrong schemas the open check
  * exists to refuse. Test-only, and never a route product code could take. */
 export async function seedRawSchema(dsn: string, sql: string): Promise<void> {
-  const schema = new URL(dsn).searchParams
-    .get("options")
-    ?.replace("-c search_path=", "");
-  if (!schema) throw new Error(`no schema in ${dsn}`);
+  let schema: string | undefined;
+  try {
+    schema = new URL(dsn).searchParams
+      .get("options")
+      ?.replace("-c search_path=", "");
+  } catch {
+    // Node's URL error carries the offending string on an `input` property,
+    // which a stringified error prints. Same class as the message below.
+    throw new Error(
+      "the connection string passed to seedRawSchema is not a URL",
+    );
+  }
+  // A fixed sentence: this used to interpolate the whole DSN, password
+  // included, which is the same defect UNREACHABLE carried. Which connection
+  // string was passed is knowable from the caller; the value is not something
+  // an error message may hold.
+  if (!schema) {
+    throw new Error(
+      "the connection string carries no `options=-c search_path=`, so this " +
+        "test-only helper cannot tell which schema to seed",
+    );
+  }
   // `set local` inside a transaction: a bare `set` would follow this connection
   // back into the pool and silently re-point the next caller's unqualified
   // names.

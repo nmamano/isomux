@@ -60,6 +60,8 @@ import {
 } from "../../signup.ts";
 import { Store } from "../../store.ts";
 import { databaseUrl } from "../../config.ts";
+import { LOCAL_DATABASE_URL } from "../../testing/pg.ts";
+import { assertScratchTarget } from "../../testing/target.ts";
 
 const WEB_DIR = path.join(import.meta.dir, "..");
 const CHROME = "/usr/bin/google-chrome";
@@ -181,6 +183,12 @@ async function main(): Promise<void> {
   await versions();
 
   const db = databaseUrl();
+  // This transcript SEEDS ROWS - two accounts, a reservation, an instance - so
+  // it is subject to the same refusal the suite is: a remote target must prove
+  // it is the scratch branch before anything is written. Fail closed; there is
+  // no flag that skips it.
+  await assertScratchTarget(db, LOCAL_DATABASE_URL);
+  say("target proved to be the scratch branch: true");
   const store = await Store.open(db);
   say(`database: ${store.describe()}`);
 

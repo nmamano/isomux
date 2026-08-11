@@ -599,17 +599,263 @@ export function isUniqueViolation(err: unknown): boolean {
   return (err as { code?: unknown })?.code === UNIQUE_VIOLATION;
 }
 
-/** The connection string with any password removed, for messages and logs. A
- * path could be printed; a DSN cannot. */
-export function describeDatabase(url: string): string {
+/**
+ * What to call this database in a sentence.
+ *
+ * A FIXED STRING, naming the configuration SOURCE rather than anything derived
+ * from the configured value. The value used to be a file path, which could be
+ * printed; it is now a credential, and a credential has no safe abbreviation.
+ * Stripping the password is not enough - measured 2026-08-11, the host carries
+ * a Neon endpoint id, the role travels in the driver's own 28P01 message, and
+ * every one of those is a fragment of a DSN. An operator who has to act needs
+ * to know WHERE the value is configured, and that is a constant.
+ */
+export const DATABASE_NAME = "the database named by CONTROL_PLANE_DB";
+
+/**
+ * The two bounds this build states as guarantees, as `options` tokens.
+ *
+ * They used to travel as pg pool options, which the driver sends as protocol
+ * startup fields. Measured 2026-08-11: the local Postgres applies those and
+ * NEON SILENTLY IGNORES THEM - `current_setting('statement_timeout')` came back
+ * `30s` locally and `0` on Neon's direct endpoint, with no error and no
+ * warning. A bound that is quietly absent in the only deployment target is not
+ * a bound, and the README argues these two cap a wedged row lock and a holder
+ * that died with `begin` open.
+ *
+ * The same values DO apply when they travel in the `options` startup parameter,
+ * which is the channel the test DSNs already use for `search_path` (measured
+ * the same day, both engines). So the store BUILDS the connection string it
+ * uses rather than trusting whoever wrote the DSN, and `assertBoundsInEffect`
+ * reads them back: a provider that swallows `options` too is caught at open
+ * instead of during an incident.
+ */
+const GOVERNED_SETTINGS: [string, string][] = [
+  // Seconds, because that is the unit `current_setting` answers in: the
+  // read-back compares the engine's own rendering, so asking in milliseconds
+  // would fail a comparison against a value that is actually correct.
+  ["statement_timeout", `${STATEMENT_TIMEOUT_MS / 1000}s`],
+  [
+    "idle_in_transaction_session_timeout",
+    `${IDLE_IN_TRANSACTION_TIMEOUT_MS / 1000}s`,
+  ],
+];
+
+/**
+ * Merge our two bounds into a DSN's `options`, AUTHORITATIVELY.
+ *
+ * Every token that sets either governed name is dropped first - in both the
+ * `-c name=value` and the `--name=value` form, and however many copies there
+ * are - and ours are appended last. Unrelated tokens (`-c search_path=...`, the
+ * one the test harness depends on) are preserved in order. A caller who writes
+ * a different statement_timeout into CONTROL_PLANE_DB does not get it: this is
+ * the store's own guarantee, not a default it offers.
+ */
+export function withGovernedOptions(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    // Not a URL we can reason about. Handing it back unchanged lets the driver
+    // produce the error, which is a better one than anything invented here.
+    return url;
+  }
+  const governed = new Set(GOVERNED_SETTINGS.map(([name]) => name));
+  const kept: string[] = [];
+  const existing = parsed.searchParams.get("options") ?? "";
+  const tokens = existing.split(/\s+/).filter((t) => t.length > 0);
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    // `-c name=value` arrives either as one token or as two.
+    if (token === "-c") {
+      const next = tokens[i + 1] ?? "";
+      i++;
+      if (!governed.has(next.split("=")[0])) kept.push("-c", next);
+      continue;
+    }
+    const named = token.startsWith("--")
+      ? token.slice(2)
+      : token.startsWith("-c")
+        ? token.slice(2)
+        : null;
+    if (named !== null && governed.has(named.split("=")[0])) continue;
+    kept.push(token);
+  }
+  for (const [name, value] of GOVERNED_SETTINGS)
+    kept.push("-c", `${name}=${value}`);
+  parsed.searchParams.set("options", kept.join(" "));
+  return parsed.toString();
+}
+
+/**
+ * Every fragment of a DSN, so an error can be scrubbed of all of them.
+ *
+ * Password, role, host (which carries the endpoint id), PORT, database name,
+ * every query parameter NAME and VALUE - `options` included, and each token
+ * inside a value - and the whole string. NO LENGTH EXEMPTION: an earlier
+ * version skipped anything under four characters, which is precisely how a
+ * short role, a two-letter database or a port escapes.
+ */
+function componentsOf(url: string): string[] {
+  const out = new Set<string>([url]);
+  const add = (value: string | null | undefined): void => {
+    if (!value) return;
+    out.add(value);
+    try {
+      out.add(decodeURIComponent(value));
+    } catch {
+      // A value that is not valid percent-encoding is already covered raw.
+    }
+    out.add(encodeURIComponent(value));
+  };
   try {
     const parsed = new URL(url);
-    parsed.password = "";
-    // URL keeps the "user:@host" colon once a password has ever been set.
-    return parsed.toString().replace(/:@/, "@");
+    add(parsed.password);
+    add(parsed.username);
+    add(parsed.hostname);
+    add(parsed.host);
+    add(parsed.port);
+    // Each label of the host on its own: the leftmost one is the provider's
+    // endpoint id and identifies the compute by itself, so a message quoting
+    // only that is a leak even though it quotes no whole component.
+    //
+    // A PURELY NUMERIC label is not a component, and this is the one exclusion
+    // in this function. It is not a length rule dressed up: an IPv4 octet
+    // identifies nothing on its own, and admitting `0` and `1` from
+    // `127.0.0.1` makes EVERY string fail the check - including the SQLSTATE,
+    // which is how this was found. A boundary that emits nothing at all is not
+    // safer, it is only blinder, and the whole host and the whole DSN remain
+    // components either way.
+    for (const label of parsed.hostname.split(".")) {
+      if (!/^[0-9]+$/.test(label)) add(label);
+    }
+    add(parsed.pathname.replace(/^\//, ""));
+    for (const [name, value] of parsed.searchParams) {
+      add(name);
+      add(value);
+      // A value is itself a list of tokens, and a check against the whole
+      // value alone misses a message quoting only the schema out of it.
+      for (const token of value.split(/[\s=]+/)) add(token);
+    }
   } catch {
-    return "the configured database";
+    // An unparseable string is still covered whole.
   }
+  out.delete("");
+  return [...out];
+}
+
+/** Does this text contain ANY component of the connection string? */
+function leaks(text: string, components: string[]): boolean {
+  return components.some((component) => text.includes(component));
+}
+
+/**
+ * An error carrying nothing derived from the connection string.
+ *
+ * The NAME tells a reader why the text is thin, where a bare `Error` would look
+ * like the driver said something strange.
+ */
+export class RedactedDatabaseError extends Error {
+  constructor(
+    message: string,
+    readonly code: string | undefined,
+  ) {
+    super(message);
+    this.name = "RedactedDatabaseError";
+  }
+}
+
+/** The structured fields a Postgres error carries that are OURS by
+ * construction - a table, a column, a constraint are literals in this file.
+ * `schema` is deliberately absent: it can be the search_path out of `options`,
+ * which is a DSN component. `detail`, `hint` and `where` are absent because
+ * they interpolate values. */
+const SAFE_FIELDS = [
+  "severity",
+  "table",
+  "column",
+  "constraint",
+  "routine",
+] as const;
+
+/**
+ * Sanitize a driver failure BEFORE it can reach anything that prints.
+ *
+ * THE DRIVER'S FREE-TEXT MESSAGE IS NEVER PASSED THROUGH. Not scrubbed, not
+ * checked and forwarded - never copied at all. Two earlier designs tried to
+ * keep it and both were wrong: replacing each component substring mangles a
+ * diagnostic into holes and cannot handle a one-character role, and skipping
+ * short components to avoid that lets a short role, a two-letter database or a
+ * port straight out. Forwarding a message that merely LOOKS clean is the same
+ * bet with an extra step, and it rests on the component list being exhaustive -
+ * which is the assumption that failed when a message quoting only the endpoint
+ * id passed a whole-hostname check.
+ *
+ * What IS emitted: a fixed sentence chosen by error class, plus the structured
+ * fields in SAFE_FIELDS, which are literals of ours rather than provider text.
+ * Those still go through the component check, as a second line rather than the
+ * first. The stack is rebuilt from `at ...` frames with a sanitized header,
+ * because a stack's first line is the driver's message and copying one whole
+ * would smuggle the free text past everything above.
+ *
+ * The consequence is worth stating rather than hiding: an ordinary SQL failure
+ * now reads `the database refused a statement (SQLSTATE 23505)
+ * constraint=operations_pkey table=operations` instead of the engine's prose.
+ * That is a real debugging cost, deliberately paid - the alternative is a
+ * boundary whose safety depends on a list of substrings staying complete.
+ *
+ * Two measurements make a class allowlist impossible too (2026-08-11): a bad
+ * password answers SQLSTATE 28P01 with `password authentication failed for user
+ * '<role>'`, so a legitimate SQLSTATE carries the role, and a refused port
+ * answers ECONNREFUSED with the address.
+ *
+ * NO CAUSE IS ATTACHED. A cause is exactly how the original message comes back,
+ * through any logger that walks the chain.
+ */
+export function redactConnectionDetails(err: unknown, url: string): Error {
+  const components = componentsOf(url);
+  const safe = (text: unknown): string | null =>
+    typeof text === "string" && text.length > 0 && !leaks(text, components)
+      ? text
+      : null;
+
+  const rawCode = (err as { code?: string } | null)?.code;
+  const code = safe(rawCode) ?? undefined;
+  // A SQLSTATE is five characters of the engine's own vocabulary; anything else
+  // (ECONNREFUSED, ENOTFOUND, a TLS code, nothing at all) came from the socket.
+  const isStatement = code !== undefined && /^[0-9A-Z]{5}$/.test(code);
+  const parts = [
+    isStatement
+      ? `the database refused a statement (SQLSTATE ${code})`
+      : `${DATABASE_NAME} could not be reached` +
+        (code === undefined ? "" : ` (${code})`),
+  ];
+  for (const field of SAFE_FIELDS) {
+    const value = safe((err as Record<string, unknown> | null)?.[field]);
+    if (value) parts.push(`${field}=${value}`);
+  }
+  const message = parts.join(" ");
+
+  const sanitized = new RedactedDatabaseError(message, code);
+
+  // THE STACK IS REBUILT FROM FRAMES, never copied whole. A stack's FIRST LINE
+  // is `Error: <the driver's own message>`, so retaining a stack that merely
+  // passed a component check would have carried the driver's free text across
+  // this boundary through the back door - and made safety depend on
+  // `componentsOf` being exhaustive after all. The header is discarded
+  // unconditionally and replaced with the sanitized one; only `at ...` frames
+  // are considered, and they are kept only if EVERY one of them is clean, so a
+  // single suspect frame drops the lot rather than being filtered out quietly.
+  const frames =
+    err instanceof Error && typeof err.stack === "string"
+      ? err.stack.split("\n").filter((line) => /^\s*at\s/.test(line))
+      : [];
+  const header = `${sanitized.name}: ${message}`;
+  sanitized.stack =
+    frames.length > 0 && frames.every((frame) => safe(frame) !== null)
+      ? [header, ...frames].join("\n")
+      : header;
+  return sanitized;
 }
 
 export class Store {
@@ -624,9 +870,9 @@ export class Store {
     private readonly pool: Pool,
   ) {}
 
-  /** What to call this database in a sentence, with no credential in it. */
+  /** What to call this database in a sentence. Fixed: see DATABASE_NAME. */
   describe(): string {
-    return describeDatabase(this.url);
+    return DATABASE_NAME;
   }
 
   /** This flow's open transaction on THIS store, if it has one. */
@@ -658,12 +904,14 @@ export class Store {
     now: Clock = () => Date.now(),
     limits?: PoolLimits,
   ): Promise<Store> {
+    // ONE mechanism, not two: the bounds travel in `options` (see
+    // GOVERNED_SETTINGS) and the pool's startup fields are not used for them,
+    // so there is a single place where the answer to "is the bound in effect"
+    // comes from - and `assertBoundsInEffect` reads that answer back.
     const pool = new pg.Pool({
-      connectionString: url,
+      connectionString: withGovernedOptions(url),
       types: TYPES,
       connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
-      statement_timeout: STATEMENT_TIMEOUT_MS,
-      idle_in_transaction_session_timeout: IDLE_IN_TRANSACTION_TIMEOUT_MS,
       ...(limits ?? {}),
     });
     // A pool emits an error when an IDLE connection dies with nobody awaiting
@@ -673,6 +921,7 @@ export class Store {
     pool.on("error", () => {});
     const store = new Store(url, now, pool);
     try {
+      await store.assertBoundsInEffect();
       await store.sqlRun(SCHEMA);
       await store.assertSchemaIsCurrent();
       await store.sqlRun(LATE_INDEXES);
@@ -731,10 +980,19 @@ export class Store {
     // empty one, puts the driver on the extended protocol, which refuses more
     // than one statement per message - and `SCHEMA` is deliberately one
     // multi-statement round trip.
-    const answer =
-      args.length > 0
-        ? await on.query<Record<string, unknown>>(sql, args)
-        : await on.query<Record<string, unknown>>(sql);
+    // THE BOUNDARY. Every statement in this class passes here, so this is where
+    // a driver error stops being the driver's object and becomes one of ours:
+    // scrubbed of every fragment of the connection string, carrying the code
+    // and no cause.
+    let answer;
+    try {
+      answer =
+        args.length > 0
+          ? await on.query<Record<string, unknown>>(sql, args)
+          : await on.query<Record<string, unknown>>(sql);
+    } catch (err) {
+      throw redactConnectionDetails(err, this.url);
+    }
     // A multi-statement simple query answers with one result per statement.
     const results = Array.isArray(answer) ? answer : [answer];
     const last = results[results.length - 1];
@@ -789,6 +1047,31 @@ export class Store {
    * and an empty one is not ambiguous state - nothing was signed up before this
    * build existed.
    */
+  /**
+   * Refuse to hand back a Store whose stated bounds are not actually in effect.
+   *
+   * FAIL CLOSED, and first of the open steps, because everything after it
+   * assumes a wedged lock cannot hold a connection for ever. The engine's own
+   * answer is the evidence: a provider that accepts `options` and ignores it
+   * looks identical to one that honours it until the day it matters.
+   */
+  private async assertBoundsInEffect(): Promise<void> {
+    for (const [name, expected] of GOVERNED_SETTINGS) {
+      const row = await this.sqlGet<{ value: string }>(
+        `select current_setting('${name}') as value`,
+      );
+      if (row?.value !== expected) {
+        throw new Error(
+          `${DATABASE_NAME} did not apply ${name}: this build asks for ` +
+            `${expected} and the engine reports ${row?.value ?? "nothing"}. ` +
+            `That bound is a guarantee this build makes, so the store refuses ` +
+            `to open rather than run without it. Some managed providers drop ` +
+            `connection options they do not recognise.`,
+        );
+      }
+    }
+  }
+
   private async assertSchemaIsCurrent(): Promise<void> {
     const required: [string, string][] = [
       ["operations", "inactivity_flagged"],
@@ -855,7 +1138,14 @@ export class Store {
    */
   async tx<T>(fn: () => Promise<T> | T): Promise<T> {
     if (this.frame()) throw new Error("nested transaction");
-    const client = await this.pool.connect();
+    // The second seam: a checkout is where a CONNECT failure surfaces, and a
+    // connect failure is the one that carries the address and the role.
+    let client: PoolClient;
+    try {
+      client = await this.pool.connect();
+    } catch (err) {
+      throw redactConnectionDetails(err, this.url);
+    }
     const frame: TxFrame = {
       store: this,
       client,
