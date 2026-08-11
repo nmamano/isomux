@@ -127,7 +127,24 @@ the slice.
 
 ## Slices
 
-- [ ] D1: Neon readiness (I2/R2)
+- [x] D1: Neon readiness (I2/R2) - approved fingerprint 98c6631 / 2297 /
+      a6bc5ece31b244372d4f4b23eff9c089, commit 97c2821. Facts that outlive
+      the slice: Neon silently drops timeouts sent as pool startup fields;
+      they hold via the `options` startup parameter, and Store.open now
+      verifies both bounds from the engine and refuses to open otherwise
+      (measured 2026-08-11). A session proves its own branch
+      (`neon.branch_id`); testing/target.ts fails closed on any remote
+      target that cannot. Neon production is schema-ready and zero-user-data
+      (bootstrapped 2026-08-11, idempotence re-run included); the `suites`
+      child branch persists for D3/D4 - delete at loop close
+      (`bun control-plane/exercises/neon.ts branch --delete suites`).
+      Deployed DSNs: DIRECT host + sslmode=verify-full, no options needed.
+      Full suite vs Neon: 732/0 in 9m15s (bun --timeout 30000 is
+      load-bearing; no source timeout moved).
+      ~/nil/secrets/control-plane-neon.env still holds the pooled host -
+      tidiness item for Nil, nothing depends on it anymore. Three tests'
+      assertions moved from engine prose to SQLSTATE codes (worker
+      self-edit, reviewer-approved as stricter and portable).
 - [ ] D2: provisioner to fly.io (I1/R1)
 - [ ] D3: web to Vercel (I2/R2)
 - [ ] D4: end-to-end + ops floor (I1/R1)
@@ -195,5 +212,84 @@ Traps:
 - Locked: no Vercel, no fly.io, no DNS, no schema changes, no engine
   changes, no new env vars. A Neon incompatibility with existing SQL is
   a plan-gate escalation, not a workaround.
+
+Report to Isomux Manager with the standard format when done.
+
+(D1 closed 2026-08-11, commit 97c2821 - the pickup above is kept as history;
+the tick note in the Slices list corrects what it got wrong, notably that the
+env file held the pooled DSN.)
+
+## PICKUP - SLICE D2: provisioner to fly.io (Isomuxer1 / Reviewer1)
+
+Goal: the provisioner running as a fly.io app in Nil's `personal` org -
+booted against Neon production with proved branch identity, tick loop idling
+cleanly, secrets held as fly secrets, an HTTPS surface guarded by a bearer
+for the web app to call later, and a documented, idempotent deploy
+procedure. No customer-box operations in this slice.
+
+What exists:
+- fly token: ~/nil/secrets/fly.token (org-scoped, org `personal`, named
+  isomux-control-plane, expires 2027-08-11). flyctl at ~/.fly/bin/flyctl.
+  Pass the token per-command (env assignment reading the file); never
+  source it, never echo it, never run `flyctl auth ...`. The machine-wide
+  ~/.fly login belongs to wallgame deploys - do not use or mutate it, and
+  do not touch any existing fly app.
+- Neon production is schema-ready and empty (D1). The deployed
+  CONTROL_PLANE_DB must use the DIRECT host and sslmode=verify-full; no
+  options incantation - Store.open adds its own governed bounds and
+  refuses to open if the engine drops them.
+- Branch identity is provable from the session (D1's neon.branch_id
+  mechanics in testing/target.ts / exercises/neon-api.ts) - reuse, do not
+  reinvent.
+
+The work:
+1. Packaging: Dockerfile (Bun runtime) + fly.toml committed; app name
+   default `isomux-provisioner`, region fra (Neon is Frankfurt). Machine
+   size from a measurement, not a guess (shared-cpu-1x; 256MB vs 512MB).
+2. Secrets: Neon DSN (direct host, built the D1 way) and the surface
+   bearer as fly secrets. The mechanics must honor ruling 8 - `fly
+   secrets set K=V` puts the value in argv; use an stdin path
+   (`fly secrets import`) fed by a process that reads the env file.
+   Plan-gate the exact mechanics.
+3. Boot proof: on start the provisioner opens the store (governed bounds
+   verified), proves the branch is production, and logs booleans only.
+   A health surface reachable from outside reports the same booleans.
+4. Tick loop: runs idle against the empty database over a measured
+   window - no operations created, no crashes, no restarts by fly.
+5. Web-callable surface: HTTPS + bearer (the mint-seam/transport notes in
+   the design doc around "Transport, and the deploy-time note"). D2
+   delivers the guarded surface; wiring Vercel to it is D3/D4.
+6. Docs: deploy procedure (first deploy AND redeploy) with dates;
+   README or internal-docs placement per documentation.md.
+
+Decide with the reviewer:
+- Contabo credentials in or out of this slice. Default OUT: the design
+  says provisioning stalls gracefully when the provisioner lacks means -
+  measure that the tick loop actually idles without provider creds; if
+  it crashes instead, that is a real finding to report, not to patch
+  silently. Real Contabo creds land no earlier than D4.
+- Key-master persistence: read what keys.ts actually needs before
+  deciding fly volume vs store-held material.
+- What the health surface exposes (booleans only, per ruling 8).
+- Machine memory size, from a measurement.
+
+Traps:
+- Any paid action (app create, machine create) is reported to the manager
+  the moment it happens (ruling 7 - the spend itself is approved).
+- The org token sees every app in `personal` (wallgame included): scope
+  every flyctl invocation to the new app explicitly.
+- Fly's builder may default to remote build (a paid builder machine can
+  spin up): know what your deploy command does before running it.
+- Locked: no Vercel, no DNS, no Contabo API calls (unless the plan-gate
+  rules creds in - default is out), no store-semantics changes, no schema
+  changes, no changes to D1's Neon machinery beyond reuse, no isomux
+  server code, no restarts.
+
+Acceptance: a transcript showing (a) app created and deployed via flyctl
+with the token from the secrets file and no token or DSN in any output,
+(b) boot logs with governed-bounds + production-branch booleans true,
+(c) external health check green, (d) a measured idle window with zero
+operations and zero restarts, (e) an idempotent redeploy, (f) full
+`bun run ci` green locally, (g) docs updated with dates.
 
 Report to Isomux Manager with the standard format when done.
