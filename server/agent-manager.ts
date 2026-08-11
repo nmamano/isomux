@@ -6288,7 +6288,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               status: 500,
               code: "abort_failed",
               message:
-                "The pending permission request could not be resolved and the agent's session could not be replaced.",
+                "The pending permission request could not be resolved and the agent's backend could not be restarted.",
             };
           }
         }
@@ -6300,7 +6300,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           agentId,
           "system",
           denied === "failed"
-            ? "Agent interrupted; the pending permission request could not be denied, so the agent session was replaced."
+            ? "Agent interrupted; the pending permission request could not be denied, so the agent's backend was restarted; the conversation is preserved."
             : "Agent interrupted; the pending permission request was denied.",
         );
         return { ok: true };
@@ -6417,7 +6417,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         addLogEntry(
           agentId,
           "system",
-          "Agent interrupted; the pending permission request could not be denied, so the agent session was replaced.",
+          "Agent interrupted; the pending permission request could not be denied, so the agent's backend was restarted; the conversation is preserved.",
         );
       }
       return { ok: true };
@@ -6437,7 +6437,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           status: 500,
           code: "abort_failed",
           message:
-            "The pending permission request could not be resolved and the agent's session could not be replaced.",
+            "The pending permission request could not be resolved and the agent's backend could not be restarted.",
         };
       }
       // Otherwise the turn WAS cancelled (the pendingTurn rejection and the

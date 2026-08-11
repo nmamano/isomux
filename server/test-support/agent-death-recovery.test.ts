@@ -837,7 +837,7 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     // claiming the request "was denied" would be false even though the abort
     // succeeded by another route.
     expect(logContents(server, a.id)).toContain(
-      "Agent interrupted; the pending permission request could not be denied, so the agent session was replaced.",
+      "Agent interrupted; the pending permission request could not be denied, so the agent's backend was restarted; the conversation is preserved.",
     );
     expect(logContents(server, a.id)).not.toContain(
       "Agent interrupted; the pending permission request was denied.",
@@ -873,7 +873,7 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     };
     expect(body.error.code).toBe("abort_failed");
     expect(body.error.message).toBe(
-      "The pending permission request could not be resolved and the agent's session could not be replaced.",
+      "The pending permission request could not be resolved and the agent's backend could not be restarted.",
     );
     // And it must NOT have claimed the denial landed.
     expect(logContents(server, a.id)).not.toContain(
