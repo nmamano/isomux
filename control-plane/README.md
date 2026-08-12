@@ -414,7 +414,7 @@ engine.** Two login roles, each with a `rolconnlimit` the engine checks when a
 backend is created (manager ruling R-2026-08-11-3):
 
 ```
-web budget          40      cp_web, pooled endpoint
+web budget          40      cp_web, direct endpoint (deployed 2026-08-12)
 provisioner budget  12      cp_provisioner, direct endpoint
 deployed worst case 52      the sum, and nothing else
 usable ceiling     894      max_connections 901 - superuser_reserved 7
@@ -426,6 +426,23 @@ another - which is what makes the provisioner's twelve a RESERVE rather than an
 expectation. The budgets are not predictions about how many processes will
 exist: a budget is what the engine allows whatever the platform does, and that
 is the whole difference between this posture and the one it replaces.
+
+**Closed live, 2026-08-12** (supervised manual run, Nil at the keyboard): a
+signed-in page load against the deployed site produced a `cp_web` backend on the
+engine while the owner held zero, the owner DSN is deployed nowhere - it lives
+only in the operator's secrets file - and both roles' live counts sat inside
+their budgets (1 of 40, 1 of 12). R-2026-08-11-1 is closed on exactly that
+evidence, and the run that produced it is recorded below under "What the
+2026-08-12 moves completed".
+
+Stated at the bar it was accepted at: these are SINGLE final observations,
+not bounded series - the lingering pre-cutover owner backend had retired by
+the final reading, and Nil accepted the readings at the supervised
+manual-run bar. No P0 pre-flight battery, no environment-change
+classification, no long sampling series and no rollback rehearsal ran;
+rollback was never needed. The row evidence covers the four counted tables
+(`accounts`, `name_reservations`, `instances`, `operations`); a full
+every-table before/after comparison was not run.
 
 **What the number does NOT cover, stated rather than implied.** Three facts,
 all measured 2026-08-11, and the third follows from the first two:
@@ -466,8 +483,8 @@ its connections was closed to this build. On the role they are delivered by both
 endpoints - measured 2026-08-11, a fresh session with no `options` at all
 reports `30s` for each through the direct endpoint AND through the pooler.
 
-**The web is pooled, and the cap is what the pooler enforces.** Measured on the
-suites branch with a role capped at 10 before its first connection: 80
+**A pooled web is proved on the suites branch; the DEPLOYED web is direct.**
+Measured on the suites branch with a role capped at 10 before its first connection: 80
 concurrent clients, 80 statements of four seconds each, ZERO failures, server
 backends pinned at exactly 10, and 32 seconds of wall clock for 320 seconds of
 work. The pooler queued inside the cap. Pooled CLIENT sessions are not charged
@@ -477,6 +494,16 @@ costs the engine nothing. Uncapped, the same load opened 80 server backends and
 held them: the pooler's own ceiling is at least 80 and is not a number this
 posture leans on. THE CAP IS THE BOUND; the pooler is what turns exceeding it
 into a queue instead of an error.
+
+The deployment did not land there, and the reason is dated: during the
+2026-08-12 cutover the artifact then serving was a pre-posture build whose store
+still sent the `options` startup parameter, so its first pooled connection was
+refused (08P01, measured live). The cutover completed on the DIRECT endpoint
+with the current build, and every enforcement claim above - `rolconnlimit`,
+role-delivered bounds, the aggregate - holds there identically. Moving the web
+to the pooled endpoint stays available on these measurements and is its own
+gated step; nothing has exercised the current build against the production
+pooler.
 
 One ordering fact that a rollback has to know: `rolconnlimit` is checked when a
 backend is CREATED, so sessions that already exist are grandfathered. A cap
@@ -1645,6 +1672,45 @@ real primitive is `performance.now`, and the wait discards any reading below the
 highest it has seen, so neither a wrong clock nor a wrong primitive can extend
 the aggregate. A clock that runs backwards then ends the wait on the COUNT.
 
+### What the 2026-08-12 moves completed
+
+Both deployed tiers left the owner string on 2026-08-12, by two different
+routes, and the difference is worth recording.
+
+**The provisioner (G3 retry) moved by the reviewed executable.** After the
+matrix remediation above reached production, the same credential-move run that
+had rolled back the day before completed forward: the fly machine authenticates
+as `cp_provisioner` on the direct endpoint, the probe was accepted on its first
+attempt, every backend sample through the deploy stayed inside the cap of 12,
+and the count settled at 1.
+
+**The web (G4) moved by a supervised manual run**, Nil at the keyboard, after
+the reviewed plan's own finding made the case: the G4 tooling would have run
+once, for one account, with a one-paste revert - so the tooling was cancelled
+and the same sequence ran by hand under review-agreed evidence rules. Three
+facts from that run outlive it:
+
+- **No anonymous request ever opens the database** - every store caller sits
+  behind `auth()` - so no anonymous probe can prove which role serves. The only
+  causal proof is an authenticated page load observed from the engine, and that
+  is how it was proved: a signed-in GET produced a `cp_web` backend while the
+  owner held zero.
+- **The first cutover attempt failed on the pooled endpoint (08P01)** because
+  the artifact then deployed predated the role posture and still sent `options`
+  on startup. The second failed on the direct endpoint (42501) because that same
+  old artifact ran the schema-writing `Store.open`, which a least-privileged
+  role must refuse; `openRuntime` existed in the repository and had never been
+  shipped. A cutover to a restricted role REQUIRES an artifact whose code
+  expects restriction: the deploy is part of the migration, not an afterthought.
+- **The fresh production deploy came from the committed tree** via
+  `production-phase.ts --redeploy` (build evidence held, full anonymous probe
+  suite green, rows 1/0/0/0 before and after), and only then did the signed-in
+  load succeed and the engine reading close the finding.
+
+The owner DSN now lives only in the operator's secrets file, used for
+migrations, bootstrap and operator tooling - the break-glass posture the
+aggregate section states.
+
 ### Re-applying the matrix on a database that is already governed
 
 The matrix change above has to reach production, and `govern` is not the program
@@ -1702,16 +1768,17 @@ to. Any false claim is a non-zero exit. `--reverse` is the same program with the
 rosters swapped: one transaction restoring the old exact matrix, with the roles
 left exactly as they are.
 
-**Two predicates are outstanding before any of this runs live**, and both are
-provider questions rather than code questions:
+**Both pre-live predicates closed 2026-08-12**, each a provider question
+answered by measurement rather than argument:
 
-- The catalog-visibility measurement behind the schema-check change was taken on
-  a local Postgres 18 (2026-08-12). Neon has not confirmed it. If Neon differs,
-  that returns to a plan gate rather than weakening the check.
-- `regovern` has been rehearsed forward and reverse against a real engine in
-  `governance-reapply.test.ts`, not yet against the Neon suites branch. The
-  suites rehearsal, and then the production application, stay their own gated
-  live steps.
+- Catalog visibility: Neon reports the same shape the local Postgres 18
+  measured - 0 rows for the invisible class, all rows for the visible one,
+  42501 where refusal was expected - so the schema-check change holds on the
+  provider it was written for.
+- `regovern` was rehearsed against the Neon suites branch, forward and reverse,
+  with digest-proved exact restoration, and then applied to production (the G3
+  record below). The rehearsal-then-production ordering was a gate, and it was
+  kept.
 
 ### The volume, and one thing it deliberately does not have
 

@@ -244,29 +244,78 @@ the slice.
       its no-customers half standing - D3.5 closes it before D4. Process
       lesson (bitten twice this slice): scripted edits verified by grep
       after application, always.
-- [ ] D3.5: connection governance - role-enforced bounds + provisioner
-      reserve, closes the R-2026-08-11-1 finding (I1/R1; pickup authored
-      at D3 close). G1+G2 landed (84ceb32) and G3's tooling landed (2ef3f7e).
-      G3 IS NOT COMPLETE: the live run of 2026-08-12 ended `rolled_back`,
-      exit 3 - the forward probe refused and the reviewed recovery then ran
-      green on production (replacement proved, owner probe green, six zero
-      readings, credential closed last). The deployment is back on the owner
-      string and R-2026-08-11-1 stays OPEN. Mechanism, statically established
-      rather than re-measured live: the authenticated seam call reads
-      `name_reservations`, which the provisioner's matrix withheld - and the
-      SAME read is on the real invite path, so D4's first genuine invite would
-      have failed identically. The remediation slice fixes the matrix (exact
-      against an audited call graph, in both directions), replaces the
-      open-time schema check's `information_schema` read with a catalog read
-      that a least-privileged role can actually see, types the probe's whole
-      transcript, and adds a bounded tick-readiness wait (INDEPENDENT
-      HARDENING, not the live cause). Two pre-live predicates outstanding: Neon
-      has not confirmed the catalog-visibility behaviour measured locally
-      2026-08-12, and the new `regovern` re-apply has been rehearsed against a
-      real engine in tests but not against the Neon suites branch. Both stay
-      gated live steps, as does the production re-apply itself.
-- [ ] D4: end-to-end + ops floor (I1/R1 becomes I2/R2 - alternation
-      shifts with the inserted slice)
+- [x] D3.5: connection governance (I1/R1) - COMPLETE 2026-08-12,
+      R-2026-08-11-1 CLOSED. Commits 84ceb32, 2ef3f7e, d6a1cb7, 070aaed,
+      02939f2 + the close-out commit. G3 completed on retry via the reviewed
+      executable (provisioner as cp_provisioner direct, probe accepted
+      attempt 1, samples <=12, settled 1). G4 completed as a SUPERVISED
+      MANUAL RUN by Nil after his proportionality call (executions-remaining
+      rule: one run, one account, one-paste revert) - approved G4 tooling
+      cancelled unimplemented, stash "D3.5 G4 tooling - CANCELLED by Nil
+      2026-08-12" kept, task f5ed4b60 carries the redeploy-comparison fix.
+      Facts that outlive the slice: web tier = cp_web on the DIRECT endpoint
+      (40, engine-enforced); NO anonymous request opens the database - only
+      an authenticated page load proves the serving role (applies to every
+      future deploy acceptance, D4 included); the deployed-artifact LAG was
+      the real G4 trap - cutover to a restricted role requires shipping the
+      code that expects restriction (openRuntime existed since 84ceb32,
+      never shipped; old artifact died 08P01 on pooled, 42501 on direct);
+      the current build's pooled eligibility is suites-proved but NOT
+      production-exercised - a future pooled move is its own gated step;
+      pooled backends linger after client close and keep the last
+      application_name - never read pid-absence-after-disconnect as
+      evidence; vercel-env.ts has no update path (PATCH
+      /v9/projects/{id}/env/{id} is the confirmed call, task-worthy if ever
+      automated). Serving proof: signed-in GET -> cp_web backend 1, owner 0,
+      provisioner 1; production-phase --redeploy from 02939f2 green (rows
+      1/0/0/0, full anonymous suite). Executor deviations recorded: manager
+      ran production-phase.ts --redeploy under Nil's explicit blanket
+      approval; Nil personally ran the Neon SQL and Vercel dashboard steps.
+      Reviewer1 evidence verdict at manual bar: see chat record 2026-08-12.
+- [ ] D4: end-to-end + ops floor (I2/R2 - alternation shifted with the
+      inserted D3.5 slice; pickup below)
+
+## PICKUP - SLICE D4: end-to-end + ops floor (Isomuxer2 / Reviewer2)
+
+Goal: the full customer pass through the DEPLOYED stack - signup ->
+provision -> handoff -> cancel against Contabo test box 203474835 - plus
+the operator runbook, closing the loop's north star.
+
+Read first: this whole file end to end (the D3.5 tick note especially -
+its findings bind D4's acceptance design), control-plane/README.md
+("What the 2026-08-12 moves completed", connection posture, deploy
+runbook), internal-docs/control-plane-design.md.
+
+What exists (all 2026-08-12): both tiers deployed off the owner string -
+web as cp_web (direct, 40), provisioner as cp_provisioner (direct, 12);
+R-2026-08-11-1 closed; cloud.isomux.com serving with Google-only auth;
+the fly surface bearer-guarded; production schema-ready with exactly
+Nil's account row; the suites branch persists for rehearsal.
+
+The work (plan-gate the exact cut with Reviewer2):
+1. Contabo credentials into the provisioner (fly secrets, D2 wrappers,
+   ruling 8 mechanics) - the first time real provider creds go live.
+   Ruling 7 stands: test box 203474835 only, list-first, never a second
+   box, every paid action reported the moment it happens.
+2. The pass itself: one real invite minted through the deployed web,
+   signup, provision onto the test box, handoff proof, cancel, asset
+   teardown proof. cp1.test.isomux.app may still be LE-rate-limited
+   (check date vs ~2026-08-16); cp2 has cert budget.
+3. Acceptance design must honor the D3.5 finding: anonymous probes prove
+   nothing about the serving role or store health - every store-backed
+   acceptance step needs an authenticated or engine-side observation.
+4. Ops floor: operator runbook (deploy, redeploy, rollback, break-glass
+   owner use, the volume/snapshot question from task 962965dc), dated.
+5. Cleanup at loop close: delete the suites branch, delete this file.
+
+Traps: the deployed-artifact lag (ship code before relying on its
+behavior); production carries REAL account data now - test data lands
+only on the test box and suites branch, never production (ruling 4);
+the row-expectation fix (f5ed4b60) is unmerged - do not let a signup
+mid-slice trip the 1/0/0/0 redeploy expectation without planning it;
+sign-out still absent (task edb7c76d).
+
+Report to Isomux Manager with the standard format when done.
 
 ## PICKUP - SLICE D1: Neon readiness (Isomuxer2 / Reviewer2)
 
@@ -498,7 +547,8 @@ dates; (e) the guard fix landed with tests; (f) full bun run ci green;
 
 Report to Isomux Manager with the standard format when done.
 
-### D3.5 mid-slice ledger (tick 2026-08-12, G1-G3 complete, G4 in flight)
+### D3.5 mid-slice ledger (tick 2026-08-12, G1-G3; G4 outcome in the
+### slice tick above - manual supervised run, R-2026-08-11-1 closed)
 
 Commits: 84ceb32 (G1 posture code, approved 31b5005/3947/91ebd3d9),
 2ef3f7e (G3 credential-move executable, approved 84ceb32/5126/f411e94e),
