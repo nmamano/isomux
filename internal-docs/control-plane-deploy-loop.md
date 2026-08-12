@@ -246,7 +246,25 @@ the slice.
       after application, always.
 - [ ] D3.5: connection governance - role-enforced bounds + provisioner
       reserve, closes the R-2026-08-11-1 finding (I1/R1; pickup authored
-      at D3 close)
+      at D3 close). G1+G2 landed (84ceb32) and G3's tooling landed (2ef3f7e).
+      G3 IS NOT COMPLETE: the live run of 2026-08-12 ended `rolled_back`,
+      exit 3 - the forward probe refused and the reviewed recovery then ran
+      green on production (replacement proved, owner probe green, six zero
+      readings, credential closed last). The deployment is back on the owner
+      string and R-2026-08-11-1 stays OPEN. Mechanism, statically established
+      rather than re-measured live: the authenticated seam call reads
+      `name_reservations`, which the provisioner's matrix withheld - and the
+      SAME read is on the real invite path, so D4's first genuine invite would
+      have failed identically. The remediation slice fixes the matrix (exact
+      against an audited call graph, in both directions), replaces the
+      open-time schema check's `information_schema` read with a catalog read
+      that a least-privileged role can actually see, types the probe's whole
+      transcript, and adds a bounded tick-readiness wait (INDEPENDENT
+      HARDENING, not the live cause). Two pre-live predicates outstanding: Neon
+      has not confirmed the catalog-visibility behaviour measured locally
+      2026-08-12, and the new `regovern` re-apply has been rehearsed against a
+      real engine in tests but not against the Neon suites branch. Both stay
+      gated live steps, as does the production re-apply itself.
 - [ ] D4: end-to-end + ops floor (I1/R1 becomes I2/R2 - alternation
       shifts with the inserted slice)
 

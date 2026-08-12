@@ -10,6 +10,8 @@
 //   bun control-plane/exercises/neon.ts measure --branch suites
 //   bun control-plane/exercises/neon.ts run --branch suites -- bun test control-plane
 //   bun control-plane/exercises/neon.ts bootstrap --branch production
+//   bun control-plane/exercises/neon.ts regovern --branch suites
+//   bun control-plane/exercises/neon.ts regovern --branch suites --reverse
 
 import pg from "pg";
 import { redactConnectionDetails } from "../store.ts";
@@ -28,6 +30,7 @@ import {
   EXPECTED_TABLES,
   applyGovernance,
   bootstrapDatabase,
+  reapplyMatrix,
   reportBootstrap,
   ungovern,
 } from "../bootstrap.ts";
@@ -432,6 +435,179 @@ async function cmdGovern(branchName: string): Promise<void> {
 }
 
 /**
+ * CHANGE THE MATRIX ON A BRANCH THAT IS ALREADY GOVERNED.
+ *
+ * A DIFFERENT PATH FROM `govern`, NOT A RERUN OF IT, and the difference is what
+ * production holds. `govern` requires the owner to carry NO configuration
+ * before it writes - the baseline that makes `ungovern` an exact reverse - and
+ * production has carried the governed pair since G2, so that predicate cannot
+ * truthfully pass there. Running `govern` again would either refuse or, worse,
+ * be made to pass by weakening the predicate that keeps the reverse exact.
+ *
+ * And `ungovern` is not this step's rollback. It drops both roles; the reverse
+ * of one incremental grant change is the OLD MATRIX RESTORED, in one
+ * transaction, with the roles left exactly as they are. `--reverse` is that,
+ * and it is the same program with the two rosters swapped rather than a second
+ * one that has to be kept in agreement.
+ *
+ * The evidence is the same shape as `govern`'s because an operator reads both:
+ * booleans and counts, no role names, row counts compared and reported as
+ * UNCHANGED rather than printed, and the exit code IS the verdict.
+ */
+async function cmdRegovern(
+  branchName: string,
+  reverse: boolean,
+): Promise<void> {
+  const target = await targetFor(branchName);
+  const isProduction = target.branch.isDefault && !target.branch.hasParent;
+  const verdict: [string, boolean][] = [];
+  const claim = (name: string, ok: boolean): boolean => {
+    verdict.push([name, ok]);
+    console.log(`${name}: ${ok}`);
+    return ok;
+  };
+
+  console.log("project matched: true");
+  console.log(`endpoint host came from the API: ${target.hostFromApi}`);
+  console.log(`targets_production: ${isProduction}`);
+  console.log(`direction: ${reverse ? "reverse" : "forward"}`);
+  const live = await liveBranchId(target.dsn);
+  claim("engine_branch_matches_api", live === target.branch.id);
+  if (live !== target.branch.id) {
+    die("the engine did not confirm which branch is answering");
+  }
+
+  const pool = new pg.Pool({
+    connectionString: target.dsn,
+    connectionTimeoutMillis: 30_000,
+  });
+  pool.on("error", () => {});
+  const ask = async <T extends pg.QueryResultRow>(
+    sql: string,
+    args: unknown[] = [],
+  ): Promise<T[]> => {
+    try {
+      return (await pool.query<T>(sql, args)).rows;
+    } catch (err) {
+      throw redactConnectionDetails(err, target.dsn);
+    }
+  };
+
+  try {
+    const owner =
+      (await ask<{ owner: string }>("select current_user as owner"))[0]
+        ?.owner ?? "";
+
+    // THE OWNER'S BASELINE IS THE OPPOSITE OF `govern`'S. This step runs on a
+    // database this build already governed, so the honest predicate is "the
+    // owner carries exactly our pair" - and a `govern`-shaped
+    // `owner_config_empty_before` here would be a false claim.
+    const ownerConfig =
+      (
+        await ask<{ config: string[] | null }>(
+          "select rolconfig as config from pg_roles where rolname = current_user",
+        )
+      )[0]?.config ?? [];
+    claim(
+      "owner_config_already_exact",
+      ownerConfig.length === GOVERNED_SETTINGS.length,
+    );
+
+    const counts = async (): Promise<Map<string, number>> => {
+      const out = new Map<string, number>();
+      for (const table of EXPECTED_TABLES) {
+        const row = await ask<{ c: number }>(
+          `select count(*)::int as c from ${table}`,
+        );
+        out.set(table, row[0]?.c ?? -1);
+      }
+      return out;
+    };
+    const before = await counts();
+    if (isProduction) {
+      claim("accounts_exactly_1_before", before.get("accounts") === 1);
+    } else {
+      console.log(`accounts_before: ${before.get("accounts") !== -1}`);
+    }
+
+    if (failedClaims(verdict).length > 0) {
+      die("a precondition does not hold; nothing was written");
+    }
+
+    // Every remaining precondition - the roles inert, their budgets and bounds
+    // exact, PUBLIC holding nothing, and the OLD matrix exactly as it must be -
+    // is read inside this call, before its transaction opens. A refusal there
+    // arrives as an exception with nothing written.
+    const applied = await reapplyMatrix(
+      target.dsn,
+      reverse ? "reverse" : "forward",
+    );
+    console.log(`matrix_statements: ${applied.statements}`);
+
+    const after = await counts();
+    if (isProduction) {
+      claim("accounts_exactly_1_after", after.get("accounts") === 1);
+    }
+    let moved = 0;
+    for (const table of EXPECTED_TABLES) {
+      const same = before.get(table) === after.get(table);
+      if (!same) moved++;
+      console.log(`  ${table}_unchanged: ${same}`);
+    }
+    claim("user_tables_unchanged", moved === 0);
+    claim("all_expected_tables_counted", after.size === EXPECTED_TABLES.length);
+
+    for (const [role, direct] of applied.direct) {
+      claim(`${labelFor(role, owner)}_matrix_exact`, direct.exact);
+    }
+    for (const [role, effective] of applied.effective) {
+      const label = labelFor(role, owner);
+      claim(`${label}_effective_privilege_exact`, effective.exact);
+      console.log(`    ${label}_effective_missing: ${effective.missing}`);
+      console.log(`    ${label}_effective_excess: ${effective.excess}`);
+    }
+    // THE POSTURE OUTSIDE THE TABLE MATRIX, which a matrix read cannot see and
+    // which G2's evidence checked: a role that can CREATE on the schema can
+    // make a table this matrix has never heard of, and a sequence privilege is
+    // a write the table sweep does not cover.
+    for (const [role, ok] of applied.schemaUsageOnly) {
+      claim(`${labelFor(role, owner)}_schema_usage_only`, ok);
+    }
+    claim("no_sequence_privileges", applied.sequencePrivilegesHeld === 0);
+    for (const [role, ok] of applied.noMemberships) {
+      claim(`${labelFor(role, owner)}_no_memberships`, ok);
+    }
+
+    // The roles themselves must be exactly what they were: this step changes
+    // what they may touch and nothing else.
+    const posture = await readRolePosture(
+      (sql, args) => ask(sql, args),
+      GOVERNED_SETTINGS,
+      owner,
+    );
+    for (const { role } of runtimeRoles()) {
+      const label = labelFor(role, owner);
+      const facts = posture.get(role);
+      claim(
+        `${label}_connection_limit_exact`,
+        facts?.connectionLimit === budgetFor(role, owner),
+      );
+      claim(`${label}_is_nologin`, facts?.canLogin === false);
+      claim(`${label}_bounds_exact`, facts?.boundsExact === true);
+    }
+    console.log(postureLine());
+
+    const failed = failedClaims(verdict);
+    console.log(`acceptance: ${failed.length === 0}`);
+    if (failed.length > 0) {
+      die(`${failed.length} acceptance predicates do not hold`);
+    }
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
+/**
  * The reverse of `govern`, for a posture no deployment is using yet.
  *
  * Fixed output, so a rehearsal and a real rollback read the same. It refuses if
@@ -522,12 +698,18 @@ async function main(): Promise<void> {
       return cmdBootstrap(flags.get("branch") ?? PRODUCTION_BRANCH);
     case "govern":
       return cmdGovern(flags.get("branch") ?? SUITES_BRANCH);
+    case "regovern":
+      return cmdRegovern(
+        flags.get("branch") ?? SUITES_BRANCH,
+        flags.get("reverse") === "true",
+      );
     case "ungovern":
       return cmdUngovern(flags.get("branch") ?? SUITES_BRANCH);
     default:
       console.error(
         "usage: bun control-plane/exercises/neon.ts " +
-          "<branches|branch|measure|run|bootstrap|govern|ungovern> [--flags] " +
+          "<branches|branch|measure|run|bootstrap|govern|regovern|ungovern> " +
+          "[--flags] " +
           "[-- command...]",
       );
       process.exit(2);

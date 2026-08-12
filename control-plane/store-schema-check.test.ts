@@ -1,0 +1,204 @@
+// What the open-time schema check can actually see, and what it refuses.
+//
+// The check exists to stop this build running against a database of the wrong
+// shape. It used to ask `information_schema.columns`, which shows a role only
+// the objects it holds a privilege on - so on the deployment it matters for, a
+// least-privileged runtime role, it inspected the tables it was granted and
+// SILENTLY SKIPPED every other one. `stripe_events` is granted to neither
+// runtime role, so the column it checks there was never checked in production
+// at all. The same clause skipped a table that was not there, because "zero
+// columns" and "no such table" are the same answer from that view.
+//
+// Every case below is therefore run AS A LEAST-PRIVILEGED ROLE, because that is
+// the session whose answer was wrong. The owner sees everything and would pass
+// either implementation.
+//
+// LOCAL ENGINE ONLY: these create roles and mutilate schemas.
+
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import pg from "pg";
+import { PROVISIONER_GRANTS } from "./roles.ts";
+import { PRODUCT_TABLES, Store } from "./store.ts";
+import {
+  LOCAL_DATABASE_URL,
+  TARGET_IS_LOCAL,
+  quoteIdentifier,
+  freshDsn,
+  releaseTestStores,
+} from "./testing/pg.ts";
+import {
+  dropLeastPrivilegedRoles,
+  leastPrivilegedDsn,
+  schemaOf,
+} from "./testing/least-privilege.ts";
+
+const suite = TARGET_IS_LOCAL ? describe : describe.skip;
+
+const admin = new pg.Pool({
+  connectionString: LOCAL_DATABASE_URL,
+  max: 2,
+  connectionTimeoutMillis: 5_000,
+});
+admin.on("error", () => {});
+
+afterEach(async () => {
+  await releaseTestStores();
+});
+
+afterAll(async () => {
+  await dropLeastPrivilegedRoles();
+  await admin.end().catch(() => {});
+});
+
+/** A bootstrapped schema, and a DSN for a role holding exactly the
+ * provisioner's matrix on it. Both come back: the tests mutilate the schema
+ * through the owner and then open as the role. */
+async function bootstrappedAndRole(): Promise<{
+  ownerDsn: string;
+  roleDsn: string;
+  schema: string;
+}> {
+  // FRESH, and dropped rather than recycled: these cases drop columns and
+  // tables, and a recycled schema would carry the damage into whatever test
+  // took it next.
+  const ownerDsn = await freshDsn();
+  await (await Store.open(ownerDsn)).close();
+  const roleDsn = await leastPrivilegedDsn({
+    dsn: ownerDsn,
+    grants: PROVISIONER_GRANTS,
+  });
+  return { ownerDsn, roleDsn, schema: schemaOf(ownerDsn) };
+}
+
+suite("the schema check reads the catalog, not the privilege view", () => {
+  test("a least-privileged role opens a database that is actually current", async () => {
+    const { roleDsn } = await bootstrappedAndRole();
+    const store = await Store.openRuntime(roleDsn);
+    await store.close();
+  });
+
+  // THE ONE THAT WAS VOID. `stripe_events` is granted to neither runtime role,
+  // so under the privilege view the deployed provisioner saw zero columns for
+  // it and skipped the check. The catalog answers for a table the session
+  // cannot read a single row of, which is what makes the check mean something
+  // in production.
+  test("a table the role holds NO privilege on is still inspected", async () => {
+    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
+    // Proof of the premise, not an assumption: this role cannot select from it.
+    const asRole = new pg.Pool({ connectionString: roleDsn, max: 1 });
+    asRole.on("error", () => {});
+    try {
+      const refusal = await asRole.query("select 1 from stripe_events").then(
+        () => null,
+        (err: unknown) => err,
+      );
+      expect(refusal).toEqual(expect.objectContaining({ code: "42501" }));
+    } finally {
+      await asRole.end().catch(() => {});
+    }
+
+    await admin.query(
+      `alter table ${quoteIdentifier(schema)}.stripe_events drop column type`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /stripe_events has no type column/,
+    );
+    // And the owner, whose privilege view showed the column all along, refuses
+    // for the same reason - the check no longer depends on who is asking.
+    expect(Store.openRuntime(ownerDsn)).rejects.toThrow(
+      /stripe_events has no type column/,
+    );
+  });
+
+  test("a missing column on a GRANTED table refuses", async () => {
+    const { roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `alter table ${quoteIdentifier(schema)}.operations drop column absolute_flagged`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /operations has no absolute_flagged column/,
+    );
+  });
+
+  // THE ONE THE FIRST FIX STILL MISSED. `name_reservations` has no entry in the
+  // required-COLUMN list, so a check whose table set came from that list never
+  // asked about it - and it is the very table the 2026-08-12 incident was
+  // about: the provisioner would boot cleanly and fail on the first invite.
+  // Existence is asked of the whole product roster for this reason.
+  test("a table with no version column of its own must still be there", async () => {
+    const { roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `drop table ${quoteIdentifier(schema)}.name_reservations cascade`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /has no name_reservations table/,
+    );
+  });
+
+  // Every table in the roster, one at a time: a roster entry that is never
+  // asked about is the defect above wearing a different table's name.
+  test("every table in the product roster is asked about", async () => {
+    for (const table of PRODUCT_TABLES) {
+      const { roleDsn, schema } = await bootstrappedAndRole();
+      await admin.query(
+        `drop table ${quoteIdentifier(schema)}.${quoteIdentifier(table)} cascade`,
+      );
+      const refusal = await Store.openRuntime(roleDsn).then(
+        () => "opened",
+        (err: Error) => err.message,
+      );
+      expect([table, refusal.includes(`has no ${table} table`)]).toEqual([
+        table,
+        true,
+      ]);
+      await releaseTestStores();
+    }
+  }, 60_000);
+
+  // A MISSING TABLE USED TO PASS, for everyone: it answers zero columns exactly
+  // as an unprivileged one does, and the old guard read that as "not ours".
+  test("a required table that is not there refuses", async () => {
+    const { roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `drop table ${quoteIdentifier(schema)}.subscriptions cascade`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /has no subscriptions table/,
+    );
+  });
+
+  // A VIEW IS NOT A TABLE. Something carrying the right name and the right
+  // column names is not something a statement can write to, and a check that
+  // accepted it would report a database this build can run against when it
+  // cannot.
+  test("a view wearing a required table's name refuses", async () => {
+    const { roleDsn, schema } = await bootstrappedAndRole();
+    const q = quoteIdentifier(schema);
+    await admin.query(`drop table ${q}.stripe_events cascade`);
+    await admin.query(
+      `create view ${q}.stripe_events as select 'x'::text as id, 'y'::text as type`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /has no stripe_events table/,
+    );
+  });
+
+  // The check runs on the runtime path, which may write NOTHING - not a table,
+  // not an index, not the audit seed.
+  test("the check writes nothing on the way through", async () => {
+    const { roleDsn, schema } = await bootstrappedAndRole();
+    const before = await admin.query<{ n: string }>(
+      "select count(*)::text as n from pg_class c join pg_namespace n " +
+        "on n.oid = c.relnamespace where n.nspname = $1",
+      [schema],
+    );
+    const store = await Store.openRuntime(roleDsn);
+    await store.close();
+    const after = await admin.query<{ n: string }>(
+      "select count(*)::text as n from pg_class c join pg_namespace n " +
+        "on n.oid = c.relnamespace where n.nspname = $1",
+      [schema],
+    );
+    expect(after.rows[0]?.n).toBe(before.rows[0]?.n);
+  });
+});

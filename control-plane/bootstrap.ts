@@ -21,18 +21,32 @@
 // database has no business holding into the branch it is preparing.
 
 import pg from "pg";
-import { GOVERNED_SETTINGS, Store, redactConnectionDetails } from "./store.ts";
+import {
+  GOVERNED_SETTINGS,
+  PRODUCT_TABLES,
+  Store,
+  redactConnectionDetails,
+} from "./store.ts";
 import type { SqlArgs } from "./store.ts";
 import {
   ALL_VERBS,
   type EffectiveRow,
+  type MatrixVerdict,
   PROVISIONER_ROLE,
   type RoleIdentity,
   WEB_ROLE,
+  boundsAreExact,
   effectivePrivilegeSql,
   governanceStatements,
   grantMatrixStatements,
+  judgeEffective,
+  judgeMatrix,
+  matrixSql,
   ownerConfigIsAcceptable,
+  roleFactsSql,
+  schemaPrivilegeSql,
+  sequencePrivilegeSql,
+  priorRuntimeRoles,
   residueIsInert,
   roleIdentitySql,
   governedRoleCount,
@@ -46,24 +60,12 @@ import {
  * Every table SCHEMA creates. The list is the check: a table missing from the
  * catalog is a schema that did not come up, whatever the open reported.
  *
- * These are literals from this file, never input, which is why they can be
- * interpolated into a count query without a quoting helper.
+ * ONE ROSTER, DEFINED WHERE THE TABLES ARE. It used to be a second copy here,
+ * which meant the open-time check and this evidence could disagree about what a
+ * complete database is - and a roster that can drift is a roster that will. The
+ * name stays because a dozen callers use it.
  */
-export const EXPECTED_TABLES = [
-  "accounts",
-  "attention_reasons",
-  "audit_events",
-  "create_intents",
-  "instance_liveness",
-  "instances",
-  "name_reservations",
-  "operations",
-  "provider_assets",
-  "schema_meta",
-  "sequences",
-  "stripe_events",
-  "subscriptions",
-] as const;
+export const EXPECTED_TABLES = PRODUCT_TABLES;
 
 /**
  * The tables a bootstrap EXPECTS to have rows, because the open writes them.
@@ -294,6 +296,251 @@ export async function applyGovernance(
         "and rolconfig is not null",
     );
     return { statements, roles: Number(roles.rows[0]?.n ?? 0) };
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
+/**
+ * CHANGE THE MATRIX ON A DATABASE THAT IS ALREADY GOVERNED, in one transaction.
+ *
+ * IT IS NOT `applyGovernance` AND IT IS NOT `ungovern`, and the reason is what
+ * production actually holds. `applyGovernance` is written for a database this
+ * build has not governed yet: it requires the owner to carry NOTHING, which
+ * production cannot satisfy - the owner has carried the governed pair since
+ * G2, so `owner_config_empty_before` cannot truthfully pass and the honest
+ * before-state has to be "already exactly ours" instead. And `ungovern` is not
+ * the rollback for one incremental grant: it drops both roles, which is an
+ * outage lever rather than a reverse of a matrix change.
+ *
+ * SO THE BEFORE-STATE IS AN EXACT DESTINATION TOO. The catalog must carry
+ * EXACTLY the matrix this change is moving away from - not "at least" it - and
+ * both directions run the same convergent statements, so the reverse is the
+ * forward with the two rosters swapped. A run that finds anything else refuses
+ * before it writes, which is what makes "one transaction restoring the old
+ * exact matrix" a true description of the rollback rather than a hope.
+ *
+ * EVERY PRECONDITION IS READ BEFORE ANY STATEMENT: the roles inert (NOLOGIN,
+ * nothing connected as them, owning nothing), their budgets and bounds exact,
+ * the owner carrying exactly the governed pair, PUBLIC holding nothing, and the
+ * before-matrix exact. The read-back afterwards is DIRECT and EFFECTIVE, so
+ * what the caller reports is what the engine says a role can do rather than
+ * what this function asked for.
+ */
+export interface ReapplyResult {
+  statements: number;
+  /** Per role, the two read-backs after the transaction. */
+  direct: [string, MatrixVerdict][];
+  effective: [string, MatrixVerdict][];
+  /** Per role: USAGE on the schema and NOT create. */
+  schemaUsageOnly: [string, boolean][];
+  /** Effective USAGE, SELECT or UPDATE on any sequence, over both roles. Zero
+   * is the only acceptable answer; the schema has no sequences at all. */
+  sequencePrivilegesHeld: number;
+  /** Per role, after the transaction. A membership hands somebody everything
+   * the matrix just granted, so acceptance says it rather than assuming it. */
+  noMemberships: [string, boolean][];
+  exact: boolean;
+}
+
+/**
+ * IS THE WHOLE POSTURE EXACT? Separated from the run that reads it, so the
+ * verdict is a function a test can drive rather than a boolean assembled inside
+ * a database call.
+ *
+ * The separation is the point: a run can only be observed in the states a
+ * database can be put into, and "the transaction granted CREATE on the schema"
+ * is not one of them - which would leave the FOLD, the step that decides
+ * whether a fact counts, untested while every fact around it was checked. Every
+ * field below has to be able to fail the verdict on its own.
+ */
+export function reapplyIsExact(facts: {
+  direct: readonly [string, MatrixVerdict][];
+  effective: readonly [string, MatrixVerdict][];
+  schemaUsageOnly: readonly [string, boolean][];
+  sequencePrivilegesHeld: number;
+  noMemberships: readonly [string, boolean][];
+}): boolean {
+  return (
+    [...facts.direct, ...facts.effective].every(([, v]) => v.exact) &&
+    facts.schemaUsageOnly.every(([, ok]) => ok) &&
+    facts.sequencePrivilegesHeld === 0 &&
+    facts.noMemberships.every(([, ok]) => ok)
+  );
+}
+
+/**
+ * The posture that is NOT a table grant, read from the engine.
+ *
+ * A matrix read alone cannot see it, and it is exactly the class G2's evidence
+ * checked: a role with CREATE on the schema can make itself a table the matrix
+ * has never heard of, and a sequence privilege is a write the table sweep does
+ * not cover. So it is proved BEFORE the change as a precondition and AFTER it
+ * as acceptance - the second is not implied by the first, because a transaction
+ * that touched more than it meant to is the thing acceptance exists to catch.
+ */
+async function readNonTablePosture(
+  ask: <T extends pg.QueryResultRow>(
+    sql: string,
+    args?: unknown[],
+  ) => Promise<T[]>,
+  roles: readonly string[],
+): Promise<{
+  schemaUsageOnly: [string, boolean][];
+  sequencePrivilegesHeld: number;
+}> {
+  const schemaRows = await ask<{
+    role: string;
+    usage: boolean;
+    create: boolean;
+  }>(schemaPrivilegeSql(), [roles]);
+  const schemaUsageOnly: [string, boolean][] = roles.map((role) => {
+    const row = schemaRows.find((r) => r.role === role);
+    return [role, row?.usage === true && row.create === false];
+  });
+  const held = await ask<{ held: number }>(sequencePrivilegeSql(), [roles]);
+  return {
+    schemaUsageOnly,
+    sequencePrivilegesHeld: Number(held[0]?.held ?? -1),
+  };
+}
+
+export async function reapplyMatrix(
+  dsn: string,
+  direction: "forward" | "reverse",
+): Promise<ReapplyResult> {
+  const from = direction === "forward" ? priorRuntimeRoles() : runtimeRoles();
+  const to = direction === "forward" ? runtimeRoles() : priorRuntimeRoles();
+  const pool = await openPool(dsn);
+  const ask = async <T extends pg.QueryResultRow>(
+    sql: string,
+    args: unknown[] = [],
+  ): Promise<T[]> => {
+    try {
+      return (await pool.query<T>(sql, args)).rows;
+    } catch (err) {
+      throw redactConnectionDetails(err, dsn);
+    }
+  };
+  try {
+    // The roles are inert and PUBLIC holds nothing on this build's tables.
+    await preflight(pool, dsn, true);
+    const { owner, config } = await ownerState(pool, dsn);
+    if (!boundsAreExact(config, GOVERNED_SETTINGS)) {
+      throw new Error(
+        "refusing to re-apply the matrix: the owner role does not already " +
+          "carry exactly the governed bounds. A governed database is the only " +
+          "thing this step knows how to change, and a database in any other " +
+          "state is a governance run rather than an incremental one.",
+      );
+    }
+    const posture = await readRolePosture(
+      (sql, args) => ask(sql, args),
+      GOVERNED_SETTINGS,
+      owner,
+    );
+    for (const { role, budget } of to) {
+      const facts = posture.get(role);
+      if (
+        !facts?.present ||
+        facts.connectionLimit !== budget ||
+        !facts.boundsExact ||
+        facts.canLogin ||
+        facts.memberships !== 0
+      ) {
+        throw new Error(
+          "refusing to re-apply the matrix: a runtime role is not exactly the " +
+            "role this posture was approved for - its budget, its bounds, its " +
+            "login state or its memberships have moved. Changing what it may " +
+            "touch while what it IS has drifted is not an incremental step.",
+        );
+      }
+    }
+    const roleNames = to.map((r) => r.role);
+    const before = await ask<{ role: string; table: string; verb: string }>(
+      matrixSql(),
+      [roleNames],
+    );
+    // DIRECT AND EFFECTIVE, both. The direct read lists grants whose grantee is
+    // the role itself; the effective one answers what the role can actually do,
+    // which accounts for PUBLIC and for memberships. A before-state proved on
+    // the first alone would let a role that can already do more than the old
+    // matrix through, and the change would then be measured from a state
+    // nobody had established.
+    const beforeEffective = await ask<EffectiveRow>(effectivePrivilegeSql(), [
+      roleNames,
+      [...EXPECTED_TABLES],
+      [...ALL_VERBS],
+    ]);
+    for (const { role, grants } of from) {
+      if (
+        !judgeMatrix(before, role, grants).exact ||
+        !judgeEffective(beforeEffective, role, grants).exact
+      ) {
+        throw new Error(
+          "refusing to re-apply the matrix: the catalog does not carry " +
+            "exactly the matrix this change moves away from, so neither the " +
+            "change nor its reverse would be a known destination. Resolve the " +
+            "difference by hand first.",
+        );
+      }
+    }
+    const nonTableBefore = await readNonTablePosture(ask, roleNames);
+    if (
+      !nonTableBefore.schemaUsageOnly.every(([, ok]) => ok) ||
+      nonTableBefore.sequencePrivilegesHeld !== 0
+    ) {
+      throw new Error(
+        "refusing to re-apply the matrix: a runtime role holds something " +
+          "outside the table matrix - CREATE on the schema, or a sequence " +
+          "privilege. A role that can create a table can make one this matrix " +
+          "has never heard of, so changing what it may touch while that is " +
+          "true would be a boundary stated about the wrong thing.",
+      );
+    }
+
+    const statements = await inTransaction(
+      pool,
+      dsn,
+      grantMatrixStatements(to),
+    );
+
+    const after = await ask<{ role: string; table: string; verb: string }>(
+      matrixSql(),
+      [roleNames],
+    );
+    const effectiveRows = await ask<EffectiveRow>(effectivePrivilegeSql(), [
+      roleNames,
+      [...EXPECTED_TABLES],
+      [...ALL_VERBS],
+    ]);
+    const direct: [string, MatrixVerdict][] = [];
+    const effective: [string, MatrixVerdict][] = [];
+    for (const { role, grants } of to) {
+      direct.push([role, judgeMatrix(after, role, grants)]);
+      effective.push([role, judgeEffective(effectiveRows, role, grants)]);
+    }
+    // THE WHOLE POSTURE AFTER, not the half this transaction meant to move.
+    // Acceptance that only re-reads what was written cannot see a transaction
+    // that did more than it intended.
+    const nonTableAfter = await readNonTablePosture(ask, roleNames);
+    const membershipRows = await ask<{ role: string; memberships: string }>(
+      roleFactsSql(),
+      [roleNames],
+    );
+    const noMemberships: [string, boolean][] = roleNames.map((role) => [
+      role,
+      Number(membershipRows.find((r) => r.role === role)?.memberships ?? -1) ===
+        0,
+    ]);
+    const facts = {
+      direct,
+      effective,
+      schemaUsageOnly: nonTableAfter.schemaUsageOnly,
+      sequencePrivilegesHeld: nonTableAfter.sequencePrivilegesHeld,
+      noMemberships,
+    };
+    return { statements, ...facts, exact: reapplyIsExact(facts) };
   } finally {
     await pool.end().catch(() => {});
   }

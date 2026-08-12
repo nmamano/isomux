@@ -224,20 +224,29 @@ export const WEB_GRANTS: readonly TableGrant[] = [
 /**
  * WHAT THE PROVISIONER MAY DO.
  *
- * Traced the same way from the modules the deployed machine's one command
- * reaches: the tick loop, the liveness watch, the mint seam, the boot proof and
- * the handlers those drive.
+ * EXACT, not merely sufficient. Every entry below is a verb the deployed
+ * command's own call graph reaches (`PROVISIONER_REACHABLE`), and every verb
+ * that call graph reaches is below. `provisionerMatrixAgainstReachable` compares
+ * the two sets at table-and-verb precision in both directions, so a grant
+ * nobody can reach is a failing test rather than a comment nobody re-reads.
  *
- * TWO VERBS ARE DELIBERATELY WITHHELD even though a shared module could be read
- * as needing them, and the live boot is their test rather than a guess here:
- *   instances INSERT       - instance rows are created at signup, by the web.
- *   name_reservations      - reservations belong to the signup path.
- * If the deployed tick loop turns out to need either, that is a measured
- * finding and the grant is added with the evidence attached - which is a better
- * outcome than granting them now because a static scan could not rule them out.
+ * THE MATRIX WAS BOTH TOO NARROW AND TOO WIDE, and the narrow half was measured
+ * live. On 2026-08-12 the G3 forward probe REFUSED: the authenticated seam call
+ * (`deploy/probe.ts` -> `mint-seam.ts` `fetchInvite` -> `signup.ts`
+ * `instanceOwnedBy` -> `reservationForInstance`) reads `name_reservations`, and
+ * that read was withheld. The same read sits on the REAL invite path, so the
+ * first genuine customer invite would have failed the same way. It is granted
+ * here as SELECT and no more: the seam validates tenant ownership from the
+ * reservation row before it may answer even a refusal.
  *
- * Also not granted: stripe_events (the reconciler is operator-side),
- * schema_meta, and DELETE anywhere.
+ * Four verbs came off in the same pass because no committed path of the
+ * deployed command reaches them - see the `via` lines below for where each one
+ * actually lives.
+ *
+ * Still not granted, and each is a property rather than an oversight:
+ * `instances` INSERT and `name_reservations` writes (rows created at signup, by
+ * the web), `stripe_events` (the reconciler is operator-side), `schema_meta`,
+ * and DELETE anywhere.
  */
 export const PROVISIONER_GRANTS: readonly TableGrant[] = [
   {
@@ -247,9 +256,9 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
   },
   {
     table: "provider_assets",
-    verbs: ["select", "insert", "update"],
+    verbs: ["select", "update"],
     because:
-      "the create coordinator records the asset and reconciles it against the provider",
+      "the tick reads the asset and reconciles its state against the provider",
   },
   {
     table: "operations",
@@ -259,7 +268,7 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
   },
   {
     table: "create_intents",
-    verbs: ["select", "insert", "update"],
+    verbs: ["select", "insert"],
     because: "the latch that stops a second box being bought for one intent",
   },
   {
@@ -279,21 +288,279 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
     because: "every operation the loop takes is appended to the audit log",
   },
   {
-    table: "accounts",
-    verbs: ["select"],
-    because: "access decisions read the account that owns the instance",
-  },
-  {
-    table: "subscriptions",
+    table: "name_reservations",
     verbs: ["select"],
     because:
-      "the lifecycle tick reads subscription state to decide suspension and expiry",
+      "the invite seam proves the caller owns the office from the reservation row",
   },
   {
     table: "sequences",
     verbs: ["select", "update"],
     because:
       "the audit sequence is bumped per event, and runtime open asserts its row exists",
+  },
+];
+
+/** One verb the deployed command reaches, and the committed path that reaches
+ * it. `via` is prose for a reader; the pair is what the comparison uses. */
+export interface ReachableVerb {
+  table: string;
+  verb: "select" | "insert" | "update" | "delete";
+  via: string;
+}
+
+/**
+ * WHAT THE DEPLOYED COMMAND'S CALL GRAPH ACTUALLY REACHES.
+ *
+ * Hand-maintained, and deliberately so: this is the audit's answer written
+ * down, not a scan's. A scan of the repository would report every verb any
+ * module can issue, and the whole point of the exercise is that the deployed
+ * machine runs ONE command (`cli.ts` `cmdRun`) which registers a subset of the
+ * handlers - so the question is what THAT command reaches, which no import
+ * graph answers.
+ *
+ * Audited verb by verb 2026-08-12, from `cmdRun` outward through the tick loop,
+ * the liveness watch, the mint seam and the handlers `cmdRun` registers. The
+ * citations are where each verb is issued; they are load-bearing, because the
+ * next person to widen the matrix has to show a line like these.
+ *
+ * THIS LIST IS TRUE OF A PROVISIONER THAT DOES NOT PROVISION YET. `cli.ts`
+ * (around the handler roster, "create_instance is deliberately absent") does
+ * not register the create_instance handler, so the create path - the asset
+ * INSERT in `handlers.ts` `createAsset` and the intent UPDATE in
+ * `create-coordinator.ts` `casIntent` - is unreachable on the deployed command
+ * and is not granted. THE SLICE THAT REGISTERS create_instance (D4/G4, real
+ * provisioning) MUST RE-WIDEN THIS LIST AND THE MATRIX WITH IT, and it will be
+ * a failing comparison rather than a surprise 42501 in production.
+ */
+export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
+  {
+    table: "instances",
+    verb: "select",
+    via: "store.listInstances / getInstance, from the tick loop and the liveness watch",
+  },
+  {
+    table: "instances",
+    verb: "update",
+    via: "store.casInstance, tick.ts:591",
+  },
+  {
+    table: "provider_assets",
+    verb: "select",
+    via: "store.assetForInstance / getAsset, from access decisions and the tick",
+  },
+  {
+    table: "provider_assets",
+    verb: "update",
+    via: "store.casAsset, from handlers.ts reconcileAssets",
+  },
+  {
+    table: "operations",
+    verb: "select",
+    via: "store.dueOperations / liveOperations / getOperation / operationsFor",
+  },
+  {
+    table: "operations",
+    verb: "insert",
+    via: "store.enqueue, tick.ts:194 and tick.ts:614",
+  },
+  {
+    table: "operations",
+    verb: "update",
+    via: "store.tryLease / renewLease / casOperation / flagDeadline",
+  },
+  {
+    table: "create_intents",
+    verb: "select",
+    via: "store.getIntent, from the create latch",
+  },
+  {
+    table: "create_intents",
+    verb: "insert",
+    via: "migrateLegacyIntents (cli.ts:236) -> create-latch.ts:230",
+  },
+  {
+    table: "instance_liveness",
+    verb: "select",
+    via: "liveness-watch.ts, reading the rung it recorded",
+  },
+  {
+    table: "instance_liveness",
+    verb: "insert",
+    via: "liveness-watch.ts, claiming a box",
+  },
+  {
+    table: "instance_liveness",
+    verb: "update",
+    via: "liveness-watch.ts, recording the check",
+  },
+  {
+    table: "attention_reasons",
+    verb: "select",
+    via: "store.openReasons, from the run loop's announcements",
+  },
+  {
+    table: "attention_reasons",
+    verb: "insert",
+    via: "store.insertReason, via raiseAttentionIn",
+  },
+  {
+    table: "attention_reasons",
+    verb: "update",
+    via: "store.clearReason, store.ts:2067",
+  },
+  {
+    table: "audit_events",
+    verb: "insert",
+    via: "store.appendAudit, on every operation the loop takes",
+  },
+  {
+    table: "sequences",
+    verb: "select",
+    via: "store.nextSeq, and the runtime open's audit-seed assertion",
+  },
+  {
+    table: "sequences",
+    verb: "update",
+    via: "store.nextSeq, bumping the audit sequence per event",
+  },
+  {
+    table: "name_reservations",
+    verb: "select",
+    via:
+      "mint-seam.ts:79 fetchInvite -> signup.ts:135 instanceOwnedBy -> " +
+      "signup.ts:111 reservationForInstance; the same read the 2026-08-12 " +
+      "probe (deploy/probe.ts:146) was refused",
+  },
+];
+
+/**
+ * WHAT THE AUDIT WALKED, as the roster it walked.
+ *
+ * `PROVISIONER_REACHABLE` is a claim about the verbs a particular set of
+ * registered handlers and a particular set of non-handler surfaces can reach.
+ * That set is the load-bearing half of the claim and it is not visible in the
+ * verb list, so it is written down here and PINNED TO THE REAL ONE:
+ * `cmdrun-reachability.test.ts` builds the actual roster through
+ * `run-roster.ts` and requires it to equal these names, and reads the actual
+ * `cmdRun` body and requires its call surface to equal the third list. A
+ * handler or a surface added without an audit entry is a failing test rather
+ * than a 42501 in production - which is what the previous version, a `via`
+ * string nobody could check, could not offer (reviewer finding, 2026-08-12).
+ *
+ * Audited 2026-08-12. The four PROVIDER handlers register only when the process
+ * holds provider credentials, which the deployment does not yet; they were
+ * audited anyway, and they reach only verbs the matrix already carries
+ * (`casAsset` -> provider_assets UPDATE, `openReasons` and `raiseAttentionIn`
+ * -> attention_reasons SELECT/INSERT), so no term of the matrix depends on
+ * whether they are registered.
+ */
+export const AUDITED_HANDLER_KINDS = [
+  "wait_for_ssh",
+  "wait_for_package_manager",
+  "first_contact",
+  "arm_revocation",
+  "run_installer",
+  "verify_https",
+  "mint_invite",
+  "revoke_access",
+  "remove_dns",
+] as const;
+
+/** Registered ONLY when provider credentials exist. Audited, and adding no
+ * verb the matrix does not already carry. */
+export const AUDITED_PROVIDER_HANDLER_KINDS = [
+  "reboot",
+  "power_off",
+  "power_on",
+  "cancel_asset",
+] as const;
+
+/**
+ * EVERYTHING `cmdRun` CALLS that is not a handler, as the names in its body.
+ *
+ * The handlers are the loop's work; these are the surfaces around it - the
+ * open, the legacy intent migration inside it, the branch pin, the state
+ * marker, the health reporter, the invite seam, the liveness watch and the
+ * post-tick exit code - and each one can reach the database as surely as a
+ * handler can. `mint_invite`'s seam is the proof: the verb the 2026-08-12 run
+ * was refused is reached from `startMintSeam`, not from a handler.
+ *
+ * The test reads `cli.ts` as TEXT rather than importing it, because `cli.ts`
+ * runs `main()` at import. A call in `cmdRun` that is not named here fails that
+ * test with the offending name.
+ */
+export const AUDITED_CMDRUN_SURFACES = [
+  "openStoreForRuntime",
+  "provePinnedBranch",
+  "readAndRefreshMarker",
+  "deploymentIdOf",
+  "InviteHold",
+  "startMintSeam",
+  "bindAddressOf",
+  "healthReport",
+  "makeTicker",
+  "driveTicks",
+  "watchLiveness",
+  "exitCodeFor",
+] as const;
+
+/**
+ * THE MATRIX THE PREVIOUS POSTURE APPLIED, kept because a re-apply has to prove
+ * its own before-state.
+ *
+ * G2 put this exact set in the catalog on production on 2026-08-11. The
+ * incremental re-apply (`reapplyMatrix`) refuses unless the catalog carries
+ * EXACTLY this, and its rollback is this set restored - so both directions are
+ * a destination rather than a diff nobody wrote down. Delete it when the
+ * re-apply has landed and production carries the current matrix.
+ */
+export const PRIOR_PROVISIONER_GRANTS: readonly TableGrant[] = [
+  {
+    table: "instances",
+    verbs: ["select", "update"],
+    because: "as applied 2026-08-11",
+  },
+  {
+    table: "provider_assets",
+    verbs: ["select", "insert", "update"],
+    because: "as applied 2026-08-11",
+  },
+  {
+    table: "operations",
+    verbs: ["select", "insert", "update"],
+    because: "as applied 2026-08-11",
+  },
+  {
+    table: "create_intents",
+    verbs: ["select", "insert", "update"],
+    because: "as applied 2026-08-11",
+  },
+  {
+    table: "instance_liveness",
+    verbs: ["select", "insert", "update"],
+    because: "as applied 2026-08-11",
+  },
+  {
+    table: "attention_reasons",
+    verbs: ["select", "insert", "update"],
+    because: "as applied 2026-08-11",
+  },
+  {
+    table: "audit_events",
+    verbs: ["insert"],
+    because: "as applied 2026-08-11",
+  },
+  { table: "accounts", verbs: ["select"], because: "as applied 2026-08-11" },
+  {
+    table: "subscriptions",
+    verbs: ["select"],
+    because: "as applied 2026-08-11",
+  },
+  {
+    table: "sequences",
+    verbs: ["select", "update"],
+    because: "as applied 2026-08-11",
   },
 ];
 
@@ -310,6 +577,20 @@ export function runtimeRoles(): RolePosture[] {
       role: PROVISIONER_ROLE,
       budget: PROVISIONER_BUDGET,
       grants: PROVISIONER_GRANTS,
+    },
+  ];
+}
+
+/** The same two roles carrying the matrix production holds TODAY, which is what
+ * an incremental re-apply proves before it writes and restores if it reverses.
+ * The web's half did not move; only the provisioner's did. */
+export function priorRuntimeRoles(): RolePosture[] {
+  return [
+    { role: WEB_ROLE, budget: WEB_BUDGET, grants: WEB_GRANTS },
+    {
+      role: PROVISIONER_ROLE,
+      budget: PROVISIONER_BUDGET,
+      grants: PRIOR_PROVISIONER_GRANTS,
     },
   ];
 }
@@ -413,9 +694,11 @@ export function rolePostureStatements(args: {
  * The revoke is scoped to the two roles this build owns: nothing here touches
  * the owner's privileges or anyone else's.
  */
-export function grantMatrixStatements(): string[] {
+export function grantMatrixStatements(
+  roster: readonly RolePosture[] = runtimeRoles(),
+): string[] {
   const out: string[] = [];
-  for (const { role, grants } of runtimeRoles()) {
+  for (const { role, grants } of roster) {
     const named = assertIdentifier(role);
     out.push(
       `revoke all privileges on all tables in schema public from ${named}`,
@@ -606,6 +889,39 @@ export interface MatrixVerdict {
   missing: number;
   excess: number;
   exact: boolean;
+}
+
+/**
+ * Is the provisioner's matrix EXACTLY what its call graph reaches?
+ *
+ * Both directions, at table-and-verb precision, and the names come back so a
+ * failure says which entry rather than only how many. "Is everything the code
+ * touches granted" is the weaker question, and it is the one that let four
+ * unreachable verbs sit in the matrix while the one the seam needed was
+ * missing: it can only ever find the narrow half.
+ *
+ *   missing - the call graph reaches it and the matrix does not carry it. This
+ *             is a 42501 on a live path, which is what happened on 2026-08-12.
+ *   excess  - the matrix carries it and no committed path of the deployed
+ *             command reaches it. Not an outage, and still a boundary that says
+ *             something untrue about what the machine can do.
+ */
+export function provisionerMatrixAgainstReachable(
+  grants: readonly TableGrant[] = PROVISIONER_GRANTS,
+  reachable: readonly ReachableVerb[] = PROVISIONER_REACHABLE,
+): { missing: string[]; excess: string[]; exact: boolean } {
+  const granted = new Set<string>();
+  for (const grant of grants) {
+    for (const verb of grant.verbs) granted.add(`${grant.table}:${verb}`);
+  }
+  const needed = new Set(reachable.map((r) => `${r.table}:${r.verb}`));
+  const missing = [...needed].filter((e) => !granted.has(e)).sort();
+  const excess = [...granted].filter((e) => !needed.has(e)).sort();
+  return {
+    missing,
+    excess,
+    exact: missing.length === 0 && excess.length === 0,
+  };
 }
 
 export function judgeMatrix(

@@ -18,7 +18,10 @@
 //   - the stage sets ONE name, over stdin, staged;
 //   - the deploy runs exactly `DEPLOY_ARGV`, once, and turns a dead child into
 //     the coordinator's ambiguity rather than an exception;
-//   - the probe reads the verdict LINE, so an exit-zero `accepted: false` fails;
+//   - the probe's WHOLE transcript is typed and recomputed, so an exit-zero
+//     `accepted: false`, a lone verdict line and a self-contradicting reading
+//     all fail - and a machine that is merely not ticking yet is waited on
+//     under both an absolute deadline and an attempt cap;
 //   - replacement evidence comes from fly's own state;
 //   - and only `moved` exits zero.
 
@@ -48,7 +51,12 @@ import {
   DEPLOY_DEADLINE_MS,
   LIGHT_DEADLINE_MS,
   PROBE_SCRIPT,
+  READINESS_ATTEMPT_CAP,
+  READINESS_DEADLINE_MS,
+  READINESS_GAP_MS,
   machineStateExitCode,
+  planReadinessAttempt,
+  planReadinessGap,
   SAMPLES_DURING_CAP,
   type Primitives,
   exitCodeFor,
@@ -57,6 +65,7 @@ import {
   realSeams,
   roleDsnFrom,
 } from "./provisioner-move-run.ts";
+import { notTickingYet, probeTranscript } from "../testing/probe-fixture.ts";
 
 const HOST = "ep-plain-sun-123.eu-central-1.aws.neon.tech";
 const OWNER_ROLE = "neondb_owner";
@@ -126,6 +135,17 @@ interface Options {
   probeCode: number;
   probeStdout: string;
   probeThrows: boolean;
+  /** One entry per attempt; the last is repeated once the list runs out. When
+   * null, every attempt answers `probeCode`/`probeStdout`. */
+  probeSequence: { code: number; stdout: string }[] | null;
+  /** How long a probe child takes on the rig's clock. A child that would run
+   * past the deadline it was given times out, exactly as a real one does. */
+  probeChildCostMs: number;
+  /** One backward STEP of the clock - an NTP correction, or somebody setting
+   * the clock - applied at the reading numbered below. `Date.now` can do this;
+   * a monotonic clock cannot. Zero means the clock only moves forward. */
+  clockJumpBackMs: number;
+  clockJumpAtReading: number;
   resolveCalls: { n: number };
   /** The deploy child's answer, and how long the test makes it take. */
   deployTimesOut: boolean;
@@ -181,9 +201,13 @@ function rig(over: Partial<Options> = {}): Rig {
     stageEcho: false,
     secretsListCode: 0,
     secretsList: JSON.stringify(SECRET_NAMES.map((Name) => ({ Name }))),
-    probeCode: 0,
-    probeStdout: "bearer_enforced: true\naccepted: true\n",
+    probeCode: probeTranscript().code,
+    probeStdout: probeTranscript().stdout,
     probeThrows: false,
+    probeSequence: null,
+    probeChildCostMs: 0,
+    clockJumpBackMs: 0,
+    clockJumpAtReading: 4,
     resolveCalls: { n: 0 },
     deployTimesOut: false,
     deployGroupSurvived: false,
@@ -201,6 +225,11 @@ function rig(over: Partial<Options> = {}): Rig {
   const bounded: { argv: string[]; deadlineMs: number }[] = [];
   let canLogin = o.canLogin;
   let deploys = 0;
+  let probeRuns = 0;
+  let readings = 0;
+  /** A clock the test drives: it advances only when this rig sleeps or runs a
+   * child, so a wait bounded by real time is asserted without real time. */
+  let clock = 0;
 
   const p: Primitives = {
     git: async (args) => {
@@ -253,9 +282,22 @@ function rig(over: Partial<Options> = {}): Rig {
         return clean(o.secretsListCode, o.secretsList);
       }
       if (argv[1] === PROBE_SCRIPT) {
+        probeRuns++;
         if (o.probeThrows) throw new Error("the probe child never started");
         if (o.timeouts.includes("probe")) return unclean();
-        return clean(o.probeCode, o.probeStdout);
+        // The rig's clock is what makes the readiness deadline testable, and a
+        // child that would outlive the deadline it was handed times out rather
+        // than quietly running past it.
+        if (o.probeChildCostMs >= deadlineMs) {
+          clock += deadlineMs;
+          return unclean();
+        }
+        clock += o.probeChildCostMs;
+        const answer = o.probeSequence
+          ? (o.probeSequence[probeRuns - 1] ??
+            o.probeSequence[o.probeSequence.length - 1])
+          : { code: o.probeCode, stdout: o.probeStdout };
+        return clean(answer.code, answer.stdout);
       }
       if (kind.startsWith("deploy")) {
         deploys++;
@@ -324,6 +366,14 @@ function rig(over: Partial<Options> = {}): Rig {
     cwd: () => o.cwd,
     sleep: async (ms) => {
       sleeps.push(ms);
+      clock += ms;
+    },
+    now: () => {
+      readings++;
+      if (o.clockJumpBackMs > 0 && readings === o.clockJumpAtReading) {
+        clock -= o.clockJumpBackMs;
+      }
+      return clock;
     },
     interpreter: "/usr/bin/bun",
   };
@@ -1297,7 +1347,10 @@ describe("two streams, two decoders", () => {
   });
 });
 
-describe("the probe is read by its verdict, not its exit code", () => {
+describe("the probe is read as a whole transcript, not as one line", () => {
+  const probeCalls = (r: Rig): number =>
+    r.spawns.filter((c) => c.argv[1] === PROBE_SCRIPT).length;
+
   test("the child is this interpreter running the reviewed script", async () => {
     const r = rig();
     expect(await r.seams.probe()).toBe(true);
@@ -1310,11 +1363,22 @@ describe("the probe is read by its verdict, not its exit code", () => {
   test("an exit-zero child that printed a refusal is not green", async () => {
     const r = rig({ probeStdout: "accepted: false\n" });
     expect(await r.seams.probe()).toBe(false);
-    expect(r.lines).toContain("probe_verdict_line: false");
+    expect(r.lines).toContain("probe_verdict: hard");
+  });
+
+  // THE CASE THE OLD SUBSTRING SEARCH GOT WRONG. This child says the magic
+  // line, exits zero, and has told us nothing: no statuses, no health, no
+  // shape. It used to pass.
+  test("a child that prints only the verdict passes nothing", async () => {
+    const r = rig({ probeStdout: "accepted: true\n" });
+    expect(await r.seams.probe()).toBe(false);
+    expect(r.lines).toContain("probe_verdict: hard");
+    expect(probeCalls(r)).toBe(1);
   });
 
   test("a verdict without a zero exit is not green either", async () => {
-    expect(await rig({ probeCode: 1 }).seams.probe()).toBe(false);
+    const r = rig({ probeCode: 1 });
+    expect(await r.seams.probe()).toBe(false);
   });
 
   test("no verdict line at all is not green", async () => {
@@ -1331,11 +1395,169 @@ describe("the probe is read by its verdict, not its exit code", () => {
   });
 
   test("the child's output is not repeated onto the transcript", async () => {
-    const r = rig({
-      probeStdout: `health_with_credential: 200\naccepted: true\n${HOST}\n`,
-    });
+    const green = probeTranscript();
+    const r = rig({ probeStdout: `${green.stdout}${HOST}\n` });
     await r.seams.probe();
     for (const line of r.lines) expect(line).not.toContain(HOST);
+  });
+});
+
+/**
+ * The wait, and the two limits that end it.
+ *
+ * A machine fly has just replaced is healthy and NOT TICKING for a few seconds,
+ * and the probe refuses until the first pass completes. Waiting for that is the
+ * difference between a rollback and a deployment coming up - so the wait exists,
+ * and it is bounded twice over because a wait that can be extended by a slow
+ * child or a jumped clock is not bounded at all.
+ */
+describe("a machine that is still coming up is waited on, twice bounded", () => {
+  const probeCalls = (r: Rig): number =>
+    r.spawns.filter((c) => c.argv[1] === PROBE_SCRIPT).length;
+
+  test("a machine that starts ticking on the third reading is green", async () => {
+    const r = rig({
+      probeSequence: [notTickingYet(), notTickingYet(), probeTranscript()],
+    });
+    expect(await r.seams.probe()).toBe(true);
+    expect(probeCalls(r)).toBe(3);
+    expect(r.lines).toContain("probe_attempts: 3");
+    expect(r.sleeps.filter((ms) => ms === READINESS_GAP_MS).length).toBe(2);
+  });
+
+  // PENDING IS THE ONLY THING WAITED ON. A database the machine cannot reach is
+  // a failure on the first reading, because retrying it would turn a broken
+  // deployment into a three-minute pause and then the same rollback.
+  test("any other refusal fails on the first reading", async () => {
+    const r = rig({
+      probeSequence: [
+        probeTranscript({ database_reachable: false, ok: false }),
+        probeTranscript(),
+      ],
+    });
+    expect(await r.seams.probe()).toBe(false);
+    expect(probeCalls(r)).toBe(1);
+    expect(r.lines).toContain("probe_verdict: hard");
+  });
+
+  test("a machine that never ticks stops at the attempt cap", async () => {
+    const r = rig({ probeSequence: [notTickingYet()] });
+    expect(await r.seams.probe()).toBe(false);
+    expect(probeCalls(r)).toBe(READINESS_ATTEMPT_CAP);
+    expect(r.lines).toContain(`probe_attempts: ${READINESS_ATTEMPT_CAP}`);
+    expect(r.lines).toContain("probe_wait_ended: attempt_cap");
+  });
+
+  // THE OTHER LIMIT, on its own. Slow children spend the budget before the cap
+  // can be reached, and the wait ends on time rather than on a count.
+  test("slow children spend the budget and the wait ends on time", async () => {
+    const r = rig({
+      probeSequence: [notTickingYet()],
+      probeChildCostMs: 17_000,
+    });
+    expect(await r.seams.probe()).toBe(false);
+    expect(probeCalls(r)).toBeLessThan(READINESS_ATTEMPT_CAP);
+    expect(r.lines).toContain("probe_wait_ended: expired");
+    // Nothing ran past the absolute deadline, sleeps included.
+    const spent = r.sleeps.reduce((a, b) => a + b, 0) + probeCalls(r) * 17_000;
+    expect(spent).toBeLessThanOrEqual(READINESS_DEADLINE_MS);
+  });
+
+  // A WALL CLOCK CAN STEP BACKWARDS - an NTP correction, an operator setting
+  // the clock - and a backward step INCREASES what a subtraction reports as
+  // remaining. The real primitive is monotonic AND the wait clamps on top of
+  // it, so neither a wrong clock nor a wrong primitive can extend the budget.
+  //
+  // MEASURED AS A PAIR, because the attempt cap hides it otherwise: with fast
+  // children both clocks end at the cap and the two runs look identical. These
+  // children are slow enough that the budget is what ends the wait, so an
+  // extended budget shows up as extra attempts.
+  test("a clock that steps backwards buys no extra attempts", async () => {
+    const honest = rig({
+      probeSequence: [notTickingYet()],
+      probeChildCostMs: 17_000,
+    });
+    expect(await honest.seams.probe()).toBe(false);
+    expect(honest.lines).toContain("probe_wait_ended: expired");
+    // The premise: the BUDGET ends this wait, not the count. Without that the
+    // comparison below could not see a budget that had grown.
+    expect(probeCalls(honest)).toBeLessThan(READINESS_ATTEMPT_CAP);
+
+    const slipped = rig({
+      probeSequence: [notTickingYet()],
+      probeChildCostMs: 17_000,
+      clockJumpBackMs: 120_000,
+    });
+    expect(await slipped.seams.probe()).toBe(false);
+    // AT MOST ONE EXTRA ATTEMPT, which is the exact cost of a correction: the
+    // one measured interval it lands in is lost, because how much real time
+    // passed across it is not knowable from either side. What must NOT happen
+    // is the wait growing by the SIZE of the step - two minutes here, which at
+    // this pace is more than four extra attempts.
+    expect(probeCalls(slipped)).toBeLessThanOrEqual(probeCalls(honest) + 1);
+    // It ends, and either ending is an end rather than an extension: the budget
+    // runs out, or the last child cannot fit inside what is left of it and
+    // times out. Both stop the wait; neither buys it more.
+    const ended = slipped.lines.some(
+      (line) =>
+        line === "probe_wait_ended: expired" || line === "probe_verdict: hard",
+    );
+    expect(ended).toBe(true);
+
+    // And neither bound grew on the way.
+    for (const call of slipped.bounded) {
+      if (call.argv[1] !== PROBE_SCRIPT) continue;
+      expect(call.deadlineMs).toBeLessThanOrEqual(LIGHT_DEADLINE_MS);
+    }
+    for (const ms of slipped.sleeps) {
+      expect(ms).toBeLessThanOrEqual(READINESS_GAP_MS);
+    }
+  });
+
+  test("no child is given longer than what is left of the budget", () => {
+    expect(planReadinessAttempt({ attempt: 1, remainingMs: 5_000 })).toEqual({
+      action: "run",
+      deadlineMs: 5_000,
+    });
+    expect(
+      planReadinessAttempt({ attempt: 1, remainingMs: 1_000_000_000 }),
+    ).toEqual({
+      action: "run",
+      deadlineMs: LIGHT_DEADLINE_MS,
+    });
+  });
+
+  test("no child starts at or after expiry, whatever the attempt", () => {
+    for (const remaining of [0, -1, -1_000_000, Number.NaN]) {
+      expect(
+        planReadinessAttempt({ attempt: 1, remainingMs: remaining }),
+      ).toEqual({ action: "stop", reason: "expired" });
+    }
+  });
+
+  test("the attempt cap is checked without consulting the clock", () => {
+    expect(
+      planReadinessAttempt({
+        attempt: READINESS_ATTEMPT_CAP + 1,
+        remainingMs: 1_000_000_000,
+      }),
+    ).toEqual({ action: "stop", reason: "attempt_cap" });
+  });
+
+  test("a gap never carries the wait past the deadline", () => {
+    expect(planReadinessGap(1_000_000_000)).toBe(READINESS_GAP_MS);
+    expect(planReadinessGap(1_500)).toBe(1_500);
+    expect(planReadinessGap(0)).toBe(null);
+    expect(planReadinessGap(-1)).toBe(null);
+  });
+
+  // The number is a choice about what to do when a machine is slow, and saying
+  // so in the code is what stops it being read as a measured bound later.
+  test("the budget is stated as a policy and the cap is independent of it", () => {
+    expect(READINESS_DEADLINE_MS).toBe(3 * 60_000);
+    expect(READINESS_ATTEMPT_CAP * READINESS_GAP_MS).toBeLessThan(
+      READINESS_DEADLINE_MS + READINESS_GAP_MS,
+    );
   });
 });
 
@@ -1382,7 +1604,9 @@ describe("every child reachable after P1 is bounded", () => {
   test("a probe that times out is not a green probe", async () => {
     const r = rig({ timeouts: ["probe"] });
     expect(await moveProvisioner(r.seams)).not.toBe("moved");
-    expect(r.lines).toContain("probe_timed_out: true");
+    // A timeout is HARD, not pending: an unclean run's output is a fragment, so
+    // there is nothing to conclude a deployment is merely coming up from.
+    expect(r.lines).toContain("probe_defect: child_timed_out");
     expect(r.lines).toContain("probe_green: false");
   });
 

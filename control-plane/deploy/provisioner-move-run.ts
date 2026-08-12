@@ -34,9 +34,11 @@
 //            `DEPLOY_ARGV`. A child that dies is not a different kind of failure
 //            from a child that answers non-zero: both become the coordinator's
 //            ambiguity, with the child's text dropped rather than reported.
-//   probe    the child's fixed verdict LINE, not its exit code. A program that
-//            trusts exit 0 accepts any future version of the probe that exits
-//            zero while printing `accepted: false`.
+//   probe    the child's WHOLE transcript, typed and recomputed - not its exit
+//            code and not one line of it. A program that trusts either accepts
+//            a child whose own readings contradict its verdict. It also tells a
+//            machine that is still coming up from one that is wrong, and waits
+//            only for the first, under an absolute deadline and an attempt cap.
 //
 // THIS PROGRAM PRINTS booleans, small integers, exit codes and fixed labels.
 // The generated password, the connection strings, the host, the role name and
@@ -88,6 +90,7 @@ import {
   type Seams,
   moveProvisioner,
 } from "./provisioner-move.ts";
+import { classifyProbeRun } from "./probe-transcript.ts";
 
 /** The probe, run as a child so its own credential never enters this process. */
 export const PROBE_SCRIPT = path.join(import.meta.dir, "probe.ts");
@@ -153,6 +156,81 @@ export const LIGHT_DEADLINE_MS = 2 * 60_000;
  * unclean run cannot be mistaken for a successful one. */
 export const UNCLEAN_EXIT = -1;
 
+/**
+ * HOW LONG A REPLACED MACHINE IS GIVEN TO START TICKING, and what that number
+ * is a statement about.
+ *
+ * IT IS A ROLLOUT-READINESS POLICY, NOT A MEASUREMENT. Nothing here has proved
+ * an upper bound on how long `Ticker.once` takes - it opens a store, reads
+ * instances and can drive provider work, so a bound would have to be a claim
+ * about the provider too. What this number says is narrower and is a CHOICE:
+ * after three minutes without a healthy reading, this run prefers rolling back
+ * to waiting longer. A machine that needed four minutes is rolled back and
+ * looked at, which is the safe direction for a move that holds a live
+ * credential open while it waits.
+ *
+ * `tick_recent` is the reason a wait exists at all. It is false until the first
+ * pass completes (`cli.ts`, three poll intervals), so a machine fly has just
+ * replaced is correctly healthy-but-not-yet-ticking, and the probe correctly
+ * refuses. Treating that as a failed deploy would roll back a deployment that
+ * was coming up normally.
+ */
+export const READINESS_DEADLINE_MS = 3 * 60_000;
+
+/** Between attempts. Small enough that a machine which comes up in ten seconds
+ * is not waited on for a minute, large enough that eighteen attempts cannot
+ * become a hot loop against the deployed surface. */
+export const READINESS_GAP_MS = 10_000;
+
+/**
+ * The most probe children one readiness wait may run, INDEPENDENT OF TIME.
+ *
+ * Two limits rather than one, because they fail differently: a clock that
+ * jumped, a sleep that returned early or a probe that answered instantly would
+ * each let a time-bounded loop spawn children without limit, and a count-bounded
+ * loop alone would wait for eighteen slow children however long that took. Both
+ * are enforced, and both are tested.
+ */
+export const READINESS_ATTEMPT_CAP = 18;
+
+/** What the readiness wait may do next, from the two limits alone. Pure, so
+ * both bounds are asserted directly rather than through a spawn count. */
+export type ReadinessStep =
+  | { action: "run"; deadlineMs: number }
+  | { action: "stop"; reason: "expired" | "attempt_cap" };
+
+/**
+ * May attempt number `attempt` start, and with what deadline?
+ *
+ * NO CHILD STARTS AT OR AFTER EXPIRY, and a child that starts gets the SMALLER
+ * of the ordinary light deadline and what is left - so the last attempt cannot
+ * run two minutes past a three-minute budget. The attempt cap is checked first
+ * because it does not depend on a clock.
+ */
+export function planReadinessAttempt(args: {
+  attempt: number;
+  remainingMs: number;
+}): ReadinessStep {
+  if (args.attempt > READINESS_ATTEMPT_CAP) {
+    return { action: "stop", reason: "attempt_cap" };
+  }
+  if (!Number.isFinite(args.remainingMs) || args.remainingMs <= 0) {
+    return { action: "stop", reason: "expired" };
+  }
+  return {
+    action: "run",
+    deadlineMs: Math.min(LIGHT_DEADLINE_MS, args.remainingMs),
+  };
+}
+
+/** How long to wait before the next attempt, or null when the budget is spent.
+ * A sleep is capped by the remaining budget for the same reason a child is: the
+ * deadline is absolute, and a fixed gap could carry the loop past it. */
+export function planReadinessGap(remainingMs: number): number | null {
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) return null;
+  return Math.min(READINESS_GAP_MS, remainingMs);
+}
+
 const BACKEND_COUNT_SQL =
   "select count(*)::int as n from pg_stat_activity where usename = $1";
 
@@ -190,6 +268,19 @@ export interface Primitives {
   /** Where `fly deploy .` would take its build context from. */
   cwd(): string;
   sleep(ms: number): Promise<void>;
+  /**
+   * The clock the readiness deadline is measured on. A primitive rather than a
+   * call to `Date.now`, so both limits of the wait are drivable in a test
+   * without one of them being real seconds.
+   *
+   * IT MUST NOT GO BACKWARDS. `Date.now` can: an NTP correction or an operator
+   * setting the clock moves it either way, and a backward step INCREASES the
+   * remaining budget, which would let a three-minute wait run for as long as
+   * the attempt cap allowed (reviewer finding, 2026-08-12). The real primitive
+   * is monotonic, and the wait clamps on top of it, so neither a wrong clock
+   * nor a wrong primitive can extend the aggregate.
+   */
+  now(): number;
   /** The interpreter the probe child runs under. */
   interpreter: string;
 }
@@ -790,32 +881,105 @@ export function realSeams(
     },
 
     /**
-     * The probe's own verdict LINE, not its exit code.
+     * The probe's WHOLE transcript, typed, recomputed and - if the deployment
+     * is merely still coming up - waited on.
      *
-     * `probe.ts` decides acceptance from five statuses and a fixed key set, and
-     * it prints that decision. Reading the line rather than the code is what
-     * keeps this honest if the child ever exits zero while printing
-     * `accepted: false` - and the code is required as well, so a child killed
-     * after printing the line does not pass either. Its bytes go nowhere else.
+     * IT USED TO BE A SUBSTRING SEARCH for `accepted: true` plus exit 0, which
+     * trusted the child's own one-line verdict: a probe printing that line and
+     * nothing else passed, and so did one whose statuses contradicted it.
+     * `probe-transcript.ts` now requires every field exactly once, correctly
+     * typed, and recomputes acceptance from the readings - so the reported
+     * verdict has to agree with the fields it was supposedly drawn from.
+     *
+     * AND THERE ARE THREE ANSWERS, NOT TWO. A machine fly has just replaced is
+     * healthy and not yet ticking, and the probe refuses until the first pass
+     * completes. That is a deployment coming up, so it is waited on under one
+     * ABSOLUTE deadline and a hard attempt cap; every other refusal is failure
+     * on the first reading, with no retry to hide it.
+     *
+     * The child's bytes never reach this function: it hands them to the parser
+     * and gets back typed fields and fixed labels.
      */
     probe: async () => {
-      let result;
-      try {
-        result = await boundedAsSpawn("probe", LIGHT_DEADLINE_MS)(
-          [p.interpreter, PROBE_SCRIPT],
-          {},
-          "",
-        );
-      } catch {
-        report("probe_child_ran: false");
-        return false;
+      /**
+       * ELAPSED AS A SUM OF FORWARD STEPS, so no clock can extend the budget.
+       *
+       * The real primitive is monotonic and this does not rely on it. A
+       * BACKWARD step contributes nothing and the next reading is measured from
+       * where the clock actually is, so a correction costs the wait no time and
+       * buys it none either: the total is the forward movement, counted once.
+       *
+       * Remembering only the HIGHEST reading is not enough, and the difference
+       * is what a test caught. A clock corrected DOWN by two minutes stays two
+       * minutes low, so a high-water mark freezes until the clock climbs back
+       * over it - which hands the wait those two minutes a second time. The
+       * accumulator has nothing to climb back over.
+       *
+       * WHAT IT COSTS, stated exactly: a backward step loses the one measured
+       * interval it lands in, because how much real time passed across a
+       * correction is not knowable from either side of it. So a correction can
+       * make the wait run at most ONE interval longer, once per correction -
+       * never the SIZE of the correction, which is what the naive subtraction
+       * and the high-water mark both hand over.
+       *
+       * A spurious FORWARD jump shortens the wait instead, which is the safe
+       * direction: it ends early and rolls back.
+       */
+      let previous = p.now();
+      let elapsed = 0;
+      const remaining = (): number => {
+        const reading = p.now();
+        if (reading > previous) elapsed += reading - previous;
+        previous = reading;
+        return READINESS_DEADLINE_MS - elapsed;
+      };
+      report(`probe_readiness_budget_ms: ${READINESS_DEADLINE_MS}`);
+      report(`probe_attempt_cap: ${READINESS_ATTEMPT_CAP}`);
+      for (let attempt = 1; ; attempt++) {
+        const step = planReadinessAttempt({
+          attempt,
+          remainingMs: remaining(),
+        });
+        if (step.action === "stop") {
+          report(`probe_attempts: ${attempt - 1}`);
+          report(`probe_wait_ended: ${step.reason}`);
+          return false;
+        }
+        let result;
+        try {
+          // ONE CHILD AT A TIME, awaited to the bounded primitive's own
+          // group-empty proof: a wait that started a second probe while the
+          // first was unaccounted for would be the unbounded-spawn hazard the
+          // rest of this file exists to remove.
+          result = await p.boundedSpawn(
+            [p.interpreter, PROBE_SCRIPT],
+            {},
+            "",
+            step.deadlineMs,
+          );
+        } catch {
+          report(`probe_attempts: ${attempt}`);
+          report("probe_child_ran: false");
+          return false;
+        }
+        const outcome = classifyProbeRun(result);
+        report(`probe_child_exit: ${result.code ?? UNCLEAN_EXIT}`);
+        report(`probe_verdict: ${outcome.verdict}`);
+        for (const defect of outcome.defects) {
+          report(`probe_defect: ${defect}`);
+        }
+        if (outcome.verdict !== "readiness_pending") {
+          report(`probe_attempts: ${attempt}`);
+          return outcome.verdict === "accepted";
+        }
+        const gap = planReadinessGap(remaining());
+        if (gap === null) {
+          report(`probe_attempts: ${attempt}`);
+          report("probe_wait_ended: expired");
+          return false;
+        }
+        await p.sleep(gap);
       }
-      const accepted = result.stdout
-        .split("\n")
-        .some((line) => line.trim() === "accepted: true");
-      report(`probe_child_exit: ${result.code}`);
-      report(`probe_verdict_line: ${accepted}`);
-      return result.code === 0 && accepted;
     },
 
     report,
@@ -867,6 +1031,12 @@ export function realPrimitives(): {
       contextRules: () => realContextRules(),
       cwd: () => process.cwd(),
       sleep: (ms) => Bun.sleep(ms),
+      // MONOTONIC, not wall clock. `performance.now` counts from process start
+      // and cannot step backwards, which `Date.now` can. The readiness wait
+      // measures a DURATION, so a clock that only ever moves forward is the
+      // right one - and the wall time of day is not something this program has
+      // any use for.
+      now: () => Math.round(performance.now()),
       interpreter: process.execPath,
     },
     close: async () => {
@@ -924,6 +1094,10 @@ function printPlan(): void {
   console.log(`deploy_deadline_ms: ${DEPLOY_DEADLINE_MS}`);
   console.log(`deploy_kill_grace_ms: ${KILL_GRACE_MS}`);
   console.log(`light_command_deadline_ms: ${LIGHT_DEADLINE_MS}`);
+  console.log(`probe_readiness_budget_ms: ${READINESS_DEADLINE_MS}`);
+  console.log(`probe_readiness_gap_ms: ${READINESS_GAP_MS}`);
+  console.log(`probe_attempt_cap: ${READINESS_ATTEMPT_CAP}`);
+  console.log("probe_readiness_budget_is_a_policy_not_a_measurement: true");
   console.log("every_child_runs_in_its_own_process_group: true");
   console.log("a_timeout_terminates_the_group_and_proves_it_empty: true");
   // The claim is the GROUP, and it is stated as such: a process that starts a

@@ -508,11 +508,48 @@ grants are per table and per verb, and the absences are the point:
 - **The web cannot read the billing event journal** (`stripe_events`).
 - **Subscription state is read-only on both tiers.** Webhooks remain its only
   writer, and the reconciler runs operator-side.
-- **The provisioner is not granted `instances` INSERT or `name_reservations` at
-  all**, because instance rows and reservations are created at signup. Both were
-  reachable through a shared module and neither is provably needed; the live
-  boot is their test rather than a guess, and if the tick loop turns out to need
-  one it is added with the evidence attached.
+- **The provisioner is not granted `instances` INSERT or any write to
+  `name_reservations`**, because instance rows and reservations are created at
+  signup.
+- **The provisioner MAY READ `name_reservations`**, and that grant is a
+  correction the live run forced (see below).
+
+**The provisioner's matrix is EXACT, and a test says so in both directions.**
+`PROVISIONER_REACHABLE` in `roles.ts` is the audited call graph of the deployed
+command - every verb, with the line that issues it - and
+`provisionerMatrixAgainstReachable` compares it against the matrix at
+table-and-verb precision. MISSING is a 42501 waiting on a live path; EXCESS is a
+grant nobody can reach, which is a boundary saying something untrue about what
+the machine can do. The weaker question - "is everything the code touches
+granted" - can only ever find the first kind, and it is what let the matrix be
+wrong in both directions at once:
+
+| verb                       | audited 2026-08-12                                      |
+| -------------------------- | ------------------------------------------------------- |
+| `name_reservations` SELECT | ADDED - the invite seam proves tenant ownership from it |
+| `accounts` SELECT          | removed - only signup and the operator check read it    |
+| `subscriptions` SELECT     | removed - the lifecycle tick is not on this command     |
+| `provider_assets` INSERT   | removed - the asset is created on the create path       |
+| `create_intents` UPDATE    | removed - `casIntent` is on the create path             |
+
+**The four removals are correct only while the provisioner does not provision.**
+`cli.ts`'s `cmdRun` deliberately does not register the `create_instance`
+handler, so the create path is unreachable on the deployed command. THE SLICE
+THAT REGISTERS IT (D4/G4) MUST RE-WIDEN both `PROVISIONER_REACHABLE` and the
+matrix, and the comparison test is what turns that into a failing check rather
+than a 42501 in production.
+
+**And the audit's PREMISE is pinned too, not just its conclusion.** A verb list
+is a claim about a particular set of registered handlers and a particular set of
+non-handler surfaces, and it cannot state that set itself. So the roster moved
+out of an array literal inside `cli.ts` into `run-roster.ts` - the function
+`makeTicker` actually calls - and `cmdrun-reachability.test.ts` builds the REAL
+roster and requires every kind in it to be audited. The non-handler surfaces are
+read from `cli.ts` as text (importing it runs `main()`), and the set of names
+`cmdRun` calls must equal `AUDITED_CMDRUN_SURFACES`. A handler or a surface
+added without an audit entry fails a test; `startMintSeam` is why the second
+half matters, because the verb the 2026-08-12 run was refused is reached from a
+surface rather than from a handler.
 
 No `ALTER DEFAULT PRIVILEGES`. Default privileges can only say "every future
 table, these verbs", which cannot mirror a per-table matrix and would grant on
@@ -558,6 +595,32 @@ a role whose configuration was reverted, on a connection string that still asks
 for both bounds the old way, REFUSES - the session would have reported the right
 answer, and the deployment would have looked healthy while the guarantee had
 stopped being true.
+
+**The open-time schema check reads `pg_class`, not `information_schema`, and
+that is a posture fix.** `information_schema` shows a role only the objects it
+holds a privilege on: measured 2026-08-12 on Postgres 18, a role with NO
+privilege on a table sees ZERO of its columns there while `pg_class` /
+`pg_attribute` show all of them and a SELECT is still refused 42501. The check
+therefore used to be silently VOID on exactly the deployment it exists for - a
+least-privileged runtime role skipped every table outside its own matrix,
+`stripe_events` included, because "zero columns" was read as "not this build's
+table". The same clause hid a worse case for every caller: a MISSING TABLE also
+answers zero columns, so it passed. The catalog read cannot express either: EVERY
+table in the product roster must be there, must be an ordinary table rather than
+a view wearing the name, must resolve to exactly one relation in
+`current_schema()`, and every required column must be a live one. Missing,
+ambiguous or unreadable all refuse.
+
+**Existence is asked of the whole roster, not of the tables with version
+columns.** The required-COLUMN list names five tables; asking only about those
+would leave eight - `name_reservations` among them - able to be absent while a
+runtime process booted cleanly and failed at first use, which is the exact shape
+of the 2026-08-12 incident. The roster is `PRODUCT_TABLES` in `store.ts`, and
+`bootstrap.ts` re-exports it as `EXPECTED_TABLES` rather than keeping a second
+copy: the open-time check, the bootstrap evidence and the grant sweeps all read
+one list.
+`store-schema-check.test.ts` holds the cases and runs them as a least-privileged
+role, because the owner would pass either implementation.
 
 **Two entry points, and only one of them builds a database.** `Store.open` runs
 the schema statements, the catalog check, the late indexes and the audit seed:
@@ -606,6 +669,7 @@ bun control-plane/exercises/neon.ts measure --branch suites
 bun control-plane/exercises/neon.ts run --branch suites -- bun test control-plane --timeout 30000
 bun control-plane/exercises/neon.ts bootstrap --branch production
 bun control-plane/exercises/neon.ts govern --branch suites
+bun control-plane/exercises/neon.ts regovern --branch suites [--reverse]
 bun control-plane/exercises/neon.ts ungovern --branch suites
 ```
 
@@ -1323,8 +1387,10 @@ P1  alter role cp_provisioner with login password '<generated here>'
 P2  the coordinator stages the new DSN over stdin (one secret name)
 P3  flyctl deploy ... --ha=false --now, with the backend counter running
     THROUGH it (the staged secret goes live here)
-P4  secret names present, probe verdict green, machine replaced per fly's own
-    state, every sampled count <= 12 and the settled count 1..5
+P4  secret names present, the probe's whole transcript typed and its verdict
+    recomputed green (waiting only for a machine that is up and not yet
+    ticking), machine replaced per fly's own state, every sampled count <= 12
+    and the settled count 1..5
 ```
 
 No password exists until P0 passed: a refused run generates nothing. The
@@ -1346,6 +1412,10 @@ recovery path. Two deadlines, both measured:
 | ------------------------------ | -------- | ---------------------------------------------------------------------------------------- |
 | `flyctl deploy`                | 20 min   | this app's own deploys ran 64.8s and 72.6s, so ~16x the slower                           |
 | listings, staged import, probe | 2 min    | read-only flyctl commands answered in 2.6s and 4.3s; the probe is five HTTPS round trips |
+
+A probe run inside the readiness wait gets the SMALLER of that two-minute
+deadline and what is left of the wait's own three-minute budget, so the last
+attempt cannot run past it.
 
 At a deadline the whole GROUP gets SIGTERM, twenty seconds, then SIGKILL; the
 leader's exit is awaited (bounded - a leader a failed SIGKILL left running must
@@ -1503,6 +1573,123 @@ split into a provisioner share. G3's acceptance is about the new role: the
 machine healthy under `cp_provisioner`, its backend count inside the budget, and
 the old machine replaced per fly's own evidence. Legacy owner sessions stay
 explicitly unresolved until the web tier moves too.
+
+### What the 2026-08-12 G3 run measured, and what it did not
+
+**G3 IS NOT COMPLETE.** The live run ended `rolled_back`, exit 3: the forward
+probe refused, and the reviewed recovery then ran green on production - the
+replacement proved from fly's own state, the owner-path probe green, six
+consecutive zero backend readings, and the credential closed last, in that
+order. The deployment is back on the owner string and R-2026-08-11-1 remains
+OPEN.
+
+Three claims, and they are deliberately not the same kind of claim:
+
+- **MEASURED, 2026-08-12.** The probe refused; the run rolled back with exit 3;
+  the recovery completed with every one of its own predicates true.
+- **STATICALLY ESTABLISHED, not measured live.** The mechanism is the missing
+  grant: the probe's authenticated POST (`deploy/probe.ts`) reaches
+  `mint-seam.ts` `fetchInvite` -> `signup.ts` `instanceOwnedBy` ->
+  `reservationForInstance`, which selects from `name_reservations` - a table
+  `PROVISIONER_GRANTS` withheld. Nobody ran the failing statement again on the
+  live machine to watch it; the path is read from committed code, and
+  `mint-seam-privilege.test.ts` now executes that decision under a role holding
+  exactly the matrix, which is as close as a test gets to the live identity.
+  THE SAME READ IS ON THE REAL INVITE PATH, so D4's first genuine invite would
+  have failed identically. That is the reason the fix is a matrix change rather
+  than a probe change.
+- **INDEPENDENT HARDENING, not the live cause.** The tick-readiness window
+  below was added in the same remediation because a machine fly has just
+  replaced is healthy and NOT YET TICKING for a few seconds. Nothing shows it
+  contributed to the 2026-08-12 refusal, and it is not offered as an
+  explanation of it.
+
+**The probe is now read as a whole transcript.** The coordinator used to scan
+the child's output for `accepted: true` and require exit 0, which is a substring
+search over text it does not control: a probe printing that line and nothing
+else passed, and so did one whose own statuses contradicted its verdict.
+`deploy/probe-transcript.ts` parses every field the probe prints - each exactly
+once, each correctly typed - and RECOMPUTES bearer enforcement, the surface
+answer, the health shape and acceptance from the readings. A reported verdict
+that does not equal the derived one is a hard failure. Nothing the child printed
+leaves the parser: what comes back is typed fields and labels from a closed
+vocabulary.
+
+**And there are three answers, not two.** `tick_recent` is false until the
+provisioner's first pass completes, so a freshly replaced machine correctly
+earns a refusal for a few seconds. That one state - everything else exactly
+right, `tick_recent` and the machine's own `ok` false - is `readiness_pending`
+and is waited on; every other refusal fails on the first reading, because
+retrying a machine that cannot reach its database only delays the rollback.
+
+The wait is bounded twice, and the two bounds fail differently:
+
+| bound           | value | what it is                                             |
+| --------------- | ----- | ------------------------------------------------------ |
+| absolute budget | 3 min | a ROLLOUT-READINESS POLICY, not a measured upper bound |
+| attempt cap     | 18    | independent of any clock                               |
+
+Three minutes is a CHOICE about what to do when a machine is slow: after it,
+this run prefers rolling back to waiting longer. It is NOT a proved bound on
+`Ticker.once` - that would be a claim about the provider too - and it must not
+be read as one later. Each child gets the smaller of the ordinary two-minute
+deadline and what is left of the budget, each sleep is capped the same way, no
+child starts at or after expiry, and one child is awaited to its group-empty
+proof before the next begins.
+
+The budget is measured on a MONOTONIC clock, and clamped on top of one.
+`Date.now` can step backwards - an NTP correction, an operator setting the
+clock - and a backward step INCREASES what a subtraction reports as remaining,
+which would let a three-minute wait run as long as the attempt cap allowed. The
+real primitive is `performance.now`, and the wait discards any reading below the
+highest it has seen, so neither a wrong clock nor a wrong primitive can extend
+the aggregate. A clock that runs backwards then ends the wait on the COUNT.
+
+### Re-applying the matrix on a database that is already governed
+
+The matrix change above has to reach production, and `govern` is not the program
+that can take it there. `govern` requires the owner to carry NOTHING before it
+writes - the baseline that makes `ungovern` an exact reverse - and production
+has carried the governed pair since G2, so `owner_config_empty_before` cannot
+truthfully pass. And `ungovern` is not this change's rollback: it drops both
+roles, which is an outage lever rather than the reverse of one incremental
+grant.
+
+```
+bun control-plane/exercises/neon.ts regovern --branch <name>            # forward
+bun control-plane/exercises/neon.ts regovern --branch <name> --reverse  # back
+```
+
+It refuses BEFORE writing unless: the owner already carries exactly the governed
+bounds, both runtime roles are NOLOGIN with nothing connected as them and own
+nothing, their budgets, bounds and memberships are exactly the approved posture,
+PUBLIC holds nothing on this build's tables, the catalog carries EXACTLY the
+matrix the change moves away from - DIRECTLY and EFFECTIVELY, because a
+before-state proved on direct grants alone would miss a role that can already do
+more - and neither role holds anything outside the table matrix: schema USAGE
+without CREATE, and no privilege on any sequence. That last pair is the class a
+matrix read cannot see, and it is what G2's own evidence checked: a role that
+can CREATE on the schema can make a table this matrix has never heard of.
+
+It then applies the new matrix in ONE transaction, proves every user table's row
+count unchanged and `accounts` still exactly 1 on production, and reads back the
+WHOLE posture rather than the half it moved - direct and effective matrices,
+schema privileges, sequence privileges and memberships. Acceptance that only
+re-read what it wrote could not see a transaction that did more than it meant
+to. Any false claim is a non-zero exit. `--reverse` is the same program with the two
+rosters swapped: one transaction restoring the old exact matrix, with the roles
+left exactly as they are.
+
+**Two predicates are outstanding before any of this runs live**, and both are
+provider questions rather than code questions:
+
+- The catalog-visibility measurement behind the schema-check change was taken on
+  a local Postgres 18 (2026-08-12). Neon has not confirmed it. If Neon differs,
+  that returns to a plan gate rather than weakening the check.
+- `regovern` has been rehearsed forward and reverse against a real engine in
+  `governance-reapply.test.ts`, not yet against the Neon suites branch. The
+  suites rehearsal, and then the production application, stay their own gated
+  live steps.
 
 ### The volume, and one thing it deliberately does not have
 

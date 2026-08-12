@@ -59,7 +59,7 @@ import { Reporter } from "./report.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
 import { migrateLegacyIntents } from "./create-latch.ts";
-import { boxHandlers, type HandlerDeps } from "./handlers.ts";
+import { type HandlerDeps } from "./handlers.ts";
 import {
   CeilingIsImmutable,
   ensureInstance as ensureInstanceRow,
@@ -68,10 +68,7 @@ import { InviteHold } from "./invite-hold.ts";
 import { watchLiveness } from "./liveness-watch.ts";
 import { startMintSeam, type RunningMintSeam } from "./mint-seam.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
-import { rebootHandler } from "./reboot.ts";
-import { cancelAssetHandler, removeDnsHandler } from "./deprovision.ts";
-import { powerOnHandler } from "./resume.ts";
-import { powerOffHandler } from "./stripe/suspension.ts";
+import { tickerHandlerRoster } from "./run-roster.ts";
 import { setOperator } from "./operator-admin.ts";
 import type { AssetState } from "./provider.ts";
 import { readAndRefreshMarker } from "./state-marker.ts";
@@ -352,47 +349,22 @@ function makeTicker(
   const line = (l: string) => reporter.line(l);
   return new Ticker({
     store,
-    // create_instance is deliberately absent: no flag in this file can reach a
-    // paid create, exactly as in slice 1.
-    handlers: [
-      ...boxHandlers({
+    // The roster lives in `run-roster.ts` so a test can read the ACTUAL list
+    // rather than a hand-kept copy of it: the grant matrix is derived from what
+    // this command reaches, and a handler added to a literal in here would have
+    // widened that silently (reviewer finding, 2026-08-12).
+    handlers: tickerHandlerRoster({
+      box: {
         exec,
         reporter,
         runsDir: RUNS_DIR,
         keysDir: KEYS_DIR,
         ownerName,
         deliver,
-      }),
-      // Without credentials these stay UNREGISTERED rather than stubbed, the
-      // same choice slice 3 made for power_off: an enqueued operation then
-      // surfaces as slice 2's no-handler condition - a failed operation with
-      // attention raised - instead of looking like work that quietly did
-      // nothing.
-      ...(provider
-        ? [
-            rebootHandler({ reboot: provider.reboot, report: line }),
-            powerOffHandler({ powerOff: provider.powerOff, report: line }),
-            powerOnHandler({ powerOn: provider.powerOn, report: line }),
-            cancelAssetHandler({
-              cancel: provider.cancel,
-              // The reconcile read after a refused cancel. Contabo answers a
-              // second cancel with 422 (measured 2026-08-10), so without this
-              // the operation would retry into a permanent error.
-              get: provider.getAsset,
-              // THE PRODUCT SET, not a test-box guard. After R-2026-08-10-3 the
-              // asset is deliberately not cancel-scheduled during retention, so
-              // `active` is the state that legitimately exists at
-              // deprovision_due; `cancel_scheduled` is here because a term that
-              // was already ending is not a reason to refuse. The loop's
-              // one-box restriction lives in exercises/cancel-asset-probe.ts.
-              allowedAssetStates: ["active", "cancel_scheduled"],
-              report: line,
-            }),
-          ]
-        : []),
-      // No credentials needed: it removes nothing and only READS DNS.
-      removeDnsHandler({ report: line }),
-    ],
+      },
+      provider,
+      report: line,
+    }),
     reconcile: reconcileFn(),
     report: (line) => reporter.line(line),
   });

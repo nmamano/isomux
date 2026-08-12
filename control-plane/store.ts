@@ -214,6 +214,34 @@ export interface AuditRow {
   detail: string | null;
 }
 
+/**
+ * EVERY TABLE `SCHEMA` CREATES, and the ONE list of them.
+ *
+ * It lives beside the statements that create them because three things have to
+ * agree about this roster and a second copy is how they stop agreeing: the
+ * open-time check that refuses a database of the wrong shape, the bootstrap's
+ * schema-ready and zero-user-data evidence, and the grant matrix's sweeps.
+ * `bootstrap.ts` re-exports it as `EXPECTED_TABLES` rather than keeping its own.
+ *
+ * These are literals from this file and never input, which is why callers may
+ * interpolate them into a count query without a quoting helper.
+ */
+export const PRODUCT_TABLES = [
+  "accounts",
+  "attention_reasons",
+  "audit_events",
+  "create_intents",
+  "instance_liveness",
+  "instances",
+  "name_reservations",
+  "operations",
+  "provider_assets",
+  "schema_meta",
+  "sequences",
+  "stripe_events",
+  "subscriptions",
+] as const;
+
 // `source_op_id` is NOT NULL with an empty-string sentinel on purpose: NULLs
 // compare distinct in a unique index on both engines, so a nullable column would
 // let the same reason be raised twice for the same instance.
@@ -1242,6 +1270,44 @@ export class Store {
     }
   }
 
+  /**
+   * Is the database this session opens the shape this build expects?
+   *
+   * IT READS pg_class RATHER THAN information_schema, and that is a posture fix
+   * rather than a style choice. `information_schema` shows a role only the
+   * objects it holds a privilege on: measured 2026-08-12 on Postgres 18, a role
+   * with NO privilege on a table sees ZERO of its columns there while
+   * `pg_class`/`pg_attribute` show all of them and a SELECT is still refused
+   * 42501. The check therefore used to be silently VOID on exactly the
+   * deployment it matters for - a least-privileged runtime role skipped every
+   * table it was not granted (`stripe_events` for both roles, and every table
+   * outside each role's matrix), because "zero columns" was read as "not this
+   * build's table" and waved through.
+   *
+   * The same clause hid a worse case for every caller: a table that is not
+   * there at all also returns zero columns, so a MISSING TABLE passed. The
+   * catalog read below cannot express that - the relation has to be there, and
+   * every required column has to be a live one.
+   *
+   * EXISTENCE IS ASKED OF THE WHOLE ROSTER, not of the tables that happen to
+   * carry a version column. The required-column list below names five tables;
+   * checking existence only for those would leave eight - `name_reservations`,
+   * `provider_assets`, `create_intents`, `instance_liveness`, `audit_events`,
+   * `instances`, `schema_meta` and `sequences` - able to be absent while a
+   * runtime process booted cleanly and failed at first use. That is exactly the
+   * shape of the 2026-08-12 incident (a boot that worked and an invite path
+   * that did not), so the roster is `PRODUCT_TABLES` and the column checks run
+   * on top of it (reviewer finding, 2026-08-12).
+   *
+   * EVERY UNCERTAIN ANSWER REFUSES. A missing relation, a missing column, a
+   * name that resolves to more than one relation, and a catalog row this build
+   * cannot read all raise. There is no branch here that continues on a question
+   * it could not answer, which is the property the old `cols.length > 0` guard
+   * gave away.
+   *
+   * IT WRITES NOTHING, which is what lets `openRuntime` call it: two catalog
+   * reads on the session's own resolution schema, and no DDL.
+   */
   private async assertSchemaIsCurrent(): Promise<void> {
     const required: [string, string][] = [
       ["operations", "inactivity_flagged"],
@@ -1258,17 +1324,78 @@ export class Store {
       ["subscriptions", "cancellation_reason"],
       ["stripe_events", "type"],
     ];
+    // THE WHOLE ROSTER, not the tables the column list happens to name.
+    const tables: readonly string[] = PRODUCT_TABLES;
+    // ORDINARY NAMED RELATIONS ONLY - 'r' and 'p'. A view, an index or a
+    // composite type carrying one of these names is not the table the
+    // statements will write to, and treating one as though it were is how a
+    // check passes against something that cannot hold a row.
+    //
+    // Scoped to `current_schema()`, so it reads the same relation an
+    // unqualified statement from this session will.
+    const rows = await this.sqlAll<{
+      table: unknown;
+      relation: unknown;
+      column: unknown;
+    }>(
+      "select c.relname as table, c.oid::text as relation, a.attname as column " +
+        "from pg_class c " +
+        "join pg_namespace n on n.oid = c.relnamespace " +
+        "left join pg_attribute a on a.attrelid = c.oid " +
+        "  and a.attnum > 0 and not a.attisdropped " +
+        "where n.nspname = current_schema() " +
+        // The list travels as ONE parameter and is split by the engine:
+        // `SqlArgs` is scalars by design, and the alternative - interpolating
+        // thirteen names - would put identifier building back into this file
+        // for no gain. The names are literals above and carry no comma.
+        "and c.relkind in ('r', 'p') " +
+        "and c.relname = any(string_to_array($1, ','))",
+      [tables.join(",")],
+    );
+
+    const relations = new Map<string, Set<string>>();
+    const columns = new Map<string, Set<string>>();
+    for (const row of rows) {
+      // A row whose own identity cannot be read is an answer this build does
+      // not get to interpret. It refuses rather than skipping the row, which
+      // would silently shrink the set being checked.
+      if (typeof row.table !== "string" || typeof row.relation !== "string") {
+        throw new Error(
+          `the catalog of the database at ${this.describe()} did not come ` +
+            `back in a shape this build can read, so the schema it carries ` +
+            `cannot be established. The store refuses to open.`,
+        );
+      }
+      let oids = relations.get(row.table);
+      if (!oids) relations.set(row.table, (oids = new Set()));
+      oids.add(row.relation);
+      if (typeof row.column === "string") {
+        let names = columns.get(row.table);
+        if (!names) columns.set(row.table, (names = new Set()));
+        names.add(row.column);
+      }
+    }
+
+    for (const table of tables) {
+      const oids = relations.get(table);
+      if (!oids || oids.size === 0) {
+        throw new Error(
+          `the database at ${this.describe()} has no ${table} table in the ` +
+            `schema this session resolves names in, so it is not a database ` +
+            `this build can run against. Bringing a database up is a separate ` +
+            `step; the store refuses to open.`,
+        );
+      }
+      if (oids.size > 1) {
+        throw new Error(
+          `the database at ${this.describe()} answers with more than one ` +
+            `${table} relation in one schema, so which one a statement would ` +
+            `reach is not decidable. The store refuses to open.`,
+        );
+      }
+    }
     for (const [table, column] of required) {
-      // Scoped to the schema this connection actually resolves names in, so
-      // the check reads the same table the statements will.
-      const cols = (
-        await this.sqlAll<{ column_name: string }>(
-          "select column_name from information_schema.columns " +
-            "where table_schema = current_schema() and table_name = $1",
-          [table],
-        )
-      ).map((c) => c.column_name);
-      if (cols.length > 0 && !cols.includes(column)) {
+      if (!columns.get(table)?.has(column)) {
         throw new Error(
           `the database at ${this.describe()} predates this version of the ` +
             `control plane: ${table} has no ${column} column. Move it aside ` +

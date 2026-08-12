@@ -11,10 +11,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   ALL_VERBS,
+  PRIOR_PROVISIONER_GRANTS,
   PROVISIONER_BUDGET,
   PROVISIONER_GRANTS,
   PROVISIONER_POOL,
+  PROVISIONER_REACHABLE,
   PROVISIONER_ROLE,
+  provisionerMatrixAgainstReachable,
   UNALLOCATED_RESERVE,
   USABLE_CEILING,
   WEB_BUDGET,
@@ -76,19 +79,39 @@ describe("the grants are bounded by what the call graph needs", () => {
     expect(verbsFor(WEB_GRANTS, "stripe_events")).toEqual([]);
   });
 
-  test("subscription state is read-only on both tiers: webhooks are its writer", () => {
+  test("subscription state is read-only where it is read at all", () => {
     expect(verbsFor(WEB_GRANTS, "subscriptions")).toEqual(["select"]);
-    expect(verbsFor(PROVISIONER_GRANTS, "subscriptions")).toEqual(["select"]);
+    // The lifecycle tick is the only provisioner-side reader, and the deployed
+    // command does not run it - so the provisioner holds nothing here.
+    expect(verbsFor(PROVISIONER_GRANTS, "subscriptions")).toEqual([]);
   });
 
-  test("the provisioner drives operations and owns the latch", () => {
+  test("the provisioner drives operations and holds the latch it can reach", () => {
     expect(verbsFor(PROVISIONER_GRANTS, "operations")).toContain("update");
-    expect(verbsFor(PROVISIONER_GRANTS, "create_intents")).toContain("update");
+    // SELECT and INSERT only: the intent UPDATE lives on the create path, and
+    // the deployed command does not register the create_instance handler.
+    expect(verbsFor(PROVISIONER_GRANTS, "create_intents")).toEqual([
+      "select",
+      "insert",
+    ]);
   });
 
-  test("the provisioner does not create instances or reserve names", () => {
+  test("the provisioner does not create instances or write reservations", () => {
     expect(verbsFor(PROVISIONER_GRANTS, "instances")).not.toContain("insert");
-    expect(verbsFor(PROVISIONER_GRANTS, "name_reservations")).toEqual([]);
+    const reservations = verbsFor(PROVISIONER_GRANTS, "name_reservations");
+    expect(reservations).not.toContain("insert");
+    expect(reservations).not.toContain("update");
+  });
+
+  // THE 2026-08-12 DEFECT, as a test. The G3 forward probe refused because the
+  // authenticated seam call reads the reservation row to prove tenant ownership
+  // before it may answer even `forbidden`, and the read was not granted. The
+  // real invite path makes the same read, so D4's first genuine invite would
+  // have failed identically.
+  test("the provisioner may read the reservation the invite seam checks", () => {
+    expect(verbsFor(PROVISIONER_GRANTS, "name_reservations")).toEqual([
+      "select",
+    ]);
   });
 
   test("every grant carries a reason", () => {
@@ -98,6 +121,63 @@ describe("the grants are bounded by what the call graph needs", () => {
         expect(grant.verbs.length).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+/**
+ * The matrix against the audited call graph, in BOTH directions.
+ *
+ * "Is everything the code touches granted" is the question that let four
+ * unreachable verbs stand while the one the seam needed was missing. These
+ * cases ask the exact question instead, and they fail with the offending
+ * table:verb rather than a count.
+ */
+describe("the matrix is exactly what the deployed command reaches", () => {
+  test("no verb the call graph reaches is missing, and none is excess", () => {
+    const verdict = provisionerMatrixAgainstReachable();
+    expect(verdict.missing).toEqual([]);
+    expect(verdict.excess).toEqual([]);
+    expect(verdict.exact).toBe(true);
+  });
+
+  test("a withheld reachable verb is reported as MISSING", () => {
+    const narrowed = PROVISIONER_GRANTS.filter(
+      (g) => g.table !== "name_reservations",
+    );
+    const verdict = provisionerMatrixAgainstReachable(narrowed);
+    expect(verdict.missing).toEqual(["name_reservations:select"]);
+    expect(verdict.excess).toEqual([]);
+    expect(verdict.exact).toBe(false);
+  });
+
+  test("a verb nothing reaches is reported as EXCESS", () => {
+    const widened = [
+      ...PROVISIONER_GRANTS,
+      { table: "accounts", verbs: ["select"] as const, because: "nothing" },
+    ];
+    const verdict = provisionerMatrixAgainstReachable(widened);
+    expect(verdict.excess).toEqual(["accounts:select"]);
+    expect(verdict.missing).toEqual([]);
+    expect(verdict.exact).toBe(false);
+  });
+
+  test("every reachable entry cites where the verb is issued", () => {
+    for (const entry of PROVISIONER_REACHABLE) {
+      expect(entry.via.length).toBeGreaterThan(20);
+    }
+  });
+
+  // The re-apply's before-state has to be the matrix production actually holds,
+  // and the only difference between the two is the provisioner's half.
+  test("the prior matrix differs from the current one only where the audit moved it", () => {
+    const prior = provisionerMatrixAgainstReachable(PRIOR_PROVISIONER_GRANTS);
+    expect(prior.missing).toEqual(["name_reservations:select"]);
+    expect(prior.excess).toEqual([
+      "accounts:select",
+      "create_intents:update",
+      "provider_assets:insert",
+      "subscriptions:select",
+    ]);
   });
 });
 
