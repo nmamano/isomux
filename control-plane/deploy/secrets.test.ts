@@ -14,7 +14,7 @@ import {
   SECRET_NAMES,
   pushCanary,
   pushSecrets,
-  requiredNamesPresent,
+  namesPresent,
   unsetCanary,
   validatePairs,
 } from "./secrets.ts";
@@ -120,7 +120,11 @@ describe("the credential's route to the child", () => {
 
   test("every call names the app this slice may touch", async () => {
     const fly = fakeFly({ stdout: "[]" });
-    await requiredNamesPresent({ flyToken: "t", spawn: fly.spawn });
+    await namesPresent({
+      required: SECRET_NAMES,
+      flyToken: "t",
+      spawn: fly.spawn,
+    });
     expect(fly.calls[0].argv).toContain("-a");
     expect(fly.calls[0].argv).toContain("isomux-provisioner");
   });
@@ -262,45 +266,45 @@ describe("the canary", () => {
 });
 
 describe("what the allowlist may carry (D4, 2026-08-12)", () => {
-  test("seven names: the database, the branch pin, the seam, and the provider", () => {
+  test("THREE names, and no provider credential among them", () => {
+    // The provider four were briefly here, and that was the defect: this
+    // program stages CONTROL_PLANE_DB from the operator's env file, which holds
+    // the break-glass owner string, so any run of it carrying provider
+    // credentials would also have moved the deployment's database credential.
     expect([...SECRET_NAMES]).toEqual([
       "CONTROL_PLANE_DB",
       "CONTROL_PLANE_DB_BRANCH",
       "CONTROL_PLANE_MINT_TOKEN",
-      "CONTABO_CLIENT_ID",
-      "CONTABO_CLIENT_SECRET",
-      "CONTABO_API_USER",
-      "CONTABO_API_PASSWORD",
     ]);
-    // The four names the provisioner's own credential reader takes from the
-    // environment. A name spelled differently on either side is a machine that
-    // authenticates to nothing, so the two lists are compared rather than read
-    // side by side.
-    expect([...CONTABO_SECRET_NAMES].every((n) => SECRET_NAMES.includes(n)));
-    expect([...CONTABO_SECRET_NAMES]).toEqual([
-      "CONTABO_CLIENT_ID",
-      "CONTABO_CLIENT_SECRET",
-      "CONTABO_API_USER",
-      "CONTABO_API_PASSWORD",
-    ]);
+    for (const name of CONTABO_SECRET_NAMES) {
+      expect({
+        name,
+        here: (SECRET_NAMES as readonly string[]).includes(name),
+      }).toEqual({ name, here: false });
+    }
   });
 
-  test("a provider credential is still validated like any other value", () => {
+  test("a provider name handed to THIS importer is refused before a child exists", () => {
+    for (const name of CONTABO_SECRET_NAMES) {
+      expect(validatePairs([{ name, value: "x" }], SECRET_NAMES)).toEqual([
+        `not an allowed secret name: ${name}`,
+      ]);
+    }
+  });
+
+  test("the three it IS for are still validated like any other value", () => {
     expect(
       validatePairs(
-        [{ name: "CONTABO_API_PASSWORD", value: "fine" }],
+        [{ name: "CONTROL_PLANE_DB", value: "fine" }],
         SECRET_NAMES,
       ),
     ).toEqual([]);
     expect(
       validatePairs(
-        [{ name: "CONTABO_API_PASSWORD", value: "one\nTWO=surprise" }],
+        [{ name: "CONTROL_PLANE_DB", value: "one\nTWO=surprise" }],
         SECRET_NAMES,
       ),
-    ).toEqual(["value carries a line break: CONTABO_API_PASSWORD"]);
-    expect(
-      validatePairs([{ name: "CONTABO_REGION", value: "EU" }], SECRET_NAMES),
-    ).toEqual(["not an allowed secret name: CONTABO_REGION"]);
+    ).toEqual(["value carries a line break: CONTROL_PLANE_DB"]);
   });
 });
 
@@ -311,7 +315,8 @@ describe("the name check", () => {
       Digest: "d41d8cd98f00b204",
     }));
     const fly = fakeFly({ stdout: JSON.stringify(rows) });
-    const answer = await requiredNamesPresent({
+    const answer = await namesPresent({
+      required: SECRET_NAMES,
       flyToken: "t",
       spawn: fly.spawn,
     });
@@ -324,18 +329,30 @@ describe("the name check", () => {
       stdout: JSON.stringify([{ Name: "CONTROL_PLANE_DB" }]),
     });
     expect(
-      await requiredNamesPresent({ flyToken: "t", spawn: fly.spawn }),
+      await namesPresent({
+        required: SECRET_NAMES,
+        flyToken: "t",
+        spawn: fly.spawn,
+      }),
     ).toEqual({ present: false, readable: true });
   });
 
   test("an unreadable listing refuses rather than guessing", async () => {
     const broken = fakeFly({ stdout: "not json" });
     expect(
-      await requiredNamesPresent({ flyToken: "t", spawn: broken.spawn }),
+      await namesPresent({
+        required: SECRET_NAMES,
+        flyToken: "t",
+        spawn: broken.spawn,
+      }),
     ).toEqual({ present: false, readable: false });
     const failed = fakeFly({ code: 1, stderr: "unauthorized" });
     expect(
-      await requiredNamesPresent({ flyToken: "t", spawn: failed.spawn }),
+      await namesPresent({
+        required: SECRET_NAMES,
+        flyToken: "t",
+        spawn: failed.spawn,
+      }),
     ).toEqual({ present: false, readable: false });
   });
 });

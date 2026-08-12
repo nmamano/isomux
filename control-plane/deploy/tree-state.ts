@@ -117,3 +117,67 @@ export function headPathsFrom(output: string): Set<string> {
       .filter((line) => line.length > 0),
   );
 }
+
+/**
+ * The whole source question, as one decision over two git readings.
+ *
+ * `fly deploy .` ships the WORKING DIRECTORY, so a dirty tree produces a live
+ * artifact nobody can reconstruct from a commit. Two programs need that answer
+ * now - the credential move and D4's activation - and the second one asking it
+ * differently from the first is how two guards drift into disagreeing about
+ * what "clean" means. So the decision lives here and both call it.
+ *
+ * THE RULES FILE IS A BUILD INPUT LIKE ANY OTHER, and it is judged first in
+ * meaning: `/.dockerignore` sits outside the copied path, so the shipped-path
+ * count can never see it, while its working-tree bytes decide what that count
+ * is allowed to ignore. A modified one can put the web app, the tests or
+ * node_modules into the image and still answer "reconstructible" about the
+ * result (reviewer finding, 2026-08-11). A rename is judged by both halves for
+ * the same reason it is elsewhere in this file.
+ */
+export interface SourceVerdict {
+  /** Both git commands answered. False makes every other field meaningless. */
+  readable: boolean;
+  /** HEAD carries the rules file and the tree has not touched it. */
+  rulesCommitted: boolean;
+  /** How many paths that SHIP TO THE IMAGE are uncommitted. */
+  shippedUncommitted: number;
+  /** The one thing a caller should branch on. */
+  reconstructible: boolean;
+}
+
+export function judgeSource(args: {
+  readable: boolean;
+  statusOut: string;
+  treeOut: string;
+  rulesPath: string;
+  /** `shipsToImage` bound to the rules, so this stays free of the file system. */
+  ships: (file: string) => boolean;
+}): SourceVerdict {
+  if (!args.readable) {
+    return {
+      readable: false,
+      rulesCommitted: false,
+      shippedUncommitted: -1,
+      reconstructible: false,
+    };
+  }
+  const entries = parsePorcelain(args.statusOut);
+  const headPaths = headPathsFrom(args.treeOut);
+  const rulesTouched = entries.some(
+    (e) => e.path === args.rulesPath || e.from === args.rulesPath,
+  );
+  const rulesCommitted = headPaths.has(args.rulesPath) && !rulesTouched;
+  const verdict = classifyAgainstHead(entries, headPaths);
+  const shipped = [
+    ...verdict.runtimeDirty,
+    ...verdict.docOnly,
+    ...verdict.notInHead,
+  ].filter((file) => args.ships(file));
+  return {
+    readable: true,
+    rulesCommitted,
+    shippedUncommitted: shipped.length,
+    reconstructible: rulesCommitted && shipped.length === 0,
+  };
+}

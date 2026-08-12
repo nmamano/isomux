@@ -64,20 +64,17 @@ import {
 } from "./fly-cli.ts";
 import {
   DB_SECRET_NAME,
+  SECRET_NAMES,
   provenProductionTarget,
   pushSecrets,
-  requiredNamesPresent,
+  namesPresent,
 } from "./secrets.ts";
 import {
   REPO_ROOT,
   contextRules as realContextRules,
   shipsToImage,
 } from "./build-context.ts";
-import {
-  classifyAgainstHead,
-  headPathsFrom,
-  parsePorcelain,
-} from "./tree-state.ts";
+import { judgeSource } from "./tree-state.ts";
 import {
   DEPLOY_ARGV,
   FORWARD_STEPS,
@@ -462,7 +459,7 @@ export function realSeams(
   };
 
   /**
-   * The D2 helpers (`pushSecrets`, `requiredNamesPresent`) take a `Spawn`, and
+   * The D2 helpers (`pushSecrets`, `namesPresent`) take a `Spawn`, and
    * what they get is the bounded primitive wearing that shape: same argv, same
    * stdin, same captured-and-never-emitted output, plus a deadline and a
    * terminated group. An unclean run arrives as `UNCLEAN_EXIT`, which every one
@@ -568,32 +565,25 @@ export function realSeams(
           IMAGE_PATHSPEC,
           CONTEXT_RULES_PATH,
         ]);
-        if (status.code !== 0 || tree.code !== 0) {
+        const rules = p.contextRules();
+        // The decision moved to `judgeSource` so D4's activation asks the same
+        // question the same way: two guards deciding "clean" separately is two
+        // chances to disagree about it (reviewer finding, 2026-08-12). What it
+        // decides is unchanged.
+        const verdict = judgeSource({
+          readable: status.code === 0 && tree.code === 0,
+          statusOut: status.stdout,
+          treeOut: tree.stdout,
+          rulesPath: CONTEXT_RULES_PATH,
+          ships: (file) => shipsToImage(rules, file),
+        });
+        if (!verdict.readable) {
           report("source_readable: false");
           return false;
         }
-        const entries = parsePorcelain(status.stdout);
-        const headPaths = headPathsFrom(tree.stdout);
-
-        // A rename is judged by BOTH halves here as well: `R .dockerignore ->
-        // x` leaves the rules file gone from the tree while HEAD still carries
-        // it, which is a changed build input by any reading.
-        const rulesTouched = entries.some(
-          (e) => e.path === CONTEXT_RULES_PATH || e.from === CONTEXT_RULES_PATH,
-        );
-        const rulesCommitted =
-          headPaths.has(CONTEXT_RULES_PATH) && !rulesTouched;
-        report(`context_rules_committed: ${rulesCommitted}`);
-
-        const verdict = classifyAgainstHead(entries, headPaths);
-        const rules = p.contextRules();
-        const shipped = [
-          ...verdict.runtimeDirty,
-          ...verdict.docOnly,
-          ...verdict.notInHead,
-        ].filter((file) => shipsToImage(rules, file));
-        report(`shipped_paths_uncommitted: ${shipped.length}`);
-        return rulesCommitted && shipped.length === 0;
+        report(`context_rules_committed: ${verdict.rulesCommitted}`);
+        report(`shipped_paths_uncommitted: ${verdict.shippedUncommitted}`);
+        return verdict.reconstructible;
       },
     },
 
@@ -849,7 +839,8 @@ export function realSeams(
       },
 
       secretNamesPresent: async () => {
-        const answer = await requiredNamesPresent({
+        const answer = await namesPresent({
+          required: SECRET_NAMES,
           flyToken: p.flyToken(),
           spawn: boundedAsSpawn("secret_names", LIGHT_DEADLINE_MS),
           app: APP,

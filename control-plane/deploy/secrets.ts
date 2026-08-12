@@ -1,4 +1,13 @@
-// Put the provisioner's seven secrets on its machine, and prove nothing leaked.
+// Put the provisioner's three FIRST-DEPLOY secrets on its machine, and prove
+// nothing leaked.
+//
+// READ THIS BEFORE RUNNING IT ON A LIVE DEPLOYMENT: this program builds
+// `CONTROL_PLANE_DB` from the operator's own env file, which holds the
+// break-glass OWNER string. Running it against a deployment that has been moved
+// onto a least-privileged role would stage the owner credential, and the next
+// deploy would make it live. It is the bootstrap for a deployment that has none
+// of its secrets yet. Provider credentials are `provider-secrets.ts`; a
+// database credential move is `provisioner-move.ts`.
 //
 //   bun control-plane/deploy/secrets.ts --canary        what does flyctl echo?
 //   bun control-plane/deploy/secrets.ts --unset-canary  remove that one name
@@ -30,12 +39,9 @@ import {
 import { BRANCH_PIN_ENV } from "../boot.ts";
 import {
   APP,
-  CONTABO_SECRET_NAMES,
   FLYCTL,
   FLY_TOKEN_FILE,
   MINT_TOKEN_NAME,
-  contaboFileUsable,
-  inspectContaboFile,
   inspectMintFile,
   mintFileUsable,
   readSecretFile,
@@ -53,19 +59,25 @@ export const DB_SECRET_NAME = "CONTROL_PLANE_DB";
 /**
  * The only names this program may set. Anything else is a refusal.
  *
- * The four provider credentials joined the list at D4 (2026-08-12), which is
- * when the provisioner first got the means to act on a real box. Their arrival
- * changes what the ordinary import DEMANDS: with the credential file absent or
- * out of shape the program now refuses rather than importing a subset, because
- * a partial set is a machine that authenticates to nothing and reports no
- * reason. Removing them again is deleting four names here and unsetting them on
- * the app - the deployment idles without provider credentials by design.
+ * THREE, AND THE PROVIDER CREDENTIALS ARE DELIBERATELY NOT AMONG THEM.
+ * D4 added them here first, which looked tidy - one importer, one allowlist -
+ * and was a live-reachable defect (reviewer finding, 2026-08-12). This program
+ * builds `CONTROL_PLANE_DB` from the operator's env file, and since D3.5's
+ * cutover that file holds the BREAK-GLASS OWNER string, deployed nowhere. So an
+ * import that carried provider credentials would ALSO have staged the owner DSN,
+ * and the deploy that followed would have moved the provisioner off its capped
+ * `cp_provisioner` role and back onto the owner - undoing R-2026-08-11-1's
+ * closure as a side effect of a step about provider credentials.
+ *
+ * The provider four live in `provider-secrets.ts`, whose allowlist is disjoint
+ * from this one and pinned so by a test. The separation is structural rather
+ * than procedural, because a procedure is followed from whatever transcript
+ * somebody has open.
  */
 export const SECRET_NAMES = [
   DB_SECRET_NAME,
   BRANCH_PIN_ENV,
   MINT_TOKEN_NAME,
-  ...CONTABO_SECRET_NAMES,
 ] as const;
 
 /**
@@ -211,7 +223,10 @@ export async function unsetCanary(opts: {
  * from the value, so it is not ours to print - the answer here is a boolean
  * about names we already know.
  */
-export async function requiredNamesPresent(opts: {
+export async function namesPresent(opts: {
+  /** Which names to ask about. Passed in, because two programs ask about two
+   * disjoint sets and neither may answer for the other's. */
+  required: readonly string[];
   flyToken: string;
   spawn: Spawn;
   app?: string;
@@ -233,7 +248,7 @@ export async function requiredNamesPresent(opts: {
     return { present: false, readable: false };
   }
   return {
-    present: SECRET_NAMES.every((n) => names.includes(n)),
+    present: opts.required.every((n) => names.includes(n)),
     readable: true,
   };
 }
@@ -312,7 +327,11 @@ async function main(): Promise<void> {
   }
 
   if (mode === "--verify") {
-    const answer = await requiredNamesPresent({ flyToken, spawn: realSpawn });
+    const answer = await namesPresent({
+      required: SECRET_NAMES,
+      flyToken,
+      spawn: realSpawn,
+    });
     console.log(`listing_readable: ${answer.readable}`);
     console.log(`required_secret_names_present: ${answer.present}`);
     for (const name of SECRET_NAMES) console.log(`  required: ${name}`);
@@ -334,25 +353,9 @@ async function main(): Promise<void> {
     return;
   }
 
-  // The provider credentials get the same treatment as the seam's, by the same
-  // process, at the same moment: four names or none.
-  const contabo = inspectContaboFile();
-  console.log(`contabo_file_present: ${contabo.checks.present}`);
-  console.log(`contabo_file_regular: ${contabo.checks.regularFile}`);
-  console.log(`contabo_file_mode_600: ${contabo.checks.mode600}`);
-  console.log(`contabo_file_shape_ok: ${contabo.checks.shapeOk}`);
-  if (!contaboFileUsable(contabo.checks)) {
-    console.log(
-      "refusing: the provider credential file is not in the ruled shape",
-    );
-    process.exitCode = 2;
-    return;
-  }
-
   const pairs = [
     ...(await neonProductionPair()),
     { name: MINT_TOKEN_NAME, value: mint.token },
-    ...contabo.pairs,
   ];
   const outcome = await pushSecrets({
     pairs,

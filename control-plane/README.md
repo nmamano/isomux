@@ -1247,8 +1247,14 @@ Frankfurt, beside the database, in Nil's `personal` organisation.
 bun control-plane/deploy/name-check.ts               # is the app name free?
 bun control-plane/deploy/secrets.ts --canary         # does flyctl echo what it is given?
 bun control-plane/deploy/secrets.ts --unset-canary   # remove that one fixed name
-bun control-plane/deploy/secrets.ts                  # the seven secrets, over stdin
-bun control-plane/deploy/secrets.ts --verify         # are those seven names set?
+bun control-plane/deploy/secrets.ts                  # the FIRST-DEPLOY three, over stdin
+bun control-plane/deploy/secrets.ts --verify         # are those three names set?
+bun control-plane/deploy/provider-secrets.ts         # the provider four, over stdin
+bun control-plane/deploy/provider-secrets.ts --verify
+bun control-plane/deploy/preflight.ts                # may production be armed at all?
+bun control-plane/deploy/activate.ts --plan          # what the arming deploy would run
+bun control-plane/deploy/activate.ts --execute       # the one deploy that arms it
+bun control-plane/deploy/provider-account.ts         # the provider account, read from the machine
 bun control-plane/deploy/probe.ts                    # does the surface refuse everyone else?
 ```
 
@@ -1287,23 +1293,39 @@ Next.js app into the machine holding the keys. The same test holds the intent of
 those rules, and a build whose reported context is not about 2 MB means they
 stopped working.
 
-### The seven secrets, and how they get there
+### The secrets, which program sets which, and why that is two programs
 
 `CONTROL_PLANE_DB` (the direct-endpoint DSN), `CONTROL_PLANE_DB_BRANCH` (the
-branch id that DSN must turn out to be), `CONTROL_PLANE_MINT_TOKEN` (the seam
-bearer) and, since D4 (2026-08-12), the four provider credentials
-`CONTABO_CLIENT_ID`, `CONTABO_CLIENT_SECRET`, `CONTABO_API_USER` and
-`CONTABO_API_PASSWORD`. They are fly secrets. Nothing secret is in `fly.toml`,
+branch id that DSN must turn out to be) and `CONTROL_PLANE_MINT_TOKEN` (the seam
+bearer) are the FIRST-DEPLOY three, set by `deploy/secrets.ts`. The four
+provider credentials - `CONTABO_CLIENT_ID`, `CONTABO_CLIENT_SECRET`,
+`CONTABO_API_USER`, `CONTABO_API_PASSWORD` - are set by `deploy/provider-secrets.ts`
+and by nothing else. All seven are fly secrets; nothing secret is in `fly.toml`,
 because this repository is public.
 
-The provider four arrived last because they are the ones that can act on a real
-box, and their arrival changed what the ordinary import DEMANDS: with the
-credential file absent or out of shape the program refuses rather than importing
-a subset. A machine holding three of the four authenticates to nothing and says
-nothing about why. `contabo/auth.ts` takes the same four names from the
-environment and says sourcing the file is the caller's job - on this side the
-caller is a program rather than a shell, which is what keeps the
-`set -a; . file` form that leaked twice out of the deployment path.
+**The split is structural, and it is there because the tidy version was a
+live-reachable defect** (2026-08-12). D4 first added the provider names to
+`deploy/secrets.ts`'s allowlist - one importer, one procedure, obviously right.
+But that program builds `CONTROL_PLANE_DB` from the operator's own env file, and
+since D3.5's cutover that file holds the BREAK-GLASS OWNER string, deployed
+nowhere. So an import run for provider credentials would ALSO have staged the
+owner DSN, and the deploy that followed would have moved the provisioner off its
+capped `cp_provisioner` role and back onto the owner - undoing
+R-2026-08-11-1's closure as a side effect of a step about something else.
+
+The lesson generalises past this bug: `deploy/secrets.ts` was CORRECT when it
+was written, because at D2 the owner string WAS the deployed one. What moved
+underneath it was D3.5's credential cutover, and nothing in the program said so.
+A procedure that is merely no-longer-mentioned is one somebody follows from an
+old transcript, so the two allowlists are now disjoint, `validatePairs` refuses
+the other program's names before any child exists, and
+`provider-secrets.test.ts` pins the disjointness - widening either list fails
+the suite.
+
+```
+bun control-plane/deploy/provider-secrets.ts            stage the four
+bun control-plane/deploy/provider-secrets.ts --verify   are the four set?
+```
 
 `deploy/secrets.ts` is one fail-closed process, and the shape is the point:
 
@@ -1331,7 +1353,8 @@ caller is a program rather than a shell, which is what keeps the
   quoted, with no export prefix, no comment, no blank line and no fifth line. A
   value carrying a single quote is refused rather than parsed, because this is
   not a shell. Four more booleans, and the values go to the child's stdin with
-  the rest.
+  the rest. Three of four is a REFUSAL, not a partial import: a machine holding
+  some of the credentials authenticates to nothing and reports no reason.
 - It proves the branch before it emits anything: the project must show exactly
   one default branch with no parent, that branch must be `production`, and
   `targetFor` must have taken the endpoint host from the API rather than from
@@ -1825,6 +1848,111 @@ answered by measurement rather than argument:
   with digest-proved exact restoration, and then applied to production (the G3
   record below). The rehearsal-then-production ordering was a gate, and it was
   kept.
+
+### Landing the provider credentials, and the order that is enforced rather than written down
+
+Eight steps, run one at a time by an operator, and dangerous only OUT OF ORDER:
+a deploy before the preflight arms a loop that may act on a box nobody checked
+for, and a provider listing before the health reading sends a credential to a
+machine whose state is unknown.
+
+```
+preflight -> canary -> unset canary -> stage the four -> verify the four
+          -> activate -> probe -> read the provider account
+```
+
+`deploy/landing.ts` holds that order as a decision, and the three steps that can
+change something or send a credential ask it for permission. **Every precondition
+is an OBSERVATION, never a memory.** There is no ledger file and no flag saying
+step 1 went fine: `activate.ts` re-runs the production preflight and re-lists the
+app's secret names in its own process, moments before it deploys. So "not
+observed" is its own answer and it REFUSES - a check nobody ran is not a check
+that passed, which is the shape of every incident where a step was skipped
+rather than failed.
+
+**What the preflight asks, and what it deliberately does not.** The moment
+provider credentials reach the machine, the tick loop can reboot, power off,
+power on and cancel a real asset - and every one of those handlers is driven by
+a ROW. So the question is not whether we intend to touch a box; it is whether
+anything in production would make the loop touch one the moment it can. Two
+predicates: no asset already carries a provider id, and no operation of any
+provider-dependent kind is unfinished. The kinds come from
+`PROVIDER_DEPENDENT_KINDS`, the same constant the deployed process asks its
+ticker about, so a handler added later widens the preflight automatically. The
+account count and open attention reasons are printed as OBSERVATIONS and decide
+nothing - a gate that refused for reasons unrelated to whether a box can be
+touched is a gate operators learn to route around.
+
+**The arming deploy is a program, not a flyctl line.** A shell `flyctl deploy`
+either uses whatever ambient identity `~/.fly` holds - which on this box belongs
+to another project - or needs `FLY_API_TOKEN` expanded by a shell, which the
+secrets ruling forbids. `activate.ts` reads the token in-process, spawns the
+COMMITTED `DEPLOY_ARGV`, and takes no app, config, dockerfile or flag from
+outside this repository. It is not `provisioner-move --execute`, which rotates
+`CONTROL_PLANE_DB` - the one thing this step must not do.
+
+It has FOUR preconditions, not two, and the last two were missing from the first
+version of this protocol (reviewer finding, 2026-08-12). Production and the
+staged names are the order's business; the other two are this deploy's own:
+
+- **the source it would ship.** `fly deploy .` sends the WORKING DIRECTORY, so a
+  dirty tree produces a live artifact nobody can rebuild from a commit. The
+  decision is `judgeSource` in `tree-state.ts`, SHARED with the credential move
+  rather than restated - two guards deciding what "clean" means separately is
+  two chances to disagree. The rules file is judged first in meaning, for the
+  reason the move already documents.
+- **the topology.** `--ha=false` reasons about replacing ONE machine; a second
+  makes that assumption false. The reading is `readMachineListing`, again the
+  move's own, and anything but one started machine refuses.
+
+**A throw is an outcome, not an escape.** Every seam is called inside a catch:
+a throw before the spawn is a refusal, a throw AT the spawn is ambiguous -
+because the child may well have run - and the error object is discarded rather
+than printed, since a driver or CLI error can carry a host, a path or a fragment
+of a credential.
+
+**Every post-spawn outcome is AMBIGUOUS, and the type says so.** A deploy that
+returns non-zero may still have replaced the machine; a zero exit whose process
+group survived says what the leader thought, not what its children are still
+doing. The classification is two-valued on purpose - a three-valued one with a
+"failed" arm invites a retry, and a failed deploy is exactly the case where
+nobody knows what the machine holds. So the program never retries and never
+deploys a rollback: it reports and stops, and the next action is a human reading
+the machine's own state through `deploy/probe.ts`. Even a completed deploy is
+reported as a completed deploy COMMAND rather than a proved deployment.
+
+**The provider account is read from the provider, not from us.** Ruling 7 is one
+box, id 203474835, never a second - and our database only says what we think we
+have. `cli.ts list` prints a page for a human and cannot say whether the page
+was the whole account; a listing that silently truncated would look identical to
+a clean one while hiding the second box the ruling exists to prevent. So
+`deploy/provider-account.ts` pages until the rows it holds equal the total the
+provider reports, and refuses four ways: an unreadable response, a shape we did
+not expect, a total that disagrees with the rows, or any count other than
+exactly one. A missing total is NOT "one page is everything" - it is a
+completeness nobody established.
+
+It runs ON the fly machine, because that is where the provider credentials are
+and this box has none - and the local half re-validates everything that comes
+back. The machine ran the same checks; that is not a reason to skip them, because
+a boundary whose receiving side depends on the sending side having behaved is not
+a boundary. So counts must be digits, the booleans exactly `true` or `false`, the
+states inside a closed list of ones this loop has actually observed, and the
+cancel date the provider's full shape - validated WHOLE and only then reduced to
+its day, since checking a ten-character slice accepts
+`2026-08-29T99:99:99-garbage` on the strength of its prefix. Anything
+`unexpected` fails acceptance rather than being printed as a curiosity.
+
+The remote run itself must be clean before a single line of it is read: exit 0,
+no deadline, no surviving process group, the group proved empty. A leader that
+exits 0 while something it started is still running produced a fragment, and a
+fragment that happens to parse is the worst kind of answer to "is there exactly
+one box".
+
+And the listing has three outcomes rather than two - complete, malformed,
+exhausted - because they mean different things to an operator: a provider or
+transport that is not what we think, an account bigger than this reader expects,
+and a clean account with two boxes in it are three different problems.
 
 ### The volume, and one thing it deliberately does not have
 

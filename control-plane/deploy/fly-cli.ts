@@ -543,3 +543,84 @@ export function contaboFileUsable(checks: ContaboFileChecks): boolean {
     checks.present && checks.regularFile && checks.mode600 && checks.shapeOk
   );
 }
+
+/**
+ * The exit code a child gets when its run was not CLEAN, whatever it printed.
+ *
+ * A distinct value rather than 1: it means "this program refuses to read that
+ * child's output", which is a different fact from a child that ran and failed.
+ */
+export const UNCLEAN_CHILD_EXIT = -1;
+
+/**
+ * A bounded child, wearing the plain `Spawn` shape the secret helpers take.
+ *
+ * `realSpawn` waits forever, and this file already says why that is the wrong
+ * shape for anything that happens after a credential exists: a flyctl that
+ * never exits holds the values it was given, may leave descendants alive, and
+ * returns no outcome anybody can escalate. The secret helpers were written
+ * against `Spawn` before the bounded primitive existed, so rather than change
+ * them, this adapter gives them a bounded child and REMEMBERS how it ended -
+ * which is what lets a caller tell an import that failed from one that may
+ * have taken effect (reviewer finding, 2026-08-12).
+ */
+export interface BoundedAdapter {
+  spawn: Spawn;
+  /** The last run's full outcome, or null if it never returned one. */
+  last: () => BoundedResult | null;
+  /** The child threw rather than running. Also an ambiguity for a mutation. */
+  threw: () => boolean;
+  /** How many children this adapter has started. One, for every program here. */
+  runs: () => number;
+}
+
+export function boundedAdapter(
+  bounded: BoundedSpawn,
+  deadlineMs: number,
+): BoundedAdapter {
+  let last: BoundedResult | null = null;
+  let threw = false;
+  let runs = 0;
+  return {
+    last: () => last,
+    threw: () => threw,
+    runs: () => runs,
+    spawn: async (argv, env, stdin) => {
+      runs += 1;
+      try {
+        const result = await bounded(argv, env, stdin, deadlineMs);
+        last = result;
+        const clean =
+          !result.timedOut && !result.groupSurvived && result.groupEmpty;
+        return {
+          code: clean
+            ? (result.code ?? UNCLEAN_CHILD_EXIT)
+            : UNCLEAN_CHILD_EXIT,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        };
+      } catch {
+        // DISCARDED: a CLI error can carry a path or a fragment of what it was
+        // given. The flag is what a caller acts on.
+        threw = true;
+        last = null;
+        return { code: UNCLEAN_CHILD_EXIT, stdout: "", stderr: "" };
+      }
+    },
+  };
+}
+
+/** Did a bounded run end in a way that leaves its EFFECT unknown? */
+export function runIsAmbiguous(
+  adapter: Pick<BoundedAdapter, "last" | "threw">,
+): boolean {
+  if (adapter.threw()) return true;
+  const result = adapter.last();
+  if (!result) return true;
+  return (
+    result.timedOut ||
+    result.groupSurvived ||
+    !result.groupEmpty ||
+    result.code !== 0
+  );
+}
