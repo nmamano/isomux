@@ -434,7 +434,46 @@ Resume point: Stripe CLI install (one command at a time), consumer
 mechanics already plan-gated, then the G6/G7 window plan (step-3
 measurement + promotion decision inside it), then Nil's window, suites
 cancel-tail, G8. Nil briefed ~13:30Z; config.toml fact still to reach
-him.
+him. (Hour stamps in this tick ran ~3.5h late against wall clock - the
+commit landed ~17:50Z after an idle gap; dates unaffected.)
+
+### D4 mid-slice ledger 3 (tick 2026-08-12 ~18:40Z, CLI installed,
+### I2 handed off pre-window)
+
+CLI INSTALL COMPLETE (2026-08-12, 12 steps, one authorization at a time,
+no stops, no substitutions): ~/nil/tools/bin/stripe v1.45.2 (37,093,538
+bytes, mode 755, NOT on PATH), checksum-verified (exactly-one-line rule;
+transit integrity NOT provenance - no independent anchor). Our config
+~/nil/secrets/stripe-cli.toml mode 600, written only by the CLI's own
+version check (90 bytes). Pre-existing ~/.config/stripe/config.toml
+byte-identical to baseline 90/1786309028/316239 - never read, never
+written; size evidence (a fresh CLI skeleton is also exactly 90 bytes)
+moves it to "consistent with holding no key", unproven, queued for Nil.
+
+Consumer facts measured from the CLI's own help (2026-08-12):
+STRIPE_API_KEY is the key transport - supervisor reads the env file
+in-process and sets the CHILD environment only; --api-key exists and is
+FORBIDDEN (argv); --skip-update (-s) suppresses the phone-home version
+check - use on EVERY invocation in the window; --events narrows the
+listener to checkout.session.completed + the cancel event;
+--print-secret prints only the signing secret from a short-lived
+process, REPLACING the settled design of scraping whsec_ from the live
+listener's stdout. UNRESOLVED, measure never assume: does --print-secret
+return the SAME secret a later listen session signs with? If refuted,
+Reviewer2's rehearsal-then-swap order governs (listen once, capture,
+serve against suites, rehearse, stop serve only, serve against
+production, then the window). --skip-verify exists and is never used.
+
+Pacing rail (Reviewer2, adopted): batching was right for mechanical
+install steps and MUST NOT carry into the window - G6/G7 run strictly
+one command at a time; those steps have outcomes a report cannot undo.
+
+I2 handed off to a fresh session here (context hygiene before the
+window; measured 46% - the boundary is placed where it cannot hurt).
+Next: G6/G7 window plan to Reviewer2 - pin carriage stated for every
+on-machine command, volume-record reads proved in acceptance, step-3
+promotion contingent on its measurement, consumer mechanics as revised
+above, N1 delete-redeploy-verify budgeted inside the window.
 
 ## PICKUP - SLICE D1: Neon readiness (Isomuxer2 / Reviewer2)
 
