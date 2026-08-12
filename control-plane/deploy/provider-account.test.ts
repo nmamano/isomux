@@ -39,11 +39,20 @@ const GOOD_REMOTE = [
   "provider_rows: 1",
   "provider_total_elements: 1",
   "listing_complete: true",
-  "only_expected_id: true",
+  "expected_id_present: true",
+  "other_instances: 0",
   "asset_state: running",
   "power_state: running",
   "cancel_date: 2026-08-29",
 ].join("\n");
+
+/** The account as it actually was on 2026-08-12: our box plus one stranger. */
+const WITH_STRANGER = GOOD_REMOTE.replace(
+  "provider_rows: 1",
+  "provider_rows: 2",
+)
+  .replace("provider_total_elements: 1", "provider_total_elements: 2")
+  .replace("other_instances: 0", "other_instances: 1");
 
 /** A provider that answers with the pages it was given, in order. */
 function fakeHttp(pages: unknown[]) {
@@ -65,7 +74,8 @@ describe("a listing is complete, malformed or exhausted - never assumed", () => 
     expect(listing.rows.length).toBe(1);
     const reading = judgeListing(listing, {});
     expect(reading.complete).toBe(true);
-    expect(reading.onlyExpectedId).toBe(true);
+    expect(reading.expectedIdPresent).toBe(true);
+    expect(reading.otherInstances).toBe(0);
     expect(reading.cancelDate).toBe("2026-08-29");
   });
 
@@ -153,12 +163,39 @@ describe("a listing is complete, malformed or exhausted - never assumed", () => 
     expect(judgeListing(listing, {}).complete).toBe(false);
   });
 
-  test("a second instance fails the id check even when the listing is complete", async () => {
+  test("A STRANGER IS COUNTED, NOT REFUSED (R-2026-08-12-D4-2)", async () => {
+    // Ruling 7 was restated after the account turned out to hold a cancelled
+    // latency-test box of Nil's: the predicate is about OUR box, not the size
+    // of the account. The stranger is a NUMBER and nothing else - its id, name
+    // and state are read nowhere in this path.
     const listing = await readWholeAccount(
       fakeHttp([page([...ONE, { instanceId: 999, status: "running" }], 2)]),
     );
     expect(listing.status).toBe("complete");
-    expect(judgeListing(listing, {}).onlyExpectedId).toBe(false);
+    const reading = judgeListing(listing, {});
+    expect(reading.expectedIdPresent).toBe(true);
+    expect(reading.otherInstances).toBe(1);
+    // The stranger's own fields never reach the reading.
+    expect(JSON.stringify(reading)).not.toContain("999");
+  });
+
+  test("THE EXPECTED ID TWICE IS NOT PRESENCE", async () => {
+    // Two rows for our box is a listing to refuse, not a box found twice.
+    const listing = {
+      status: "complete" as const,
+      rows: [...ONE, { instanceId: 203474835, status: "running" }],
+      totalElements: 2,
+    };
+    expect(judgeListing(listing, {}).expectedIdPresent).toBe(false);
+  });
+
+  test("our box absent fails even on a complete listing of strangers", async () => {
+    const listing = await readWholeAccount(
+      fakeHttp([page([{ instanceId: 111, status: "running" }], 1)]),
+    );
+    const reading = judgeListing(listing, {});
+    expect(reading.expectedIdPresent).toBe(false);
+    expect(reading.otherInstances).toBe(1);
   });
 });
 
@@ -256,7 +293,9 @@ describe("only fixed labels cross back, and this side re-checks them", () => {
   });
 
   test("a repeated label is refused rather than last-one-wins", () => {
-    expect(parseRemote(`${GOOD_REMOTE}\nonly_expected_id: false`)).toBeNull();
+    expect(
+      parseRemote(`${GOOD_REMOTE}\nexpected_id_present: false`),
+    ).toBeNull();
   });
 
   test("ANYTHING ELSE THE MACHINE SAYS IS DROPPED", () => {
@@ -276,7 +315,9 @@ describe("only fixed labels cross back, and this side re-checks them", () => {
       "provider_rows: -1",
       "provider_total_elements: 1.5",
       "listing_complete: yes",
-      "only_expected_id: TRUE",
+      "expected_id_present: TRUE",
+      "other_instances: -1",
+      "other_instances: two",
     ]) {
       const label = line.split(":")[0];
       const tampered = GOOD_REMOTE.split("\n")
@@ -327,14 +368,6 @@ describe("the gate's verdict", () => {
     }
   });
 
-  test("a rows/total that is not exactly one refuses", () => {
-    const two = GOOD_REMOTE.replace(
-      "provider_rows: 1",
-      "provider_rows: 2",
-    ).replace("provider_total_elements: 1", "provider_total_elements: 2");
-    expect(judgeRemote(parseRemote(two)).ok).toBe(false);
-  });
-
   test("an incomplete listing refuses, whatever the ids said", () => {
     expect(
       judgeRemote(
@@ -342,6 +375,63 @@ describe("the gate's verdict", () => {
           GOOD_REMOTE.replace(
             "listing_complete: true",
             "listing_complete: false",
+          ),
+        ),
+      ).ok,
+    ).toBe(false);
+  });
+
+  test("ONE STRANGER PASSES - the account as it was on 2026-08-12", () => {
+    // R-2026-08-12-D4-2: ruling 7 became "one box THIS LOOP MAY TOUCH". The
+    // stranger was a cancelled latency-test box of Nil's, and the loop's job is
+    // to ignore it rather than to refuse because of it.
+    const verdict = judgeRemote(parseRemote(WITH_STRANGER));
+    expect(verdict.ok).toBe(true);
+    expect(verdict.cancelScheduled).toBe(true);
+  });
+
+  test("MORE THAN ONE STRANGER FAILS CLOSED, and says only the number", () => {
+    const two = WITH_STRANGER.replace("provider_rows: 2", "provider_rows: 3")
+      .replace("provider_total_elements: 2", "provider_total_elements: 3")
+      .replace("other_instances: 1", "other_instances: 2");
+    const verdict = judgeRemote(parseRemote(two));
+    expect(verdict.ok).toBe(false);
+    expect(verdict.because).toContain("(2)");
+    expect(verdict.because).toContain("manager and Nil");
+  });
+
+  test("OUR BOX ABSENT REFUSES, whatever else the account holds", () => {
+    expect(
+      judgeRemote(
+        parseRemote(
+          GOOD_REMOTE.replace(
+            "expected_id_present: true",
+            "expected_id_present: false",
+          ),
+        ),
+      ).ok,
+    ).toBe(false);
+  });
+
+  test("a stranger count that does not account for every row refuses", () => {
+    // Two rows, our box present, and a count claiming no strangers: the
+    // reading disagrees with itself, so nothing may be concluded from it.
+    expect(
+      judgeRemote(
+        parseRemote(
+          WITH_STRANGER.replace("other_instances: 1", "other_instances: 0"),
+        ),
+      ).ok,
+    ).toBe(false);
+  });
+
+  test("rows disagreeing with the provider's total refuses", () => {
+    expect(
+      judgeRemote(
+        parseRemote(
+          WITH_STRANGER.replace(
+            "provider_total_elements: 2",
+            "provider_total_elements: 5",
           ),
         ),
       ).ok,

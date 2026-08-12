@@ -1921,16 +1921,32 @@ deploys a rollback: it reports and stops, and the next action is a human reading
 the machine's own state through `deploy/probe.ts`. Even a completed deploy is
 reported as a completed deploy COMMAND rather than a proved deployment.
 
-**The provider account is read from the provider, not from us.** Ruling 7 is one
-box, id 203474835, never a second - and our database only says what we think we
-have. `cli.ts list` prints a page for a human and cannot say whether the page
+**The provider account is read from the provider, not from us.** Ruling 7 as
+restated by R-2026-08-12-D4-2 (Nil, 2026-08-12) is one box THIS LOOP MAY TOUCH,
+id 203474835 - and our database only says what we think we have. `cli.ts list` prints a page for a human and cannot say whether the page
 was the whole account; a listing that silently truncated would look identical to
 a clean one while hiding the second box the ruling exists to prevent. So
 `deploy/provider-account.ts` pages until the rows it holds equal the total the
-provider reports, and refuses four ways: an unreadable response, a shape we did
-not expect, a total that disagrees with the rows, or any count other than
-exactly one. A missing total is NOT "one page is everything" - it is a
-completeness nobody established.
+provider reports, and refuses on an unreadable response, a shape we did not
+expect, or a total that disagrees with the rows. A missing total is NOT "one
+page is everything" - it is a completeness nobody established.
+
+**The predicate changed the night it first ran, and why is worth keeping.** It
+began as "exactly one instance on the account", and the first live reading found
+TWO on a listing proved complete: ours, plus a cancelled `latency-test` box of
+Nil's expiring the same day. The count was never the property that mattered -
+the account is Nil's and may hold anything - so the ruling was restated and the
+predicate with it: the expected id must be present EXACTLY ONCE in a complete
+listing, its own fields must validate, and every other row is counted and
+reported as A NUMBER ONLY. One stranger passes as an observation; more than one
+fails closed to a manager and Nil decision, printing the count and nothing else.
+
+That boundary is the point. Row identifiers are used on the box for three
+things - is our box there, is it there once, how many rows are not it - and no
+id, name, state or date of any stranger crosses back, nor is any per-instance
+request made for one. A loop that may not touch them has no business learning
+about them, and a transcript that carried their details would be a place for
+that knowledge to leak into a later decision.
 
 It runs ON the fly machine, because that is where the provider credentials are
 and this box has none - and the local half re-validates everything that comes

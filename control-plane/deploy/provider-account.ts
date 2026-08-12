@@ -3,16 +3,21 @@
 //   bun control-plane/deploy/provider-account.ts            ask the machine
 //   bun control-plane/deploy/provider-account.ts --on-box   what the machine runs
 //
-// RULING 7 IS THE POINT: one box, id 203474835, and never a second one. That is
-// not a claim our database can support - the database says what WE think we
-// have. Only the provider account says what exists and can be billed for. So
-// this reads the provider, and it reads it from the fly machine, because that
-// is where the provider credentials live and this box has none.
+// RULING 7 IS THE POINT, as restated by R-2026-08-12-D4-2: exactly one instance
+// THIS LOOP MAY TOUCH, id 203474835. The account may hold others - it held one
+// on 2026-08-12, a cancelled latency-test box of Nil's, self-terminating on
+// 2026-08-29 - and the rule is not that they cannot exist but that this loop
+// must never create, mutate, inspect or act on them. Which box is ours is not a
+// claim our database can support: the database says what WE think we have, and
+// only the provider account says what exists and can be billed for. So this
+// reads the provider, from the fly machine, because that is where the provider
+// credentials live and this box has none.
 //
 // `cli.ts list` is NOT this. It prints a page of the account for a human, with
 // no answer about whether the page was the whole account. A listing that
-// silently truncated would look identical to a clean one while hiding the
-// second box the ruling exists to prevent.
+// silently truncated would look identical to a clean one while hiding whatever
+// lay beyond the page - including, on the night this was written, the stranger
+// that turned the ruling from a count into a question about identity.
 //
 // THE ANSWER IS FAIL-CLOSED IN EVERY DIRECTION IT CAN BE:
 //   - the remote run must be CLEAN: exit 0, not timed out, no surviving
@@ -28,9 +33,11 @@
 //     `false`, the states inside a closed allowlist, the date the provider's
 //     full shape. `unexpected` anywhere fails acceptance.
 //
-// WHAT CROSSES BACK: seven fixed labels, parsed and re-judged. Nothing else the
+// WHAT CROSSES BACK: eight fixed labels, parsed and re-judged. Nothing else the
 // machine says is read, so a chatty or compromised machine cannot write into an
-// operator's transcript.
+// operator's transcript - and of the strangers, ONLY THEIR NUMBER crosses. No
+// id, no name, no state, no date, and no per-instance request is ever made for
+// one. A loop that may not touch them has no business learning about them.
 
 import { ContaboHttp } from "../contabo/http.ts";
 import {
@@ -67,7 +74,8 @@ export const REMOTE_LABELS = [
   "provider_rows",
   "provider_total_elements",
   "listing_complete",
-  "only_expected_id",
+  "expected_id_present",
+  "other_instances",
   "asset_state",
   "power_state",
   "cancel_date",
@@ -98,7 +106,19 @@ export interface AccountReading {
   rows: number;
   totalElements: number;
   complete: boolean;
-  onlyExpectedId: boolean;
+  /** The expected id occurs EXACTLY ONCE in a complete listing. Twice is not
+   * presence, it is a listing nobody should reason about. */
+  expectedIdPresent: boolean;
+  /**
+   * How many instances are not ours. A NUMBER AND NOTHING ELSE - no id, no
+   * name, no state, no date. R-2026-08-12-D4-2 restated ruling 7 from "one
+   * instance on the account" to "one instance THIS LOOP MAY TOUCH", and the
+   * account may legitimately hold strangers (2026-08-12: one, a cancelled
+   * latency-test box of Nil's, self-terminating 2026-08-29). What the loop
+   * must never do is learn anything about them or act on them, so the count is
+   * the whole of what crosses.
+   */
+  otherInstances: number;
   assetState: string;
   powerState: string;
   /** The provider's own date, or "none", or "unexpected". */
@@ -272,12 +292,20 @@ export async function readWholeAccount(
   return { status: "exhausted", rows, totalElements: total ?? -1 };
 }
 
-/** Judge a listing that has already been proved complete or not. */
+/**
+ * Judge a listing that has already been proved complete or not.
+ *
+ * ROW IDENTIFIERS ARE USED HERE AND NOWHERE ELSE, for exactly three things:
+ * whether the expected id is present, whether it occurs once, and how many
+ * rows are not it. No other row's id, name, state or date is read, and the
+ * caller makes no per-instance request for any of them.
+ */
 export function judgeListing(
   listing: WholeListing,
   powerStates: Record<string, string>,
 ): AccountReading {
   const ids = listing.rows.map((r) => String(r.instanceId ?? ""));
+  const mine = ids.filter((id) => id === EXPECTED_INSTANCE_ID).length;
   const expected = listing.rows.find(
     (r) => String(r.instanceId ?? "") === EXPECTED_INSTANCE_ID,
   );
@@ -285,7 +313,10 @@ export function judgeListing(
     rows: listing.rows.length,
     totalElements: listing.totalElements,
     complete: listing.status === "complete",
-    onlyExpectedId: ids.length === 1 && ids[0] === EXPECTED_INSTANCE_ID,
+    // EXACTLY once. Twice would mean the listing carries our box in two rows,
+    // which is a listing to refuse rather than a presence to celebrate.
+    expectedIdPresent: mine === 1,
+    otherInstances: ids.length - mine,
     assetState: knownState(expected?.status),
     powerState: knownState(powerStates[EXPECTED_INSTANCE_ID]),
     cancelDate: providerDate(expected?.cancelDate),
@@ -316,7 +347,8 @@ async function onBox(): Promise<void> {
   console.log(`provider_rows: ${reading.rows}`);
   console.log(`provider_total_elements: ${reading.totalElements}`);
   console.log(`listing_complete: ${reading.complete}`);
-  console.log(`only_expected_id: ${reading.onlyExpectedId}`);
+  console.log(`expected_id_present: ${reading.expectedIdPresent}`);
+  console.log(`other_instances: ${reading.otherInstances}`);
   console.log(`asset_state: ${reading.assetState}`);
   console.log(`power_state: ${reading.powerState}`);
   console.log(`cancel_date: ${reading.cancelDate}`);
@@ -346,15 +378,23 @@ export function parseRemote(text: string): AccountReading | null {
   const rows = wholeCount(found.get("provider_rows"));
   const total = wholeCount(found.get("provider_total_elements"));
   const complete = strictBoolean(found.get("listing_complete"));
-  const only = strictBoolean(found.get("only_expected_id"));
-  if (rows === null || total === null || complete === null || only === null) {
+  const present = strictBoolean(found.get("expected_id_present"));
+  const others = wholeCount(found.get("other_instances"));
+  if (
+    rows === null ||
+    total === null ||
+    complete === null ||
+    present === null ||
+    others === null
+  ) {
     return null;
   }
   return {
     rows,
     totalElements: total,
     complete,
-    onlyExpectedId: only,
+    expectedIdPresent: present,
+    otherInstances: others,
     assetState: knownState(found.get("asset_state")),
     powerState: knownState(found.get("power_state")),
     cancelDate: providerDate(
@@ -378,11 +418,29 @@ export function judgeRemote(reading: AccountReading | null): {
     return no("the machine's answer was not a reading this side accepts");
   if (!reading.complete)
     return no("the account listing could not be proved complete");
-  if (reading.rows !== 1 || reading.totalElements !== 1) {
-    return no("the account does not hold exactly one instance");
+  // R-2026-08-12-D4-2: the predicate is about OUR box, not the account's size.
+  // The account may legitimately hold strangers - it held one on 2026-08-12, a
+  // cancelled latency-test box of Nil's - and what the loop may never do is
+  // learn anything about them or act on them.
+  if (!reading.expectedIdPresent) {
+    return no(
+      "the expected instance is not present exactly once in the account",
+    );
   }
-  if (!reading.onlyExpectedId) {
-    return no("the one instance is not the expected id");
+  if (reading.rows !== reading.totalElements) {
+    return no("the rows held do not match the total the provider reported");
+  }
+  if (reading.otherInstances !== reading.rows - 1) {
+    return no("the stranger count does not account for every row read");
+  }
+  if (reading.otherInstances > 1) {
+    // Fail closed, and say only the NUMBER. More than one stranger is a new
+    // fact about the account that a manager and Nil rule on, not a threshold
+    // this program may pass on its own.
+    return no(
+      `more than one instance on the account is not ours (${reading.otherInstances}) - ` +
+        "a manager and Nil decision before any pass",
+    );
   }
   if (
     reading.assetState === "unexpected" ||
@@ -398,8 +456,8 @@ export function judgeRemote(reading: AccountReading | null): {
     ok: true,
     cancelScheduled,
     because: cancelScheduled
-      ? "one instance, the expected id, carrying a cancel date"
-      : "one instance, the expected id, with NO cancel date",
+      ? "the expected instance is present and carries a cancel date"
+      : "the expected instance is present with NO cancel date",
   };
 }
 
@@ -526,7 +584,8 @@ async function main(): Promise<void> {
     console.log(`provider_rows: ${reading.rows}`);
     console.log(`provider_total_elements: ${reading.totalElements}`);
     console.log(`listing_complete: ${reading.complete}`);
-    console.log(`only_expected_id: ${reading.onlyExpectedId}`);
+    console.log(`expected_id_present: ${reading.expectedIdPresent}`);
+    console.log(`other_instances: ${reading.otherInstances}`);
     console.log(`asset_state: ${reading.assetState}`);
     console.log(`power_state: ${reading.powerState}`);
     console.log(`cancel_date: ${reading.cancelDate}`);
