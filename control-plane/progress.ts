@@ -199,7 +199,7 @@ const LABELS: Record<OperationKind, string> = {
   create_instance: "Ordering your server",
   wait_for_ssh: "Waiting for the server to answer",
   first_contact: "Securing our temporary access",
-  arm_revocation: "Arming the access expiry",
+  arm_revocation: "Setting a timer for our access to expire",
   wait_for_package_manager: "Waiting for the server's package manager",
   run_installer: "Installing isomux",
   verify_https: "Checking your office over HTTPS",

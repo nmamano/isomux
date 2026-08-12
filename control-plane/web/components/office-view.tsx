@@ -28,7 +28,7 @@ const COLLECT_TIMEOUT_MS = 120_000;
 const GRACE_DAYS = 7;
 
 const STATE_WORDS: Record<string, string> = {
-  waiting: "waiting",
+  waiting: "queued",
   active: "in progress",
   checking: "checking",
   done: "done",
