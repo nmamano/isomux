@@ -504,7 +504,13 @@ export function providerConfiguredFrom(body: unknown): boolean | null {
   return value;
 }
 
-async function readHealth(): Promise<boolean | null> {
+/**
+ * Exported since G5 (2026-08-12) so the recycle ladder takes its health gate
+ * from HERE rather than restating the read: one place opens the seam credential
+ * and one place judges the answer, and a second copy could be given a weaker
+ * version of either.
+ */
+export async function readProviderHealth(): Promise<boolean | null> {
   const { checks, token } = inspectMintFile();
   if (!mintFileUsable(checks)) return null;
   try {
@@ -534,7 +540,7 @@ async function main(): Promise<void> {
   // THE LISTING IS GATED ON THE MACHINE'S OWN HEALTH READING. Asking a machine
   // for a provider listing before it says it holds provider credentials is a
   // credential sent to a machine in an unknown state.
-  const providerConfigured = await readHealth();
+  const providerConfigured = await readProviderHealth();
   console.log(`health_readable: ${providerConfigured !== null}`);
   console.log(`provider_configured: ${providerConfigured ?? "unknown"}`);
   const permission = mayRun("list", {
