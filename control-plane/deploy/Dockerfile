@@ -42,8 +42,11 @@ ENV HOME=/data
 # ENV above reaches only processes fly's init starts. `fly ssh console` builds
 # its session from root's passwd entry instead (measured 2026-08-12: sessions
 # resolved /root and wrote state to the ephemeral disk), so the passwd entry
-# must agree with ENV or the machine has two state roots.
-RUN usermod -d /data root
+# must agree with ENV or the machine has two state roots. sed rather than
+# usermod: usermod refuses while root runs a process, and the build shell is
+# one. The grep asserts the edit landed.
+RUN sed -i 's|^\(root:.*:\)/root:\(.*\)$|\1/data:\2|' /etc/passwd \
+    && grep -q '^root:.*:/data:' /etc/passwd
 
 # --bind, because the default is loopback and fly's proxy is not on it. The
 # address is `::` rather than `0.0.0.0`: fly reaches a machine over its private
