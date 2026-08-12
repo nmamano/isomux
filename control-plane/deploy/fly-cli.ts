@@ -31,6 +31,15 @@ export const FLYCTL = path.join(os.homedir(), ".fly", "bin", "flyctl");
 const SECRETS_DIR = path.join(os.homedir(), "nil", "secrets");
 export const FLY_TOKEN_FILE = path.join(SECRETS_DIR, "fly.token");
 export const MINT_ENV_FILE = path.join(SECRETS_DIR, "control-plane-mint.env");
+export const CONTABO_ENV_FILE = path.join(SECRETS_DIR, "contabo.env");
+
+/** A secret's name and its value, on the way to a child's stdin and nowhere
+ * else. Defined here, beside the readers that build one, so a file inspector
+ * does not have to import the program that pushes them. */
+export interface Pair {
+  name: string;
+  value: string;
+}
 
 export interface SpawnResult {
   code: number;
@@ -377,19 +386,30 @@ export const MINT_TOKEN_NAME = "CONTROL_PLANE_MINT_TOKEN";
 /** The whole file, not a line of it. `\n?$` allows the usual final newline. */
 const MINT_FILE_EXACTLY = /^CONTROL_PLANE_MINT_TOKEN='([0-9a-f]{40})'\n?$/;
 
-export function inspectMintFile(file: string = MINT_ENV_FILE): {
-  checks: MintFileChecks;
-  token: string;
-} {
-  const failed = (checks: Partial<MintFileChecks>) => ({
-    checks: {
-      present: false,
-      regularFile: false,
-      mode600: false,
-      shapeOk: false,
-      ...checks,
-    },
-    token: "",
+/**
+ * The three checks that are about the FILE rather than about its contents,
+ * taken through one descriptor.
+ *
+ * Shared by every credential file this program reads, so a second file cannot
+ * be given a weaker version of the same guarantee by being written later. What
+ * differs between files is the SHAPE of their bytes, and only that.
+ */
+interface GuardedRead {
+  present: boolean;
+  regularFile: boolean;
+  mode600: boolean;
+  /** Null whenever any check above failed, so no caller can parse bytes that
+   * came out of a file it was not allowed to read. */
+  contents: string | null;
+}
+
+function readGuardedFile(file: string): GuardedRead {
+  const failed = (over: Partial<GuardedRead>): GuardedRead => ({
+    present: false,
+    regularFile: false,
+    mode600: false,
+    contents: null,
+    ...over,
   });
 
   let handle: number;
@@ -406,15 +426,7 @@ export function inspectMintFile(file: string = MINT_ENV_FILE): {
     if (!stat.isFile()) return failed({ present: true });
     const mode600 = (stat.mode & 0o7777) === 0o600;
     const contents = fs.readFileSync(handle, "utf8");
-    const match = MINT_FILE_EXACTLY.exec(contents);
-    const checks = {
-      present: true,
-      regularFile: true,
-      mode600,
-      shapeOk: match !== null,
-    };
-    if (!mode600 || !match) return { checks, token: "" };
-    return { checks, token: match[1] };
+    return { present: true, regularFile: true, mode600, contents };
   } catch {
     return failed({ present: true, regularFile: true });
   } finally {
@@ -426,8 +438,107 @@ export function inspectMintFile(file: string = MINT_ENV_FILE): {
   }
 }
 
+export function inspectMintFile(file: string = MINT_ENV_FILE): {
+  checks: MintFileChecks;
+  token: string;
+} {
+  const read = readGuardedFile(file);
+  const match =
+    read.contents === null ? null : MINT_FILE_EXACTLY.exec(read.contents);
+  const checks: MintFileChecks = {
+    present: read.present,
+    regularFile: read.regularFile,
+    mode600: read.mode600,
+    shapeOk: match !== null,
+  };
+  return {
+    checks,
+    token: read.mode600 && match ? match[1] : "",
+  };
+}
+
 /** True only when every check held. The one thing callers should branch on. */
 export function mintFileUsable(checks: MintFileChecks): boolean {
+  return (
+    checks.present && checks.regularFile && checks.mode600 && checks.shapeOk
+  );
+}
+
+/**
+ * The provider credentials, checked the same way and read in the same process.
+ *
+ * FOUR VALUES, ONE FILE, AND NO SHELL. `contabo/auth.ts` takes them from the
+ * environment and says sourcing the file is the caller's job; on this side of
+ * the deployment the caller is a program, not a shell, so the file is opened
+ * here and the values go to flyctl over stdin like every other secret. The
+ * loop's ruling forbids the `set -a; . file` form that put a credential in a
+ * shell's environment twice before.
+ *
+ * The shape is the WHOLE file, exactly four single-quoted assignments, one per
+ * name, in any order and with nothing else between them - the same "everything
+ * outside the ruled lines is refused" rule the seam credential gets. A value
+ * may not carry a single quote, because a quote inside a quoted value means the
+ * file is not the shape it was promised to have and this program is not a shell
+ * parser.
+ *
+ * Nothing derived from the contents is ever returned to a printer: the answer
+ * is booleans plus pairs that go straight to a child's stdin.
+ */
+export const CONTABO_SECRET_NAMES = [
+  "CONTABO_CLIENT_ID",
+  "CONTABO_CLIENT_SECRET",
+  "CONTABO_API_USER",
+  "CONTABO_API_PASSWORD",
+] as const;
+
+const CONTABO_LINE = /^(CONTABO_[A-Z_]+)='([^'\n\0]+)'$/;
+
+export interface ContaboFileChecks {
+  present: boolean;
+  regularFile: boolean;
+  mode600: boolean;
+  /** Exactly the four ruled lines, each name once, and no other byte. */
+  shapeOk: boolean;
+}
+
+export function inspectContaboFile(file: string = CONTABO_ENV_FILE): {
+  checks: ContaboFileChecks;
+  pairs: Pair[];
+} {
+  const read = readGuardedFile(file);
+  const pairs = read.contents === null ? null : parseContabo(read.contents);
+  const checks: ContaboFileChecks = {
+    present: read.present,
+    regularFile: read.regularFile,
+    mode600: read.mode600,
+    shapeOk: pairs !== null,
+  };
+  return { checks, pairs: read.mode600 && pairs ? pairs : [] };
+}
+
+/** The four pairs, or null for anything that is not exactly the ruled file. */
+export function parseContabo(contents: string): Pair[] | null {
+  // One optional final newline, and no blank line anywhere else: a file that
+  // ends without one is still the shape, a file with a gap in it is not.
+  const body = contents.endsWith("\n") ? contents.slice(0, -1) : contents;
+  const lines = body.split("\n");
+  if (lines.length !== CONTABO_SECRET_NAMES.length) return null;
+  const pairs: Pair[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    const match = CONTABO_LINE.exec(line);
+    if (!match) return null;
+    const [, name, value] = match;
+    if (!(CONTABO_SECRET_NAMES as readonly string[]).includes(name))
+      return null;
+    if (seen.has(name)) return null;
+    seen.add(name);
+    pairs.push({ name, value });
+  }
+  return seen.size === CONTABO_SECRET_NAMES.length ? pairs : null;
+}
+
+export function contaboFileUsable(checks: ContaboFileChecks): boolean {
   return (
     checks.present && checks.regularFile && checks.mode600 && checks.shapeOk
   );

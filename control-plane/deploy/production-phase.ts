@@ -163,17 +163,64 @@ export function expectedProductionBefore(mode: PhaseMode): readonly EnvShape[] {
   return mode === "redeploy" ? PRODUCTION_SHAPES : [];
 }
 
+/** What a FIRST deploy demands of the database it is pointed at. */
+export const EMPTY_ROWS: Record<string, number> = {
+  accounts: 0,
+  name_reservations: 0,
+  instances: 0,
+  operations: 0,
+};
+
 /**
- * The row counts a mode expects, before and after.
+ * Whether the reading taken BEFORE the phase lets it proceed.
  *
- * The first deploy demanded an empty database. A redeploy runs against a
- * production that has since bound exactly one real account - Nil's Google
- * sign-in on 2026-08-11 - so "unchanged" is the assertion, not "empty".
+ * The first deploy demands an empty database, and that number is fixed forever:
+ * a first deploy against a database that already holds product rows is pointed
+ * at the wrong one.
+ *
+ * A redeploy has no fixed numbers, and the version that had them was a bug
+ * (task f5ed4b60, fixed 2026-08-12). `{accounts: 1, ...zeros}` was true only
+ * while Nil's sign-in was the whole of production; the first customer office
+ * makes it false, and a deploy tool that refuses after the product is used is a
+ * tool nobody can use in the situation it was built for. What is still checked
+ * is what a wrong target would fail: every count READABLE, and at least the one
+ * account that a production database has carried since 2026-08-11. An empty
+ * database under a redeploy is not production.
  */
-export function expectedRows(mode: PhaseMode): Record<string, number> {
-  return mode === "redeploy"
-    ? { accounts: 1, name_reservations: 0, instances: 0, operations: 0 }
-    : { accounts: 0, name_reservations: 0, instances: 0, operations: 0 };
+export function beforeRowsAcceptable(
+  mode: PhaseMode,
+  counts: Record<string, number>,
+): boolean {
+  if (mode !== "redeploy") return rowsMatch(counts, EMPTY_ROWS);
+  // EVERY NAMED TABLE, not every key the reading happens to carry. Iterating
+  // the value set accepted a PARTIAL reading - `{accounts: 1}` alone satisfied
+  // it - which would have let a live redeploy proceed on evidence that never
+  // established what three of the four tables held (reviewer finding,
+  // 2026-08-12). `rowCounts` builds all four today; the predicate must not
+  // depend on that staying true.
+  const readable = (n: unknown): boolean =>
+    typeof n === "number" && Number.isInteger(n) && n >= 0;
+  if (!USER_TABLES.every((table) => readable(counts[table]))) return false;
+  return counts.accounts >= 1;
+}
+
+/**
+ * What every reading AFTER the deploy must equal: the reading this run started
+ * with.
+ *
+ * Both modes make the same claim - a deploy changes no user data - and stating
+ * it as a comparison rather than as constants is what makes it survive the
+ * product being used. The first deploy's `before` is the empty database it
+ * demanded, so the comparison is exactly as strict as the constants were.
+ *
+ * It says nothing about WHO changed a row: a customer signing up while the
+ * deploy runs would trip it too. That is accepted rather than worked around -
+ * this phase is an operator action, run deliberately, not a background job.
+ */
+export function afterRowsExpected(
+  before: Record<string, number>,
+): Record<string, number> {
+  return { ...before };
 }
 
 export function rowsMatch(
@@ -1018,13 +1065,17 @@ async function main(): Promise<void> {
   for (const [table, n] of Object.entries(before)) {
     console.log(`  production_before_${table}: ${n}`);
   }
-  const wantRows = expectedRows(mode);
-  console.log(`production_rows_as_expected: ${rowsMatch(before, wantRows)}`);
-  if (!rowsMatch(before, wantRows)) {
+  // The before reading is judged by the mode's own rule, and then BECOMES the
+  // expectation for every later reading: what this phase promises is that the
+  // deploy changes no user data, not that user data has some fixed shape.
+  const beforeOk = beforeRowsAcceptable(mode, before);
+  console.log(`production_rows_as_expected: ${beforeOk}`);
+  if (!beforeOk) {
     console.log("stopping: production does not hold the expected rows");
     process.exitCode = 1;
     return;
   }
+  const wantRows = afterRowsExpected(before);
 
   const inventoryBefore = await inventory(projectId, token);
   console.log(`env_count_before: ${inventoryBefore.length}`);

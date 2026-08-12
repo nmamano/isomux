@@ -1126,12 +1126,27 @@ deployed-web bearer round trip, for the reason the environment section gives:
 authenticated acceptance is a human signing in from a private window.
 Detach-before-diagnosis and the TLS-timeout exception apply to both modes.
 
-**Redeploy mode is D3 ACCEPTANCE TOOLING, not a general redeploy command.** It
-asserts the row state measured in this slice - exactly one account and nothing
-else - before and after. The moment a second customer exists that assertion is
-wrong and the mode will refuse a perfectly healthy deployment. Whoever ships the
-next redeploy after customers arrive must replace that fixed expectation with a
-before/after comparison rather than a constant.
+**Redeploy mode asserts that the deploy changed no user data, and it says that
+as a COMPARISON** (fixed 2026-08-12, task f5ed4b60). It was written with the row
+state this deployment happened to have - exactly one account and nothing else -
+frozen into it as a constant, which was true only while Nil's sign-in was the
+whole of production and would have refused a perfectly healthy deployment the
+moment the first customer office existed. The reading taken before the phase
+runs is now the expectation every later reading is judged against, so what is
+checked is that nothing MOVED. What a redeploy still demands of production is
+what a wrong target would fail: EACH of the four user tables readable as a whole
+non-negative number, and at least the one account production has carried since
+2026-08-11 - an empty database under a redeploy is not production. Each, named
+one by one, because a check over whatever keys the reading happened to carry
+accepted a PARTIAL reading and would have let a live redeploy proceed having
+established nothing about three of the four tables (reviewer finding,
+2026-08-12). A first deploy still demands an empty database, and
+that number is fixed forever.
+
+The comparison says nothing about WHO changed a row: a customer signing up
+while the deploy runs would trip it too. That is accepted rather than worked
+around, because this phase is an operator action run deliberately, not a
+background job.
 
 The rest of this section describes first-deploy mode. One process, because a
 `sensitive` value cannot be read back and only the process that generated
@@ -1232,8 +1247,8 @@ Frankfurt, beside the database, in Nil's `personal` organisation.
 bun control-plane/deploy/name-check.ts               # is the app name free?
 bun control-plane/deploy/secrets.ts --canary         # does flyctl echo what it is given?
 bun control-plane/deploy/secrets.ts --unset-canary   # remove that one fixed name
-bun control-plane/deploy/secrets.ts                  # the three secrets, over stdin
-bun control-plane/deploy/secrets.ts --verify         # are those three names set?
+bun control-plane/deploy/secrets.ts                  # the seven secrets, over stdin
+bun control-plane/deploy/secrets.ts --verify         # are those seven names set?
 bun control-plane/deploy/probe.ts                    # does the surface refuse everyone else?
 ```
 
@@ -1272,12 +1287,23 @@ Next.js app into the machine holding the keys. The same test holds the intent of
 those rules, and a build whose reported context is not about 2 MB means they
 stopped working.
 
-### The three secrets, and how they get there
+### The seven secrets, and how they get there
 
 `CONTROL_PLANE_DB` (the direct-endpoint DSN), `CONTROL_PLANE_DB_BRANCH` (the
-branch id that DSN must turn out to be) and `CONTROL_PLANE_MINT_TOKEN` (the seam
-bearer). They are fly secrets. Nothing secret is in `fly.toml`, because this
-repository is public.
+branch id that DSN must turn out to be), `CONTROL_PLANE_MINT_TOKEN` (the seam
+bearer) and, since D4 (2026-08-12), the four provider credentials
+`CONTABO_CLIENT_ID`, `CONTABO_CLIENT_SECRET`, `CONTABO_API_USER` and
+`CONTABO_API_PASSWORD`. They are fly secrets. Nothing secret is in `fly.toml`,
+because this repository is public.
+
+The provider four arrived last because they are the ones that can act on a real
+box, and their arrival changed what the ordinary import DEMANDS: with the
+credential file absent or out of shape the program refuses rather than importing
+a subset. A machine holding three of the four authenticates to nothing and says
+nothing about why. `contabo/auth.ts` takes the same four names from the
+environment and says sourcing the file is the caller's job - on this side the
+caller is a program rather than a shell, which is what keeps the
+`set -a; . file` form that leaked twice out of the deployment path.
 
 `deploy/secrets.ts` is one fail-closed process, and the shape is the point:
 
@@ -1297,6 +1323,15 @@ repository is public.
   is enforced. The token is returned only when all four hold and is empty
   otherwise, so a caller that ignores the booleans still cannot use a file that
   failed them. What it prints is four booleans.
+- **The provider file gets the same treatment through the same reader.**
+  `inspectContaboFile` shares the descriptor-level checks exactly - one file
+  inspector cannot be given a weaker version of the same guarantee by being
+  written later - and differs only in the SHAPE it requires: the whole file is
+  exactly the four ruled assignments, each name once, in any order, single
+  quoted, with no export prefix, no comment, no blank line and no fifth line. A
+  value carrying a single quote is refused rather than parsed, because this is
+  not a shell. Four more booleans, and the values go to the child's stdin with
+  the rest.
 - It proves the branch before it emits anything: the project must show exactly
   one default branch with no parent, that branch must be `production`, and
   `targetFor` must have taken the endpoint host from the API rather than from
@@ -1353,12 +1388,23 @@ Neither branch id is ever printed. The boot line is booleans.
 invite verb, and is the reason `deploy/probe.ts` exists:
 
 ```
-ok  bounds_governed  branch_pinned  database_reachable  tick_recent  state_persisted
+ok  bounds_governed  branch_pinned  database_reachable  tick_recent  state_persisted  provider_configured
 ```
 
-`ok` is the conjunction of the first four properties - not of all five, because
+`ok` is the conjunction of the first four properties - not of all six, because
 `state_persisted` is correctly false on a first deploy and a healthy machine
-must not be reported sick for having been deployed once. `database_reachable` is
+must not be reported sick for having been deployed once, and
+`provider_configured` is a state the design deliberately supports: a provisioner
+with no provider credentials idles correctly, and D2 measured it doing so for 37
+minutes. That boolean is REPORTED so an operator can see it, and asserted at the
+gate that puts the credentials there (D4, 2026-08-12), rather than folded into
+`ok` where a deliberate state would read as a fault.
+
+`provider_configured` is answered by the ticker - it asks whether the
+provider-dependent handlers are registered in the roster it actually built -
+rather than by re-reading the environment beside it. A second derivation of the
+same answer is a copy that can drift, which is the class of omission
+`run-roster.ts` was extracted to prevent. `database_reachable` is
 a `select 1` whose failure discards the error object entirely. `tick_recent`
 means the last completed pass is younger than three poll intervals, which is the
 difference between "the port answers" and "the loop is running".
@@ -1378,7 +1424,7 @@ provisioner, so there is nothing an override could be for.
 all fail - and then requires `ok`, `bounds_governed`, `branch_pinned`,
 `database_reachable` and `tick_recent` to be true. `state_persisted` is
 deliberately outside that set, because on a first deploy there is nothing for it
-to have survived. The keys are printed in a fixed order from that fixed list,
+to have survived, and `provider_configured` is outside it for the reason above. The keys are printed in a fixed order from that fixed list,
 and a field nobody designed is COUNTED rather than named: the answer comes from
 a machine, and a probe that echoes whatever it is sent is a way for that machine
 to write into our transcript.
@@ -2577,9 +2623,19 @@ Both modes decide every mutable precondition INSIDE the transaction that writes,
 so two callers cannot turn a pre-check into duplicate work:
 
 ```
-bun control-plane/exercises/adopt-run.ts --db <dsn> --instance inst-<id> --run <runId> --start
-bun control-plane/exercises/adopt-run.ts --db <dsn> --instance inst-<id> --run <runId> --revoke
+bun control-plane/exercises/adopt-run.ts [--db <dsn>] --instance inst-<id> --run <runId> --start
+bun control-plane/exercises/adopt-run.ts [--db <dsn>] --instance inst-<id> --run <runId> --revoke
 ```
+
+`--db` is optional since D4 (2026-08-12), and its absence is the deployed shape:
+the run record and its key live on the provisioner's own volume, so the linking
+runs THERE, and there the database string is a fly secret in the environment
+that must not be re-typed into an argv the process table shows to anybody.
+Without the flag it comes from `CONTROL_PLANE_DB`, through the same reader every
+other command uses, which still has no default. The store is opened with
+`openRuntime` rather than `open`: this links rows in a database an operator
+already built, and a restricted role meeting the schema-writing open fails with
+42501 - which is exactly how the first web cutover died on 2026-08-12.
 
 `--start` requires an unlinked instance, an asset with no provider id, and no
 operations; it links both rows, audits and opens `wait_for_ssh` atomically.

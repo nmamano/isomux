@@ -56,6 +56,21 @@ export const CANCEL_ALLOWED_ASSET_STATES = [
 ] as const;
 
 /**
+ * The kinds that exist ONLY when provider credentials do.
+ *
+ * Named here, beside the branch that registers them, so the deployed process
+ * can report whether it has provider means by asking the roster it actually
+ * built. `remove_dns` is deliberately absent: it reads DNS and removes nothing,
+ * so it is registered either way.
+ */
+export const PROVIDER_DEPENDENT_KINDS = [
+  "reboot",
+  "power_off",
+  "power_on",
+  "cancel_asset",
+] as const;
+
+/**
  * Every handler the tick loop registers.
  *
  * `create_instance` is deliberately absent: no flag in this build can reach a

@@ -29,7 +29,11 @@ import {
   AUDITED_PROVIDER_HANDLER_KINDS,
   PROVISIONER_REACHABLE,
 } from "./roles.ts";
-import { type ProviderVerbs, tickerHandlerRoster } from "./run-roster.ts";
+import {
+  PROVIDER_DEPENDENT_KINDS,
+  type ProviderVerbs,
+  tickerHandlerRoster,
+} from "./run-roster.ts";
 import type { HandlerDeps } from "./handlers.ts";
 
 /** Enough of the deps to CONSTRUCT the handlers. None of them runs here: what
@@ -68,6 +72,18 @@ describe("the audited roster is the roster the loop is built from", () => {
   test("provider credentials add exactly the audited provider kinds", () => {
     const extra = kindsOf(provider).filter((k) => !kindsOf(null).includes(k));
     expect(extra.sort()).toEqual([...AUDITED_PROVIDER_HANDLER_KINDS].sort());
+  });
+
+  // The health surface reports whether the provider handlers exist, and it asks
+  // the ticker rather than the environment - but it needs a list of kinds to
+  // ask about, and that list is a third copy of the same set. This is the test
+  // that keeps the three from drifting: what the deployed process asks about is
+  // exactly what provider credentials add.
+  test("PROVIDER_DEPENDENT_KINDS is exactly what credentials add", () => {
+    const extra = kindsOf(provider).filter((k) => !kindsOf(null).includes(k));
+    expect([...PROVIDER_DEPENDENT_KINDS].sort()).toEqual(
+      extra.sort() as (typeof PROVIDER_DEPENDENT_KINDS)[number][],
+    );
   });
 
   test("no handler is registered twice", () => {

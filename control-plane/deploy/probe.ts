@@ -49,6 +49,7 @@ export const HEALTH_KEYS = [
   "database_reachable",
   "tick_recent",
   "state_persisted",
+  "provider_configured",
 ] as const;
 
 /**
@@ -58,6 +59,13 @@ export const HEALTH_KEYS = [
  * nothing for it to have survived, and gating on it would make a correct first
  * deploy look like a failure. Volume evidence is a separate reading, taken
  * across a redeploy.
+ *
+ * `provider_configured` is not one of them either, and for a different reason:
+ * a provisioner with no provider credentials IDLES CORRECTLY - that is the
+ * design, and D2 measured it over 37 minutes. Gating on it would call a
+ * deliberate state a failure. It is a reading the operator asserts when the
+ * credentials are supposed to be there (D4, 2026-08-12), and the acceptance of
+ * that gate names it explicitly rather than letting `ok` carry it.
  */
 export const GATING_KEYS = [
   "ok",

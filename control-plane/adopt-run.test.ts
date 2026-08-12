@@ -10,7 +10,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store } from "./store.ts";
-import { openTestStoreOn, releaseTestStores, testDsn } from "./testing/pg.ts";
+import {
+  freshDsn,
+  openTestStoreOn,
+  releaseTestStores,
+  testDsn,
+} from "./testing/pg.ts";
 import { accountForDevSignIn, hostnameFor, reserveOffice } from "./signup.ts";
 import type { RunRecord } from "./run-record.ts";
 
@@ -226,6 +231,50 @@ describe("--revoke", () => {
     const again = run(b, "--revoke");
     expect(again.code).toBe(1);
     expect(again.err).toContain("already revoked and proven");
+  });
+});
+
+describe("it USES a database, it does not build one (D4, 2026-08-12)", () => {
+  // The deployed shape runs this as the provisioner's own restricted role, and
+  // a restricted role meeting the schema-writing `Store.open` fails with 42501
+  // - which is how the first web cutover died on 2026-08-12. The G3 rehearsal
+  // proves it once against the real role; this keeps the code from regressing
+  // silently afterwards, without building a restricted role here.
+  test("an unbuilt database is REFUSED, not created", async () => {
+    const b = await bed();
+    const empty = await freshDsn();
+    const r = run(b, "--start", { db: empty });
+    expect(r.code).toBe(1);
+    // The runtime open's own refusal: the schema check fires before anything
+    // is written, and it says bringing a database up is a separate step.
+    expect(`${r.err}${r.out}`).toContain("the store refuses to open");
+
+    // And it built NOTHING on the way to that refusal. `Store.open` would have
+    // created the whole schema and seeded the audit sequence before it ever
+    // looked at the arguments, and a runtime open of that database would then
+    // succeed. It still refuses, so nothing was built.
+    let opened = false;
+    try {
+      const store = await Store.openRuntime(empty);
+      opened = true;
+      await store.close();
+    } catch {
+      // The refusal is the expected outcome, and its message is asserted above.
+    }
+    expect(opened).toBe(false);
+  });
+
+  test("the source names the runtime open and not the building one", () => {
+    // The behavioural test above proves today's build. This one names the seam,
+    // so a future edit that reintroduces the schema-writing open fails here
+    // with the reason written next to it rather than only as a refusal
+    // somebody has to interpret.
+    const source = fs.readFileSync(
+      path.join(import.meta.dir, "exercises", "adopt-run.ts"),
+      "utf8",
+    );
+    expect(source).toContain("Store.openRuntime(");
+    expect(source).not.toContain("Store.open(");
   });
 });
 

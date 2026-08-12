@@ -11,10 +11,13 @@
 // from `instances.run_id` (handlers.ts), so a tick needs nothing else to work
 // on a row it did not create.
 //
-//   bun control-plane/exercises/adopt-run.ts --db <file> --instance inst-<id> \
+//   bun control-plane/exercises/adopt-run.ts [--db <dsn>] --instance inst-<id> \
 //       --run <runId> --start
-//   bun control-plane/exercises/adopt-run.ts --db <file> --instance inst-<id> \
+//   bun control-plane/exercises/adopt-run.ts [--db <dsn>] --instance inst-<id> \
 //       --run <runId> --revoke
+//
+// Without --db the database string comes from CONTROL_PLANE_DB, so the machine
+// that holds it as a secret never has to put it on a command line.
 //
 // EVERY PRECONDITION IS RE-READ AND DECIDED INSIDE THE SAME begin-immediate
 // TRANSACTION AS THE WRITES. Anything read before that transaction opens is
@@ -26,7 +29,7 @@
 // create_instance has no handler anywhere in the CLI, and nothing here can
 // reach a paid create.
 
-import { RUNS_DIR } from "../config.ts";
+import { RUNS_DIR, databaseUrl } from "../config.ts";
 import {
   deadlinesFor,
   newOperationId,
@@ -74,7 +77,13 @@ async function enqueueIn(
 }
 
 async function main(): Promise<void> {
-  const dbPath = required("db");
+  // --db stays for the local and suites runs that name a database on the
+  // command line. It is OPTIONAL because of where D4 runs this: on the
+  // provisioner's own machine, whose database string is a fly secret in its
+  // environment and must not be re-typed into an argv the process table shows
+  // to anybody (loop ruling 8). `databaseUrl()` is the same reader every other
+  // command uses, and it still has no default.
+  const dbPath = args.get("db") ?? databaseUrl();
   const instanceId = required("instance");
   const runId = required("run");
   const runsDir = args.get("runs-dir") ?? RUNS_DIR;
@@ -88,7 +97,11 @@ async function main(): Promise<void> {
   if (!rec) throw new Error(`no run record ${runId} under ${runsDir}`);
   if (!rec.ipv4) throw new Error(`run ${runId} has no address yet`);
 
-  const store = await Store.open(dbPath);
+  // openRuntime, NOT open: this links rows in a database an operator already
+  // built, and the roles the deployed components hold may not write schema at
+  // all - a restricted role meeting the schema-writing open fails with 42501,
+  // which is exactly how D3.5's first web cutover died (2026-08-12).
+  const store = await Store.openRuntime(dbPath);
   try {
     const line = await store.tx(async () => {
       const now = store.now();

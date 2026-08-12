@@ -184,6 +184,18 @@ export class Ticker {
    * partial unique index refuses a second active row for the same
    * (instance, kind); that refusal is the arbiter, not a check in front of it.
    */
+  /**
+   * Whether a kind has a handler in THIS ticker.
+   *
+   * Read by the deployed process to answer what it registered rather than what
+   * it believes it registered: the roster decides whether the provider handlers
+   * exist, and a second derivation of that answer beside it is a copy that can
+   * drift (the class of omission run-roster.ts was extracted to prevent).
+   */
+  handles(kind: OperationKind): boolean {
+    return this.handlers.has(kind);
+  }
+
   async enqueue(
     instanceId: string,
     kind: OperationKind,

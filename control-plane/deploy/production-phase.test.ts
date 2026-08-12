@@ -18,7 +18,10 @@ import {
   dropHolders,
   envWritesFor,
   expectedProductionBefore,
-  expectedRows,
+  EMPTY_ROWS,
+  USER_TABLES,
+  afterRowsExpected,
+  beforeRowsAcceptable,
   guardedRun,
   buildHolders,
   modeFrom,
@@ -1187,29 +1190,117 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
     expect(expectedProductionBefore("redeploy").length).toBe(7);
   });
 
-  test("row expectations follow the mode: empty, then UNCHANGED at one account", () => {
-    expect(expectedRows("first")).toEqual({
+  test("a first deploy demands an empty database, exactly", () => {
+    expect(EMPTY_ROWS).toEqual({
       accounts: 0,
       name_reservations: 0,
       instances: 0,
       operations: 0,
     });
-    expect(expectedRows("redeploy")).toEqual({
+    expect(beforeRowsAcceptable("first", { ...EMPTY_ROWS })).toBe(true);
+    expect(beforeRowsAcceptable("first", { ...EMPTY_ROWS, accounts: 1 })).toBe(
+      false,
+    );
+  });
+
+  test("A REDEPLOY ACCEPTS A PRODUCTION THAT HAS BEEN USED (task f5ed4b60)", () => {
+    // The bug: fixed {accounts: 1, ...zeros} was true only while Nil's sign-in
+    // was the whole of production. The first customer office made it false and
+    // would have blocked every later redeploy.
+    const used = {
+      accounts: 1,
+      name_reservations: 1,
+      instances: 1,
+      operations: 12,
+    };
+    expect(beforeRowsAcceptable("redeploy", used)).toBe(true);
+    expect(beforeRowsAcceptable("first", used)).toBe(false);
+  });
+
+  test("a redeploy still refuses an empty or unreadable database", () => {
+    // Empty is not production: the account bound on 2026-08-11 is still there.
+    expect(beforeRowsAcceptable("redeploy", { ...EMPTY_ROWS })).toBe(false);
+    // rowCounts reports -1 for a count it could not read, and a reading nobody
+    // could take is not a reading that passed.
+    expect(
+      beforeRowsAcceptable("redeploy", {
+        accounts: 1,
+        name_reservations: -1,
+        instances: 0,
+        operations: 0,
+      }),
+    ).toBe(false);
+    expect(beforeRowsAcceptable("redeploy", {})).toBe(false);
+  });
+
+  test("A PARTIAL READING IS NOT A READING (reviewer finding, 2026-08-12)", () => {
+    // The defect: iterating whatever keys the reading carried accepted
+    // `{accounts: 1}`, so a live redeploy could proceed having established
+    // nothing about three of the four tables.
+    expect(beforeRowsAcceptable("redeploy", { accounts: 1 })).toBe(false);
+    const used = {
+      accounts: 1,
+      name_reservations: 1,
+      instances: 1,
+      operations: 4,
+    };
+    for (const table of USER_TABLES) {
+      const { [table]: _missing, ...partial } = used;
+      expect({ table, ok: beforeRowsAcceptable("redeploy", partial) }).toEqual({
+        table,
+        ok: false,
+      });
+    }
+    // And the whole reading still passes, so the cases above fail for the
+    // missing key rather than for something else about the fixture.
+    expect(beforeRowsAcceptable("redeploy", used)).toBe(true);
+  });
+
+  test("a count that is not a whole non-negative number is not readable", () => {
+    const used = {
       accounts: 1,
       name_reservations: 0,
       instances: 0,
       operations: 0,
-    });
+    };
+    for (const bad of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      1.5,
+      -1,
+      "3" as unknown as number,
+      null as unknown as number,
+      undefined as unknown as number,
+    ]) {
+      expect(
+        beforeRowsAcceptable("redeploy", { ...used, operations: bad }),
+      ).toBe(false);
+      // The account count is judged by the same rule, not by a bare comparison
+      // that a non-number could slip through.
+      expect(beforeRowsAcceptable("redeploy", { ...used, accounts: bad })).toBe(
+        false,
+      );
+    }
   });
 
-  test("rowsMatch is exact in both directions", () => {
-    const want = expectedRows("redeploy");
-    expect(rowsMatch({ ...want }, want)).toBe(true);
-    // A second account appearing during a redeploy is an acceptance failure.
-    expect(rowsMatch({ ...want, accounts: 2 }, want)).toBe(false);
-    expect(rowsMatch({ ...want, operations: 1 }, want)).toBe(false);
+  test("the AFTER expectation is the before reading, whatever it held", () => {
+    const before = {
+      accounts: 3,
+      name_reservations: 2,
+      instances: 2,
+      operations: 41,
+    };
+    const want = afterRowsExpected(before);
+    expect(rowsMatch({ ...before }, want)).toBe(true);
+    // Any movement during the deploy is still an acceptance failure.
+    expect(rowsMatch({ ...before, accounts: 4 }, want)).toBe(false);
+    expect(rowsMatch({ ...before, operations: 42 }, want)).toBe(false);
     // A missing table is not silently equal.
-    expect(rowsMatch({ accounts: 1 }, want)).toBe(false);
+    expect(rowsMatch({ accounts: 3 }, want)).toBe(false);
+    // The snapshot is a COPY: a later mutation of the reading cannot move the
+    // expectation the run is judged against.
+    before.accounts = 99;
+    expect(want.accounts).toBe(3);
   });
 
   test("THE REDEPLOY CLAIMS NO AUTHENTICATED RESULT, and cannot", () => {
@@ -1372,7 +1463,7 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
   });
 });
 
-describe("post-deploy row checks follow the MODE, not zero", () => {
+describe("post-deploy row checks compare against the run's own before reading", () => {
   test("ONE ACCOUNT PASSES A REDEPLOY AND FAILS A FIRST DEPLOY", () => {
     // The bug this pins: post-deploy checks that demanded zero would have
     // detached a healthy production the moment a real account existed.
@@ -1382,8 +1473,9 @@ describe("post-deploy row checks follow the MODE, not zero", () => {
       instances: 0,
       operations: 0,
     };
-    expect(rowsMatch(live, expectedRows("redeploy"))).toBe(true);
-    expect(rowsMatch(live, expectedRows("first"))).toBe(false);
+    expect(beforeRowsAcceptable("redeploy", live)).toBe(true);
+    expect(beforeRowsAcceptable("first", live)).toBe(false);
+    expect(rowsMatch(live, afterRowsExpected(live))).toBe(true);
   });
 
   test("an empty database fails a redeploy: the account must still be there", () => {
@@ -1393,21 +1485,31 @@ describe("post-deploy row checks follow the MODE, not zero", () => {
       instances: 0,
       operations: 0,
     };
-    expect(rowsMatch(empty, expectedRows("redeploy"))).toBe(false);
-    expect(rowsMatch(empty, expectedRows("first"))).toBe(true);
+    expect(beforeRowsAcceptable("redeploy", empty)).toBe(false);
+    expect(beforeRowsAcceptable("first", empty)).toBe(true);
   });
 
-  test("a SECOND account during a redeploy is an acceptance failure", () => {
-    const extra = {
+  test("ANY table growing DURING a deploy is an acceptance failure", () => {
+    // The claim is that the deploy changed nothing, and it holds whatever the
+    // starting counts were - here a production carrying one live office.
+    const before = {
       accounts: 2,
-      name_reservations: 0,
-      instances: 0,
-      operations: 0,
+      name_reservations: 1,
+      instances: 1,
+      operations: 9,
     };
-    expect(rowsMatch(extra, expectedRows("redeploy"))).toBe(false);
-    for (const table of ["name_reservations", "instances", "operations"]) {
-      const grew = { ...expectedRows("redeploy"), [table]: 1 };
-      expect({ table, ok: rowsMatch(grew, expectedRows("redeploy")) }).toEqual({
+    const want = afterRowsExpected(before);
+    for (const table of [
+      "accounts",
+      "name_reservations",
+      "instances",
+      "operations",
+    ]) {
+      const grew = {
+        ...before,
+        [table]: before[table as keyof typeof before] + 1,
+      };
+      expect({ table, ok: rowsMatch(grew, want) }).toEqual({
         table,
         ok: false,
       });

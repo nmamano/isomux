@@ -9,7 +9,13 @@ import {
   PROVISIONER_ORIGIN,
   judgeHealth,
 } from "./probe.ts";
-import { inspectMintFile } from "./fly-cli.ts";
+import {
+  CONTABO_SECRET_NAMES,
+  contaboFileUsable,
+  inspectContaboFile,
+  inspectMintFile,
+  parseContabo,
+} from "./fly-cli.ts";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -21,6 +27,7 @@ const HEALTHY = {
   database_reachable: true,
   tick_recent: true,
   state_persisted: false,
+  provider_configured: false,
 };
 
 describe("where the credential may be sent", () => {
@@ -46,6 +53,30 @@ describe("the health verdict", () => {
     expect(verdict.shapeOk).toBe(true);
     expect(verdict.gatingTrue).toBe(true);
     expect(GATING_KEYS).not.toContain("state_persisted" as never);
+  });
+
+  test("A PROVISIONER WITH NO PROVIDER CREDENTIALS IS NOT A FAILED ONE", () => {
+    // It idles by design (measured over 37 minutes, 2026-08-11), so the reading
+    // is reported and not gated. An operator asserts it at the gate that puts
+    // the credentials there; `ok` never carries it.
+    expect(GATING_KEYS).not.toContain("provider_configured" as never);
+    expect(HEALTH_KEYS).toContain("provider_configured");
+    const withCredentials = judgeHealth({
+      ...HEALTHY,
+      provider_configured: true,
+    });
+    expect(withCredentials.shapeOk).toBe(true);
+    expect(withCredentials.gatingTrue).toBe(true);
+    expect(judgeHealth(HEALTHY).gatingTrue).toBe(true);
+  });
+
+  test("the reading is still REPORTED, in both states", () => {
+    expect(judgeHealth(HEALTHY).lines.join("\n")).toContain(
+      "provider_configured: false",
+    );
+    expect(
+      judgeHealth({ ...HEALTHY, provider_configured: true }).lines.join("\n"),
+    ).toContain("provider_configured: true");
   });
 
   test("A DEGRADED MACHINE IS NOT ACCEPTED", () => {
@@ -204,6 +235,135 @@ describe("the credential file the probe and the import share", () => {
       shapeOk: false,
     });
     expect(token).toBe("");
+  });
+
+  afterAll(() => {
+    for (const dir of temps.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("the provider credential file the import reads (D4)", () => {
+  const temps: string[] = [];
+  const write = (contents: string, mode = 0o600): string => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-contabo-"));
+    temps.push(dir);
+    const file = path.join(dir, "contabo.env");
+    fs.writeFileSync(file, contents, { mode });
+    fs.chmodSync(file, mode);
+    return file;
+  };
+  const GOOD =
+    "CONTABO_CLIENT_ID='id-value'\n" +
+    "CONTABO_CLIENT_SECRET='secret-value'\n" +
+    "CONTABO_API_USER='user@example.com'\n" +
+    "CONTABO_API_PASSWORD='password-value'\n";
+
+  test("the ruled shape passes and yields the four pairs", () => {
+    const { checks, pairs } = inspectContaboFile(write(GOOD));
+    expect(checks).toEqual({
+      present: true,
+      regularFile: true,
+      mode600: true,
+      shapeOk: true,
+    });
+    expect(pairs.map((p) => p.name).sort()).toEqual(
+      [...CONTABO_SECRET_NAMES].sort(),
+    );
+    expect(pairs.find((p) => p.name === "CONTABO_API_USER")?.value).toBe(
+      "user@example.com",
+    );
+    expect(contaboFileUsable(checks)).toBe(true);
+  });
+
+  test("order does not matter, and a missing final newline is still the shape", () => {
+    const reversed = GOOD.trimEnd().split("\n").reverse().join("\n");
+    const { checks, pairs } = inspectContaboFile(write(reversed));
+    expect(checks.shapeOk).toBe(true);
+    expect(pairs.length).toBe(4);
+  });
+
+  test("a readable-by-others file yields NO pairs", () => {
+    const { checks, pairs } = inspectContaboFile(write(GOOD, 0o644));
+    expect(checks.mode600).toBe(false);
+    expect(contaboFileUsable(checks)).toBe(false);
+    expect(pairs).toEqual([]);
+  });
+
+  test("a symlink is refused rather than followed", () => {
+    const real = write(GOOD);
+    const link = path.join(path.dirname(real), "link.env");
+    fs.symlinkSync(real, link);
+    const { checks, pairs } = inspectContaboFile(link);
+    expect(checks.regularFile).toBe(false);
+    expect(checks.present).toBe(true);
+    expect(pairs).toEqual([]);
+  });
+
+  test("THREE OF FOUR IS A REFUSAL, not a partial import", () => {
+    // A machine holding some of the credentials authenticates to nothing and
+    // says nothing about why, which is the failure this shape check prevents.
+    const three = GOOD.split("\n").slice(0, 3).join("\n") + "\n";
+    expect(inspectContaboFile(write(three)).checks.shapeOk).toBe(false);
+  });
+
+  test("the shape is exact, and it is the FILE that is matched", () => {
+    const cases: [string, string][] = [
+      [
+        "a name repeated",
+        GOOD.replace("CONTABO_API_USER", "CONTABO_CLIENT_ID"),
+      ],
+      [
+        "a name nobody ruled",
+        GOOD.replace("CONTABO_API_USER", "CONTABO_OTHER"),
+      ],
+      [
+        "a name outside the family",
+        GOOD.replace("CONTABO_API_USER", "AWS_KEY"),
+      ],
+      ["a fifth line", `${GOOD}EXTRA='surprise'\n`],
+      ["unquoted", GOOD.replace("'id-value'", "id-value")],
+      ["double quotes", GOOD.replace("'id-value'", '"id-value"')],
+      ["an empty value", GOOD.replace("'id-value'", "''")],
+      ["a quote inside a value", GOOD.replace("'id-value'", "'id'value'")],
+      ["a shell export prefix", `export ${GOOD}`],
+      ["a comment line", `# provider credentials\n${GOOD}`],
+      ["a leading blank line", `\n${GOOD}`],
+      ["an extra trailing blank line", `${GOOD}\n`],
+      ["a trailing space", GOOD.replace("'id-value'\n", "'id-value' \n")],
+      ["carriage returns", GOOD.replace(/\n/g, "\r\n")],
+      ["empty", ""],
+    ];
+    for (const [label, contents] of cases) {
+      const { checks, pairs } = inspectContaboFile(write(contents));
+      expect({ label, shapeOk: checks.shapeOk, pairs: pairs.length }).toEqual({
+        label,
+        shapeOk: false,
+        pairs: 0,
+      });
+    }
+  });
+
+  test("a value carrying a line break cannot be built at all", () => {
+    // The line split makes it impossible by construction, and validatePairs
+    // refuses the same thing one layer down. Both are checked, because this is
+    // the injection that would set a name nobody asked for.
+    const broken = parseContabo(GOOD.replace("'id-value'", "'id\nvalue'"));
+    expect(broken).toBeNull();
+  });
+
+  test("a missing file is all false", () => {
+    const { checks, pairs } = inspectContaboFile(
+      "/tmp/definitely-not-here.env",
+    );
+    expect(checks).toEqual({
+      present: false,
+      regularFile: false,
+      mode600: false,
+      shapeOk: false,
+    });
+    expect(pairs).toEqual([]);
   });
 
   afterAll(() => {

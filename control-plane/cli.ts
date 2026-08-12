@@ -68,7 +68,7 @@ import { InviteHold } from "./invite-hold.ts";
 import { watchLiveness } from "./liveness-watch.ts";
 import { startMintSeam, type RunningMintSeam } from "./mint-seam.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
-import { tickerHandlerRoster } from "./run-roster.ts";
+import { PROVIDER_DEPENDENT_KINDS, tickerHandlerRoster } from "./run-roster.ts";
 import { setOperator } from "./operator-admin.ts";
 import type { AssetState } from "./provider.ts";
 import { readAndRefreshMarker } from "./state-marker.ts";
@@ -470,6 +470,11 @@ async function healthReport(deps: {
   branchPinned: boolean;
   persisted: boolean;
   lastTickAt: () => number;
+  /** Whether this process registered the provider-dependent handlers, asked of
+   * the ticker rather than of the environment. NOT a gating boolean: a
+   * provisioner with no provider credentials idles correctly by design, and a
+   * deployment that has not been given them yet is not a failed one. */
+  providerConfigured: () => boolean;
 }): Promise<Record<string, boolean>> {
   let databaseReachable = false;
   try {
@@ -491,6 +496,7 @@ async function healthReport(deps: {
     database_reachable: databaseReachable,
     tick_recent: tickRecent,
     state_persisted: deps.persisted,
+    provider_configured: deps.providerConfigured(),
   };
 }
 
@@ -676,6 +682,11 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   const hold = new InviteHold();
   const token = process.env.CONTROL_PLANE_MINT_TOKEN ?? "";
   let lastTickAt = 0;
+  // Answered BY THE TICKER, once it exists. The seam is started first, so the
+  // health surface reads this through a getter rather than a value: a request
+  // that arrives before the ticker is built gets `false`, which is the honest
+  // answer at that instant.
+  let providerConfigured = false;
   let seam: RunningMintSeam | null = null;
   if (token) {
     seam = startMintSeam({
@@ -690,6 +701,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           branchPinned,
           persisted: marker.persisted,
           lastTickAt: () => lastTickAt,
+          providerConfigured: () => providerConfigured,
         }),
       report: (line) => reporter.line(line),
     });
@@ -702,23 +714,30 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
         "and dashboard invite requests will be refused rather than minted",
     );
   }
-  const ticker = makeTicker(
+  const running = makeTicker(
     store,
     args.get("owner-name") ?? "Owner",
     // Only when the seam is up. A hold nobody can read would turn every
     // customer's invite into a link that silently expires in memory.
     seam ? hold : undefined,
   );
-  reporter.step("run", `holder ${ticker.holder}`);
+  providerConfigured = PROVIDER_DEPENDENT_KINDS.every((kind) =>
+    running.handles(kind),
+  );
+  reporter.step("run", `holder ${running.holder}`);
+  // Said out loud for the same reason the missing seam credential is: a
+  // provisioner without provider means idles correctly and looks identical to
+  // one that is working, until an operation needs a provider and fails.
+  reporter.line(`provider-configured ${providerConfigured}`);
   try {
-    await driveTicks(store, ticker, {
+    await driveTicks(store, running, {
       forever: args.get("once") !== "true",
       onTick: () => {
         lastTickAt = Date.now();
       },
       watch: () =>
         watchLiveness(store, {
-          holder: ticker.holder,
+          holder: running.holder,
           report: (line) => reporter.line(line),
         }).then(() => undefined),
     });

@@ -14,7 +14,13 @@ import { GATING_KEYS, HEALTH_KEYS } from "../deploy/probe.ts";
 
 export type HealthKey = (typeof HEALTH_KEYS)[number];
 
-/** Everything working, including a machine that has completed a pass. */
+/**
+ * Everything working, including a machine that has completed a pass.
+ *
+ * `provider_configured` is true here because this fixture is the shape of a
+ * FULLY equipped machine; it is not a gating key, so a caller proving the
+ * credential-free state passes it as false rather than editing this.
+ */
 export const GREEN_HEALTH: Record<HealthKey, boolean> = {
   ok: true,
   bounds_governed: true,
@@ -22,6 +28,7 @@ export const GREEN_HEALTH: Record<HealthKey, boolean> = {
   database_reachable: true,
   tick_recent: true,
   state_persisted: true,
+  provider_configured: true,
 };
 
 /** The transcript's lines, in the order the probe prints them. */

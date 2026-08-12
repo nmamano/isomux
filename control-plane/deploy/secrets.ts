@@ -1,4 +1,4 @@
-// Put the provisioner's three secrets on its machine, and prove nothing leaked.
+// Put the provisioner's seven secrets on its machine, and prove nothing leaked.
 //
 //   bun control-plane/deploy/secrets.ts --canary        what does flyctl echo?
 //   bun control-plane/deploy/secrets.ts --unset-canary  remove that one name
@@ -30,25 +30,42 @@ import {
 import { BRANCH_PIN_ENV } from "../boot.ts";
 import {
   APP,
+  CONTABO_SECRET_NAMES,
   FLYCTL,
   FLY_TOKEN_FILE,
   MINT_TOKEN_NAME,
+  contaboFileUsable,
+  inspectContaboFile,
   inspectMintFile,
   mintFileUsable,
   readSecretFile,
   realSpawn,
+  type Pair,
   type Spawn,
 } from "./fly-cli.ts";
+
+export type { Pair };
 
 /** The database string's name, which is the one secret the credential move
  * rotates on its own. Named here so that program cannot spell it differently. */
 export const DB_SECRET_NAME = "CONTROL_PLANE_DB";
 
-/** The only names this program may set. Anything else is a refusal. */
+/**
+ * The only names this program may set. Anything else is a refusal.
+ *
+ * The four provider credentials joined the list at D4 (2026-08-12), which is
+ * when the provisioner first got the means to act on a real box. Their arrival
+ * changes what the ordinary import DEMANDS: with the credential file absent or
+ * out of shape the program now refuses rather than importing a subset, because
+ * a partial set is a machine that authenticates to nothing and reports no
+ * reason. Removing them again is deleting four names here and unsetting them on
+ * the app - the deployment idles without provider credentials by design.
+ */
 export const SECRET_NAMES = [
   DB_SECRET_NAME,
   BRANCH_PIN_ENV,
   MINT_TOKEN_NAME,
+  ...CONTABO_SECRET_NAMES,
 ] as const;
 
 /**
@@ -60,11 +77,6 @@ export const SECRET_NAMES = [
  */
 export const CANARY_NAME = "PROBE_CANARY";
 export const CANARY_VALUE = "isomux-d2-public-canary";
-
-export interface Pair {
-  name: string;
-  value: string;
-}
 
 export interface PushOutcome {
   /** False when validation refused, in which case no child ever ran. */
@@ -322,9 +334,25 @@ async function main(): Promise<void> {
     return;
   }
 
+  // The provider credentials get the same treatment as the seam's, by the same
+  // process, at the same moment: four names or none.
+  const contabo = inspectContaboFile();
+  console.log(`contabo_file_present: ${contabo.checks.present}`);
+  console.log(`contabo_file_regular: ${contabo.checks.regularFile}`);
+  console.log(`contabo_file_mode_600: ${contabo.checks.mode600}`);
+  console.log(`contabo_file_shape_ok: ${contabo.checks.shapeOk}`);
+  if (!contaboFileUsable(contabo.checks)) {
+    console.log(
+      "refusing: the provider credential file is not in the ruled shape",
+    );
+    process.exitCode = 2;
+    return;
+  }
+
   const pairs = [
     ...(await neonProductionPair()),
     { name: MINT_TOKEN_NAME, value: mint.token },
+    ...contabo.pairs,
   ];
   const outcome = await pushSecrets({
     pairs,

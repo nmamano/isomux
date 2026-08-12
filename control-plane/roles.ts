@@ -500,6 +500,12 @@ export const AUDITED_CMDRUN_SURFACES = [
   "bindAddressOf",
   "healthReport",
   "makeTicker",
+  // The two halves of the deployed process's answer to "do I have provider
+  // means" (D4, 2026-08-12). Audited and named here like every other call in
+  // that body, and neither reaches the database: the constant is a list of
+  // kinds, and `handles` is a lookup in the ticker's own handler map.
+  "PROVIDER_DEPENDENT_KINDS.every",
+  "running.handles",
   "driveTicks",
   "watchLiveness",
   "exitCodeFor",

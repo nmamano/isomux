@@ -18,6 +18,7 @@ import {
   unsetCanary,
   validatePairs,
 } from "./secrets.ts";
+import { CONTABO_SECRET_NAMES } from "./fly-cli.ts";
 import type { Spawn, SpawnResult } from "./fly-cli.ts";
 
 const DSN =
@@ -89,14 +90,6 @@ describe("validation, before any child exists", () => {
         SECRET_NAMES,
       ),
     ).toContain("named twice: CONTROL_PLANE_DB");
-  });
-
-  test("the three names are the ones the deployment needs", () => {
-    expect([...SECRET_NAMES]).toEqual([
-      "CONTROL_PLANE_DB",
-      "CONTROL_PLANE_DB_BRANCH",
-      "CONTROL_PLANE_MINT_TOKEN",
-    ]);
   });
 });
 
@@ -265,6 +258,49 @@ describe("the canary", () => {
     const outcome = await unsetCanary({ flyToken: "t", spawn: fly.spawn });
     expect(outcome).toEqual({ exitCode: 1 });
     expect(everythingReturned(outcome)).not.toContain("could not remove");
+  });
+});
+
+describe("what the allowlist may carry (D4, 2026-08-12)", () => {
+  test("seven names: the database, the branch pin, the seam, and the provider", () => {
+    expect([...SECRET_NAMES]).toEqual([
+      "CONTROL_PLANE_DB",
+      "CONTROL_PLANE_DB_BRANCH",
+      "CONTROL_PLANE_MINT_TOKEN",
+      "CONTABO_CLIENT_ID",
+      "CONTABO_CLIENT_SECRET",
+      "CONTABO_API_USER",
+      "CONTABO_API_PASSWORD",
+    ]);
+    // The four names the provisioner's own credential reader takes from the
+    // environment. A name spelled differently on either side is a machine that
+    // authenticates to nothing, so the two lists are compared rather than read
+    // side by side.
+    expect([...CONTABO_SECRET_NAMES].every((n) => SECRET_NAMES.includes(n)));
+    expect([...CONTABO_SECRET_NAMES]).toEqual([
+      "CONTABO_CLIENT_ID",
+      "CONTABO_CLIENT_SECRET",
+      "CONTABO_API_USER",
+      "CONTABO_API_PASSWORD",
+    ]);
+  });
+
+  test("a provider credential is still validated like any other value", () => {
+    expect(
+      validatePairs(
+        [{ name: "CONTABO_API_PASSWORD", value: "fine" }],
+        SECRET_NAMES,
+      ),
+    ).toEqual([]);
+    expect(
+      validatePairs(
+        [{ name: "CONTABO_API_PASSWORD", value: "one\nTWO=surprise" }],
+        SECRET_NAMES,
+      ),
+    ).toEqual(["value carries a line break: CONTABO_API_PASSWORD"]);
+    expect(
+      validatePairs([{ name: "CONTABO_REGION", value: "EU" }], SECRET_NAMES),
+    ).toEqual(["not an allowed secret name: CONTABO_REGION"]);
   });
 });
 
