@@ -374,6 +374,68 @@ webhook consumer running through it + verified key removal, then the
 suites cancel-tail (own gate), then G8 runbook/docs/close-out. Boxes term
 2026-08-29; nothing else expires.
 
+### D4 mid-slice ledger 2 (tick 2026-08-12 ~14:15Z, G5 complete)
+
+G5 COMPLETE, commit 44d678e (approved 8bdf303/2339/a593d3b6; formatted
+re-gate 2362/bc6b8c9b PROVED formatting-only - Reviewer2 reproduced the
+committed bytes by running prettier over the approved pre-format diff;
+method note: formatted re-gates are proofs only if the pre-format diff is
+kept). Box 203474835 rebuilt TWICE through the deployed provisioner
+(EUR 0, cancel 2026-08-29 intact, account 2 rows / 1 stranger at every
+reading; reinstall-to-SSH 73s and 78s, 2026-08-12).
+
+The defect G5 caught and fixed: fly console execs resolve HOME=/root, not
+the image's /data - config.ts derives STATE_ROOT from os.homedir(), so
+every exec'd command wrote records/keys/audit to the EPHEMERAL filesystem
+while init-started processes wrote the volume. volume_audit measured
+false pre-remedy: the only audit rows in existence were ephemeral. Remedy
+(in 44d678e): explicit HOME pin on every on-machine command, refuse-if-
+unproved pre-check, acceptance = record+keys+audit on volume AND zero
+delta in the legacy root. Channel facts now MEASURED (2026-08-12):
+non-zero remote exits arrive non-zero, exit-one arrives as exactly one,
+exit-0 reads work, env prefixes reach the child.
+
+DECOY WARNING binding G7's plan-gate: /root still holds one reachable-
+looking run record whose key the second rebuild INVALIDATED - left in
+place deliberately (no unreviewed rm of key material; it dies with the
+next machine replacement). Any UNPINNED on-machine command (adopt-run!)
+would silently select it. Ruled: the G7 plan states pin carriage for
+every on-machine command and PROVES volume reads in acceptance; step-3
+promotion (machine-level HOME, replaces the machine - now legal, freeze
+lifted after the second recycle) is the preferred shape CONTINGENT on
+measuring that machine-level env reaches exec sessions (image ENV does
+not). Room-memory machine lock added and removed same night.
+
+Stripe CLI: not installed on this box (G7 consumer transport needs it).
+Both rails approved install: v1.45.2 pinned, release artifact + same-
+release checksums (transit integrity NOT provenance - keep that sentence
+verbatim), target ~/nil/tools/bin, no root; STRUCTURAL AVOIDANCE of the
+pre-existing ~/.config/stripe (every invocation carries --config to our
+own file; never any `stripe config` command - it prints the file);
+before/after stat booleans only, no content-derived values on disk.
+Pre-existing mode-600 ~/.config/stripe/config.toml (90 bytes, 2026-08-09,
+no CLI ever installed; inference: Stripe MCP cache) UNREAD - queued for
+Nil as a dated secrets-surface fact. Executing one command at a time;
+steps 5 and 8 are the decision points.
+
+Carried, non-blocking: stranded rung-3 comment + Reviewer2's pin-first
+ordering (ride the next legitimate edit); legacy guard outlives its
+reason (one G8 runbook sentence: fires after machine replacement, remove
+when /root is gone); README set -a line fixed at G8; import.meta.main
+guard fact for the runbook (importing provider-account.ts without it
+would have made a live provider call from a read-only diagnostic); N4
+housekeeping now names two provider SSH secrets (run-20260812130101-hc5b,
+run-20260812133231-c73w). Process: bytes-first review is the standing
+rule for out-of-form mechanisms (the /tmp runner crossing showed post-hoc
+detects but cannot prevent; verdict there: form defect on an unexercised
+path, not an incident).
+
+Resume point: Stripe CLI install (one command at a time), consumer
+mechanics already plan-gated, then the G6/G7 window plan (step-3
+measurement + promotion decision inside it), then Nil's window, suites
+cancel-tail, G8. Nil briefed ~13:30Z; config.toml fact still to reach
+him.
+
 ## PICKUP - SLICE D1: Neon readiness (Isomuxer2 / Reviewer2)
 
 Goal: prove the store runs against the real Neon project and codify how
