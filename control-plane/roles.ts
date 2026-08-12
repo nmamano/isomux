@@ -1057,10 +1057,32 @@ export function roleIdentitySql(): string {
     "select r.rolname as role, r.rolcanlogin as can_login, " +
     "coalesce(r.rolconfig, '{}') as config, " +
     // BOTH DIRECTIONS. Counting only the roles this one belongs to misses the
-    // dangerous half: a role that OTHER roles are members of hands them
-    // everything the matrix is about to grant it.
+    // half that hands OUR privileges to somebody else: a role that a STRANGER
+    // is a member of gives them everything the matrix is about to grant it.
+    // Not every incoming edge is a stranger, though - see the next column.
     "(select count(*)::int from pg_auth_members m where m.member = r.oid) as belongs_to, " +
     "(select count(*)::int from pg_auth_members m where m.roleid = r.oid) as members_of_it, " +
+    // THE OWNER'S OWN MEMBERSHIP IS NOT A THIRD PARTY, and on a managed
+    // provider it is not optional either. Postgres 16+ grants a NON-SUPERUSER
+    // creator ADMIN OPTION in the role it creates, so on Neon - whose owner is
+    // not a superuser - every role this build creates has the owner as a
+    // member from the moment it exists (measured on the suites branch
+    // 2026-08-12: one member each, the owner, with admin option). A local
+    // container whose owner IS a superuser records no such row, which is why
+    // no rehearsal here could see it.
+    //
+    // It is what LETS a non-superuser owner manage the role afterwards - ALTER
+    // and DROP both need it - and it grants nothing, because the owner already
+    // owns every table the matrix names. So it is excluded from the predicate
+    // while `members_of_it` stays reported, and any OTHER member still refuses.
+    // BY OID, against the AUTHENTICATED role. The name of the owner is never
+    // an argument to this query: `current_user` is resolved to an oid by the
+    // engine and the comparison is oid against oid, so nothing a caller could
+    // pass decides which member is exempt (reviewer ruling, 2026-08-12).
+    "(select count(*)::int from pg_auth_members m " +
+    " where m.roleid = r.oid and m.member <> " +
+    "   (select o.oid from pg_roles o where o.rolname = current_user)) " +
+    " as members_other_than_owner, " +
     // CLUSTER-WIDE OWNERSHIP. `pg_class` is one database's relations; these
     // names are global, and a role owning a schema, a database, a function or
     // anything in another database is not an inert residue. `pg_shdepend` is
@@ -1083,7 +1105,12 @@ export interface RoleIdentity {
   can_login: boolean;
   config: string[] | null;
   belongs_to: number;
+  /** Reported, never the predicate: on a managed provider the owner is always
+   * one of these. */
   members_of_it: number;
+  /** The count that decides. Anything but the owner is a third party holding
+   * what this build is about to grant. */
+  members_other_than_owner: number;
   owns_anything: number;
   owns_databases: number;
   owns_schemas: number;
@@ -1101,13 +1128,22 @@ export interface RoleIdentity {
  * would silently adopt somebody else's role - including one a different system
  * is authenticating as. So a pre-existing role must look like what a previous
  * run of this program leaves behind and nothing else: it cannot log in, belongs
- * to nothing, owns nothing, and has nobody connected as it. Anything else
- * refuses before the transaction opens.
+ * to nothing, owns nothing, has NO MEMBER OTHER THAN THE OWNER, and has nobody
+ * connected as it. Anything else refuses before the transaction opens.
+ *
+ * The owner exemption is narrow and one-directional. `belongs_to` - our role
+ * being a member of something else - stays zero-tolerance, because that is the
+ * direction that hands our privileges outward.
  */
 export function residueIsInert(identity: RoleIdentity): boolean {
   const counts = [
     identity.belongs_to,
-    identity.members_of_it,
+    // NOT `members_of_it`: see `roleIdentitySql`. The owner's own admin
+    // membership is created by Postgres itself when a non-superuser creates a
+    // role, and refusing on it would mean this build could never re-run
+    // against the provider it deploys on - a check that fails on its own
+    // correct state is not a check (measured, and ruled 2026-08-12).
+    identity.members_other_than_owner,
     identity.owns_anything,
     identity.owns_databases,
     identity.owns_schemas,

@@ -448,6 +448,7 @@ describe("a pre-existing role is only adopted if it is inert", () => {
     config: [],
     belongs_to: 0,
     members_of_it: 0,
+    members_other_than_owner: 0,
     owns_anything: 0,
     owns_databases: 0,
     owns_schemas: 0,
@@ -473,7 +474,55 @@ describe("a pre-existing role is only adopted if it is inert", () => {
   // entirely.
   test("membership is refused whichever way the edge points", () => {
     expect(residueIsInert(identity({ belongs_to: 1 }))).toBe(false);
-    expect(residueIsInert(identity({ members_of_it: 1 }))).toBe(false);
+    expect(
+      residueIsInert(
+        identity({ members_of_it: 1, members_other_than_owner: 1 }),
+      ),
+    ).toBe(false);
+  });
+
+  // THE OWNER'S OWN MEMBERSHIP IS NOT A THIRD PARTY. Postgres 16+ creates it
+  // when a non-superuser creates a role, so on the managed provider this build
+  // deploys on it is present from the moment the role exists (measured on the
+  // Neon suites branch 2026-08-12: one member each, the owner, with admin
+  // option). Refusing on it would mean the build could never run twice against
+  // its own correct state.
+  test("the owner's own membership does not make a role somebody else's", () => {
+    expect(
+      residueIsInert(
+        identity({ members_of_it: 1, members_other_than_owner: 0 }),
+      ),
+    ).toBe(true);
+  });
+
+  // And the exemption is exactly one member wide: a second one, whoever it is,
+  // still refuses.
+  test("a member that is not the owner still refuses", () => {
+    expect(
+      residueIsInert(
+        identity({ members_of_it: 2, members_other_than_owner: 1 }),
+      ),
+    ).toBe(false);
+  });
+
+  // The exemption is one-directional. Our role being a member of something
+  // ELSE hands our privileges outward, and no owner argument applies to it.
+  test("belongs_to stays zero-tolerance, owner or not", () => {
+    expect(
+      residueIsInert(
+        identity({
+          belongs_to: 1,
+          members_of_it: 1,
+          members_other_than_owner: 0,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  test("an unreadable member count refuses rather than passing", () => {
+    expect(residueIsInert(identity({ members_other_than_owner: -1 }))).toBe(
+      false,
+    );
   });
 
   // Ownership is CLUSTER-WIDE for a global role name, so a relation in this

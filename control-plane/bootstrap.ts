@@ -187,9 +187,12 @@ async function preflight(
       throw new Error(
         "refusing to govern: a role with one of this build's names already " +
           "exists and is not an inert residue of a previous run - it can log " +
-          "in, belongs to a role, owns an object, or has a live session. " +
-          "These names are cluster-global, so taking one over could adopt " +
-          "another system's identity. Resolve it by hand first.",
+          "in, belongs to a role, has a member OTHER than the owner that " +
+          "created it, owns an object, or has a live session. The owner's own " +
+          "membership is not one of these: a non-superuser creator is granted " +
+          "it by Postgres itself. These names are cluster-global, so taking " +
+          "one over could adopt another system's identity. Resolve it by hand " +
+          "first.",
       );
     }
   }

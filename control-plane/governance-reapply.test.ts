@@ -32,6 +32,9 @@ import {
   judgeMatrix,
   matrixSql,
   priorRuntimeRoles,
+  residueIsInert,
+  roleIdentitySql,
+  type RoleIdentity,
 } from "./roles.ts";
 import { Store } from "./store.ts";
 import { LOCAL_DATABASE_URL, TARGET_IS_LOCAL } from "./testing/pg.ts";
@@ -286,6 +289,72 @@ describe("the acceptance verdict counts every fact it reports", () => {
       expect(reapplyIsExact({ ...green, ...patch })).toBe(false);
     });
   }
+});
+
+/**
+ * THE OWNER'S OWN MEMBERSHIP, staged on a real engine.
+ *
+ * Postgres 16+ grants a NON-SUPERUSER creator ADMIN OPTION in the role it
+ * creates. The container's own owner is a superuser and records no such row, so
+ * nothing in this repo could see the condition until it was measured on the
+ * provider - both the Neon suites branch and production carry it (2026-08-12,
+ * one member each, the owner, with admin option, owner not superuser).
+ *
+ * So the condition is staged here rather than asserted about: a non-superuser
+ * role with CREATEROLE creates a role, and what the catalog then says is read
+ * from both sides. Without this, the `<> current_user` clause in
+ * `roleIdentitySql` would be exercised only in production.
+ */
+suite("a role created by a non-superuser owner", () => {
+  test(
+    "carries its creator as a member, and is still adoptable BY that creator",
+    () =>
+      serial(async () => {
+        const dsn = await scratchDatabase();
+        const creator = `cp_creator_${Math.random().toString(36).slice(2, 8)}`;
+        const child = `cp_child_${Math.random().toString(36).slice(2, 8)}`;
+        const password = crypto.randomUUID().replace(/-/g, "");
+        await ask(
+          dsn,
+          `create role ${creator} login createrole password '${password}'`,
+        );
+        const asCreator = new URL(dsn);
+        asCreator.username = creator;
+        asCreator.password = password;
+        try {
+          // The creator, not the superuser, makes the role - which is the
+          // whole point: a superuser creator records no membership at all.
+          await ask(asCreator.toString(), `create role ${child} nologin`);
+
+          const fromCreator = await ask<RoleIdentity>(
+            asCreator.toString(),
+            roleIdentitySql(),
+            [[child]],
+          );
+          expect(fromCreator[0].members_of_it).toBe(1);
+          // ... and it is not a third party, because it IS this session.
+          expect(fromCreator[0].members_other_than_owner).toBe(0);
+          expect(fromCreator[0].belongs_to).toBe(0);
+          expect(residueIsInert(fromCreator[0])).toBe(true);
+
+          // FROM ANOTHER SESSION the same row IS a third party, and the
+          // predicate says so. The exemption is about who is asking, which is
+          // what makes it narrow: the bootstrap asks as the owner.
+          const fromSuperuser = await ask<RoleIdentity>(
+            dsn,
+            roleIdentitySql(),
+            [[child]],
+          );
+          expect(fromSuperuser[0].members_of_it).toBe(1);
+          expect(fromSuperuser[0].members_other_than_owner).toBe(1);
+          expect(residueIsInert(fromSuperuser[0])).toBe(false);
+        } finally {
+          await ask(dsn, `drop role if exists ${child}`).catch(() => []);
+          await ask(dsn, `drop role if exists ${creator}`).catch(() => []);
+        }
+      }),
+    60_000,
+  );
 });
 
 suite("it refuses before writing anything", () => {

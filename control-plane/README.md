@@ -1660,6 +1660,28 @@ bun control-plane/exercises/neon.ts regovern --branch <name>            # forwar
 bun control-plane/exercises/neon.ts regovern --branch <name> --reverse  # back
 ```
 
+**One exemption, measured on the provider rather than reasoned about.** Both
+runtime roles have the OWNER as a member, with admin option, and that is not a
+third party: Postgres 16+ grants a NON-SUPERUSER creator ADMIN OPTION in the
+role it creates, and Neon's owner is not a superuser. The local container's
+owner IS one and records no such row, so no rehearsal here could have seen it -
+it was found by the pre-live probe (Neon suites branch AND production, both
+2026-08-12: one member each, the owner, with admin option, `belongs_to` and
+every ownership count zero). Left unexempted, `residueIsInert` was false for
+both roles and every governance re-application - `regovern` and a re-run of
+`govern` alike - refused before it started.
+
+So `roleIdentitySql` counts `members_other_than_owner` and the predicate uses
+that; `members_of_it` is still read and still reported. The exemption grants
+nothing - the owner already owns every table the matrix names, and the
+membership is what lets a non-superuser owner ALTER or DROP the role it
+created - and it is ONE-DIRECTIONAL: `belongs_to`, our role being a member of
+something else, stays zero-tolerance. A member that is not the owner still
+refuses. `governance-reapply.test.ts` stages the condition on a real engine by
+having a non-superuser CREATEROLE role create a role, and asserts the same row
+reads as inert from the creator's session and as a third party from anyone
+else's.
+
 It refuses BEFORE writing unless: the owner already carries exactly the governed
 bounds, both runtime roles are NOLOGIN with nothing connected as them and own
 nothing, their budgets, bounds and memberships are exactly the approved posture,
