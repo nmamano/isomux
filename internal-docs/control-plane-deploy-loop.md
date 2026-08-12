@@ -317,6 +317,63 @@ sign-out still absent (task edb7c76d).
 
 Report to Isomux Manager with the standard format when done.
 
+### D4 mid-slice ledger (tick 2026-08-12 ~08:45Z, G1-G4 complete, parked pre-G5)
+
+Commits: 995139e (G2 provider readiness, approved 47b1d7a/1363/9b8d8b4a +
+formatted re-gate 1379/a38779d6), 040b65b (G3 durable least-privilege
+adoption proof, 995139e/257/571566e0, replaced the live suites rehearsal by
+Reviewer2 ruling - SET ROLE is not the deployed session shape, role config
+applies at login), b018373 (G4 credential landing protocol, 3 review rounds,
+11 findings all real, 040b65b/3552/3b7216d0 + formatted 3570/5acb1199),
+c11ac02 (D4-2 ruling-7 amendment, b018373/423/73a57df5 + formatted
+428/4f71f1f5). Main ahead 4, push question pending with Nil.
+
+Rulings this slice: R-2026-08-12-D4-1 (cancel-leg depth: no production
+provider tail - retention is a calendar month; suites tail only against the
+already-cancel-scheduled box, 422-reconcile path, precondition now formally
+met by the amended step-8 reading; month-out teardown goes in the G8 runbook
+with its real date). R-2026-08-12-D4-2 (ruling 7 restated: exactly one
+instance THIS LOOP MAY TOUCH, id 203474835; strangers counted, never
+inspected; >1 stranger = manager+Nil stop; prompted by the step-8 FULL STOP
+that found Nil's own already-cancelled latency-test box - expires
+2026-08-29 like ours). Wire ruling (both rails independently): protocol
+states what it knows - expected_id_present + other_instances shipped in
+both halves via a second gated activation rather than inferred locally.
+N1 (Nil, in chat): Stripe TEST-mode keys on the public tier WINDOW-SCOPED
+to the pass - in at G6, out immediately after with verified removal.
+
+Live state: provisioner on fly serving the D4-2 image (proved by the
+8-label protocol answer, NOT by the probe - health schema is
+build-invariant, Reviewer2's correction), armed with the four Contabo
+creds, healthy/pinned/ticking/state-persisted across two machine
+replacements. Production: zero provider-linked assets, zero unfinished
+provider ops, accounts=1. G4 ladder: 15 live commands, 1 deliberate stop,
+0 ambiguous, 0 retries, 0 rollbacks. No Stripe credential has ever been on
+the web tier.
+
+Findings that outlive: the deployed web app has NO Stripe webhook route -
+subscription state needs the operator-run consumer through the pass
+(G7 plan-gates its mechanics); CONTROL_PLANE_PRICE_ID/STRIPE_TEST_SECRET_KEY
+absent from Vercel by design until G6; provisioner-move-run --machine-state
+is the designated zero-code first read after any ambiguous activation;
+full lint took 13+ min under box load (vs ~5) twice.
+
+Process lessons: the ruling-7 stop was the acceptance gate finding a true
+world-fact everyone had assumed away, including the ruling itself; the
+manager's commit-time prettier reflow no-oped three of the worker's
+anchored test edits - passing tests are exactly what missing tests look
+like, caught only because every new guard gets mutation-checked
+(standing rule now: re-read from disk before editing any formatted file).
+Executor note: all 15 live commands ran worker-side without classifier
+blocks; the double-rail (reviewer form approval + manager live
+authorization per command) held throughout.
+
+Resume point: G5 recycle (fresh gate request, same double-rail), then
+Nil's windows - G6 Stripe in/redeploy, G7 browser pass ~20min with the
+webhook consumer running through it + verified key removal, then the
+suites cancel-tail (own gate), then G8 runbook/docs/close-out. Boxes term
+2026-08-29; nothing else expires.
+
 ## PICKUP - SLICE D1: Neon readiness (Isomuxer2 / Reviewer2)
 
 Goal: prove the store runs against the real Neon project and codify how
