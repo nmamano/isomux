@@ -39,6 +39,12 @@ COPY control-plane ./control-plane
 # revoke our own access with it.
 ENV HOME=/data
 
+# ENV above reaches only processes fly's init starts. `fly ssh console` builds
+# its session from root's passwd entry instead (measured 2026-08-12: sessions
+# resolved /root and wrote state to the ephemeral disk), so the passwd entry
+# must agree with ENV or the machine has two state roots.
+RUN usermod -d /data root
+
 # --bind, because the default is loopback and fly's proxy is not on it. The
 # address is `::` rather than `0.0.0.0`: fly reaches a machine over its private
 # IPv6 network, and measured 2026-08-11, a Bun server bound to 0.0.0.0 answers
