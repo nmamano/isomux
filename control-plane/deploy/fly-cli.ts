@@ -59,6 +59,266 @@ export const realSpawn: Spawn = async (argv, env, stdin) => {
   return { code: await child.exited, stdout, stderr };
 };
 
+/** What a bounded child answers: its exit code, or nothing plus the reason. */
+export interface BoundedResult {
+  /** Null whenever the run did not end cleanly - the deadline fired, or the
+   * leader exited while processes it started were still alive. */
+  code: number | null;
+  timedOut: boolean;
+  /** The leader is gone and its process group was not. Abnormal by
+   * construction: something it started outlived it. */
+  groupSurvived: boolean;
+  /**
+   * The child's ORIGINAL PROCESS GROUP is proved empty - and that is the exact
+   * claim, not "every descendant is gone".
+   *
+   * A process that calls `setsid` leaves the group and is outside both the kill
+   * and this proof, so the guarantee rests on a stated assumption: the children
+   * this program runs - flyctl and the probe - do not daemonise or start new
+   * sessions (true of both as of 2026-08-12; a future flyctl that daemonised
+   * would break it, and a non-escapable boundary would need a cgroup rather
+   * than a group). False is the state nobody may build on: something the probe
+   * could not account for may still be acting.
+   */
+  groupEmpty: boolean;
+  /** Captured for scanning and parsing. NEVER emitted, and not to be parsed
+   * unless `code` is 0 - an unclean run's output is a fragment. */
+  stdout: string;
+  stderr: string;
+}
+
+export type BoundedSpawn = (
+  argv: string[],
+  env: Record<string, string>,
+  stdin: string,
+  deadlineMs: number,
+  graceMs?: number,
+  /** Injected so the EPERM and unknown-error paths have direct tests. */
+  probe?: GroupProbe,
+) => Promise<BoundedResult>;
+
+/** How long a terminated group gets to leave on its own before SIGKILL. */
+export const KILL_GRACE_MS = 20_000;
+/** How long the group is watched for emptiness after a KILL, and how often. */
+const QUIESCE_TIMEOUT_MS = 5_000;
+const QUIESCE_POLL_MS = 50;
+/** How long a finished run's pipes may take to end before they are cancelled.
+ * A descendant that left the group could hold them open indefinitely. */
+const DRAIN_GRACE_MS = 2_000;
+
+/**
+ * What a `kill(-pgid, 0)` probe means, as a pure decision.
+ *
+ * ONLY ESRCH PROVES ABSENCE. Every other outcome is a process that exists or a
+ * question this program cannot answer, and both must read as ALIVE:
+ *
+ *   ESRCH   no process in the group. The only "empty".
+ *   EPERM   a process IS there and we may not signal it - the exact opposite of
+ *           empty, and the error an earlier version reported as quiescent.
+ *   EINVAL  the signal or the id was rejected; nothing was learned.
+ *   other   nothing was learned either.
+ *
+ * Failing closed here is what keeps a recovery from starting on the strength of
+ * a probe that failed (reviewer finding, 2026-08-12).
+ */
+export type GroupState = "empty" | "alive";
+
+export function classifyGroupProbe(err: unknown): GroupState {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === "ESRCH" ? "empty" : "alive";
+}
+
+/** The real probe. Signal 0 asks whether the group exists without touching it. */
+export type GroupProbe = (pgid: number) => GroupState;
+
+export const realGroupProbe: GroupProbe = (pgid) => {
+  try {
+    process.kill(-pgid, 0);
+    return "alive";
+  } catch (err) {
+    return classifyGroupProbe(err);
+  }
+};
+
+/**
+ * One stream, its OWN decoder, drained until end or cancellation.
+ *
+ * The decoder is per stream and not shared. A streaming `TextDecoder` holds the
+ * tail of a partial multi-byte sequence, so one shared between stdout and
+ * stderr lets a split character from one stream absorb bytes from the other -
+ * corrupting exactly the JSON listing and probe verdict this program parses
+ * (reviewer finding, 2026-08-12). The final `decode()` with no argument flushes
+ * whatever the stream ended mid-character with.
+ */
+export function streamSink(stream: ReadableStream<Uint8Array>): {
+  drain: Promise<void>;
+  text: () => string;
+  cancel: () => void;
+} {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let captured = "";
+  const drain = (async () => {
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) captured += decoder.decode(value, { stream: true });
+      }
+    } catch {
+      // A cancelled reader ends here, which is the point.
+    }
+    captured += decoder.decode();
+  })();
+  return {
+    drain,
+    text: () => captured,
+    cancel: () => {
+      void reader.cancel().catch(() => {});
+    },
+  };
+}
+
+/**
+ * A child with a DEADLINE, whose whole PROCESS GROUP is terminated and proved
+ * gone before the answer comes back.
+ *
+ * `realSpawn` waits forever, which is the right shape for nothing this program
+ * does after a credential exists: a flyctl that never exits would hold a run
+ * open with a staged secret and a live credential and nothing to escalate to,
+ * because the program would never return (reviewer finding, 2026-08-11).
+ *
+ * THE UNIT OF LIFETIME IS THE GROUP, NOT THE CHILD. Killing a leader does not
+ * kill what it started, and a surviving descendant can still hold credentials
+ * and keep talking to a provider after this program has decided the world
+ * stopped changing and begun a recovery - which is the one thing the recovery
+ * assumes is untrue. So the child is spawned DETACHED, which measured
+ * 2026-08-12 on this box puts it in a new process group whose id is its own pid
+ * (a plain spawn shares ours, and signalling that would hit the office's own
+ * processes). Termination signals the GROUP, and the answer is withheld until
+ * `kill(-pgid, 0)` says nothing is left in it.
+ *
+ * A LEADER THAT EXITS CLEANLY WHILE ITS GROUP LIVES IS NOT A SUCCESS. It is
+ * reported as `groupSurvived`, and the group is terminated the same way: an
+ * exit code says what the leader thought, not what its children are still
+ * doing.
+ *
+ * The output is captured for scanning and parsing, and never emitted. Draining
+ * concurrently matters even where nothing reads the bytes: a child that fills a
+ * pipe buffer nobody empties blocks on write, and a blocked child looks exactly
+ * like a slow one. But end-of-stream is NEVER waited on unboundedly - an
+ * inherited pipe can outlive the group entirely - so the readers are cancelled
+ * after a short grace. Measured 2026-08-11: with a child that traps SIGTERM and
+ * leaves a `sleep` holding the pipe, waiting for EOF never returned.
+ */
+export const realBoundedSpawn: BoundedSpawn = async (
+  argv,
+  env,
+  stdin,
+  deadlineMs,
+  graceMs = KILL_GRACE_MS,
+  probe = realGroupProbe,
+) => {
+  const child = Bun.spawn(argv, {
+    env: { ...process.env, ...env },
+    stdin: new TextEncoder().encode(stdin),
+    stdout: "pipe",
+    stderr: "pipe",
+    // Its own process group, so termination can reach everything it starts and
+    // can reach NOTHING of ours.
+    detached: true,
+  });
+  const pgid = child.pid;
+  const sinks = [streamSink(child.stdout), streamSink(child.stderr)];
+  const drained = Promise.all(sinks.map((sink) => sink.drain));
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const alive = () => probe(pgid) === "alive";
+  const letGo = async (): Promise<void> => {
+    // Bounded either way: end of stream if every writer is gone, otherwise
+    // cancelled. Nothing here waits on a writer this program does not own.
+    await Promise.race([drained, sleep(DRAIN_GRACE_MS)]);
+    for (const sink of sinks) sink.cancel();
+  };
+  const answer = (over: Partial<BoundedResult>): BoundedResult => ({
+    code: null,
+    timedOut: false,
+    groupSurvived: false,
+    groupEmpty: false,
+    stdout: sinks[0].text(),
+    stderr: sinks[1].text(),
+    ...over,
+  });
+
+  /** Poll until the group is empty, or say it is not. */
+  const waitEmpty = async (): Promise<boolean> => {
+    for (
+      let waited = 0;
+      waited < QUIESCE_TIMEOUT_MS;
+      waited += QUIESCE_POLL_MS
+    ) {
+      if (!alive()) return true;
+      await sleep(QUIESCE_POLL_MS);
+    }
+    return !alive();
+  };
+
+  const terminateGroup = async (): Promise<boolean> => {
+    try {
+      process.kill(-pgid, "SIGTERM");
+    } catch {
+      // Already gone, or not ours to signal; the probe below decides either way.
+    }
+    for (let waited = 0; waited < graceMs; waited += QUIESCE_POLL_MS) {
+      if (!alive()) break;
+      await sleep(QUIESCE_POLL_MS);
+    }
+    if (alive()) {
+      try {
+        process.kill(-pgid, "SIGKILL");
+      } catch {
+        // Same. A kill this program could not deliver is exactly why the wait
+        // below is bounded.
+      }
+    }
+    // THE REAP, BOUNDED. Awaiting the leader stops it being a zombie, but a
+    // leader that a failed SIGKILL left running would make that await
+    // unbounded - which is the thing this whole primitive exists to remove.
+    await Promise.race([child.exited, sleep(QUIESCE_TIMEOUT_MS)]);
+    return waitEmpty();
+  };
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<"deadline">((resolve) => {
+    timer = setTimeout(() => resolve("deadline"), deadlineMs);
+  });
+
+  try {
+    const first = await Promise.race([
+      child.exited.then((code) => ({ code }) as const),
+      deadline,
+    ]);
+
+    if (first !== "deadline") {
+      if (!alive()) {
+        await letGo();
+        return answer({ code: first.code, groupEmpty: true });
+      }
+      // The leader is gone and its group is not: whatever it started is still
+      // running, and its exit code says nothing about that.
+      const empty = await terminateGroup();
+      await letGo();
+      return answer({ groupSurvived: true, groupEmpty: empty });
+    }
+
+    const empty = await terminateGroup();
+    await letGo();
+    return answer({ timedOut: true, groupEmpty: empty });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /**
  * A secret file's contents, read here and returned to a caller that must not
  * print it.

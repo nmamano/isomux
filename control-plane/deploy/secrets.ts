@@ -22,6 +22,7 @@
 
 import {
   PRODUCTION_BRANCH,
+  type Target,
   branches,
   project,
   targetFor,
@@ -39,9 +40,13 @@ import {
   type Spawn,
 } from "./fly-cli.ts";
 
+/** The database string's name, which is the one secret the credential move
+ * rotates on its own. Named here so that program cannot spell it differently. */
+export const DB_SECRET_NAME = "CONTROL_PLANE_DB";
+
 /** The only names this program may set. Anything else is a refusal. */
 export const SECRET_NAMES = [
-  "CONTROL_PLANE_DB",
+  DB_SECRET_NAME,
   BRANCH_PIN_ENV,
   MINT_TOKEN_NAME,
 ] as const;
@@ -222,10 +227,14 @@ export async function requiredNamesPresent(opts: {
 }
 
 /**
- * The database string and the branch id it must prove at boot, built in this
- * process and never written down.
+ * The one branch a deployment may be pointed at, and the direct endpoint that
+ * belongs to it - proved from the API before any value is built.
+ *
+ * Exported because the credential move rotates the same secret against the same
+ * branch: two programs deciding separately which branch is production is two
+ * chances to point a deployment at a scratch branch that gets deleted.
  */
-async function neonProductionPair(): Promise<Pair[]> {
+export async function provenProductionTarget(): Promise<Target> {
   const { id: projectId } = await project();
   const all = await branches(projectId);
   const defaults = all.filter((b) => b.isDefault && !b.hasParent);
@@ -250,8 +259,17 @@ async function neonProductionPair(): Promise<Pair[]> {
         "is not the place for the fallback",
     );
   }
+  return target;
+}
+
+/**
+ * The database string and the branch id it must prove at boot, built in this
+ * process and never written down.
+ */
+async function neonProductionPair(): Promise<Pair[]> {
+  const target = await provenProductionTarget();
   return [
-    { name: "CONTROL_PLANE_DB", value: target.dsn },
+    { name: DB_SECRET_NAME, value: target.dsn },
     { name: BRANCH_PIN_ENV, value: target.branch.id },
   ];
 }

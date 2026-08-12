@@ -1292,6 +1292,218 @@ and a field nobody designed is COUNTED rather than named: the answer comes from
 a machine, and a probe that echoes whatever it is sent is a way for that machine
 to write into our transcript.
 
+### Moving the provisioner onto its own role (G3), and getting back
+
+The posture exists in the catalog from the migration above, but nothing
+authenticates as `cp_provisioner` until this step: it is created NOLOGIN
+precisely so a credential is only ever minted by a run that has somewhere to put
+it. `deploy/provisioner-role.ts` holds the decisions and
+`deploy/provisioner-move.ts` is the coordinator that follows them, with every
+provider effect behind a seam so the orchestration is tested before it is
+authorized.
+
+**It is NOT `deploy/secrets.ts`, and the difference matters.** That program
+stages the OWNER DSN - it resolves `targetFor(production)` and pushes all three
+secrets - which is the opposite operation from this one. What G3 reuses is its
+stdin boundary (`pushSecrets` and `fly-cli.ts`), not its command: the
+coordinator builds the `cp_provisioner` DIRECT DSN in memory and stages that one
+existing secret name. `secrets.ts --verify` is also not acceptance here - it
+proves NAMES are present, not which value is staged or live. What says the
+deployment works is the probe and the engine's own backend count.
+
+FOUR PHASES, and the order is the whole procedure:
+
+```
+P0  preflight: the phase-defining catalog read FIRST (a read that fails
+    there escalates - it is the only thing that can tell a fresh G2 state
+    from an interrupted G3 one), then branch proved, owner DSN opens, owner
+    bounds exact, role governed exactly, ONE STARTED MACHINE, source
+    committed, tree clean
+P1  alter role cp_provisioner with login password '<generated here>'
+P2  the coordinator stages the new DSN over stdin (one secret name)
+P3  flyctl deploy ... --ha=false --now, with the backend counter running
+    THROUGH it (the staged secret goes live here)
+P4  secret names present, probe verdict green, machine replaced per fly's own
+    state, every sampled count <= 12 and the settled count 1..5
+```
+
+No password exists until P0 passed: a refused run generates nothing. The
+machine topology is read again immediately before the deploy - as its own step,
+not inside it - because a machine added, stopped or destroyed between P0 and P3
+breaks the arithmetic that makes the deploy safe, and a listing that cannot be
+parsed refuses rather than deploying into evidence nobody can produce
+afterwards. That read is separate so the sampled window contains the deploy
+CHILD and nothing else: with the listing inside the deploy, a reading taken
+beside it counted as overlap while proving nothing.
+
+**Every child this program starts is bounded, and the unit of lifetime is the
+PROCESS GROUP.** There is no unbounded spawn left on any path a run can reach
+after the credential exists: a hung `secrets import`, machine listing, probe or
+deploy would each hold a live credential open forever, and forever has no
+recovery path. Two deadlines, both measured:
+
+| child                          | deadline | basis (all 2026-08-11)                                                                   |
+| ------------------------------ | -------- | ---------------------------------------------------------------------------------------- |
+| `flyctl deploy`                | 20 min   | this app's own deploys ran 64.8s and 72.6s, so ~16x the slower                           |
+| listings, staged import, probe | 2 min    | read-only flyctl commands answered in 2.6s and 4.3s; the probe is five HTTPS round trips |
+
+At a deadline the whole GROUP gets SIGTERM, twenty seconds, then SIGKILL; the
+leader's exit is awaited (bounded - a leader a failed SIGKILL left running must
+not restore an unbounded wait) and then `kill(-pgid, 0)` must report the group
+EMPTY before the answer comes back. Children are spawned detached, which
+measured 2026-08-12 puts each in a new group of its own - a plain spawn shares
+the office's group, and signalling that would kill the session doing the deploy.
+
+**What the emptiness proof actually claims, stated narrowly.** It is _the
+original process group is empty_, not _nothing the child started remains_: a
+process that calls `setsid` leaves the group and is outside both the kill and
+the probe. The recovery's safety therefore rests on an executable assumption
+that is written down rather than implied - the two children this program runs,
+`flyctl` and the probe, do not daemonise or start new sessions (true of both as
+of 2026-08-12). A future flyctl that daemonised would break it, and the fix
+would be a non-escapable boundary - a cgroup or a transient systemd scope per
+child - rather than a process group. The probe itself fails closed: only ESRCH
+counts as empty, and EPERM (a process that exists and cannot be signalled),
+EINVAL or any unexpected error all read as ALIVE, so `group_empty: false` is
+reported rather than assumed.
+
+Two things this replaced, both measured rather than reasoned:
+
+- **Reaping the leader is not enough.** Killing a shell does not kill what it
+  started, and a surviving descendant can still hold credentials and talk to the
+  provider after the coordinator has begun recovering on the strength of "the
+  child is gone". The test drives a descendant that would write a file a second
+  after the leader dies and proves it never writes it.
+- **A leader that exits 0 while its group lives is not a success.** Its exit
+  code says what it thought, not what its children are doing - and the inherited
+  pipe means waiting for end-of-stream waits for a process nobody is tracking.
+  That case returns the same fixed ambiguous answer, and end-of-stream is never
+  waited on unboundedly.
+
+**A failed backend reading does not end the deploy either.** The sampler owns
+the deploy's lifetime: a database hiccup mid-flight marks the measurement failed
+and then waits for the child, because returning early would let the recovery
+stage the owner DSN and start a second deploy over the first one.
+
+P4 is the coordinator's own evidence, not a pair of commands. `secrets.ts
+--verify` proves NAMES and would pass an app carrying the wrong value, and a
+probe run by hand proves the surface at a moment nobody recorded.
+
+**What runs it.** `deploy/provisioner-move-run.ts` is the executable: it binds
+the coordinator's seams to git, the Neon API, the driver, flyctl and the probe,
+and it is the only file in this pair that can touch a provider.
+
+```
+bun control-plane/deploy/provisioner-move-run.ts --plan           # prints the steps and the deploy argv
+bun control-plane/deploy/provisioner-move-run.ts --source-state   # git only; no provider
+bun control-plane/deploy/provisioner-move-run.ts --machine-state  # one read-only flyctl listing
+bun control-plane/deploy/provisioner-move-run.ts --execute        # the move
+```
+
+Exit codes are the report a runbook step reads: `0` only for a completed move,
+`2` refused before anything was written, `3` rolled back (a successful recovery
+and still a failed move), `4` escalate - something is left for a person -, `5`
+an unexpected failure whose text is deliberately not printed. Run
+`--machine-state` before `--execute`: replacement is proved as a DIFFERENCE
+between two listings, so the run refuses to deploy at all if fly's listing
+cannot be parsed, and finding that out beforehand costs nothing.
+
+`--machine-state` is operator reconnaissance, not the guard: the same topology
+is enforced inside `--execute`, before the credential and again at the deploy,
+because a command somebody ran earlier is a statement about a world that has had
+time to change.
+
+`--source-state` answers the question the guard asks, which is not the archive
+question. `deploy/tree-state.ts` classifies for `git archive HEAD`, where an
+untracked file cannot ship and a changed document cannot change behaviour; a fly
+deploy sends the working DIRECTORY, so both of those ship. The guard therefore
+counts every path `/.dockerignore` lets into the image - through the same
+matcher `deploy/image.test.ts` asserts the rules with (`deploy/build-context.ts`)
+
+- and ignores everything the rules drop, `control-plane/web` and the test files
+  included. `/.dockerignore` itself must be tracked and untouched before its rules
+  are trusted at all: it sits outside the copied path, so the count can never see
+  it, while its working-tree bytes decide what that count is allowed to ignore.
+  Expect the guard to refuse while a slice's own work is uncommitted; that is the
+  check working.
+
+`--stage` is load bearing. An unstaged import restarts the machine on the spot,
+which would mean two restarts and a window where the machine runs a new
+credential against old code; staged, the secret arrives with the one deploy.
+
+The owner's bounds are required before the forward run as well as before a
+rollback: the rollback deploys the owner DSN and the committed runtime opens it
+through `openRuntime`, which refuses a managed session whose role configuration
+is not exactly the governed pair. Starting a move you cannot reverse is the
+thing this gate exists to prevent. A run also refuses unless the source is a
+readable commit and the runtime tree is clean - a fly deploy ships the working
+DIRECTORY, so an uncommitted tree is a machine nobody can reconstruct from git.
+
+**Nothing is remembered between phases, so a resumed run reads the world.**
+Process memory does not survive an interrupt and a lock file would be a second
+thing that can be wrong, so the phase is derived from two facts that outlive any
+process - whether the role can log in, and whether anything is connected as it:
+
+| role can log in | backends | phase             | what it means                                                |
+| --------------- | -------- | ----------------- | ------------------------------------------------------------ |
+| no              | 0        | `clean`           | nothing done, or a completed rollback                        |
+| yes             | 0        | `credential_set`  | P1 ran; P2 and P3 unknown - NOT evidence they did not happen |
+| yes             | >0       | `credential_live` | the deploy took effect, whatever was reported                |
+| no              | >0       | `contradictory`   | a session outlived its NOLOGIN - stop                        |
+
+The recoveries follow from the reading, and they share one rule: **the
+credential is disabled LAST**. Closing it while a machine is still pointed at it
+turns a rollback into an outage.
+
+- `credential_set` and `credential_live` - THE SAME PATH. Zero backends is not
+  evidence that the staged value never went live: a deploy can apply it and
+  leave the machine stopped, crash-looping or between boots, which reads
+  identically to a stage that never landed. So every credential that exists is
+  recovered as though it may be in a machine's configuration - stage the owner
+  DSN, DEPLOY it, prove fly REPLACED the machine, probe the owner path green,
+  watch a bounded series in which EVERY reading is zero, and only then `alter
+role ... nologin password null`. Skipping the deploy would leave the next
+  machine start pointed at a role it cannot authenticate as. The replacement
+  check is there because a zero exit says flyctl finished, not that the machine
+  running now is the one it deployed; the series is there because ONE zero is
+  the same one-way evidence this design refuses everywhere else - a machine
+  still configured for the role reads zero between two opens, through a restart
+  and while it crash-loops. If any of that cannot be proved, LEAVE THE
+  CREDENTIAL ENABLED and escalate: a disabled credential under a live machine is
+  worse than a live credential nobody wanted.
+- `contradictory` - stop and escalate. Postgres checks LOGIN at connect, so this
+  is a session that predates the change, and it is not a state to reason out of.
+
+**A deploy's exit code is not evidence about what changed.** A non-zero deploy
+may have replaced the machine, may have applied the staged secret, or may have
+done neither. So every outcome after the deploy is INVOKED - success, failure,
+thrown error, timeout - goes down the same path: measure, classify, recover from
+what is there. There is one forward attempt and no retry.
+
+**The overlap arithmetic, and what actually bounds it.** The engine cap of 12 is
+the hard bound; the machine's pool is capped at 5, so two overlapping process
+pools is 10. `deploy/provisioner-role.test.ts` pins the two configuration facts
+that keep that true: fly.toml names no strategy that stands a second machine up
+beside the first, and the deploy argv carries `--ha=false`. The third fact is
+checked at runtime rather than pinned - the app must be ONE STARTED MACHINE
+before a password is generated and again at the deploy, because two machines
+already running would make a replacement three pools, fifteen requested against
+a cap of twelve.
+
+Sampled backend counts are supporting evidence, not the bound - and they are
+taken THROUGH the deploy rather than after it. The overlap the arithmetic is
+about exists only while the deploy is in flight, so a series that starts when
+the deploy returns can only ever prove a steady state; the run requires at least
+one reading taken while the deploy was pending, every reading inside the cap of
+12, and a settled count of 1..5.
+
+**What G3 does NOT claim.** Both deployments authenticate as the owner today, so
+a before-and-after count of owner backends moves with web traffic and cannot be
+split into a provisioner share. G3's acceptance is about the new role: the
+machine healthy under `cp_provisioner`, its backend count inside the budget, and
+the old machine replaced per fly's own evidence. Legacy owner sessions stay
+explicitly unresolved until the web tier moves too.
+
 ### The volume, and one thing it deliberately does not have
 
 `/data` is a 1 GB volume in `fra`, and `HOME=/data` in the image is what puts

@@ -12,15 +12,19 @@
 //   rule that stops working does not fail; it just ships a web app into a
 //   machine that holds provider credentials.
 //
-// The context check is INTENT, not an emulation of Docker. It implements the
-// rules this file's patterns use - deny-all, re-include, `**` at any depth,
-// last match wins - and asserts the decision for named paths. Docker's own
-// answer is checked once more against reality when a build reports its context
-// size, which control-plane/README.md records.
+// The context check is INTENT, not an emulation of Docker. The matcher it
+// implements the rules with - deny-all, re-include, `**` at any depth, last
+// match wins - moved to build-context.ts, because the deploy guard in
+// provisioner-move-run.ts asks the same question about the same rules and two
+// copies of it would eventually answer differently. What stays here is the
+// decision for named paths. Docker's own answer is checked once more against
+// reality when a build reports its context size, which control-plane/README.md
+// records.
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { patternToRegExp, shipsToImage } from "./build-context.ts";
 
 const REPO = path.join(import.meta.dir, "..", "..");
 
@@ -33,59 +37,7 @@ function dependencies(file: string): Record<string, string> {
   return (value ?? {}) as Record<string, string>;
 }
 
-/**
- * One .dockerignore pattern, as a regular expression over a whole path.
- *
- * Scanned character by character rather than through a chain of replacements.
- * A chain needs a placeholder to hold `**` while `*` is being rewritten, and a
- * placeholder is a character that can turn out to mean something else: the
- * first version of this function used one, and two of its rules silently
- * matched nothing.
- */
-function patternToRegExp(pattern: string): RegExp {
-  let out = "";
-  for (let i = 0; i < pattern.length; i++) {
-    const character = pattern[i];
-    if (character === "*" && pattern[i + 1] === "*") {
-      i++;
-      if (pattern[i + 1] === "/") {
-        i++;
-        out += "(?:.*/)?"; // any number of leading directories, or none
-      } else {
-        out += ".*";
-      }
-    } else if (character === "*") {
-      out += "[^/]*"; // one path component
-    } else if (character === "?") {
-      out += "[^/]";
-    } else {
-      out += character.replace(/[.+^${}()|[\]\\/]/, "\\$&");
-    }
-  }
-  return new RegExp(`^${out}$`);
-}
-
-/**
- * Would Docker send this path, given those rules?
- *
- * A pattern matches a path when it matches the path itself or any of its
- * ancestors, because excluding a directory excludes what is under it. The last
- * matching rule decides, which is what makes `!control-plane` able to bring
- * back one branch of a deny-all.
- */
-function included(dockerignore: string[], filePath: string): boolean {
-  const parts = filePath.split("/");
-  const ancestors = parts.map((_, i) => parts.slice(0, i + 1).join("/"));
-  let keep = true;
-  for (const raw of dockerignore) {
-    const line = raw.trim();
-    if (line === "" || line.startsWith("#")) continue;
-    const negated = line.startsWith("!");
-    const expression = patternToRegExp(negated ? line.slice(1) : line);
-    if (ancestors.some((a) => expression.test(a))) keep = negated;
-  }
-  return keep;
-}
+const included = shipsToImage;
 
 describe("the deploy manifest", () => {
   test("names exactly one dependency", () => {
