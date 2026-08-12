@@ -498,6 +498,51 @@ dates; (e) the guard fix landed with tests; (f) full bun run ci green;
 
 Report to Isomux Manager with the standard format when done.
 
+### D3.5 mid-slice ledger (tick 2026-08-12, G1-G3 complete, G4 in flight)
+
+Commits: 84ceb32 (G1 posture code, approved 31b5005/3947/91ebd3d9),
+2ef3f7e (G3 credential-move executable, approved 84ceb32/5126/f411e94e),
+d6a1cb7 (G3 remediation, approved 2ef3f7e/4334/dca7ed71), 070aaed
+(owner-membership inertness exemption; drift episode: approved
+250/a8000d18 pre-freeze-breach, committed bytes 287/a22e4e7d formally
+approved post-hoc - freeze-HOLD rule instituted from it).
+
+Live state (all 2026-08-12): G2 applied the posture to production (40
+stmts, one txn); step-2 regovern applied the CURRENT exact matrix
+(27 stmts, grants 42/42 -> 39/39, matching the digest-proved-reversible
+suites rehearsal); G3 retry OUTCOME MOVED - the fly provisioner
+authenticates as cp_provisioner on the direct endpoint, 12-backend
+engine cap, probe accepted attempt 1, 21 samples all <=12, settled 1
+steady. First G3 attempt rolled_back exit 3 (probe refused: the mint
+seam's SELECT name_reservations was ungranted - statically established
+by Reviewer1 against the worker's boot/tick-only callgraph; the
+unrehearsed conservative recovery ran clean on production). Web tier
+still on owner DSN; R-2026-08-11-1 OPEN pending G4 drain evidence.
+
+Provider findings that outlive the loop: PG16+ grants a non-superuser
+creator ADMIN membership in created roles (Neon differs from
+superuser-owner local containers by construction); information_schema
+is silently void for least-privileged roles - schema checks read
+pg_catalog; Neon catalog visibility measured 0/7/42501 matching local.
+
+Process rulings added mid-slice: PACE DIRECTIVE (Nil, via manager -
+blockers only for production damage / ruling-8 / fail-open; all else
+ledger notes; scope frozen at plan-gate); no steer:true to the manager
+(steered messages abort in-flight manager commands - three phantom
+rejections traced to it); freeze-HOLD rule (any edit to a frozen tree
+announces HOLD to both counterpart and manager first); manager commits
+re-verify the approved fingerprint atomically with the commit. Executor
+deviations recorded: steps 2 and 3 run by the manager under Nil's
+explicit chat approvals after the worker-side classifier refused both.
+
+Close-out queue: README connection-posture + pre-live-predicates
+sections rewrite (both predicates met; posture enforced - HOLD +
+fingerprint like any edit); board tasks filed tonight: 7ddf0690 (ci
+runtime), 282f135f (vacuous tests), d1a5a03b (exit-code system-prompt
+line), ce58d34c (hook flake), edb7c76d (sign-out), d5619bbc (Managed
+Payments wiring); loop task 99767a76 flips at loop close; unpushed
+commits accumulate until Nil's push word.
+
 ## PICKUP - SLICE D3: web to Vercel (Isomuxer2 / Reviewer2)
 
 Goal: the control-plane web app deployed on Vercel as a production build
