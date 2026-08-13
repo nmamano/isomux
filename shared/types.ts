@@ -1303,6 +1303,14 @@ export type UpdateStatusWire =
         publishedAt: string | null;
         url: string | null;
       } | null;
+      // Newest marked security release after the running tag. This remains set
+      // when a later ordinary release is newest, because that release contains
+      // the fix too. Null means the complete release scan found none.
+      securityUpdate: {
+        tag: string;
+        publishedAt: string | null;
+        url: string | null;
+      } | null;
     };
 
 // Server → Browser messages

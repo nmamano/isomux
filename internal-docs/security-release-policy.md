@@ -2,7 +2,8 @@
 
 > Status: design, nothing decided. Drafted 2026-08-02 by Isomuxer5, reviewed
 > by Reviewer5. Task d2a4a381, follow-up from `control-plane-design.md`'s ops
-> floor.
+> floor. The release marker, sticky detection data, and private reporting path
+> described below were implemented 2026-08-13 without deciding the fleet policy.
 > Companion reading: `release-design.md` (the update trigger this extends),
 > `scripts/update.sh`, `server/update-checker.ts`, `server/update-trigger.ts`.
 
@@ -24,6 +25,35 @@ Three things are missing, and only the second is really about mechanism:
    `/readyz` deliberately carries no deployment state ("minimal body, no
    deployment state" - `server/routes/table.ts`). So "the fleet is patched"
    is currently unmeasurable, not just unmet.
+
+## Implemented machinery
+
+Nil Mamano owns vulnerability response. Reports go privately to
+`llc@isomux.com` as documented in `SECURITY.md`.
+
+`scripts/release.sh --security [tag]` creates the ordinary annotated CalVer tag
+and GitHub Release, and adds one exact line to the Release body:
+
+```
+isomux-severity: security
+```
+
+The release checker treats only that complete, case-sensitive line as the
+marker. On updater-managed boxes it walks published, non-draft,
+non-prerelease CalVer release history to a complete short page. It exposes the
+newest marked release after the running tag as sticky data, even when a later
+ordinary release exists. `releases/latest` remains the existing banner target.
+The banner and update behavior do not consume the new field. A failed page or
+malformed response does not publish a new result. The hourly scan uses two
+GitHub calls normally, three at 100 releases, and refuses after 21, below the
+anonymous 60/hour budget. At 2,000 releases it keeps the prior whole status
+until the mechanism changes rather than publishing an incomplete all-clear.
+
+This baseline does not remove the owner from the update loop. It creates no
+control-plane route, credential, box check-in, SSH path, or remote command
+channel. A failed update still follows `scripts/update.sh` recovery and remains
+visible to the owner through the updater status file. Isomux has no evidence
+that an owner applied the release.
 
 ## What already exists
 

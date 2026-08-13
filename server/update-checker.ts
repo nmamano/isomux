@@ -12,18 +12,31 @@
 //   shared/update-notice.ts.
 // - "release" (update.conf present - updater-managed boxes, written by
 //   deploy/install.sh): the running release (server/version.ts) vs. the
-//   configured repo's latest GitHub release. The banner means "a new release
-//   exists; the in-UI trigger / isomux-update applies it". The conf file is
+//   configured repo's published GitHub releases. It walks history far enough
+//   to keep a marked security release sticky behind later ordinary releases.
+//   The banner means "a new release exists; the in-UI trigger / isomux-update
+//   applies it". The conf file is
 //   the mode signal because it exists exactly on boxes where isomux-update is
 //   the sanctioned update path - a VPS bootstrapped from main pre-first-release
 //   is still release mode (and stays QUIET, not nagged about commit drift).
 //
-// Zero-release sanity: releases/latest answering 404 is the legitimate
-// "no releases yet" case - quiet status, no error, no retry spam. Only
-// transport/HTTP errors keep the previous status (both modes). Commit mode
-// budgets 2 unauthenticated GitHub calls per hourly cycle (releases/latest,
-// then compare). A non-github REPO_URL disables release checks entirely (we
-// can only enumerate releases via the GitHub API).
+// Zero-release sanity: commit mode treats releases/latest 404 as the legitimate
+// "no releases yet" case; release mode accepts the same 404. Both are
+// quiet status, not errors. Transport, HTTP, malformed, or incomplete release
+// scans keep the previous status. Commit mode budgets 2 unauthenticated GitHub
+// calls per hourly cycle (releases/latest, then compare). Release mode makes 2
+// calls normally: releases/latest preserves the existing banner target, then
+// /releases?per_page=100 finds the sticky security floor. It scans total release
+// history to a short page so it does not assume creation order matches CalVer
+// order. At 100 releases this becomes 3 calls/cycle. It refuses after 20 full
+// list pages: 21 calls/hour maximum, inside GitHub's anonymous 60/hour budget.
+// At 2,000 releases the scan hits that ceiling every cycle and publishes
+// NOTHING - ordinary latest and security data both keep their previous whole
+// status (or the cold quiet status) until history drops below the cliff or the
+// mechanism changes. This permanent per-cycle cost closes the narrower hole
+// where a backport created outside release.sh appears after the running tag.
+// A non-github REPO_URL disables release checks entirely (we can only enumerate
+// releases through the GitHub API).
 
 import type { UpdateStatusWire } from "../shared/types.ts";
 import {
@@ -37,6 +50,8 @@ import { readUpdateConf } from "./update-conf.ts";
 // REPO_URL instead, so forks keep a working banner.
 const REPO = "nmamano/isomux";
 const CHECK_INTERVAL = 60 * 60 * 1000; // 1 hour
+const MAX_RELEASE_PAGES = 20;
+export const SECURITY_RELEASE_MARKER = "isomux-severity: security";
 
 let status: UpdateStatusWire = {
   mode: "commit",
@@ -149,8 +164,10 @@ async function checkCommit() {
   if (!v.commit) return; // not a usable git checkout
   const fetched = await fetchLatestRelease(REPO);
   if (fetched === null) return; // transient error: keep the previous status
+  // A 404 and a newest non-CalVer release both mean that commit mode has no
+  // usable release base. Keep its existing fallback behavior for both states.
   const latest =
-    fetched === "none" ? null : { tag: fetched.tag, url: fetched.url };
+    typeof fetched === "string" ? null : { tag: fetched.tag, url: fetched.url };
   const base = pickCompareBase(v.release, latest?.tag ?? null, v.commit);
   const cmp = await fetchCompare(REPO, base);
   if (cmp === null) return; // transient error: keep the previous status
@@ -171,6 +188,15 @@ export interface LatestRelease {
   publishedAt: string | null;
   url: string | null; // GitHub release page (the notes)
 }
+
+export interface ListedRelease extends LatestRelease {
+  security: boolean;
+}
+
+export type ReleaseFetch = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
 
 // "https://github.com/owner/repo[.git]" / "git@github.com:owner/repo[.git]"
 // → "owner/repo"; anything else null. The segment charset is restricted to
@@ -202,9 +228,9 @@ export function compareCalver(a: string, b: string): number {
   return 0;
 }
 
-// Map a releases/latest response body to the wire shape. A non-CalVer tag (a
-// fork publishing its own scheme) counts as "none": the channel only ever
-// offers tags scripts/update.sh would accept. Exported for tests.
+// Map one GitHub release object to the wire shape. A non-CalVer tag (a fork
+// publishing its own scheme) counts as "none": the channel only ever offers
+// tags scripts/update.sh would accept. Exported for tests.
 export function pickRelease(data: unknown): LatestRelease | "none" {
   const d = data as {
     tag_name?: unknown;
@@ -220,6 +246,55 @@ export function pickRelease(data: unknown): LatestRelease | "none" {
   };
 }
 
+// A marker is one complete, case-sensitive line. Near misses stay ordinary:
+// release text is remote input, and an accidental substring must never change
+// the update policy a box reports to its owner.
+export function hasSecurityReleaseMarker(body: unknown): boolean {
+  if (typeof body !== "string") return false;
+  return body
+    .split(/\r?\n/)
+    .some((line) => line.trim() === SECURITY_RELEASE_MARKER);
+}
+
+// Map one /releases page. Drafts, prereleases and non-CalVer tags cannot enter
+// the update channel. A malformed page is a transient failure, not an empty
+// page: callers must keep the previous status rather than clear an urgent
+// notice on data they could not establish.
+export function pickReleasePage(data: unknown): ListedRelease[] | null {
+  if (!Array.isArray(data)) return null;
+  const out: ListedRelease[] = [];
+  for (const item of data) {
+    if (typeof item !== "object" || item === null) return null;
+    const d = item as Record<string, unknown>;
+    if (d.draft === true || d.prerelease === true) continue;
+    const picked = pickRelease(d);
+    if (picked === "none") continue;
+    out.push({ ...picked, security: hasSecurityReleaseMarker(d.body) });
+  }
+  return out;
+}
+
+export function computeSecurityFloor(
+  currentTag: string | null,
+  releases: ListedRelease[],
+): LatestRelease | null {
+  const ordered = [...releases].sort((a, b) => compareCalver(b.tag, a.tag));
+  const newer = ordered.filter(
+    (release) =>
+      currentTag === null || compareCalver(release.tag, currentTag) > 0,
+  );
+  const security = newer.find((release) => release.security) ?? null;
+  const wire = (release: ListedRelease | null): LatestRelease | null =>
+    release
+      ? {
+          tag: release.tag,
+          publishedAt: release.publishedAt,
+          url: release.url,
+        }
+      : null;
+  return wire(security);
+}
+
 // The release-mode decision, pure for tests. `current.release` null means the
 // box is not pinned to a release tag (e.g. bootstrapped from main before the
 // first release existed): once a release exists, that box should be offered
@@ -227,26 +302,34 @@ export function pickRelease(data: unknown): LatestRelease | "none" {
 export function computeReleaseStatus(
   current: { release: string | null; version: string | null },
   latest: LatestRelease | null,
+  security: LatestRelease | null = null,
 ): UpdateStatusWire {
   const updateAvailable =
     latest !== null &&
     (current.release === null ||
       compareCalver(latest.tag, current.release) > 0);
-  return { mode: "release", updateAvailable, current, latest };
+  return {
+    mode: "release",
+    updateAvailable,
+    current,
+    latest,
+    securityUpdate: security,
+  };
 }
 
 async function fetchLatestRelease(
   ownerRepo: string,
-): Promise<LatestRelease | "none" | null> {
+  fetchImpl: ReleaseFetch = fetch,
+): Promise<LatestRelease | "none" | "empty" | null> {
   try {
-    const res = await fetch(
+    const res = await fetchImpl(
       `https://api.github.com/repos/${ownerRepo}/releases/latest`,
       {
         headers: { Accept: "application/vnd.github.v3+json" },
         signal: AbortSignal.timeout(10000),
       },
     );
-    if (res.status === 404) return "none"; // no releases yet - the quiet case
+    if (res.status === 404) return "empty"; // no releases exist - quiet case
     if (!res.ok) return null;
     return pickRelease(await res.json());
   } catch {
@@ -255,15 +338,80 @@ async function fetchLatestRelease(
 }
 
 async function checkRelease(ownerRepo: string) {
-  const latest = await fetchLatestRelease(ownerRepo);
-  if (latest === null) return; // transient error: keep the previous status
   const v = getVersionInfo();
-  publish(
-    computeReleaseStatus(
-      { release: v.release, version: v.version },
-      latest === "none" ? null : latest,
-    ),
+  const channel = await fetchReleaseChannel(ownerRepo, v.release);
+  const next = releaseStatusAfterScan(
+    { release: v.release, version: v.version },
+    channel,
   );
+  if (next === null) return;
+  publish(next);
+}
+
+// The two remote sources are one atomic observation. Null from either means
+// "unknown", never "no security release": publish nothing and keep the prior
+// status whole. Exported so the fail-closed no-publish choice is testable
+// without reaching the module's process-global broadcaster.
+export function releaseStatusAfterScan(
+  current: { release: string | null; version: string | null },
+  channel: {
+    latest: LatestRelease | null;
+    security: LatestRelease | null;
+  } | null,
+): UpdateStatusWire | null {
+  if (channel === null) return null;
+  return computeReleaseStatus(current, channel.latest, channel.security);
+}
+
+export async function fetchReleaseChannel(
+  ownerRepo: string,
+  currentTag: string | null,
+  fetchImpl: ReleaseFetch = fetch,
+): Promise<{
+  latest: LatestRelease | null;
+  security: LatestRelease | null;
+} | null> {
+  // Keep the banner target exactly on GitHub's releases/latest semantics. The
+  // history scan below exists only to derive security data.
+  const fetchedLatest = await fetchLatestRelease(ownerRepo, fetchImpl);
+  if (fetchedLatest === null) return null;
+  if (fetchedLatest === "empty") return { latest: null, security: null };
+
+  const releases: ListedRelease[] = [];
+  let page = 1;
+  try {
+    while (true) {
+      const res = await fetchImpl(
+        `https://api.github.com/repos/${ownerRepo}/releases?per_page=100&page=${page}`,
+        {
+          headers: { Accept: "application/vnd.github.v3+json" },
+          signal: AbortSignal.timeout(10000),
+        },
+      );
+      if (!res.ok) return null;
+      const data: unknown = await res.json();
+      if (!Array.isArray(data)) return null;
+      const rawCount = data.length;
+      const picked = pickReleasePage(data);
+      if (picked === null) return null;
+      releases.push(...picked);
+      // GitHub orders this endpoint by creation time, not by CalVer. Scan to a
+      // short page rather than stopping at the running tag: a later-created old
+      // tag must not hide an earlier-created security release with a newer tag.
+      if (rawCount < 100) break;
+      // A response that never reaches a short page is not a
+      // complete scan. Keep the previous urgent state instead of spending an
+      // unbounded request budget or claiming that no marker exists.
+      if (page >= MAX_RELEASE_PAGES) return null;
+      page += 1;
+    }
+  } catch {
+    return null;
+  }
+  return {
+    latest: fetchedLatest === "none" ? null : fetchedLatest,
+    security: computeSecurityFloor(currentTag, releases),
+  };
 }
 
 // --- Shared plumbing --------------------------------------------------------

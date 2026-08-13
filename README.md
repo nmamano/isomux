@@ -8,6 +8,7 @@ free · open source · no account needed · works with your subscriptions
 - [isomux.com/docs](https://isomux.com/docs): full feature list, self-hosted setup, security audit, more
 - [nilmamano.com/blog/isomux](https://nilmamano.com/blog/isomux): technical deep dive
 - [Discord](https://discord.gg/FrjEYyNvYs): ask questions, share setups, or report bugs
+- [Security policy](SECURITY.md): report vulnerabilities privately
 
 ![Isomux office view](site/office.gif)
 

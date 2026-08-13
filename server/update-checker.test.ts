@@ -9,11 +9,16 @@ import { describe, it, expect } from "bun:test";
 import {
   compareCalver,
   computeCommitStatus,
+  computeSecurityFloor,
   computeReleaseStatus,
+  fetchReleaseChannel,
   githubOwnerRepo,
+  hasSecurityReleaseMarker,
   parseCompare,
   pickCompareBase,
   pickRelease,
+  pickReleasePage,
+  releaseStatusAfterScan,
   statusChanged,
 } from "./update-checker.ts";
 
@@ -77,6 +82,176 @@ describe("pickRelease", () => {
   });
 });
 
+describe("security release marker and sticky channel", () => {
+  const listed = (tag: string, security = false) => ({
+    tag,
+    publishedAt: null,
+    url: null,
+    security,
+  });
+
+  it("accepts only the exact marker as a complete line", () => {
+    expect(
+      hasSecurityReleaseMarker("notes\nisomux-severity: security\nmore"),
+    ).toBe(true);
+    expect(hasSecurityReleaseMarker("isomux-severity: security-fix")).toBe(
+      false,
+    );
+    expect(hasSecurityReleaseMarker("Isomux-Severity: security")).toBe(false);
+    expect(hasSecurityReleaseMarker(null)).toBe(false);
+  });
+
+  it("maps only published, stable CalVer releases and rejects a malformed page", () => {
+    expect(
+      pickReleasePage([
+        { tag_name: "v2026.8.2", body: "isomux-severity: security" },
+        { tag_name: "v2026.8.1", draft: true },
+        { tag_name: "v1.0.0" },
+      ]),
+    ).toEqual([
+      {
+        tag: "v2026.8.2",
+        publishedAt: null,
+        url: null,
+        security: true,
+      },
+    ]);
+    expect(pickReleasePage({})).toBeNull();
+    expect(pickReleasePage([null])).toBeNull();
+  });
+
+  it("keeps a security release sticky behind a later ordinary release", () => {
+    const floor = computeSecurityFloor("v2026.8.1", [
+      listed("v2026.8.4"),
+      listed("v2026.8.3", true),
+      listed("v2026.8.2"),
+      listed("v2026.8.1"),
+    ]);
+    expect(floor?.tag).toBe("v2026.8.3");
+  });
+
+  it("clears the security target only once the running tag includes it", () => {
+    const releases = [
+      listed("v2026.8.4"),
+      listed("v2026.8.3", true),
+      listed("v2026.8.2"),
+    ];
+    expect(computeSecurityFloor("v2026.8.2", releases)?.tag).toBe("v2026.8.3");
+    expect(computeSecurityFloor("v2026.8.3", releases)).toBeNull();
+    expect(computeSecurityFloor("v2026.8.4", releases)).toBeNull();
+  });
+
+  it("cold-scans more than one page until it reaches an old running tag", async () => {
+    const first = Array.from({ length: 100 }, (_, i) => ({
+      tag_name: `v2026.8.13.${100 - i}`,
+      body: i === 50 ? "isomux-severity: security" : "",
+    }));
+    const pages: unknown[] = [
+      { tag_name: "v2026.8.13.100" },
+      first,
+      [{ tag_name: "v2026.7.1", body: "" }],
+    ];
+    const calls: string[] = [];
+    const fakeFetch = async (input: string | URL | Request) => {
+      calls.push(
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url,
+      );
+      return Response.json(pages.shift());
+    };
+
+    const channel = await fetchReleaseChannel(
+      "nmamano/isomux",
+      "v2026.7.1",
+      fakeFetch,
+    );
+    expect(calls).toHaveLength(3);
+    expect(channel?.latest?.tag).toBe("v2026.8.13.100");
+    expect(channel?.security?.tag).toBe("v2026.8.13.50");
+  });
+
+  it("fails the complete scan when a later pagination call fails", async () => {
+    const full = Array.from({ length: 100 }, (_, i) => ({
+      tag_name: `v2026.8.13.${100 - i}`,
+      body: i === 0 ? "isomux-severity: security" : "",
+    }));
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      if (calls === 1) return Response.json({ tag_name: "v2026.8.13.100" });
+      return calls === 2
+        ? Response.json(full)
+        : new Response("unavailable", { status: 503 });
+    };
+
+    const channel = await fetchReleaseChannel(
+      "nmamano/isomux",
+      "v2026.7.1",
+      fakeFetch,
+    );
+    expect(channel).toBeNull();
+    expect(
+      releaseStatusAfterScan(
+        { release: "v2026.7.1", version: "v2026.7.1" },
+        channel,
+      ),
+    ).toBeNull();
+    expect(calls).toBe(3);
+  });
+
+  it("keeps a zero-release repository quiet through releases/latest 404", async () => {
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      return new Response("not found", { status: 404 });
+    };
+    const channel = await fetchReleaseChannel(
+      "nmamano/isomux",
+      "v2026.7.1",
+      fakeFetch,
+    );
+    expect(channel).toEqual({ latest: null, security: null });
+    expect(calls).toBe(1);
+    const next = releaseStatusAfterScan(
+      { release: "v2026.7.1", version: "v2026.7.1" },
+      channel,
+    );
+    expect(next?.updateAvailable).toBe(false);
+    if (next?.mode === "release") {
+      expect(next.latest).toBeNull();
+      expect(next.securityUpdate).toBeNull();
+    }
+  });
+
+  it("scans history when releases/latest is outside the CalVer channel", async () => {
+    const responses: unknown[] = [
+      { tag_name: "preview" },
+      [
+        {
+          tag_name: "v2026.8.13",
+          body: "isomux-severity: security",
+        },
+      ],
+    ];
+    let calls = 0;
+    const fakeFetch = async () => {
+      calls += 1;
+      return Response.json(responses.shift());
+    };
+    const channel = await fetchReleaseChannel(
+      "fork/isomux",
+      "v2026.7.1",
+      fakeFetch,
+    );
+    expect(calls).toBe(2);
+    expect(channel?.latest).toBeNull();
+    expect(channel?.security?.tag).toBe("v2026.8.13");
+  });
+});
+
 describe("computeReleaseStatus", () => {
   const on = { release: "v2026.7.19", version: "v2026.7.19" };
   const rel = (tag: string) => ({ tag, publishedAt: null, url: null });
@@ -86,6 +261,7 @@ describe("computeReleaseStatus", () => {
     expect(s.updateAvailable).toBe(false);
     expect(s.mode).toBe("release");
     if (s.mode === "release") expect(s.latest).toBeNull();
+    if (s.mode === "release") expect(s.securityUpdate).toBeNull();
   });
 
   it("newer release -> available; same or older -> quiet", () => {
@@ -108,6 +284,16 @@ describe("computeReleaseStatus", () => {
       computeReleaseStatus(offChannel, rel("v2026.7.19")).updateAvailable,
     ).toBe(true);
     expect(computeReleaseStatus(offChannel, null).updateAvailable).toBe(false);
+  });
+
+  it("carries the sticky security target separately from the latest target", () => {
+    const latest = rel("v2026.8.4");
+    const security = rel("v2026.8.3");
+    const s = computeReleaseStatus(on, latest, security);
+    if (s.mode === "release") {
+      expect(s.latest?.tag).toBe("v2026.8.4");
+      expect(s.securityUpdate?.tag).toBe("v2026.8.3");
+    }
   });
 });
 

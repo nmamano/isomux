@@ -3281,6 +3281,27 @@ volume snapshot could resurrect a key after revocation proved it destroyed.
 A control-plane recovery design is a separate follow-up with its own threat
 model; office backup wording never covers this volume.
 
+### Hosted security releases
+
+Nil Mamano owns vulnerability response. Private reports use the address and
+process in `SECURITY.md`. A release carrying the exact GitHub Release body line
+`isomux-severity: security` produces sticky security-floor data on an
+updater-managed office that still runs an older tag. A later ordinary release
+does not bury that data. The existing banner does not consume the field, and
+this slice changes no update behavior.
+
+This is release machinery, not fleet enforcement. The customer still starts
+the update. The control plane has no release-version check-in, update
+credential, remote command route, or post-handoff SSH access. Liveness proves
+only that the office answers; it does not prove which release answers. Do not
+report a fleet patched percentage or a patch deadline from liveness evidence.
+
+If a customer reports an update failure, use the updater status and recovery
+procedure on the customer-controlled box. The control plane cannot inspect or
+repair it after handoff. Hosted auto-apply, fleet evidence, response deadlines,
+and any last-resort provider action remain blocked on the explicit decisions in
+`internal-docs/security-release-policy.md`.
+
 ### Next hosted release: required deployment order
 
 This order was approved after the 2026-08-13 customer pass. Future sessions

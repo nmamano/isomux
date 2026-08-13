@@ -8,8 +8,10 @@
 # releases/latest default resolves).
 #
 # Usage:
-#   scripts/release.sh            # next free tag for today's date
-#   scripts/release.sh v2026.7.19 # explicit tag
+#   scripts/release.sh                       # ordinary release, next free tag
+#   scripts/release.sh v2026.7.19            # ordinary release, explicit tag
+#   scripts/release.sh --security            # marked security release
+#   scripts/release.sh --security v2026.7.19 # marked security release, explicit tag
 #
 # Gates, in order: clean checkout; HEAD published on origin's main; the
 # Build workflow (.github/workflows/build.yml) completed green for HEAD - 
@@ -32,9 +34,20 @@ die() {
   exit 1
 }
 
+SECURITY_RELEASE=""
+if [[ ${1:-} == --security ]]; then
+  SECURITY_RELEASE=1
+  shift
+fi
+(( $# <= 1 )) || die "usage: scripts/release.sh [--security] [vYYYY.M.D[.N]]"
 TAG="${1:-}"
 SKIP_CI="${RELEASE_SKIP_CI:-}"
 CALVER_RE='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
+SECURITY_MARKER='isomux-severity: security'
+
+if [[ -n $SECURITY_RELEASE && -n $SKIP_CI ]]; then
+  die "--security cannot be used with RELEASE_SKIP_CI: sandbox mode creates no GitHub Release, so it cannot publish the required security marker"
+fi
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git checkout"
 cd "$ROOT"
@@ -132,7 +145,13 @@ git push origin "refs/tags/$TAG"
 log "tagged and pushed $TAG ($HEAD_SHA)"
 
 if [[ -z $SKIP_CI ]]; then
-  gh release create "$TAG" --verify-tag --generate-notes --title "$TAG" ||
-    die "tag pushed, but creating the GitHub Release failed; re-run: gh release create $TAG --verify-tag --generate-notes --title $TAG"
+  release_args=(release create "$TAG" --verify-tag --generate-notes --title "$TAG")
+  recovery="gh release create $TAG --verify-tag --generate-notes --title $TAG"
+  if [[ -n $SECURITY_RELEASE ]]; then
+    release_args+=(--notes "$SECURITY_MARKER")
+    recovery+=" --notes '$SECURITY_MARKER'"
+  fi
+  gh "${release_args[@]}" ||
+    die "tag pushed, but creating the GitHub Release failed; re-run: $recovery"
   log "GitHub Release created: $TAG"
 fi

@@ -250,6 +250,18 @@ Shipped (the shell-drivable slice):
   (root-owned template unit + polkit rule, written by the installer as
   described above), `systemd-run --user` running `UPDATER_PATH` on
   user-kind boxes, a clean "not updater-managed" refusal without a conf.
+- Security-release designation and sticky detection data. `scripts/release.sh
+  --security` writes the exact machine-readable marker into the GitHub Release
+  body. Release-mode checks preserve `releases/latest` as the banner target and
+  scan published, stable CalVer release history to a complete short page. They
+  expose the newest marked release after the running tag on the update-status
+  wire. The existing banner and updater do not consume this new field. A
+  malformed or incomplete scan publishes nothing. The scan uses 2 GitHub calls
+  normally and 3 once history reaches 100 releases. It refuses after 21 in one
+  hourly cycle, below the anonymous 60/hour budget. At 2,000 releases it keeps
+  the prior whole update status every cycle until the mechanism changes; it
+  never converts an incomplete scan into a null security floor. Option C
+  remains deferred.
 
 Remaining:
 

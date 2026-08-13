@@ -6,12 +6,21 @@
 // unrelated-workflow green run must not count). Zero LLM.
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, chmodSync } from "fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+  chmodSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { execSync, spawnSync } from "child_process";
 
 const RELEASE_SH = new URL("./release.sh", import.meta.url).pathname;
+const UPDATE_CHECKER = new URL("../server/update-checker.ts", import.meta.url)
+  .pathname;
 
 let base: string;
 let repo: string;
@@ -61,11 +70,14 @@ beforeEach(() => {
   writeFileSync(
     join(bin, "gh"),
     `#!/usr/bin/env bash
+printf '%q ' "$@" >>"\${GH_STUB_LOG:-/dev/null}"
+printf '\n' >>"\${GH_STUB_LOG:-/dev/null}"
+[[ \${GH_STUB_MODE:-green} == release-fail && $1 == release ]] && exit 9
 if [[ $1 == api ]]; then
   jqexpr=""
   while (($#)); do [[ $1 == --jq ]] && jqexpr=$2; shift; done
   case \${GH_STUB_MODE:-green} in
-    green) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/build.yml"}]}' ;;
+    green|release-fail) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/build.yml"}]}' ;;
     unrelated) body='{"workflow_runs":[{"run_number":1,"status":"completed","conclusion":"success","path":".github/workflows/other.yml"}]}' ;;
     failed) body='{"workflow_runs":[{"run_number":2,"status":"completed","conclusion":"failure","path":".github/workflows/build.yml"}]}' ;;
   esac
@@ -163,6 +175,75 @@ describe("release.sh", () => {
     const r = runWithCiStub("failed");
     expect(r.code).not.toBe(0);
     expect(r.out).toContain("not green");
+  });
+
+  it("--security creates the release with the exact machine-readable marker", () => {
+    const log = join(base, "gh.log");
+    const r = runRelease(["--security", "v2026.8.13"], {
+      RELEASE_GH_REPO: "fake/fake",
+      GH_STUB_MODE: "green",
+      GH_STUB_LOG: log,
+      PATH: `${join(base, "bin")}:${process.env.PATH}`,
+    });
+    expect(r.code).toBe(0);
+    expect(readFileSync(log, "utf8")).toContain(
+      "release create v2026.8.13 --verify-tag --generate-notes --title v2026.8.13 --notes isomux-severity:\\ security",
+    );
+  });
+
+  it("an ordinary release has no security marker", () => {
+    const log = join(base, "gh.log");
+    const r = runRelease(["v2026.8.13"], {
+      RELEASE_GH_REPO: "fake/fake",
+      GH_STUB_MODE: "green",
+      GH_STUB_LOG: log,
+      PATH: `${join(base, "bin")}:${process.env.PATH}`,
+    });
+    expect(r.code).toBe(0);
+    const releaseCall = readFileSync(log, "utf8")
+      .split("\n")
+      .find((line) => line.startsWith("release create "));
+    expect(releaseCall).toBeDefined();
+    expect(releaseCall).not.toContain("isomux-severity");
+    expect(releaseCall).not.toContain("--notes");
+  });
+
+  it("the release writer and checker use the same marker literal", () => {
+    const shell = readFileSync(RELEASE_SH, "utf8").match(
+      /^SECURITY_MARKER='([^']+)'$/m,
+    );
+    const checker = readFileSync(UPDATE_CHECKER, "utf8").match(
+      /^export const SECURITY_RELEASE_MARKER = "([^"]+)";$/m,
+    );
+    expect(shell?.[1]).toBe("isomux-severity: security");
+    expect(checker?.[1]).toBe(shell?.[1]);
+  });
+
+  it("--security refuses sandbox mode before creating a tag", () => {
+    const r = runRelease(["--security", "v2026.8.13"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("cannot be used with RELEASE_SKIP_CI");
+    expect(sh(base, "git -C origin.git tag -l v2026.8.13")).toBe("");
+  });
+
+  it("a failed security Release creation prints a recovery command that preserves the marker", () => {
+    const r = runRelease(["--security", "v2026.8.13"], {
+      RELEASE_GH_REPO: "fake/fake",
+      GH_STUB_MODE: "release-fail",
+      PATH: `${join(base, "bin")}:${process.env.PATH}`,
+    });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain(
+      "gh release create v2026.8.13 --verify-tag --generate-notes --title v2026.8.13 --notes 'isomux-severity: security'",
+    );
+    expect(sh(base, "git -C origin.git tag -l v2026.8.13")).toBe("v2026.8.13");
+  });
+
+  it("refuses extra arguments before it creates a tag", () => {
+    const r = runRelease(["--security", "v2026.8.13", "extra"]);
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("usage:");
+    expect(sh(base, "git -C origin.git tag -l")).toBe("");
   });
 
   it("bun-pin gate: a pin change since the previous release refuses without the override", () => {
