@@ -28,19 +28,20 @@ export default async function Home() {
         Signed in as {email}
       </p>
       {office ? (
-        <div className="card">
+        <Link
+          className="card office-card-link"
+          href={`/office/${office.instanceId}`}
+        >
           <p className="lead">
-            <Link className="address" href={`/office/${office.instanceId}`}>
-              {office.hostname}
-            </Link>{" "}
-            -{" "}
+            <span className="address">{office.hostname}</span> -{" "}
             {/* The same chip the provisioning ladder uses, so "ready" reads the
                 same here as it does inside the office. */}
             <span data-state={office.ready ? "done" : "active"}>
               {office.ready ? "ready" : "being set up"}
             </span>
           </p>
-        </div>
+          <span className="office-card-action">View office &rarr;</span>
+        </Link>
       ) : (
         <div className="card">
           <p>

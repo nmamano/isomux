@@ -2797,10 +2797,13 @@ the real Stripe test account, and prints what it saw. It is deliberately not
 named like a test: `bun test` must not pick it up.
 
 ```
-set -a; . ~/nil/secrets/stripe-test.env; set +a
-export CONTROL_PLANE_PRICE_ID=price_... CONTROL_PLANE_COUPON_ID=...
-bun run --cwd control-plane/web e2e
+bun /path/to/a/runner-that-reads-stripe-test.env-in-process.ts
 ```
+
+Do not source the secrets file in a shell. The runner reads it inside the
+process, passes only the required values to its child, and redacts child error
+paths. Values in the file are single-quoted. `CONTROL_PLANE_PRICE_ID` and
+`CONTROL_PLANE_COUPON_ID` are ordinary non-secret inputs to that runner.
 
 Three things it found that no unit test would have:
 
@@ -3159,6 +3162,55 @@ acknowledgement moved to `attention-ack.ts`, which imports the store and nothing
 else, so the app can record "we have seen it" without reaching raise or clear.
 Acknowledging is still not clearing - the reasons stay open and the instance
 stays `needs_operator` until the condition itself goes away.
+
+## Deployed operator runbook (D4 close, measured 2026-08-13)
+
+The full deployed customer path completed on 2026-08-13: Google sign-in,
+test-mode Stripe Checkout, webhook consumption, adoption of the prepared
+Contabo run, provisioning, owner-invite claim, verified removal of the
+provisioner's SSH key, and cancellation. Both `cp2` and `test-nil` are scheduled
+to cancel. The temporary `STRIPE_TEST_SECRET_KEY` and
+`CONTROL_PLANE_PRICE_ID` entries were deleted from Vercel Production and proved
+absent; a clean redeploy of commit `e4f6313` then passed the environment, TLS,
+anonymous-auth and unchanged-row gates. A signed-in browser finally proved that
+signup refuses with `This deployment has no price configured yet`.
+
+For a temporary Stripe window, the listener must always use the pinned config
+and `--skip-update`. Without `--skip-update`, the CLI makes an update check
+before doing the work the operator asked for. The secret is transported in the
+listener child environment, never with `--api-key` in argv. The live consumer
+and its short-lived signing secret die when the window closes. Remove both
+Vercel test entries, redeploy from current source rather than cloning an old
+deployment artifact, and prove both absence and the disabled signup response.
+
+Importing an operator executable is not automatically read-only. In
+particular, a module that calls the provider at top level makes a live provider
+request when a diagnostic imports it. Operator entry points that can contact a
+provider must put execution behind `import.meta.main`; diagnostics import only
+side-effect-free functions.
+
+The one box this exercise may touch is Contabo instance `203474835`, serving
+`cp2.test.isomux.app`. It is cancel-scheduled and paid through **2026-08-29**.
+That date is an operator obligation: confirm teardown, provider cancellation,
+and the disposition of its data then. Do not inspect other account instances.
+Delete the two provider-side SSH secrets after teardown:
+
+- `isomux-cp-run-20260812130101-hc5b`
+- `isomux-cp-run-20260812133231-c73w`
+
+The Fly provisioner volume has scheduled snapshots off. That is deliberate
+because snapshots would retain destroyed temporary private keys. The operator
+restore procedure and the decision about what non-key state deserves backup
+remain coupled: never enable volume snapshots as an ad hoc substitute.
+
+Two 2026-08-13 launch blockers came from the real pass. The Fly image lacked
+`/app/deploy/install.sh`, so the provisioner could stage its wrapper but could
+not start the installer; task `a8258f96` owns the permanent image fix. Also, a
+fresh clone with only the root dependencies installed could deploy a healthy
+Vercel build and then fail its LOCAL probe import (`next-auth/jwt` absent),
+causing the safety gate to detach the healthy domain; task `ef0986ce` owns the
+pre-deploy harness check. Until it lands, install dependencies in both the repo
+root and `control-plane/web` before `production-phase.ts --redeploy`.
 
 ## Tests
 

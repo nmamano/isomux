@@ -331,10 +331,10 @@ function detailFor(
 
 const ATTENTION_WORDS: Record<ReasonClass, string> = {
   inactivity_deadline:
-    "a step is taking longer than expected and has been raised with us",
+    "A step is taking longer than expected. We will continue setting up your office.",
   absolute_deadline:
-    "a step has passed its time limit and has been raised with us",
-  operation_condition: "a step needs a person and has been raised with us",
+    "A step has passed its time limit. We will check your setup.",
+  operation_condition: "A step needs our attention. We will check your setup.",
 };
 
 function attentionViews(reasons: AttentionReasonRow[]): AttentionView[] {

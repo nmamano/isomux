@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { auth } from "../../auth";
 import { plans } from "../../lib/services.server";
+import { OFFICE_DOMAIN } from "../../../signup";
+import { OfficeAddressPreview } from "../../components/office-address-preview";
 
 export const dynamic = "force-dynamic";
 
@@ -26,34 +28,17 @@ export default async function Signup({
         </p>
       )}
       <form className="form card" method="post" action="/api/signup">
+        <OfficeAddressPreview initialName={name} domain={OFFICE_DOMAIN} />
+        <input type="hidden" name="plan" value={options[0]?.id ?? ""} />
         <p>
           <label>
-            Office name{" "}
-            <input
-              name="officeName"
-              data-testid="office-name"
-              defaultValue={name}
-              autoComplete="off"
-            />
-          </label>
-        </p>
-        <p>
-          <label>
-            Plan{" "}
-            <select name="plan" data-testid="plan">
-              {options.map((plan) => (
-                <option key={plan.id} value={plan.id}>
-                  {plan.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </p>
-        <p>
-          <label>
-            Code (optional){" "}
+            Promotional code (optional){" "}
             <input name="couponId" data-testid="coupon" autoComplete="off" />
           </label>
+          <span className="note">
+            {" "}
+            If you received a promotional code, enter it here.
+          </span>
         </p>
         <button
           className="btn-primary"
@@ -63,10 +48,6 @@ export default async function Signup({
           Continue to payment
         </button>
       </form>
-      <p className="note">
-        Your office is reached at your name plus our domain, and the name cannot
-        be changed after setup.
-      </p>
     </main>
   );
 }

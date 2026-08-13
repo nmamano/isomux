@@ -204,14 +204,14 @@ export async function signUpOffice(args: {
   if (!priceId) {
     return {
       ok: false,
-      reason: "this deployment has no price configured yet",
+      reason: "This deployment has no price configured yet",
     };
   }
   const key = process.env.STRIPE_TEST_SECRET_KEY;
   if (!key) {
     return {
       ok: false,
-      reason: "this deployment has no Stripe key configured",
+      reason: "This deployment has no Stripe key configured",
     };
   }
 

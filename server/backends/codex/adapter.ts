@@ -109,7 +109,7 @@ const codexLoginCmd = codexWrapperCommandForShell();
 const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on one of the cards below:
 
 - \`${codexLoginCmd} login\`: if running isomux locally
-- \`${codexLoginCmd} login --device-auth\`: for remote or headless hosts (e.g. a Mac mini or Linux box you reach over a VPN)
+- \`${codexLoginCmd} login --device-auth\`: for your hosted Isomux VPS, or another remote or headless host (e.g. a Mac mini or Linux box you reach over a VPN)
 
 Press Enter to run, follow the prompts, then \`/clear\` this conversation to apply the new auth. Other codex agents apply on their next \`/clear\`.
 

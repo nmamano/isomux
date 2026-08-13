@@ -131,6 +131,7 @@ export function OfficeView({
   const [view, setView] = useState(initial);
   const [invite, setInvite] = useState<InviteState>({ phase: "idle" });
   const [action, setAction] = useState<string | null>(null);
+  const [handoffPending, setHandoffPending] = useState(false);
   /** Which billing change we have asked Stripe for and not yet seen land.
    * Cleared by the poll, because the WEBHOOK is what makes it true - this side
    * never writes subscription state, so it must not claim it either. */
@@ -145,6 +146,7 @@ export function OfficeView({
     !view.ready ||
     billing !== null ||
     invite.phase === "waiting" ||
+    handoffPending ||
     view.restart.active ||
     view.handoff.invite.state === "active" ||
     view.handoff.revocation.state === "active";
@@ -160,6 +162,9 @@ export function OfficeView({
         const next = (await res.json()) as ProgressView;
         if (cancelled) return;
         setView(next);
+        if (next.handoff.revocation.state !== "none") {
+          setHandoffPending(false);
+        }
         // Stripe has confirmed when the CACHED flag matches what we asked for.
         // Anything else and the pending sentence stands, which is the truth.
         setBilling((asked) => {
@@ -256,24 +261,31 @@ export function OfficeView({
     label: "cancel" | "uncancel",
   ): Promise<void> => {
     setBillingProblem(null);
-    const { data, status } = await postJson(path, { instanceId });
-    if (status !== 200 || data.ok !== true) {
+    setBilling(label);
+    try {
+      const { data, status } = await postJson(path, { instanceId });
+      if (status === 200 && data.ok === true) return;
+      setBilling(null);
       setBillingProblem(
         reasonOf(data, "we could not change your plan just now."),
       );
-      return;
+    } catch {
+      setBilling(null);
+      setBillingProblem("We could not change your plan just now.");
     }
-    setBilling(label);
   };
 
-  const act = async (path: string, label: string): Promise<void> => {
+  const act = async (path: string, label: string): Promise<boolean> => {
     setAction(null);
-    const { data, status } = await postJson(path, { instanceId });
-    if (status !== 200 || data.ok !== true) {
+    try {
+      const { data, status } = await postJson(path, { instanceId });
+      if (status === 200 && data.ok === true) return true;
       setAction(reasonOf(data, `we could not ${label} just now.`));
-      return;
+      return false;
+    } catch {
+      setAction(`We could not ${label} just now.`);
+      return false;
     }
-    setAction(null);
   };
 
   return (
@@ -286,7 +298,12 @@ export function OfficeView({
       </p>
       {view.ready && (
         <p>
-          <a className="btn btn-primary" href={`https://${view.hostname}`}>
+          <a
+            className="btn btn-primary"
+            href={`https://${view.hostname}`}
+            target="_blank"
+            rel="noopener"
+          >
             Open your office
           </a>
         </p>
@@ -307,7 +324,7 @@ export function OfficeView({
             <svg viewBox="0 0 16 16" aria-hidden="true">
               <path d="M8 1.5a1 1 0 0 1 .87.5l6 10.5A1 1 0 0 1 14 14H2a1 1 0 0 1-.87-1.5l6-10.5A1 1 0 0 1 8 1.5Zm0 3.75a.75.75 0 0 0-.75.75v3a.75.75 0 0 0 1.5 0v-3A.75.75 0 0 0 8 5.25ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" />
             </svg>
-            <strong>This office needs a person</strong>
+            <strong>We need to check your setup</strong>
           </div>
           <ul className="rows">
             {view.attention.map((item, index) => (
@@ -317,6 +334,11 @@ export function OfficeView({
               </li>
             ))}
           </ul>
+          <p>
+            You do not need to do anything. We have been notified. If this
+            message is still here after 12 hours, email{" "}
+            <a href="mailto:llc@isomux.com">llc@isomux.com</a>.
+          </p>
         </section>
       )}
 
@@ -330,28 +352,14 @@ export function OfficeView({
         </>
       )}
 
-      <h2>Your plan</h2>
-      <div className="card">
-        <p className="lead" data-testid="subscription">
-          {planLine(view)}
-        </p>
-        <CancelPanel
-          view={view}
-          pending={billing}
-          onAct={(path, label) => void billingAct(path, label)}
-        />
-        {billingProblem && (
-          <p className="callout callout-danger" data-testid="billing-problem">
-            {billingProblem}
-          </p>
-        )}
-      </div>
-
       <h2>Getting in</h2>
       <section className="card" data-testid="handoff">
-        <p className="note" data-testid="access-window">
-          {accessSentence(view.access)}
-        </p>
+        {(view.access.state !== "gone" ||
+          view.handoff.revocation.state === "none") && (
+          <p className="note" data-testid="access-window">
+            {accessSentence(view.access)}
+          </p>
+        )}
 
         {view.handoff.invite.state === "none" && !view.ready && (
           <p className="note" data-testid="invite-not-yet">
@@ -412,6 +420,8 @@ export function OfficeView({
                 className="btn btn-primary"
                 data-testid="invite-link"
                 href={invite.url}
+                target="_blank"
+                rel="noopener"
               >
                 Open your office and sign in
               </a>
@@ -441,15 +451,25 @@ export function OfficeView({
               <button
                 className="btn-primary"
                 data-testid="revoke-button"
-                onClick={() => void act("/api/handoff", "remove our access")}
+                disabled={handoffPending}
+                onClick={() => {
+                  setHandoffPending(true);
+                  void act("/api/handoff", "remove our access").then((ok) => {
+                    // A successful request stays pending until the progress
+                    // poll sees the revocation row. A failure leaves `action`.
+                    if (!ok) setHandoffPending(false);
+                  });
+                }}
               >
-                Revoke isomux&apos;s access
+                {handoffPending
+                  ? "Removing temporary access..."
+                  : "Revoke isomux's access"}
               </button>
             </div>
           )}
 
         {view.handoff.revocation.state !== "none" && (
-          <p data-testid="revocation-state">
+          <p className="note" data-testid="revocation-state">
             {revocationSentence(view.handoff.revocation)}
           </p>
         )}
@@ -489,6 +509,21 @@ export function OfficeView({
           </p>
         )}
       </div>
+
+      <h2>Your plan</h2>
+      <div className="card">
+        <p data-testid="subscription">{planLine(view)}</p>
+        <CancelPanel
+          view={view}
+          pending={billing}
+          onAct={(path, label) => void billingAct(path, label)}
+        />
+        {billingProblem && (
+          <p className="callout callout-danger" data-testid="billing-problem">
+            {billingProblem}
+          </p>
+        )}
+      </div>
     </main>
   );
 }
@@ -505,7 +540,7 @@ function revocationSentence(
 ): string {
   switch (revocation.state) {
     case "done":
-      return "Hosted Isomux Provisioning has removed its key, and we confirmed it by trying to reconnect with it and being refused.";
+      return "Hosted Isomux Provisioning no longer has a key to your server. We confirmed this by trying to reconnect with it and being refused.";
     case "failed":
       return "We could not remove our key, and a person has been asked to finish it. Your server's own expiry still removes it at the latest date shown above.";
     case "checking":
@@ -656,7 +691,7 @@ function CancelPanel({
  * past. The date is the same number throughout - what changes is whether it is
  * a bill or an ending.
  */
-function planLine(view: ProgressView): string {
+function planLine(view: ProgressView) {
   const sub = view.subscription;
   if (!sub) return `${view.plan} - waiting for payment to be confirmed`;
   const head = `${view.plan} - ${sub.status}${sub.comped ? ", no charge" : ""}`;
@@ -664,7 +699,14 @@ function planLine(view: ProgressView): string {
   // cancellation panel below is where the remaining dates live.
   if (sub.endedAt !== null) return head;
   if (sub.currentPeriodEnd === null) return head;
-  return sub.cancelAtPeriodEnd
-    ? `${head}, period ends ${day(sub.currentPeriodEnd)}`
-    : `${head}, next invoice ${day(sub.currentPeriodEnd)}`;
+  return sub.cancelAtPeriodEnd ? (
+    <>
+      {head},{" "}
+      <strong className="period-end">
+        period ends {day(sub.currentPeriodEnd)}
+      </strong>
+    </>
+  ) : (
+    `${head}, next invoice ${day(sub.currentPeriodEnd)}`
+  );
 }
