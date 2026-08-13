@@ -73,6 +73,7 @@ export interface SubscriptionRow {
    * 2026-08-09) is dunning and walks the suspension ladder, which is resumable.
    */
   cancellation_reason: string | null;
+  cancellation_policy: CancellationPolicy;
   discount_percent_off: number | null;
   discount_coupon_id: string | null;
   discount_ends_at: number | null;
@@ -94,6 +95,8 @@ export interface SubscriptionRow {
   created_at: number;
   updated_at: number;
 }
+
+export type CancellationPolicy = "legacy" | "launch";
 
 /** What Stripe says. Written only from a fetched object, only by reconciliation. */
 export type StripeOwnedPatch = Partial<
@@ -126,6 +129,12 @@ export type EpisodePatch = Partial<
     | "episode_id"
     | "episode_state"
   >
+>;
+
+/** Ours. Stripe cannot shorten or extend a cancellation promise. */
+export type CancellationPolicyPatch = Pick<
+  SubscriptionRow,
+  "cancellation_policy"
 >;
 
 export interface StripeEventRow {
@@ -239,19 +248,26 @@ export async function insertSubscription(
   store: Store,
   row: Omit<
     SubscriptionRow,
-    "version" | "created_at" | "updated_at" | "episode_state"
-  > & { episode_state?: EpisodeState },
+    | "version"
+    | "created_at"
+    | "updated_at"
+    | "episode_state"
+    | "cancellation_policy"
+  > & {
+    episode_state?: EpisodeState;
+    cancellation_policy?: CancellationPolicy;
+  },
 ): Promise<SubscriptionRow> {
   assertInTx(store, "insertSubscription");
   const ts = store.now();
   await store.sqlRun(
     "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, status, " +
-      "current_period_end, cancel_at_period_end, ended_at, canceled_at, cancellation_reason, " +
+      "current_period_end, cancel_at_period_end, ended_at, canceled_at, cancellation_reason, cancellation_policy, " +
       "discount_percent_off, discount_coupon_id, " +
       "discount_ends_at, ever_full_discount, latest_invoice_id, payment_failures, " +
       "exhaustion_observed_at, coupon_grace_until, episode_id, episode_state, last_event_id, " +
       "last_event_created, version, created_at, updated_at) " +
-      "values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, 1, $23, $24)",
+      "values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 1, $24, $25)",
     [
       row.id,
       row.account_id,
@@ -263,6 +279,7 @@ export async function insertSubscription(
       row.ended_at,
       row.canceled_at,
       row.cancellation_reason,
+      row.cancellation_policy ?? "launch",
       row.discount_percent_off,
       row.discount_coupon_id,
       row.discount_ends_at,
@@ -282,6 +299,23 @@ export async function insertSubscription(
   const made = await getSubscription(store, row.id);
   if (!made) throw new Error("subscription insert did not land");
   return made;
+}
+
+export async function casCancellationPolicy(
+  store: Store,
+  id: string,
+  expectedVersion: number,
+  patch: CancellationPolicyPatch,
+): Promise<SubscriptionRow | null> {
+  assertInTx(store, "casCancellationPolicy");
+  return casRow<SubscriptionRow>(
+    store,
+    "subscriptions",
+    "id",
+    id,
+    expectedVersion,
+    patch,
+  );
 }
 
 export async function getSubscription(

@@ -5,16 +5,16 @@
 // than a test-clock exercise, and a timeline that could only be observed by
 // waiting would never be observed at all.
 //
-// THE THREE DATES, AND WHY THEY ARE NOT ONE (manager ruling R-2026-08-10-3):
+// TWO POLICIES SHARE THIS MACHINE:
 //
-//   graceEnd     = endedAt + 7 days. Ours, and proven: `ended_at` is the instant
-//                  Stripe says service ended. The office KEEPS SERVING through
-//                  it (design ruling 9 bought the provider month for exactly
-//                  this), because a powered-off box nobody can reach is not a
-//                  grace period, it is a week of silence.
-//   retentionEnd = one CALENDAR MONTH after the box was powered off (ruling 8,
-//                  "1 month" - not 30 days). This is the instant we ASK the
-//                  provider to cancel; it is not a deletion date.
+//   launch: power off at endedAt; retain until endedAt + 14 days.
+//   legacy: serve until endedAt + 7 days; retain one calendar month from the
+//           first proven cancellation power-off.
+//
+// retentionEnd is when we ASK for permanent deletion. It is not a provider
+// deletion date. A corrective power-off after a late reboot never re-anchors
+// the legacy promise.
+//
 //   serviceEndsAt= the provider's own term end, on `provider_assets`. The only
 //                  date on which data actually disappears, and the provider owns
 //                  it.
@@ -31,9 +31,11 @@
 
 import type { OperationKind } from "./operations.ts";
 import type { AssetRow, InstanceRow, OperationRow, Severity } from "./store.ts";
+import type { CancellationPolicy } from "./stripe/billing-store.ts";
 
-/** Design ruling 9: the grace week, bought. Exactly seven days, not "about". */
+/** Grandfathered grace. Launch rows never enter the grace phase. */
 export const GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+export const RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 /**
  * Stripe's own word for a customer cancellation, measured 2026-08-10 on API
@@ -100,6 +102,9 @@ export interface TimelineFacts {
   /** When the CANCELLATION's own power_off succeeded, from that operation's own
    * evidence. Never another power_off's, and never a row timestamp. */
   poweredOffAt: number | null;
+  /** A reboot after the last proven cancellation power-off. */
+  repoweredAt?: number | null;
+  cancellationPolicy?: CancellationPolicy | null;
   /** Whether provider truth already reports the asset gone. */
   assetGone: boolean;
 }
@@ -151,24 +156,33 @@ export function phaseAt(facts: TimelineFacts, now: number): Timeline {
       promisedUntil: null,
     };
   }
-  const graceEnd = facts.endedAt! + GRACE_MS;
-  const retentionEnd =
-    facts.poweredOffAt === null ? null : addUtcMonth(facts.poweredOffAt);
+  const legacy = facts.cancellationPolicy !== "launch";
+  const graceEnd = facts.endedAt! + (legacy ? GRACE_MS : 0);
+  const retentionEnd = legacy
+    ? facts.poweredOffAt === null
+      ? null
+      : addUtcMonth(facts.poweredOffAt)
+    : facts.endedAt! + RETENTION_MS;
   // The projection is from the GRACE END, not from now: the power-off cannot
   // land before then, so neither can the promise expire.
-  const promisedUntil = retentionEnd ?? addUtcMonth(graceEnd);
+  const promisedUntil = legacy
+    ? (retentionEnd ?? addUtcMonth(graceEnd))
+    : facts.endedAt! + RETENTION_MS;
   const base = { graceEnd, retentionEnd, promisedUntil };
 
   if (facts.assetGone) {
     return { ...base, phase: "ended" };
   }
-  if (facts.poweredOffAt !== null) {
+  if (facts.poweredOffAt !== null && (facts.repoweredAt ?? null) === null) {
     return {
       ...base,
       phase: now >= retentionEnd! ? "deprovision_due" : "suspended",
     };
   }
-  return { ...base, phase: now >= graceEnd ? "power_off_due" : "grace" };
+  return {
+    ...base,
+    phase: legacy && now < graceEnd ? "grace" : "power_off_due",
+  };
 }
 
 /**
@@ -183,6 +197,7 @@ export function phaseAt(facts: TimelineFacts, now: number): Timeline {
 export const PROMISE_AT_RISK = "lifecycle-promise-at-risk";
 export const PROMISE_BROKEN = "lifecycle-promise-broken";
 export const LIFECYCLE_STRAY = "lifecycle-stray-rows";
+export const LIFECYCLE_REPOWERED = "lifecycle-repowered";
 
 /**
  * What to do about a condition.
@@ -261,8 +276,91 @@ export interface LifecycleInputs {
     id: string;
     endedAt: number | null;
     cancellationReason: string | null;
+    cancellationPolicy?: CancellationPolicy | null;
   } | null;
   now: number;
+}
+
+function numberEvidence(op: OperationRow, key: string): number | null {
+  try {
+    const value = (JSON.parse(op.evidence) as Record<string, unknown>)[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function stringArrayEvidence(op: OperationRow, key: string): string[] {
+  try {
+    const value = (JSON.parse(op.evidence) as Record<string, unknown>)[key];
+    return Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function correctivePowerOffId(
+  subscriptionId: string,
+  rebootId: string,
+): string {
+  return `op-power_off-cancel-corrective-${subscriptionId}-${rebootId}`;
+}
+
+export function repowerFacts(
+  operations: OperationRow[],
+  subscriptionId: string,
+  endedAt: number,
+  firstPoweredOffAt: number | null,
+): { repoweredAt: number | null; rebootId: string | null; unknown: boolean } {
+  if (firstPoweredOffAt === null)
+    return { repoweredAt: null, rebootId: null, unknown: false };
+  const correctionRows = operations.filter(
+    (op) =>
+      op.kind === "power_off" &&
+      op.status === "succeeded" &&
+      isLifecycleRow(op) &&
+      op.id !== lifecycleOperationId("power_off", subscriptionId, endedAt),
+  );
+  const corrections = correctionRows
+    .map((op) => numberEvidence(op, "poweredOffAt"))
+    .filter((at): at is number => at !== null);
+  const lastOff = Math.max(firstPoweredOffAt, ...corrections);
+  const reboots = operations.filter(
+    (op) => op.kind === "reboot" && op.status === "succeeded",
+  );
+  for (const reboot of reboots) {
+    const at = numberEvidence(reboot, "rebootedAt");
+    const explicitlyAnswered = correctionRows.some((op) => {
+      try {
+        const evidence = JSON.parse(op.evidence) as Record<string, unknown>;
+        return (
+          evidence.correctiveFor === reboot.id ||
+          stringArrayEvidence(op, "answeredReboots").includes(reboot.id)
+        );
+      } catch {
+        return false;
+      }
+    });
+    if (at === null && !explicitlyAnswered) {
+      return {
+        repoweredAt: firstPoweredOffAt,
+        rebootId: reboot.id,
+        unknown: true,
+      };
+    }
+  }
+  const later = reboots
+    .map((op) => ({ op, at: numberEvidence(op, "rebootedAt") }))
+    .filter(
+      (entry): entry is { op: OperationRow; at: number } => entry.at !== null,
+    )
+    .filter((entry) => entry.at > lastOff)
+    .sort((a, b) => b.at - a.at)[0];
+  return later
+    ? { repoweredAt: later.at, rebootId: later.op.id, unknown: false }
+    : { repoweredAt: null, rebootId: null, unknown: false };
 }
 
 /** Did this operation come from the cancellation lifecycle? A stamp we wrote. */
@@ -303,6 +401,46 @@ export function poweredOffAtFrom(
   } catch {
     return null;
   }
+}
+
+export interface CancellationState {
+  timeline: Timeline;
+  poweredOffAt: number | null;
+  repower: ReturnType<typeof repowerFacts>;
+}
+
+/** One pure timeline projection for the ticker, request fence, handler and UI. */
+export function cancellationStateFrom(
+  subscription: LifecycleInputs["subscription"],
+  operations: OperationRow[],
+  asset: AssetRow | null,
+  now: number,
+): CancellationState | null {
+  if (!subscription || !isCustomerCancellation(subscription)) return null;
+  const endedAt = subscription.endedAt!;
+  const poweredOffAt = poweredOffAtFrom(operations, subscription.id, endedAt);
+  const repower = repowerFacts(
+    operations,
+    subscription.id,
+    endedAt,
+    poweredOffAt,
+  );
+  return {
+    poweredOffAt,
+    repower,
+    timeline: phaseAt(
+      {
+        endedAt,
+        cancellationReason: subscription.cancellationReason,
+        poweredOffAt,
+        repoweredAt: repower.repoweredAt,
+        cancellationPolicy:
+          subscription.cancellationPolicy === "launch" ? "launch" : "legacy",
+        assetGone: !!asset && GONE_STATES.has(asset.asset_state),
+      },
+      now,
+    ),
+  };
 }
 
 /** Provider states that mean the asset is really gone, not merely scheduled. */
@@ -352,17 +490,8 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
   }
 
   const endedAt = subscription.endedAt!;
-  const poweredOffAt = poweredOffAtFrom(operations, subscription.id, endedAt);
-  const assetGone = !!asset && GONE_STATES.has(asset.asset_state);
-  const timeline = phaseAt(
-    {
-      endedAt,
-      cancellationReason: subscription.cancellationReason,
-      poweredOffAt,
-      assetGone,
-    },
-    now,
-  );
+  const state = cancellationStateFrom(subscription, operations, asset, now)!;
+  const { timeline, repower } = state;
 
   // A provider term that ends before the retention deadline is a PROMISE AT
   // RISK. It never shortens what the customer was told and never advances
@@ -397,32 +526,35 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
       // Deprovisioned is recorded from PROVIDER TRUTH and nothing else. Our own
       // deadline passing is a request, not a deletion.
       finish: instance.service_state !== "deprovisioned",
-      attention: early
-        ? [
-            // PROMOTION, and both halves commit together. The at-risk row said
-            // "renew the term or the promise breaks"; the promise has now
-            // broken, so leaving it open would put a stale instruction on the
-            // ops floor beside the incident that superseded it.
-            { kind: "clear" as const, key: PROMISE_AT_RISK },
-            {
-              kind: "raise" as const,
-              key: PROMISE_BROKEN,
-              // STABLE. No `now` in it: the row's own raised_at records when we
-              // first saw it, and a sentence carrying the observation time would
-              // open a fresh critical row on every later tick.
-              reason:
-                `the provider asset for this office ended BEFORE the ` +
-                `${iso(timeline.promisedUntil)} the customer was promised; the ` +
-                `retention promise was broken and the data is already gone`,
-              severity: "critical",
-              // The DATED evidence, in the audit row rather than the identity: a
-              // later renewal overwrites the asset's date, and the incident has
-              // to stay reconstructable afterwards.
-              detail: datedEvidence(asset, timeline.promisedUntil, now),
-            },
-          ]
-        : // The risk, if one was raised, resolved into an ordinary end.
-          [{ kind: "clear" as const, key: PROMISE_AT_RISK }],
+      attention: [
+        { kind: "clear" as const, key: LIFECYCLE_REPOWERED },
+        ...(early
+          ? [
+              // PROMOTION, and both halves commit together. The at-risk row said
+              // "renew the term or the promise breaks"; the promise has now
+              // broken, so leaving it open would put a stale instruction on the
+              // ops floor beside the incident that superseded it.
+              { kind: "clear" as const, key: PROMISE_AT_RISK },
+              {
+                kind: "raise" as const,
+                key: PROMISE_BROKEN,
+                // STABLE. No `now` in it: the row's own raised_at records when we
+                // first saw it, and a sentence carrying the observation time would
+                // open a fresh critical row on every later tick.
+                reason:
+                  `the provider asset for this office ended BEFORE the ` +
+                  `${iso(timeline.promisedUntil)} the customer was promised; the ` +
+                  `retention promise was broken and the data is already gone`,
+                severity: "critical" as const,
+                // The DATED evidence, in the audit row rather than the identity: a
+                // later renewal overwrites the asset's date, and the incident has
+                // to stay reconstructable afterwards.
+                detail: datedEvidence(asset, timeline.promisedUntil, now),
+              },
+            ]
+          : // The risk, if one was raised, resolved into an ordinary end.
+            [{ kind: "clear" as const, key: PROMISE_AT_RISK }]),
+      ],
       phase: timeline.phase,
       note: early
         ? `provider ended the asset EARLY (${asset?.asset_state}); promise broken`
@@ -431,14 +563,46 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
   }
 
   const open: LifecycleDecision["open"] = [];
+  const attention: AttentionAction[] = atRisk
+    ? [
+        {
+          kind: "raise",
+          key: PROMISE_AT_RISK,
+          ...atRisk,
+          detail: datedEvidence(asset, timeline.promisedUntil, now),
+        },
+      ]
+    : [{ kind: "clear", key: PROMISE_AT_RISK }];
   if (timeline.phase === "power_off_due") {
+    const activeCorrection = operations.find(
+      (op) =>
+        op.kind === "power_off" &&
+        ["pending", "running", "ambiguous"].includes(op.status) &&
+        isLifecycleRow(op) &&
+        op.id !== lifecycleOperationId("power_off", subscription.id, endedAt),
+    );
+    const id = activeCorrection
+      ? activeCorrection.id
+      : repower.rebootId
+        ? correctivePowerOffId(subscription.id, repower.rebootId)
+        : lifecycleOperationId("power_off", subscription.id, endedAt);
     open.push({
       kind: "power_off",
-      id: lifecycleOperationId("power_off", subscription.id, endedAt),
+      id,
       evidence: {
         reason: LIFECYCLE_REASON,
         subscription: subscription.id,
         graceEnd: timeline.graceEnd,
+        ...(repower.rebootId ? { correctiveFor: repower.rebootId } : {}),
+        ...(repower.rebootId
+          ? {
+              answeredReboots: operations
+                .filter(
+                  (op) => op.kind === "reboot" && op.status === "succeeded",
+                )
+                .map((op) => op.id),
+            }
+          : {}),
       },
     });
   }
@@ -458,6 +622,20 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
       });
     }
   }
+  if (repower.repoweredAt !== null) {
+    attention.push({
+      kind: "raise",
+      key: LIFECYCLE_REPOWERED,
+      reason:
+        "a reboot succeeded after cancellation suspension; the office must be powered off again before deletion",
+      severity: "critical",
+      detail: repower.unknown
+        ? `reboot=${repower.rebootId}; rebootedAt=missing; observed=${iso(now)}`
+        : `reboot=${repower.rebootId}; rebootedAt=${iso(repower.repoweredAt)}; observed=${iso(now)}`,
+    });
+  } else {
+    attention.push({ kind: "clear", key: LIFECYCLE_REPOWERED });
+  }
 
   return {
     open,
@@ -465,16 +643,7 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
     // Reversible: raised while the term threatens the promise, and CLEARED when
     // a renewal pushes it back out. A critical incident that survived the fix
     // would be indistinguishable from one nobody had dealt with.
-    attention: atRisk
-      ? [
-          {
-            kind: "raise" as const,
-            key: PROMISE_AT_RISK,
-            ...atRisk,
-            detail: datedEvidence(asset, timeline.promisedUntil, now),
-          },
-        ]
-      : [{ kind: "clear" as const, key: PROMISE_AT_RISK }],
+    attention,
     phase: timeline.phase,
     note: `${timeline.phase} (grace ends ${iso(timeline.graceEnd)}, retention ends ${iso(timeline.retentionEnd)})`,
   };

@@ -62,12 +62,10 @@ reworked at implementation time):
    confirms from the dashboard that they are in (an observable act), then the
    revoke-and-verify sequence runs. Consequence accepted: a customer who never
    confirms leaves the key valid, so the dashboard nags until they confirm.
-8. **Suspension to deletion: 1 month**, not 7 days. Nil: start generous;
-   tighten only if it becomes a recurring problem - making someone angry is
-   worse.
-9. **Grace-week bought:** on cancellation we pay the ~EUR 5.50 extra provider
-   month so the office keeps serving through the grace period. (Ruling on the
-   deviation-from-reference already in the D6 section.)
+8. **Superseded 2026-08-13:** the former one-month cancellation retention is
+   grandfathered only. Launch retention is 14 days.
+9. **Superseded 2026-08-13:** the former grace week is grandfathered only.
+   Launch access ends and power-off starts at paid-period end.
 10. **No implementation this session.** Both designs are approved as designs;
    implementation is sequenced separately.
 
@@ -119,10 +117,9 @@ at `~/nil/secrets/contabo.env`. Two consequences of their billing shape:
   the machine may assume cancelling frees the asset now. With no trial (ruling
   1) every box we create has been paid for at least once, which removes the
   worst version of this risk.
-- **Reinstall is fast and total** (~5 min, wipes the disk). A cancelled box is
-  therefore recyclable inside its paid month. Not in the MVP, but the model must
-  not preclude it: provider identity and instance identity stay in separate
-  rows so one provider box can back a later instance.
+- **Reinstall is fast and total** (~5 min, wipes the disk). Reuse still requires
+  durable control-plane proof that the wipe completed. This release has no such
+  proof, so retained and cancelled boxes cannot back another customer.
 
 ## Ordering a paid box exactly once
 
@@ -633,39 +630,47 @@ suspension by provider `power_off` on exhaustion, since after handoff nothing
 can stop the service from inside; the backup promise covers box loss only and is
 at most 24h stale; we publish no security-update window and no support SLA.
 
-**One deliberate deviation, forced by ruling 3.** They stop the server at period
-end and then hold the data for seven days. That half-measure is not available to
-us: a powered-off box is unreachable, and we are not the ones who export the
-data, so their version of the grace would be seven days in which
-nobody at all can reach the data. So **the office keeps serving through the
-grace week**, and only then is it powered off and cancelled. The grace is worth
-having precisely because the customer can walk in and take their work.
+**Settled 2026-08-13 (launch cancellation policy).** Access ends when the paid
+period ends. At that instant the provider powers the office off. There is no
+seven-day serving grace. We retain the server data for 14 days for manual
+recovery. At the end of that retention period we request permanent deletion as
+soon as the provider permits. That date is our request deadline, not a promise
+of the provider's exact deletion instant.
 
-Two things we must fill in ourselves, both **needing Nil's nod**:
+The launch retention deadline is `ended_at + 14 days`. It does not depend on
+power-off evidence, so provider-term risk is watched for the full window from
+`ended_at`. Deletion work still requires a proven power-off. If power-off is
+failed, ambiguous, or missing at day 14, the machine raises attention and keeps
+trying to power off; it does not cancel a server that might still serve.
 
-1. **Termination after suspension.** They publish none. Proposal: the same
-   7 days they use for post-cancellation deletion, so there is one number in
-   the product rather than two.
-2. **Whether the grace week is real for us**, because it is nearly free for them
-   and is not for us. Contabo bills whole months and its term is aligned with
-   the Stripe period, so serving seven days past the paid period means letting
-   the provider term renew once - a full extra month (~EUR 5.50) per
-   cancellation. Proposal: buy it. A week to get your work out is the difference
-   between a churned customer and an angry one, and the cost is bounded by
-   churn.
+The old seven-day serving grace and one-calendar-month retention promise is
+legacy-only. The migration records one immutable cutover in `schema_meta` and
+stamps cancellations that were already pending or terminal as `legacy`.
+Subscriptions first cached later use their fetched `canceled_at` or `ended_at`
+against that same cutover. An un-cancel resets a non-terminal row to `launch`,
+so a later cancellation does not inherit the old promise. Unknown policy fails
+closed to legacy.
 
-**Settled 2026-08-10 (manager ruling R-2026-08-10-3), on the collision between
-the retention deadline and the provider's term.** Contabo cancels at its paid
-term end and bills whole months, so the two dates are independent and the
-provider's can fall first. The retention ruling wins: a suspended customer's
-data survives until the 1-calendar-month deadline. Mechanically, **the asset is
-NOT cancel-scheduled during suspension** - `cancel_asset` is issued only at the
-deprovision deadline, and if the provider term renews meanwhile, that renewal is
-an accepted cost rather than a bug. Consequence for the cost model in "still
-open" item 2: up to one additional provider month per churn to honour retention,
-on top of the grace month. Customer copy states only proven dates; a reconciled
-provider `serviceEndsAt` that falls before the promised retention deadline
-raises attention (a promise at risk) and never silently shortens the promise.
+Payment failure remains a separate lifecycle. Its resumable suspension rules do
+not enter the customer-cancellation machine.
+
+A customer restart is refused when requested and when its queued operation
+runs once cancellation suspension is due. Grandfathered rows can still restart
+during their promised seven-day serving grace; launch rows have no grace and
+are refused from `ended_at`. A reboot that nevertheless lands after
+cancellation power-off raises attention and opens a corrective power-off. One
+corrective operation records every succeeded reboot it observed, and its
+success proves the single fact that the box is off after those reboots. Deletion
+remains blocked until the new suspension is proven. For legacy rows, a
+corrective power-off does not move the original retention anchor. The repower
+incident clears if provider truth later says that the asset is gone.
+
+A retained or cancelled provider asset cannot be linked or adopted for another
+customer. This release has no durable proof that a provider rebuild wiped the
+old disk, so the fence has no clean exception. A future exception requires a
+control-plane rebuild operation that transactionally writes durable proof in
+the control-plane store and preserves the old provider ID as evidence. Operator
+run files and file audit logs are not proof.
 
 Three mechanical consequences. The backup promise is only real once task
 962965dc lands a tested restore procedure, and it is P1 for exactly that reason.
@@ -840,13 +845,10 @@ Slices 1-2 are the risk. Everything after is well-trodden Next.js work.
    whether "we cannot repair or export" is literally true, so it cannot be
    settled by wording.
 2. **Plan and price table** (ruling 2 sets the posture, not the numbers). The
-   cost model must include the provider's backup add-on and the grace month.
+   cost model must include the provider's backup add-on and grandfathered grace
+   liabilities.
 3. **Where "after setup" ends** - customer-confirmed handoff or 72h, which
    interprets ruling 3 rather than following from it.
-4. **Termination timeline after suspension**, which the reference does not
-   publish. Proposal: 7 days.
-5. **Whether to buy the grace week** at one extra provider month per churn.
-   Proposal: yes.
 
 Exact deadline values are not on this list; they come from slice 1's
 measurements.
@@ -856,9 +858,8 @@ measurements.
 Contabo's `find`/tag semantics and whether it offers a create idempotency key;
 its reboot, power-off and power-on actions; programmatic creation of an SSH-key
 secret, or `userData` on create (either suffices, we only need keys on the box);
-whether a cancellation can be revoked, and whether a box scheduled for
-cancellation keeps its disk through a renewed term (the grace week depends on
-it); that Ubuntu 24.04's OpenSSH honours the `expiry-time` authorized-keys
+whether a cancellation can be revoked; that Ubuntu 24.04's OpenSSH honours the
+`expiry-time` authorized-keys
 option (it ships 9.6, which is well past the 8.2 that introduced it, but the
 whole ceiling rests on it so it gets tested rather than assumed - authenticate
 either side of the boundary, and boot a box whose deadline passed while it was

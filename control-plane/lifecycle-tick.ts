@@ -99,12 +99,32 @@ export async function lifecycleTick(
             id: sub.id,
             endedAt: sub.ended_at,
             cancellationReason: sub.cancellation_reason,
+            cancellationPolicy: sub.cancellation_policy,
           },
           now,
         });
 
         const opened: string[] = [];
         for (const spec of decision.open) {
+          if (spec.kind === "power_off") {
+            for (const reboot of await store.operationsFor(instance.id)) {
+              if (reboot.kind !== "reboot" || reboot.status !== "pending")
+                continue;
+              await store.sqlRun(
+                "update operations set status = 'failed', evidence = $1, " +
+                  "evidence_at = $2, updated_at = $2, version = version + 1 " +
+                  "where id = $3 and status = 'pending'",
+                [
+                  JSON.stringify({
+                    reason: "superseded_by_cancellation",
+                    powerOffOperation: spec.id,
+                  }),
+                  now,
+                  reboot.id,
+                ],
+              );
+            }
+          }
           // getOperation, not the one-active index, is the arbiter here: the id
           // is derived, so a row that already exists in ANY status - including a
           // terminal one - means this rung has been walked and must not be

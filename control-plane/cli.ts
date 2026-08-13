@@ -34,6 +34,7 @@ import { BRANCH_PIN_ENV, provePinnedBranch } from "./boot.ts";
 import {
   bootstrapDatabase,
   migrateCustomerSshKeyColumns,
+  migrateHostedCancellationPolicy,
   reportBootstrap,
 } from "./bootstrap.ts";
 import {
@@ -888,6 +889,11 @@ async function cmdMigrateCustomerSshKey(): Promise<void> {
   reporter.line("customer SSH key columns: ready");
 }
 
+async function cmdMigrateHostedCancellation(): Promise<void> {
+  await migrateHostedCancellationPolicy(databaseUrl());
+  reporter.line("hosted cancellation policy schema: ready");
+}
+
 async function cmdOps(args: Map<string, string>): Promise<void> {
   const store = await openStore();
   const run = args.get("run");
@@ -1198,6 +1204,8 @@ async function main(): Promise<void> {
       return cmdBootstrap();
     case "migrate-customer-ssh-key":
       return cmdMigrateCustomerSshKey();
+    case "migrate-hosted-cancellation":
+      return cmdMigrateHostedCancellation();
     case "operator":
       return cmdOperator(args);
     case "attention":
@@ -1207,7 +1215,7 @@ async function main(): Promise<void> {
     default:
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key|migrate-hosted-cancellation> [--flags]",
       );
       process.exit(2);
   }

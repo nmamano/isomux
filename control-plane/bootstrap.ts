@@ -146,6 +146,73 @@ export async function migrateCustomerSshKeyColumns(dsn: string): Promise<void> {
   }
 }
 
+export const CANCELLATION_POLICY_CUTOVER_KEY =
+  "hosted_cancellation_policy_cutover_ms";
+
+/** Owner-role migration for cancellation policy and provider-ID ownership. */
+export async function migrateHostedCancellationPolicy(
+  dsn: string,
+  cutover = Date.now(),
+): Promise<void> {
+  const pool = await openPool(dsn);
+  const client = await pool.connect().catch((err: unknown) => {
+    throw redactConnectionDetails(err, dsn);
+  });
+  try {
+    await client.query("begin");
+    const tables = await client.query<{ subscriptions: string | null }>(
+      "select to_regclass('subscriptions')::text as subscriptions",
+    );
+    if (!tables.rows[0]?.subscriptions) {
+      await client.query("commit");
+      return;
+    }
+    await client.query(
+      "alter table subscriptions add column if not exists cancellation_policy " +
+        "text not null default 'launch' check (cancellation_policy in ('legacy', 'launch'))",
+    );
+    const prior = await client.query<{ value: string }>(
+      "select value from schema_meta where key = $1",
+      [CANCELLATION_POLICY_CUTOVER_KEY],
+    );
+    if (prior.rowCount === 0) {
+      await client.query(
+        "update subscriptions set cancellation_policy = 'legacy' " +
+          "where cancel_at_period_end = 1 or ended_at is not null",
+      );
+      await client.query(
+        "insert into schema_meta (key, value) values ($1, $2)",
+        [CANCELLATION_POLICY_CUTOVER_KEY, String(cutover)],
+      );
+    }
+    const duplicates = await client.query<{
+      provider_id: string;
+      asset_ids: string;
+    }>(
+      "select provider_id, string_agg(id, ',' order by id) as asset_ids " +
+        "from provider_assets where provider_id is not null group by provider_id " +
+        "having count(*) > 1 order by provider_id",
+    );
+    if (duplicates.rows.length > 0) {
+      const detail = duplicates.rows
+        .map((row) => `${row.provider_id}: ${row.asset_ids}`)
+        .join("; ");
+      throw new Error(`duplicate provider assets prevent migration: ${detail}`);
+    }
+    await client.query(
+      "create unique index if not exists provider_assets_provider_id_unique " +
+        "on provider_assets (provider_id) where provider_id is not null",
+    );
+    await client.query("commit");
+  } catch (err) {
+    await client.query("rollback").catch(() => {});
+    throw redactConnectionDetails(err, dsn);
+  } finally {
+    client.release();
+    await pool.end().catch(() => {});
+  }
+}
+
 /** The owner's name and its current role configuration, read before anything
  * is written. */
 async function ownerState(
@@ -648,11 +715,14 @@ export async function ungovern(dsn: string): Promise<{
 /**
  * Empty database to schema-ready, in the one order that works.
  *
- * ROLES, THEN SCHEMA, THEN GRANTS. The roles have to exist before the schema
+ * ROLES, THEN OWNER MIGRATIONS, THEN SCHEMA, THEN GRANTS. The roles have to
+ * exist before the schema
  * because on a managed engine `Store.open` refuses to open unless the
  * connecting role already carries the governed bounds; the grants have to come
- * after the schema because a grant names a table. The middle step is the owner
- * building the tables it will own.
+ * after the schema because a grant names a table. On a fresh database the
+ * pre-schema migration is a no-op and reruns after Store.open to record its
+ * cutover. On an upgrade it repairs the old shape before Store.open applies the
+ * fail-closed runtime gate.
  *
  * If the schema step fails, the roles created by phase one are left behind:
  * NOLOGIN, with no grants and no password, so they can reach nothing. That
@@ -661,8 +731,16 @@ export async function ungovern(dsn: string): Promise<{
  */
 export async function bootstrapDatabase(dsn: string): Promise<BootstrapResult> {
   const posture = await applyRolePosture(dsn);
+  // UPGRADES FIRST. Store.open asserts the current runtime schema, so an owner
+  // migration placed after it can run only on databases that do not need it.
+  // This also lets the migration name duplicate provider IDs before SCHEMA
+  // attempts to create the unique index.
+  await migrateHostedCancellationPolicy(dsn);
   const store = await Store.open(dsn);
   try {
+    // A fresh database had no tables for the pre-open migration to alter.
+    // Store.open has created them now; this rerun records the immutable cutover.
+    await migrateHostedCancellationPolicy(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

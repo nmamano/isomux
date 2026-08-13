@@ -1072,12 +1072,13 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
 
       // ---- the one arm that may spend. Reachable only with nothing persisted.
       try {
+        const adoption = { refusal: null as AdoptionRefusal | null };
         const outcome = await coordinator.armAndCreate(
           req,
           ctx.fence,
           async (settled, op) => {
             if (settled.outcome === "created") {
-              await adoptAssetIn(
+              adoption.refusal = await adoptAssetIn(
                 ctx,
                 op.instance_id,
                 settled.providerId,
@@ -1086,6 +1087,10 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
             }
           },
         );
+        if (adoption.refusal) {
+          await persistAdoptionRefusal(ctx, adoption.refusal);
+          return { kind: "ambiguous", reason: adoption.refusal.message };
+        }
         if (outcome.outcome === "created") return { kind: "done" };
         if (outcome.outcome === "rejected") {
           return {
@@ -1161,28 +1166,70 @@ async function adoptAsset(
   providerId: string,
   intentId: string,
 ): Promise<void> {
-  await ctx.store.tx(() =>
+  const refusal = await ctx.store.tx(() =>
     adoptAssetIn(ctx, ctx.instance.id, providerId, intentId),
+  );
+  if (refusal) {
+    await persistAdoptionRefusal(ctx, refusal);
+    throw new Error(refusal.message);
+  }
+  return;
+}
+
+interface AdoptionRefusal {
+  heldInstanceId: string;
+  providerId: string;
+  instanceId: string;
+  intentId: string;
+  message: string;
+}
+
+async function persistAdoptionRefusal(
+  ctx: HandlerContext,
+  refusal: AdoptionRefusal,
+): Promise<void> {
+  await ctx.store.tx(() =>
+    raiseAttentionIn(ctx.store, {
+      instanceId: refusal.heldInstanceId,
+      reasonClass: "operation_condition",
+      sourceOpId: "",
+      reason: `provider asset ${refusal.providerId} was refused adoption by instance ${refusal.instanceId}; it is already assigned to another instance`,
+      severity: "critical",
+      actor: "create-instance",
+      detail: `intent=${refusal.intentId}; observed=${new Date(ctx.now).toISOString()}`,
+    }),
   );
 }
 
 /**
- * Idempotent: a retry after a crash finds the row already there. It THROWS
- * rather than returning quietly when it cannot attach the asset - the caller
- * turns that into attention, because an operation that reports done without a
- * provider asset has certified a box nobody can find again.
+ * Idempotent: a retry after a crash finds the row already there. A provider ID
+ * held by another instance is a TYPED REFUSAL, not a throw: the create outcome
+ * and latch settlement must commit before the caller raises attention in a
+ * separate transaction and reports ambiguity.
  */
 async function adoptAssetIn(
   ctx: HandlerContext,
   instanceId: string,
   providerId: string,
   intentId: string,
-): Promise<void> {
+): Promise<AdoptionRefusal | null> {
   if (!providerId) {
     throw new Error(`refusing to adopt an empty provider id for ${intentId}`);
   }
+  const held = await ctx.store.assetForProviderId(providerId);
+  if (held && held.instance_id !== instanceId) {
+    return {
+      heldInstanceId: held.instance_id,
+      providerId,
+      instanceId,
+      intentId,
+      message:
+        `provider asset ${providerId} belongs to ${held.instance_id}; ` +
+        `refusing adoption by ${instanceId}`,
+    };
+  }
   const existing = await ctx.store.assetForInstance(instanceId);
-  if (existing?.provider_id === providerId) return;
+  if (existing?.provider_id === providerId) return null;
   if (existing?.provider_id && existing.provider_id !== providerId) {
     // Two different boxes for one instance is the failure class the whole
     // create path exists to prevent. It is never resolved automatically.
@@ -1202,7 +1249,7 @@ async function adoptAssetIn(
         `provider asset ${existing.id} moved while adopting ${providerId}`,
       );
     }
-    return;
+    return null;
   }
   await ctx.store.createAsset({
     id: `asset-${instanceId}`,
@@ -1216,6 +1263,7 @@ async function adoptAssetIn(
     host_key_fingerprint: null,
     next_reconcile_at: ctx.now,
   });
+  return null;
 }
 
 /** Everything the CLI drives. create_instance is deliberately NOT here: the CLI

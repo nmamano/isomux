@@ -162,8 +162,11 @@ function messageOf(err: unknown): string {
  * The fields the OPENER put on the row that a completion must not lose.
  *
  * An allowlist rather than a spread of everything: evidence is ours, but only
- * these three say who opened the row and why, and copying the rest forward would
+ * these fields identify who opened the row, why, and which reboot facts a
+ * corrective cancellation power-off answers. Copying the rest forward would
  * make a completion carry whatever a future opener happened to attach.
+ * `graceEnd` and `retentionEnd` are opener projections only; no post-completion
+ * decision reads them, so they are deliberately not carried.
  */
 export function openerStamp(raw: string): Record<string, unknown> {
   let parsed: unknown;
@@ -177,6 +180,15 @@ export function openerStamp(raw: string): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const key of ["reason", "subscription", "episode"]) {
     if (typeof ev[key] === "string") out[key] = ev[key];
+  }
+  if (typeof ev.correctiveFor === "string") {
+    out.correctiveFor = ev.correctiveFor;
+  }
+  if (
+    Array.isArray(ev.answeredReboots) &&
+    ev.answeredReboots.every((id) => typeof id === "string")
+  ) {
+    out.answeredReboots = ev.answeredReboots;
   }
   return out;
 }

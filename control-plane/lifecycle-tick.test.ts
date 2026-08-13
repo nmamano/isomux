@@ -11,13 +11,16 @@ import {
   GRACE_MS,
   LIFECYCLE_REASON,
   lifecycleOperationId,
+  phaseAt,
   PROMISE_AT_RISK,
   PROMISE_BROKEN,
 } from "./lifecycle.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 import { Store } from "./store.ts";
 import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import { RemoteBudget } from "./tick.ts";
 import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
+import { powerOffHandler } from "./stripe/suspension.ts";
 
 const temps: string[] = [];
 afterEach(async () => {
@@ -43,7 +46,11 @@ function clock(start: number) {
 
 async function seed(
   store: Store,
-  over: { endedAt?: number | null; reason?: string | null } = {},
+  over: {
+    endedAt?: number | null;
+    reason?: string | null;
+    policy?: "legacy" | "launch";
+  } = {},
 ): Promise<void> {
   await store.createInstance({
     id: "inst-1",
@@ -84,6 +91,7 @@ async function seed(
       canceled_at: Date.parse("2027-01-10T00:00:00Z"),
       cancellation_reason:
         over.reason === undefined ? CUSTOMER_CANCELLATION_REASON : over.reason,
+      cancellation_policy: over.policy ?? "legacy",
       discount_percent_off: null,
       discount_coupon_id: null,
       discount_ends_at: null,
@@ -116,6 +124,182 @@ async function succeed(
 }
 
 describe("the walk, on seeded dates", () => {
+  test("an unknown policy fails closed to the longer legacy timeline", () => {
+    expect(
+      phaseAt(
+        {
+          endedAt: ENDED,
+          cancellationReason: CUSTOMER_CANCELLATION_REASON,
+          poweredOffAt: null,
+          repoweredAt: null,
+          cancellationPolicy: null,
+          assetGone: false,
+        },
+        ENDED,
+      ),
+    ).toMatchObject({ phase: "grace", graceEnd: GRACE_END });
+  });
+
+  test("launch powers off at period end and waits for proven suspension before day-14 deletion", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { policy: "launch", endedAt: null });
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 0 });
+    await store.sqlRun(
+      "update subscriptions set ended_at = $1, status = 'canceled' where id = 'sub_1'",
+      [ENDED],
+    );
+    c.set(ENDED);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 1 });
+    const powerOffId = lifecycleOperationId("power_off", "sub_1", ENDED);
+
+    c.set(ENDED + 14 * 86_400_000);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 0 });
+    expect(
+      await store.getOperation(
+        lifecycleOperationId("cancel_asset", "sub_1", ENDED),
+      ),
+    ).toBeNull();
+
+    await succeed(store, powerOffId, {
+      reason: LIFECYCLE_REASON,
+      poweredOffAt: ENDED + 30_000,
+    });
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 2 });
+    await store.close();
+  });
+
+  test("opening cancellation power-off fails a pending reboot atomically", async () => {
+    const c = clock(ENDED);
+    const store = await tempStore(c.now);
+    await seed(store, { policy: "launch" });
+    await store.enqueue({
+      id: "op-reboot-pending",
+      instance_id: "inst-1",
+      kind: "reboot",
+      inactivity_deadline_at: 0,
+      absolute_deadline_at: 0,
+      evidence: { via: "dashboard" },
+    });
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 1 });
+    expect((await store.getOperation("op-reboot-pending"))?.status).toBe(
+      "failed",
+    );
+    await store.close();
+  });
+
+  test("a reboot after suspension opens one corrective power-off and holds deletion", async () => {
+    const c = clock(ENDED);
+    const store = await tempStore(c.now);
+    await seed(store, { policy: "launch" });
+    await lifecycleTick(store, c.now());
+    await succeed(store, lifecycleOperationId("power_off", "sub_1", ENDED), {
+      reason: LIFECYCLE_REASON,
+      poweredOffAt: ENDED + 1,
+    });
+    await store.enqueue({
+      id: "op-reboot-late",
+      instance_id: "inst-1",
+      kind: "reboot",
+      inactivity_deadline_at: 0,
+      absolute_deadline_at: 0,
+      evidence: { via: "dashboard" },
+    });
+    await succeed(store, "op-reboot-late", {
+      via: "dashboard",
+      rebooted: true,
+      rebootedAt: ENDED + 2,
+    });
+    c.set(ENDED + 14 * 86_400_000);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 1 });
+    const ops = await store.operationsFor("inst-1");
+    const corrective = ops.find(
+      (op) => op.kind === "power_off" && op.id.includes("corrective"),
+    )!;
+    expect(JSON.parse(corrective.evidence).reason).toBe(LIFECYCLE_REASON);
+    expect(ops.some((op) => op.kind === "cancel_asset")).toBe(false);
+    expect((await store.openReasons("inst-1"))[0].severity).toBe("critical");
+
+    await succeed(store, corrective.id, {
+      reason: LIFECYCLE_REASON,
+      correctiveFor: "op-reboot-late",
+      poweredOffAt: ENDED + 3,
+    });
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 2 });
+    await store.close();
+  });
+
+  test("one correction answers all pre-change reboots that it observed", async () => {
+    const c = clock(ENDED);
+    const store = await tempStore(c.now);
+    await seed(store, { policy: "launch" });
+    await lifecycleTick(store, c.now());
+    await succeed(store, lifecycleOperationId("power_off", "sub_1", ENDED), {
+      reason: LIFECYCLE_REASON,
+      poweredOffAt: ENDED + 1,
+    });
+    await store.enqueue({
+      id: "op-reboot-old",
+      instance_id: "inst-1",
+      kind: "reboot",
+      inactivity_deadline_at: 0,
+      absolute_deadline_at: 0,
+      evidence: {},
+    });
+    await succeed(store, "op-reboot-old", { rebooted: true });
+    for (const id of ["op-reboot-old-2", "op-reboot-old-3"]) {
+      await store.enqueue({
+        id,
+        instance_id: "inst-1",
+        kind: "reboot",
+        inactivity_deadline_at: 0,
+        absolute_deadline_at: 0,
+        evidence: {},
+      });
+      await succeed(store, id, { rebooted: true });
+    }
+    c.set(ENDED + 14 * 86_400_000);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 1 });
+    const correction = (await store.operationsFor("inst-1")).find(
+      (op) => op.kind === "power_off" && op.id.includes("corrective"),
+    )!;
+    expect(JSON.parse(correction.evidence).answeredReboots).toEqual([
+      "op-reboot-old",
+      "op-reboot-old-2",
+      "op-reboot-old-3",
+    ]);
+    expect(await store.openReasons("inst-1")).toHaveLength(1);
+    expect(
+      (await store.operationsFor("inst-1")).some(
+        (op) => op.kind === "cancel_asset",
+      ),
+    ).toBe(false);
+    c.set(c.now() + 1);
+    const result = await powerOffHandler({ powerOff: async () => {} }).run({
+      store,
+      op: correction,
+      instance: (await store.getInstance("inst-1"))!,
+      asset: await store.assetForInstance("inst-1"),
+      fence: { id: correction.id, version: correction.version, holder: "test" },
+      budget: new RemoteBudget(c.now() + 60_000, c.now() + 300_000, c.now),
+      now: c.now(),
+      report: () => {},
+      audit: async () => {},
+    });
+    if (result.kind !== "done") throw new Error("corrective power-off failed");
+    if (!result.evidence || typeof result.evidence !== "object") {
+      throw new Error("corrective power-off returned no evidence");
+    }
+    await succeed(store, correction.id, result.evidence);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ opened: 2 });
+    expect(
+      (await store.operationsFor("inst-1")).filter(
+        (op) => op.kind === "power_off" && op.id.includes("corrective"),
+      ),
+    ).toHaveLength(1);
+    await store.close();
+  });
   test("grace -> power_off -> suspended -> deprovision -> data end", async () => {
     const c = clock(ENDED + 1000);
     const store = await tempStore(c.now);

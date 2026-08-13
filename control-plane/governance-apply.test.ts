@@ -178,6 +178,37 @@ suite("a fresh, empty database", () => {
   );
 });
 
+suite("an existing database from before cancellation launch", () => {
+  test(
+    "bootstrap migrates the old shape before its runtime schema gate",
+    () =>
+      serial(async () => {
+        const dsn = await scratchDatabase();
+        await bootstrapDatabase(dsn);
+        await ask(
+          dsn,
+          "delete from schema_meta where key = 'hosted_cancellation_policy_cutover_ms'",
+        );
+        await ask(dsn, "drop index provider_assets_provider_id_unique");
+        await ask(
+          dsn,
+          "alter table subscriptions drop column cancellation_policy",
+        );
+
+        const result = await bootstrapDatabase(dsn);
+        expect(result.schemaReady).toBe(true);
+        const column = await ask<{ n: string }>(
+          dsn,
+          "select count(*)::text as n from information_schema.columns " +
+            "where table_schema = current_schema() and table_name = 'subscriptions' " +
+            "and column_name = 'cancellation_policy'",
+        );
+        expect(column[0]?.n).toBe("1");
+      }),
+    30_000,
+  );
+});
+
 suite("the migration is one transaction or none of it", () => {
   test(
     "a statement that fails leaves NO partial catalog change",

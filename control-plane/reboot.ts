@@ -15,6 +15,8 @@
 // touch a real box.
 
 import type { Handler, HandlerContext, HandlerResult } from "./tick.ts";
+import { cancellationStateFrom } from "./lifecycle.ts";
+import { openerStamp } from "./stripe/suspension.ts";
 
 export interface RebootDeps {
   /** Resolves when the provider has accepted the reboot. Throws otherwise; the
@@ -42,6 +44,38 @@ export function rebootHandler(deps: RebootDeps): Handler {
             "nothing to reboot",
         };
       }
+      const cancelled = await ctx.store.sqlGet<{
+        id: string;
+        ended_at: number | null;
+        cancellation_reason: string | null;
+        cancellation_policy: "legacy" | "launch" | null;
+      }>(
+        "select id, ended_at, cancellation_reason, cancellation_policy " +
+          "from subscriptions where instance_id = $1 order by created_at desc limit 1",
+        [ctx.instance.id],
+      );
+      const cancellation = cancellationStateFrom(
+        cancelled
+          ? {
+              id: cancelled.id,
+              endedAt: cancelled.ended_at,
+              cancellationReason: cancelled.cancellation_reason,
+              cancellationPolicy: cancelled.cancellation_policy,
+            }
+          : null,
+        await ctx.store.operationsFor(ctx.instance.id),
+        ctx.asset,
+        ctx.now,
+      );
+      if (cancellation && cancellation.timeline.phase !== "grace") {
+        return {
+          kind: "fatal",
+          reason: "cannot reboot an office in the cancellation lifecycle",
+        };
+      }
+      // The read and provider call cannot be atomic. Lifecycle reconciliation
+      // detects a reboot that lands after suspension and powers the box off
+      // again before deletion can proceed.
       ctx.budget.claim("reboot");
       await ctx.audit("reboot", "started", `provider ${providerId}`);
       try {
@@ -58,7 +92,15 @@ export function rebootHandler(deps: RebootDeps): Handler {
       // It concludes when the PROVIDER has accepted the restart, not when the
       // office answers again. Coming back is what liveness reports, and tying
       // this operation to it would turn a slow boot into a failed restart.
-      return { kind: "done", evidence: { rebooted: true, providerId } };
+      return {
+        kind: "done",
+        evidence: {
+          ...openerStamp(ctx.op.evidence),
+          rebooted: true,
+          rebootedAt: ctx.now,
+          providerId,
+        },
+      };
     },
   };
 }

@@ -22,9 +22,8 @@
 
 import { accessFor, windowIsOpen, type AccessView } from "./access.ts";
 import {
+  cancellationStateFrom,
   isCustomerCancellation,
-  phaseAt,
-  poweredOffAtFrom,
   type LifecyclePhase,
 } from "./lifecycle.ts";
 import { LIVENESS_STRIKES } from "./liveness.ts";
@@ -83,6 +82,7 @@ export interface SubscriptionView {
   /** True only for the customer's own cancellation. A dunning cancellation ends
    * the same subscription and means something completely different. */
   customerCancelled: boolean;
+  cancellationPolicy: "legacy" | "launch";
 }
 
 /**
@@ -102,6 +102,7 @@ export interface LifecycleView {
   phase: LifecyclePhase;
   graceEnd: number | null;
   retentionEnd: number | null;
+  poweredOff: boolean;
 }
 
 /**
@@ -364,6 +365,7 @@ interface SubscriptionFacts {
   cancel_at_period_end: number;
   ended_at: number | null;
   cancellation_reason: string | null;
+  cancellation_policy: "legacy" | "launch" | null;
   discount_percent_off: number | null;
   discount_ends_at: number | null;
 }
@@ -374,7 +376,7 @@ async function subscriptionRowFor(
 ): Promise<SubscriptionFacts | null> {
   return store.sqlGet<SubscriptionFacts>(
     "select status, current_period_end, cancel_at_period_end, ended_at, " +
-      "cancellation_reason, discount_percent_off, discount_ends_at " +
+      "cancellation_reason, cancellation_policy, discount_percent_off, discount_ends_at " +
       "from subscriptions where instance_id = $1 order by created_at desc",
     [instanceId],
   );
@@ -396,6 +398,8 @@ function subscriptionViewOf(
       endedAt: row.ended_at,
       cancellationReason: row.cancellation_reason,
     }),
+    cancellationPolicy:
+      row.cancellation_policy === "launch" ? "launch" : "legacy",
   };
 }
 
@@ -423,23 +427,27 @@ async function lifecycleViewOf(
     [instanceId],
   );
   const asset = await store.assetForInstance(instanceId);
-  const timeline = phaseAt(
-    {
-      endedAt: row.ended_at,
-      cancellationReason: row.cancellation_reason,
-      poweredOffAt: subscriptionId
-        ? poweredOffAtFrom(operations, subscriptionId.id, row.ended_at!)
-        : null,
-      assetGone:
-        !!asset &&
-        (asset.asset_state === "cancelled" || asset.asset_state === "absent"),
-    },
-    now,
-  );
+  const state = subscriptionId
+    ? cancellationStateFrom(
+        {
+          id: subscriptionId.id,
+          endedAt: row.ended_at,
+          cancellationReason: row.cancellation_reason,
+          cancellationPolicy: row.cancellation_policy,
+        },
+        operations,
+        asset,
+        now,
+      )
+    : null;
+  if (!state) return null;
+  const { timeline } = state;
   return {
     phase: timeline.phase,
     graceEnd: timeline.graceEnd,
     retentionEnd: timeline.retentionEnd,
+    poweredOff:
+      timeline.phase === "suspended" || timeline.phase === "deprovision_due",
   };
 }
 

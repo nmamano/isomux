@@ -13,6 +13,7 @@ import {
   isCustomerCancellation,
   lifecycleOperationId,
   LIFECYCLE_REASON,
+  LIFECYCLE_REPOWERED,
   PROMISE_AT_RISK,
   PROMISE_BROKEN,
   parseServiceEndsAt,
@@ -389,6 +390,10 @@ describe("decideLifecycle", () => {
     });
     expect(gone.finish).toBe(true);
     expect(gone.open).toEqual([]);
+    expect(gone.attention).toContainEqual({
+      kind: "clear",
+      key: LIFECYCLE_REPOWERED,
+    });
 
     const already = decideLifecycle({
       instance: {
@@ -477,7 +482,7 @@ describe("an asset that goes BEFORE the promise expires", () => {
       now: T("2027-03-20T00:00:00Z"),
     });
     expect(raiseOf(d)).toBeNull();
-    expect(clearsOf(d)).toEqual([PROMISE_AT_RISK]);
+    expect(clearsOf(d)).toEqual([LIFECYCLE_REPOWERED, PROMISE_AT_RISK]);
   });
 
   test("gone AT the deadline, and after it, is the ordinary end", async () => {

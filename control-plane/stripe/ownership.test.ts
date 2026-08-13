@@ -68,6 +68,15 @@ describe("the episode setter", () => {
   });
 });
 
+describe("the cancellation-policy setter", () => {
+  test("is ours and is called only from reconciliation", () => {
+    expect(callersOf("casCancellationPolicy")).toEqual([
+      "stripe/billing-store.ts",
+      "stripe/reconcile.ts",
+    ]);
+  });
+});
+
 describe("the subscription insert", () => {
   test("happens only where a fetched object establishes the row", async () => {
     // Test files that SEED a row are listed rather than excluded by a pattern:
@@ -78,10 +87,13 @@ describe("the subscription insert", () => {
       "cancel.test.ts",
       "exercises/cancel-live.ts",
       "lifecycle-tick.test.ts",
+      "reboot.test.ts",
+      "requests.test.ts",
       "resume.test.ts",
       "stripe/billing-store.test.ts",
       "stripe/billing-store.ts",
       "stripe/billing-tick.test.ts",
+      "stripe/cancellation-policy.test.ts",
       "stripe/reconcile.ts",
       "web/e2e/lifecycle.e2e.ts",
     ]);

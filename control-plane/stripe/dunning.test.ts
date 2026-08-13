@@ -26,6 +26,7 @@ function row(over: Partial<SubscriptionRow> = {}): SubscriptionRow {
     ended_at: null,
     canceled_at: null,
     cancellation_reason: null,
+    cancellation_policy: "launch",
     discount_percent_off: null,
     discount_coupon_id: null,
     discount_ends_at: null,

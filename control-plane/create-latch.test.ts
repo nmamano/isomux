@@ -555,6 +555,68 @@ describe("adoption never certifies a box it cannot name", () => {
       ),
     ).toBe(true);
   });
+
+  test("a held provider ID commits create evidence and persists attention", async () => {
+    const b = await bed();
+    await b.store.createInstance({
+      id: "inst-held",
+      run_id: null,
+      name: "held.test.isomux.app",
+      plan: "V153",
+      region: "EU",
+      service_state: "live",
+      goal: "live",
+      access_window_expires_at: null,
+    });
+    await b.store.createAsset({
+      id: "asset-held",
+      instance_id: "inst-held",
+      provider: "contabo",
+      provider_id: "999",
+      intent_id: "older-intent",
+      asset_state: "active",
+      ipv4: null,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: 0,
+    });
+    const adapter = fakeAdapter();
+    const ticker = new Ticker({
+      store: b.store,
+      handlers: [
+        createInstanceHandler({
+          exec: { run: () => Promise.reject(new Error("no ssh here")) },
+          reporter: new Reporter({ out: () => {}, err: () => {} }),
+          runsDir: b.dir,
+          keysDir: b.dir,
+          coordinator: new CreateCoordinator(
+            adapter,
+            new CreateLatch(b.store),
+            b.store,
+          ),
+          createRequest: () => REQ,
+        }),
+      ],
+      holder: "creator",
+    });
+
+    await b.store.casOperation(b.fence, {
+      lease_until: null,
+      lease_holder: null,
+    });
+    await ticker.once();
+
+    expect((await b.store.getIntent(REQ.intentId))?.state).toBe("created");
+    expect((await b.store.getOperation(b.opId))?.status).toBe("ambiguous");
+    expect(await b.store.assetForInstance(b.instanceId)).toBeNull();
+    expect(
+      (await b.store.openReasons("inst-held")).some((reason) =>
+        reason.reason.includes(
+          "provider asset 999 was refused adoption by instance inst-1",
+        ),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("one call site", () => {

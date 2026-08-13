@@ -9,6 +9,7 @@ import { type AssetRow } from "./store.ts";
 import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 import { RemoteTimeoutError } from "./ssh.ts";
+import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 
 const temps: string[] = [];
 
@@ -97,12 +98,95 @@ test("a restart reaches the provider and concludes on ITS answer", async () => {
   expect(asked).toEqual(["203474835"]);
   expect(result).toMatchObject({
     kind: "done",
-    evidence: { rebooted: true, providerId: "203474835" },
+    evidence: {
+      rebooted: true,
+      rebootedAt: expect.any(Number),
+      providerId: "203474835",
+    },
   });
   expect(b.audits).toEqual([
     "reboot:started:provider 203474835",
     "reboot:succeeded:provider 203474835",
   ]);
+});
+
+test("execution refuses a reboot after customer cancellation", async () => {
+  const b = await bed(true);
+  await b.ctx.store.tx(async () => {
+    const account = await ensureAccount(b.ctx.store, {
+      id: "acct-1",
+      email: "cancelled@example.test",
+    });
+    await insertSubscription(b.ctx.store, {
+      id: "sub-1",
+      account_id: account.id,
+      instance_id: b.ctx.instance.id,
+      stripe_customer_id: "cus-1",
+      status: "canceled",
+      current_period_end: 1,
+      cancel_at_period_end: 1,
+      ended_at: 1,
+      canceled_at: 0,
+      cancellation_reason: "cancellation_requested",
+      cancellation_policy: "launch",
+      discount_percent_off: null,
+      discount_coupon_id: null,
+      discount_ends_at: null,
+      ever_full_discount: 0,
+      latest_invoice_id: null,
+      payment_failures: 0,
+      exhaustion_observed_at: null,
+      coupon_grace_until: null,
+      episode_id: null,
+      last_event_id: null,
+      last_event_created: null,
+    });
+  });
+  let calls = 0;
+  const result = await rebootHandler({
+    reboot: async () => void calls++,
+  }).run(b.ctx);
+  expect(result).toMatchObject({ kind: "fatal" });
+  expect(calls).toBe(0);
+});
+
+test("execution permits a grandfathered reboot during serving grace", async () => {
+  const b = await bed(true);
+  await b.ctx.store.tx(async () => {
+    const account = await ensureAccount(b.ctx.store, {
+      id: "acct-1",
+      email: "legacy@example.test",
+    });
+    await insertSubscription(b.ctx.store, {
+      id: "sub-legacy",
+      account_id: account.id,
+      instance_id: b.ctx.instance.id,
+      stripe_customer_id: "cus-legacy",
+      status: "canceled",
+      current_period_end: b.ctx.now,
+      cancel_at_period_end: 1,
+      ended_at: b.ctx.now,
+      canceled_at: 0,
+      cancellation_reason: "cancellation_requested",
+      cancellation_policy: "legacy",
+      discount_percent_off: null,
+      discount_coupon_id: null,
+      discount_ends_at: null,
+      ever_full_discount: 0,
+      latest_invoice_id: null,
+      payment_failures: 0,
+      exhaustion_observed_at: null,
+      coupon_grace_until: null,
+      episode_id: null,
+      last_event_id: null,
+      last_event_created: null,
+    });
+  });
+  let calls = 0;
+  expect(
+    await rebootHandler({ reboot: async () => void calls++ }).run(b.ctx),
+  ).toMatchObject({ kind: "done" });
+  expect(calls).toBe(1);
 });
 
 test("no provider asset is fatal, not a retry", async () => {

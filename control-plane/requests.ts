@@ -18,6 +18,7 @@
 //   message's provenance, never the outcome.
 
 import { accessForInstance, windowIsOpen, type AccessView } from "./access.ts";
+import { cancellationStateFrom } from "./lifecycle.ts";
 import {
   deadlinesFor,
   newOperationId,
@@ -44,7 +45,8 @@ export type RefusalCode =
   | "mint_in_progress"
   | "revocation_in_progress"
   | "already_revoked"
-  | "restart_in_progress";
+  | "restart_in_progress"
+  | "cancellation_suspended";
 
 /**
  * What the customer reads. Functional copy; the provisioning actor is "Hosted
@@ -69,6 +71,8 @@ export const REFUSAL_WORDS: Record<RefusalCode, string> = {
   revocation_in_progress: "we are already removing our access.",
   already_revoked: "Hosted Isomux Provisioning has already removed its access.",
   restart_in_progress: "a restart is already running.",
+  cancellation_suspended:
+    "this subscription has ended, so this office cannot be restarted here. Contact support for recovery help.",
 };
 
 export type RequestOutcome =
@@ -302,6 +306,32 @@ export async function requestRestart(
     }
     const asset = await store.assetForInstance(req.instanceId);
     if (!asset || !asset.provider_id) return refuse("no_box");
+    const cancelled = await store.sqlGet<{
+      id: string;
+      ended_at: number | null;
+      cancellation_reason: string | null;
+      cancellation_policy: "legacy" | "launch" | null;
+    }>(
+      "select id, ended_at, cancellation_reason, cancellation_policy " +
+        "from subscriptions where instance_id = $1 order by created_at desc limit 1",
+      [req.instanceId],
+    );
+    const cancellation = cancellationStateFrom(
+      cancelled
+        ? {
+            id: cancelled.id,
+            endedAt: cancelled.ended_at,
+            cancellationReason: cancelled.cancellation_reason,
+            cancellationPolicy: cancelled.cancellation_policy,
+          }
+        : null,
+      await store.operationsFor(req.instanceId),
+      asset,
+      store.now(),
+    );
+    if (cancellation && cancellation.timeline.phase !== "grace") {
+      return refuse("cancellation_suspended");
+    }
     const active = await store.activeOperation(req.instanceId, "reboot");
     if (active) return refuse("restart_in_progress");
     let id: string;

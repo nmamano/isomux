@@ -22,10 +22,9 @@ import * as path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { raiseAttention } from "../../attention.ts";
 import {
-  addUtcMonth,
   CUSTOMER_CANCELLATION_REASON,
-  GRACE_MS,
   LIFECYCLE_REASON,
+  RETENTION_MS,
   lifecycleOperationId,
 } from "../../lifecycle.ts";
 import { setOperator } from "../../operator-admin.ts";
@@ -251,10 +250,10 @@ async function main(): Promise<void> {
       ) && !scheduled.includes("Your subscription is cancelled"),
     );
     check(
-      "S3 states the grace week and what happens after it",
-      scheduled.includes("for a further 7 days until 2027-02-07") &&
+      "S3 states period-end power-off and the retention request",
+      scheduled.includes("is powered off when that period ends") &&
         scheduled.includes(
-          "After 2027-02-07 your server is powered off. Your data stays on it for one calendar month, and then the server is permanently deleted.",
+          "We retain the server data for 14 days for manual recovery. After that, we request permanent deletion as soon as the provider permits.",
         ),
     );
     check(
@@ -276,19 +275,19 @@ async function main(): Promise<void> {
       ),
     );
 
-    // ---- S5: the period has ended and the grace week is running
+    // ---- S5: the period has ended and power-off is due
     await stripeSays(store, {
       status: "canceled",
       ended_at: periodEnd,
       cancellation_reason: CUSTOMER_CANCELLATION_REASON,
     });
     await page.goto(office);
-    const grace = await waitFor(page, "cancel-grace");
+    const grace = await waitFor(page, "cancel-power-off");
     say(`S5: ${grace}`);
     check(
-      "S5 says the office keeps serving through the grace week",
+      "S5 says the office is being powered off",
       grace ===
-        "Your subscription ended on 2027-01-31. Your office keeps serving until 2027-02-07 so you can take your work out. After that your server is powered off.",
+        "Your subscription ended on 2027-01-31. Your office is being powered off. Contact support by 2027-02-14 if you need manual recovery. After that date, we request permanent deletion as soon as the provider permits.",
     );
     const planS5 = await textOf(page, "subscription");
     say(`S5 plan: ${planS5}`);
@@ -305,8 +304,8 @@ async function main(): Promise<void> {
       ),
     );
 
-    // ---- S6: powered off, inside the retention month
-    const poweredOffAt = periodEnd + GRACE_MS;
+    // ---- S6: powered off, inside the 14-day retention window
+    const poweredOffAt = periodEnd;
     await succeed(
       store,
       instanceId,
@@ -316,14 +315,14 @@ async function main(): Promise<void> {
     );
     await page.goto(office);
     const suspended = await waitFor(page, "cancel-suspended");
-    const retention = new Date(addUtcMonth(poweredOffAt))
+    const retention = new Date(periodEnd + RETENTION_MS)
       .toISOString()
       .slice(0, 10);
     say(`S6: ${suspended}`);
     check(
       "S6 names the retention deadline and says we REQUEST deletion",
       suspended ===
-        `Your office is powered off. Your data stays on your server, which you can recover until ${retention}, at which point we cancel the contract and the data is lost. Contact support if you need help before then.`,
+        `Your office is powered off. Contact support by ${retention} if you need manual recovery. After that date, we request permanent deletion as soon as the provider permits.`,
       retention,
     );
     check(

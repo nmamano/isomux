@@ -583,7 +583,10 @@ export function OfficeView({
           <button
             data-testid="restart-button"
             onClick={() => void act("/api/restart", "restart your server")}
-            disabled={view.restart.active}
+            disabled={
+              view.restart.active ||
+              !!(view.lifecycle && view.lifecycle.phase !== "grace")
+            }
           >
             {view.restart.active ? "Restarting..." : "Restart my server"}
           </button>
@@ -691,17 +694,31 @@ function CancelPanel({
     if (life.phase === "ended") {
       return <p data-testid="cancel-ended">This office has been deleted.</p>;
     }
-    if (life.retentionEnd !== null) {
+    if (life.retentionEnd !== null && life.poweredOff) {
       // A PROVEN date: the machine measured this calendar month from the
       // instant the box was actually powered off, and this is that same number
       // carried across rather than a second computation of it.
       return (
         <p className="callout" data-testid="cancel-suspended">
-          Your office is powered off. Your data stays on your server, which you
-          can recover until {day(life.retentionEnd)}, at which point we cancel
-          the contract and the data is lost. Contact support if you need help
-          before then.
+          Your office is powered off. Contact support by{" "}
+          {day(life.retentionEnd)} if you need manual recovery. After that date,
+          we request permanent deletion as soon as the provider permits.
         </p>
+      );
+    }
+    if (sub.cancellationPolicy === "launch") {
+      return (
+        <>
+          <p className="callout" data-testid="cancel-power-off">
+            Your subscription ended on {day(sub.endedAt!)}. Your office is being
+            powered off. Contact support by {day(life.retentionEnd!)} if you
+            need manual recovery. After that date, we request permanent deletion
+            as soon as the provider permits.
+          </p>
+          <p className="note" data-testid="cancel-restart-refused">
+            This office cannot be restarted here after the subscription ends.
+          </p>
+        </>
       );
     }
     return (
@@ -711,15 +728,46 @@ function CancelPanel({
           serving until {day(life.graceEnd!)} so you can take your work out.
           After that your server is powered off.
         </p>
-        <p className="note" data-testid="cancel-restart-refused">
-          This subscription has ended, so it cannot be restarted here. Contact
-          support if you need help.
-        </p>
+        {life.phase === "grace" ? null : (
+          <p className="note" data-testid="cancel-restart-refused">
+            This office cannot be restarted here after suspension. Contact
+            support if you need help.
+          </p>
+        )}
       </>
     );
   }
 
   if (sub.cancelAtPeriodEnd && sub.currentPeriodEnd !== null) {
+    if (sub.cancellationPolicy === "launch") {
+      return (
+        <section data-testid="cancel-scheduled">
+          <p>
+            Your subscription is scheduled to end on {day(sub.currentPeriodEnd)}
+            . Your office runs through the period you paid for and is powered
+            off when that period ends.
+          </p>
+          <p>
+            We retain the server data for 14 days for manual recovery. After
+            that, we request permanent deletion as soon as the provider permits.
+          </p>
+          <p className="action">
+            <button
+              className="btn-primary"
+              data-testid="uncancel-button"
+              onClick={() => onAct("/api/uncancel", "uncancel")}
+            >
+              Keep my office
+            </button>
+            <span data-testid="uncancel-caveat">
+              {" "}
+              Keeping your office means your subscription renews on{" "}
+              {day(sub.currentPeriodEnd)} and normal billing continues.
+            </span>
+          </p>
+        </section>
+      );
+    }
     const graceEnd = sub.currentPeriodEnd + GRACE_DAYS * 24 * 60 * 60 * 1000;
     return (
       <section data-testid="cancel-scheduled">

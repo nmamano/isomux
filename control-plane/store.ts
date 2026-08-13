@@ -306,6 +306,8 @@ create table if not exists provider_assets (
   created_at bigint not null,
   updated_at bigint not null
 );
+create unique index if not exists provider_assets_provider_id_unique
+  on provider_assets (provider_id) where provider_id is not null;
 create table if not exists operations (
   id text primary key,
   instance_id text not null,
@@ -419,6 +421,9 @@ create table if not exists subscriptions (
   ended_at bigint,
   canceled_at bigint,
   cancellation_reason text,
+  cancellation_policy text not null default 'launch' check (
+    cancellation_policy in ('legacy', 'launch')
+  ),
   discount_percent_off integer,
   discount_coupon_id text,
   discount_ends_at bigint,
@@ -1328,6 +1333,7 @@ export class Store {
       ["subscriptions", "ended_at"],
       ["subscriptions", "canceled_at"],
       ["subscriptions", "cancellation_reason"],
+      ["subscriptions", "cancellation_policy"],
       ["stripe_events", "type"],
       ["instances", "customer_ssh_key"],
       ["instances", "customer_ssh_key_fingerprint"],
@@ -1411,6 +1417,23 @@ export class Store {
             `build's owner-role migration before starting a runtime process.`,
         );
       }
+    }
+    const providerIdIndex = await this.sqlGet<{
+      unique: boolean;
+      valid: boolean;
+    }>(
+      "select i.indisunique as unique, i.indisvalid as valid " +
+        "from pg_class c join pg_namespace n on n.oid = c.relnamespace " +
+        "join pg_index i on i.indexrelid = c.oid " +
+        "where n.nspname = current_schema() and c.relkind = 'i' " +
+        "and c.relname = 'provider_assets_provider_id_unique'",
+    );
+    if (!providerIdIndex?.unique || !providerIdIndex.valid) {
+      throw new Error(
+        `the database at ${this.describe()} has no valid unique provider-ID ` +
+          `index. Apply this build's owner-role migration before starting a ` +
+          `runtime process.`,
+      );
     }
   }
 
@@ -1732,6 +1755,13 @@ export class Store {
     return this.sqlGet<AssetRow>(
       "select * from provider_assets where instance_id = $1 order by created_at limit 1",
       [instanceId],
+    );
+  }
+
+  async assetForProviderId(providerId: string): Promise<AssetRow | null> {
+    return this.sqlGet<AssetRow>(
+      "select * from provider_assets where provider_id = $1",
+      [providerId],
     );
   }
 

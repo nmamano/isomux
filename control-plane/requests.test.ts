@@ -17,6 +17,7 @@ import {
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import { Store, type OperationStatus } from "./store.ts";
 import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 
 const temps: string[] = [];
 
@@ -163,6 +164,86 @@ describe("the access window gates minting", () => {
 });
 
 describe("one active operation, whatever the caller does", () => {
+  test("a terminal customer cancellation refuses restart before enqueue", async () => {
+    const b = await bed();
+    await b.store.tx(async () => {
+      const account = await ensureAccount(b.store, {
+        id: b.accountId,
+        email: "asker@example.com",
+      });
+      await insertSubscription(b.store, {
+        id: "sub-cancelled",
+        account_id: account.id,
+        instance_id: b.instanceId,
+        stripe_customer_id: "cus-cancelled",
+        status: "canceled",
+        current_period_end: 1,
+        cancel_at_period_end: 1,
+        ended_at: 1,
+        canceled_at: 0,
+        cancellation_reason: "cancellation_requested",
+        cancellation_policy: "launch",
+        discount_percent_off: null,
+        discount_coupon_id: null,
+        discount_ends_at: null,
+        ever_full_discount: 0,
+        latest_invoice_id: null,
+        payment_failures: 0,
+        exhaustion_observed_at: null,
+        coupon_grace_until: null,
+        episode_id: null,
+        last_event_id: null,
+        last_event_created: null,
+      });
+    });
+    expect(
+      await requestRestart(b.store, {
+        accountId: b.accountId,
+        instanceId: b.instanceId,
+      }),
+    ).toMatchObject({ ok: false, code: "cancellation_suspended" });
+    expect(
+      (await b.store.operationsFor(b.instanceId)).some(
+        (op) => op.kind === "reboot",
+      ),
+    ).toBe(false);
+  });
+
+  test("a grandfathered cancellation can restart during its serving grace", async () => {
+    const b = await bed();
+    await b.store.tx(async () => {
+      await insertSubscription(b.store, {
+        id: "sub-legacy",
+        account_id: b.accountId,
+        instance_id: b.instanceId,
+        stripe_customer_id: "cus-legacy",
+        status: "canceled",
+        current_period_end: b.store.now(),
+        cancel_at_period_end: 1,
+        ended_at: b.store.now(),
+        canceled_at: 0,
+        cancellation_reason: "cancellation_requested",
+        cancellation_policy: "legacy",
+        discount_percent_off: null,
+        discount_coupon_id: null,
+        discount_ends_at: null,
+        ever_full_discount: 0,
+        latest_invoice_id: null,
+        payment_failures: 0,
+        exhaustion_observed_at: null,
+        coupon_grace_until: null,
+        episode_id: null,
+        last_event_id: null,
+        last_event_created: null,
+      });
+    });
+    expect(
+      await requestRestart(b.store, {
+        accountId: b.accountId,
+        instanceId: b.instanceId,
+      }),
+    ).toMatchObject({ ok: true });
+  });
   test("a second mint is refused while one is live", async () => {
     const b = await bed();
     await b.succeed("first_contact");

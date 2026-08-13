@@ -15,9 +15,12 @@
 // event still has work to do.
 
 import { isUniqueViolation, type Store } from "../store.ts";
+import { raiseAttentionIn } from "../attention.ts";
+import { CANCELLATION_POLICY_CUTOVER_KEY } from "../bootstrap.ts";
 import { applyBillingAttention } from "./billing-attention.ts";
 import {
   casEpisodeBookkeeping,
+  casCancellationPolicy,
   casStripeOwnedSubscription,
   claimEvent,
   ensureAccount,
@@ -97,8 +100,8 @@ export async function applyEvent(
 
   // The linkage the fetched objects assert. It travels with the Stripe-owned
   // patch because reconciliation is its only writer too.
-  const linkage = linkageFrom(input, row);
-  const owned = { ...decision.stripeOwned, ...linkage };
+  const linkage = await linkageFrom(store, input, row);
+  const owned = { ...decision.stripeOwned, ...linkage.patch };
 
   const afterOwned = await casStripeOwnedSubscription(
     store,
@@ -115,6 +118,36 @@ export async function applyEvent(
   }
 
   let current: SubscriptionRow = afterOwned;
+  if (
+    row.cancel_at_period_end === 1 &&
+    !input.subscription.cancelAtPeriodEnd &&
+    input.subscription.endedAt === null
+  ) {
+    const reset = await casCancellationPolicy(
+      store,
+      current.id,
+      current.version,
+      {
+        cancellation_policy: "launch",
+      },
+    );
+    if (!reset)
+      throw new Error(
+        `subscription ${current.id} moved while its cancellation policy was reset`,
+      );
+    current = reset;
+  }
+  if (linkage.blockedInstanceId) {
+    await raiseAttentionIn(store, {
+      instanceId: linkage.blockedInstanceId,
+      reasonClass: "operation_condition",
+      sourceOpId: "",
+      reason: `subscription ${current.id} was refused linkage to an instance that still contains prior-customer data`,
+      severity: "critical",
+      actor: WEBHOOK_ACTOR,
+      detail: `event=${input.eventId}; observed=${new Date(input.now).toISOString()}`,
+    });
+  }
   if (Object.keys(decision.episode).length > 0) {
     const afterEpisode = await casEpisodeBookkeeping(
       store,
@@ -305,6 +338,7 @@ async function ensureRow(
     ended_at: null,
     canceled_at: null,
     cancellation_reason: null,
+    cancellation_policy: await policyForFirstRow(store, input.subscription),
     discount_percent_off: null,
     discount_coupon_id: null,
     discount_ends_at: null,
@@ -325,17 +359,53 @@ async function ensureRow(
  * Never unset: a link is asserted by a fetched object, and its absence in a later
  * object is not a statement that the link is gone.
  */
-function linkageFrom(
+async function policyForFirstRow(
+  store: Store,
+  snapshot: SubscriptionSnapshot,
+): Promise<"legacy" | "launch"> {
+  const cutover = await store.sqlGet<{ value: string }>(
+    "select value from schema_meta where key = $1",
+    [CANCELLATION_POLICY_CUTOVER_KEY],
+  );
+  const instant = Number(cutover?.value);
+  if (!Number.isFinite(instant)) return "legacy";
+  const anchors = [snapshot.canceledAt, snapshot.endedAt].filter(
+    (value): value is number => value !== null,
+  );
+  const anchor = anchors.length > 0 ? Math.min(...anchors) : null;
+  return anchor !== null && anchor < instant ? "legacy" : "launch";
+}
+
+async function linkageFrom(
+  store: Store,
   input: ReconcileInput,
   row: SubscriptionRow,
-): { instance_id?: string } {
-  if (row.instance_id) return {};
+): Promise<{
+  patch: { instance_id?: string };
+  blockedInstanceId: string | null;
+}> {
+  if (row.instance_id) return { patch: {}, blockedInstanceId: null };
   const meta = {
     ...input.subscription.metadata,
     ...(input.session?.metadata ?? {}),
   };
   const instanceId = meta[META_INSTANCE];
-  return instanceId ? { instance_id: instanceId } : {};
+  if (!instanceId) return { patch: {}, blockedInstanceId: null };
+  // Subscription history is independent of the asset row. An INNER JOIN here
+  // would fail open when the retained instance had no provider_assets row.
+  const priorCancellation = await store.sqlGet<{ id: string }>(
+    "select id from subscriptions where instance_id = $1 " +
+      "and (cancel_at_period_end = 1 or ended_at is not null) limit 1",
+    [instanceId],
+  );
+  const asset = await store.assetForInstance(instanceId);
+  const forbidden =
+    priorCancellation !== null ||
+    asset?.asset_state === "cancel_scheduled" ||
+    asset?.asset_state === "cancelled";
+  return forbidden
+    ? { patch: {}, blockedInstanceId: instanceId }
+    : { patch: { instance_id: instanceId }, blockedInstanceId: null };
 }
 
 /** Slice 2 left `instances.subscription_state` as a stub column. This is the only

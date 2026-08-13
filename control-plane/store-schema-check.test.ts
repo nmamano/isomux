@@ -18,7 +18,10 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import pg from "pg";
 import { PROVISIONER_GRANTS } from "./roles.ts";
-import { migrateCustomerSshKeyColumns } from "./bootstrap.ts";
+import {
+  migrateCustomerSshKeyColumns,
+  migrateHostedCancellationPolicy,
+} from "./bootstrap.ts";
 import { PRODUCT_TABLES, Store } from "./store.ts";
 import {
   LOCAL_DATABASE_URL,
@@ -132,6 +135,43 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     await migrateCustomerSshKeyColumns(ownerDsn);
     const store = await Store.openRuntime(roleDsn);
     await store.close();
+  });
+
+  test("runtime refuses cancellation schema before the owner migration", async () => {
+    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `drop index ${quoteIdentifier(schema)}.provider_assets_provider_id_unique`,
+    );
+    await admin.query(
+      `alter table ${quoteIdentifier(schema)}.subscriptions drop column cancellation_policy`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /subscriptions has no cancellation_policy column/,
+    );
+    await migrateHostedCancellationPolicy(ownerDsn, 1_786_579_200_000);
+    const store = await Store.openRuntime(roleDsn);
+    await store.close();
+  });
+
+  test("runtime separately refuses a missing provider-ID unique index", async () => {
+    const { roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `drop index ${quoteIdentifier(schema)}.provider_assets_provider_id_unique`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /no valid unique provider-ID index/,
+    );
+  });
+
+  test("cancellation migration keeps its first cutover on a rerun", async () => {
+    const { ownerDsn, schema } = await bootstrappedAndRole();
+    await migrateHostedCancellationPolicy(ownerDsn, 111);
+    await migrateHostedCancellationPolicy(ownerDsn, 222);
+    const result = await admin.query<{ value: string }>(
+      `select value from ${quoteIdentifier(schema)}.schema_meta ` +
+        `where key = 'hosted_cancellation_policy_cutover_ms'`,
+    );
+    expect(result.rows[0]?.value).toBe("111");
   });
 
   // THE ONE THE FIRST FIX STILL MISSED. `name_reservations` has no entry in the
