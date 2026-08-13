@@ -25,10 +25,13 @@ own agents die with the service they would be restoring.
   still the same disk as the office it protects, and nothing copies it
   anywhere else - a box that dies takes its backups with it. If the office
   matters, pull the tarballs onto another machine on a schedule.
-- **File name:** `isomux-YYYY-MM-DD.tar.gz`, the local date the run
-  happened.
-- **Retention:** the 7 newest are kept, older ones pruned after each
-  successful run.
+- **File name:** `isomux-YYYY-MM-DD.tar.gz`, the local date the run happened.
+  A second successful run that day uses `-2`, then `-3`, and so on. A matching
+  `.verified.json` marker records the final archive size and modification time.
+  The archive is not a backup unless that marker matches.
+- **Retention:** the 7 newest verified archive-marker pairs are kept. Pruning
+  happens only after a new archive is fully verified and published. A failed,
+  interrupted or invalid archive cannot take a slot or remove a good copy.
 - **Schedule:** hourly check; a new backup is taken once the newest one
   is at least 24h old. Runs land a bit more than 24h apart, so a date in
   the file names occasionally gets skipped - normal, not a missed backup.
@@ -36,7 +39,14 @@ own agents die with the service they would be restoring.
   atomically and JSONL logs are append-only and line-tolerant, so a
   snapshot cannot catch half-written state. GNU tar's exit 1 ("file
   changed as we read it") is logged as a warning and the archive is kept;
-  exit 2 or higher is a real failure and is recorded as one.
+  exit 2 or higher is a real failure and is recorded as one. Every archive is
+  then walked independently with `tar -tzf` before publication.
+
+Before it reads the state root, the job checks free space. A later run needs the
+newest verified archive size plus the larger of 25% or 256 MiB. The first run
+needs 2 GiB because there is no prior size. A refusal deletes nothing and the
+hourly retry remains a cheap free-space check. A short write that still occurs
+stays under a hidden partial name and is removed after verification fails.
 
 ### What is in the archive
 
@@ -71,8 +81,9 @@ and on updater-managed boxes `/etc/isomux/update.conf` plus
 
 ### Checking backup health
 
-`GET /api/backup/status` (any authenticated caller with `office:read`)
-returns:
+`GET /api/backup/status` (any authenticated caller with `office:read`) returns
+the newest disk-verified state. It survives a service restart because it is
+derived from archives and their markers, not only process memory:
 
 ```json
 {
@@ -84,8 +95,18 @@ returns:
 }
 ```
 
-Read `destDir` from there rather than assuming `~/isomux-backups` - it is
-the path the running process actually uses.
+Read `destDir` from there rather than assuming `~/isomux-backups` - it is the
+path the running process actually uses. `ok: false` with a stale error means the
+newest verified archive is more than 26 hours old. The two-hour grace prevents
+the hourly scheduler from reporting a healthy backup as stale each day. A newer failed attempt also
+returns false while keeping `lastBackupFile` pointed at the recoverable copy.
+
+An archive without a matching marker may be from an older release. The next
+backup tick walks it once. A valid archive gets a marker and joins retention. An
+invalid archive gets an `.invalid.json` marker and remains outside retention;
+the job checks it again only if its size or modification time changes.
+After confirming the matching `.invalid.json` marker and preserving any incident
+evidence you need, remove the invalid archive and marker to reclaim disk space.
 
 ## Restoring
 
@@ -194,13 +215,35 @@ The old box is gone and the office has to come back on a machine that has
 never run it. Everything above still applies; these are the extra steps
 around it.
 
-**0. Have the tarball somewhere other than the dead box.** The backups
-live next to the office they protect, so this procedure starts with a copy
-pulled off earlier:
+**0. Have the tarball somewhere other than the dead box.** Self-hosted local
+backups live next to the office they protect, so this procedure starts with a
+copy pulled off earlier:
 
 ```
 scp root@office.example.com:/home/isomux/isomux-backups/isomux-2026-08-01.tar.gz .
 ```
+
+Hosted offices request the provider's Automated Backup add-on for box loss. The
+operator selects the newest provider snapshot that the control-plane watch
+observed. Snapshot presence is only a proxy: the provider API does not label a
+row as manual or add-on-created, so this monitor cannot directly prove add-on
+health. The
+provider API exposes rollback, but Isomux does not automate it: rolling back a
+non-newest snapshot removes newer snapshots, and the administrative-versus-
+console classification remains a Nil decision as of 2026-08-13. Record the
+chosen snapshot time and expected data-loss window before acting. After rollback,
+wait for power, DNS, TLS and `/readyz`, then verify sign-in and the next provider
+snapshot.
+
+The control plane raises these durable reasons:
+
+- `the hosted office has no recent provider snapshot`
+- `the hosted office provider snapshot is more than 26 hours old`
+- `provider snapshot evidence could not be read`
+
+The 26-hour check includes a two-hour alerting tolerance around the 24-hour
+product promise. A request for the add-on and a provider snapshot row are two
+different facts; neither identifies which mechanism created a snapshot row.
 
 **1. Point the domain's DNS records at the new box, then install isomux
 normally.**

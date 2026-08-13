@@ -482,10 +482,11 @@ export const AUDITED_PROVIDER_HANDLER_KINDS = [
  *
  * The handlers are the loop's work; these are the surfaces around it - the
  * open, the legacy intent migration inside it, the branch pin, the state
- * marker, the health reporter, the invite seam, the liveness watch and the
- * post-tick exit code - and each one can reach the database as surely as a
- * handler can. `mint_invite`'s seam is the proof: the verb the 2026-08-12 run
- * was refused is reached from `startMintSeam`, not from a handler.
+ * marker, the health reporter, the invite seam, the liveness and backup
+ * watches and the post-tick exit code - and each one can reach the database as
+ * surely as a handler can. `mint_invite`'s seam is the proof: the verb the
+ * 2026-08-12 run was refused is reached from `startMintSeam`, not from a
+ * handler.
  *
  * The test reads `cli.ts` as TEXT rather than importing it, because `cli.ts`
  * runs `main()` at import. A call in `cmdRun` that is not named here fails that
@@ -507,6 +508,13 @@ export const AUDITED_CMDRUN_SURFACES = [
   // kinds, and `handles` is a lookup in the ticker's own handler map.
   "PROVIDER_DEPENDENT_KINDS.every",
   "running.handles",
+  // Provider construction and snapshot reads reach provider credentials and
+  // the Contabo API, not the database. watchHostedBackups uses only verbs the
+  // liveness and attention paths already require: instance/asset/reason reads,
+  // reason insert/update, instance summary update, audit insert and sequence.
+  "makeAdapter",
+  "backupAdapter.providerSnapshots",
+  "watchHostedBackups",
   "driveTicks",
   "watchLiveness",
   "exitCodeFor",

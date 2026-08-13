@@ -128,6 +128,7 @@ function cmdRunCallees(): string[] {
     "return",
     "typeof",
     "await",
+    "async",
     "function",
     "Number",
     "String",
