@@ -610,18 +610,42 @@ export function priorRuntimeRoles(): RolePosture[] {
   ];
 }
 
-/** Role and table names are literals in this file, and this is the check that
- * keeps it true: nothing built from input ever reaches a statement. */
+/**
+ * PostgreSQL identifiers cannot be bind parameters in DDL. Production uses the
+ * literal roster above; tests can supply a collision-free roster through an
+ * explicit function argument. Every name is therefore validated before it is
+ * interpolated: lower-case identifier syntax, PostgreSQL's 63-byte limit, no
+ * duplicates, and no collision with the owner role.
+ */
 const IDENTIFIER = /^[a-z][a-z0-9_]*$/;
 
 export function assertIdentifier(name: string): string {
-  if (!IDENTIFIER.test(name)) {
+  if (!IDENTIFIER.test(name) || Buffer.byteLength(name, "utf8") > 63) {
     throw new Error(
       "a role or table name in the governance statements is not a plain " +
         "lower-case identifier, which is the only shape this module builds",
     );
   }
   return name;
+}
+
+export function validateRuntimeRoster(
+  roster: readonly RolePosture[],
+  ownerRole: string,
+): readonly RolePosture[] {
+  const owner = assertIdentifier(ownerRole);
+  const seen = new Set<string>();
+  if (roster.length !== 2) {
+    throw new Error("the runtime roster must contain exactly two roles");
+  }
+  for (const entry of roster) {
+    const role = assertIdentifier(entry.role);
+    if (role === owner)
+      throw new Error("a runtime role cannot be the owner role");
+    if (seen.has(role)) throw new Error("runtime role names must be unique");
+    seen.add(role);
+  }
+  return roster;
 }
 
 /** A setting value this module will write into a statement: a plain interval as
@@ -657,8 +681,10 @@ const SETTING_VALUE = /^[0-9]+(us|ms|s|min|h|d)?$/;
 export function rolePostureStatements(args: {
   ownerRole: string;
   bounds: readonly Bound[];
+  roster?: readonly RolePosture[];
 }): string[] {
   const owner = assertIdentifier(args.ownerRole);
+  const roster = validateRuntimeRoster(args.roster ?? runtimeRoles(), owner);
   const out: string[] = [];
 
   const setBounds = (role: string): void => {
@@ -673,7 +699,7 @@ export function rolePostureStatements(args: {
     }
   };
 
-  for (const { role, budget } of runtimeRoles()) {
+  for (const { role, budget } of roster) {
     const named = assertIdentifier(role);
     out.push(
       `do $$ begin if not exists (select 1 from pg_roles where rolname = ` +
@@ -788,8 +814,16 @@ export function ungovernStatements(args: {
 export function governanceStatements(args: {
   ownerRole: string;
   bounds: readonly Bound[];
+  roster?: readonly RolePosture[];
 }): string[] {
-  return [...rolePostureStatements(args), ...grantMatrixStatements()];
+  const roster = validateRuntimeRoster(
+    args.roster ?? runtimeRoles(),
+    args.ownerRole,
+  );
+  return [
+    ...rolePostureStatements({ ...args, roster }),
+    ...grantMatrixStatements(roster),
+  ];
 }
 
 /**
@@ -858,8 +892,12 @@ export async function readRolePosture(
   query: (sql: string, args: unknown[]) => Promise<Record<string, unknown>[]>,
   bounds: readonly Bound[],
   ownerRole: string,
+  roster: readonly RolePosture[] = runtimeRoles(),
 ): Promise<Map<string, RoleFacts>> {
-  const wanted = [WEB_ROLE, PROVISIONER_ROLE, ownerRole];
+  const wanted = [
+    ...validateRuntimeRoster(roster, ownerRole).map((r) => r.role),
+    ownerRole,
+  ];
   const rows = (await query(roleFactsSql(), [wanted])) as {
     role: string;
     connection_limit: number;
@@ -1183,9 +1221,10 @@ export function residueIsInert(identity: RoleIdentity): boolean {
  */
 export function governedRoleCount(
   posture: ReadonlyMap<string, RoleFacts>,
+  roster: readonly RolePosture[] = runtimeRoles(),
 ): number {
   let exact = 0;
-  for (const { role, budget } of runtimeRoles()) {
+  for (const { role, budget } of roster) {
     const facts = posture.get(role);
     if (
       facts?.present === true &&
@@ -1199,9 +1238,13 @@ export function governedRoleCount(
 }
 
 /** The budget a role is supposed to carry, by name. */
-export function budgetFor(role: string, ownerRole: string): number {
-  if (role === WEB_ROLE) return WEB_BUDGET;
-  if (role === PROVISIONER_ROLE) return PROVISIONER_BUDGET;
+export function budgetFor(
+  role: string,
+  ownerRole: string,
+  roster: readonly RolePosture[] = runtimeRoles(),
+): number {
+  const entry = roster.find((candidate) => candidate.role === role);
+  if (entry) return entry.budget;
   // The owner is break-glass and uncapped: -1 is what the catalog itself
   // reports for "no limit", so the instrument compares against the truth.
   if (role === ownerRole) return -1;
@@ -1209,9 +1252,14 @@ export function budgetFor(role: string, ownerRole: string): number {
 }
 
 /** The label a transcript uses for a role, so no role NAME is ever printed. */
-export function labelFor(role: string, ownerRole: string): string {
-  if (role === WEB_ROLE) return "web";
-  if (role === PROVISIONER_ROLE) return "provisioner";
+export function labelFor(
+  role: string,
+  ownerRole: string,
+  roster: readonly RolePosture[] = runtimeRoles(),
+): string {
+  const index = roster.findIndex((candidate) => candidate.role === role);
+  if (index === 0) return "web";
+  if (index === 1) return "provisioner";
   if (role === ownerRole) return "owner";
   return "other";
 }

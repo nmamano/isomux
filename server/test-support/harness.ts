@@ -187,6 +187,15 @@ async function bootTestServer(
       skipUpdateChecker: true,
       quiet: true,
       awaitRestore: true,
+      getBackupStatus: () => ({
+        backupDir: `${STATE_ROOT}/test-backups`,
+        retention: 7,
+        lastBackupAt: null,
+        lastBackupOk: null,
+        lastBackupError: null,
+        lastBackupFile: null,
+        running: false,
+      }),
       ...opts.startServer,
     });
 

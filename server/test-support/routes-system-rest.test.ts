@@ -111,6 +111,48 @@ describe("routes/system.backupStatus REST", () => {
     ).toBe(403);
     expect((await api(srv, "/api/backup/status")).status).toBe(401);
   });
+
+  it("uses per-server internal status and the next boot gets a fresh default", async () => {
+    let srv = await startTestServer({
+      startServer: {
+        getBackupStatus: () => ({
+          backupDir: "/isolated/backup-status",
+          retention: 3,
+          lastBackupAt: 123,
+          lastBackupOk: false,
+          lastBackupError: "test failure",
+          lastBackupFile: null,
+          running: true,
+        }),
+      },
+    });
+    server = srv;
+    let owner = await srv.seedOwner("First Boss");
+    let result = await api(srv, "/api/backup/status", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(result.body).toEqual({
+      lastRunAt: 123,
+      ok: false,
+      error: "test failure",
+      retention: 3,
+      destDir: "/isolated/backup-status",
+    });
+
+    await srv.stop();
+    server = null;
+    srv = await startTestServer();
+    server = srv;
+    owner = await srv.seedOwner("Second Boss");
+    result = await api(srv, "/api/backup/status", {
+      rawSessionId: owner.rawSessionId,
+    });
+    const body = result.body as Record<string, unknown>;
+    expect(body.lastRunAt).toBeNull();
+    expect(body.ok).toBe(false);
+    expect(body.error).toBeNull();
+    expect(body.destDir).toBe(`${srv.stateRoot}/test-backups`);
+  });
 });
 
 describe("routes/system.version REST", () => {

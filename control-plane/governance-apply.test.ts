@@ -19,8 +19,12 @@
 //
 // LOCAL ENGINE ONLY, for the same reason as store-governance.test.ts: these
 // create and drop roles, and a shared managed branch is not the place for it.
+// The local engine is still one shared PostgreSQL cluster, so these tests are
+// collision-free rather than hermetic: each serialized case owns fresh role
+// names and cleanup proves those names are gone without touching production
+// defaults.
 
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import pg from "pg";
 import {
   EXPECTED_TABLES,
@@ -32,19 +36,49 @@ import {
 import {
   ALL_VERBS,
   type EffectiveRow,
+  PROVISIONER_BUDGET,
+  PROVISIONER_GRANTS,
   PROVISIONER_ROLE,
+  type RolePosture,
+  WEB_BUDGET,
   WEB_GRANTS,
   WEB_ROLE,
   boundsAreExact,
+  budgetFor,
   effectivePrivilegeSql,
   judgeEffective,
   judgeMatrix,
+  labelFor,
   matrixSql,
+  validateRuntimeRoster,
 } from "./roles.ts";
 import { GOVERNED_SETTINGS, Store } from "./store.ts";
 import { LOCAL_DATABASE_URL, TARGET_IS_LOCAL } from "./testing/pg.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
+
+function caseNames(): {
+  roster: readonly RolePosture[];
+  probeMember: string;
+} {
+  const suffix = `${process.pid}_${Math.random().toString(36).slice(2, 10)}`;
+  return {
+    roster: [
+      { role: `cp_gw_${suffix}`, budget: WEB_BUDGET, grants: WEB_GRANTS },
+      {
+        role: `cp_gp_${suffix}`,
+        budget: PROVISIONER_BUDGET,
+        grants: PROVISIONER_GRANTS,
+      },
+    ],
+    probeMember: `cp_gm_${suffix}`,
+  };
+}
+
+let TEST_ROSTER: readonly RolePosture[] = [];
+let TEST_WEB_ROLE = "";
+let TEST_PROVISIONER_ROLE = "";
+let TEST_PROBE_MEMBER = "";
 
 /**
  * A database per case, and a LOCK around every case that mutates a role.
@@ -58,7 +92,15 @@ const suite = TARGET_IS_LOCAL ? describe : describe.skip;
  */
 let queue: Promise<unknown> = Promise.resolve();
 function serial<T>(fn: () => Promise<T>): Promise<T> {
-  const next = queue.then(fn, fn);
+  const run = async (): Promise<T> => {
+    const names = caseNames();
+    TEST_ROSTER = names.roster;
+    TEST_WEB_ROLE = names.roster[0].role;
+    TEST_PROVISIONER_ROLE = names.roster[1].role;
+    TEST_PROBE_MEMBER = names.probeMember;
+    return fn();
+  };
+  const next = queue.then(run, run);
   queue = next.then(
     () => undefined,
     () => undefined,
@@ -68,12 +110,53 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 
 const admin = new pg.Pool({ connectionString: LOCAL_DATABASE_URL, max: 2 });
 admin.on("error", () => {});
-const databases: string[] = [];
+const databases: {
+  name: string;
+  roster: readonly RolePosture[];
+  probe: string;
+}[] = [];
+let productionRolesBefore: Record<string, unknown>[] = [];
+
+async function productionRoleSnapshot(): Promise<Record<string, unknown>[]> {
+  return (
+    await admin.query(
+      "select rolname, rolcanlogin, rolconnlimit, rolconfig from pg_roles " +
+        "where rolname = any($1) order by rolname",
+      [[WEB_ROLE, PROVISIONER_ROLE]],
+    )
+  ).rows;
+}
+
+beforeAll(async () => {
+  productionRolesBefore = await productionRoleSnapshot();
+});
+
+describe("injected runtime roster metadata", () => {
+  test("uses the injected names for budgets and stable labels", () => {
+    const roster = caseNames().roster;
+    expect(budgetFor(roster[0].role, "owner", roster)).toBe(WEB_BUDGET);
+    expect(budgetFor(roster[1].role, "owner", roster)).toBe(PROVISIONER_BUDGET);
+    expect(labelFor(roster[0].role, "owner", roster)).toBe("web");
+    expect(labelFor(roster[1].role, "owner", roster)).toBe("provisioner");
+    expect(() =>
+      validateRuntimeRoster([roster[0], roster[0]], "owner"),
+    ).toThrow(/unique/);
+    expect(() => validateRuntimeRoster(roster, roster[0].role)).toThrow(
+      /owner/,
+    );
+    expect(() =>
+      validateRuntimeRoster(
+        [{ ...roster[0], role: `a${"b".repeat(63)}` }, roster[1]],
+        "owner",
+      ),
+    ).toThrow(/plain lower-case identifier/);
+  });
+});
 
 async function scratchDatabase(): Promise<string> {
   const name = `cp_gov_${Math.random().toString(36).slice(2, 10)}`;
   await admin.query(`create database ${name}`);
-  databases.push(name);
+  databases.push({ name, roster: TEST_ROSTER, probe: TEST_PROBE_MEMBER });
   const url = new URL(LOCAL_DATABASE_URL);
   url.pathname = `/${name}`;
   return url.toString();
@@ -93,8 +176,14 @@ async function ask<T extends pg.QueryResultRow>(
   }
 }
 
-async function dropRoles(dsn: string): Promise<void> {
-  for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
+async function dropRoles(
+  dsn: string,
+  roster: readonly RolePosture[] = TEST_ROSTER,
+): Promise<void> {
+  for (const role of roster.map((entry) => entry.role)) {
+    if (role === WEB_ROLE || role === PROVISIONER_ROLE) {
+      throw new Error(`refusing to drop production runtime role ${role}`);
+    }
     await ask(
       dsn,
       `revoke all privileges on all tables in schema public from ${role}`,
@@ -107,10 +196,16 @@ async function dropRoles(dsn: string): Promise<void> {
 }
 
 afterAll(async () => {
-  for (const name of databases) {
+  for (const entry of databases) {
+    const { name, roster, probe } = entry;
     const url = new URL(LOCAL_DATABASE_URL);
     url.pathname = `/${name}`;
-    await dropRoles(url.toString());
+    if ([WEB_ROLE, PROVISIONER_ROLE].includes(probe)) {
+      throw new Error("refusing to drop a production runtime role");
+    }
+    await admin.query(`revoke ${roster[0].role} from ${probe}`).catch(() => {});
+    await admin.query(`drop role if exists ${probe}`).catch(() => {});
+    await dropRoles(url.toString(), roster);
     await admin
       .query(
         "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
@@ -119,6 +214,16 @@ afterAll(async () => {
       .catch(() => {});
     await admin.query(`drop database if exists ${name}`).catch(() => {});
   }
+  const testNames = databases.flatMap(({ roster, probe }) => [
+    ...roster.map((entry) => entry.role),
+    probe,
+  ]);
+  const leftovers = await admin.query<{ n: string }>(
+    "select count(*)::text as n from pg_roles where rolname = any($1)",
+    [testNames],
+  );
+  expect(leftovers.rows[0]?.n).toBe("0");
+  expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
   await admin.end().catch(() => {});
 });
 
@@ -131,7 +236,7 @@ suite("a fresh, empty database", () => {
     () =>
       serial(async () => {
         const dsn = await scratchDatabase();
-        const result = await bootstrapDatabase(dsn);
+        const result = await bootstrapDatabase(dsn, TEST_ROSTER);
         expect(result.schemaReady).toBe(true);
         expect(result.zeroUserData).toBe(true);
 
@@ -143,7 +248,7 @@ suite("a fresh, empty database", () => {
           dsn,
           "select rolname as role, rolconnlimit as limit, rolconfig as config " +
             "from pg_roles where rolname = any($1)",
-          [[WEB_ROLE, PROVISIONER_ROLE]],
+          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
         expect(roles.length).toBe(2);
         for (const row of roles) {
@@ -156,9 +261,9 @@ suite("a fresh, empty database", () => {
         const matrix = await ask<{ role: string; table: string; verb: string }>(
           dsn,
           matrixSql(),
-          [[WEB_ROLE, PROVISIONER_ROLE]],
+          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
-        expect(judgeMatrix(matrix, WEB_ROLE, WEB_GRANTS).exact).toBe(true);
+        expect(judgeMatrix(matrix, TEST_WEB_ROLE, WEB_GRANTS).exact).toBe(true);
         await dropRoles(dsn);
       }),
     30_000,
@@ -169,9 +274,9 @@ suite("a fresh, empty database", () => {
     () =>
       serial(async () => {
         const dsn = await scratchDatabase();
-        await applyRolePosture(dsn);
+        await applyRolePosture(dsn, TEST_ROSTER);
         // The roles exist and are governed; the tables do not exist yet.
-        expect(applyGrantMatrix(dsn)).rejects.toThrow();
+        expect(applyGrantMatrix(dsn, TEST_ROSTER)).rejects.toThrow();
         await dropRoles(dsn);
       }),
     30_000,
@@ -184,7 +289,7 @@ suite("an existing database from before cancellation launch", () => {
     () =>
       serial(async () => {
         const dsn = await scratchDatabase();
-        await bootstrapDatabase(dsn);
+        await bootstrapDatabase(dsn, TEST_ROSTER);
         await ask(
           dsn,
           "delete from schema_meta where key = 'hosted_cancellation_policy_cutover_ms'",
@@ -195,7 +300,7 @@ suite("an existing database from before cancellation launch", () => {
           "alter table subscriptions drop column cancellation_policy",
         );
 
-        const result = await bootstrapDatabase(dsn);
+        const result = await bootstrapDatabase(dsn, TEST_ROSTER);
         expect(result.schemaReady).toBe(true);
         const column = await ask<{ n: string }>(
           dsn,
@@ -233,12 +338,12 @@ suite("the migration is one transaction or none of it", () => {
         // with it - which is the property the autocommit version did not have.
         await ask(dsn, "drop table subscriptions");
 
-        expect(applyGovernance(dsn)).rejects.toThrow();
+        expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow();
 
         const roles = await ask<{ n: string }>(
           dsn,
           "select count(*)::text as n from pg_roles where rolname = any($1)",
-          [[WEB_ROLE, PROVISIONER_ROLE]],
+          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
         expect(roles[0]?.n).toBe("0");
         const ownerAfter =
@@ -266,13 +371,18 @@ suite("a name that is already taken is not taken over", () => {
         const dsn = await scratchDatabase();
         await (await Store.open(dsn)).close();
         await dropRoles(dsn);
-        await ask(dsn, `create role ${WEB_ROLE} login password 'not-ours'`);
+        await ask(
+          dsn,
+          `create role ${TEST_WEB_ROLE} login password 'not-ours'`,
+        );
         try {
-          expect(applyGovernance(dsn)).rejects.toThrow(/inert residue/);
+          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+            /inert residue/,
+          );
           const still = await ask<{ login: boolean; config: string[] | null }>(
             dsn,
             "select rolcanlogin as login, rolconfig as config from pg_roles where rolname = $1",
-            [WEB_ROLE],
+            [TEST_WEB_ROLE],
           );
           // Untouched: still a login role, still carrying nothing of ours.
           expect(still[0]?.login).toBe(true);
@@ -280,7 +390,7 @@ suite("a name that is already taken is not taken over", () => {
           const other = await ask<{ n: string }>(
             dsn,
             "select count(*)::text as n from pg_roles where rolname = $1",
-            [PROVISIONER_ROLE],
+            [TEST_PROVISIONER_ROLE],
           );
           expect(other[0]?.n).toBe("0");
         } finally {
@@ -297,12 +407,14 @@ suite("a name that is already taken is not taken over", () => {
         const dsn = await scratchDatabase();
         await (await Store.open(dsn)).close();
         await dropRoles(dsn);
-        await ask(dsn, `create role ${WEB_ROLE} nologin`);
-        await ask(dsn, `grant create on schema public to ${WEB_ROLE}`);
+        await ask(dsn, `create role ${TEST_WEB_ROLE} nologin`);
+        await ask(dsn, `grant create on schema public to ${TEST_WEB_ROLE}`);
         await ask(dsn, `create table someone_elses (id text) `);
-        await ask(dsn, `alter table someone_elses owner to ${WEB_ROLE}`);
+        await ask(dsn, `alter table someone_elses owner to ${TEST_WEB_ROLE}`);
         try {
-          expect(applyGovernance(dsn)).rejects.toThrow(/inert residue/);
+          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+            /inert residue/,
+          );
         } finally {
           await ask(dsn, "drop table if exists someone_elses").catch(() => []);
           await dropRoles(dsn);
@@ -325,7 +437,7 @@ suite("a privilege PUBLIC holds is a privilege every role holds", () => {
         await dropRoles(dsn);
         await ask(dsn, "grant delete on subscriptions to public");
         try {
-          expect(applyGovernance(dsn)).rejects.toThrow(
+          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
             /PUBLIC holds privileges/,
           );
           // The public ACL is not this build's to edit, so it is still there.
@@ -337,7 +449,7 @@ suite("a privilege PUBLIC holds is a privilege every role holds", () => {
           const roles = await ask<{ n: string }>(
             dsn,
             "select count(*)::text as n from pg_roles where rolname = any($1)",
-            [[WEB_ROLE, PROVISIONER_ROLE]],
+            [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
           );
           expect(roles[0]?.n).toBe("0");
         } finally {
@@ -354,28 +466,30 @@ suite("a privilege PUBLIC holds is a privilege every role holds", () => {
     () =>
       serial(async () => {
         const dsn = await scratchDatabase();
-        await bootstrapDatabase(dsn);
+        await bootstrapDatabase(dsn, TEST_ROSTER);
         await ask(dsn, "grant delete on subscriptions to public");
         try {
           const direct = await ask<{
             role: string;
             table: string;
             verb: string;
-          }>(dsn, matrixSql(), [[WEB_ROLE, PROVISIONER_ROLE]]);
+          }>(dsn, matrixSql(), [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]]);
           const effective = await ask<EffectiveRow>(
             dsn,
             effectivePrivilegeSql(),
             [
-              [WEB_ROLE, PROVISIONER_ROLE],
+              [TEST_WEB_ROLE, TEST_PROVISIONER_ROLE],
               [...EXPECTED_TABLES],
               [...ALL_VERBS],
             ],
           );
           // The direct read is blind to it; the effective one is not.
-          expect(judgeMatrix(direct, WEB_ROLE, WEB_GRANTS).exact).toBe(true);
-          expect(judgeEffective(effective, WEB_ROLE, WEB_GRANTS).excess).toBe(
-            1,
+          expect(judgeMatrix(direct, TEST_WEB_ROLE, WEB_GRANTS).exact).toBe(
+            true,
           );
+          expect(
+            judgeEffective(effective, TEST_WEB_ROLE, WEB_GRANTS).excess,
+          ).toBe(1);
         } finally {
           await ask(dsn, "revoke delete on subscriptions from public").catch(
             () => [],
@@ -398,7 +512,7 @@ suite("the bootstrap report is evidence, not a summary of intent", () => {
       serial(async () => {
         const dsn = await scratchDatabase();
         try {
-          const result = await bootstrapDatabase(dsn);
+          const result = await bootstrapDatabase(dsn, TEST_ROSTER);
           expect(result.governance.roles).toBe(2);
           expect(result.governanceExact).toBe(true);
         } finally {
@@ -420,23 +534,31 @@ suite("a role other roles belong to is not adoptable", () => {
         const dsn = await scratchDatabase();
         await (await Store.open(dsn)).close();
         await dropRoles(dsn);
-        await ask(dsn, `create role ${WEB_ROLE} nologin`);
-        await ask(dsn, "create role cp_probe_member nologin");
-        await ask(dsn, `grant ${WEB_ROLE} to cp_probe_member`);
+        await ask(dsn, `create role ${TEST_WEB_ROLE} nologin`);
+        await ask(dsn, `create role ${TEST_PROBE_MEMBER} nologin`);
+        await ask(dsn, `grant ${TEST_WEB_ROLE} to ${TEST_PROBE_MEMBER}`);
+        if ([WEB_ROLE, PROVISIONER_ROLE].includes(TEST_PROBE_MEMBER)) {
+          throw new Error("refusing to drop a production runtime role");
+        }
         try {
-          expect(applyGovernance(dsn)).rejects.toThrow(/inert residue/);
+          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+            /inert residue/,
+          );
           const config = await ask<{ config: string[] | null; limit: number }>(
             dsn,
             "select rolconfig as config, rolconnlimit as limit from pg_roles where rolname = $1",
-            [WEB_ROLE],
+            [TEST_WEB_ROLE],
           );
           expect(config[0]?.config ?? []).toEqual([]);
           expect(config[0]?.limit).toBe(-1);
         } finally {
-          await ask(dsn, `revoke ${WEB_ROLE} from cp_probe_member`).catch(
+          await ask(
+            dsn,
+            `revoke ${TEST_WEB_ROLE} from ${TEST_PROBE_MEMBER}`,
+          ).catch(() => []);
+          await ask(dsn, `drop role if exists ${TEST_PROBE_MEMBER}`).catch(
             () => [],
           );
-          await ask(dsn, "drop role if exists cp_probe_member").catch(() => []);
           await dropRoles(dsn);
         }
       }),
@@ -450,10 +572,15 @@ suite("a role other roles belong to is not adoptable", () => {
         const dsn = await scratchDatabase();
         await (await Store.open(dsn)).close();
         await dropRoles(dsn);
-        await ask(dsn, `create role ${WEB_ROLE} nologin`);
-        await ask(dsn, `create schema someone_elses authorization ${WEB_ROLE}`);
+        await ask(dsn, `create role ${TEST_WEB_ROLE} nologin`);
+        await ask(
+          dsn,
+          `create schema someone_elses authorization ${TEST_WEB_ROLE}`,
+        );
         try {
-          expect(applyGovernance(dsn)).rejects.toThrow(/inert residue/);
+          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+            /inert residue/,
+          );
         } finally {
           await ask(dsn, "drop schema if exists someone_elses cascade").catch(
             () => [],
@@ -471,26 +598,26 @@ suite("the posture converges rather than accumulating", () => {
     () =>
       serial(async () => {
         const dsn = await scratchDatabase();
-        await bootstrapDatabase(dsn);
+        await bootstrapDatabase(dsn, TEST_ROSTER);
         // A privilege the matrix does not carry, granted by hand: a delete on a
         // table the web tier may only read, which is exactly the shape a narrowed
         // matrix would leave behind.
-        await ask(dsn, `grant delete on subscriptions to ${WEB_ROLE}`);
+        await ask(dsn, `grant delete on subscriptions to ${TEST_WEB_ROLE}`);
         let matrix = await ask<{ role: string; table: string; verb: string }>(
           dsn,
           matrixSql(),
-          [[WEB_ROLE, PROVISIONER_ROLE]],
+          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
-        expect(judgeMatrix(matrix, WEB_ROLE, WEB_GRANTS).excess).toBe(1);
+        expect(judgeMatrix(matrix, TEST_WEB_ROLE, WEB_GRANTS).excess).toBe(1);
 
-        await applyGovernance(dsn);
+        await applyGovernance(dsn, TEST_ROSTER);
 
         matrix = await ask<{ role: string; table: string; verb: string }>(
           dsn,
           matrixSql(),
-          [[WEB_ROLE, PROVISIONER_ROLE]],
+          [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
         );
-        const verdict = judgeMatrix(matrix, WEB_ROLE, WEB_GRANTS);
+        const verdict = judgeMatrix(matrix, TEST_WEB_ROLE, WEB_GRANTS);
         expect(verdict.excess).toBe(0);
         expect(verdict.exact).toBe(true);
         await dropRoles(dsn);
@@ -507,23 +634,23 @@ suite("the posture converges rather than accumulating", () => {
     () =>
       serial(async () => {
         const dsn = await scratchDatabase();
-        await bootstrapDatabase(dsn);
-        await ask(dsn, `alter role ${WEB_ROLE} set lock_timeout = '5s'`);
+        await bootstrapDatabase(dsn, TEST_ROSTER);
+        await ask(dsn, `alter role ${TEST_WEB_ROLE} set lock_timeout = '5s'`);
         let config = await ask<{ config: string[] | null }>(
           dsn,
           "select rolconfig as config from pg_roles where rolname = $1",
-          [WEB_ROLE],
+          [TEST_WEB_ROLE],
         );
         expect(boundsAreExact(config[0]?.config ?? [], GOVERNED_SETTINGS)).toBe(
           false,
         );
 
-        await applyGovernance(dsn);
+        await applyGovernance(dsn, TEST_ROSTER);
 
         config = await ask<{ config: string[] | null }>(
           dsn,
           "select rolconfig as config from pg_roles where rolname = $1",
-          [WEB_ROLE],
+          [TEST_WEB_ROLE],
         );
         expect(boundsAreExact(config[0]?.config ?? [], GOVERNED_SETTINGS)).toBe(
           true,
@@ -543,11 +670,13 @@ suite("the posture converges rather than accumulating", () => {
         await (await Store.open(dsn)).close();
         await ask(dsn, "alter role current_user set lock_timeout = '5s'");
         try {
-          expect(applyGovernance(dsn)).rejects.toThrow(/did not put there/);
+          expect(applyGovernance(dsn, TEST_ROSTER)).rejects.toThrow(
+            /did not put there/,
+          );
           const roles = await ask<{ n: string }>(
             dsn,
             "select count(*)::text as n from pg_roles where rolname = any($1)",
-            [[WEB_ROLE, PROVISIONER_ROLE]],
+            [[TEST_WEB_ROLE, TEST_PROVISIONER_ROLE]],
           );
           expect(roles[0]?.n).toBe("0");
         } finally {

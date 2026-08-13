@@ -34,6 +34,7 @@ import {
   type MatrixVerdict,
   PROVISIONER_ROLE,
   type RoleIdentity,
+  type RolePosture,
   WEB_ROLE,
   boundsAreExact,
   effectivePrivilegeSql,
@@ -54,6 +55,7 @@ import {
   rolePostureStatements,
   runtimeRoles,
   ungovernStatements,
+  validateRuntimeRoster,
 } from "./roles.ts";
 
 /**
@@ -252,12 +254,13 @@ async function preflight(
   pool: pg.Pool,
   dsn: string,
   schemaExists: boolean,
+  roster: readonly RolePosture[] = runtimeRoles(),
 ): Promise<void> {
   let identities: RoleIdentity[];
   try {
     identities = (
       await pool.query<RoleIdentity>(roleIdentitySql(), [
-        [WEB_ROLE, PROVISIONER_ROLE],
+        roster.map((entry) => entry.role),
       ])
     ).rows;
   } catch (err) {
@@ -312,10 +315,13 @@ async function preflight(
  * operator default silently, and a posture that quietly deletes somebody else's
  * configuration is not one to run against production.
  */
-export async function applyRolePosture(dsn: string): Promise<number> {
+export async function applyRolePosture(
+  dsn: string,
+  roster: readonly RolePosture[] = runtimeRoles(),
+): Promise<number> {
   const pool = await openPool(dsn);
   try {
-    await preflight(pool, dsn, false);
+    await preflight(pool, dsn, false, roster);
     const { owner, config } = await ownerState(pool, dsn);
     if (!ownerConfigIsAcceptable(config, GOVERNED_SETTINGS)) {
       throw new Error(
@@ -332,7 +338,11 @@ export async function applyRolePosture(dsn: string): Promise<number> {
     return await inTransaction(
       pool,
       dsn,
-      rolePostureStatements({ ownerRole: owner, bounds: GOVERNED_SETTINGS }),
+      rolePostureStatements({
+        ownerRole: owner,
+        bounds: GOVERNED_SETTINGS,
+        roster,
+      }),
     );
   } finally {
     await pool.end().catch(() => {});
@@ -340,10 +350,15 @@ export async function applyRolePosture(dsn: string): Promise<number> {
 }
 
 /** PHASE TWO: the exact table matrix. Needs the schema to exist. */
-export async function applyGrantMatrix(dsn: string): Promise<number> {
+export async function applyGrantMatrix(
+  dsn: string,
+  roster: readonly RolePosture[] = runtimeRoles(),
+): Promise<number> {
   const pool = await openPool(dsn);
   try {
-    return await inTransaction(pool, dsn, grantMatrixStatements());
+    const { owner } = await ownerState(pool, dsn);
+    validateRuntimeRoster(roster, owner);
+    return await inTransaction(pool, dsn, grantMatrixStatements(roster));
   } finally {
     await pool.end().catch(() => {});
   }
@@ -357,10 +372,11 @@ export async function applyGrantMatrix(dsn: string): Promise<number> {
  */
 export async function applyGovernance(
   dsn: string,
+  roster: readonly RolePosture[] = runtimeRoles(),
 ): Promise<{ statements: number; roles: number }> {
   const pool = await openPool(dsn);
   try {
-    await preflight(pool, dsn, true);
+    await preflight(pool, dsn, true, roster);
     const { owner, config } = await ownerState(pool, dsn);
     if (!ownerConfigIsAcceptable(config, GOVERNED_SETTINGS)) {
       throw new Error(
@@ -373,7 +389,11 @@ export async function applyGovernance(
     const statements = await inTransaction(
       pool,
       dsn,
-      governanceStatements({ ownerRole: owner, bounds: GOVERNED_SETTINGS }),
+      governanceStatements({
+        ownerRole: owner,
+        bounds: GOVERNED_SETTINGS,
+        roster,
+      }),
     );
     const roles = await pool.query<{ n: string }>(
       "select count(*)::text as n from pg_roles where rolconnlimit <> -1 " +
@@ -729,8 +749,11 @@ export async function ungovern(dsn: string): Promise<{
  * residue is disclosed rather than cleaned up, because a rollback that dropped
  * roles a previous successful run had created would be worse than the residue.
  */
-export async function bootstrapDatabase(dsn: string): Promise<BootstrapResult> {
-  const posture = await applyRolePosture(dsn);
+export async function bootstrapDatabase(
+  dsn: string,
+  roster: readonly RolePosture[] = runtimeRoles(),
+): Promise<BootstrapResult> {
+  const posture = await applyRolePosture(dsn, roster);
   // UPGRADES FIRST. Store.open asserts the current runtime schema, so an owner
   // migration placed after it can run only on databases that do not need it.
   // This also lets the migration name duplicate provider IDs before SCHEMA
@@ -744,18 +767,23 @@ export async function bootstrapDatabase(dsn: string): Promise<BootstrapResult> {
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.
-    const granted = await applyGrantMatrix(dsn);
+    const granted = await applyGrantMatrix(dsn, roster);
     // COUNTED EXACTLY, not loosely. Counting roles that carry "some limit and
     // some configuration" would print `governed-roles: 2` for a role with the
     // wrong cap and a stale setting - and this report is acceptance evidence,
     // so a count that cannot distinguish those is not evidence of anything.
     // Each role has to carry ITS budget and exactly the governed pair.
+    const owner = await store.sqlGet<{ owner: string }>(
+      "select current_user as owner",
+    );
+    if (!owner?.owner) throw new Error("database owner role was not reported");
     const posture2 = await readRolePosture(
       (sql, args) => store.sqlAll(sql, args as SqlArgs),
       GOVERNED_SETTINGS,
-      "",
+      owner.owner,
+      roster,
     );
-    const exact = governedRoleCount(posture2);
+    const exact = governedRoleCount(posture2, roster);
     const governance = { statements: posture + granted, roles: exact };
     const present = new Set(
       (
@@ -776,7 +804,7 @@ export async function bootstrapDatabase(dsn: string): Promise<BootstrapResult> {
     return {
       schemaReady: missing.length === 0,
       zeroUserData: counts.every(([t, c]) => c === 0 || SEEDED.has(t)),
-      governanceExact: exact === runtimeRoles().length,
+      governanceExact: exact === roster.length,
       missing,
       counts,
       governance,

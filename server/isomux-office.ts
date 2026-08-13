@@ -54,7 +54,11 @@ import {
   getUpdateStatus,
   onUpdateChange,
 } from "./update-checker.ts";
-import { startBackupScheduler, getBackupStatus } from "./backup.ts";
+import {
+  startBackupScheduler,
+  getBackupStatus,
+  type BackupStatus,
+} from "./backup.ts";
 import { getVersionInfo } from "./version.ts";
 import { allowReadyRequest } from "./ready-limiter.ts";
 import { resolveCwd } from "./cwd-utils.ts";
@@ -1526,7 +1530,9 @@ const officeLogSource = fileLogSource(join(STATE_ROOT, "logs"));
 // startServer once the managers exist. Each resource slice registers its
 // handlers (and any precondition enforcers) here over its own slim deps bundle;
 // the executor stays ignorant of managers/auth internals.
-function buildExecutorDeps(): ExecutorDeps {
+function buildExecutorDeps(
+  backupStatus: () => BackupStatus = getBackupStatus,
+): ExecutorDeps {
   const handlers = new Map<string, RouteHandler>();
   const preconditions = new Map<RoutePrecondition, PreconditionFn>();
   const register = (hs: Record<string, RouteHandler>): void => {
@@ -3064,7 +3070,7 @@ function buildExecutorDeps(): ExecutorDeps {
   register(
     systemHandlers({
       getBackupStatus: () => {
-        const s = getBackupStatus();
+        const s = backupStatus();
         return {
           lastRunAt: s.lastBackupAt,
           ok: s.lastBackupOk ?? false,
@@ -5209,6 +5215,10 @@ export interface StartServerOpts {
   skipBackups?: boolean;
   skipAdminSocket?: boolean;
   skipUpdateChecker?: boolean;
+  // Internal backup status provider. The in-process harness supplies a fresh
+  // value so a skipped backup scheduler cannot expose host backup state. The
+  // route's production projection still runs over this internal shape.
+  getBackupStatus?: () => BackupStatus;
   // Await plugin-load + agent restore before resolving (tests that assert on a
   // fully-restored office). Production leaves this false: fire-and-forget so the
   // listener is up immediately, matching today's behavior.
@@ -5295,7 +5305,7 @@ export async function startServer(
   reconcileAppTokensAtBoot();
   // Then their addresses, on the units the pass above may just have written.
   reconcileAppUrlsAtBoot();
-  executorDeps = buildExecutorDeps();
+  executorDeps = buildExecutorDeps(opts.getBackupStatus);
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The
   // `| undefined` in the type is for unix-socket servers, which we never create.
