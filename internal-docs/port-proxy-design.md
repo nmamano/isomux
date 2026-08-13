@@ -1,6 +1,7 @@
 # Reaching agent-built web apps on a hosted box
 
-> Status: design, not implemented (2026-07-29). Author: Isomuxer3, reviewed by
+> Status: registered-app transport shipped; hosted readiness implemented
+> 2026-08-13. Scratch shares remain design. Author: Isomuxer3, reviewed by
 > Reviewer3. Task: 99023cdd.
 > Companion reading: `hosted-isomux-design.md` (the hosted product this must fit),
 > `deploy/install.sh` (Caddy + ufw setup), `server/preview-capture.ts` (the
@@ -209,6 +210,24 @@ registry's ledger - admitted and still-live labels always pass, ten new
 admissions per hour bound the rest, and unknown or retired labels are refused
 before the budget is touched. The updater never rewrites the Caddyfile.
 
+**Hosted launch arithmetic, measured 2026-08-13.** Let's Encrypt currently
+allows 50 new certificates per registered domain in seven days, refilling one
+certificate every 202 minutes. The limit is global across ACME accounts. The
+hosted names are under `test.isomux.app`, so every new office certificate and
+every first certificate for an app label consumes the same `isomux.app` limit.
+For `O` new offices and `A` new app labels in a week, demand is `O + A`, which
+must be at most 50. The current pre-launch fleet has no customer offices, so a
+closed pilot fits. The uncapped public product does not have a safe bound: ten
+offices creating five apps each would need 60 certificates in its first week.
+Therefore on-demand per-label TLS is acceptable only for the closed launch
+pilot. General signup must first use one wildcard certificate per office,
+obtain a Let's Encrypt override, or move customer domains onto a Public Suffix
+List boundary that gives each office an independent registered-domain budget.
+The centrally issued wildcard option was rejected for this implementation
+batch because the control plane does not automate DNS or hold DNS credentials;
+it remains the preferred no-cap production shape if no override or PSL boundary
+exists.
+
 ### Auth handshake
 
 The office session cookie is host-only, so it never reaches the app subdomain.
@@ -310,6 +329,15 @@ docs should say. Hosted gets C on by default, with the control plane
 provisioning the wildcard record and certificate. A self-hoster on their own
 domain opts in, adds the record, and runs on-demand TLS. Tailscale Funnel has no
 wildcard hostnames, so those offices get A.
+
+**What shipped for hosted readiness.** Fresh provisioning installs the Caddy
+site block, then `verify_https` checks a stable, hashed child name before the
+office becomes ready. Its A set must be exactly the instance IPv4 and it must
+have no AAAA answer. Resolver failures, missing answers and wrong targets fail
+closed. The retry backoff caps at five minutes; a negative DNS cache can delay
+readiness but cannot create a false pass, so operators create the office A and
+wildcard A records together. Existing offices need the documented installer or
+Caddy migration because the updater never rewrites Caddyfile.
 
 ## Implementation shape
 

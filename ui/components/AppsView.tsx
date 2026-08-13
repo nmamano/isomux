@@ -101,6 +101,12 @@ export function appHref(
   return `http://${portLinkHost(officeHostname)}:${app.port}/`;
 }
 
+export function appLinkLabel(app: Pick<AppWire, "url">): string {
+  return typeof app.url === "string" && app.url !== ""
+    ? "Open app"
+    : "Open on this network";
+}
+
 const STATE_COLOR: Record<AppState, string> = {
   running: "var(--green)",
   starting: "var(--orange, #d29922)",
@@ -470,12 +476,7 @@ export function AppsView({
                     }}
                   >
                     <StateDot state={app.state} />
-                    {/* An app with a hostname links to it; see appHref. */}
-                    <a
-                      href={appHref(app, window.location.hostname)}
-                      target="_blank"
-                      rel="noreferrer"
-                      title="Open the app"
+                    <span
                       style={{
                         fontSize: 14,
                         fontWeight: 600,
@@ -483,7 +484,7 @@ export function AppsView({
                       }}
                     >
                       {app.name}
-                    </a>
+                    </span>
                     <span
                       style={{
                         fontSize: 11,
@@ -493,6 +494,20 @@ export function AppsView({
                     >
                       {app.state}
                     </span>
+                    <a
+                      href={appHref(app, window.location.hostname)}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={appLinkLabel(app)}
+                      style={{
+                        marginLeft: "auto",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: "var(--accent)",
+                      }}
+                    >
+                      {appLinkLabel(app)} ↗
+                    </a>
                   </div>
 
                   {app.description && (

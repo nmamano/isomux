@@ -76,6 +76,23 @@ describe("decideTlsAsk: what may be certified", () => {
     expect(decide(`board.${DOMAIN}`)).toBe("deny");
   });
 
+  it("refuses the hosted readiness probe without spending an admission", () => {
+    const asked: string[] = [];
+    const admissionVerdicts: CertAdmission[] = [];
+    const deps: TlsAskDeps = {
+      domain: DOMAIN,
+      admit: (label) => {
+        asked.push(label);
+        admissionVerdicts.push("not_live");
+        return "not_live";
+      },
+    };
+    const probe = `isomux-app-check-${"a".repeat(24)}.${DOMAIN}`;
+    expect(decideTlsAsk(probe, deps)).toBe("deny");
+    expect(asked).toEqual([`isomux-app-check-${"a".repeat(24)}`]);
+    expect(admissionVerdicts).toEqual(["not_live"]);
+  });
+
   it("passes a capped admission through as its own answer", () => {
     const { deps } = registry(["hello"], () => "capped");
     expect(decideTlsAsk(`hello.${DOMAIN}`, deps)).toBe("capped");

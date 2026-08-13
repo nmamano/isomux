@@ -15,6 +15,7 @@ import {
   installCustomerKeyHandler,
   revokeAccessHandler,
   runInstallerHandler,
+  verifyHttpsHandler,
   waitForPackageManagerHandler,
   waitForSshHandler,
   type HandlerDeps,
@@ -25,6 +26,7 @@ import { Store } from "./store.ts";
 import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import type { ExecResult, Exec, ExecOptions } from "./ssh.ts";
 import { RemoteBudget, Ticker, type HandlerContext } from "./tick.ts";
+import { raiseAttentionIn } from "./attention.ts";
 
 const temps: string[] = [];
 
@@ -112,6 +114,18 @@ async function bed(exec: Exec): Promise<Bed> {
     goal: "live",
     access_window_expires_at: Date.parse("2026-08-09T18:04:23Z"),
   });
+  await store.createAsset({
+    id: "asset-1",
+    instance_id: "inst-1",
+    provider: "contabo",
+    provider_id: "203474835",
+    intent_id: null,
+    asset_state: "active",
+    ipv4: "169.58.97.2",
+    service_ends_at: null,
+    host_key_fingerprint: null,
+    next_reconcile_at: 0,
+  });
   const deps: HandlerDeps = {
     exec,
     reporter,
@@ -155,7 +169,7 @@ async function bed(exec: Exec): Promise<Bed> {
         store,
         op: leased,
         instance: (await store.getInstance("inst-1"))!,
-        asset: null,
+        asset: await store.getAsset("asset-1"),
         fence: { id: leased.id, version: leased.version, holder: "holder-a" },
         budget:
           budget ??
@@ -434,6 +448,153 @@ describe("revoke_access", () => {
     expect(
       audits.some((row) => row.action === "observe_customer_ssh_key"),
     ).toBe(true);
+  });
+});
+
+describe("verify_https includes app wildcard readiness", () => {
+  const dns = (a: string[], aaaa: string[] = []) => ({
+    a,
+    aaaa,
+    absent: a.length === 0 && aaaa.length === 0,
+  });
+
+  test("missing, wrong, extra, and IPv6 answers block with one precise attention reason", async () => {
+    for (const answer of [
+      dns([]),
+      dns(["169.58.97.3"]),
+      dns(["169.58.97.2", "169.58.97.3"]),
+      dns(["169.58.97.2"], ["2001:db8::2"]),
+    ]) {
+      const b = await bed(new FakeExec(() => OK));
+      let livenessCalls = 0;
+      const result = await verifyHttpsHandler({
+        ...b.deps,
+        resolveDns: async () => answer,
+        probeHttps: async () => {
+          livenessCalls++;
+          return { rung: "ok", detail: "ok" };
+        },
+      }).run(await b.ctx({}));
+      expect(result.kind).toBe("progress");
+      expect(livenessCalls).toBe(0);
+      const open = await b.store.openReasons("inst-1");
+      expect(open).toHaveLength(1);
+      expect(open[0].reason).toContain(
+        "the wildcard DNS record *.cp1.test.isomux.app",
+      );
+      expect(open[0].reason).toContain("169.58.97.2");
+      await b.store.close();
+    }
+  });
+
+  test("an unchanged refusal waits, while a changed answer is progress", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    const handler = verifyHttpsHandler({
+      ...b.deps,
+      resolveDns: async () => dns([]),
+      probeHttps: async () => ({ rung: "ok", detail: "ok" }),
+    });
+    const first = await handler.run(await b.ctx({}));
+    const ev = (first as { evidence: unknown }).evidence;
+    expect(first.kind).toBe("progress");
+    expect((await handler.run(await b.ctx(ev))).kind).toBe("waiting");
+    const moved = verifyHttpsHandler({
+      ...b.deps,
+      resolveDns: async () => dns(["169.58.97.3"]),
+      probeHttps: async () => ({ rung: "ok", detail: "ok" }),
+    });
+    expect((await moved.run(await b.ctx(ev))).kind).toBe("progress");
+    await b.store.close();
+  });
+
+  test("a resolver failure retries, records the failed read, and never probes HTTPS", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    let livenessCalls = 0;
+    const result = await verifyHttpsHandler({
+      ...b.deps,
+      resolveDns: async () => {
+        throw new Error("SERVFAIL");
+      },
+      probeHttps: async () => {
+        livenessCalls++;
+        return { rung: "ok", detail: "ok" };
+      },
+    }).run(await b.ctx({}));
+    expect(result).toMatchObject({ kind: "retry" });
+    expect(livenessCalls).toBe(0);
+    expect(b.audits).toEqual(["dns_probe:started", "dns_probe:failed"]);
+    await b.store.close();
+  });
+
+  test("a missing asset address retries without blaming DNS or opening attention", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    let dnsCalls = 0;
+    const ctx = await b.ctx({});
+    const result = await verifyHttpsHandler({
+      ...b.deps,
+      resolveDns: async () => {
+        dnsCalls++;
+        return dns(["169.58.97.2"]);
+      },
+    }).run({ ...ctx, asset: null });
+    expect(result).toMatchObject({ kind: "retry" });
+    expect(dnsCalls).toBe(0);
+    expect(await b.store.openReasons("inst-1")).toHaveLength(0);
+    await b.store.close();
+  });
+
+  test("a correct wildcard clears its reason and advances into the distinct HTTPS rung", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    const blocked = verifyHttpsHandler({
+      ...b.deps,
+      resolveDns: async () => dns([]),
+      probeHttps: async () => ({ rung: "ok", detail: "ok" }),
+    });
+    const firstCtx = await b.ctx({});
+    const first = await blocked.run(firstCtx);
+    expect(first.kind).toBe("progress");
+    expect(await b.store.openReasons("inst-1")).toHaveLength(1);
+    await b.store.tx(() =>
+      raiseAttentionIn(b.store, {
+        instanceId: "inst-1",
+        sourceOpId: firstCtx.op.id,
+        reasonClass: "operation_condition",
+        reason:
+          "the wildcard DNS record *.cp1.test.isomux.app needs an IPv4 address",
+        severity: "warning",
+      }),
+    );
+    expect(await b.store.openReasons("inst-1")).toHaveLength(2);
+
+    const ready = verifyHttpsHandler({
+      ...b.deps,
+      resolveDns: async () => dns(["169.58.97.2"]),
+      probeHttps: async () => ({ rung: "tls", detail: "waiting for TLS" }),
+    });
+    const result = await ready.run({
+      ...firstCtx,
+      op: {
+        ...firstCtx.op,
+        evidence: JSON.stringify((first as { evidence: unknown }).evidence),
+      },
+    });
+    expect(result).toMatchObject({
+      kind: "progress",
+      evidence: { rung: "tls" },
+    });
+    expect(await b.store.openReasons("inst-1")).toHaveLength(0);
+    await b.store.close();
+  });
+
+  test("it completes only after the wildcard and office HTTPS both pass", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    const result = await verifyHttpsHandler({
+      ...b.deps,
+      resolveDns: async () => dns(["169.58.97.2"]),
+      probeHttps: async () => ({ rung: "ok", detail: "ok" }),
+    }).run(await b.ctx({ rung: "tls" }));
+    expect(result.kind).toBe("done");
+    await b.store.close();
   });
 });
 

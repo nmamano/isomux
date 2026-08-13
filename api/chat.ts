@@ -210,7 +210,7 @@ A managed version is in the works: you pick a name, we set up a server, and your
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
 - The Apps tab lists every app available to you with its state, restart count, and recent output, and lets you start, stop, restart, or delete it.
-- On an office with its own domain, each app can get its own address, like hello.your-office.com (see isomux.com/docs/vps-install).
+- On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/vps-install).
 - Only people signed in to the office can open an app's address.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.
 

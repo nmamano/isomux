@@ -39,6 +39,20 @@ import { runtimeRepoFile } from "./runtime-files.ts";
 import { destroyPrivateKey, type KeyPair } from "./keys.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
 import { probeLiveness } from "./liveness.ts";
+import type { LivenessResult } from "./liveness.ts";
+import {
+  clearAttentionIn,
+  raiseAttention,
+  raiseAttentionIn,
+} from "./attention.ts";
+import { resolveRecords, type DnsAnswers } from "./deprovision.ts";
+import {
+  WILDCARD_DNS_RUNG,
+  wildcardDnsReasonFor,
+  wildcardDnsVerdict,
+  wildcardProbeHost,
+  sameWildcardAnswers,
+} from "./wildcard-dns.ts";
 import type { Reporter } from "./report.ts";
 import { loadRun, saveRun, type RunRecord } from "./run-record.ts";
 import {
@@ -50,7 +64,6 @@ import {
 import { auditOutcomeOf } from "./tick.ts";
 import type { HandlerContext, Handler, HandlerResult } from "./tick.ts";
 import type { CreateRequest } from "./provider.ts";
-import { raiseAttention } from "./attention.ts";
 
 export interface HandlerDeps {
   exec: Exec;
@@ -63,6 +76,12 @@ export interface HandlerDeps {
   /** Where the installer comes from. Injected so a test needs no 100KB fixture. */
   installerPath?: string;
   ownerName?: string;
+  /** DNS record reads are injected for the provisioning predicate's tests. */
+  resolveDns?: (host: string) => Promise<DnsAnswers>;
+  probeHttps?: (
+    host: string,
+    expectedIpv4: string | undefined,
+  ) => Promise<LivenessResult>;
   /**
    * Where a DASHBOARD-REQUESTED invite goes: the provisioner's in-memory
    * one-shot hold, and nowhere else.
@@ -668,15 +687,78 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
 
 // ------------------------------------------------------------ verify_https
 
-export function verifyHttpsHandler(_deps: HandlerDeps): Handler {
+export function verifyHttpsHandler(deps: HandlerDeps): Handler {
   return {
     kind: "verify_https",
     timeoutIsRetryable: true,
     async run(ctx): Promise<HandlerResult> {
       const ev = evidenceOf(ctx);
       const asset = ctx.asset;
+      const assetIpv4 = asset?.ipv4;
+      if (!assetIpv4) {
+        return {
+          kind: "retry",
+          reason:
+            "the instance has no IPv4 address to verify wildcard DNS against",
+        };
+      }
+      const child = wildcardProbeHost(ctx.instance.id, ctx.instance.name);
+      const wildcardReason = wildcardDnsReasonFor(ctx.instance.name, assetIpv4);
+      let answers: DnsAnswers;
+      try {
+        answers = await remote(ctx, "dns_probe", () =>
+          (deps.resolveDns ?? resolveRecords)(child),
+        );
+      } catch (err) {
+        // A resolver failure establishes NOTHING about the record. It is not
+        // evidence of absence, and can never advance this readiness gate.
+        return {
+          kind: "retry",
+          reason: `could not read wildcard DNS for ${child}: ${messageOf(err)}`,
+        };
+      }
+      const wildcard = wildcardDnsVerdict(answers, assetIpv4);
+      if (!wildcard.ready) {
+        await ctx.store.tx(() =>
+          raiseAttentionIn(ctx.store, {
+            instanceId: ctx.instance.id,
+            reasonClass: "operation_condition",
+            sourceOpId: ctx.op.id,
+            reason: wildcardReason,
+            severity: "warning",
+            actor: "lifecycle",
+          }),
+        );
+        const evidence = {
+          rung: WILDCARD_DNS_RUNG,
+          wildcard: wildcard.detail,
+          a: answers.a,
+          aaaa: answers.aaaa,
+        };
+        return ev.rung === WILDCARD_DNS_RUNG &&
+          ev.wildcard === wildcard.detail &&
+          sameWildcardAnswers(ev, answers)
+          ? { kind: "waiting", evidence }
+          : { kind: "progress", evidence };
+      }
+
+      await ctx.store.tx(async () => {
+        for (const open of await ctx.store.openReasons(ctx.instance.id)) {
+          if (open.source_op_id === ctx.op.id) {
+            await clearAttentionIn(
+              ctx.store,
+              ctx.instance.id,
+              open.id,
+              "lifecycle",
+            );
+          }
+        }
+      });
+
       const live = await remote(ctx, "liveness_probe", () =>
-        probeLiveness(ctx.instance.name, {}, asset?.ipv4 ?? undefined),
+        deps.probeHttps
+          ? deps.probeHttps(ctx.instance.name, assetIpv4)
+          : probeLiveness(ctx.instance.name, {}, assetIpv4),
       );
       if (live.rung === "ok") return { kind: "done", evidence: { rung: "ok" } };
       return live.rung === ev.rung

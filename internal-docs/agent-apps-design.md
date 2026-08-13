@@ -113,6 +113,13 @@ The parent domain is derived from the office's public origin - there is no
 configuration key - so an office published over https has app hostnames the
 moment its DNS and terminator carry them.
 
+Hosted readiness now proves that an unguessable, instance-stable child name
+resolves only to that office's IPv4 address, with no AAAA answer, before the
+office becomes ready. This is the same `verify_https` step that already waits
+for the manually created office A record. The operator creates the office A and
+wildcard A records together; an earlier negative lookup can otherwise stay
+cached while the ticker retries, whose backoff caps at five minutes.
+
 Per-app origin rather than per-user path (`nil.isomux.app/hello`) for the two
 reasons already argued in the port-proxy doc: the app sees itself at the root so
 frameworks do not break, and one app's compromise does not reach a sibling app's

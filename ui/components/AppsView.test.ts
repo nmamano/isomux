@@ -11,6 +11,7 @@
 import { describe, it, expect } from "bun:test";
 import {
   appHref,
+  appLinkLabel,
   nextPollDelay,
   resolveCreatorAgentId,
   shouldCommit,
@@ -204,5 +205,18 @@ describe("appHref", () => {
     // Guards the empty-first-label fallback: without it the href would be
     // `http://:21000/`.
     expect(appHref({ port: 21000 }, ".ts.net")).toBe("http://.ts.net:21000/");
+  });
+});
+
+describe("appLinkLabel", () => {
+  it("a public app gets a plain action instead of making its name a URL claim", () => {
+    expect(appLinkLabel({ url: "https://hello.office.example" })).toBe(
+      "Open app",
+    );
+  });
+
+  it("a port fallback says it is limited to the current network", () => {
+    expect(appLinkLabel({})).toBe("Open on this network");
+    expect(appLinkLabel({ url: "" })).toBe("Open on this network");
   });
 });
