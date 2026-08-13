@@ -148,10 +148,9 @@ async function main(): Promise<void> {
     const status = await waitFor(page, "office-status");
     say(`status: ${status}`);
     check("the office is serving", status.includes("ready"));
-    const beforeAsking = await textOf(page, "handoff");
     check(
       "no invite exists before the customer asks for one",
-      !beforeAsking.includes("Open your office and sign in"),
+      !(await page.$('[data-testid="invite-shown"]')),
     );
     say(`access: ${await textOf(page, "access-window")}`);
     say(`nag: ${await textOf(page, "handoff-nag")}`);
@@ -163,6 +162,11 @@ async function main(): Promise<void> {
     // ---- 2. the customer asks, and the link is shown once
     const first = await collectInvite(page);
     check("an invite was shown to the owner session", first.length > 0);
+    check(
+      "the owner invite opens in a new tab",
+      (await page.getAttribute('[data-testid="invite-link"]', "target")) ===
+        "_blank",
+    );
     say(`invite (redacted): ${first}`);
 
     // A reload must not show it again: the provisioner dropped it when this
@@ -171,7 +175,7 @@ async function main(): Promise<void> {
     await waitFor(page, "handoff", 30_000);
     check(
       "a reload does not show the link again",
-      !(await textOf(page, "handoff")).includes("Open your office and sign in"),
+      !(await page.$('[data-testid="invite-shown"]')),
     );
 
     // ---- 3. a resend re-mints, and the previous link is dead
@@ -230,7 +234,21 @@ async function main(): Promise<void> {
     );
 
     // ---- 5. the customer confirms, and our access goes
+    check(
+      "revocation stays gated before signed-in confirmation",
+      await page.$eval(
+        '[data-testid="revoke-button"]',
+        (button) => (button as HTMLButtonElement).disabled,
+      ),
+    );
+    await page.click('[data-testid="signed-in-confirmation"]');
     await page.click('[data-testid="revoke-button"]');
+    check(
+      "the revocation request gets immediate pending feedback",
+      (await textOf(page, "revocation-pending")).includes(
+        "Your request was received",
+      ),
+    );
     const revocation = await waitFor(page, "revocation-state", 180_000);
     say(`revocation: ${revocation}`);
     check("the revocation is reported", revocation.length > 0);
@@ -238,7 +256,7 @@ async function main(): Promise<void> {
     const proven = await (async () => {
       const deadline = Date.now() + 300_000;
       for (;;) {
-        const text = await textOf(page, "access-window");
+        const text = await textOf(page, "revocation-state");
         if (text.includes("no longer has a key")) return text;
         if (Date.now() > deadline) return text;
         await page.waitForTimeout(5_000);

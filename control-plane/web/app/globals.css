@@ -519,6 +519,37 @@ main .btn-primary:hover:not(:disabled) {
   font-size: 0.9rem;
 }
 
+.handoff-steps {
+  margin: 20px 0 0;
+  padding-left: 24px;
+}
+.handoff-steps > li {
+  padding-left: 6px;
+  margin-bottom: 24px;
+}
+.handoff-steps > li:last-child {
+  margin-bottom: 0;
+}
+.handoff-steps h3 {
+  margin-bottom: 10px;
+}
+.handoff-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 16px 0;
+  font-weight: 600;
+}
+.handoff-confirm input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+.handoff-status:empty {
+  margin: 0;
+}
+
 /* ---------- Forms ---------- */
 
 /* EXTENSION - the landing has no form. The control is recessed to the page

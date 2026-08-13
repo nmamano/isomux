@@ -173,8 +173,44 @@ async function main(): Promise<void> {
     ipv4: "203.0.113.10",
     asset_state: "active",
   });
+  await succeed(store, instanceId, "create_instance");
   await succeed(store, instanceId, "first_contact");
   await succeed(store, instanceId, "verify_https");
+
+  // A second office pins the origin exception: an adopted office can already
+  // have a signed-in owner, so requiring this dashboard to mint a new invite
+  // would turn a safety gate into compulsory credential rotation.
+  const adoptedAccount = await accountForDevSignIn(
+    store,
+    "adopted@example.com",
+  );
+  const adoptedReserved = await reserveOffice(store, {
+    accountId: adoptedAccount.id,
+    officeName: "cp2",
+    plan: "office",
+  });
+  if (!adoptedReserved.ok) throw new Error(adoptedReserved.reason);
+  const adoptedInstanceId = adoptedReserved.reservation.instance_id;
+  const adoptedRun: RunRecord = {
+    ...rec,
+    runId: "run-local-adopted",
+    host: "cp2.test.isomux.app",
+    instanceId: "999999998",
+  };
+  saveRun(dir, adoptedRun);
+  const adoptedInstance = (await store.getInstance(adoptedInstanceId))!;
+  await store.casInstance(adoptedInstance.id, adoptedInstance.version, {
+    run_id: adoptedRun.runId,
+    service_state: "live",
+  });
+  const adoptedAsset = (await store.assetForInstance(adoptedInstanceId))!;
+  await store.casAsset(adoptedAsset.id, adoptedAsset.version, {
+    provider_id: adoptedRun.instanceId,
+    ipv4: adoptedRun.ipv4,
+    asset_state: "active",
+  });
+  await succeed(store, adoptedInstanceId, "first_contact");
+  await succeed(store, adoptedInstanceId, "verify_https");
 
   const hold = new InviteHold();
   const lines: string[] = [];
@@ -232,20 +268,95 @@ async function main(): Promise<void> {
     await page.waitForURL(`${BASE}/`, { timeout: 20_000 });
     await page.goto(`${BASE}/office/${reserved.reservation.name}`);
     await waitFor(page, "handoff");
+    await waitFor(page, "revoke-button");
 
     check("nothing minted before the customer asked", minted === 0);
     say(`access: ${await textOf(page, "access-window")}`);
     say(`nag: ${await textOf(page, "handoff-nag")}`);
+    check(
+      "an ordinary office requires an invite before confirmation",
+      await page.$eval(
+        '[data-testid="signed-in-confirmation"]',
+        (checkbox) => (checkbox as HTMLInputElement).disabled,
+      ),
+    );
+    check(
+      "revocation stays gated before an invite",
+      await page.$eval(
+        '[data-testid="revoke-button"]',
+        (button) => (button as HTMLButtonElement).disabled,
+      ),
+    );
 
     const first = await collect(page);
     check("the first invite was shown", first.length > 0);
     check("exactly one mint happened", minted === 1, `${minted}`);
-
+    check(
+      "the owner invite opens in a new tab",
+      (await page.getAttribute('[data-testid="invite-link"]', "target")) ===
+        "_blank",
+    );
     await page.reload();
     await waitFor(page, "handoff");
     check(
+      "the invite mint enables signed-in confirmation",
+      !(await page.$eval(
+        '[data-testid="signed-in-confirmation"]',
+        (checkbox) => (checkbox as HTMLInputElement).disabled,
+      )),
+    );
+    await page.click('[data-testid="signed-in-confirmation"]');
+    check(
+      "signed-in confirmation enables revocation",
+      !(await page.$eval(
+        '[data-testid="revoke-button"]',
+        (button) => (button as HTMLButtonElement).disabled,
+      )),
+    );
+    await page.click('[data-testid="signed-in-confirmation"]');
+    check(
+      "clearing signed-in confirmation disables revocation again",
+      await page.$eval(
+        '[data-testid="revoke-button"]',
+        (button) => (button as HTMLButtonElement).disabled,
+      ),
+    );
+    check(
+      "the handoff remains a three-step ordered flow",
+      (await page.$$(".handoff-steps > li")).length === 3,
+    );
+
+    const adoptedPage = await browser.newPage();
+    await adoptedPage.goto(`${BASE}/signin`);
+    await adoptedPage.fill('[data-testid="dev-email"]', "adopted@example.com");
+    await adoptedPage.click('[data-testid="dev-submit"]');
+    await adoptedPage.waitForURL(`${BASE}/`, { timeout: 20_000 });
+    await adoptedPage.goto(`${BASE}/office/${adoptedInstanceId}`);
+    await waitFor(adoptedPage, "revoke-button");
+    check(
+      "an adopted office can confirm without minting a new invite",
+      !(await adoptedPage.$eval(
+        '[data-testid="signed-in-confirmation"]',
+        (checkbox) => (checkbox as HTMLInputElement).disabled,
+      )),
+    );
+    await adoptedPage.click('[data-testid="signed-in-confirmation"]');
+    check(
+      "signed-in confirmation enables adopted-office revocation",
+      !(await adoptedPage.$eval(
+        '[data-testid="revoke-button"]',
+        (button) => (button as HTMLButtonElement).disabled,
+      )),
+    );
+    await adoptedPage.close();
+
+    check(
       "a reload does not show it again",
-      !(await textOf(page, "handoff")).includes("Open your office and sign in"),
+      !(await page.$('[data-testid="invite-shown"]')),
+    );
+    check(
+      "reload guidance says the one-time link is no longer kept",
+      (await textOf(page, "sign-in-guidance")).includes("shown once"),
     );
 
     // THE REGRESSION THIS FILE EXISTS FOR. The resend must collect the link
@@ -284,11 +395,11 @@ async function main(): Promise<void> {
     await succeed(store, instanceId, "revoke_access");
     await page.reload();
     await waitFor(page, "handoff");
-    say(`access after revocation: ${await textOf(page, "access-window")}`);
+    say(`access after revocation: ${await textOf(page, "revocation-state")}`);
     say(`closed-window copy: ${await textOf(page, "invite-closed")}`);
     check(
       "the page says our key is gone",
-      (await textOf(page, "access-window")).includes("no longer has a key"),
+      (await textOf(page, "revocation-state")).includes("no longer has a key"),
     );
     check(
       "the invite button is gone rather than shown and broken",
@@ -297,6 +408,10 @@ async function main(): Promise<void> {
     check(
       "the nag is gone once the handoff is done",
       !(await textOf(page, "handoff-nag")),
+    );
+    check(
+      "closed handoff does not promise another sign-in link",
+      !(await page.$('[data-testid="sign-in-guidance"]')),
     );
 
     const closed = await fetch(

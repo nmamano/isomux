@@ -2352,7 +2352,12 @@ a provisioner started without one refuses to serve the seam at all, and says so.
   `revoke_access` row stamped `via: "dashboard"`, and that stamp is what makes
   it the customer's confirmation. A row opened by an operator or the chain still
   renders, but is never described as their choice. The 30-day ceiling stays the
-  fail-safe underneath.
+  fail-safe underneath. The dashboard also requires an ordinary hosted office
+  to have minted an owner invite before it enables confirmation. That fact proves
+  only that the sign-in path was offered, not that the customer used it; the
+  separate checkbox is their signed-in attestation. An adopted office bypasses
+  the mint gate because its existing owner can already be signed in without a new
+  invite.
 
 ## Billing (Stripe, test mode only)
 

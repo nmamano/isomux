@@ -132,11 +132,15 @@ export function OfficeView({
   const [invite, setInvite] = useState<InviteState>({ phase: "idle" });
   const [action, setAction] = useState<string | null>(null);
   const [handoffPending, setHandoffPending] = useState(false);
+  const [handoffProblem, setHandoffProblem] = useState<string | null>(null);
+  const [signedInConfirmed, setSignedInConfirmed] = useState(false);
   /** Which billing change we have asked Stripe for and not yet seen land.
    * Cleared by the poll, because the WEBHOOK is what makes it true - this side
    * never writes subscription state, so it must not claim it either. */
   const [billing, setBilling] = useState<"cancel" | "uncancel" | null>(null);
   const [billingProblem, setBillingProblem] = useState<string | null>(null);
+  const invitePathOffered =
+    view.origin === "adopted" || view.handoff.invite.mintedAt !== null;
 
   // FAST WHILE SOMETHING THE CUSTOMER ASKED FOR IS IN FLIGHT, not only while
   // the office is being built. An invite takes a few seconds to mint, and a
@@ -288,6 +292,24 @@ export function OfficeView({
     }
   };
 
+  const requestHandoff = async (): Promise<void> => {
+    setHandoffProblem(null);
+    setHandoffPending(true);
+    try {
+      const { data, status } = await postJson("/api/handoff", { instanceId });
+      // A successful request stays pending until the progress poll sees the
+      // revocation row. A failure must stay beside the control that caused it.
+      if (status === 200 && data.ok === true) return;
+      setHandoffPending(false);
+      setHandoffProblem(
+        reasonOf(data, "we could not remove our access just now."),
+      );
+    } catch {
+      setHandoffPending(false);
+      setHandoffProblem("We could not remove our access just now.");
+    }
+  };
+
   return (
     <main>
       <h1 data-testid="office-hostname">{view.hostname}</h1>
@@ -308,13 +330,6 @@ export function OfficeView({
           </a>
         </p>
       )}
-      {view.origin === "adopted" && (
-        <p className="note" data-testid="office-origin">
-          An existing server was adopted for this office, so there is no
-          ordering step.
-        </p>
-      )}
-
       {view.attention.length > 0 && (
         <section className="callout callout-danger" data-testid="attention">
           {/* The icon is decorative: the heading beside it already names the
@@ -366,118 +381,183 @@ export function OfficeView({
           </p>
         )}
 
-        {view.handoff.invite.state === "none" && !view.ready && (
-          <p className="note" data-testid="invite-not-yet">
-            Your owner invite can be created once your office is serving.
-          </p>
-        )}
+        <ol className="handoff-steps">
+          <li>
+            <h3>Get your owner invite</h3>
+            {view.handoff.invite.state === "none" && !view.ready && (
+              <p className="note" data-testid="invite-not-yet">
+                Your owner invite can be created once your office is serving.
+              </p>
+            )}
 
-        {view.handoff.canMint && view.ready && (
-          <p className="action">
-            <button
-              className="btn-primary"
-              data-testid="invite-button"
-              onClick={() => void askForInvite()}
-              disabled={invite.phase === "asking" || invite.phase === "waiting"}
-            >
-              {view.handoff.invite.mintedAt
-                ? "Send me a new invite"
-                : "Get my owner invite"}
-            </button>
-            {view.handoff.invite.mintedAt ? (
-              <span data-testid="resend-caveat">
-                {" "}
-                A new invite replaces the previous one, which stops working.
-              </span>
-            ) : null}
-          </p>
-        )}
+            {view.handoff.canMint && view.ready && (
+              <p className="action">
+                <button
+                  className={
+                    view.handoff.invite.mintedAt ? undefined : "btn-primary"
+                  }
+                  data-testid="invite-button"
+                  onClick={() => void askForInvite()}
+                  disabled={
+                    invite.phase === "asking" || invite.phase === "waiting"
+                  }
+                >
+                  {view.handoff.invite.mintedAt
+                    ? "Send me a new invite"
+                    : "Get my owner invite"}
+                </button>
+                {view.handoff.invite.mintedAt ? (
+                  <span data-testid="resend-caveat">
+                    A new invite replaces the previous one, which stops working.
+                  </span>
+                ) : null}
+              </p>
+            )}
 
-        {!view.handoff.canMint && view.handoff.invite.mintedAt !== null && (
-          <p className="note" data-testid="invite-closed">
-            Hosted Isomux Provisioning can no longer create invites for this
-            office. If you cannot get in, contact support.
-          </p>
-        )}
+            {!view.handoff.canMint && view.handoff.invite.mintedAt !== null && (
+              <p className="note" data-testid="invite-closed">
+                Hosted Isomux Provisioning can no longer create invites for this
+                office. If you cannot get in, contact support.
+              </p>
+            )}
 
-        {invite.phase === "asking" && (
-          <p className="note">Asking for an invite...</p>
-        )}
-        {invite.phase === "waiting" &&
-          (view.handoff.invite.state === "failed" ? (
-            <p className="callout callout-danger" data-testid="invite-problem">
-              We could not prepare an invite. Try asking again.
-            </p>
-          ) : (
-            <p className="note" data-testid="invite-waiting">
-              Preparing your invite. This takes a few seconds.
-            </p>
-          ))}
-        {invite.phase === "problem" && (
-          <p className="callout callout-danger" data-testid="invite-problem">
-            {invite.message}
-          </p>
-        )}
-        {invite.phase === "shown" && (
-          <div className="callout" data-testid="invite-shown">
-            <p>
-              <a
-                className="btn btn-primary"
-                data-testid="invite-link"
-                href={invite.url}
-                target="_blank"
-                rel="noopener"
+            {invite.phase === "asking" && (
+              <p className="note">Asking for an invite...</p>
+            )}
+            {invite.phase === "waiting" &&
+              (view.handoff.invite.state === "failed" ? (
+                <p
+                  className="callout callout-danger"
+                  data-testid="invite-problem"
+                >
+                  We could not prepare an invite. Try asking again.
+                </p>
+              ) : (
+                <p className="note" data-testid="invite-waiting">
+                  Preparing your invite. This takes a few seconds.
+                </p>
+              ))}
+            {invite.phase === "problem" && (
+              <p
+                className="callout callout-danger"
+                data-testid="invite-problem"
               >
-                Open your office and sign in
-              </a>
-            </p>
-            <p className="note">
-              This link works once, within 24 hours, and is shown only here. If
-              you lose it, ask for a new one.
-            </p>
-          </div>
-        )}
+                {invite.message}
+              </p>
+            )}
+          </li>
 
-        {/* THE NAG. Shown while we still hold a key and the customer has not
+          <li>
+            <h3>Open your office and sign in</h3>
+            {invite.phase === "shown" ? (
+              <div className="callout" data-testid="invite-shown">
+                <p>
+                  <a
+                    className="btn btn-primary"
+                    data-testid="invite-link"
+                    href={invite.url}
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Open your office and sign in
+                  </a>
+                </p>
+                <p className="note">
+                  This opens in a new tab. Click this button now. It works once
+                  and expires in 24 hours. If you lose access to it, ask for a
+                  new one.
+                </p>
+              </div>
+            ) : view.handoff.canMint ? (
+              <p className="note" data-testid="sign-in-guidance">
+                {view.handoff.invite.mintedAt
+                  ? "Your link was shown once and is not kept. Ask for a new one above if you still need to sign in."
+                  : view.origin === "adopted" && view.ready
+                    ? "Open your office above and make sure it works in this browser."
+                    : "Your sign-in link will appear here after the invite is ready."}
+              </p>
+            ) : null}
+          </li>
+
+          {/* THE NAG. Shown while we still hold a key and the customer has not
             confirmed. It is the design's answer to a handoff that never ends:
             the ceiling is a backstop, not the normal path. It stops the moment
             they HAVE confirmed - a revocation in flight is not a reason to keep
             asking for one - while minting stays available until the removal is
             proven, because a failed revocation must not also lock them out. */}
-        {view.handoff.canMint &&
-          view.ready &&
-          view.handoff.revocation.state === "none" && (
-            <div className="callout" data-testid="handoff-nag">
-              <p>
-                Once you are signed in to your office, remove our access. Until
-                you do, Hosted Isomux Provisioning keeps a temporary key to your
-                server.
-              </p>
-              <button
-                className="btn-primary"
-                data-testid="revoke-button"
-                disabled={handoffPending}
-                onClick={() => {
-                  setHandoffPending(true);
-                  void act("/api/handoff", "remove our access").then((ok) => {
-                    // A successful request stays pending until the progress
-                    // poll sees the revocation row. A failure leaves `action`.
-                    if (!ok) setHandoffPending(false);
-                  });
-                }}
-              >
-                {handoffPending
-                  ? "Removing temporary access..."
-                  : "Revoke isomux's access"}
-              </button>
-            </div>
-          )}
+          {view.handoff.canMint &&
+            view.ready &&
+            view.handoff.revocation.state === "none" && (
+              <li data-testid="handoff-nag">
+                <h3>Confirm office access, then remove our access</h3>
+                <div className="callout">
+                  <p>
+                    Do not continue until your office is open in this browser.
+                    After removal, Hosted Isomux Provisioning cannot create
+                    another owner invite for you.
+                  </p>
+                  <label className="handoff-confirm">
+                    <input
+                      type="checkbox"
+                      data-testid="signed-in-confirmation"
+                      checked={signedInConfirmed}
+                      onChange={(event) =>
+                        setSignedInConfirmed(event.target.checked)
+                      }
+                      disabled={!invitePathOffered || handoffPending}
+                    />
+                    Click to confirm that your office is open in this browser.
+                  </label>
+                  {!invitePathOffered && (
+                    <p className="note" data-testid="invite-required">
+                      Get your owner invite and open your office before you
+                      confirm.
+                    </p>
+                  )}
+                  <button
+                    className="btn-primary"
+                    data-testid="revoke-button"
+                    disabled={
+                      !invitePathOffered || !signedInConfirmed || handoffPending
+                    }
+                    onClick={() => void requestHandoff()}
+                  >
+                    {handoffPending
+                      ? "Removing temporary access..."
+                      : "Revoke isomux's access"}
+                  </button>
+                  <p
+                    className="note handoff-status"
+                    role="status"
+                    data-testid="revocation-pending"
+                  >
+                    {handoffPending
+                      ? "Your request was received. We are removing our temporary access now."
+                      : ""}
+                  </p>
+                  {handoffProblem && (
+                    <p
+                      className="callout callout-danger"
+                      data-testid="handoff-problem"
+                    >
+                      {handoffProblem}
+                    </p>
+                  )}
+                </div>
+              </li>
+            )}
 
-        {view.handoff.revocation.state !== "none" && (
-          <p className="note" data-testid="revocation-state">
-            {revocationSentence(view.handoff.revocation)}
-          </p>
-        )}
+          {view.handoff.revocation.state !== "none" && (
+            <li>
+              <h3>Access removal</h3>
+              <p>
+                <span className="note" data-testid="revocation-state">
+                  {revocationSentence(view.handoff.revocation)}
+                </span>
+              </p>
+            </li>
+          )}
+        </ol>
       </section>
 
       {view.liveness && (
