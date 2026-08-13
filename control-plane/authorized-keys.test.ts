@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { blobOf, composeRemoteScript } from "./driver.ts";
+import type { RuntimeRepoFile } from "./runtime-files.ts";
 
 const OURS = "AAAAC3NzaC1lZDI1NTE5AAAAIourkeyblob";
 
@@ -53,7 +54,7 @@ afterEach(async () => {
 });
 
 function runComposed(
-  scripts: string[],
+  scripts: RuntimeRepoFile[],
   args: string[],
 ): { code: number; stdout: string; stderr: string } {
   const script = path.join(dir, "composed.sh");
@@ -86,10 +87,7 @@ describe("the TypeScript reader", () => {
 describe("revoke-key.sh removes exactly one line", () => {
   test("takes ours and leaves every impostor byte-for-byte", async () => {
     const before = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
-    const res = runComposed(
-      ["remote/authorized-keys.sh", "remote/revoke-key.sh"],
-      [akFile, OURS],
-    );
+    const res = runComposed(["authorizedKeys", "revokeKey"], [akFile, OURS]);
     expect(res.stdout).toContain("RESULT: removed");
     const after = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
     expect(after).toHaveLength(before.length - 1);
@@ -102,15 +100,9 @@ describe("revoke-key.sh removes exactly one line", () => {
   });
 
   test("is idempotent: a second run changes nothing and still succeeds", async () => {
-    runComposed(
-      ["remote/authorized-keys.sh", "remote/revoke-key.sh"],
-      [akFile, OURS],
-    );
+    runComposed(["authorizedKeys", "revokeKey"], [akFile, OURS]);
     const mid = fs.readFileSync(akFile, "utf8");
-    const res = runComposed(
-      ["remote/authorized-keys.sh", "remote/revoke-key.sh"],
-      [akFile, OURS],
-    );
+    const res = runComposed(["authorizedKeys", "revokeKey"], [akFile, OURS]);
     expect(res.stdout).toContain("RESULT: removed");
     expect(fs.readFileSync(akFile, "utf8")).toBe(mid);
   });
@@ -119,7 +111,7 @@ describe("revoke-key.sh removes exactly one line", () => {
 describe("rewrite-key.sh rewrites exactly one line", () => {
   test("puts the expiry on ours and leaves the impostors alone", async () => {
     const res = runComposed(
-      ["remote/authorized-keys.sh", "remote/rewrite-key.sh"],
+      ["authorizedKeys", "rewriteKey"],
       [akFile, "ssh-ed25519", OURS, "20260810060000Z"],
     );
     expect(res.stdout).toContain("RESULT: ok");
@@ -133,7 +125,7 @@ describe("rewrite-key.sh rewrites exactly one line", () => {
 
   test("refuses when our key is not on the box", async () => {
     const res = runComposed(
-      ["remote/authorized-keys.sh", "remote/rewrite-key.sh"],
+      ["authorizedKeys", "rewriteKey"],
       [akFile, "ssh-ed25519", "AAAAnotpresent", "20260810060000Z"],
     );
     expect(res.code).not.toBe(0);
@@ -142,7 +134,7 @@ describe("rewrite-key.sh rewrites exactly one line", () => {
 
   test("the read-back reports our line and only ours", async () => {
     const res = runComposed(
-      ["remote/authorized-keys.sh", "remote/rewrite-key.sh"],
+      ["authorizedKeys", "rewriteKey"],
       [akFile, "ssh-ed25519", OURS, "20260810060000Z"],
     );
     const readback = res.stdout
@@ -154,7 +146,7 @@ describe("rewrite-key.sh rewrites exactly one line", () => {
 });
 
 describe("the cleanup backstop refuses to claim success it did not achieve", () => {
-  const CLEANUP = ["remote/authorized-keys.sh", "cleanup.sh"];
+  const CLEANUP: RuntimeRepoFile[] = ["authorizedKeys", "cleanup"];
 
   test("fails, and stays installed, when the file cannot be replaced", async () => {
     // A read-only directory: mktemp and the rename inside it cannot work, so

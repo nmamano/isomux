@@ -7,7 +7,6 @@
 // unexpiring key, so the step is not complete and provisioning may not proceed.
 
 import * as fs from "node:fs";
-import * as path from "node:path";
 import type { AuthOutcome, Exec, SshClient, SshTarget } from "./ssh.ts";
 import {
   SshClient as SshClientCtor,
@@ -16,6 +15,7 @@ import {
   sshBaseArgs,
 } from "./ssh.ts";
 import type { TimeoutSource } from "./ssh.ts";
+import { runtimeRepoFile, type RuntimeRepoFile } from "./runtime-files.ts";
 
 export const WRAPPER_REMOTE_PATH = "/usr/local/sbin/isomux-cp-run";
 export const CLEANUP_REMOTE_PATH = "/usr/local/sbin/isomux-cp-cleanup";
@@ -91,10 +91,10 @@ function privilegeArgv(identity: BoxIdentity): string[] {
  * three. Shebangs after the first are dropped so the result is still a single
  * valid script.
  */
-export function composeRemoteScript(names: string[]): string {
+export function composeRemoteScript(names: RuntimeRepoFile[]): string {
   return names
     .map((name, i) => {
-      const body = fs.readFileSync(repoFile(name), "utf8");
+      const body = fs.readFileSync(runtimeRepoFile(name), "utf8");
       return i === 0 ? body : body.replace(/^#!.*\n/, "");
     })
     .join("\n");
@@ -103,10 +103,10 @@ export function composeRemoteScript(names: string[]): string {
 async function privilegedScript(
   ssh: SshClient,
   identity: BoxIdentity,
-  scriptFile: string,
+  scriptFile: RuntimeRepoFile,
   args: string[],
 ): Promise<{ code: number; stdout: string; stderr: string }> {
-  const body = composeRemoteScript(["remote/authorized-keys.sh", scriptFile]);
+  const body = composeRemoteScript(["authorizedKeys", scriptFile]);
   const remoteArgv = [...privilegeArgv(identity), "bash", "-s", "--", ...args];
   return ssh.pipe(remoteArgv, body);
 }
@@ -146,7 +146,7 @@ export async function rewriteKeyWithExpiry(
   // clock read - goes before it: until the read-back succeeds the box holds a
   // key with no ceiling, and every command issued in that window is a command
   // issued under an unbounded key. The clock is read afterwards, below.
-  const res = await privilegedScript(ssh, identity, "remote/rewrite-key.sh", [
+  const res = await privilegedScript(ssh, identity, "rewriteKey", [
     identity.authorizedKeysPath,
     key.algorithm,
     key.blob,
@@ -540,7 +540,7 @@ export async function revokeAccess(
   identity: BoxIdentity,
   blob: string,
 ): Promise<void> {
-  const res = await privilegedScript(ssh, identity, "remote/revoke-key.sh", [
+  const res = await privilegedScript(ssh, identity, "revokeKey", [
     identity.authorizedKeysPath,
     blob,
   ]);
@@ -602,10 +602,6 @@ export function blobOf(line: string): string | null {
     }
   }
   return null;
-}
-
-export function repoFile(name: string): string {
-  return path.join(import.meta.dir, name);
 }
 
 function firstLineOf(stdout: string, stderr: string): string {

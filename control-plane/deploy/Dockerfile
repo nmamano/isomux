@@ -32,6 +32,11 @@ COPY control-plane/deploy/package.json control-plane/deploy/bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY control-plane ./control-plane
+COPY deploy/install.sh ./deploy/install.sh
+
+# Keep the image's payload inventory tied to every repository file that the
+# running provisioner reads. This runs against the final deployed paths.
+RUN bun control-plane/deploy/assert-runtime-files.ts
 
 # The state root is derived from the home directory (config.ts), so this is what
 # puts the keys, run records, intent journal and audit log on the mounted

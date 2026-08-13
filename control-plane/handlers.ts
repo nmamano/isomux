@@ -28,12 +28,12 @@ import {
   probeAndPinOnce,
   proveRemoval,
   renderCleanupUnits,
-  repoFile,
   resetHostKeyPin,
   revokeAccess,
   rewriteKeyWithExpiry,
   timerIsArmed,
 } from "./driver.ts";
+import { runtimeRepoFile } from "./runtime-files.ts";
 import { destroyPrivateKey, type KeyPair } from "./keys.ts";
 import { probeLiveness } from "./liveness.ts";
 import type { Reporter } from "./report.ts";
@@ -267,7 +267,7 @@ export function waitForPackageManagerHandler(deps: HandlerDeps): Handler {
       const res = await remote(ctx, "package_manager_probe", () =>
         ssh.pipe(
           [...privilegeArgvFor(rec.loginUser), "bash", "-s", "--", "once"],
-          fs.readFileSync(repoFile("remote/wait-apt.sh"), "utf8"),
+          fs.readFileSync(runtimeRepoFile("waitApt"), "utf8"),
         ),
       );
       const out = res.stdout.trim();
@@ -355,7 +355,7 @@ export function armRevocationHandler(deps: HandlerDeps): Handler {
         installText(
           sshFor(ctx, rec, deps, "install_cleanup_script"),
           identity,
-          composeRemoteScript(["remote/authorized-keys.sh", "cleanup.sh"]),
+          composeRemoteScript(["authorizedKeys", "cleanup"]),
           CLEANUP_REMOTE_PATH,
           "0755",
         ),
@@ -452,7 +452,7 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
           installFile(
             ssh,
             identity,
-            repoFile("wrapper.sh"),
+            runtimeRepoFile("wrapper"),
             WRAPPER_REMOTE_PATH,
             "0755",
           ),
@@ -464,8 +464,7 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
             ssh,
             identity,
             fs.readFileSync(
-              deps.installerPath ??
-                path.join(import.meta.dir, "..", "deploy", "install.sh"),
+              deps.installerPath ?? runtimeRepoFile("installer"),
               "utf8",
             ),
             "/tmp/isomux-install.sh",
@@ -688,7 +687,7 @@ export function mintInviteHandler(deps: HandlerDeps): Handler {
       const minted = await remote(ctx, "mint_invite", () =>
         ssh.pipe(
           [...privilegeArgvFor(rec.loginUser), "bash", "-s"],
-          fs.readFileSync(repoFile("remote/mint-invite.sh"), "utf8"),
+          fs.readFileSync(runtimeRepoFile("mintInvite"), "utf8"),
         ),
       );
       if (minted.code !== 0) {

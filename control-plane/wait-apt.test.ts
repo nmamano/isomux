@@ -24,7 +24,7 @@ beforeEach(async () => {
   script = path.join(dir, "wait-apt.sh");
   lockFile = path.join(dir, "lock-frontend");
   fs.writeFileSync(lockFile, "");
-  fs.writeFileSync(script, composeRemoteScript(["remote/wait-apt.sh"]), {
+  fs.writeFileSync(script, composeRemoteScript(["waitApt"]), {
     mode: 0o755,
   });
 });

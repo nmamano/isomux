@@ -23,7 +23,10 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
+import ts from "typescript";
+import { assertRuntimeFiles } from "./assert-runtime-files.ts";
 import { patternToRegExp, shipsToImage } from "./build-context.ts";
 
 const REPO = path.join(import.meta.dir, "..", "..");
@@ -35,6 +38,20 @@ function readJson(file: string): Record<string, unknown> {
 function dependencies(file: string): Record<string, string> {
   const value = readJson(file).dependencies;
   return (value ?? {}) as Record<string, string>;
+}
+
+function sourceFiles(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const file = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      return entry.name === "web" || entry.name === "node_modules"
+        ? []
+        : sourceFiles(file);
+    }
+    return entry.name.endsWith(".ts") && !entry.name.endsWith(".test.ts")
+      ? [file]
+      : [];
+  });
 }
 
 const included = shipsToImage;
@@ -90,6 +107,7 @@ describe("the build context", () => {
       "control-plane/contabo/adapter.ts",
       "control-plane/deploy/package.json",
       "control-plane/deploy/bun.lock",
+      "deploy/install.sh",
     ]) {
       expect({ path: kept, sent: included(rules, kept) }).toEqual({
         path: kept,
@@ -110,6 +128,7 @@ describe("the build context", () => {
       "site/index.html",
       ".git/config",
       "package.json",
+      "deploy/oom-protect.sh",
     ]) {
       expect({ path: dropped, sent: included(rules, dropped) }).toEqual({
         path: dropped,
@@ -129,5 +148,53 @@ describe("the build context", () => {
       true,
     );
     expect(included(rules, "control-plane/web/app/page.tsx")).toBe(false);
+  });
+
+  test("asserts every runtime-read repository file inside the image", () => {
+    const dockerfile = fs.readFileSync(
+      path.join(import.meta.dir, "Dockerfile"),
+      "utf8",
+    );
+    expect(dockerfile).toContain("COPY deploy/install.sh ./deploy/install.sh");
+    expect(dockerfile).toContain(
+      "RUN bun control-plane/deploy/assert-runtime-files.ts",
+    );
+    expect(() => assertRuntimeFiles()).not.toThrow();
+
+    const emptyRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "isomux-runtime-files-"),
+    );
+    try {
+      expect(() => assertRuntimeFiles(emptyRoot)).toThrow(
+        `Missing provisioner runtime file: ${emptyRoot}/control-plane/remote/authorized-keys.sh`,
+      );
+    } finally {
+      fs.rmSync(emptyRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("runtime payload paths cannot bypass the inventory", () => {
+    const bypasses: string[] = [];
+    for (const file of sourceFiles(path.join(REPO, "control-plane"))) {
+      if (file.endsWith("/runtime-files.ts")) continue;
+      const source = ts.createSourceFile(
+        file,
+        fs.readFileSync(file, "utf8"),
+        ts.ScriptTarget.Latest,
+      );
+      const visit = (node: ts.Node): void => {
+        if (
+          (ts.isStringLiteral(node) ||
+            ts.isNoSubstitutionTemplateLiteral(node)) &&
+          node.text.endsWith(".sh") &&
+          !path.isAbsolute(node.text)
+        ) {
+          bypasses.push(`${path.relative(REPO, file)}: ${node.text}`);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(source);
+    }
+    expect(bypasses).toEqual([]);
   });
 });

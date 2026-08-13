@@ -1287,7 +1287,10 @@ The price of a second manifest is drift, and `deploy/image.test.ts` is what
 stops it: the two `pg` specs must be identical or the suite fails.
 
 `/.dockerignore` denies everything and then names what the provisioner is made
-of. That is not tidiness: `control-plane/` is 903 MB, of which
+of. The allowlist includes `deploy/install.sh`, which the provisioner uploads
+to each new customer box. The image build runs `deploy/assert-runtime-files.ts`
+against `/app`, so a missing payload stops the build at its deployed path.
+That is not tidiness: `control-plane/` is 903 MB, of which
 `control-plane/web` is 901 MB, and `COPY control-plane` would otherwise ship a
 Next.js app into the machine holding the keys. The same test holds the intent of
 those rules, and a build whose reported context is not about 2 MB means they

@@ -8,9 +8,12 @@
 #
 # Measured 2026-08-11: control-plane/ is 903 MB, control-plane/web is 901 MB of
 # it, .git is 52 MB, the root node_modules is 1.2 GB. What is left after these
-# rules is about 1.7 MB. control-plane/dockerignore.test.ts holds the intent.
+# rules is about 1.7 MB. control-plane/deploy/image.test.ts holds the intent.
 *
 !control-plane
+!deploy
+deploy/*
+!deploy/install.sh
 control-plane/web
 **/node_modules
 **/*.test.ts
