@@ -3242,6 +3242,33 @@ because snapshots would retain destroyed temporary private keys. The operator
 restore procedure and the decision about what non-key state deserves backup
 remain coupled: never enable volume snapshots as an ad hoc substitute.
 
+### Next hosted release: required deployment order
+
+This order was approved after the 2026-08-13 customer pass. Future sessions
+must keep it in this runbook rather than reconstruct it from task history:
+
+1. From the exact committed release tree, run
+   `bun control-plane/cli.ts migrate-customer-ssh-key` once against production.
+   Prove the new columns are present before starting either runtime.
+2. Deploy the provisioner image. Its build must prove every runtime payload is
+   present, including `/app/deploy/install.sh` and the customer-key installer.
+3. Deploy the control-plane web app with
+   `bun control-plane/deploy/production-phase.ts --redeploy`. The local probe
+   preflight must pass before the deployment may contact Vercel.
+4. Run one complete customer acceptance pass with a new office and a real
+   customer SSH public key. Prove the key is installed, root SSH works, the
+   built-in Isomux terminal remains unable to sudo, our temporary key is
+   revoked, the customer key still works afterward, office links use the office
+   name, and the handoff flow cannot revoke access before browser confirmation.
+   The installer must complete without copying a missing file into the live
+   provisioner.
+5. Publish a current Isomux release only after the combined tree passes CI.
+   Install or update the acceptance office through the real release channel and
+   verify the Apps tab and current hosted capabilities.
+
+Do not enable paid signup until every step above is green. A failed acceptance
+pass leaves checkout disabled while the operator diagnoses it.
+
 Two 2026-08-13 launch blockers came from the real pass. The Fly image lacked
 `/app/deploy/install.sh`, so the provisioner could stage its wrapper but could
 not start the installer; task `a8258f96` owns the permanent image fix. Also, a
