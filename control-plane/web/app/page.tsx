@@ -30,7 +30,7 @@ export default async function Home() {
       {office ? (
         <Link
           className="card office-card-link"
-          href={`/office/${office.instanceId}`}
+          href={`/office/${office.officeName}`}
         >
           <p className="lead">
             <span className="address">{office.hostname}</span> -{" "}

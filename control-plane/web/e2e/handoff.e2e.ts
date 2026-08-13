@@ -15,7 +15,7 @@
 //   export CONTROL_PLANE_DB=...            # the provisioner's database
 //   export CONTROL_PLANE_MINT_URL=http://127.0.0.1:4311
 //   export CONTROL_PLANE_MINT_TOKEN=...    # the same one the provisioner has
-//   export E2E_INSTANCE=inst-...  E2E_EMAIL=...
+//   export E2E_INSTANCE=inst-...  E2E_OFFICE_NAME=my-office  E2E_EMAIL=...
 //   bun run --cwd control-plane/web e2e:handoff
 
 import * as path from "node:path";
@@ -102,13 +102,14 @@ async function collectInvite(page: Page): Promise<string> {
 async function main(): Promise<void> {
   const db = process.env.CONTROL_PLANE_DB;
   const instanceId = process.env.E2E_INSTANCE;
+  const officeName = process.env.E2E_OFFICE_NAME;
   const email = process.env.E2E_EMAIL;
   const mintUrl = process.env.CONTROL_PLANE_MINT_URL;
   const mintToken = process.env.CONTROL_PLANE_MINT_TOKEN;
-  if (!db || !instanceId || !email || !mintUrl || !mintToken) {
+  if (!db || !instanceId || !officeName || !email || !mintUrl || !mintToken) {
     throw new Error(
-      "CONTROL_PLANE_DB, E2E_INSTANCE, E2E_EMAIL, CONTROL_PLANE_MINT_URL and " +
-        "CONTROL_PLANE_MINT_TOKEN are all required",
+      "CONTROL_PLANE_DB, E2E_INSTANCE, E2E_OFFICE_NAME, E2E_EMAIL, " +
+        "CONTROL_PLANE_MINT_URL and CONTROL_PLANE_MINT_TOKEN are all required",
     );
   }
 
@@ -141,7 +142,7 @@ async function main(): Promise<void> {
     browser = await chromium.launch({ executablePath: CHROME, headless: true });
     const page = await browser.newPage();
     await signInAs(page, email);
-    await page.goto(`${BASE}/office/${instanceId}`);
+    await page.goto(`${BASE}/office/${officeName}`);
 
     // ---- 1. the office is live, and NOTHING has minted on its own
     const status = await waitFor(page, "office-status");

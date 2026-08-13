@@ -26,8 +26,10 @@ import { TEST_DATABASE_URL, releaseTestStores, testDsn } from "./testing/pg.ts";
 import { Store } from "./store.ts";
 import {
   officeForAccount,
+  officeRouteForAccount,
   progressForAccount,
 } from "./web/lib/services.server.ts";
+import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 
 /** The same symbol the facade caches on. Reached here, and nowhere else, so the
  * facade's export list stays the fixed list the boundary test pins. */
@@ -169,5 +171,52 @@ describe("the web app's store outlives the request", () => {
 
     process.env.CONTROL_PLANE_DB = await appDsn();
     expect(await progressForAccount("acct-nobody", "inst-nobody")).toBeNull();
+  });
+});
+
+describe("office route authorization", () => {
+  test("office routes resolve only through the signed-in account", async () => {
+    const dsn = await appDsn();
+    const seed = await Store.open(dsn);
+    const owner = await accountForDevSignIn(seed, "route-owner@example.com");
+    const stranger = await accountForDevSignIn(
+      seed,
+      "route-stranger@example.com",
+    );
+    const owned = await reserveOffice(seed, {
+      accountId: owner.id,
+      officeName: "route-owner",
+      plan: "office",
+    });
+    const foreign = await reserveOffice(seed, {
+      accountId: stranger.id,
+      officeName: "route-stranger",
+      plan: "office",
+    });
+    if (!owned.ok || !foreign.ok) throw new Error("could not seed routes");
+    await seed.close();
+    process.env.CONTROL_PLANE_DB = dsn;
+
+    const office = await officeRouteForAccount(owner.id, "route-owner");
+    expect(office).toEqual(
+      expect.objectContaining({
+        instanceId: owned.reservation.instance_id,
+        officeName: "route-owner",
+      }),
+    );
+
+    // Foreign names, internal ids and unknown values take the same null path.
+    expect(
+      await officeRouteForAccount(owner.id, foreign.reservation.name),
+    ).toBeNull();
+    expect(
+      await officeRouteForAccount(owner.id, foreign.reservation.instance_id),
+    ).toBeNull();
+    expect(
+      await officeRouteForAccount(owner.id, owned.reservation.instance_id),
+    ).toBeNull();
+    expect(
+      await officeRouteForAccount(owner.id, "no-such-office-or-instance"),
+    ).toBeNull();
   });
 });

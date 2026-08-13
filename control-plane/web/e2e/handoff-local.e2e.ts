@@ -230,7 +230,7 @@ async function main(): Promise<void> {
     await page.fill('[data-testid="dev-email"]', "local@example.com");
     await page.click('[data-testid="dev-submit"]');
     await page.waitForURL(`${BASE}/`, { timeout: 20_000 });
-    await page.goto(`${BASE}/office/${instanceId}`);
+    await page.goto(`${BASE}/office/${reserved.reservation.name}`);
     await waitFor(page, "handoff");
 
     check("nothing minted before the customer asked", minted === 0);

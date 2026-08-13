@@ -2713,6 +2713,13 @@ durably bound to, while the binding kept saying the right thing. The email is
 contact and display data, and Checkout takes it from the ACCOUNT row rather than
 from whatever the session carries today.
 
+The customer dashboard's canonical route is `/office/<office-name>`, using the
+same globally unique, immutable name held in `name_reservations`. Checkout and
+dashboard links always use that form. Internal instance ids are not accepted as
+customer-facing route keys. The resolver starts from the account's own
+reservation rather than looking up the supplied name globally, so a foreign
+name and one that does not exist both remain the same 404.
+
 The signup POST also refuses a request that did not come from this deployment's
 own origin, before it reads the form: it writes durably and spends at Stripe on
 the strength of a cookie, and a customer's own office shares the registrable
@@ -2871,8 +2878,9 @@ office through the product's own `accountForDevSignIn` + `reserveOffice` path,
 and drives a real Chrome against it: the signed-out redirect, the dashboard
 showing THAT office's hostname and the ladder derived from its goal, the polled
 `/api/progress/<id>` route, a second signed-in account refused the same office,
-and the ops floor answering 404 before the operator grant and 200 after it. Its
-exit code means SERVES, not BOOTS.
+an internal instance-id route returning 404 for both the owner and a second
+account, and the ops floor answering 404 before the operator grant and 200
+after it. Its exit code means SERVES, not BOOTS.
 
 Two mechanics are load-bearing and were both earned rather than designed:
 

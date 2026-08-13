@@ -220,7 +220,7 @@ async function main(): Promise<void> {
     };
 
     await signIn("customer@example.com");
-    const office = `${BASE}/office/${instanceId}`;
+    const office = `${BASE}/office/${reserved.reservation.name}`;
 
     // ---- S1: nothing is scheduled
     await page.goto(office);

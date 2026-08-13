@@ -411,8 +411,8 @@ async function main(): Promise<void> {
     // ---- progress rendering, driven from rows
     {
       const store = await Store.open(db);
-      const res = await store.sqlGet<{ instance_id: string }>(
-        "select instance_id from name_reservations where account_id = " +
+      const res = await store.sqlGet<{ instance_id: string; name: string }>(
+        "select instance_id, name from name_reservations where account_id = " +
           "(select id from accounts where email = 'customer@example.com')",
       );
       if (res) {
@@ -427,7 +427,7 @@ async function main(): Promise<void> {
         });
         await store.close();
         await page
-          .goto(`${BASE}/office/${res.instance_id}`, { timeout: 60_000 })
+          .goto(`${BASE}/office/${res.name}`, { timeout: 60_000 })
           .catch((err: Error) =>
             say(`office page navigation: ${err.message.split("\n")[0]}`),
           );

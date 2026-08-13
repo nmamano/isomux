@@ -242,7 +242,7 @@ export async function signUpOffice(args: {
     // session happens to carry today.
     email: reserved.account.email,
     priceId,
-    successUrl: `${origin}/office/${reserved.reservation.instance_id}`,
+    successUrl: `${origin}/office/${reserved.reservation.name}`,
     cancelUrl: `${origin}/signup`,
   });
   // openCheckout RETURNS its refusals but the session step THROWS - which is
@@ -308,6 +308,30 @@ export async function progressForAccount(
 ): Promise<ProgressView | null> {
   const { projectionFor } = await import("../../progress");
   return withStore((store) => projectionFor(store, { accountId, instanceId }));
+}
+
+/**
+ * Resolve a customer-facing office route from the signed-in account's own
+ * reservation. Looking up the account first keeps a foreign name and a value
+ * that does not exist on the same null path. Internal instance ids are not
+ * customer-facing route keys.
+ */
+export async function officeRouteForAccount(
+  accountId: string,
+  routeKey: string,
+): Promise<ProgressView | null> {
+  const [{ reservationForAccount }, { projectionFor }] = await Promise.all([
+    import("../../signup"),
+    import("../../progress"),
+  ]);
+  return withStore(async (store) => {
+    const reservation = await reservationForAccount(store, accountId);
+    if (!reservation || routeKey !== reservation.name) return null;
+    return projectionFor(store, {
+      accountId,
+      instanceId: reservation.instance_id,
+    });
+  });
 }
 
 // ------------------------------------------------------- customer requests

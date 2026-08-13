@@ -383,11 +383,19 @@ async function main(): Promise<void> {
     // Signed out: the office is not a public page.
     const anonymous = await browser.newContext();
     const anon = await anonymous.newPage();
-    await anon.goto(`${BASE}/office/${instanceId}`, {
+    await anon.goto(`${BASE}/office/${officeName}`, {
       waitUntil: "domcontentloaded",
     });
     check(
       "signed out, the office redirects to sign-in",
+      new URL(anon.url()).pathname === "/signin",
+      anon.url(),
+    );
+    await anon.goto(`${BASE}/office/${instanceId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    check(
+      "signed out, an internal-id route redirects to sign-in",
       new URL(anon.url()).pathname === "/signin",
       anon.url(),
     );
@@ -396,7 +404,7 @@ async function main(): Promise<void> {
     // The owner's own office, rendered from the rows seeded above.
     const ownerContext = await contextFor(ownerCookie);
     const page = await ownerContext.newPage();
-    const response = await page.goto(`${BASE}/office/${instanceId}`, {
+    const response = await page.goto(`${BASE}/office/${officeName}`, {
       waitUntil: "domcontentloaded",
     });
     check(
@@ -404,6 +412,22 @@ async function main(): Promise<void> {
       response?.status() === 200,
       String(response?.status()),
     );
+    check(
+      "the office name is the canonical route",
+      new URL(page.url()).pathname === `/office/${officeName}`,
+      page.url(),
+    );
+    const absent = await page.goto(`${BASE}/office/no-such-office`, {
+      waitUntil: "domcontentloaded",
+    });
+    check(
+      "an unknown office name keeps the not-found response",
+      absent?.status() === 404,
+      String(absent?.status()),
+    );
+    await page.goto(`${BASE}/office/${officeName}`, {
+      waitUntil: "domcontentloaded",
+    });
     const shown =
       (await page.textContent("[data-testid=office-hostname]")) ?? "";
     // The instance-specific value, not the presence of the element: a hard-coded
@@ -444,13 +468,32 @@ async function main(): Promise<void> {
     // The session is bound to a durable ACCOUNT, and the page is that account's.
     const strangerContext = await contextFor(strangerCookie);
     const strangerPage = await strangerContext.newPage();
-    const refused = await strangerPage.goto(`${BASE}/office/${instanceId}`, {
+    const refused = await strangerPage.goto(`${BASE}/office/${officeName}`, {
       waitUntil: "domcontentloaded",
     });
     check(
       "another signed-in account is refused the same office",
       refused?.status() === 404,
       String(refused?.status()),
+    );
+    const refusedInternalId = await strangerPage.goto(
+      `${BASE}/office/${instanceId}`,
+      { waitUntil: "domcontentloaded" },
+    );
+    check(
+      "another account cannot use the instance id as an existence oracle",
+      refusedInternalId?.status() === 404 &&
+        new URL(strangerPage.url()).pathname === `/office/${instanceId}`,
+      `${refusedInternalId?.status()} ${strangerPage.url()}`,
+    );
+    const internalId = await page.goto(`${BASE}/office/${instanceId}`, {
+      waitUntil: "domcontentloaded",
+    });
+    check(
+      "the owner's internal instance id is not a customer-facing route",
+      internalId?.status() === 404 &&
+        new URL(page.url()).pathname === `/office/${instanceId}`,
+      `${internalId?.status()} ${page.url()}`,
     );
 
     // The operator floor, before and after the only writer of the flag.

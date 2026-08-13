@@ -372,6 +372,7 @@ async function main(): Promise<void> {
         strangerAccountId: stranger.id,
         strangerEmail: stranger.email,
         instanceId,
+        officeName,
         hostname,
       }),
     );

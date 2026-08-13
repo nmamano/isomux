@@ -78,6 +78,7 @@ describe("only one file reaches the store", () => {
       "confirmHandoff",
       "identityForSignIn",
       "officeForAccount",
+      "officeRouteForAccount",
       "opsFloor",
       "opsInstance",
       "plans",

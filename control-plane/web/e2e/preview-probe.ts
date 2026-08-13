@@ -29,6 +29,7 @@ interface Input {
   strangerAccountId: string;
   strangerEmail: string;
   instanceId: string;
+  officeName: string;
   hostname: string;
 }
 
@@ -87,11 +88,11 @@ async function main(): Promise<void> {
   );
 
   // 3. A store-backed route, signed OUT, must not serve.
-  const anonymous = await get(`/office/${input.instanceId}`);
+  const anonymous = await get(`/office/${input.officeName}`);
   console.log(`office_signed_out_status: ${anonymous.status}`);
 
   // 4. The owner's dashboard renders THIS office out of the database.
-  const dashboard = await get(`/office/${input.instanceId}`, owner);
+  const dashboard = await get(`/office/${input.officeName}`, owner);
   const dashboardBody = await dashboard.text();
   console.log(`office_owner_status: ${dashboard.status}`);
   console.log(
@@ -101,10 +102,17 @@ async function main(): Promise<void> {
   // 5. A second signed-in account is refused the same office. That is what
   //    makes check 4 a claim about a durable account rather than about any
   //    signed-in caller.
-  const other = await get(`/office/${input.instanceId}`, stranger);
+  const other = await get(`/office/${input.officeName}`, stranger);
   console.log(`office_stranger_status: ${other.status}`);
 
-  // 6. The ops floor is not reachable without the operator flag.
+  // 6. Internal instance ids are not customer-facing route keys, even for the
+  // owner. Both identities get the same 404 as for an absent office name.
+  const internalIdOwner = await get(`/office/${input.instanceId}`, owner);
+  console.log(`office_internal_id_owner_status: ${internalIdOwner.status}`);
+  const internalIdOther = await get(`/office/${input.instanceId}`, stranger);
+  console.log(`office_internal_id_stranger_status: ${internalIdOther.status}`);
+
+  // 7. The ops floor is not reachable without the operator flag.
   const ops = await get("/ops", owner);
   console.log(`ops_status: ${ops.status}`);
 }
