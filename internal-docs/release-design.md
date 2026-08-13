@@ -265,6 +265,9 @@ Shipped (the shell-drivable slice):
 
 Remaining:
 
+- First real release: run `scripts/release.sh` once, then flip the
+  installer expectation that `releases/latest` 404s.
+
 - ~~`internal-docs/backup-restore.md` (referenced by `backup.ts`) still does
   not exist; the daily-backup restore procedure is undocumented.~~ Written
   2026-07-31, exercised 2026-08-01. The updater does not depend on it (it
@@ -277,8 +280,17 @@ Remaining:
   drill exposed is a policy call, not a bug: the daily tarballs only ever
   exist on the box they protect, so "the VPS died" also loses the backups
   unless someone copies them off.
-- First real release: run `scripts/release.sh` once, then flip the
-  installer expectation that `releases/latest` 404s.
+- The v2026.7.23 bridge needs two updater invocations. Its installed updater
+  predates target dependency sync: the first invocation installs the current
+  code and refreshes the stable updater copy, but cannot install new system
+  dependencies. It also leaves the target tag absent from the service
+  checkout. Re-run the same target once. The current updater recognizes that
+  untagged, already-on-target shape, runs the target release's narrow
+  deps-only installer, records the tag, and restarts so the app user-manager
+  drop-in takes effect. A correctly tagged invocation remains a true no-op.
+  Existing app hostnames are separate: the updater deliberately never rewrites
+  Caddy because the operator must add wildcard DNS and opt into that migration;
+  follow `docs/vps-install.md`.
 - The in-UI trigger's busy-agent confirm has never been exercised with an
   agent genuinely mid-turn: the count comes from live agent state, and the
   test box has no model credentials, so it is always 0 there.

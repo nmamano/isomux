@@ -220,11 +220,14 @@ READY_TIMEOUT_S=3
 // blocking spawnSync would freeze the event loop so its fetch handler could
 // never answer update.sh's curl polls (verified: curl times out against an
 // in-process Bun.serve while spawnSync blocks).
-async function runUpdate(args: string[]): Promise<{
+async function runUpdate(
+  args: string[],
+  updateSh = UPDATE_SH,
+): Promise<{
   code: number;
   out: string;
 }> {
-  const proc = Bun.spawn(["bash", UPDATE_SH, ...args], {
+  const proc = Bun.spawn(["bash", updateSh, ...args], {
     env: fx.env,
     stdout: "pipe",
     stderr: "pipe",
@@ -329,11 +332,45 @@ describe("update.sh happy path", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("recorded the release tag");
     expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
+    // A pre-deps-sync updater leaves exactly this shape after its first update:
+    // current code and updater, but no tag and none of the target's new system
+    // dependencies. The repair run must attempt target deps sync before it
+    // restarts. This user-kind fixture skips the root-only body, which has its
+    // own focused coverage in update-deps-sync.test.ts.
+    expect(r.out).toContain("--- deps");
+    expect(r.out).toContain("SERVICE_KIND=user: skipping");
     // The office reads its version once per process, so the tag alone changes
     // nothing a user can see: the repair is only finished after a restart, and
     // one is enough.
     expect(stubCalls().filter((l) => / stop /.test(l)).length).toBe(1);
     expect(stubCalls().filter((l) => / start /.test(l)).length).toBe(1);
+  });
+
+  it("a failed repair restores the absent tag so the next run retries deps", async () => {
+    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+
+    // Force only the target-dependency seam to fail in a temp copy of the
+    // real updater. No product-only test switch reaches the root-running
+    // updater, and the unchanged remainder is the branch under test.
+    const failingUpdater = join(fx.base, "failing-updater");
+    const source = readFileSync(UPDATE_SH, "utf8");
+    const changed = source.replace(
+      "sync_system_deps() {\n",
+      "sync_system_deps() {\n  return 42\n",
+    );
+    expect(changed).not.toBe(source);
+    writeFileSync(failingUpdater, changed, { mode: 0o700 });
+
+    const first = await runUpdate(["v2026.7.20"], failingUpdater);
+    expect(first.code).not.toBe(0);
+    expect(first.out).toContain("--- deps");
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+
+    const retry = await runUpdate(["v2026.7.20"], failingUpdater);
+    expect(retry.code).not.toBe(0);
+    expect(retry.out).toContain("--- deps");
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
   });
 });
 

@@ -448,21 +448,58 @@ main() {
       exit 0
     fi
     # The line above just repaired a checkout that was running this release
-    # without recording it. Nothing was built and nothing can be rolled back,
-    # so the ordinary recovery ladder does not apply - but server/version.ts
-    # reads the tag once per process, so the office goes on reporting
-    # release: null, and the banner on offering this release, until it
-    # restarts. That restart is the repair.
-    trap - ERR
+    # without recording it. This is also the upgrade shape left by updaters
+    # from before target dependency sync existed: their first update refreshes
+    # the installed updater, but cannot deliver this release's system
+    # dependencies. Run the target's narrow deps-only installer now so the
+    # second invocation converges that box. A tagged no-op stays a true no-op.
+    # update-ref ran before this branch so the running server can identify the
+    # release after its restart. Until every repair step succeeds, however,
+    # that ref is provisional: leaving it behind on one transient failure
+    # would make the retry take the tagged no-op arm and skip the repair
+    # forever.
+    restore_repair_tag() {
+      if [[ -n $had_tag ]]; then
+        as_repo_user git -C "$REPO_DIR" update-ref \
+          "refs/tags/$TARGET_TAG" "$had_tag" "$target_commit"
+      else
+        as_repo_user git -C "$REPO_DIR" update-ref -d \
+          "refs/tags/$TARGET_TAG" "$target_commit"
+      fi
+    }
+    repair_error() {
+      local failed_phase=$PHASE
+      trap - ERR
+      if ! restore_repair_tag; then
+        PHASE=recovery-failed
+        die "the $TARGET_TAG repair failed during $failed_phase AND its provisional tag could not be restored; the checkout at $REPO_DIR needs manual attention"
+      fi
+      PHASE=$failed_phase
+      case $failed_phase in
+        deps) on_error ;;
+        restart) die "recorded the release tag for $TARGET_TAG, but $SERVICE_NAME could not be restarted; the tag repair was rolled back and the code is unchanged from before this run" ;;
+        readiness) die "recorded the release tag for $TARGET_TAG and restarted $SERVICE_NAME, but it did not answer within ${READY_TIMEOUT_S}s; the tag repair was rolled back and the code is unchanged from before this run, so look at the service log" ;;
+        finalize) die "repaired $TARGET_TAG, but could not record the successful result; the tag repair was rolled back so a retry can finish it" ;;
+        *) die "the $TARGET_TAG repair failed during $failed_phase; the tag repair was rolled back so a retry can finish it" ;;
+      esac
+    }
+    trap repair_error ERR
+    phase deps
+    sync_system_deps "$target_commit"
+    # Nothing was built and nothing can be rolled back, so the ordinary code
+    # recovery ladder does not apply. server/version.ts reads the tag once per
+    # process, and configure_user_manager's drop-in also takes effect on the
+    # restart below.
     log "already on $TARGET_TAG, which the checkout was not recording; restarting so the office reports it"
     phase restart
-    svc stop "$SERVICE_NAME" && wait_inactive && svc start "$SERVICE_NAME" ||
-      die "recorded the release tag for $TARGET_TAG, but $SERVICE_NAME could not be restarted; the code is unchanged from before this run"
+    svc stop "$SERVICE_NAME"
+    wait_inactive
+    svc start "$SERVICE_NAME"
     phase readiness
-    ready_poll "$READY_TIMEOUT_S" ||
-      die "recorded the release tag for $TARGET_TAG and restarted $SERVICE_NAME, but it did not answer within ${READY_TIMEOUT_S}s; the code is unchanged from before this run, so look at the service log"
+    ready_poll "$READY_TIMEOUT_S"
     phase finalize
     write_status ok "recorded the release tag for $TARGET_TAG"
+    trap - ERR
     log "recorded the release tag for $TARGET_TAG"
     exit 0
   fi

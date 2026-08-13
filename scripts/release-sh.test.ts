@@ -13,6 +13,7 @@ import {
   readFileSync,
   mkdirSync,
   chmodSync,
+  statSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -106,6 +107,10 @@ afterEach(() => {
 });
 
 describe("release.sh", () => {
+  it("is directly executable as its operator runbook says", () => {
+    expect(statSync(RELEASE_SH).mode & 0o111).not.toBe(0);
+  });
+
   it("tags today's CalVer, annotated, and pushes it to origin", () => {
     const r = runRelease([]);
     expect(r.out).toContain("tagged and pushed");
