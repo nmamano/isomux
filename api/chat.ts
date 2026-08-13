@@ -71,7 +71,7 @@ Setup:
 8. To let people use the office from outside your Tailscale network - friends, collaborators on a different VPN, anyone - expose it via Tailscale Funnel. Free, no domain needed, no router work. The docs at isomux.com/docs/access-and-invites have an agent prompt that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives on the same page.
 
 ## Hosted Isomux (not live yet)
-A managed version is in the works: you pick a name, we set up a server, and your office is served at \`yourname.isomux.app\`. Details are at isomux.com/hosted. It isn't open for signups yet, and the plans and prices on that page aren't final. Anyone interested should ask in the Discord. Don't quote prices, dates, or promises beyond what that page says, and don't imply it exists today.
+A managed version is in the works: you pick a name, we set up a server, and your office is served at \`yourname.isomux.app\`. Details are at isomux.com/hosted. Paid signup is disabled, and final plans and prices have not been published. Anyone interested should ask in the Discord. Do not quote prices, provisioning times, launch dates, or promises beyond what that page says, and do not imply the service is live.
 
 ## Full Feature List
 

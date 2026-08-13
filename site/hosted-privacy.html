@@ -329,11 +329,13 @@
         address, and addresses with HTTPS certificates land in public
         certificate logs, so pick a name you don't mind strangers seeing. An SSH
         public key, if you paste one: we install it on your server during setup
-        to give you root administrator access to the VPS, and keep only its
-        fingerprint after setup. Isomux agents and the built-in terminal cannot
-        use sudo. If you skip the key, you cannot add administrator access later
-        from inside Isomux, and you cannot install system software or manage the
-        VPS after we remove our temporary key without contacting support.
+        to give you root administrator access to the VPS. We keep its
+        fingerprint, but no copy of the public key itself, after setup. The key
+        text is also excluded from the setup log. Isomux agents and the built-in
+        terminal cannot use sudo. If you skip the key, you cannot add
+        administrator access later from inside Isomux, and you cannot install
+        system software or manage the VPS after we remove our temporary key
+        without contacting support.
       </p>
       <p>
         <strong>Payment:</strong> Stripe handles the card. We never see or store
@@ -341,8 +343,9 @@
         and your invoice history.
       </p>
       <p>
-        <strong>Setup records:</strong> every command we run on your server
-        while setting it up, with the time and the outcome.
+        <strong>Setup records:</strong> a structured record of setup steps, with
+        the time and outcome. It does not store raw commands, command output, or
+        the text of your SSH public key.
       </p>
       <p>
         <strong>Support:</strong> whatever you send us when you ask for help.
@@ -394,7 +397,7 @@
             <td>Payments and invoices.</td>
           </tr>
           <tr>
-            <td><span class="pending">[VPS PROVIDER: Contabo]</span></td>
+            <td>Contabo</td>
             <td>
               The server itself. Renting a machine means its owner can reach it.
             </td>
@@ -411,6 +414,13 @@
             </td>
           </tr>
           <tr>
+            <td>Neon</td>
+            <td>
+              Stores the hosted account, subscription, setup status, and
+              operational records. It does not receive your office content.
+            </td>
+          </tr>
+          <tr>
             <td>Anthropic</td>
             <td>Answers from the chat widget on isomux.com.</td>
           </tr>
@@ -423,22 +433,25 @@
       <p>
         If we change any of these, this list changes with it, with the same
         notice as any other change to this policy.
-        <span class="pending"
-          >[PENDING: add the database host row once the control plane picks its
-          managed-Postgres provider]</span
-        >
       </p>
 
       <h2>How long we keep it</h2>
       <p>
-        <strong>Your server:</strong> it runs for the period you paid for, plus
-        a week to take your work out. Then it is wiped and released. We keep no
-        copy - your data only ever lived on that server.
+        <strong>Your server:</strong> it runs through the period you paid for.
+        At the end of that period, it is powered off and access stops. We retain
+        it for 14 days for reinstatement or manual recovery. After 14 days, we
+        ask the provider to delete it as soon as the provider permits. The
+        provider controls the exact deletion time. Your data can remain on the
+        server and in provider snapshots until the provider deletes them.
+      </p>
+      <p>
+        <strong>If payment fails:</strong> Stripe retries first. If the retries
+        run out, we power the server off, but we do not automatically delete it
+        on a fixed schedule. Service resumes if payment succeeds.
       </p>
       <p>
         <strong>Your account:</strong> deleted when you ask.
-        <strong>The setup log:</strong> kept 90 days after the server is
-        released.
+        <strong>The setup log:</strong> retained with no scheduled deletion.
         <strong
           >The record of any rescue incident you asked us to handle:</strong
         >
@@ -451,6 +464,15 @@
       <p>
         <strong>Billing records:</strong> kept as long as tax and accounting law
         requires.
+      </p>
+
+      <h2>Backups</h2>
+      <p>
+        We request the server provider's automated-backup add-on and check for a
+        recent provider snapshot. Snapshot presence is a proxy, not direct
+        observation of the add-on's health, because the provider API does not
+        say whether a snapshot was automated or manual. We do not promise a
+        restore. Keep your own copies of anything you cannot lose.
       </p>
 
       <h2>The isomux.com website</h2>

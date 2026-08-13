@@ -320,9 +320,8 @@
           rel="noopener"
           >isomux</a
         >
-        on it, and serve it at the name you picked, over HTTPS. Setup usually
-        finishes in under ten minutes, and you get a sign-in link when it is
-        ready.
+        on it, and serve it at the name you picked, over HTTPS. You get a
+        sign-in link when it is ready.
       </p>
       <p>
         The price covers the server. The agents run on your own Claude or
@@ -454,20 +453,21 @@
         office keeps running as normal, so you can take your work out at any
         time. Then we suspend it by powering the server off; your data stays on
         the disk, untouched, and the office comes back exactly as it was when
-        the payment goes through. After a month suspended, the server is
-        released and everything on it is gone.
-        <span class="pending"
-          >[PENDING: whether a suspended customer can get their work out without
-          settling the payment - a powered-off box has no export path]</span
-        >
+        the payment goes through. Payment-failure suspension is separate from
+        cancellation. The current system does not automatically delete a
+        payment-suspended server on a fixed schedule.
       </p>
 
       <h2>Cancelling</h2>
       <p>
         Cancel from your account dashboard at any time. Your office keeps
-        running to the end of the period you paid for, plus a week after that to
-        take your work out. It stays fully usable during that week. Then the
-        server is wiped and released.
+        running through the end of the period you paid for. At that instant, we
+        power the server off and access stops. We retain the powered-off server
+        for 14 days so the service can be reinstated or your data can be
+        recovered manually. After 14 days, we ask the provider to delete the
+        server as soon as the provider permits. The provider controls the exact
+        deletion time, so the 14-day deadline is when we request deletion, not a
+        promise that deletion is complete.
       </p>
       <p>
         Cancelling partway through a period does not refund the rest of it. Two
@@ -488,13 +488,12 @@
         theirs, not ours.
       </p>
       <p>
-        <span class="pending"
-          >[NIL DECISION: the backup promise. The design proposes buying the
-          provider's box-level backup add-on and publishing hardware failure
-          coverage only, at most 24h stale, once a tested restore procedure
-          exists (task 962965dc). Until you rule, this page says nothing about
-          backups, which means customers should assume there are none.]</span
-        >
+        We request the server provider's automated-backup add-on and check for a
+        recent provider snapshot. A snapshot's presence is only a proxy: the
+        provider API does not identify whether it came from the add-on or from a
+        manual snapshot, so we cannot directly observe add-on health. We do not
+        promise a restore. You remain responsible for keeping independent copies
+        of anything you cannot lose.
       </p>
 
       <h2>Support</h2>

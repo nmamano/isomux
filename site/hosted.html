@@ -444,30 +444,6 @@
       }
 
       /* ---- Pricing ---- */
-      .currency-toggle {
-        display: inline-flex;
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        overflow: hidden;
-        margin-bottom: 14px;
-      }
-      .currency-toggle[hidden] {
-        display: none;
-      }
-      .currency-toggle button {
-        font: inherit;
-        font-size: 0.85rem;
-        padding: 5px 12px;
-        background: none;
-        border: 0;
-        color: var(--text-dim);
-        cursor: pointer;
-      }
-      .currency-toggle button.active {
-        background: var(--bg-surface);
-        color: var(--text);
-        font-weight: 600;
-      }
       .plans {
         display: grid;
         grid-template-columns: repeat(2, 1fr);
@@ -483,20 +459,6 @@
         font-size: 1.1rem;
         font-weight: 600;
         margin-bottom: 4px;
-      }
-      .plan .price {
-        font-family:
-          "Space Grotesk",
-          -apple-system,
-          sans-serif;
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: var(--accent);
-      }
-      .plan .price span {
-        font-size: 0.9rem;
-        font-weight: 500;
-        color: var(--text-dim);
       }
       .plan p {
         color: var(--text-dim);
@@ -630,9 +592,7 @@
         </li>
         <li>
           <h3>Wait for your server to be set up</h3>
-          <p>
-            It usually takes &lt;10 min; you'll get a sign-in link when ready.
-          </p>
+          <p>You'll get a sign-in link when your office is ready.</p>
         </li>
         <li>
           <h3>Start working</h3>
@@ -694,10 +654,17 @@
           </p>
         </div>
         <div class="card">
-          <h3>No update chores</h3>
+          <h3>Updates when you choose</h3>
           <p>
             When a new release is out, your office tells you and you apply it
-            with one click.
+            with one click. Ordinary updates are never applied automatically.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Provider snapshots</h3>
+          <p>
+            The server provider takes snapshots. We do not promise a restore.
+            Keep your own copies of anything you cannot lose.
           </p>
         </div>
       </div>
@@ -707,35 +674,24 @@
     <section id="plans">
       <h2>Plans</h2>
       <p class="section-intro">
-        Priced a small step above what the server costs us. These plans cover
-        the server only: the agents run on your own Claude or ChatGPT plan.
-        Prices subject to change.
+        Paid signup is not open yet. Plans will cover the server only: the
+        agents run on your own Claude or ChatGPT plan. Join Discord for launch
+        updates.
       </p>
-      <!-- PROPOSED numbers pending Nil's call: entry box costs EUR 5.50/mo,
-           larger tier EUR 11-13/mo, plus backups, fees and traffic. -->
-      <div class="currency-toggle" hidden>
-        <button type="button" class="active" data-cur="eur">EUR</button>
-        <button type="button" data-cur="usd">USD</button>
-      </div>
       <div class="plans">
         <div class="plan">
           <h3>Standard</h3>
-          <div class="price" data-eur="8" data-usd="9">
-            &euro;8 <span>/ month</span>
-          </div>
           <p>
-            For most people. Can handle 10+ agents working at the same time and
-            unlimited users.
+            For a personal office or small team. Final specifications and
+            pricing will be published before paid signup opens.
           </p>
         </div>
         <div class="plan">
           <h3>Heavy-duty</h3>
-          <div class="price" data-eur="18" data-usd="21">
-            &euro;18 <span>/ month</span>
-          </div>
           <p>
-            More cores, memory, and disk; for running memory-hungry workloads
-            alongside the office.
+            More capacity for memory-hungry workloads beside the office. Final
+            specifications and pricing will be published before paid signup
+            opens.
           </p>
         </div>
       </div>
@@ -773,9 +729,11 @@
       </p>
       <h3>What happens if I cancel?</h3>
       <p>
-        Your office keeps working to the end of the period you paid for, plus a
-        week after that to take your work out. The office stays fully usable
-        during that week; then the server is wiped.
+        Your office keeps working through the period you paid for. At the end of
+        that period, it is powered off and access stops. We retain the server
+        for 14 days for reinstatement or manual recovery. After 14 days, we ask
+        the provider to delete it as soon as the provider permits; the exact
+        deletion time is controlled by the provider.
       </p>
       <h3>How private is my server?</h3>
       <details id="access">
@@ -832,50 +790,6 @@
       </div>
     </footer>
 
-    <script>
-      (function () {
-        var toggle = document.querySelector(".currency-toggle");
-        if (!toggle) return;
-        var buttons = toggle.querySelectorAll("button");
-        var prices = document.querySelectorAll(".plan .price");
-        function show(cur) {
-          for (var i = 0; i < prices.length; i++) {
-            var p = prices[i];
-            var amount =
-              cur === "usd"
-                ? "$" + p.getAttribute("data-usd")
-                : "€" + p.getAttribute("data-eur");
-            p.innerHTML = amount + " <span>/ month</span>";
-          }
-          for (var j = 0; j < buttons.length; j++) {
-            buttons[j].className =
-              buttons[j].getAttribute("data-cur") === cur ? "active" : "";
-          }
-        }
-        for (var k = 0; k < buttons.length; k++) {
-          buttons[k].addEventListener("click", function () {
-            var cur = this.getAttribute("data-cur");
-            show(cur);
-            try {
-              localStorage.setItem("isomux-currency", cur);
-            } catch (e) {}
-          });
-        }
-        var cur = null;
-        try {
-          cur = localStorage.getItem("isomux-currency");
-        } catch (e) {}
-        if (cur !== "eur" && cur !== "usd") {
-          var tz = "";
-          try {
-            tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
-          } catch (e) {}
-          cur = tz.indexOf("Europe/") === 0 ? "eur" : "usd";
-        }
-        show(cur);
-        toggle.hidden = false;
-      })();
-    </script>
     <script defer src="/_vercel/insights/script.js"></script>
     <script defer src="/analytics.js"></script>
     <script defer src="/theme-toggle.js"></script>
