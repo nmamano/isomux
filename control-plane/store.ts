@@ -107,6 +107,9 @@ export interface InstanceRow {
   acknowledged_at: number | null;
   acknowledged_by: string | null;
   access_window_expires_at: number | null;
+  customer_ssh_key: string | null;
+  customer_ssh_key_fingerprint: string | null;
+  ssh_login_user: string | null;
   version: number;
   created_at: number;
   updated_at: number;
@@ -278,6 +281,9 @@ create table if not exists instances (
   acknowledged_at bigint,
   acknowledged_by text,
   access_window_expires_at bigint,
+  customer_ssh_key text,
+  customer_ssh_key_fingerprint text,
+  ssh_login_user text,
   version integer not null,
   created_at bigint not null,
   updated_at bigint not null
@@ -1323,6 +1329,9 @@ export class Store {
       ["subscriptions", "canceled_at"],
       ["subscriptions", "cancellation_reason"],
       ["stripe_events", "type"],
+      ["instances", "customer_ssh_key"],
+      ["instances", "customer_ssh_key_fingerprint"],
+      ["instances", "ssh_login_user"],
     ];
     // THE WHOLE ROSTER, not the tables the column list happens to name.
     const tables: readonly string[] = PRODUCT_TABLES;
@@ -1398,9 +1407,8 @@ export class Store {
       if (!columns.get(table)?.has(column)) {
         throw new Error(
           `the database at ${this.describe()} predates this version of the ` +
-            `control plane: ${table} has no ${column} column. Move it aside ` +
-            `and let a fresh one be created; there is no migration in this ` +
-            `slice.`,
+            `control plane: ${table} has no ${column} column. Apply this ` +
+            `build's owner-role migration before starting a runtime process.`,
         );
       }
     }
@@ -1580,13 +1588,21 @@ export class Store {
       | "acknowledged_at"
       | "acknowledged_by"
       | "subscription_state"
-    > & { subscription_state?: string },
+      | "customer_ssh_key"
+      | "customer_ssh_key_fingerprint"
+      | "ssh_login_user"
+    > & {
+      subscription_state?: string;
+      customer_ssh_key?: string | null;
+      customer_ssh_key_fingerprint?: string | null;
+      ssh_login_user?: string | null;
+    },
   ): Promise<InstanceRow> {
     const ts = this.now();
     await this.sqlRun(
       "insert into instances (id, run_id, name, plan, region, service_state, goal, " +
-        "subscription_state, attention_state, access_window_expires_at, version, created_at, updated_at) " +
-        "values ($1, $2, $3, $4, $5, $6, $7, $8, 'clear', $9, 1, $10, $11)",
+        "subscription_state, attention_state, access_window_expires_at, customer_ssh_key, customer_ssh_key_fingerprint, ssh_login_user, version, created_at, updated_at) " +
+        "values ($1, $2, $3, $4, $5, $6, $7, $8, 'clear', $9, $10, $11, $12, 1, $13, $14)",
       [
         row.id,
         row.run_id,
@@ -1597,6 +1613,9 @@ export class Store {
         row.goal,
         row.subscription_state ?? "none",
         row.access_window_expires_at,
+        row.customer_ssh_key ?? null,
+        row.customer_ssh_key_fingerprint ?? null,
+        row.ssh_login_user ?? null,
         ts,
         ts,
       ],
@@ -1635,7 +1654,13 @@ export class Store {
     patch: Partial<
       Pick<
         InstanceRow,
-        "run_id" | "service_state" | "goal" | "subscription_state"
+        | "run_id"
+        | "service_state"
+        | "goal"
+        | "subscription_state"
+        | "customer_ssh_key"
+        | "customer_ssh_key_fingerprint"
+        | "ssh_login_user"
       >
     >,
   ): Promise<InstanceRow | null> {

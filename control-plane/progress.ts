@@ -167,6 +167,7 @@ export interface ProgressView {
   instanceId: string;
   officeName: string;
   hostname: string;
+  sshCommand: string | null;
   plan: string;
   serviceState: ServiceState;
   goal: Goal;
@@ -199,6 +200,7 @@ const LABELS: Record<OperationKind, string> = {
   create_instance: "Ordering your server",
   wait_for_ssh: "Waiting for the server to answer",
   first_contact: "Securing our temporary access",
+  install_customer_key: "Installing your SSH key",
   arm_revocation: "Setting a timer for our access to expire",
   wait_for_package_manager: "Waiting for the server's package manager",
   run_installer: "Installing isomux",
@@ -274,6 +276,10 @@ function countField(
   return Math.floor(raw);
 }
 
+function trueField(evidence: Record<string, unknown>, key: string): boolean {
+  return evidence[key] === true;
+}
+
 const INSTALLER_PHASES = [
   "staged",
   "launching",
@@ -310,6 +316,10 @@ function detailFor(
     return null;
   }
   switch (kind) {
+    case "install_customer_key":
+      if (trueField(evidence, "skipped")) return "No SSH key was supplied";
+      if (trueField(evidence, "installed")) return "Your SSH key is installed";
+      return null;
     case "wait_for_ssh": {
       const probes = countField(evidence, "probes");
       return probes && probes > 0 ? `${probes} attempts so far` : null;
@@ -606,6 +616,10 @@ export async function projectionFor(
     instanceId: instance.id,
     officeName: reservation.name,
     hostname: instance.name,
+    sshCommand:
+      instance.customer_ssh_key_fingerprint && instance.ssh_login_user
+        ? `ssh ${instance.ssh_login_user}@${instance.name}`
+        : null,
     plan: reservation.plan,
     serviceState: instance.service_state,
     goal,

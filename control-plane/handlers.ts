@@ -12,6 +12,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { CREATE_ARMED_PHASE } from "./create-latch.ts";
 import type { CreateCoordinator } from "./create-coordinator.ts";
 import {
@@ -20,6 +21,7 @@ import {
   WRAPPER_REMOTE_PATH,
   composeRemoteScript,
   identityFor,
+  installCustomerKey,
   installFile,
   installText,
   parseLaunch,
@@ -35,6 +37,7 @@ import {
 } from "./driver.ts";
 import { runtimeRepoFile } from "./runtime-files.ts";
 import { destroyPrivateKey, type KeyPair } from "./keys.ts";
+import { validateCustomerSshKey } from "./key-lines.ts";
 import { probeLiveness } from "./liveness.ts";
 import type { Reporter } from "./report.ts";
 import { loadRun, saveRun, type RunRecord } from "./run-record.ts";
@@ -47,6 +50,7 @@ import {
 import { auditOutcomeOf } from "./tick.ts";
 import type { HandlerContext, Handler, HandlerResult } from "./tick.ts";
 import type { CreateRequest } from "./provider.ts";
+import { raiseAttention } from "./attention.ts";
 
 export interface HandlerDeps {
   exec: Exec;
@@ -330,6 +334,70 @@ export function firstContactHandler(deps: HandlerDeps): Handler {
   };
 }
 
+// ---------------------------------------------------- install_customer_key
+
+export function installCustomerKeyHandler(deps: HandlerDeps): Handler {
+  return {
+    kind: "install_customer_key",
+    async run(ctx): Promise<HandlerResult> {
+      const rec = runFor(ctx, deps);
+      const raw = ctx.instance.customer_ssh_key;
+      if (!raw) {
+        const updated = await ctx.store.casInstance(
+          ctx.instance.id,
+          ctx.instance.version,
+          { ssh_login_user: rec.loginUser },
+        );
+        if (!updated)
+          return { kind: "retry", reason: "the instance row changed" };
+        return { kind: "done", evidence: { skipped: true } };
+      }
+      const key = validateCustomerSshKey(raw);
+      if (!key.ok) {
+        return {
+          kind: "fatal",
+          reason: "the stored customer SSH key is invalid",
+        };
+      }
+      let line: "added" | "existing";
+      try {
+        line = await remote(ctx, "install_customer_key", () =>
+          installCustomerKey(
+            sshFor(ctx, rec, deps, "install_customer_key"),
+            identityFor(rec.loginUser),
+            key,
+            rec.blob,
+          ),
+        );
+      } catch (err) {
+        ctx.report(`customer key installation failed: ${messageOf(err)}`);
+        return {
+          kind: "ambiguous",
+          reason: "the box did not confirm the customer key",
+        };
+      }
+      const fingerprint =
+        "SHA256:" +
+        createHash("sha256")
+          .update(Buffer.from(key.blob, "base64"))
+          .digest("base64")
+          .replace(/=+$/, "");
+      const updated = await ctx.store.casInstance(
+        ctx.instance.id,
+        ctx.instance.version,
+        {
+          ssh_login_user: rec.loginUser,
+          customer_ssh_key_fingerprint: fingerprint,
+        },
+      );
+      if (!updated)
+        return { kind: "retry", reason: "the instance row changed" };
+      await ctx.audit("install_customer_ssh_key", "succeeded", fingerprint);
+      return { kind: "done", evidence: { installed: true, line } };
+    },
+  };
+}
+
 // ---------------------------------------------------------- arm_revocation
 
 /**
@@ -351,6 +419,15 @@ export function armRevocationHandler(deps: HandlerDeps): Handler {
       }
       const identity = identityFor(rec.loginUser);
       const expiresAt = new Date(ctx.instance.access_window_expires_at ?? 0);
+      const customer = ctx.instance.customer_ssh_key
+        ? validateCustomerSshKey(ctx.instance.customer_ssh_key)
+        : null;
+      if (customer && !customer.ok) {
+        return {
+          kind: "fatal",
+          reason: "the stored customer SSH key is invalid",
+        };
+      }
       await remote(ctx, "install_cleanup_script", () =>
         installText(
           sshFor(ctx, rec, deps, "install_cleanup_script"),
@@ -364,6 +441,7 @@ export function armRevocationHandler(deps: HandlerDeps): Handler {
         identity.authorizedKeysPath,
         rec.blob,
         expiresAt,
+        customer?.blob,
       );
       const unitSsh = sshFor(ctx, rec, deps, "install_cleanup_units");
       await remote(ctx, "install_cleanup_units", async () => {
@@ -743,9 +821,23 @@ export function revokeAccessHandler(deps: HandlerDeps): Handler {
       const rec = runFor(ctx, deps);
       const identity = identityFor(rec.loginUser);
       const ssh = sshFor(ctx, rec, deps, "revoke_key");
+      const customer = ctx.instance.customer_ssh_key
+        ? validateCustomerSshKey(ctx.instance.customer_ssh_key)
+        : null;
+      if (customer && !customer.ok) {
+        return {
+          kind: "fatal",
+          reason: "the stored customer SSH key is invalid",
+        };
+      }
+      let customerObservation:
+        | "present"
+        | "missing"
+        | "duplicate"
+        | "not-supplied";
       try {
-        await remote(ctx, "revoke_key", () =>
-          revokeAccess(ssh, identity, rec.blob),
+        customerObservation = await remote(ctx, "revoke_key", () =>
+          revokeAccess(ssh, identity, rec.blob, customer?.blob),
         );
       } catch (err) {
         // The reason is CLASSIFIED, not the remote error text. Attention
@@ -775,12 +867,58 @@ export function revokeAccessHandler(deps: HandlerDeps): Handler {
         privateKeyPath: rec.privateKeyPath,
         publicKeyPath: rec.publicKeyPath,
       } as KeyPair);
+      let cleared = await ctx.store.casInstance(
+        ctx.instance.id,
+        ctx.instance.version,
+        { customer_ssh_key: null },
+      );
+      if (!cleared) {
+        const fresh = await ctx.store.getInstance(ctx.instance.id);
+        if (fresh) {
+          cleared = await ctx.store.casInstance(fresh.id, fresh.version, {
+            customer_ssh_key: null,
+          });
+        }
+      }
+      if (!cleared) {
+        return {
+          kind: "ambiguous",
+          reason:
+            "revocation was proven but the stored customer key was not cleared",
+        };
+      }
+      if (
+        customerObservation !== "present" &&
+        customerObservation !== "not-supplied"
+      ) {
+        await raiseAttention(ctx.store, {
+          instanceId: ctx.instance.id,
+          sourceOpId: "",
+          reasonClass: "operation_condition",
+          reason: "the customer's SSH key changed before access revocation",
+          severity: "warning",
+          detail: `operation=${ctx.op.id} customer-key=${customerObservation}`,
+        });
+        await ctx.store.tx(() =>
+          ctx.store.appendAudit({
+            actor: "control-plane",
+            instance_id: ctx.instance.id,
+            action: "observe_customer_ssh_key",
+            target: ctx.op.id,
+            outcome: customerObservation,
+            detail: null,
+          }),
+        );
+      }
       rec.state = "revoked";
       saveRun(deps.runsDir, rec);
       ctx.report(
         "proof: sshd refused the removed key (publickey). Access is gone.",
       );
-      return { kind: "done", evidence: { proven: true } };
+      return {
+        kind: "done",
+        evidence: { proven: true, customerKey: customerObservation },
+      };
     },
   };
 }
@@ -1005,6 +1143,7 @@ export function boxHandlers(deps: HandlerDeps): Handler[] {
     waitForSshHandler(deps),
     waitForPackageManagerHandler(deps),
     firstContactHandler(deps),
+    installCustomerKeyHandler(deps),
     armRevocationHandler(deps),
     runInstallerHandler(deps),
     verifyHttpsHandler(deps),

@@ -30,6 +30,7 @@ import {
 } from "./stripe/billing-store.ts";
 import type { OpenCheckoutArgs } from "./stripe/checkout.ts";
 import { validateOfficeName } from "./stripe/checkout.ts";
+import { validateCustomerSshKey } from "./key-lines.ts";
 
 /**
  * The domain offices are named under. A constant rather than an environment
@@ -252,6 +253,7 @@ export interface SignupRequest {
   officeName: string;
   plan: string;
   couponId?: string | null;
+  customerSshKey?: string | null;
 }
 
 export interface SignupDeps {
@@ -277,12 +279,17 @@ export type SignupValidation =
 export function validateSignup(req: {
   officeName: string;
   plan: string;
+  customerSshKey?: string | null;
 }): SignupValidation {
   const plan = planById(req.plan);
   if (!plan)
     return { ok: false, reason: `"${req.plan}" is not a plan we offer` };
   const verdict = validateOfficeName(req.officeName);
   if (!verdict.ok) return { ok: false, reason: verdict.reason };
+  if (req.customerSshKey) {
+    const key = validateCustomerSshKey(req.customerSshKey);
+    if (!key.ok) return key;
+  }
   return { ok: true, plan };
 }
 
@@ -319,6 +326,11 @@ export async function reserveOffice(
   const plan = valid.plan;
 
   const coupon = req.couponId ? req.couponId : null;
+  const key = req.customerSshKey
+    ? validateCustomerSshKey(req.customerSshKey)
+    : null;
+  if (key && !key.ok) return key;
+  const customerSshKey = key?.normalized ?? null;
   const uuid = newId();
   const ts = now();
 
@@ -400,6 +412,17 @@ export async function reserveOffice(
             `; finish or abandon that checkout before changing it`,
         };
       }
+      const heldInstance = await store.getInstance(held.instance_id);
+      if (!heldInstance)
+        throw new Error("reserved instance is missing", { cause: err });
+      if ((heldInstance.customer_ssh_key ?? null) !== customerSshKey) {
+        return {
+          ok: false,
+          reason: heldInstance.customer_ssh_key
+            ? `"${req.officeName}" is already reserved with an SSH key; finish or abandon that checkout before changing it`
+            : `"${req.officeName}" is already reserved without an SSH key; finish or abandon that checkout before adding one`,
+        };
+      }
       return { ok: true, reservation: held, account, reused: true };
     }
 
@@ -414,6 +437,8 @@ export async function reserveOffice(
       // the chain this instance will walk ends at the invite.
       goal: "live",
       access_window_expires_at: ts + ACCESS_WINDOW_MS,
+      customer_ssh_key: customerSshKey,
+      ssh_login_user: null,
     });
     await store.createAsset({
       id: `asset-${uuid}`,

@@ -32,6 +32,31 @@ export default async function Signup({
         <input type="hidden" name="plan" value={options[0]?.id ?? ""} />
         <p>
           <label>
+            SSH administrator key (strongly recommended){" "}
+            <textarea
+              name="customerSshKey"
+              data-testid="customer-ssh-key"
+              rows={4}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <span className="note">
+            {" "}
+            This gives you root administrator access to the VPS that runs your
+            office, so you can install system software, manage the server, and
+            recover access to your Isomux office if your browser no longer has
+            access. Isomux agents and the built-in terminal cannot use sudo;
+            this protects the VPS from accidental or unsafe agent commands. If
+            you skip this step, you cannot add administrator access later from
+            inside Isomux. You will not be able to install system software or
+            manage the VPS after setup without contacting support. You can ask a
+            chatbot to help you create an SSH key and find the public key to
+            paste here.
+          </span>
+        </p>
+        <p>
+          <label>
             Promotional code (optional){" "}
             <input name="couponId" data-testid="coupon" autoComplete="off" />
           </label>

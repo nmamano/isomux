@@ -9,6 +9,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Exec } from "./ssh.ts";
+import { parseKeyLine } from "./key-lines.ts";
 
 export interface KeyPair {
   privateKeyPath: string;
@@ -19,30 +20,6 @@ export interface KeyPair {
   blob: string;
   /** Field 1: the algorithm, e.g. ssh-ed25519. */
   algorithm: string;
-}
-
-/**
- * Split an authorized_keys entry into the parts we are allowed to reason about.
- *
- * Tolerates leading options (`expiry-time="..." ssh-ed25519 AAAA...`), because
- * once we have rewritten a line it has them, and a re-read has to find the same
- * key it just wrote.
- */
-export function parseKeyLine(
-  line: string,
-): { algorithm: string; blob: string } | null {
-  const fields = line.trim().split(/\s+/);
-  for (let i = 0; i < fields.length - 1; i++) {
-    const algorithm = fields[i];
-    const blob = fields[i + 1];
-    if (
-      /^(ssh-ed25519|ssh-rsa|ecdsa-sha2-\S+|sk-\S+)$/.test(algorithm) &&
-      /^AAAA[A-Za-z0-9+/=]+$/.test(blob)
-    ) {
-      return { algorithm, blob };
-    }
-  }
-  return null;
 }
 
 export async function generateKeyPair(

@@ -329,7 +329,11 @@
         address, and addresses with HTTPS certificates land in public
         certificate logs, so pick a name you don't mind strangers seeing. An SSH
         public key, if you paste one: we install it on your server during setup
-        - your own way in besides the office link - and keep no copy afterwards.
+        to give you root administrator access to the VPS, and keep only its
+        fingerprint after setup. Isomux agents and the built-in terminal cannot
+        use sudo. If you skip the key, you cannot add administrator access later
+        from inside Isomux, and you cannot install system software or manage the
+        VPS after we remove our temporary key without contacting support.
       </p>
       <p>
         <strong>Payment:</strong> Stripe handles the card. We never see or store
@@ -355,7 +359,7 @@
       </p>
       <p>
         We hold an SSH key to your server while we set it up. It is removed when
-        you confirm from your office that you are in, or automatically after 7
+        you confirm from your office that you are in, or automatically after 30
         days, whichever comes first. We confirm the removal by trying to
         reconnect with the key we just deleted and requiring that attempt to
         fail. Our copy is then destroyed. You can also confirm it yourself if

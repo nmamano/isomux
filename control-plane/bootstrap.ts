@@ -132,6 +132,20 @@ async function openPool(dsn: string): Promise<pg.Pool> {
   return pool;
 }
 
+/** Owner-role migration for the deployed database. Runtime roles cannot DDL. */
+export async function migrateCustomerSshKeyColumns(dsn: string): Promise<void> {
+  const pool = await openPool(dsn);
+  try {
+    await inTransaction(pool, dsn, [
+      "alter table instances add column if not exists customer_ssh_key text",
+      "alter table instances add column if not exists customer_ssh_key_fingerprint text",
+      "alter table instances add column if not exists ssh_login_user text",
+    ]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
 /** The owner's name and its current role configuration, read before anything
  * is written. */
 async function ownerState(

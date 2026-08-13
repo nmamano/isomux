@@ -32,12 +32,13 @@
 #
 # The ak_* helpers are prepended at install time (composeRemoteScript).
 #
-# Usage: isomux-cp-cleanup <authorized_keys_path> <key_blob>
+# Usage: isomux-cp-cleanup <authorized_keys_path> <key_blob> [customer_blob]
 
 set -euo pipefail
 
 AUTHORIZED_KEYS=${1:?authorized_keys path required}
 BLOB=${2:?key blob required}
+CUSTOMER_BLOB=${3:-}
 RECORD=/var/lib/isomux-access-record.json
 RUN_ROOT=/var/lib/isomux-cp
 WRAPPER=/usr/local/sbin/isomux-cp-run
@@ -52,6 +53,15 @@ if [ -f "$AUTHORIZED_KEYS" ] && [ "$(ak_count_exact "$AUTHORIZED_KEYS" "$BLOB")"
   ak_replace_durably "$AUTHORIZED_KEYS" "$tmp"
   trap - EXIT
   removed=true
+fi
+customer_key_observation="not-supplied"
+if [ -n "$CUSTOMER_BLOB" ]; then
+  customer_count=$(ak_count_exact "$AUTHORIZED_KEYS" "$CUSTOMER_BLOB")
+  case "$customer_count" in
+    1) customer_key_observation="present" ;;
+    0) customer_key_observation="missing" ;;
+    *) customer_key_observation="duplicate" ;;
+  esac
 fi
 
 rm -rf "$RUN_ROOT"
@@ -80,6 +90,7 @@ cat >"$RECORD" <<JSON
 {
   "firedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "removedProvisioningKey": $removed,
+  "customerKey": "$customer_key_observation",
   "removedRunDirectory": "$RUN_ROOT",
   "removedWrapper": "$WRAPPER",
   "note": "Hosted Isomux Provisioning access ended. The provisioning key no longer authenticates on this box."

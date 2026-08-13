@@ -12,6 +12,7 @@ export type OperationKind =
   | "wait_for_ssh"
   | "wait_for_package_manager"
   | "first_contact"
+  | "install_customer_key"
   | "arm_revocation"
   | "run_installer"
   | "verify_https"
@@ -103,6 +104,11 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     inactivityMs: 3 * MINUTE,
     absoluteMs: 3 * MINUTE,
     maxRemoteMs: 90_000,
+  },
+  install_customer_key: {
+    inactivityMs: 3 * MINUTE,
+    absoluteMs: 3 * MINUTE,
+    maxRemoteMs: 60_000,
   },
   // Five children: the cleanup script, two unit files, the enable, and reading
   // systemd's own answer back. This is the kind that proves a per-child bound is
@@ -215,6 +221,8 @@ export function nextKind(
     case "wait_for_ssh":
       return "first_contact";
     case "first_contact":
+      return "install_customer_key";
+    case "install_customer_key":
       return "arm_revocation";
     case "arm_revocation":
       return goal === "first_contact" ? null : "wait_for_package_manager";

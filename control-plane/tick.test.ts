@@ -93,7 +93,7 @@ describe("the chain", () => {
     );
     expect(kinds).toEqual([
       "first_contact:succeeded",
-      "arm_revocation:pending",
+      "install_customer_key:pending",
     ]);
   });
 
@@ -111,9 +111,9 @@ describe("the chain", () => {
     // the arbiter, and this holder must lose the whole transaction. It is
     // parked in the future so this tick dispatches only the row under test.
     await store.enqueue({
-      id: "op-arm-existing",
+      id: "op-key-existing",
       instance_id: inst,
-      kind: "arm_revocation",
+      kind: "install_customer_key",
       next_attempt_at: c.now() + 600_000,
       inactivity_deadline_at: c.now() + 600_000,
       absolute_deadline_at: c.now() + 600_000,
@@ -122,7 +122,7 @@ describe("the chain", () => {
     expect((await store.getOperation(first.id))?.status).not.toBe("succeeded");
     expect(
       (await store.operationsFor(inst)).filter(
-        (o) => o.kind === "arm_revocation",
+        (o) => o.kind === "install_customer_key",
       ),
     ).toHaveLength(1);
   });

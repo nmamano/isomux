@@ -354,6 +354,11 @@ export function OfficeView({
 
       <h2>Getting in</h2>
       <section className="card" data-testid="handoff">
+        {view.sshCommand && (
+          <p data-testid="ssh-command">
+            Your SSH access: <code>{view.sshCommand}</code>
+          </p>
+        )}
         {(view.access.state !== "gone" ||
           view.handoff.revocation.state === "none") && (
           <p className="note" data-testid="access-window">

@@ -85,6 +85,25 @@ describe("the TypeScript reader", () => {
 });
 
 describe("revoke-key.sh removes exactly one line", () => {
+  test("keeps the customer key and proves it is still present", () => {
+    const customer = "AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey";
+    const res = runComposed(
+      ["authorizedKeys", "revokeKey"],
+      [akFile, OURS, customer],
+    );
+    expect(res.stdout).toContain("RESULT: removed");
+    expect(fs.readFileSync(akFile, "utf8")).toContain(customer);
+  });
+
+  test("reports a missing customer key without blocking revocation", () => {
+    const res = runComposed(
+      ["authorizedKeys", "revokeKey"],
+      [akFile, OURS, "AAAAnotpresent"],
+    );
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("RESULT: removed");
+    expect(res.stdout).toContain("CUSTOMER-KEY: missing");
+  });
   test("takes ours and leaves every impostor byte-for-byte", async () => {
     const before = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
     const res = runComposed(["authorizedKeys", "revokeKey"], [akFile, OURS]);
@@ -105,6 +124,56 @@ describe("revoke-key.sh removes exactly one line", () => {
     const res = runComposed(["authorizedKeys", "revokeKey"], [akFile, OURS]);
     expect(res.stdout).toContain("RESULT: removed");
     expect(fs.readFileSync(akFile, "utf8")).toBe(mid);
+  });
+});
+
+describe("install-customer-key.sh", () => {
+  test("a retry leaves exactly one normalized customer line", () => {
+    const customer = "AAAAC3NzaC1lZDI1NTE5AAAAInewcustomer";
+    const scripts: RuntimeRepoFile[] = ["authorizedKeys", "installCustomerKey"];
+    expect(
+      runComposed(scripts, [akFile, "ssh-ed25519", customer, OURS]).code,
+    ).toBe(0);
+    expect(
+      runComposed(scripts, [akFile, "ssh-ed25519", customer, OURS]).code,
+    ).toBe(0);
+    const lines = fs.readFileSync(akFile, "utf8").split("\n");
+    expect(lines.filter((line) => blobOf(line) === customer)).toEqual([
+      `ssh-ed25519 ${customer} hosted-isomux-customer`,
+    ]);
+  });
+
+  test("does not rewrite one pre-existing customer line", () => {
+    const customer = "AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey";
+    const before = fs.readFileSync(akFile, "utf8");
+    const res = runComposed(
+      ["authorizedKeys", "installCustomerKey"],
+      [akFile, "ssh-ed25519", customer, OURS],
+    );
+    expect(res.code).toBe(0);
+    expect(res.stdout).toContain("CUSTOMER-KEY: existing");
+    expect(fs.readFileSync(akFile, "utf8")).toBe(before);
+  });
+
+  test("adds a separating newline when authorized_keys has none", () => {
+    const customer = "AAAAC3NzaC1lZDI1NTE5AAAAInewcustomer";
+    fs.writeFileSync(akFile, `ssh-ed25519 ${OURS} no-newline`);
+    const res = runComposed(
+      ["authorizedKeys", "installCustomerKey"],
+      [akFile, "ssh-ed25519", customer, "AAAAprovisioning"],
+    );
+    expect(res.code).toBe(0);
+    expect(fs.readFileSync(akFile, "utf8")).toContain(
+      `no-newline\nssh-ed25519 ${customer}`,
+    );
+  });
+
+  test("refuses a customer key that is our provisioning key", () => {
+    const res = runComposed(
+      ["authorizedKeys", "installCustomerKey"],
+      [akFile, "ssh-ed25519", OURS, OURS],
+    );
+    expect(res.code).not.toBe(0);
   });
 });
 
@@ -161,5 +230,37 @@ describe("the cleanup backstop refuses to claim success it did not achieve", () 
     // Our key is still there, which is exactly why it had to fail.
     const lines = fs.readFileSync(akFile, "utf8").split("\n").filter(Boolean);
     expect(lines.filter((l) => blobOf(l) === OURS)).toHaveLength(1);
+  });
+
+  test("removes our key and keeps the customer key byte-identical", () => {
+    const customer = "AAAAC3NzaC1lZDI1NTE5AAAAIcustomerkey";
+    const before = fs
+      .readFileSync(akFile, "utf8")
+      .split("\n")
+      .find((line) => line.includes(customer));
+    const record = path.join(dir, "access-record.json");
+    const runRoot = path.join(dir, "run-root");
+    const wrapper = path.join(dir, "wrapper");
+    fs.mkdirSync(runRoot);
+    fs.writeFileSync(wrapper, "wrapper");
+    const original = composeRemoteScript(CLEANUP);
+    const body = original
+      .replace("RECORD=/var/lib/isomux-access-record.json", `RECORD=${record}`)
+      .replace("RUN_ROOT=/var/lib/isomux-cp", `RUN_ROOT=${runRoot}`)
+      .replace("WRAPPER=/usr/local/sbin/isomux-cp-run", `WRAPPER=${wrapper}`);
+    expect(body).not.toBe(original);
+    const script = path.join(dir, "cleanup-customer.sh");
+    fs.writeFileSync(script, body, { mode: 0o755 });
+    const proc = Bun.spawnSync(["bash", script, akFile, OURS, customer]);
+    expect(proc.exitCode).toBe(0);
+    const after = fs
+      .readFileSync(akFile, "utf8")
+      .split("\n")
+      .find((line) => line.includes(customer));
+    expect(after).toBe(before);
+    expect(fs.existsSync(record)).toBe(true);
+    expect(fs.readFileSync(record, "utf8")).toContain(
+      '"customerKey": "present"',
+    );
   });
 });

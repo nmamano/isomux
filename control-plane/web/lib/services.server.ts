@@ -179,6 +179,7 @@ export async function signUpOffice(args: {
   officeName: string;
   plan: string;
   couponId?: string | null;
+  customerSshKey?: string | null;
 }): Promise<SignupResult> {
   const [
     { reserveOffice, checkoutInputsFor, validateSignup, customerReason },
@@ -197,6 +198,7 @@ export async function signUpOffice(args: {
   const valid = validateSignup({
     officeName: args.officeName,
     plan: args.plan,
+    customerSshKey: args.customerSshKey,
   });
   if (!valid.ok) return { ok: false, reason: valid.reason };
 
@@ -228,6 +230,7 @@ export async function signUpOffice(args: {
       officeName: args.officeName,
       plan: args.plan,
       couponId: args.couponId ?? null,
+      customerSshKey: args.customerSshKey ?? null,
     }),
   );
   if (!reserved.ok) return { ok: false, reason: reserved.reason };

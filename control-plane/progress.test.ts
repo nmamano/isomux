@@ -94,12 +94,14 @@ describe("the ladder is walked, not written down", () => {
       "create_instance",
       "wait_for_ssh",
       "first_contact",
+      "install_customer_key",
       "arm_revocation",
     ]);
     expect(ladderFor("installed")).toEqual([
       "create_instance",
       "wait_for_ssh",
       "first_contact",
+      "install_customer_key",
       "arm_revocation",
       "wait_for_package_manager",
       "run_installer",
@@ -112,6 +114,7 @@ describe("the ladder is walked, not written down", () => {
       "create_instance",
       "wait_for_ssh",
       "first_contact",
+      "install_customer_key",
       "arm_revocation",
       "wait_for_package_manager",
       "run_installer",

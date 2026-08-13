@@ -79,9 +79,10 @@ function privilegeArgv(identity: BoxIdentity): string[] {
  * arguments.
  *
  * The script travels on stdin, so nothing in it is ever quoted or interpolated.
- * The remote command is built only from our own constants, and the arguments
- * are values we generated (a path we computed, an algorithm name, a base64
- * blob, a formatted instant) - never provider output and never customer input.
+ * The remote command is built only from our own constants. Customer key
+ * material reaches the box only as normalized algorithm and blob positional
+ * arguments, never as script text. Provider output and unnormalized customer
+ * text never reach this seam.
  */
 /**
  * Build a remote script from repo files, helpers first.
@@ -184,6 +185,32 @@ export async function rewriteKeyWithExpiry(
   };
 }
 
+export async function installCustomerKey(
+  ssh: SshClient,
+  identity: BoxIdentity,
+  customer: { algorithm: string; blob: string },
+  provisioningBlob: string,
+): Promise<"added" | "existing"> {
+  if (customer.blob === provisioningBlob) {
+    throw new Error("the customer key matches the provisioning key");
+  }
+  const res = await privilegedScript(ssh, identity, "installCustomerKey", [
+    identity.authorizedKeysPath,
+    customer.algorithm,
+    customer.blob,
+    provisioningBlob,
+  ]);
+  if (
+    res.code !== 0 ||
+    !res.stdout.includes("RESULT: customer key installed")
+  ) {
+    throw new Error(
+      `customer key installation failed (exit ${res.code}): ${firstLineOf(res.stdout, res.stderr)}`,
+    );
+  }
+  return res.stdout.includes("CUSTOMER-KEY: existing") ? "existing" : "added";
+}
+
 /**
  * Ship a local file to the box, root-owned, at an absolute path.
  *
@@ -252,6 +279,7 @@ export function renderCleanupUnits(
   authorizedKeysPath: string,
   blob: string,
   expiresAt: Date,
+  customerBlob?: string | null,
 ): { service: string; timer: string; onCalendar: string } {
   const onCalendar = formatOnCalendar(expiresAt);
   const service = [
@@ -260,7 +288,7 @@ export function renderCleanupUnits(
     "",
     "[Service]",
     "Type=oneshot",
-    `ExecStart=${CLEANUP_REMOTE_PATH} ${authorizedKeysPath} ${blob}`,
+    `ExecStart=${CLEANUP_REMOTE_PATH} ${authorizedKeysPath} ${blob}${customerBlob ? ` ${customerBlob}` : ""}`,
     `ExecStartPost=-/bin/rm -f ${CLEANUP_REMOTE_PATH}`,
     `ExecStartPost=-/bin/rm -f /etc/systemd/system/${CLEANUP_UNIT_NAME}.service /etc/systemd/system/${CLEANUP_UNIT_NAME}.timer`,
     "ExecStartPost=-/bin/systemctl --no-block daemon-reload",
@@ -539,16 +567,23 @@ export async function revokeAccess(
   ssh: SshClient,
   identity: BoxIdentity,
   blob: string,
-): Promise<void> {
+  customerBlob?: string | null,
+): Promise<"present" | "missing" | "duplicate" | "not-supplied"> {
   const res = await privilegedScript(ssh, identity, "revokeKey", [
     identity.authorizedKeysPath,
     blob,
+    ...(customerBlob ? [customerBlob] : []),
   ]);
   if (!res.stdout.includes("RESULT: removed")) {
     throw new Error(
       `revocation did not confirm removal (exit ${res.code}): ${firstLineOf(res.stdout, res.stderr)}`,
     );
   }
+  if (!customerBlob) return "not-supplied";
+  if (res.stdout.includes("CUSTOMER-KEY: present")) return "present";
+  if (res.stdout.includes("CUSTOMER-KEY: missing")) return "missing";
+  if (res.stdout.includes("CUSTOMER-KEY: duplicate")) return "duplicate";
+  throw new Error("revocation reported no customer-key observation");
 }
 
 export type RemovalProof = { proven: true } | { proven: false; reason: string };

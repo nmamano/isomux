@@ -793,13 +793,17 @@
           </span>
         </summary>
         <p>
-          If you ever sign out from every device and lose access to your office,
-          the way back in is to run one command on the isomux server to generate
-          a fresh sign-in link. We recommend you paste your own SSH key at
-          signup so you can access the server and run that command in case that
-          happens. (It also lets you verify that our key is gone.) Without your
-          own key, recovery means asking us to run it through the provider's
-          rescue console.
+          We strongly recommend that you paste your own SSH key at signup. It
+          gives you root administrator access to the VPS, so you can install
+          system software, manage the server, recover access to your Isomux
+          office if your browser no longer has access, and verify that our key
+          is gone. Isomux agents and the built-in terminal cannot use sudo; this
+          protects the VPS from accidental or unsafe agent commands. If you skip
+          the key, you cannot add administrator access later from inside Isomux.
+          Recovery then means asking us in writing to use the provider's rescue
+          console, or reinstalling the server and erasing its disk. You can ask
+          a chatbot to help you create an SSH key and find the public key to
+          paste at signup.
         </p>
         <p>
           Disclaimer: since we rent the server, we technically have the ability

@@ -7,6 +7,16 @@ the removal proven by a failed reconnect using the removed key.
 Design: `internal-docs/control-plane-design.md` (the spec; its rulings are
 final) and `internal-docs/hosted-isomux-design.md` (the product).
 
+Before deploying a build that adds customer SSH key carriage to an existing
+database, run the owner-role migration once:
+
+```bash
+bun control-plane/cli.ts migrate-customer-ssh-key
+```
+
+Runtime roles cannot apply this DDL. Until the migration lands, both the web
+and provisioner processes refuse to open the old schema.
+
 Nothing here runs in the isomux server. It is a CLI driven by an operator, and
 it holds no standing access to anything it builds.
 

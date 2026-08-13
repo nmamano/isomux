@@ -4,6 +4,7 @@ import * as path from "node:path";
 export const RUNTIME_REPO_FILES = {
   authorizedKeys: "control-plane/remote/authorized-keys.sh",
   cleanup: "control-plane/cleanup.sh",
+  installCustomerKey: "control-plane/remote/install-customer-key.sh",
   installer: "deploy/install.sh",
   mintInvite: "control-plane/remote/mint-invite.sh",
   revokeKey: "control-plane/remote/revoke-key.sh",

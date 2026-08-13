@@ -35,12 +35,14 @@ export async function POST(request: Request): Promise<Response> {
   const officeName = field("officeName");
   const plan = field("plan");
   const couponRaw = field("couponId");
+  const customerSshKey = field("customerSshKey");
 
   const result = await signUpOffice({
     accountId,
     officeName,
     plan,
     couponId: couponRaw || null,
+    customerSshKey: customerSshKey || null,
   });
 
   if (!result.ok) {

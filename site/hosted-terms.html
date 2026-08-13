@@ -350,25 +350,29 @@
 
       <h2>Getting into your own server</h2>
       <p>
-        You can paste your own SSH key at signup, and we recommend it. It gives
-        you a way into the server that does not depend on the office, which is
-        how you get back in if you ever sign out from every device, and how you
-        can verify our SSH key is gone.
+        You can paste your own SSH key at signup, and we strongly recommend it.
+        It gives you root administrator access to the VPS, which lets you
+        install system software, manage the server, recover access to your
+        Isomux office if your browser no longer has access, and verify that our
+        SSH key is gone. Isomux agents and the built-in terminal cannot use
+        sudo; this protects the VPS from accidental or unsafe agent commands.
       </p>
       <p>
-        If you skip it, then once setup is done nobody can enter the box,
-        ourselves included. Getting back in means asking us in writing to open
-        the provider's rescue console and run the command that issues a fresh
-        sign-in link, under the access rules below. If you would rather not
-        authorize that, or the office isn't running at all, the route left is a
-        reinstall, which erases the disk.
+        If you skip it, you cannot add administrator access later from inside
+        Isomux. Once setup is done, you cannot install system software, manage
+        the VPS, or recover office access yourself if your browser loses access.
+        You must ask us in writing to use the provider's rescue console under
+        the access rules below. If you would rather not authorize that, or the
+        office is not running, the route left is a reinstall, which erases the
+        disk. You can ask a chatbot to help you create an SSH key and find the
+        public key to paste at signup.
       </p>
 
       <h2>Our access to your server</h2>
       <p>
         We hold an SSH key to your server while we set it up, and only then. It
         is removed when you confirm from your office that you are in, or
-        automatically after 7 days, whichever comes first. We confirm the
+        automatically after 30 days, whichever comes first. We confirm the
         removal by trying to reconnect with the key we just deleted and
         requiring that attempt to fail. Our copy is then destroyed. After that
         we have no way into your running office, and we never see what is inside

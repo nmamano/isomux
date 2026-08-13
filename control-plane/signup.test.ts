@@ -24,6 +24,7 @@ import {
   SubjectBindingConflict,
   validateSignup,
 } from "./signup.ts";
+import { validateCustomerSshKey } from "./key-lines.ts";
 import { accountByEmail } from "./stripe/billing-store.ts";
 import type { Store } from "./store.ts";
 import {
@@ -34,6 +35,15 @@ import {
 } from "./testing/pg.ts";
 
 const temps: string[] = [];
+
+function keyBlob(algorithm = "ssh-ed25519"): string {
+  const name = Buffer.from(algorithm);
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(name.length);
+  return Buffer.concat([length, name, Buffer.alloc(32, 7)]).toString("base64");
+}
+
+const VALID_KEY = `ssh-ed25519 ${keyBlob()} laptop comment`;
 
 async function tempStore(now?: () => number): Promise<Store> {
   return await openTestStore(now);
@@ -64,6 +74,30 @@ async function signup(
 }
 
 describe("refusals that never reach the database", () => {
+  test("validates and normalizes one option-free decoded SSH key", () => {
+    expect(validateCustomerSshKey(VALID_KEY)).toEqual({
+      ok: true,
+      normalized: `ssh-ed25519 ${keyBlob()}`,
+      algorithm: "ssh-ed25519",
+      blob: keyBlob(),
+    });
+  });
+
+  test.each([
+    [`expiry-time="tomorrow" ${VALID_KEY}`, "without options"],
+    [`${VALID_KEY}\n${VALID_KEY}`, "one line"],
+    [`${VALID_KEY}\r\n`, "one line"],
+    [`ssh-dss ${keyBlob("ssh-dss")}`, "supported"],
+    [`ssh-rsa ${keyBlob()}`, "does not match"],
+    [`ssh-ed25519 !!!!`, "base64"],
+    [`ssh-ed25519 AAAA`, "incomplete"],
+    [`ssh-ed25519 ${"A".repeat(17_000)}`, "too long"],
+  ])("refuses an unsafe SSH key", (raw, words) => {
+    const out = validateCustomerSshKey(raw);
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.reason).toContain(words);
+  });
+
   test("an unknown plan is refused and writes nothing", async () => {
     const store = await tempStore();
     const out = await signup(store, { plan: "enterprise" });
@@ -91,6 +125,17 @@ describe("refusals that never reach the database", () => {
 });
 
 describe("the reservation", () => {
+  test("persists the normalized key and refuses a retry that changes it", async () => {
+    const store = await tempStore();
+    const first = await signup(store, { customerSshKey: VALID_KEY });
+    if (!first.ok) throw new Error("signup failed");
+    const instance = await store.getInstance(first.reservation.instance_id);
+    expect(instance?.customer_ssh_key).toBe(`ssh-ed25519 ${keyBlob()}`);
+    const second = await signup(store, { customerSshKey: null });
+    expect(second.ok).toBe(false);
+    if (!second.ok)
+      expect(second.reason).toContain("already reserved with an SSH key");
+  });
   test("creates account, reservation, instance and a placeholder asset together", async () => {
     const now = 1_700_000_000_000;
     const store = await tempStore(() => now);

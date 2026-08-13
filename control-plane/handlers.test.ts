@@ -12,6 +12,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   mintInviteHandler,
+  installCustomerKeyHandler,
+  revokeAccessHandler,
   runInstallerHandler,
   waitForPackageManagerHandler,
   waitForSshHandler,
@@ -22,7 +24,7 @@ import { saveRun, type RunRecord } from "./run-record.ts";
 import { Store } from "./store.ts";
 import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import type { ExecResult, Exec, ExecOptions } from "./ssh.ts";
-import { RemoteBudget, type HandlerContext } from "./tick.ts";
+import { RemoteBudget, Ticker, type HandlerContext } from "./tick.ts";
 
 const temps: string[] = [];
 
@@ -54,6 +56,13 @@ class FakeExec implements Exec {
 }
 
 const OK: ExecResult = { code: 0, stdout: "", stderr: "" };
+
+function validKey(): string {
+  const name = Buffer.from("ssh-ed25519");
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(name.length);
+  return `ssh-ed25519 ${Buffer.concat([length, name, Buffer.alloc(32, 9)]).toString("base64")}`;
+}
 
 interface Bed {
   dir: string;
@@ -253,6 +262,178 @@ describe("wait_for_package_manager", () => {
     expect(
       (await waitForPackageManagerHandler(b.deps).run(await b.ctx({}))).kind,
     ).toBe("done");
+  });
+});
+
+describe("install_customer_key", () => {
+  test("a skipped key completes without touching the box", async () => {
+    const exec = new FakeExec(() => OK);
+    const b = await bed(exec);
+    const result = await installCustomerKeyHandler(b.deps).run(await b.ctx({}));
+    expect(result).toEqual({ kind: "done", evidence: { skipped: true } });
+    expect(exec.calls).toHaveLength(0);
+    expect((await b.store.getInstance("inst-1"))?.ssh_login_user).toBe("root");
+  });
+
+  test("installs, records the fingerprint, and retains the key until revocation", async () => {
+    const exec = new FakeExec(() => ({
+      code: 0,
+      stdout: "RESULT: customer key installed\n",
+      stderr: "",
+    }));
+    const b = await bed(exec);
+    const before = (await b.store.getInstance("inst-1"))!;
+    await b.store.casInstance(before.id, before.version, {
+      customer_ssh_key: validKey(),
+    });
+    const result = await installCustomerKeyHandler(b.deps).run(await b.ctx({}));
+    expect(result).toEqual({
+      kind: "done",
+      evidence: { installed: true, line: "added" },
+    });
+    const after = await b.store.getInstance("inst-1");
+    expect(after?.customer_ssh_key).toBe(validKey());
+    expect(after?.customer_ssh_key_fingerprint).toStartWith("SHA256:");
+    expect(
+      b.audits.find((line) => line.startsWith("install_customer_ssh_key:")),
+    ).toStartWith("install_customer_ssh_key:succeeded:SHA256:");
+  });
+});
+
+describe("revoke_access", () => {
+  test("clears the stored key only after removal is proven", async () => {
+    const exec = new FakeExec((argv, stdin) =>
+      stdin?.includes("RESULT: removed")
+        ? {
+            code: 0,
+            stdout: "RESULT: removed\nCUSTOMER-KEY: present\n",
+            stderr: "",
+          }
+        : { code: 255, stdout: "", stderr: "Permission denied (publickey)." },
+    );
+    const b = await bed(exec);
+    fs.writeFileSync(b.rec.privateKeyPath, "private");
+    fs.writeFileSync(b.rec.publicKeyPath, "public");
+    const before = (await b.store.getInstance("inst-1"))!;
+    await b.store.casInstance(before.id, before.version, {
+      customer_ssh_key: validKey(),
+      customer_ssh_key_fingerprint: "SHA256:test",
+      ssh_login_user: "root",
+    });
+    const result = await revokeAccessHandler(b.deps).run(await b.ctx({}));
+    expect(result).toEqual({
+      kind: "done",
+      evidence: { proven: true, customerKey: "present" },
+    });
+    const after = await b.store.getInstance("inst-1");
+    expect(after?.customer_ssh_key).toBeNull();
+    expect(after?.customer_ssh_key_fingerprint).toBe("SHA256:test");
+    expect(fs.existsSync(b.rec.privateKeyPath)).toBe(false);
+  });
+
+  test("re-reads and retries once when the instance CAS loses", async () => {
+    const exec = new FakeExec((argv, stdin) =>
+      stdin?.includes("RESULT: removed")
+        ? {
+            code: 0,
+            stdout: "RESULT: removed\nCUSTOMER-KEY: present\n",
+            stderr: "",
+          }
+        : { code: 255, stdout: "", stderr: "Permission denied (publickey)." },
+    );
+    const b = await bed(exec);
+    fs.writeFileSync(b.rec.privateKeyPath, "private");
+    fs.writeFileSync(b.rec.publicKeyPath, "public");
+    const before = (await b.store.getInstance("inst-1"))!;
+    await b.store.casInstance(before.id, before.version, {
+      customer_ssh_key: validKey(),
+    });
+    const realCas = b.store.casInstance.bind(b.store);
+    let calls = 0;
+    b.store.casInstance = async (...args) => {
+      calls++;
+      return calls === 1 ? null : realCas(...args);
+    };
+    const result = await revokeAccessHandler(b.deps).run(await b.ctx({}));
+    expect(result.kind).toBe("done");
+    expect(calls).toBe(2);
+    expect((await b.store.getInstance("inst-1"))?.customer_ssh_key).toBeNull();
+    expect(fs.existsSync(b.rec.privateKeyPath)).toBe(false);
+  });
+
+  test("destroys our private key even when both clearing CAS attempts lose", async () => {
+    const exec = new FakeExec((argv, stdin) =>
+      stdin?.includes("RESULT: removed")
+        ? { code: 0, stdout: "RESULT: removed\n", stderr: "" }
+        : { code: 255, stdout: "", stderr: "Permission denied (publickey)." },
+    );
+    const b = await bed(exec);
+    fs.writeFileSync(b.rec.privateKeyPath, "private");
+    fs.writeFileSync(b.rec.publicKeyPath, "public");
+    b.store.casInstance = async () => null;
+    const result = await revokeAccessHandler(b.deps).run(await b.ctx({}));
+    expect(result.kind).toBe("ambiguous");
+    expect(fs.existsSync(b.rec.privateKeyPath)).toBe(false);
+  });
+
+  test("a missing customer key raises attention but does not block revocation", async () => {
+    const exec = new FakeExec((argv, stdin) =>
+      stdin?.includes("RESULT: removed")
+        ? {
+            code: 0,
+            stdout: "RESULT: removed\nCUSTOMER-KEY: missing\n",
+            stderr: "",
+          }
+        : { code: 255, stdout: "", stderr: "Permission denied (publickey)." },
+    );
+    const b = await bed(exec);
+    fs.writeFileSync(b.rec.privateKeyPath, "private");
+    fs.writeFileSync(b.rec.publicKeyPath, "public");
+    const before = (await b.store.getInstance("inst-1"))!;
+    await b.store.casInstance(before.id, before.version, {
+      customer_ssh_key: validKey(),
+    });
+    const result = await revokeAccessHandler(b.deps).run(await b.ctx({}));
+    expect(result).toEqual({
+      kind: "done",
+      evidence: { proven: true, customerKey: "missing" },
+    });
+    expect(await b.store.openReasons("inst-1")).toHaveLength(1);
+    expect((await b.store.getInstance("inst-1"))?.customer_ssh_key).toBeNull();
+  });
+
+  test("the tick leaves the instance-level missing-key warning open", async () => {
+    const exec = new FakeExec((argv, stdin) =>
+      stdin?.includes("RESULT: removed")
+        ? {
+            code: 0,
+            stdout: "RESULT: removed\nCUSTOMER-KEY: missing\n",
+            stderr: "",
+          }
+        : { code: 255, stdout: "", stderr: "Permission denied (publickey)." },
+    );
+    const b = await bed(exec);
+    fs.writeFileSync(b.rec.privateKeyPath, "private");
+    fs.writeFileSync(b.rec.publicKeyPath, "public");
+    const before = (await b.store.getInstance("inst-1"))!;
+    await b.store.casInstance(before.id, before.version, {
+      customer_ssh_key: validKey(),
+    });
+    const ticker = new Ticker({
+      store: b.store,
+      handlers: [revokeAccessHandler(b.deps)],
+      holder: "tick-holder",
+    });
+    await ticker.enqueue("inst-1", "revoke_access");
+    await ticker.once();
+    const reasons = await b.store.openReasons("inst-1");
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0]?.source_op_id).toBe("");
+    expect(reasons[0]?.reason).toContain("customer's SSH key changed");
+    const audits = await b.store.auditEvents();
+    expect(
+      audits.some((row) => row.action === "observe_customer_ssh_key"),
+    ).toBe(true);
   });
 });
 

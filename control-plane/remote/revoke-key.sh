@@ -16,12 +16,13 @@
 #
 # Requires the ak_* helpers to be prepended (composeRemoteScript in driver.ts).
 #
-# Usage: revoke-key.sh <authorized_keys> <blob>
+# Usage: revoke-key.sh <authorized_keys> <blob> [customer_blob]
 
 set -euo pipefail
 
 AK=${1:?authorized_keys path required}
 BLOB=${2:?key blob required}
+CUSTOMER_BLOB=${3:-}
 
 if [ -f "$AK" ] && [ "$(ak_count_exact "$AK" "$BLOB")" -gt 0 ]; then
   tmp=$(mktemp "$AK.XXXXXX")
@@ -44,3 +45,11 @@ if [ -f "$AK" ] && [ "$(ak_count_exact "$AK" "$BLOB")" -gt 0 ]; then
 fi
 
 echo "RESULT: removed"
+if [ -n "$CUSTOMER_BLOB" ]; then
+  customer_count=$(ak_count_exact "$AK" "$CUSTOMER_BLOB")
+  case "$customer_count" in
+    1) echo "CUSTOMER-KEY: present" ;;
+    0) echo "CUSTOMER-KEY: missing" ;;
+    *) echo "CUSTOMER-KEY: duplicate" ;;
+  esac
+fi

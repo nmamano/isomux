@@ -27,7 +27,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
 import { BRANCH_PIN_ENV, provePinnedBranch } from "./boot.ts";
-import { bootstrapDatabase, reportBootstrap } from "./bootstrap.ts";
+import {
+  bootstrapDatabase,
+  migrateCustomerSshKeyColumns,
+  reportBootstrap,
+} from "./bootstrap.ts";
 import {
   AUDIT_FILE,
   databaseUrl,
@@ -858,6 +862,11 @@ async function cmdBootstrap(): Promise<void> {
   if (!result.schemaReady || !result.zeroUserData) process.exit(1);
 }
 
+async function cmdMigrateCustomerSshKey(): Promise<void> {
+  await migrateCustomerSshKeyColumns(databaseUrl());
+  reporter.line("customer SSH key columns: ready");
+}
+
 async function cmdOps(args: Map<string, string>): Promise<void> {
   const store = await openStore();
   const run = args.get("run");
@@ -1166,6 +1175,8 @@ async function main(): Promise<void> {
       return cmdOps(args);
     case "bootstrap":
       return cmdBootstrap();
+    case "migrate-customer-ssh-key":
+      return cmdMigrateCustomerSshKey();
     case "operator":
       return cmdOperator(args);
     case "attention":
@@ -1175,7 +1186,7 @@ async function main(): Promise<void> {
     default:
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key> [--flags]",
       );
       process.exit(2);
   }

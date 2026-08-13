@@ -448,7 +448,7 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
  * than a 42501 in production - which is what the previous version, a `via`
  * string nobody could check, could not offer (reviewer finding, 2026-08-12).
  *
- * Audited 2026-08-12. The four PROVIDER handlers register only when the process
+ * Audited 2026-08-13. The four PROVIDER handlers register only when the process
  * holds provider credentials, which the deployment does not yet; they were
  * audited anyway, and they reach only verbs the matrix already carries
  * (`casAsset` -> provider_assets UPDATE, `openReasons` and `raiseAttentionIn`
@@ -459,6 +459,7 @@ export const AUDITED_HANDLER_KINDS = [
   "wait_for_ssh",
   "wait_for_package_manager",
   "first_contact",
+  "install_customer_key",
   "arm_revocation",
   "run_installer",
   "verify_https",

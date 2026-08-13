@@ -211,6 +211,12 @@ dilution of it, and it is cheap precisely because it happens during the install
 the parent design's SSH toggle expensive. Customers who skip it get a box
 nobody can enter, which is a legitimate thing to want, stated plainly at signup.
 
+The implemented carriage stores the normalized public key on the instance
+until revocation is proven. Provisioning installs and reads it back immediately
+after first contact. Early revocation and the box-local cleanup both require
+that key to remain present exactly once. After proven revocation, the control
+plane clears the key and retains only its SHA256 fingerprint for audit.
+
 ### The provider account is the honest limit, and Nil has to rule on it
 
 We rent the box, so we keep provider-level control whatever we promise: reboot,

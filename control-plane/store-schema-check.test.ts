@@ -18,6 +18,7 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import pg from "pg";
 import { PROVISIONER_GRANTS } from "./roles.ts";
+import { migrateCustomerSshKeyColumns } from "./bootstrap.ts";
 import { PRODUCT_TABLES, Store } from "./store.ts";
 import {
   LOCAL_DATABASE_URL,
@@ -118,6 +119,19 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     expect(Store.openRuntime(roleDsn)).rejects.toThrow(
       /operations has no absolute_flagged column/,
     );
+  });
+
+  test("the owner migration repairs the customer SSH carriage columns", async () => {
+    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `alter table ${quoteIdentifier(schema)}.instances drop column customer_ssh_key`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /instances has no customer_ssh_key column/,
+    );
+    await migrateCustomerSshKeyColumns(ownerDsn);
+    const store = await Store.openRuntime(roleDsn);
+    await store.close();
   });
 
   // THE ONE THE FIRST FIX STILL MISSED. `name_reservations` has no entry in the
