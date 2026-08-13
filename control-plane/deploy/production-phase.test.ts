@@ -6,6 +6,9 @@
 // down here, before the run, rather than read off the transcript afterwards.
 
 import { describe, expect, test } from "bun:test";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   PREVIEW_SHAPES,
   PRODUCTION_SHAPES,
@@ -28,6 +31,7 @@ import {
   probeInputFor,
   probeExpectationsFor,
   probeKeysFor,
+  probeRuntimeReady,
   rowsMatch,
   judgeByTarget,
   judgeProbe,
@@ -59,6 +63,55 @@ const NINE: EnvFact[] = [
 
 const judge = (facts: EnvFact[]) =>
   judgeByTarget(facts, PREVIEW_SHAPES, PRODUCTION_SHAPES, FORBIDDEN_ENV_NAMES);
+
+describe("the local probe runtime boundary", () => {
+  test("accepts only the exact successful readiness transcript", () => {
+    expect(probeRuntimeReady("probe_runtime_ready: true\n", 0)).toBe(true);
+    expect(probeRuntimeReady("", 1)).toBe(false);
+    expect(probeRuntimeReady("probe_runtime_ready: true\nnoise\n", 0)).toBe(
+      false,
+    );
+    expect(probeRuntimeReady("probe_runtime_ready: false\n", 0)).toBe(false);
+  });
+
+  test.skipIf(
+    !fs.existsSync(
+      path.join(import.meta.dir, "..", "web", "node_modules", "next-auth"),
+    ),
+  )("the installed real probe produces the accepted transcript", () => {
+    const child = Bun.spawnSync(
+      ["bun", "--no-install", "e2e/production-probe.ts", "--preflight"],
+      { cwd: path.join(import.meta.dir, "..", "web") },
+    );
+    const stdout = new TextDecoder().decode(child.stdout);
+    expect(probeRuntimeReady(stdout, child.exitCode)).toBe(true);
+    expect(stdout).toBe("probe_runtime_ready: true\n");
+  });
+
+  test("a fresh-clone probe with no web dependencies fails at startup", () => {
+    const bare = fs.mkdtempSync(path.join(os.tmpdir(), "probe-preflight-"));
+    try {
+      fs.copyFileSync(
+        path.join(import.meta.dir, "..", "web", "e2e", "production-probe.ts"),
+        path.join(bare, "production-probe.ts"),
+      );
+      const child = Bun.spawnSync(
+        ["bun", "--no-install", "production-probe.ts", "--preflight"],
+        { cwd: bare },
+      );
+      expect(child.exitCode).not.toBe(0);
+      expect(new TextDecoder().decode(child.stdout)).toBe("");
+      expect(
+        probeRuntimeReady(
+          new TextDecoder().decode(child.stdout),
+          child.exitCode,
+        ),
+      ).toBe(false);
+    } finally {
+      fs.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("the environment, judged PER TARGET", () => {
   test("DUPLICATE KEYS ON DISJOINT TARGETS ARE CORRECT, not a collision", () => {

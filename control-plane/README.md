@@ -1097,8 +1097,17 @@ with a hard fifteen-minute deadline. In the live run the first check was enough:
 
 ### Running the production phase after a freeze
 
-TWO COMMANDS, and the difference matters more than the flag suggests: the
-default one WRITES the environment.
+In a fresh clone, install both dependency sets. The second install supplies the
+local production probe runtime. If that runtime cannot start, the phase refuses
+before it reads the Vercel token and before it contacts a remote service.
+
+```
+bun install
+(cd control-plane/web && bun install)
+```
+
+Then use one of two commands. The difference matters more than the flag
+suggests: the default one WRITES the environment.
 
 ```
 bun control-plane/deploy/production-phase.ts             # FIRST deploy: creates the seven Production entries
@@ -1124,7 +1133,11 @@ suite only. It cannot repeat the synthetic authenticated store checks or the
 deployed-web bearer round trip, for the reason the environment section gives:
 `AUTH_SECRET` is write-only and the process that generated it is gone. Real
 authenticated acceptance is a human signing in from a private window.
-Detach-before-diagnosis and the TLS-timeout exception apply to both modes.
+Detach-before-diagnosis and the TLS-timeout exception apply to both modes. A
+local probe-runtime startup failure is a pre-deploy harness failure, not a
+public predicate failure: it refuses before deployment and detaches nothing.
+Once deployment starts, a real public probe predicate failure still detaches
+before its transcript is printed.
 
 **Redeploy mode asserts that the deploy changed no user data, and it says that
 as a COMPARISON** (fixed 2026-08-12, task f5ed4b60). It was written with the row
@@ -3211,9 +3224,11 @@ Two 2026-08-13 launch blockers came from the real pass. The Fly image lacked
 not start the installer; task `a8258f96` owns the permanent image fix. Also, a
 fresh clone with only the root dependencies installed could deploy a healthy
 Vercel build and then fail its LOCAL probe import (`next-auth/jwt` absent),
-causing the safety gate to detach the healthy domain; task `ef0986ce` owns the
-pre-deploy harness check. Until it lands, install dependencies in both the repo
-root and `control-plane/web` before `production-phase.ts --redeploy`.
+causing the safety gate to detach the healthy domain. The production phase now
+starts that real probe entry point in a network-free readiness mode before it
+reads the Vercel token or contacts a remote service. A startup failure refuses
+before deployment. Install dependencies in both the repo root and
+`control-plane/web` before `production-phase.ts --redeploy`.
 
 ## Tests
 

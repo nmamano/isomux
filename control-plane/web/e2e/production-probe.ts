@@ -2,6 +2,9 @@
 //
 //   (cwd control-plane/web) bun e2e/production-probe.ts   < one JSON line
 //
+// `--preflight` starts this runtime, prints one fixed line, touches no network
+// and reads no stdin.
+//
 // Same reason for being a child as `preview-probe.ts`: minting an Auth.js
 // session cookie needs `next-auth/jwt`, which resolves only from inside this
 // package. The alternative was hand-rolling a JWE, which is not a thing to do
@@ -112,6 +115,10 @@ function headerText(res: Response): string {
 }
 
 async function main(): Promise<void> {
+  if (process.argv.length === 3 && process.argv[2] === "--preflight") {
+    console.log("probe_runtime_ready: true");
+    return;
+  }
   const raw = await new Response(Bun.stdin.stream()).text();
   const input = JSON.parse(raw) as Input;
   const base = input.baseUrl.replace(/\/$/, "");

@@ -875,6 +875,15 @@ export function shapedState(value: unknown): string {
     : "unexpected";
 }
 
+/**
+ * The local probe is part of the deployment harness, not a production
+ * predicate. Its real entry point must start and emit only this closed
+ * readiness transcript before any remote operation can begin.
+ */
+export function probeRuntimeReady(stdout: string, exitCode: number): boolean {
+  return exitCode === 0 && stdout.trim() === "probe_runtime_ready: true";
+}
+
 // ------------------------------------------------------------------ main
 
 async function rowCounts(store: Store): Promise<Record<string, number>> {
@@ -897,6 +906,26 @@ async function main(): Promise<void> {
     // argument we do not recognise must not fall through to the mode that
     // writes the environment.
     console.log("refusing: use no arguments, or exactly --redeploy");
+    process.exitCode = 2;
+    return;
+  }
+  let probeReady = false;
+  try {
+    const preflight = await spawnIn(
+      path.join(workspace, "control-plane", "web"),
+      ["bun", "e2e/production-probe.ts", "--preflight"],
+      {},
+    );
+    probeReady = probeRuntimeReady(preflight.stdout, preflight.code);
+  } catch {
+    probeReady = false;
+  }
+  console.log(`probe_runtime_ready: ${probeReady}`);
+  if (!probeReady) {
+    console.log("refusing: local production probe runtime is not ready");
+    console.log(
+      "hint: run (cd control-plane/web && bun install) and run from the repository root",
+    );
     process.exitCode = 2;
     return;
   }
