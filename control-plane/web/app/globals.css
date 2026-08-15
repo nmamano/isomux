@@ -585,6 +585,23 @@ main .btn-primary:hover:not(:disabled) {
 .form textarea:focus {
   border-color: var(--accent);
 }
+.form .key-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.form .key-confirm input {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.form textarea + button {
+  margin-top: 10px;
+}
 
 /* ---------- Responsive ---------- */
 

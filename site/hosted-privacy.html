@@ -327,15 +327,14 @@
         <strong>At signup:</strong> your name and email address, from the Google
         account you sign in with. The office name you pick - it becomes your web
         address, and addresses with HTTPS certificates land in public
-        certificate logs, so pick a name you don't mind strangers seeing. An SSH
-        public key, if you paste one: we install it on your server during setup
-        to give you root administrator access to the VPS. We keep its
-        fingerprint, but no copy of the public key itself, after setup. The key
-        text is also excluded from the setup log. Isomux agents and the built-in
-        terminal cannot use sudo. If you skip the key, you cannot add
-        administrator access later from inside Isomux, and you cannot install
-        system software or manage the VPS after we remove our temporary key
-        without contacting support.
+        certificate logs, so pick a name you don't mind strangers seeing. Your
+        browser creates a server administrator key. We receive its public half
+        and install it on your server so you can access it with the private
+        half. The private key is not sent to us. After setup, we keep a record
+        that lets us confirm which public key was installed, but not the public
+        key itself. For safety reasons, Isomux agents and the built-in terminal
+        cannot act as a privileged user. Only you can do so with the
+        administrator key.
       </p>
       <p>
         <strong>Payment:</strong> Stripe handles the card. We never see or store
@@ -344,8 +343,7 @@
       </p>
       <p>
         <strong>Setup records:</strong> a structured record of setup steps, with
-        the time and outcome. It does not store raw commands, command output, or
-        the text of your SSH public key.
+        the time and outcome. It does not store raw commands or command output.
       </p>
       <p>
         <strong>Support:</strong> whatever you send us when you ask for help.

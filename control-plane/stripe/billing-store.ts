@@ -328,6 +328,16 @@ export async function getSubscription(
   );
 }
 
+export async function subscriptionForInstance(
+  store: Store,
+  instanceId: string,
+): Promise<SubscriptionRow | null> {
+  return store.sqlGet<SubscriptionRow>(
+    "select * from subscriptions where instance_id = $1 order by created_at desc limit 1",
+    [instanceId],
+  );
+}
+
 export async function listSubscriptions(
   store: Store,
 ): Promise<SubscriptionRow[]> {

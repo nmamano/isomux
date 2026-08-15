@@ -1,5 +1,10 @@
 import { auth } from "../../../auth";
-import { checkTrustedOrigin, signUpOffice } from "../../../lib/services.server";
+import {
+  checkTrustedOrigin,
+  continueSignup,
+  signUpOffice,
+  signupPageState,
+} from "../../../lib/services.server";
 
 export const dynamic = "force-dynamic";
 
@@ -33,9 +38,27 @@ export async function POST(request: Request): Promise<Response> {
     return typeof value === "string" ? value.trim() : "";
   };
   const officeName = field("officeName");
+  const customerSshKey = field("customerSshKey");
+  const state = await signupPageState(accountId);
+  if (state.kind === "office")
+    return Response.redirect(`${here}/office/${state.officeName}`, 303);
+  if (!customerSshKey) {
+    if (state.kind !== "continue") return new Response(null, { status: 400 });
+    if (officeName !== state.officeName) {
+      return new Response(null, { status: 409 });
+    }
+    const result = await continueSignup(accountId);
+    if (!result.ok) {
+      if ("officeName" in result)
+        return Response.redirect(`${here}/office/${result.officeName}`, 303);
+      const back = new URL("/signup", here);
+      back.searchParams.set("error", result.reason);
+      return Response.redirect(back.toString(), 303);
+    }
+    return Response.redirect(result.checkoutUrl, 303);
+  }
   const plan = field("plan");
   const couponRaw = field("couponId");
-  const customerSshKey = field("customerSshKey");
 
   const result = await signUpOffice({
     accountId,
@@ -46,10 +69,16 @@ export async function POST(request: Request): Promise<Response> {
   });
 
   if (!result.ok) {
+    if (request.headers.get("accept")?.includes("application/json")) {
+      return Response.json(result, { status: 400 });
+    }
     const back = new URL("/signup", here);
     back.searchParams.set("error", result.reason);
     back.searchParams.set("name", officeName);
     return Response.redirect(back.toString(), 303);
+  }
+  if (request.headers.get("accept")?.includes("application/json")) {
+    return Response.json(result);
   }
   return Response.redirect(result.checkoutUrl, 303);
 }

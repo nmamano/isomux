@@ -76,6 +76,7 @@ describe("only one file reaches the store", () => {
       "acknowledgeOpsInstance",
       "checkTrustedOrigin",
       "confirmHandoff",
+      "continueSignup",
       "identityForSignIn",
       "officeForAccount",
       "officeRouteForAccount",
@@ -89,6 +90,7 @@ describe("only one file reaches the store", () => {
       "requestUncancel",
       "revealInvite",
       "signUpOffice",
+      "signupPageState",
     ]);
     // And nothing exports a store, a database or a transaction.
     expect(source).not.toMatch(/export .*\bStore\b/);
@@ -234,7 +236,12 @@ describe("the privileged half of the control plane is unreachable", () => {
       expect(source).not.toContain("CONTABO_");
       expect(source).not.toContain("STRIPE_WEBHOOK_SECRET");
       expect(source).not.toContain(".isomux-control-plane");
-      expect(source).not.toContain("PRIVATE KEY");
+      if (file.endsWith("server-administrator-key.ts")) {
+        expect(source.startsWith('"use client"')).toBe(true);
+        expect(source).toContain("openssh-key-v1");
+      } else {
+        expect(source).not.toContain("PRIVATE KEY");
+      }
     }
   });
 

@@ -25,11 +25,16 @@ import pg from "pg";
 import { TEST_DATABASE_URL, releaseTestStores, testDsn } from "./testing/pg.ts";
 import { Store } from "./store.ts";
 import {
+  continueSignup,
   officeForAccount,
   officeRouteForAccount,
   progressForAccount,
+  signUpOffice,
+  signupPageState,
 } from "./web/lib/services.server.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
+import { insertSubscription } from "./stripe/billing-store.ts";
+import { generateServerAdministratorKey } from "./web/components/server-administrator-key.ts";
 
 /** The same symbol the facade caches on. Reached here, and nowhere else, so the
  * facade's export list stays the fixed list the boundary test pins. */
@@ -171,6 +176,93 @@ describe("the web app's store outlives the request", () => {
 
     process.env.CONTROL_PLANE_DB = await appDsn();
     expect(await progressForAccount("acct-nobody", "inst-nobody")).toBeNull();
+  });
+});
+
+describe("hosted signup page state", () => {
+  test("a keyless first signup is refused before reservation or Stripe", async () => {
+    const dsn = await appDsn();
+    process.env.CONTROL_PLANE_DB = dsn;
+    const seed = await Store.open(dsn);
+    const account = await accountForDevSignIn(seed, "keyless@example.com");
+    await seed.close();
+
+    const result = await signUpOffice({
+      accountId: account.id,
+      officeName: "keyless",
+      plan: "office",
+      customerSshKey: null,
+    });
+    expect(result).toEqual({ ok: false, reason: "" });
+
+    const inspect = await Store.open(dsn);
+    expect(
+      await inspect.sqlGet(
+        "select * from name_reservations where account_id = $1",
+        [account.id],
+      ),
+    ).toBeNull();
+    await inspect.close();
+  });
+
+  test("an unpaid reservation continues, while a subscription sends it to the office", async () => {
+    const dsn = await appDsn();
+    process.env.CONTROL_PLANE_DB = dsn;
+    const seed = await Store.open(dsn);
+    const account = await accountForDevSignIn(seed, "continue@example.com");
+    const customerKey = (await generateServerAdministratorKey(crypto))
+      .publicKey;
+    const reserved = await reserveOffice(seed, {
+      accountId: account.id,
+      officeName: "continue-me",
+      plan: "office",
+      customerSshKey: customerKey,
+    });
+    if (!reserved.ok) throw new Error(reserved.reason);
+
+    expect(await signupPageState(account.id)).toEqual({
+      kind: "continue",
+      officeName: "continue-me",
+    });
+    await seed.tx(async () =>
+      insertSubscription(seed, {
+        id: "sub-paid",
+        account_id: account.id,
+        instance_id: reserved.reservation.instance_id,
+        stripe_customer_id: "cus-paid",
+        status: "active",
+        current_period_end: null,
+        cancel_at_period_end: 0,
+        ended_at: null,
+        canceled_at: null,
+        cancellation_reason: null,
+        discount_percent_off: null,
+        discount_coupon_id: null,
+        discount_ends_at: null,
+        ever_full_discount: 0,
+        latest_invoice_id: null,
+        payment_failures: 0,
+        exhaustion_observed_at: null,
+        coupon_grace_until: null,
+        episode_id: null,
+        episode_state: "none",
+        last_event_id: null,
+        last_event_created: null,
+      }),
+    );
+    expect(await signupPageState(account.id)).toEqual({
+      kind: "office",
+      officeName: "continue-me",
+    });
+    expect(await continueSignup(account.id)).toEqual({
+      ok: false,
+      officeName: "continue-me",
+    });
+    expect(
+      (await seed.getInstance(reserved.reservation.instance_id))
+        ?.customer_ssh_key,
+    ).toBe(customerKey);
+    await seed.close();
   });
 });
 

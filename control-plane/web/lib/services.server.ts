@@ -37,6 +37,8 @@
 import type { PoolLimits } from "../../store";
 import type { ProgressView } from "../../progress";
 import type { OpsFloor, OpsInstanceView } from "../../ops";
+import type { ReservationRow } from "../../signup";
+import type { AccountRow } from "../../stripe/billing-store";
 
 export type { ProgressView, OpsFloor, OpsInstanceView };
 
@@ -165,6 +167,115 @@ export type SignupResult =
   | { ok: true; checkoutUrl: string; instanceId: string }
   | { ok: false; reason: string };
 
+export type SignupPageState =
+  | { kind: "new" }
+  | { kind: "continue"; officeName: string }
+  | { kind: "office"; officeName: string };
+
+export async function signupPageState(
+  accountId: string,
+): Promise<SignupPageState> {
+  const [{ reservationForAccount }, { subscriptionForInstance }] =
+    await Promise.all([
+      import("../../signup"),
+      import("../../stripe/billing-store"),
+    ]);
+  return withStore(async (store) => {
+    const reservation = await reservationForAccount(store, accountId);
+    if (!reservation) return { kind: "new" };
+    const subscription = await subscriptionForInstance(
+      store,
+      reservation.instance_id,
+    );
+    return subscription
+      ? { kind: "office", officeName: reservation.name }
+      : { kind: "continue", officeName: reservation.name };
+  });
+}
+
+async function openReservedCheckout(args: {
+  reservation: ReservationRow;
+  account: AccountRow;
+}): Promise<SignupResult> {
+  const [
+    { checkoutInputsFor, customerReason },
+    { StripeClient },
+    { openCheckout },
+  ] = await Promise.all([
+    import("../../signup"),
+    import("../../stripe/client"),
+    import("../../stripe/checkout"),
+  ]);
+  const priceId = process.env.CONTROL_PLANE_PRICE_ID;
+  if (!priceId)
+    return { ok: false, reason: "This deployment has no price configured yet" };
+  const key = process.env.STRIPE_TEST_SECRET_KEY;
+  if (!key)
+    return {
+      ok: false,
+      reason: "This deployment has no Stripe key configured",
+    };
+  const origin = deploymentOrigin();
+  if (!origin)
+    return { ok: false, reason: "this deployment has no origin configured" };
+
+  const client = new StripeClient({ key });
+  const inputs = checkoutInputsFor({
+    reservation: args.reservation,
+    account: args.account,
+    email: args.account.email,
+    priceId,
+    successUrl: `${origin}/office/${args.reservation.name}`,
+    cancelUrl: `${origin}/signup`,
+  });
+  let opened: Awaited<ReturnType<typeof openCheckout>>;
+  try {
+    opened = await openCheckout(client, inputs);
+  } catch (err) {
+    console.error(
+      `[signup] Checkout failed for ${args.reservation.name}:`,
+      err instanceof Error ? err.message : err,
+    );
+    return {
+      ok: false,
+      reason:
+        "we could not open a payment page just now - your name is reserved, " +
+        "so try again in a moment",
+    };
+  }
+  if (!opened.ok) return { ok: false, reason: customerReason(opened.reason) };
+  if (!opened.session.url)
+    return { ok: false, reason: "Stripe returned a session with no URL" };
+  return {
+    ok: true,
+    checkoutUrl: opened.session.url,
+    instanceId: args.reservation.instance_id,
+  };
+}
+
+export async function continueSignup(
+  accountId: string,
+): Promise<SignupResult | { ok: false; officeName: string }> {
+  const { reservationForAccount } = await import("../../signup");
+  const { getAccount, subscriptionForInstance } =
+    await import("../../stripe/billing-store");
+  const owned = await withStore(async (store) => {
+    const reservation = await reservationForAccount(store, accountId);
+    if (!reservation) return null;
+    const subscription = await subscriptionForInstance(
+      store,
+      reservation.instance_id,
+    );
+    if (subscription) return { paid: true as const, reservation };
+    const account = await getAccount(store, accountId);
+    if (!account) return null;
+    return { paid: false as const, reservation, account };
+  });
+  if (!owned) return { ok: false, reason: "we do not recognise this account" };
+  if (owned.paid) return { ok: false, officeName: owned.reservation.name };
+  return openReservedCheckout(owned);
+}
+
 /**
  * Reserve a name and open Checkout for it.
  *
@@ -181,15 +292,8 @@ export async function signUpOffice(args: {
   couponId?: string | null;
   customerSshKey?: string | null;
 }): Promise<SignupResult> {
-  const [
-    { reserveOffice, checkoutInputsFor, validateSignup, customerReason },
-    { StripeClient },
-    { openCheckout },
-  ] = await Promise.all([
-    import("../../signup"),
-    import("../../stripe/client"),
-    import("../../stripe/checkout"),
-  ]);
+  if (!args.customerSshKey) return { ok: false, reason: "" };
+  const { reserveOffice, validateSignup } = await import("../../signup");
 
   // WHAT THE CUSTOMER TYPED IS JUDGED FIRST. Checking our own configuration
   // ahead of it answered every bad name with "no price configured", which is
@@ -234,50 +338,7 @@ export async function signUpOffice(args: {
     }),
   );
   if (!reserved.ok) return { ok: false, reason: reserved.reason };
-
-  // The one Stripe creation path in the product. Coupon verification, customer
-  // creation, session parameters and the test-mode refusals all live there.
-  const client = new StripeClient({ key });
-  const inputs = checkoutInputsFor({
-    reservation: reserved.reservation,
-    account: reserved.account,
-    // The account's own address is the Checkout contact, not whatever the
-    // session happens to carry today.
-    email: reserved.account.email,
-    priceId,
-    successUrl: `${origin}/office/${reserved.reservation.name}`,
-    cancelUrl: `${origin}/signup`,
-  });
-  // openCheckout RETURNS its refusals but the session step THROWS - which is
-  // right for the operator CLI, where a stack trace is the audience, and wrong
-  // here, where an archived price turned a signup into a 500 page. A real run
-  // is what found it. The detail goes to the server log; the customer gets a
-  // sentence, because "the price specified is inactive" is our problem to fix.
-  let opened: Awaited<ReturnType<typeof openCheckout>>;
-  try {
-    opened = await openCheckout(client, inputs);
-  } catch (err) {
-    console.error(
-      `[signup] Checkout failed for ${reserved.reservation.name}:`,
-      err instanceof Error ? err.message : err,
-    );
-    return {
-      ok: false,
-      reason:
-        "we could not open a payment page just now - your name is reserved, " +
-        "so try again in a moment",
-    };
-  }
-  // The CLI's wording is right for the CLI and wrong for a form.
-  if (!opened.ok) return { ok: false, reason: customerReason(opened.reason) };
-  if (!opened.session.url) {
-    return { ok: false, reason: "Stripe returned a session with no URL" };
-  }
-  return {
-    ok: true,
-    checkoutUrl: opened.session.url,
-    instanceId: reserved.reservation.instance_id,
-  };
+  return openReservedCheckout(reserved);
 }
 
 /** The account's office, or null. One per account: the reservation table's

@@ -25,6 +25,7 @@ import { Store } from "../../store.ts";
 import { databaseUrl } from "../../config.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { StripeClient } from "../../stripe/client.ts";
+import { insertSubscription } from "../../stripe/billing-store.ts";
 
 const PORT = Number(process.env.E2E_PORT ?? 3311);
 const BASE = `http://localhost:${PORT}`;
@@ -35,6 +36,10 @@ const CHROME = "/usr/bin/google-chrome";
 const transcript: string[] = [];
 function say(line: string): void {
   const safe = line
+    .replace(
+      /-----BEGIN OPENSSH PRIVATE KEY-----[\s\S]*?-----END OPENSSH PRIVATE KEY-----/g,
+      "<OpenSSH private key redacted>",
+    )
     .replace(/sk_(test|live)_[A-Za-z0-9]+/g, "<stripe key redacted>")
     .replace(/whsec_[A-Za-z0-9]+/g, "<webhook secret redacted>")
     // A hosted Checkout URL is a live capability for that session, not an
@@ -84,23 +89,37 @@ async function submitSignup(
   page: Page,
   name: string,
   coupon = "",
-): Promise<void> {
+): Promise<string> {
   await page.goto(`${BASE}/signup`);
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector<HTMLTextAreaElement>(
+          '[data-testid="server-administrator-private-key"]',
+        )
+        ?.value.startsWith("-----BEGIN OPENSSH PRIVATE KEY-----") ?? false,
+  );
   await page.fill('[data-testid="office-name"]', name);
   if (coupon) await page.fill('[data-testid="coupon"]', coupon);
+  await page.click('button:has-text("Copy private key")');
+  await page.click('label:has-text("I saved it") input');
   // WAIT FOR THE NAVIGATION THE CLICK CAUSES, not for the page already loaded.
   // waitForLoadState resolves immediately against the current document, so it
   // reported the form's own URL while the redirect to Stripe was still in
   // flight - and the transcript then said Checkout was never reached.
-  await Promise.all([
-    page
-      .waitForURL((url) => url.toString() !== `${BASE}/signup`, {
-        timeout: 60_000,
-      })
-      .catch(() => {}),
-    page.click('[data-testid="signup-submit"]'),
-  ]);
+  const request = page.waitForRequest(
+    (candidate) =>
+      candidate.url() === `${BASE}/api/signup` && candidate.method() === "POST",
+  );
+  await page.click('[data-testid="signup-submit"]');
+  await Promise.race([
+    page.waitForURL((url) => url.toString() !== `${BASE}/signup`, {
+      timeout: 60_000,
+    }),
+    page.waitForSelector('[data-testid="signup-error"]', { timeout: 60_000 }),
+  ]).catch(() => {});
   await page.waitForLoadState("domcontentloaded").catch(() => {});
+  return (await request).postData() ?? "";
 }
 
 async function errorCopy(page: Page): Promise<string> {
@@ -167,7 +186,11 @@ async function main(): Promise<void> {
     say("dev server is up");
 
     browser = await chromium.launch({ executablePath: CHROME, headless: true });
-    const page = await browser.newPage();
+    const context = await browser.newContext();
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+      origin: BASE,
+    });
+    const page = await context.newPage();
 
     await page.goto(BASE);
     check(
@@ -184,7 +207,35 @@ async function main(): Promise<void> {
     );
 
     // ---- the three refusals, with their actual copy
-    await submitSignup(page, "Not A Label");
+    const firstRequest = await submitSignup(page, "Not A Label");
+    check(
+      "the signup request contains no private key",
+      !firstRequest.includes("OPENSSH PRIVATE KEY"),
+    );
+    const submittedPublic = firstRequest.match(
+      /ssh-ed25519 [A-Za-z0-9+/=]+/,
+    )?.[0];
+    if (!submittedPublic) throw new Error("signup request has no public key");
+    const copiedPrivate = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    const verifyDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "browser-key-check-"),
+    );
+    const verifyFile = path.join(verifyDir, "id_ed25519");
+    try {
+      fs.writeFileSync(verifyFile, copiedPrivate, { mode: 0o600 });
+      const derived = Bun.spawnSync(["ssh-keygen", "-y", "-f", verifyFile]);
+      const derivedPublic = derived.stdout.toString().trim();
+      say(`browser key ssh-keygen exit: ${derived.exitCode}`);
+      say(`browser key derived public: ${derivedPublic}`);
+      check(
+        "the copied private key derives the submitted public key",
+        derived.exitCode === 0 && derivedPublic === submittedPublic,
+      );
+    } finally {
+      fs.rmSync(verifyDir, { recursive: true, force: true });
+    }
     say(`refusal (bad label): ${await errorCopy(page)}`);
     check("a bad label is refused", (await errorCopy(page)).length > 0);
 
@@ -261,6 +312,79 @@ async function main(): Promise<void> {
     // ---- the real signup
     if (!stripeLegs) {
       say("SKIP: Checkout, webhook and dashboard legs need a Stripe test key");
+      const continuationStore = await Store.open(db);
+      const customer = await accountForDevSignIn(
+        continuationStore,
+        "customer@example.com",
+      );
+      const continuation = await reserveOffice(continuationStore, {
+        accountId: customer.id,
+        officeName: "continue-browser",
+        plan: "office",
+        customerSshKey: submittedPublic,
+      });
+      if (!continuation.ok) throw new Error(continuation.reason);
+      await continuationStore.close();
+
+      await page.goto(`${BASE}/signup`);
+      check(
+        "a held reservation shows an explicit continuation action",
+        (await page.textContent("body"))?.includes("Continue signup") === true,
+      );
+      check(
+        "continuation generates no replacement private key",
+        (await page.$('[data-testid="server-administrator-private-key"]')) ===
+          null,
+      );
+      await page.goto(`${BASE}/`);
+      await page.goBack();
+      await page
+        .waitForSelector('button:has-text("Continue signup")', {
+          timeout: 20_000,
+        })
+        .catch(() => {});
+      const backText = (await page.textContent("body")) ?? "";
+      check(
+        "Back returns to the continuation page without a Checkout loop",
+        page.url().startsWith(`${BASE}/signup`) &&
+          backText.includes("Continue signup"),
+        `${page.url()} ${backText.replace(/\s+/g, " ").slice(0, 120)}`,
+      );
+
+      const paid = await Store.open(db);
+      await paid.tx(async () =>
+        insertSubscription(paid, {
+          id: "sub-browser-paid",
+          account_id: customer.id,
+          instance_id: continuation.reservation.instance_id,
+          stripe_customer_id: "cus-browser-paid",
+          status: "active",
+          current_period_end: null,
+          cancel_at_period_end: 0,
+          ended_at: null,
+          canceled_at: null,
+          cancellation_reason: null,
+          discount_percent_off: null,
+          discount_coupon_id: null,
+          discount_ends_at: null,
+          ever_full_discount: 0,
+          latest_invoice_id: null,
+          payment_failures: 0,
+          exhaustion_observed_at: null,
+          coupon_grace_until: null,
+          episode_id: null,
+          episode_state: "none",
+          last_event_id: null,
+          last_event_created: null,
+        }),
+      );
+      await paid.close();
+      await page.goto(`${BASE}/signup`);
+      check(
+        "a paid account is redirected to its office instead of Checkout",
+        page.url() === `${BASE}/office/continue-browser`,
+        page.url(),
+      );
     } else {
       // The form POST is issued through the browser's own request context, with
       // redirects OFF, so the transcript carries what the SERVER said rather

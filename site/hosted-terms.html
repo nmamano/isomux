@@ -349,22 +349,19 @@
 
       <h2>Getting into your own server</h2>
       <p>
-        You can paste your own SSH key at signup, and we strongly recommend it.
-        It gives you root administrator access to the VPS, which lets you
-        install system software, manage the server, recover access to your
-        Isomux office if your browser no longer has access, and verify that our
-        SSH key is gone. Isomux agents and the built-in terminal cannot use
-        sudo; this protects the VPS from accidental or unsafe agent commands.
+        During signup, your browser creates a server administrator key. You must
+        save it somewhere only you can access. We receive only its public half
+        and install it on your server so you can access it with the private
+        half. You need the private key to install software, manage the server,
+        recover office access, and verify that our setup key is gone. For safety
+        reasons, Isomux agents and the built-in terminal cannot act as a
+        privileged user. Only you can do so with the administrator key.
       </p>
       <p>
-        If you skip it, you cannot add administrator access later from inside
-        Isomux. Once setup is done, you cannot install system software, manage
-        the VPS, or recover office access yourself if your browser loses access.
-        You must ask us in writing to use the provider's rescue console under
-        the access rules below. If you would rather not authorize that, or the
-        office is not running, the route left is a reinstall, which erases the
-        disk. You can ask a chatbot to help you create an SSH key and find the
-        public key to paste at signup.
+        If you lose the private key, you cannot add administrator access from
+        inside Isomux. You must ask us in writing to use the VPS provider's
+        rescue console under the access rules below, or reinstall the server and
+        erase its disk.
       </p>
 
       <h2>Our access to your server</h2>
