@@ -95,7 +95,9 @@ describe("the subscription insert", () => {
       "stripe/billing-tick.test.ts",
       "stripe/cancellation-policy.test.ts",
       "stripe/reconcile.ts",
+      "web-store-lifetime.test.ts",
       "web/e2e/lifecycle.e2e.ts",
+      "web/e2e/signup-flow.e2e.ts",
     ]);
   });
 });
