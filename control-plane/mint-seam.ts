@@ -23,6 +23,12 @@
 // tested without a port.
 
 import * as crypto from "node:crypto";
+import {
+  CERTIFICATE_RENEW_PATH,
+  CERTIFICATE_STATUS_PATH,
+  MAX_CSR_BYTES,
+  type CertificateService,
+} from "./certificate-service.ts";
 import { accessForInstance, windowIsOpen } from "./access.ts";
 import type { InviteHold } from "./invite-hold.ts";
 import { instanceOwnedBy } from "./signup.ts";
@@ -143,6 +149,7 @@ export interface MintSeamOptions {
    */
   health?: () => Promise<Record<string, boolean>>;
   report?: (line: string) => void;
+  certificates?: CertificateService;
 }
 
 export interface RunningMintSeam {
@@ -174,6 +181,30 @@ function bearerOf(header: string | null): string {
   return match ? match[1].trim() : "";
 }
 
+async function boundedJson(req: Request): Promise<unknown> {
+  const reader = req.body?.getReader();
+  if (!reader) throw new Error("missing body");
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  while (true) {
+    const part = await reader.read();
+    if (part.done) break;
+    size += part.value.byteLength;
+    if (size > MAX_CSR_BYTES + 4096) {
+      await reader.cancel();
+      throw new Error("body too large");
+    }
+    chunks.push(part.value);
+  }
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return JSON.parse(new TextDecoder().decode(body));
+}
+
 /**
  * Start the seam.
  *
@@ -202,6 +233,60 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
       // learns nothing beyond "no".
       const authorized = () =>
         tokenMatches(bearerOf(req.headers.get("authorization")), opts.token);
+
+      if (opts.certificates && url.pathname === CERTIFICATE_RENEW_PATH) {
+        if (req.method !== "POST")
+          return new Response("method not allowed\n", { status: 405 });
+        let csr = "";
+        try {
+          const body = (await boundedJson(req)) as { csr?: unknown };
+          csr = typeof body?.csr === "string" ? body.csr : "";
+        } catch {
+          return new Response("bad request\n", { status: 400 });
+        }
+        const result = await opts.certificates.renew(
+          bearerOf(req.headers.get("authorization")),
+          csr,
+        );
+        report(`certificate renewal: ${result.status}`);
+        if (result.status === "ok")
+          return Response.json({ certificate: result.certificatePem });
+        const status =
+          result.status === "unauthorized"
+            ? 401
+            : result.status === "busy"
+              ? 409
+              : result.status === "bad_request"
+                ? 400
+                : 503;
+        return new Response(
+          result.status === "unauthorized"
+            ? "unauthorized\n"
+            : "certificate unavailable\n",
+          { status },
+        );
+      }
+
+      if (opts.certificates && url.pathname === CERTIFICATE_STATUS_PATH) {
+        if (req.method !== "POST")
+          return new Response("method not allowed\n", { status: 405 });
+        let status: "ok" | "failed" | null = null;
+        try {
+          const body = (await boundedJson(req)) as { status?: unknown };
+          status =
+            body?.status === "ok" || body?.status === "failed"
+              ? body.status
+              : null;
+        } catch {}
+        if (!status) return new Response("bad request\n", { status: 400 });
+        const result = await opts.certificates.reportStatus(
+          bearerOf(req.headers.get("authorization")),
+          status,
+        );
+        return result === "ok"
+          ? new Response("ok\n")
+          : new Response("unauthorized\n", { status: 401 });
+      }
 
       if (opts.health && url.pathname === HEALTH_PATH) {
         if (req.method !== "GET") {

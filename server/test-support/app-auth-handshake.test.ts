@@ -301,10 +301,10 @@ describe("app-host handshake: the whole round trip", () => {
     );
     expectPlaceholder(await redeem(srv, label, code), NOT_FOUND, "code on it");
 
-    // Re-registering the name lands on a NEW label, so nothing minted for the
-    // predecessor can reach the successor's origin either.
+    // Re-registering keeps the wanted label, while server-held registration
+    // identity makes the predecessor's credentials worthless.
     const successor = await registerApp(srv, token, "hello");
-    expect(successor).not.toBe(label);
+    expect(successor).toBe(label);
     expectBounce(
       await raw(srv.port, {
         host: appHost(successor),
@@ -317,11 +317,9 @@ describe("app-host handshake: the whole round trip", () => {
 });
 
 describe("app-host handshake: the generation binding", () => {
-  // The registry issues a label ONCE, so a live label always names the same
-  // generation and the guards below cannot be reached through the registry.
-  // They are the depth behind the label check, and the only way to exercise
-  // them is to hand the handshake a mismatched record on purpose - which is
-  // what a future ledger that recycled labels would do accidentally.
+  // The host generation remains the compatibility identity for a public label.
+  // Reuse is separated by registration generation; the mismatched host tests
+  // below keep the older structural gate covered too.
   it("refuses a code whose generation is not the one live now", async () => {
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     const app = appRegistry.get("hello")!;
@@ -375,6 +373,55 @@ describe("app-host handshake: the generation binding", () => {
     expect(
       validateAppSession(started!.token, { label: "other", hostGen: 1 }),
     ).toBe(false);
+  });
+
+  it("refuses a code minted just before delete when the same hostname is reused", async () => {
+    const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
+    const before = await mint(srv, `?app=${label}&r=%2Fbefore`, {
+      rawSessionId,
+    });
+    const code = codeFromMint(before);
+    await deleteApp(srv, token, "hello");
+    expect(await registerApp(srv, token, "hello")).toBe(label);
+    const refused = await redeem(srv, label, code);
+    expect(refused.status).toBe(400);
+    expect(refused.body).toBe(SIGN_IN_FAILED_BODY);
+  });
+
+  it("emits cleanup only before auth for a reused reachable origin", async () => {
+    // This test asserts response headers only. The stale-code and stale-cookie
+    // tests above prove safety without reading this header, so disabling or
+    // ignoring browser cleanup does not weaken the registration boundary.
+    const { srv, label, rawSessionId, token } = await anOfficeWithAnApp();
+    const first = await raw(srv.port, {
+      host: appHost(label),
+      headers: NAVIGATION_HEADERS,
+    });
+    expect(first.headers["clear-site-data"]).toBeUndefined();
+    await deleteApp(srv, token, "hello");
+    expect(await registerApp(srv, token, "hello")).toBe(label);
+
+    const navigation = await raw(srv.port, {
+      host: appHost(label),
+      headers: NAVIGATION_HEADERS,
+    });
+    expect(navigation.status).toBe(302);
+    expect(navigation.headers["clear-site-data"]).toBe(
+      '"cache", "cookies", "storage"',
+    );
+    const background = await raw(srv.port, {
+      host: appHost(label),
+      method: "POST",
+    });
+    expect(background.status).toBe(401);
+    expect(background.headers["clear-site-data"]).toBe(
+      '"cache", "cookies", "storage"',
+    );
+
+    const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
+    const redeemed = await redeem(srv, label, codeFromMint(minted));
+    expect(redeemed.status).toBe(302);
+    expect(redeemed.headers["clear-site-data"]).toBeUndefined();
   });
 });
 

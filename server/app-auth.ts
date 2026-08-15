@@ -33,6 +33,7 @@
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
 import { appRegistry as productionRegistry } from "./app-registry.ts";
 import type { AppRegistry } from "./app-registry.ts";
+import { appRegistrationGeneration } from "./app-registry.ts";
 import { buildPublicOrigin, revalidateByHash } from "./auth.ts";
 import type { SessionLookup } from "./auth.ts";
 import type { AppRecord } from "../shared/types.ts";
@@ -188,12 +189,12 @@ const redeemLimiter = new FixedWindowLimiter(
 // compare against; the raw code is never stored anywhere.
 export interface PendingCode {
   codeHash: string;
-  // The app this code opens, as the issuance tuple the registry treats as an
-  // app's identity - not the label alone. A label is unique forever, so the
-  // generation is belt: it makes a cookie from `hello` gen 1 structurally
-  // incapable of vouching for a later `hello`.
+  // The public label lineage and the changing server-held registration
+  // identity. A reused label is intentional; its old credential must still be
+  // structurally unable to vouch for the replacement.
   label: string;
   hostGen: number;
+  registrationGen: number;
   // The exact normalized hostname the code may be redeemed at.
   appHost: string;
   // The office session that minted it. The app session inherits this, and it
@@ -211,10 +212,15 @@ interface AppSession {
   tokenHash: string;
   label: string;
   hostGen: number;
+  registrationGen: number;
   officeSessionHash: string;
   expiresAt: number;
 }
 
+// Both tables are process-local and die on restart. Legacy registration
+// identity derivation in app-registry.ts relies on that fact: a rollback and
+// restart cannot leave a session alive to match a derived identity. If either
+// table becomes persistent, that derivation must change first.
 const pendingCodes = new Map<string, PendingCode>();
 const appSessions = new Map<string, AppSession>();
 
@@ -361,6 +367,7 @@ export function mintAppCode(
   input: {
     label: string;
     hostGen: number;
+    registrationGen?: number;
     appHost: string;
     officeSessionHash: string;
     returnPath: string;
@@ -383,6 +390,7 @@ export function mintAppCode(
     codeHash,
     label: input.label,
     hostGen: input.hostGen,
+    registrationGen: input.registrationGen ?? input.hostGen,
     appHost: input.appHost,
     officeSessionHash: input.officeSessionHash,
     returnPath: input.returnPath,
@@ -402,7 +410,7 @@ export function mintAppCode(
 // replayable because somebody else was noisy.
 export function redeemAppCode(
   rawCode: string | null,
-  ctx: { host: string; label: string; now?: number },
+  ctx: { host: string; label: string; registrationGen?: number; now?: number },
 ): PendingCode | null {
   const now = ctx.now ?? Date.now();
   if (
@@ -422,6 +430,8 @@ export function redeemAppCode(
   if (record.expiresAt <= now) return null;
   if (record.appHost !== ctx.host) return null;
   if (record.label !== ctx.label) return null;
+  if (record.registrationGen !== (ctx.registrationGen ?? record.hostGen))
+    return null;
   return record;
 }
 
@@ -439,6 +449,7 @@ export function startAppSession(
   input: {
     label: string;
     hostGen: number;
+    registrationGen?: number;
     officeSessionHash: string;
     absoluteExpiresAt: number;
   },
@@ -468,6 +479,7 @@ export function startAppSession(
     tokenHash,
     label: input.label,
     hostGen: input.hostGen,
+    registrationGen: input.registrationGen ?? input.hostGen,
     officeSessionHash: input.officeSessionHash,
     expiresAt: deadline,
   });
@@ -480,7 +492,12 @@ export function startAppSession(
 // user closes the app immediately rather than at the cookie's leisure.
 export function validateAppSession(
   rawCookie: string | null,
-  ctx: { label: string; hostGen: number; now?: number },
+  ctx: {
+    label: string;
+    hostGen: number;
+    registrationGen?: number;
+    now?: number;
+  },
 ): boolean {
   // Present-but-empty lands here as `""` and is refused like any other value
   // that is not a live token.
@@ -497,7 +514,12 @@ export function validateAppSession(
     appSessions.delete(tokenHash);
     return false;
   }
-  if (row.label !== ctx.label || row.hostGen !== ctx.hostGen) return false;
+  if (
+    row.label !== ctx.label ||
+    row.hostGen !== ctx.hostGen ||
+    row.registrationGen !== (ctx.registrationGen ?? ctx.hostGen)
+  )
+    return false;
   if (revalidateByHash(row.officeSessionHash) === null) {
     // The office session is gone. The app session is orphaned and will never
     // be valid again, so drop the row rather than re-checking it forever.
@@ -521,6 +543,21 @@ export function _testResetAppAuth(): void {
   appSessions.clear();
   mintLimiter.reset();
   redeemLimiter.reset();
+}
+
+/** Synchronous by construction: delete cannot free a name across an await. */
+export function invalidateAppRegistration(
+  label: string,
+  registrationGen: number,
+): void {
+  for (const [key, row] of pendingCodes) {
+    if (row.label === label && row.registrationGen === registrationGen)
+      pendingCodes.delete(key);
+  }
+  for (const [key, row] of appSessions) {
+    if (row.label === label && row.registrationGen === registrationGen)
+      appSessions.delete(key);
+  }
 }
 
 // --- office side: GET /auth/app?app=<label>&r=<path> -------------------------
@@ -600,6 +637,7 @@ export function handleAppMintRequest(
     {
       label: app.hostLabel,
       hostGen: app.hostGen,
+      registrationGen: appRegistrationGeneration(app),
       appHost,
       officeSessionHash: session.sessionIdHash,
       returnPath,
@@ -624,6 +662,14 @@ export interface AppHostContext {
   now?: number;
 }
 
+const CLEAR_REUSED_ORIGIN = '"cache", "cookies", "storage"';
+
+function cleanupHeaders(app: AppRecord): Record<string, string> | undefined {
+  return appRegistrationGeneration(app) > app.hostGen
+    ? { "Clear-Site-Data": CLEAR_REUSED_ORIGIN }
+    : undefined;
+}
+
 // GET /__isomux/auth?code=... on an app host: redeem, set the cookie, go to
 // the path the code remembers.
 export function handleAppAuthRedeem(
@@ -639,13 +685,17 @@ export function handleAppAuthRedeem(
   const record = redeemAppCode(codeParam, {
     host: ctx.host,
     label: ctx.app.hostLabel,
+    registrationGen: appRegistrationGeneration(ctx.app),
     now,
   });
   if (record === null) return handshake(400, SIGN_IN_FAILED_BODY);
   // The generation is checked against the app that is live NOW, not the one
   // that was live at mint time: a code minted seconds before a delete and a
   // re-registration must not open the successor.
-  if (record.hostGen !== ctx.app.hostGen) {
+  if (
+    record.hostGen !== ctx.app.hostGen ||
+    record.registrationGen !== appRegistrationGeneration(ctx.app)
+  ) {
     return handshake(400, SIGN_IN_FAILED_BODY);
   }
   // The office session has to still be alive, and its absolute cap is what
@@ -658,6 +708,7 @@ export function handleAppAuthRedeem(
     {
       label: ctx.app.hostLabel,
       hostGen: ctx.app.hostGen,
+      registrationGen: appRegistrationGeneration(ctx.app),
       officeSessionHash: record.officeSessionHash,
       absoluteExpiresAt: office.absoluteExpiresAt,
     },
@@ -701,6 +752,7 @@ export function appHostWsAuthGate(
     validateAppSession(rawCookie, {
       label: ctx.app.hostLabel,
       hostGen: ctx.app.hostGen,
+      registrationGen: appRegistrationGeneration(ctx.app),
       now: ctx.now,
     })
   ) {
@@ -708,11 +760,10 @@ export function appHostWsAuthGate(
   }
   // Presented and rejected -> clear it, exactly as the gate does; absent ->
   // nothing to clear. Same helper, so the two cannot emit different bytes.
-  return handshake(
-    401,
-    AUTH_REQUIRED_BODY,
-    rawCookie === null ? undefined : { "Set-Cookie": appCookieClearLine() },
-  );
+  return handshake(401, AUTH_REQUIRED_BODY, {
+    ...(rawCookie === null ? {} : { "Set-Cookie": appCookieClearLine() }),
+    ...cleanupHeaders(ctx.app),
+  });
 }
 
 export function appHostAuthGate(
@@ -724,6 +775,7 @@ export function appHostAuthGate(
     validateAppSession(rawCookie, {
       label: ctx.app.hostLabel,
       hostGen: ctx.app.hostGen,
+      registrationGen: appRegistrationGeneration(ctx.app),
       now: ctx.now,
     })
   ) {
@@ -733,16 +785,15 @@ export function appHostAuthGate(
   // revoked, another app's, or empty). Absent -> nothing to clear.
   const clear = rawCookie === null ? [] : [appCookieClearLine()];
   if (!mayInitiateHandshake(req)) {
-    return handshake(
-      401,
-      AUTH_REQUIRED_BODY,
-      clear.length > 0 ? { "Set-Cookie": clear[0] } : undefined,
-    );
+    return handshake(401, AUTH_REQUIRED_BODY, {
+      ...(clear.length > 0 ? { "Set-Cookie": clear[0] } : {}),
+      ...cleanupHeaders(ctx.app),
+    });
   }
   const url = new URL(req.url);
   const target =
     `${buildPublicOrigin().origin}${APP_MINT_PATH}` +
     `?app=${encodeURIComponent(ctx.app.hostLabel)}` +
     `&r=${encodeURIComponent(`${url.pathname}${url.search}`)}`;
-  return handshakeRedirect(target, clear);
+  return handshakeRedirect(target, clear, cleanupHeaders(ctx.app));
 }

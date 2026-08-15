@@ -171,7 +171,12 @@ describe("the matrix is exactly what the deployed command reaches", () => {
   // and the only difference between the two is the provisioner's half.
   test("the prior matrix differs from the current one only where the audit moved it", () => {
     const prior = provisionerMatrixAgainstReachable(PRIOR_PROVISIONER_GRANTS);
-    expect(prior.missing).toEqual(["name_reservations:select"]);
+    expect(prior.missing).toEqual([
+      "certificate_credentials:insert",
+      "certificate_credentials:select",
+      "certificate_credentials:update",
+      "name_reservations:select",
+    ]);
     expect(prior.excess).toEqual([
       "accounts:select",
       "create_intents:update",

@@ -514,6 +514,8 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     announceRemoved: () => {},
     provisionToken: () => true,
     revokeToken: () => {},
+    retireRegistration: () => {},
+    invalidateRegistration: () => {},
     install: () => {},
     reinstall: () => {},
     teardown: () => {},

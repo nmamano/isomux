@@ -1,5 +1,27 @@
 # Hosted isomux: the control plane
 
+## Wildcard certificate lifecycle (ruled 2026-08-15)
+
+The provisioner owns the ACME account and Cloudflare DNS credential. Each box
+owns its TLS private key and a revocable credential bound to its permanent
+office-name reservation. Provisioning transfers that credential on SSH stdin
+into a root-only file. Cancellation revokes it before DNS removal.
+
+TXT work records exact name-and-content intent before mutation, adopts an exact
+record after an ambiguous retry, and deletes only exact-content siblings. The
+box installs the returned chain only after the names and key match and after a
+read as the Caddy user succeeds. It writes the Caddyfile in the same directory,
+validates before rename, fsyncs, renames atomically, and restores the previous
+bytes if the packaged Caddy restart fails.
+
+Renewal failures raise operator attention for manual customer contact. The box
+reports certificate validation and Caddy restart failures through its
+one-office credential. The liveness watch also raises attention after three
+missed daily renewal contacts, which covers a stopped box, timer, or unit. There is
+no new customer-email system. Ordinary office backups do not include the
+root-owned renewal identity or TLS key. A restored hosted office therefore
+cannot renew until the separate re-enrollment work in task 77cb46ff ships.
+
 > Status: design, not implemented. Drafted 2026-07-30, amended 2026-07-31 with
 > Nil's rulings. Author: Isomuxer2, reviewed by Reviewer2. Task: 95b62b35,
 > slice B of c91af4a4.

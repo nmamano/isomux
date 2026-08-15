@@ -12,10 +12,12 @@
 // - both outlive isomux's reach the moment somebody bookmarks the address, so
 // moving a live app's address is the failure this registry exists to prevent.
 // Deleting an app frees both for reuse (Nil's ruling, 2026-08-06). What is
-// NEVER freed is the app's hostname label: the ledger in apps.json records every
-// label ever issued, so a reused name lands on a fresh generation label and can
-// never be served at the previous app's origin - which is where a browser still
-// keeps that app's service worker, caches and storage (design doc section 4).
+// NEVER freed is the app's hostname lineage: the ledger in apps.json records
+// every label ever issued. A reused name returns to the lineage's most recently
+// issued address. A separate registration generation prevents server-held app
+// credentials and routes from crossing that reuse boundary. Browser-controlled
+// origin state can survive; that is the accepted tradeoff for keeping a wanted
+// URL (design doc section 4).
 // Two consequences that read as over-caution until you connect them to the
 // invariant:
 //
@@ -84,18 +86,13 @@ export const APP_PORT_MAX = 21999;
 export const MAX_REGISTERED_APPS = 100;
 
 // One DNS label. The name becomes a hostname later, so the limit is RFC 1035's,
-// not a taste call. This is the ceiling for what may EXIST - a stored record, a
-// generation label - which is why it stays 63 even though new registrations are
-// held to less (below).
+// not a taste call. This is the ceiling for a stored record or generated legacy
+// label.
 export const MAX_APP_NAME_LENGTH = 63;
 
-// What a NEW registration may use. Shorter than the label ceiling by exactly
-// `-g99`, so a name registered today still fits a DNS label after 98 recycles.
-// Names registered before this limit existed are grandfathered: they load, they
-// run, and they keep their labels. The one consequence, stated because it is
-// invisible otherwise - a legacy 60-63 character name that gets deleted cannot
-// be registered again.
-export const MAX_NEW_APP_NAME_LENGTH = 59;
+// New registrations use the name itself as their stable label, so the full DNS
+// label length is available.
+export const MAX_NEW_APP_NAME_LENGTH = MAX_APP_NAME_LENGTH;
 export const MAX_APP_COMMAND_LENGTH = 4096;
 export const MAX_APP_DESCRIPTION_LENGTH = 200;
 
@@ -173,9 +170,7 @@ export function checkAppName(name: string): AppRegistryError | null {
   if (name.length > MAX_NEW_APP_NAME_LENGTH) {
     return new AppRegistryError(
       "invalid_name",
-      `name must be at most ${MAX_NEW_APP_NAME_LENGTH} characters (a hostname ` +
-        `label is 63, and the rest is reserved for the generation suffix a ` +
-        `re-registered name gets)`,
+      `name must be at most ${MAX_NEW_APP_NAME_LENGTH} characters because it becomes a hostname label`,
     );
   }
   if (!APP_NAME_PATTERN.test(name)) {
@@ -288,52 +283,16 @@ export interface IssuedLabel {
   name: string;
   gen: number;
   issuedAt: number;
-  // When this label was first admitted for a TLS certificate (slice 7). Absent
-  // means never admitted, which is what every row written before this existed
-  // says, so there is no migration.
-  //
-  // It is BOTH halves of the certificate gate: its presence is the proof that
-  // this label is already being served, and its value is the slot it occupies
-  // in the rolling admission window. One field, so the two can never disagree,
-  // and both survive a restart of anything.
+  // Rollback stamp for the older admission gate. New registrations set it so
+  // rolling back cannot cap or refuse a live hosted label. Older rows can omit
+  // it and still load.
   //
   // Server-side only, deliberately: it never reaches AppRecord or the wire.
-  // Nothing outside the certificate gate has a use for it, and putting it on
+  // Nothing outside rollback compatibility has a use for it, and putting it on
   // the API would invite one.
   certAdmittedAt?: number;
+  registrationGen?: number;
 }
-
-// The certificate gate's constants (server/tls-ask.ts is the policy that reads
-// them; they live here because the registry method is what enforces them and
-// production callers deliberately cannot supply their own).
-//
-// The cap counts ADMISSIONS, not certificates: the gate is asked before a
-// certificate is obtained OR loaded from storage, and it never learns whether
-// the CA said yes. So this bounds how many labels can newly become certifiable
-// in an hour, which is the strongest thing the gate can honestly enforce. It is
-// a brake on us doing it to ourselves - an agent looping register/delete walks
-// the generation ladder and every new label is a name that has never had a
-// certificate. It is NOT a defence of the CA's own ceiling: Let's Encrypt
-// counts 50 certificates per registered domain per 7 days, and the registered
-// domain is PSL-derived, so every office under one parent shares that bucket.
-export const TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR = 10;
-export const TLS_ASK_ADMISSION_WINDOW_MS = 60 * 60 * 1000;
-
-// What an admission attempt did. Everything but "admitted" leaves the file
-// untouched.
-export type CertAdmission =
-  // No live app carries this label, or its ledger row is missing. Same answer
-  // for a retired label and one that never existed.
-  | "not_live"
-  // Already admitted, at any point in the past. Free forever: this is what
-  // makes a terminator restart - which re-asks about every live name at once -
-  // harmless at any number of apps.
-  | "already"
-  // Newly admitted and written to disk.
-  | "admitted"
-  // The rolling window is full. Nothing written; the label can try again as
-  // capacity ages out.
-  | "capped";
 
 // The label an app of this name and generation gets. Generation 1 is the bare
 // name, so a first registration reads as the address the human asked for and
@@ -351,24 +310,6 @@ export function labelFor(name: string, gen: number): string {
 // ledger, so an over-long candidate is never proposed and never returned - the
 // only way past the check is a name that has genuinely been recycled ~100
 // times, and the honest answer there is "use a different name".
-export function allocateLabel(
-  name: string,
-  issued: ReadonlySet<string>,
-): { label: string; gen: number } {
-  for (let gen = 1; ; gen++) {
-    const label = labelFor(name, gen);
-    if (label.length > MAX_APP_NAME_LENGTH) {
-      throw new AppRegistryError(
-        "no_label_available",
-        `"${name}" has been registered and deleted so many times that the next ` +
-          `hostname for it would be longer than a DNS label allows; register ` +
-          `under a different name`,
-      );
-    }
-    if (!issued.has(label)) return { label, gen };
-  }
-}
-
 // --- persistence ------------------------------------------------------------
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
@@ -404,7 +345,29 @@ function readStateFile(file: string): unknown {
 // `"dataDir": "/etc"` cannot exist - there is no such field to edit - and the
 // path survives the state root moving (a restore, an ISOMUX_HOME override)
 // instead of turning every record into corruption.
-type PersistedApp = Omit<AppRecord, "dataDir">;
+type PersistedApp = Omit<AppRecord, "dataDir"> & { registrationGen?: number };
+
+const registrationGenerations = new WeakMap<object, number>();
+
+function withRegistrationGeneration<T extends object>(
+  app: T,
+  generation: number,
+): T {
+  registrationGenerations.set(app, generation);
+  return app;
+}
+
+/** Server-held incarnation identity. It is intentionally absent from AppWire. */
+export function appRegistrationGeneration(app: AppRecord): number {
+  return registrationGenerations.get(app) ?? app.hostGen;
+}
+
+export function _testSetAppRegistrationGeneration(
+  app: AppRecord,
+  generation: number,
+): void {
+  registrationGenerations.set(app, generation);
+}
 
 // What apps.json holds: the live records AND the ledger of every label ever
 // issued, in ONE file. Two files would be the tidier shape and the wrong one -
@@ -497,13 +460,18 @@ const isGeneration = (v: unknown): v is number =>
 // how a live app quietly changes origin.
 function isPersistedApp(value: unknown): value is PersistedApp {
   if (!isLegacyPersistedApp(value)) return false;
-  const { hostLabel, hostGen } = value as Record<string, unknown>;
+  const { hostLabel, hostGen, registrationGen } = value as Record<
+    string,
+    unknown
+  >;
   return (
     typeof hostLabel === "string" &&
     hostLabel.length > 0 &&
     hostLabel.length <= MAX_APP_NAME_LENGTH &&
     APP_NAME_PATTERN.test(hostLabel) &&
-    isGeneration(hostGen)
+    isGeneration(hostGen) &&
+    (registrationGen === undefined ||
+      (isGeneration(registrationGen) && registrationGen >= hostGen))
   );
 }
 
@@ -512,7 +480,7 @@ function isPersistedApp(value: unknown): value is PersistedApp {
 // `bar`, which is the one lie that would let an origin be reissued.
 function isIssuedLabel(value: unknown): value is IssuedLabel {
   if (!isPlainObject(value)) return false;
-  const { label, name, gen, issuedAt, certAdmittedAt } = value;
+  const { label, name, gen, issuedAt, certAdmittedAt, registrationGen } = value;
   return (
     typeof name === "string" &&
     name.length > 0 &&
@@ -523,6 +491,8 @@ function isIssuedLabel(value: unknown): value is IssuedLabel {
     label.length <= MAX_APP_NAME_LENGTH &&
     label === labelFor(name, gen) &&
     isFiniteNumber(issuedAt) &&
+    (registrationGen === undefined ||
+      (isGeneration(registrationGen) && registrationGen >= gen)) &&
     // Absent is the normal case - every row written before slice 7, and every
     // label nobody has visited yet. Present must be Date.now()-shaped: a
     // non-integer or negative value is damage, and the row is refused rather
@@ -554,10 +524,27 @@ function loadState(file: string, dataRoot: string): RegistryState {
   const parsed = readStateFile(file);
   if (parsed === undefined) return { apps: [], issuedLabels: [] };
 
-  const hydrate = (apps: PersistedApp[]): AppRecord[] =>
+  const hydrate = (apps: PersistedApp[], issued: IssuedLabel[]): AppRecord[] =>
     // Hydrate the derived path. This is the ONLY place an app's data directory
     // comes from, so it is always the registry's own.
-    apps.map((app) => ({ ...app, dataDir: join(dataRoot, app.name) }));
+    apps.map((app) => {
+      // app-auth codes and sessions are process-local Maps and die on restart.
+      // That is why deriving an identity for an old row cannot revive a
+      // pre-rollback browser session. If those tables ever become persistent,
+      // this derivation must be replaced by an explicit stored migration.
+      // Never derive below any generation the record or lineage already shows.
+      const visible = Math.max(
+        app.registrationGen ?? app.hostGen,
+        ...issued
+          .filter((row) => row.name === app.name)
+          .map((row) => row.registrationGen ?? row.gen),
+      );
+      const { registrationGen: _persisted, ...record } = app;
+      return withRegistrationGeneration(
+        { ...record, dataDir: join(dataRoot, app.name) },
+        visible,
+      );
+    });
 
   if (Array.isArray(parsed)) {
     for (const record of parsed) {
@@ -571,7 +558,15 @@ function loadState(file: string, dataRoot: string): RegistryState {
       hostGen: 1,
     }));
     return {
-      apps: hydrate(apps),
+      apps: hydrate(
+        apps,
+        apps.map((app) => ({
+          label: app.hostLabel,
+          name: app.name,
+          gen: app.hostGen,
+          issuedAt: app.createdAt,
+        })),
+      ),
       issuedLabels: apps.map((app) => ({
         label: app.hostLabel,
         name: app.name,
@@ -600,7 +595,7 @@ function loadState(file: string, dataRoot: string): RegistryState {
     }
   }
   return {
-    apps: hydrate(apps as PersistedApp[]),
+    apps: hydrate(apps as PersistedApp[], issuedLabels as IssuedLabel[]),
     issuedLabels: issuedLabels as IssuedLabel[],
   };
 }
@@ -615,7 +610,7 @@ const tupleKey = (label: string, name: string, gen: number): string =>
   JSON.stringify([label, name, gen]);
 
 function assertConsistent(state: RegistryState, where: string): void {
-  const bad = (why: string) => {
+  const bad = (why: string): never => {
     throw corrupt(where, why);
   };
   // The ledger first, because the app checks below are answered out of it.
@@ -660,6 +655,24 @@ function assertConsistent(state: RegistryState, where: string): void {
     if (!issuedTuples.has(tupleKey(app.hostLabel, app.name, app.hostGen))) {
       bad(`"${app.hostLabel}" is in use by "${app.name}" but never issued`);
     }
+    const latest = [...state.issuedLabels]
+      .reverse()
+      .find((row) => row.name === app.name);
+    if (!latest) {
+      bad(`"${app.name}" has no issued label lineage`);
+      continue;
+    }
+    if (latest.label !== app.hostLabel || latest.gen !== app.hostGen) {
+      bad(`"${app.name}" is not using its most recently issued label`);
+    }
+    const visibleRegistration = Math.max(
+      ...state.issuedLabels
+        .filter((row) => row.name === app.name)
+        .map((row) => row.registrationGen ?? row.gen),
+    );
+    if (appRegistrationGeneration(app) !== visibleRegistration) {
+      bad(`"${app.name}" does not match its registration generation`);
+    }
   }
 }
 
@@ -667,7 +680,10 @@ function assertConsistent(state: RegistryState, where: string): void {
 // dataDir for a later load to have to trust.
 function strip(app: AppRecord): PersistedApp {
   const { dataDir: _derived, ...persisted } = app;
-  return persisted;
+  return {
+    ...persisted,
+    registrationGen: appRegistrationGeneration(app),
+  };
 }
 
 function writeStateFile(file: string, value: unknown): void {
@@ -758,16 +774,14 @@ export interface AppRegistry {
   // AppRegistryError on any refusal or failure.
   update(name: string, patch: UpdateAppInput): AppRecord | null;
   // Delete an app: set its data directory aside, then drop the record, freeing
-  // its name and port for reuse. Its hostname label is NOT freed - it stays in
-  // the ledger forever, so the next app to take the name is served somewhere
-  // else. Returns the removed record, or null when no app has that name.
+  // its name and port for reuse. Its hostname label stays in the ledger and is
+  // reused by the next registration of that lineage. Returns the removed
+  // record, or null when no app has that name.
   remove(name: string): AppRecord | null;
-  // Ask whether this label may have a TLS certificate, and record it if so.
-  // Takes no policy arguments on purpose: the cap, the window and the clock are
-  // the registry's, so no later caller can pass a weaker one. Throws
-  // AppRegistryError on a read or write failure - an admission that was not
-  // written did not happen.
-  admitAppCertificate(label: string): CertAdmission;
+  // Request-time certificate gate. This is a pure live-label predicate.
+  isLiveHostLabel(label: string): boolean;
+  /** Compatibility for a server rolled back while new state is on disk. */
+  admitAppCertificate(label: string): "not_live" | "already";
 }
 
 export interface AppRegistryOptions {
@@ -856,12 +870,32 @@ export function createAppRegistry(
       // Only LIVE ports are off limits. A deleted app's port is free the moment
       // its record goes, so the lowest gap is the next port handed out.
       const port = allocatePort(new Set(apps.map((a) => a.port)), probePort);
-      // Labels, unlike ports, are never freed: the ledger is what a deleted
-      // app's origin stays spoken for in.
-      const { label, gen } = allocateLabel(
-        input.name,
-        new Set(state.issuedLabels.map((e) => e.label)),
+      // The most recently ISSUED label is the stable lineage address. This
+      // includes a label an old rolled-back server issued while no app was
+      // live; adopting it preserves the URL browsers actually saw.
+      const lineageIndexes = state.issuedLabels
+        .map((row, index) => ({ row, index }))
+        .filter(({ row }) => row.name === input.name);
+      const latest = lineageIndexes.at(-1) ?? null;
+      const label = latest?.row.label ?? input.name;
+      const gen = latest?.row.gen ?? 1;
+      const foreignLabel = state.issuedLabels.find(
+        (row) => row.label === label && row.name !== input.name,
       );
+      if (foreignLabel) {
+        throw new AppRegistryError(
+          "origin_retired",
+          `"${label}" belongs to the app lineage "${foreignLabel.name}" and cannot be adopted by "${input.name}"`,
+        );
+      }
+      const registrationGen =
+        latest === null
+          ? 1
+          : Math.max(
+              ...lineageIndexes.map(
+                ({ row }) => row.registrationGen ?? row.gen,
+              ),
+            ) + 1;
 
       // Data dir first, record second: an orphan directory after a failed
       // record write is recoverable, a record pointing at a directory that was
@@ -902,18 +936,37 @@ export function createAppRegistry(
           ? { createdByAgentId: input.createdByAgentId }
           : {}),
         createdAt: at,
+        registrationGen,
       };
+      const { registrationGen: _serverHeld, ...publicRecord } = persisted;
+      const live = withRegistrationGeneration(
+        { ...publicRecord, dataDir },
+        registrationGen,
+      );
+      const issuedLabels =
+        latest === null
+          ? [
+              ...state.issuedLabels,
+              {
+                label,
+                name: input.name,
+                gen,
+                issuedAt: at,
+                certAdmittedAt: at,
+                registrationGen,
+              },
+            ]
+          : state.issuedLabels.map((row, index) =>
+              index === latest.index ? { ...row, registrationGen } : row,
+            );
       // Record and issuance in the same write: a registration that landed
       // without its ledger row would leave the next one free to reissue this
       // app's own address.
       persist({
-        apps: [...apps, { ...persisted, dataDir }],
-        issuedLabels: [
-          ...state.issuedLabels,
-          { label, name: input.name, gen, issuedAt: at },
-        ],
+        apps: [...apps, live],
+        issuedLabels,
       });
-      return { ...persisted, dataDir };
+      return live;
     },
 
     // The cure for a typo that would otherwise cost the app its address.
@@ -942,6 +995,10 @@ export function createAppRegistry(
         ...(patch.command !== undefined ? { command: patch.command } : {}),
         ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
       };
+      withRegistrationGeneration(
+        updated,
+        appRegistrationGeneration(apps[index]),
+      );
       // Three-way: absent leaves it, a string sets it, null removes the key
       // entirely. `delete` rather than assigning undefined, so what is written
       // is a record with no description at all rather than one carrying an
@@ -1006,13 +1063,13 @@ export function createAppRegistry(
     // the row it wrote. Splitting this into a read and a write, or making it
     // async, breaks that; a caller awaiting something BEFORE calling it does
     // not.
-    admitAppCertificate(label) {
+    isLiveHostLabel(label) {
       const state = snapshot();
       // Live app first, before the budget is even read. A name nobody has
       // registered - or one somebody used to have - must not be able to learn
       // anything, spend anything, or write anything.
       const app = state.apps.find((a) => a.hostLabel === label);
-      if (!app) return "not_live";
+      if (!app) return false;
       // The exact ISSUANCE, not just the label: the tuple is what the registry
       // treats as an app's identity, and the row is where the admission is
       // recorded. assertConsistent has already refused any file where a live
@@ -1024,31 +1081,14 @@ export function createAppRegistry(
         (e) =>
           e.label === label && e.name === app.name && e.gen === app.hostGen,
       );
-      if (!row) return "not_live";
+      if (!row) return false;
       // Presence, not a timestamp comparison. An established label is free
       // forever and never consults the clock, so no amount of traffic, no
       // restart and no clock movement can take it away.
-      if (row.certAdmittedAt !== undefined) return "already";
-
-      const at = now();
-      const cutoff = at - TLS_ASK_ADMISSION_WINDOW_MS;
-      let recent = 0;
-      for (const entry of state.issuedLabels) {
-        // RETIRED rows count too. Their admission already spent whatever it
-        // spent at the CA, and deleting the app does not give it back.
-        // A stamp exactly one window old has aged out; a stamp in the future -
-        // a clock that went backwards, or a hand-edited file - counts, which is
-        // the conservative direction.
-        if (entry.certAdmittedAt !== undefined && entry.certAdmittedAt > cutoff)
-          recent++;
-      }
-      if (recent >= TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR) return "capped";
-
-      row.certAdmittedAt = at;
-      // Throws on failure, so an admission that did not reach the disk can
-      // never come back as "admitted" - the next handshake asks again.
-      persist(state);
-      return "admitted";
+      return true;
+    },
+    admitAppCertificate(label) {
+      return this.isLiveHostLabel(label) ? "already" : "not_live";
     },
   };
 }

@@ -1,5 +1,29 @@
 # Reaching agent-built web apps on a hosted box
 
+## Hosted certificate decision (2026-08-15)
+
+This ruling supersedes the older hosted certificate alternatives below.
+
+Hosted offices use one centrally issued certificate for the office name and its
+one-label wildcard. The box generates the private key and sends only a CSR. A
+one-office credential cannot request another name. The control plane performs
+Cloudflare DNS-01 through lego 5.3.1, uses ACME ARI when the CA supplies it, and
+keeps lego's actual-validity fallback (renew at one third of validity left).
+Automated tests cannot select the production CA, API, or zone.
+
+Caddy keeps its admin API off and restarts after an atomic certificate install.
+Measurements on 2026-08-15 found 60-100 ms of TCP refusal, about 2 seconds for
+a browser tab to reconnect, and no interruption to the server-side agent turn.
+A reload also closed the proxied WebSocket, so its retained admin surface did
+not buy session continuity. The wildcard site calls the local TLS gate on each
+request. The gate answers only whether that app label is live; it has no hourly
+admission cap.
+
+Self-hosted offices keep on-demand TLS. Existing hosted offices are not
+migrated. Office backups exclude the root-owned TLS key and renewal identity;
+restoring a hosted office cannot renew until the separate re-enrollment flow in
+task 77cb46ff exists.
+
 > Status: registered-app transport shipped; hosted readiness implemented
 > 2026-08-13. Scratch shares remain design. Author: Isomuxer3, reviewed by
 > Reviewer3. Task: 99023cdd.
@@ -123,17 +147,22 @@ The random label is defense in depth, not the auth boundary - capability URLs
 leak through history, chat logs and `Referer`. The handshake below is the
 boundary.
 
-`agent-apps-design.md` wants stable, human-chosen hostnames for registered apps,
-which is compatible with this rule but not with a naive reading of it: the
-hazard is pointing a hostname at an _unrelated_ app, so a name bound to one app
-for its whole life is fine, and deleting an app must retire its name rather than
-free it for reuse.
+`agent-apps-design.md` has a later ruling for persistent registered apps. Their
+human-chosen hostname is a stable, permanently reserved lineage address, and a
+deleted name can be registered again at that address. Nil accepted surviving
+origin state as the smaller harm than permanently losing a wanted URL
+(2026-08-15).
 
-**What shipped, for registered apps.** The name is freed and the LABEL is
-retired: a re-registration lands on a fresh label (`hello-g2`), so a reused name
-never inherits its predecessor's origin. The ledger of issued labels is never
-pruned. The shape is flat - `hello.office.example.com`, no `apps.` tier (Nil,
-2026-08-06) - and a reserved-name list guards the office's own namespace.
+**What shipped, for registered apps.** A separate monotonic registration
+identity binds every server-held code, session and relay. Delete stops the unit,
+closes HTTP and both WebSocket legs, purges auth state and revokes the app token
+before it frees the name and port. `Clear-Site-Data` on pre-auth responses is
+best-effort cleanup only. Existing generated labels remain at their existing
+URLs; stable bare labels apply prospectively. The shape is flat -
+`hello.office.example.com`, no `apps.` tier (Nil, 2026-08-06) - and a
+reserved-name list guards the office's own namespace. With the hosted wildcard,
+Caddy serves the certificate already in memory without asking again, so a
+reused live label works as soon as its new registry record commits.
 
 ### TLS, which the hostname lifecycle decides
 

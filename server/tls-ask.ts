@@ -1,4 +1,4 @@
-// The certificate ADMISSION gate for app hostnames (phase 3, slice 7).
+// The local app-host gate.
 //
 // App hostnames sit under a wildcard DNS record, so the terminator cannot know
 // in advance which names it will be asked to serve, and its site block for them
@@ -15,9 +15,8 @@
 // handshake even though a valid certificate exists. It is therefore a live
 // access gate, not an issuance hook, and any policy that can run out of budget
 // for an established app is an outage waiting for the next restart. Two
-// consequences run through everything below: an already-admitted label is free
-// forever, and the record of that has to survive a restart of the office too,
-// which is why it lives in the registry's ledger rather than in memory.
+// consequence runs through everything below: the answer is only whether the
+// label belongs to a live app. It has no issuance budget.
 //
 // The other measured caveat, stated because it is invisible otherwise: a
 // refusal cannot reach a certificate the terminator already holds in memory.
@@ -25,14 +24,13 @@
 // not immediately.
 //
 // Fail-closed, like the rest of the app-host surface. What passes: the office's
-// own host, and a live app's label once that label has been ADMITTED - which
-// happens on its first cold load, and only if fewer than ten labels have been
-// newly admitted in the last hour (server/app-registry.ts owns the accounting).
-// An admitted label passes forever after. Everything else is refused, and a
-// refusal costs the caller a failed handshake and costs us nothing.
+// own host, and a live app's label. The persisted admission stamp remains for
+// rollback compatibility with releases where this gate controlled on-demand
+// certificate loading. Hosted wildcard TLS makes it a request gate instead, so
+// it has no issuance budget or arbitrary per-hour cap. Everything else is
+// refused.
 
 import { matchAppHost, normalizeRequestHost } from "./app-hosts.ts";
-import type { CertAdmission } from "./app-registry.ts";
 
 // Where the office answers. Under the same prefix the app-host arm reserves, so
 // the one namespace an app can never claim is also where the office keeps its
@@ -41,20 +39,17 @@ import type { CertAdmission } from "./app-registry.ts";
 // exact path at the edge - see deploy/install.sh.
 export const TLS_ASK_PATH = "/__isomux/tls-ask";
 
-export type TlsAskDecision = "allow" | "deny" | "capped";
+export type TlsAskDecision = "allow" | "deny";
 
 export interface TlsAskDeps {
   // The office's app-host domain, boot-frozen. Null on an office that has none,
   // which refuses everything.
   domain: string | null;
-  // The registry's admission attempt. It owns the cap, the window and the
-  // clock; nothing here can pass a weaker policy.
-  admit: (label: string) => CertAdmission;
+  isLive: (label: string) => boolean;
 }
 
-// The policy. Every refusal reached before `admit` is a refusal that touches no
-// state at all: a stranger pointing names at this box cannot spend the office's
-// admission budget, cannot cause a write, and cannot tell from the answer
+// The policy is read-only. A stranger pointing names at this box cannot cause
+// a write and cannot tell from the answer
 // whether a label was never issued or was somebody's app last week.
 export function decideTlsAsk(
   rawName: string | null,
@@ -80,29 +75,15 @@ export function decideTlsAsk(
   // app.
   if (match === null || match.kind === "under") return "deny";
 
-  switch (deps.admit(match.label)) {
-    case "already":
-    case "admitted":
-      return "allow";
-    case "capped":
-      return "capped";
-    case "not_live":
-      return "deny";
-  }
+  return deps.isLive(match.label) ? "allow" : "deny";
 }
 
 // Bodies are machine-facing - the terminator reads the status code and nothing
-// else - but they are what an operator sees in a curl while working out why a
-// name will not get a certificate, so they distinguish the two refusals.
-// no-store because the answer is a function of the registry and the window, and
+// else. no-store because the answer is a function of the registry, and
 // a cached "ok" would outlive the app it vouched for.
 export function tlsAskResponse(decision: TlsAskDecision): Response {
   const [status, body] =
-    decision === "allow"
-      ? [200, "ok\n"]
-      : decision === "capped"
-        ? [429, "rate limited\n"]
-        : [403, "denied\n"];
+    decision === "allow" ? [200, "ok\n"] : [403, "denied\n"];
   return new Response(body, {
     status,
     headers: {
@@ -124,10 +105,8 @@ export function handleTlsAsk(url: URL, deps: TlsAskDeps): Response {
   try {
     return tlsAskResponse(decideTlsAsk(names[0], deps));
   } catch (err) {
-    // A registry that cannot be read, or an admission that could not be
-    // written. Both are the same posture the app-host arm takes when it cannot
-    // vouch for a label: refuse. A wholly unreadable apps.json therefore refuses
-    // established labels too - their proof of admission is in that file, and an
+    // A registry that cannot be read cannot vouch for a label. A wholly
+    // unreadable apps.json therefore refuses established labels too, and an
     // office that cannot read its own state should not be certifying names.
     // Logged internally; the caller learns only that the answer is no, because
     // the health of our storage is not the internet's business.

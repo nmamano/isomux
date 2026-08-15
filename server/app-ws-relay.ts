@@ -34,7 +34,10 @@
 import type { AppRecord } from "../shared/types.ts";
 import type { AppSupervisor } from "./app-supervisor.ts";
 import type { ServerWebSocket } from "bun";
-import { appRegistry as productionRegistry } from "./app-registry.ts";
+import {
+  appRegistry as productionRegistry,
+  appRegistrationGeneration,
+} from "./app-registry.ts";
 import type { AppRegistry } from "./app-registry.ts";
 import { buildUpstreamHeaders, proveAppRunning } from "./app-proxy.ts";
 import { readAppCookie, validateAppSession } from "./app-auth.ts";
@@ -55,6 +58,7 @@ import {
   type UpstreamCloseEvent,
 } from "./app-ws-upstream.ts";
 import { isTransmittableCloseCode, truncateCloseReason } from "./ws-frames.ts";
+import { appRegistrationKey, watchAppRetirement } from "./app-lifecycle.ts";
 
 // --- constants (plain named values, no env vars) -----------------------------
 
@@ -185,7 +189,7 @@ export function originAllowed(
 // out: a name is reusable, an issuance is not, and a release from a dead app
 // must never decrement a live one's bucket.
 function permitKey(app: AppRecord): string {
-  return `${app.hostLabel}#${app.hostGen}`;
+  return appRegistrationKey(app);
 }
 
 const perApp = new Map<string, number>();
@@ -376,10 +380,12 @@ export class AppWsRelay {
       token: string | null;
       label: string;
       hostGen: number;
+      registrationGen: number;
       registry: AppRegistry;
     },
     private readonly bufferMaxBytes: number,
     private readonly recheckMs: number,
+    private readonly onFinish: () => void = () => {},
   ) {}
 
   // --- upstream callbacks ----------------------------------------------------
@@ -631,7 +637,8 @@ export class AppWsRelay {
         .some(
           (app) =>
             app.hostLabel === this.session.label &&
-            app.hostGen === this.session.hostGen,
+            app.hostGen === this.session.hostGen &&
+            appRegistrationGeneration(app) === this.session.registrationGen,
         );
     } catch (err) {
       console.error("[app-ws-relay] registry unreadable; closing socket:", err);
@@ -640,6 +647,7 @@ export class AppWsRelay {
     const stillSignedIn = validateAppSession(this.session.token, {
       label: this.session.label,
       hostGen: this.session.hostGen,
+      registrationGen: this.session.registrationGen,
     });
     if (stillTheApp && stillSignedIn) return;
     this.finish(
@@ -660,6 +668,7 @@ export class AppWsRelay {
   finish(ending: RelayEnding, detail: string): void {
     if (this.shuttingDown) return;
     this.shuttingDown = true;
+    this.onFinish();
     this.state = "closed";
     if (this.recheckTimer !== null) clearInterval(this.recheckTimer);
     this.recheckTimer = null;
@@ -765,18 +774,34 @@ export async function relayWsToApp(
   );
   if (offered === null) return neutral(400, BAD_REQUEST_BODY);
 
+  let relay: AppWsRelay | null = null;
+  const retirement = new AbortController();
+  const stopWatchingRetirement = watchAppRetirement(ctx.app, () => {
+    retirement.abort();
+    relay?.finish(
+      fault(CLOSE_REVOKED, "app registration retired"),
+      "app registration retired",
+    );
+  });
+
   // 4. The app is running, proven the same way and in the same position as the
   // HTTP relay proves it - one helper, so the two cannot drift. No socket is
   // opened to a port whose app is not running, because that port is just a port.
   const running = proveAppRunning(ctx);
-  if (!running.ok) return running.response;
+  if (!running.ok) {
+    stopWatchingRetirement();
+    return running.response;
+  }
 
   // 5. A permit from the WebSocket pool, taken in this synchronous turn.
   const permit = acquireSocketPermit(permitKey(ctx.app), {
     perApp: ctx.maxPerApp ?? APP_WS_MAX_SOCKETS_PER_APP,
     total: ctx.maxTotal ?? APP_WS_MAX_SOCKETS_TOTAL,
   });
-  if (permit === null) return neutral(429, APP_BUSY_BODY);
+  if (permit === null) {
+    stopWatchingRetirement();
+    return neutral(429, APP_BUSY_BODY);
+  }
 
   // 6. Dial the app. Everything below is `await`ed, which is exactly why the
   // permit is already held: the slot is occupied from the moment the dial starts
@@ -805,7 +830,6 @@ export async function relayWsToApp(
   // function is still suspended on the `await` and no relay object exists yet.
   // Dropping those would lose the first message of every server that speaks
   // first, which for a greeting protocol is the only message that matters.
-  let relay: AppWsRelay | null = null;
   const early: Buffered[] = [];
   let earlyBytes = 0;
   let earlyOverflow = false;
@@ -820,6 +844,7 @@ export async function relayWsToApp(
     headers,
     protocols: offered,
     limits: ctx.upstreamLimits,
+    signal: retirement.signal,
     onMessage: (message) => {
       if (relay !== null) {
         relay.onUpstreamMessage(message);
@@ -848,6 +873,7 @@ export async function relayWsToApp(
       `[app-ws-relay] ${ctx.app.hostLabel}: upstream dial failed (${dial.failure}): ${dial.detail}`,
     );
     permit.release();
+    stopWatchingRetirement();
     // One answer for every way an app can fail to be reached - refused the
     // connection, took too long, answered a page instead of an upgrade, got the
     // handshake wrong. The caller cannot act differently on the difference, and
@@ -881,6 +907,7 @@ export async function relayWsToApp(
     // finalizer, because no relay object exists yet to own it.
     dial.connection.terminate("no subprotocol agreed");
     permit.release();
+    stopWatchingRetirement();
     return neutral(502, APP_WS_PROTOCOL_MISMATCH_BODY);
   }
 
@@ -891,10 +918,12 @@ export async function relayWsToApp(
       token: rawCookie,
       label: ctx.app.hostLabel,
       hostGen: ctx.app.hostGen,
+      registrationGen: appRegistrationGeneration(ctx.app),
       registry: ctx.registry ?? productionRegistry,
     },
     bufferMaxBytes,
     ctx.recheckMs ?? APP_WS_SESSION_RECHECK_MS,
+    stopWatchingRetirement,
   );
 
   // Whatever arrived during the dial is handed over now, in order, before the

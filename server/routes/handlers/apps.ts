@@ -137,6 +137,8 @@ export interface AppsDeps {
   // be removed, which fails the delete before the name is freed - a credential
   // outliving the thing it names is worth a retry.
   revokeToken(name: string): void;
+  retireRegistration(app: AppRecord): void;
+  invalidateRegistration(app: AppRecord): void;
 
   // --- the supervisor seam (server/app-supervisor.ts) ---
   // Write the unit and start the app. Throws only when the unit could not be
@@ -216,7 +218,6 @@ const STATUS_BY_CODE: Record<AppErrorCode, HandlerErrorStatus> = {
   invalid_description: 400,
   name_taken: 409,
   origin_retired: 409,
-  no_label_available: 409,
   app_limit_reached: 409,
   no_port_available: 409,
   registry_corrupt: 500,
@@ -476,6 +477,10 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // its name and port stay spoken for, and a retried DELETE can finish
         // the job.
         deps.teardown(record.name);
+        // Both are synchronous void functions. Keeping them between teardown
+        // and removal without an await is the name/port reuse reservation.
+        deps.retireRegistration(record);
+        deps.invalidateRegistration(record);
         // Between the teardown and the removal: the app is provably not
         // running, so its token has nothing left to authenticate, and the
         // registry still holds the record that would let a retry finish the

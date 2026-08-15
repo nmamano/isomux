@@ -20,7 +20,9 @@ import {
   WS_AUTH_REQUIRED,
   anOfficeWithAnApp,
   appHost,
+  deleteApp,
   raw,
+  registerApp,
   signIn,
   wsConnect,
   type WsClient,
@@ -217,6 +219,51 @@ describe("app-host websockets: frames both ways", () => {
     client.drop();
     // ...and released when it goes. Polled rather than awaited on a fixed sleep:
     // the release rides the app-side close, which is a socket event.
+    await until(() => _testWsSocketsOpen().total === 0);
+  });
+
+  it("closes both old legs before the same port serves a replacement", async () => {
+    const { srv, label, rawSessionId, token } = await office();
+    const retiredSeen: SeenUpgrade[] = [];
+    app = startWsApp("hello", retiredSeen);
+    const retiredCookie = await signIn(srv, label, rawSessionId);
+    const retiredClient = await connected(srv, label, retiredCookie, "/echo");
+    retiredClient.send("old");
+    expect(await retiredClient.next()).toEqual({
+      kind: "text",
+      text: "echo:old",
+    });
+    const port = appRegistry.get("hello")!.port;
+
+    await deleteApp(srv, token, "hello");
+    expect(await retiredClient.next()).toEqual({
+      kind: "close",
+      code: 1008,
+      reason: "app registration retired",
+    });
+    app.stop();
+    app = null;
+
+    const replacementLabel = await registerApp(srv, token, "hello");
+    expect(replacementLabel).toBe(label);
+    expect(appRegistry.get("hello")!.port).toBe(port);
+    const replacementSeen: SeenUpgrade[] = [];
+    app = startWsApp("hello", replacementSeen);
+    const replacementCookie = await signIn(srv, replacementLabel, rawSessionId);
+    const replacementClient = await connected(
+      srv,
+      replacementLabel,
+      replacementCookie,
+      "/echo",
+    );
+    replacementClient.send("new");
+    expect(await replacementClient.next()).toEqual({
+      kind: "text",
+      text: "echo:new",
+    });
+    expect(retiredSeen.map((request) => request.path)).toEqual(["/echo"]);
+    expect(replacementSeen.map((request) => request.path)).toEqual(["/echo"]);
+    replacementClient.drop();
     await until(() => _testWsSocketsOpen().total === 0);
   });
 

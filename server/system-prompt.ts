@@ -82,7 +82,6 @@ How to show the boss a preview of a web page (e.g. a dev server you're working o
   curl -s -X POST localhost:${PORT}/api/agents/${agentId}/preview-url -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"url":"http://localhost:5173/"}'
 
 How to run a web app for the boss (only when they ask for one): register it with isomux instead of choosing a port yourself. Isomux allocates the port and runs the app as a service that keeps running after your session ends and across restarts. Write the app to listen on the port isomux passes it in the PORT env variable. Fix a bad command with PATCH.
-Register an app once, then PATCH its command or working directory when it changes. Deleting and re-registering it gives it a new public hostname and can consume another certificate.
   curl -s -X POST localhost:${PORT}/api/apps -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
     -d '{"name":"habits","command":"bun run start","cwd":"~/habits","description":"Habit tracker"}'   # register; the response carries the port and the data dir
   curl -s localhost:${PORT}/api/apps -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                  # list; add /<name> for one

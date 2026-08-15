@@ -109,11 +109,9 @@ Either way, it installs any system dependencies the new release needs, rebuilds 
 
 Each app an agent registers can get its own address, like `hello.office.example.com`, open from any device and behind the same sign-in as the office. A fresh install sets up the proxy side. When you create the office A record, also create a wildcard A record, `*.office.example.com`, pointing at the same server. Creating both together avoids a cached missing-name answer delaying the app check. On an office installed before this release, also re-run the installer once to add the site block (or add it to `/etc/caddy/Caddyfile` yourself); `isomux-update` never rewrites that file.
 
-Certificates are obtained per app the first time it is opened. Three things follow:
+Certificates are obtained per app the first time it is opened. Two things follow:
 
 - The office answers 404 for every name under its domain that is not a live app, so a subdomain you pointed at this server for something else stops working after updating.
-- Isomux admits at most ten new app hostnames per hour, so an office with more than ten apps enables them as the hour rolls.
-- Register an app once, then update its command instead of deleting and re-registering it. Each replacement gets a new hostname and can need a new certificate.
 - Deleting an app stops new certificates immediately, but TLS may keep terminating from Caddy's warm cache until its next cold load.
 
 A tailnet office (`*.ts.net`) keeps port links: Tailscale has no wildcard names, so app hostnames can't resolve there.

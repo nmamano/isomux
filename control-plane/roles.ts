@@ -250,6 +250,12 @@ export const WEB_GRANTS: readonly TableGrant[] = [
  */
 export const PROVISIONER_GRANTS: readonly TableGrant[] = [
   {
+    table: "certificate_credentials",
+    verbs: ["select", "insert", "update"],
+    because:
+      "the renewal seam authenticates one-office credentials and revokes them at service end",
+  },
+  {
     table: "instances",
     verbs: ["select", "update"],
     because: "the tick drives an instance's service state and goal forward",
@@ -334,6 +340,21 @@ export interface ReachableVerb {
  * a failing comparison rather than a surprise 42501 in production.
  */
 export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
+  {
+    table: "certificate_credentials",
+    verb: "select",
+    via: "authenticateCertificateCredential, from the renewal seam",
+  },
+  {
+    table: "certificate_credentials",
+    verb: "insert",
+    via: "issueCertificateCredential, before the hosted installer runs",
+  },
+  {
+    table: "certificate_credentials",
+    verb: "update",
+    via: "authenticate/revoke certificate credential, from the renewal seam and lifecycle",
+  },
   {
     table: "instances",
     verb: "select",
@@ -498,6 +519,15 @@ export const AUDITED_CMDRUN_SURFACES = [
   "readAndRefreshMarker",
   "deploymentIdOf",
   "InviteHold",
+  "certificateTargetFromEnv",
+  "CertificateService",
+  "obtainCertificateWithLego",
+  "Bun.spawn",
+  "Promise.all",
+  "Response",
+  "Error",
+  "path.join",
+  "text",
   "startMintSeam",
   "bindAddressOf",
   "healthReport",

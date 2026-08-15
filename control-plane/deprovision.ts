@@ -24,6 +24,7 @@ import { clearAttentionIn, raiseAttentionIn } from "./attention.ts";
 import type { AssetState } from "./provider.ts";
 import { openerStamp } from "./stripe/suspension.ts";
 import type { Handler, HandlerContext, HandlerResult } from "./tick.ts";
+import { revokeCertificateCredentials } from "./certificate-credentials.ts";
 
 // ------------------------------------------------------------ cancel_asset
 
@@ -94,6 +95,9 @@ export function cancelAssetHandler(deps: CancelAssetDeps): Handler {
       // successful cancel must not call again, and the provider's own state is
       // the only thing that can say so.
       if (GONE.has(asset.asset_state)) {
+        await ctx.store.tx(() =>
+          revokeCertificateCredentials(ctx.store, ctx.instance.id),
+        );
         return {
           kind: "done",
           evidence: {
@@ -150,6 +154,9 @@ export function cancelAssetHandler(deps: CancelAssetDeps): Handler {
           `provider ${providerId} -> ${result.assetState}`,
         );
       }
+      await ctx.store.tx(() =>
+        revokeCertificateCredentials(ctx.store, ctx.instance.id),
+      );
       // The provider's answer is adopted immediately rather than left for the
       // next reconcile: `serviceEndsAt` is the only proven deletion date there
       // is, and the ops floor needs it the moment it exists.
@@ -254,6 +261,11 @@ export function removeDnsHandler(deps: RemoveDnsDeps = {}): Handler {
     // Read-only. A probe that timed out changed nothing anywhere.
     timeoutIsRetryable: true,
     async run(ctx: HandlerContext): Promise<HandlerResult> {
+      // Revocation comes before DNS removal. A cancelled office must lose its
+      // renewal authority even while an operator is still removing records.
+      await ctx.store.tx(() =>
+        revokeCertificateCredentials(ctx.store, ctx.instance.id),
+      );
       const host = ctx.instance.name;
       const ipv4 = ctx.asset?.ipv4 ?? null;
       const reason = dnsReasonFor(host, ipv4);

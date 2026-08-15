@@ -36,8 +36,7 @@ import {
   MAX_NEW_APP_NAME_LENGTH,
   MAX_APP_COMMAND_LENGTH,
   labelFor,
-  allocateLabel,
-  TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR,
+  appRegistrationGeneration,
   RESERVED_APP_NAMES,
   type AppRegistry,
 } from "./app-registry.ts";
@@ -102,10 +101,7 @@ describe("app-registry: name validation", () => {
       ["trail-", "invalid_name"],
       ["has space", "invalid_name"],
       ["dot.name", "invalid_name"], // one LABEL, not a hostname
-      // A new name stops SHORT of the DNS ceiling, so there is room to append a
-      // generation suffix later without outgrowing a hostname label.
       ["x".repeat(MAX_NEW_APP_NAME_LENGTH + 1), "invalid_name"],
-      ["x".repeat(MAX_APP_NAME_LENGTH), "invalid_name"],
       ["../etc", "invalid_name"],
       ["www", "reserved_name"],
       ["api", "reserved_name"],
@@ -372,10 +368,9 @@ describe("app-registry: delete frees the name and the port", () => {
   });
 });
 
-// The slice-1 subject: a name is what a human types, a LABEL is what a browser
-// keys security state to, and those two have to come apart the moment a name is
-// reused. Every test below is written against the consequence - the successor
-// never lands on the predecessor's address - rather than against the mechanism.
+// A lineage keeps the last address that was issued for its name. A changing
+// server-held registration generation separates successive apps at that stable
+// origin.
 describe("app-registry: hostname labels and the issuance ledger", () => {
   // The ledger as it sits on disk. Read directly rather than through the
   // registry, because "what a future process will believe" is the actual claim.
@@ -388,70 +383,44 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
     expect(labelFor("hello", 17)).toBe("hello-g17");
   });
 
-  it("walks to the first label the ledger has never issued", () => {
-    expect(allocateLabel("hello", new Set())).toEqual({
-      label: "hello",
-      gen: 1,
-    });
-    expect(allocateLabel("hello", new Set(["hello"]))).toEqual({
-      label: "hello-g2",
-      gen: 2,
-    });
-    // A candidate can be taken for an unrelated reason - here `hello-g2` was
-    // issued to an app literally NAMED that - and the walk simply steps over it.
-    expect(allocateLabel("hello", new Set(["hello", "hello-g2"]))).toEqual({
-      label: "hello-g3",
-      gen: 3,
-    });
-  });
-
-  it("refuses rather than emitting a label too long to be a hostname", () => {
-    // A name at the registration limit survives 98 recycles; the 99th has
-    // nowhere left to go inside one DNS label, and the honest answer is to say
-    // so rather than hand out an address that cannot resolve.
-    const name = "x".repeat(MAX_NEW_APP_NAME_LENGTH);
-    const issued = new Set<string>([name]);
-    for (let gen = 2; gen <= 99; gen++) issued.add(labelFor(name, gen));
-    expect(labelFor(name, 99).length).toBe(MAX_APP_NAME_LENGTH);
-    expect(() => allocateLabel(name, issued)).toThrow(
-      expect.objectContaining({ code: "no_label_available" }),
-    );
-  });
-
   it("stamps a first registration with its own name and generation 1", () => {
     const app = make().register(registerInput("hello"));
     expect([app.hostLabel, app.hostGen]).toEqual(["hello", 1]);
     // Through disk, and dated the same instant as the record itself rather than
     // a clock reading of its own.
     expect(ledgerOnDisk()).toEqual([
-      { label: "hello", name: "hello", gen: 1, issuedAt: app.createdAt },
+      {
+        label: "hello",
+        name: "hello",
+        gen: 1,
+        issuedAt: app.createdAt,
+        certAdmittedAt: app.createdAt,
+        registrationGen: 1,
+      },
     ]);
     expect(make().get("hello")!.hostLabel).toBe("hello");
   });
 
-  it("a re-registered name gets a DIFFERENT address, and the old one stays spoken for", () => {
-    // The whole point of the slice. A browser that talked to the first `hello`
-    // can still be holding its service worker and storage for that origin; the
-    // second `hello` must not be served there.
+  it("a re-registered name keeps its wanted address and changes registration identity", () => {
     const reg = make();
     const first = reg.register(registerInput("hello"));
     reg.remove("hello");
     const second = reg.register(registerInput("hello"));
 
     expect(second.name).toBe("hello"); // the NAME came back...
-    expect(second.hostLabel).toBe("hello-g2"); // ...the ADDRESS did not
-    expect(second.hostGen).toBe(2);
-    expect(second.hostLabel).not.toBe(first.hostLabel);
-    // And a third generation keeps walking rather than reusing either.
+    expect(second.hostLabel).toBe("hello");
+    expect(second.hostGen).toBe(1);
+    expect(second.hostLabel).toBe(first.hostLabel);
+    expect(appRegistrationGeneration(second)).toBe(2);
     reg.remove("hello");
-    expect(reg.register(registerInput("hello")).hostLabel).toBe("hello-g3");
+    const third = reg.register(registerInput("hello"));
+    expect(third.hostLabel).toBe("hello");
+    expect(appRegistrationGeneration(third)).toBe(3);
 
-    // Both retired addresses are still on record, so no future registration -
-    // in this process or any later one - can be handed them.
+    // The stable address remains on record with the newest server-held
+    // registration generation.
     expect(ledgerOnDisk().map((e: { label: string }) => e.label)).toEqual([
       "hello",
-      "hello-g2",
-      "hello-g3",
     ]);
   });
 
@@ -460,7 +429,61 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
     make().remove("hello");
     // A COLD registry over the same directory: the label walk is answered from
     // the file, so it cannot depend on anything held in memory.
+    expect(make().register(registerInput("hello")).hostLabel).toBe("hello");
+  });
+
+  it("keeps and reuses a generated label that a rollback already issued", () => {
+    const reg = make();
+    reg.register(registerInput("hello"));
+    reg.remove("hello");
+    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf8"));
+    raw.issuedLabels.push({
+      label: "hello-g2",
+      name: "hello",
+      gen: 2,
+      issuedAt: 2,
+    });
+    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+
+    const adopted = make().register(registerInput("hello"));
+    expect([adopted.hostLabel, adopted.hostGen]).toEqual(["hello-g2", 2]);
+    expect(appRegistrationGeneration(adopted)).toBe(3);
+    expect(ledgerOnDisk().map((row: { label: string }) => row.label)).toEqual([
+      "hello",
+      "hello-g2",
+    ]);
+    make().remove("hello");
     expect(make().register(registerInput("hello")).hostLabel).toBe("hello-g2");
+  });
+
+  it("never lowers identity when a rollback adds a later public label", () => {
+    const app = make().register(registerInput("hello"));
+    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf8"));
+    raw.apps[0] = {
+      ...raw.apps[0],
+      hostLabel: "hello-g2",
+      hostGen: 2,
+    };
+    delete raw.apps[0].registrationGen;
+    raw.issuedLabels[0].registrationGen = 5;
+    raw.issuedLabels.push({
+      label: "hello-g2",
+      name: "hello",
+      gen: 2,
+      issuedAt: app.createdAt + 1,
+    });
+    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+
+    const afterRollback = make().get("hello")!;
+    expect([afterRollback.hostLabel, afterRollback.hostGen]).toEqual([
+      "hello-g2",
+      2,
+    ]);
+    expect(appRegistrationGeneration(afterRollback)).toBe(5);
+    make().remove("hello");
+    expect(
+      appRegistrationGeneration(make().register(registerInput("hello"))),
+    ).toBe(6);
   });
 
   it("deleting an app never prunes its issuance, and an update never touches the ledger", () => {
@@ -477,7 +500,15 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
     const reg = make();
     reg.register(registerInput("hello"));
     reg.remove("hello");
-    reg.register(registerInput("hello")); // now `hello-g2` is issued, to `hello`
+    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf8"));
+    raw.issuedLabels.push({
+      label: "hello-g2",
+      name: "hello",
+      gen: 2,
+      issuedAt: 2,
+    });
+    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+    make().register(registerInput("hello"));
 
     expect(() => reg.register(registerInput("hello-g2"))).toThrow(
       expect.objectContaining({ code: "origin_retired" }),
@@ -485,6 +516,21 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
     // Nothing was written by the refusal.
     expect(reg.list().map((a) => a.name)).toEqual(["hello"]);
     expect(existsSync(join(dir, "data", "hello-g2"))).toBe(false);
+  });
+
+  it("refuses a rollback label that another lineage already owns", () => {
+    const raw = {
+      apps: [],
+      issuedLabels: [
+        { label: "hello", name: "hello", gen: 1, issuedAt: 1 },
+        { label: "hello-g2", name: "hello-g2", gen: 1, issuedAt: 2 },
+        { label: "hello-g2", name: "hello", gen: 2, issuedAt: 3 },
+      ],
+    };
+    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+    expect(() => make().register(registerInput("hello"))).toThrow(
+      expect.objectContaining({ code: "registry_corrupt" }),
+    );
   });
 
   it("a name colliding with its OWN earlier generations is the ordinary recycle path", () => {
@@ -505,13 +551,13 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
     );
   });
 
-  it("a name at the registration limit still fits a suffix at the DNS ceiling", () => {
+  it("a name at the DNS-label limit remains reusable", () => {
     const name = "x".repeat(MAX_NEW_APP_NAME_LENGTH);
     const reg = make();
     reg.register(registerInput(name));
     reg.remove(name);
     const second = reg.register(registerInput(name));
-    expect(second.hostLabel).toBe(`${name}-g2`);
+    expect(second.hostLabel).toBe(name);
     expect(second.hostLabel.length).toBeLessThanOrEqual(MAX_APP_NAME_LENGTH);
   });
 
@@ -551,16 +597,15 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
         name: "new",
         gen: 1,
         issuedAt: make().get("new")!.createdAt,
+        certAdmittedAt: make().get("new")!.createdAt,
+        registrationGen: 1,
       },
     ]);
     // ...and the legacy app kept its address across the rewrite.
     expect(make().get("old")!.hostLabel).toBe("old");
   });
 
-  it("a grandfathered over-long name loads, runs, and cannot be re-registered", () => {
-    // 63 characters was legal before this slice. Such a record must keep
-    // working; what it cannot do is come back after a delete, because a new
-    // registration has to leave room for a generation suffix.
+  it("a name at the DNS limit loads, runs, and can be re-registered", () => {
     const name = "y".repeat(MAX_APP_NAME_LENGTH);
     writeFileSync(
       join(dir, "apps.json"),
@@ -580,9 +625,7 @@ describe("app-registry: hostname labels and the issuance ledger", () => {
     const reg = make();
     expect(reg.get(name)!.hostLabel).toBe(name);
     expect(reg.remove(name)?.name).toBe(name);
-    expect(() => reg.register(registerInput(name))).toThrow(
-      expect.objectContaining({ code: "invalid_name" }),
-    );
+    expect(reg.register(registerInput(name)).hostLabel).toBe(name);
   });
 });
 
@@ -1143,13 +1186,7 @@ describe("app-registry: update", () => {
   });
 });
 
-describe("app-registry: TLS certificate admission", () => {
-  // The measured behaviour this exists for (Caddy 2.11.4, test box): the
-  // terminator asks before it SERVES a certificate, not only before it obtains
-  // one, so a restart asks about every live name at once and a refusal at that
-  // moment refuses the handshake. Two properties follow, and most of the cases
-  // below are one of them: an already-admitted label is free forever, and that
-  // fact has to be on disk, because the office restarts too.
+describe("app-registry: TLS request gate and rollback stamps", () => {
   const HOUR = 60 * 60 * 1000;
   const T0 = 1_700_000_000_000;
   let clock: number;
@@ -1165,7 +1202,7 @@ describe("app-registry: TLS certificate admission", () => {
     clock = T0;
   });
 
-  // n apps, registered but never admitted.
+  // n apps with rollback stamps written at registration.
   function seedApps(reg: AppRegistry, n: number, prefix = "app"): string[] {
     const labels: string[] = [];
     for (let i = 0; i < n; i++) {
@@ -1174,16 +1211,24 @@ describe("app-registry: TLS certificate admission", () => {
     return labels;
   }
 
-  it("treats a row with no admission field as never admitted", () => {
+  it("new state remains live through the old admission method", () => {
     const reg = registry();
     reg.register(registerInput("hello"));
-    // Every row every released version ever wrote looks like this, so this IS
-    // the migration: there is nothing to migrate.
-    expect(ledgerOnDisk()[0].certAdmittedAt).toBeUndefined();
-    expect(reg.admitAppCertificate("hello")).toBe("admitted");
+    expect(ledgerOnDisk()[0].certAdmittedAt).toBe(T0);
+    expect(reg.admitAppCertificate("hello")).toBe("already");
   });
 
-  it("writes the admission to disk, where a later process can find it", () => {
+  it("old state with no rollback stamp remains live through the new gate", () => {
+    const reg = registry();
+    reg.register(registerInput("hello"));
+    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf8"));
+    delete raw.issuedLabels[0].certAdmittedAt;
+    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
+    expect(registry().isLiveHostLabel("hello")).toBe(true);
+    expect(ledgerOnDisk()[0].certAdmittedAt).toBeUndefined();
+  });
+
+  it("keeps the rollback stamp across a later process", () => {
     const reg = registry();
     reg.register(registerInput("hello"));
     reg.admitAppCertificate("hello");
@@ -1194,106 +1239,44 @@ describe("app-registry: TLS certificate admission", () => {
     expect(registry().admitAppCertificate("hello")).toBe("already");
   });
 
-  it("admits a label exactly once, however often it is asked about", () => {
+  it("does not rewrite the rollback stamp when the old method is asked", () => {
     const reg = registry();
     reg.register(registerInput("hello"));
-    expect(reg.admitAppCertificate("hello")).toBe("admitted");
+    expect(reg.admitAppCertificate("hello")).toBe("already");
     const afterFirst = readFileSync(join(dir, "apps.json"), "utf-8");
-    // Hours later, under a moved clock: the stamp must not be refreshed, or the
-    // slot it occupies would never age out.
+    // Hours later, under a moved clock: the stamp stays byte-identical.
     at(T0 + 3 * HOUR);
     expect(reg.admitAppCertificate("hello")).toBe("already");
     expect(reg.admitAppCertificate("hello")).toBe("already");
     expect(readFileSync(join(dir, "apps.json"), "utf-8")).toBe(afterFirst);
   });
 
-  it("admits ten new labels in an hour and caps the eleventh", () => {
+  it("allows every live label without an arbitrary hourly app limit", () => {
     const reg = registry();
-    const labels = seedApps(reg, 11);
-    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
-      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
-    }
-    const before = readFileSync(join(dir, "apps.json"), "utf-8");
-    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
-    // A refusal writes nothing at all - a capped label must be able to come
-    // back later and find the file exactly as it left it.
-    expect(readFileSync(join(dir, "apps.json"), "utf-8")).toBe(before);
+    const labels = seedApps(reg, 100);
+    expect(labels.map((label) => reg.admitAppCertificate(label))).toEqual(
+      Array(100).fill("already"),
+    );
   });
 
-  it("frees a slot at exactly one hour, not a millisecond before", () => {
+  it("refuses a retired label while retaining its rollback stamp", () => {
     const reg = registry();
-    const labels = seedApps(reg, 11);
-    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
-      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
-    }
-    // One tick short of the window: the oldest stamp is still inside it.
-    at(T0 + HOUR - 1);
-    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
-    // Exactly one hour old has aged out.
-    at(T0 + HOUR);
-    expect(reg.admitAppCertificate(labels[10])).toBe("admitted");
-  });
-
-  it("lets an established label through while the window is completely full", () => {
-    const reg = registry();
-    const labels = seedApps(reg, 12);
-    expect(reg.admitAppCertificate(labels[11])).toBe("admitted");
-    at(T0 + 1);
-    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR - 1; i++) {
-      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
-    }
-    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
-    // The established one is unaffected by a full window - this is the case a
-    // terminator restart produces, at every app the office has.
-    expect(reg.admitAppCertificate(labels[11])).toBe("already");
-  });
-
-  it("lets an established label through after the clock moves backwards", () => {
-    const reg = registry();
-    const labels = seedApps(reg, 11);
-    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
-      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
-    }
-    // A clock that jumped backwards leaves every stamp in the future. Those
-    // count - the conservative direction - so a NEW label stays capped for
-    // longer, which is a delay and not an outage...
-    at(T0 - 12 * HOUR);
-    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
-    // ...while an established label never consults the clock at all, so no
-    // clock movement in either direction can take its certificate away.
+    const labels = seedApps(reg, 2);
     expect(reg.admitAppCertificate(labels[0])).toBe("already");
-    // Forward past the window empties it again.
-    at(T0 + 2 * HOUR);
-    expect(reg.admitAppCertificate(labels[10])).toBe("admitted");
-  });
-
-  it("keeps counting a retired label's admission, while refusing the label itself", () => {
-    const reg = registry();
-    const labels = seedApps(reg, 11);
-    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
-      expect(reg.admitAppCertificate(labels[i])).toBe("admitted");
-    }
     reg.remove("app0");
-    // Deleting the app does not refund the admission: whatever it spent at the
-    // CA was spent, and a delete cannot unspend it.
-    expect(reg.admitAppCertificate(labels[10])).toBe("capped");
-    // And the retired label itself is refused exactly like one that never
-    // existed - the ledger row survives, the app does not.
+    expect(ledgerOnDisk()[0].certAdmittedAt).toBe(T0);
     expect(reg.admitAppCertificate(labels[0])).toBe("not_live");
+    expect(reg.admitAppCertificate(labels[1])).toBe("already");
   });
 
-  it("gives a re-registered name a fresh label that needs its own admission", () => {
+  it("reuses the live label without a negative admission cache", () => {
     const reg = registry();
     reg.register(registerInput("hello"));
-    expect(reg.admitAppCertificate("hello")).toBe("admitted");
+    expect(reg.admitAppCertificate("hello")).toBe("already");
     reg.remove("hello");
     const again = reg.register(registerInput("hello"));
-    expect(again.hostLabel).toBe("hello-g2");
-    // The successor inherits nothing: a browser holding storage for `hello` is
-    // exactly what the generation ladder exists to keep away from it, and its
-    // certificate is its own.
-    expect(reg.admitAppCertificate("hello-g2")).toBe("admitted");
-    expect(reg.admitAppCertificate("hello")).toBe("not_live");
+    expect(again.hostLabel).toBe("hello");
+    expect(reg.admitAppCertificate("hello")).toBe("already");
   });
 
   it("refuses a label the live app has moved off, even with its ledger row intact", () => {
@@ -1301,11 +1284,12 @@ describe("app-registry: TLS certificate admission", () => {
     reg.register(registerInput("hello"));
     // The app is moved onto a later generation by hand - the shape a
     // re-registration leaves, without going through one. `hello` still has a
-    // ledger row, and it still gets nothing: admission follows the LIVE app's
+    // ledger row, and it still gets nothing: the gate follows the LIVE app's
     // label, not any label the ledger remembers.
     const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf-8"));
     raw.apps[0].hostGen = 2;
     raw.apps[0].hostLabel = "hello-g2";
+    raw.apps[0].registrationGen = 2;
     raw.issuedLabels.push({
       label: "hello-g2",
       name: "hello",
@@ -1314,7 +1298,7 @@ describe("app-registry: TLS certificate admission", () => {
     });
     writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
     expect(registry().admitAppCertificate("hello")).toBe("not_live");
-    expect(registry().admitAppCertificate("hello-g2")).toBe("admitted");
+    expect(registry().admitAppCertificate("hello-g2")).toBe("already");
   });
 
   it("neither writes nor spends anything on labels that are not live", () => {
@@ -1328,36 +1312,21 @@ describe("app-registry: TLS certificate admission", () => {
     // Capacity is untouched: a stranger pointing a thousand names at the box
     // cannot cap the office out of certificates for its own apps.
     for (const label of labels) {
-      expect(reg.admitAppCertificate(label)).toBe("admitted");
+      expect(reg.admitAppCertificate(label)).toBe("already");
     }
   });
 
-  it("counts a stamp from the future, rather than reading it as ancient", () => {
-    const reg = registry();
-    const labels = seedApps(reg, 11);
-    const raw = JSON.parse(readFileSync(join(dir, "apps.json"), "utf-8"));
-    for (let i = 0; i < TLS_ASK_MAX_NEW_ADMISSIONS_PER_HOUR; i++) {
-      raw.issuedLabels[i].certAdmittedAt = T0 + 10 * HOUR;
-    }
-    writeFileSync(join(dir, "apps.json"), JSON.stringify(raw));
-    expect(registry().admitAppCertificate(labels[10])).toBe("capped");
-  });
-
-  it("raises persist_failed rather than reporting an admission that was not written", () => {
+  it("answers from disk and fails closed when the registry cannot be read", () => {
     if (!readOnlyIsEnforced(dir)) return; // running as root; see above
     const reg = registry();
     reg.register(registerInput("hello"));
-    chmodSync(dir, 0o500);
+    chmodSync(join(dir, "apps.json"), 0o000);
     try {
-      expect(() => reg.admitAppCertificate("hello")).toThrow(
-        expect.objectContaining({ code: "persist_failed" }),
-      );
+      expect(() => reg.admitAppCertificate("hello")).toThrow();
     } finally {
-      chmodSync(dir, 0o700);
+      chmodSync(join(dir, "apps.json"), 0o600);
     }
-    // Fail CLOSED: the admission did not happen, so the next handshake asks
-    // again rather than the office believing a name is certified when the
-    // record of it never reached the disk.
-    expect(ledgerOnDisk()[0].certAdmittedAt).toBeUndefined();
+    // Restoring readability returns the same rollback stamp.
+    expect(ledgerOnDisk()[0].certAdmittedAt).toBe(T0);
   });
 });

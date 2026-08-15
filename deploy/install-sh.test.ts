@@ -386,16 +386,22 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
 // heredoc expands exactly two variables, which the assertion below pins - so a
 // literal substitution here IS the file the installer writes, and every claim
 // about placement can be made per site block rather than per file.
-function renderCaddyfile(domain: string): string {
-  const open = "write_file /etc/caddy/Caddyfile 644 <<EOF\n";
-  const from = SRC.indexOf(open);
+function renderCaddyfile(
+  domain: string,
+  kind: "hosted" | "self-hosted" = "self-hosted",
+): string {
+  const configure = SRC.indexOf("configure_caddy() {");
+  const first = SRC.indexOf('cat > "$rendered" <<EOF\n', configure);
+  const from =
+    kind === "hosted"
+      ? first
+      : SRC.indexOf('cat > "$rendered" <<EOF\n', first + 1);
+  const open = 'cat > "$rendered" <<EOF\n';
   expect(from).toBeGreaterThan(-1);
   const body = SRC.slice(from + open.length, SRC.indexOf("\nEOF\n", from) + 1);
-  expect(body.match(/\$[A-Za-z_]+/g)).toEqual([
-    "$CADDY_MARKER",
-    "$DOMAIN",
-    "$DOMAIN",
-  ]);
+  expect(new Set(body.match(/\$[A-Za-z_]+/g))).toEqual(
+    new Set(["$CADDY_MARKER", "$DOMAIN"]),
+  );
   return body
     .replaceAll("$CADDY_MARKER", CADDY_MARKER)
     .replaceAll("$DOMAIN", domain);
@@ -413,6 +419,22 @@ function block(rendered: string, header: string): string {
 }
 
 describe("install.sh: the managed Caddyfile", () => {
+  it("reports box-side certificate failure and recovery with its one-office credential", () => {
+    const helper = SRC.slice(
+      SRC.indexOf("install_hosted_tls_renewal() {"),
+      SRC.indexOf(
+        "\nRENEW_HELPER",
+        SRC.indexOf("install_hosted_tls_renewal() {"),
+      ),
+    );
+    expect(helper).toContain("status_endpoint=${endpoint%/renew}/status");
+    expect(helper).toContain("report_status failed || true");
+    expect(helper.match(/report_status ok/g)?.length).toBe(2);
+    expect(helper).toContain(
+      "trap 'rc=$?; trap - ERR; report_status failed || true; exit \"$rc\"' ERR",
+    );
+  });
+
   it("turns the admin API off, in a global block ahead of the site block", () => {
     // Caddy's admin API listens on 127.0.0.1:2019 by default and rewrites the
     // proxy config with no credential. Loopback is not a trust boundary here:
@@ -428,6 +450,49 @@ describe("install.sh: the managed Caddyfile", () => {
     expect(body.indexOf("admin off")).toBeLessThan(body.indexOf("$DOMAIN {"));
     // Still the same office it proxies to.
     expect(body).toContain("reverse_proxy 127.0.0.1:4000");
+  });
+
+  it("uses one explicit hosted wildcard certificate and a request-time gate", () => {
+    const hosted = SRC.slice(
+      SRC.indexOf("if [[ -f /etc/isomux/renewal/enrollment.json ]]"),
+      SRC.indexOf(
+        "\n  else",
+        SRC.indexOf("if [[ -f /etc/isomux/renewal/enrollment.json ]]"),
+      ),
+    );
+    expect(hosted).toContain(
+      "tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem",
+    );
+    expect(hosted).toContain("forward_auth 127.0.0.1:4000");
+    expect(hosted).toContain(`uri ${TLS_ASK_PATH}?domain={http.request.host}`);
+    expect(hosted).not.toContain("on_demand");
+  });
+
+  it("refuses a root-only key before replacing the Caddyfile", () => {
+    const body = SRC.slice(
+      SRC.indexOf("install_caddyfile_transaction() {"),
+      SRC.indexOf("\nconfigure_caddy() {"),
+    );
+    expect(body).toContain("assert_caddy_file /etc/isomux/tls/key.pem");
+    expect(
+      body.indexOf("assert_caddy_file /etc/isomux/tls/key.pem"),
+    ).toBeLessThan(body.indexOf('mv -f "$rendered" "$final"'));
+    const validator = SRC.slice(
+      SRC.indexOf("assert_caddy_file() {"),
+      SRC.indexOf("\nconfigure_caddy() {"),
+    );
+    const dir = mkdtempSync(join(tmpdir(), "isomux-caddy-access-"));
+    const key = join(dir, "key.pem");
+    writeFileSync(key, "not a key", { mode: 0o600 });
+    const proc = Bun.spawnSync([
+      "bash",
+      "-c",
+      `${validator}\nlog(){ :; }\nassert_caddy_file "$1"`,
+      "bash",
+      key,
+    ]);
+    rmSync(dir, { recursive: true, force: true });
+    expect(proc.exitCode).not.toBe(0);
   });
 
   // Slice 7. The installer writes the WHOLE file, so "idempotent" means
@@ -449,17 +514,26 @@ describe("install.sh: the managed Caddyfile", () => {
   });
 
   it("has exactly one marker, one global block and one block per site", () => {
-    const rendered = renderCaddyfile("office.example");
-    expect(rendered.split(CADDY_MARKER).length - 1).toBe(1);
-    expect(rendered.startsWith(`${CADDY_MARKER}\n`)).toBe(true);
-    // Every top-level opening brace in the file, in order: the global block,
-    // the office, the wildcard. Nothing outside the managed heredoc, and no
-    // second copy of anything.
-    expect(rendered.match(/^\S*\s?{$/gm)).toEqual([
-      "{",
-      "office.example {",
-      "*.office.example {",
-    ]);
+    for (const kind of ["hosted", "self-hosted"] as const) {
+      const rendered = renderCaddyfile("office.example", kind);
+      expect(rendered.split(CADDY_MARKER).length - 1).toBe(1);
+      expect(rendered.startsWith(`${CADDY_MARKER}\n`)).toBe(true);
+      expect(rendered.match(/^\S*\s?{$/gm)).toEqual([
+        "{",
+        "office.example {",
+        "*.office.example {",
+      ]);
+      expect(block(rendered, "")).toContain("admin off");
+      expect(block(rendered, "office.example")).toContain(
+        `respond ${TLS_ASK_PATH} 404`,
+      );
+      expect(block(rendered, "office.example")).toContain(
+        "reverse_proxy 127.0.0.1:4000",
+      );
+      expect(block(rendered, "*.office.example")).toContain(
+        "reverse_proxy 127.0.0.1:4000",
+      );
+    }
   });
 
   it("gates on-demand certificates on the office's own ask endpoint", () => {

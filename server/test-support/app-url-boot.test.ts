@@ -131,11 +131,7 @@ describe("app URLs: the office gains a domain", () => {
     );
   });
 
-  it("reports the LABEL's address for a re-registered name, not the name's", async () => {
-    // The ledger's whole point, seen from the API: `hello` is deleted and
-    // registered again, so this app is `hello-g2` and the old origin stays
-    // dead. Reporting `hello.office.example` here would point a user at an
-    // address that belongs to nobody.
+  it("keeps a re-registered name at its stable address", async () => {
     const first = await startTestServer();
     server = first;
     const owner = await first.seedOwner("Boss");
@@ -143,13 +139,13 @@ describe("app URLs: the office gains a domain", () => {
     await registerApp(first, token, "hello");
     await deleteApp(first, token, "hello");
     const label = await registerApp(first, token, "hello");
-    expect(label).toBe("hello-g2");
+    expect(label).toBe("hello");
 
     const srv = await goHttpsAndRestart(first, owner.rawSessionId);
     const [app] = await appsList(srv, owner.rawSessionId);
-    expect(app.url).toBe(`https://hello-g2.${OFFICE_HOST}`);
+    expect(app.url).toBe(`https://hello.${OFFICE_HOST}`);
     expect(srv.appSupervisor.unitFiles.get("hello")).toContain(
-      `Environment="ISOMUX_APP_URL=https://hello-g2.${OFFICE_HOST}"`,
+      `Environment="ISOMUX_APP_URL=https://hello.${OFFICE_HOST}"`,
     );
   });
 

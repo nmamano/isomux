@@ -132,14 +132,28 @@ question: apps are private to the office users who can already see the agent's
 room, and there is no public-app story in this direction.
 
 **Second contradiction with `port-proxy-design.md`**: it forbids recycling
-hostnames, because a retired origin leaves service workers and storage behind
-that would attack whatever lands there next. Resolved the other way: deleting an
-app frees its name and port immediately, and the hostname carries a generation
-label so a reused name never lands on the previous app's origin (task f51fe505).
-The filesystem half of the same problem is settled in the registry rather than
-the transport - a delete moves the app's data directory to
-`apps/data/.retired/<name>-<deletedAt>`, so the data is kept and the next app to
-take the name starts with an empty one.
+hostnames, because origin state can survive deletion. Nil accepted that state as
+the smaller harm than permanently losing a wanted URL (2026-08-15). Deleting an
+app frees its name and port, and a later registration of that name reuses the
+lineage's most recently issued hostname. Existing generated labels do not move;
+if a rollback issued `hello-g2`, later versions keep `hello-g2`.
+
+Safety is server-held registration identity, not browser cleanup. Every
+registration advances a persisted registration generation. Mint codes, app
+sessions, HTTP relays and both WebSocket legs bind the hostname label and that
+generation. Delete stays synchronous: stop and remove the unit, close in-flight
+routes, purge codes and sessions, revoke the persistent app API token, and only
+then remove the registry row so the name and port become reusable. This order
+also makes a partial delete safe to retry. The code and session maps are
+in-memory and disappear on restart; that fact is required by the legacy-state
+identity derivation. Persisting either map later requires revisiting the
+derivation.
+
+A pre-auth response can send `Clear-Site-Data` after reuse as a courtesy. It is
+not a safety boundary. Surviving origin state is the accepted tradeoff for never
+losing a wanted URL. The filesystem has a separate rule: delete moves the data
+directory to `apps/data/.retired/<name>-<deletedAt>`, so the replacement starts
+with an empty directory.
 
 ### 5. Apps message their agent
 

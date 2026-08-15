@@ -21,7 +21,6 @@ import {
   tlsAskResponse,
   type TlsAskDeps,
 } from "../tls-ask.ts";
-import type { CertAdmission } from "../app-registry.ts";
 
 const DOMAIN = "office.example";
 
@@ -31,14 +30,14 @@ const DOMAIN = "office.example";
 // is the call that can write to disk and spend the office's budget.
 function registry(
   live: string[],
-  answer: (label: string) => CertAdmission = () => "admitted",
+  answer: (label: string) => boolean = () => true,
 ) {
   const asked: string[] = [];
   const deps: TlsAskDeps = {
     domain: DOMAIN,
-    admit: (label) => {
+    isLive: (label) => {
       asked.push(label);
-      return live.includes(label) ? answer(label) : "not_live";
+      return live.includes(label) && answer(label);
     },
   };
   return { deps, asked };
@@ -78,30 +77,25 @@ describe("decideTlsAsk: what may be certified", () => {
 
   it("refuses the hosted readiness probe without spending an admission", () => {
     const asked: string[] = [];
-    const admissionVerdicts: CertAdmission[] = [];
+    const admissionVerdicts: boolean[] = [];
     const deps: TlsAskDeps = {
       domain: DOMAIN,
-      admit: (label) => {
+      isLive: (label) => {
         asked.push(label);
-        admissionVerdicts.push("not_live");
-        return "not_live";
+        admissionVerdicts.push(false);
+        return false;
       },
     };
     const probe = `isomux-app-check-${"a".repeat(24)}.${DOMAIN}`;
     expect(decideTlsAsk(probe, deps)).toBe("deny");
     expect(asked).toEqual([`isomux-app-check-${"a".repeat(24)}`]);
-    expect(admissionVerdicts).toEqual(["not_live"]);
-  });
-
-  it("passes a capped admission through as its own answer", () => {
-    const { deps } = registry(["hello"], () => "capped");
-    expect(decideTlsAsk(`hello.${DOMAIN}`, deps)).toBe("capped");
+    expect(admissionVerdicts).toEqual([false]);
   });
 
   it("treats an already-admitted label exactly like a fresh admission", () => {
     // This is the case a terminator restart produces at every live app at once,
     // and the one that must never be refused.
-    const { deps } = registry(["hello"], () => "already");
+    const { deps } = registry(["hello"]);
     expect(decideTlsAsk(`hello.${DOMAIN}`, deps)).toBe("allow");
   });
 
@@ -171,15 +165,14 @@ describe("decideTlsAsk: what may be certified", () => {
 });
 
 describe("the response the terminator reads", () => {
-  it("proceeds only on a 2xx, and says which refusal it is", () => {
+  it("proceeds only on a 2xx", () => {
     expect(tlsAskResponse("allow").status).toBe(200);
     expect(tlsAskResponse("deny").status).toBe(403);
-    expect(tlsAskResponse("capped").status).toBe(429);
   });
 
   it("is never cached", () => {
     // A cached "ok" would outlive the app it vouched for.
-    for (const d of ["allow", "deny", "capped"] as const) {
+    for (const d of ["allow", "deny"] as const) {
       expect(tlsAskResponse(d).headers.get("Cache-Control")).toBe("no-store");
     }
   });
@@ -187,7 +180,6 @@ describe("the response the terminator reads", () => {
   it("carries the bodies verbatim", async () => {
     expect(await tlsAskResponse("allow").text()).toBe("ok\n");
     expect(await tlsAskResponse("deny").text()).toBe("denied\n");
-    expect(await tlsAskResponse("capped").text()).toBe("rate limited\n");
   });
 });
 
@@ -230,7 +222,7 @@ describe("handleTlsAsk: the query contract", () => {
     // labels too: their proof of admission is in that file.
     const deps: TlsAskDeps = {
       domain: DOMAIN,
-      admit: () => {
+      isLive: () => {
         throw new Error("apps.json is unreadable");
       },
     };

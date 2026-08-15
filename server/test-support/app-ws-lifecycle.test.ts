@@ -513,7 +513,7 @@ describe("app-ws relay: a socket that is no longer allowed to exist", () => {
     await until(() => result.opened.browser.closes.length > 0);
     expect(result.opened.browser.closes[0]).toEqual({
       code: 1008,
-      reason: "session ended",
+      reason: "app registration retired",
     });
     // The close was INITIATED, not completed: the browser leg has not reported
     // back, so the socket still exists and the slot is still occupied.

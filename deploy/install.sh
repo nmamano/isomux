@@ -3108,6 +3108,143 @@ mint_invite() {
   printf '%s\n' "$INVITE_URL" | write_file "$INVITE_FILE" 600
 }
 
+install_hosted_tls_renewal() {
+  [[ -f /etc/isomux/renewal/enrollment.json ]] || return 0
+  install -d -m 0750 -o root -g caddy /etc/isomux/tls
+  write_file /usr/local/sbin/isomux-renew-certificate 700 <<'RENEW_HELPER'
+#!/usr/bin/env bash
+set -euo pipefail
+enrollment=/etc/isomux/renewal/enrollment.json
+tls_dir=/etc/isomux/tls
+domain=${DOMAIN:?DOMAIN is required}
+endpoint=$(jq -er .endpoint "$enrollment")
+token=$(jq -er .token "$enrollment")
+status_endpoint=${endpoint%/renew}/status
+install -d -m 0750 -o root -g caddy "$tls_dir"
+key="$tls_dir/key.pem"
+if [[ ! -f $key ]]; then
+  key_tmp="$tls_dir/.key.$$"
+  openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$key_tmp"
+  chown root:caddy "$key_tmp"
+  chmod 0640 "$key_tmp"
+  sync -f "$key_tmp"
+  mv -f "$key_tmp" "$key"
+fi
+csr=$(mktemp "$tls_dir/.request.XXXXXX")
+answer=$(mktemp "$tls_dir/.answer.XXXXXX")
+cert_tmp=$(mktemp "$tls_dir/.cert.XXXXXX")
+curl_config=$(mktemp "$tls_dir/.curl.XXXXXX")
+trap 'rm -f "$csr" "$answer" "$cert_tmp" "$curl_config"' EXIT
+printf 'header = "Authorization: Bearer %s"\n' "$token" > "$curl_config"
+chmod 0600 "$curl_config"
+report_status() {
+  curl --fail --silent --show-error --config "$curl_config" \
+    -H 'Content-Type: application/json' --data "{\"status\":\"$1\"}" \
+    "$status_endpoint" >/dev/null
+}
+trap 'rc=$?; trap - ERR; report_status failed || true; exit "$rc"' ERR
+openssl req -new -key "$key" -subj "/CN=$domain" \
+  -addext "subjectAltName=DNS:$domain,DNS:*.$domain" -out "$csr"
+jq -n --rawfile csr "$csr" '{csr:$csr}' | \
+  curl --fail --silent --show-error --retry 3 \
+    --config "$curl_config" -H 'Content-Type: application/json' \
+    --data-binary @- "$endpoint" > "$answer"
+jq -er .certificate "$answer" > "$cert_tmp"
+cert_names=$(openssl x509 -in "$cert_tmp" -noout -ext subjectAltName)
+grep -Fq "DNS:$domain" <<<"$cert_names"
+grep -Fq "DNS:*.$domain" <<<"$cert_names"
+[[ $(openssl x509 -in "$cert_tmp" -pubkey -noout | sha256sum) == \
+   $(openssl pkey -in "$key" -pubout | sha256sum) ]]
+  chown root:caddy "$cert_tmp"
+  chmod 0640 "$cert_tmp"
+# Test through Caddy's account. A root read would hide a root-only key.
+runuser -u caddy -- openssl x509 -in "$cert_tmp" -noout >/dev/null
+runuser -u caddy -- openssl pkey -in "$key" -noout >/dev/null
+if [[ -f $tls_dir/cert.pem ]] && cmp -s "$cert_tmp" "$tls_dir/cert.pem"; then
+  report_status ok
+  exit 0
+fi
+sync -f "$cert_tmp"
+old_cert="$tls_dir/.cert.previous"
+[[ ! -f $tls_dir/cert.pem ]] || cp -a "$tls_dir/cert.pem" "$old_cert"
+mv -f "$cert_tmp" "$tls_dir/cert.pem"
+sync -f "$tls_dir"
+if systemctl is-active --quiet caddy && ! systemctl restart caddy; then
+  if [[ -f $old_cert ]]; then
+    mv -f "$old_cert" "$tls_dir/cert.pem"
+    sync -f "$tls_dir"
+    systemctl restart caddy || true
+  fi
+  report_status failed || true
+  exit 1
+fi
+rm -f "$old_cert"
+report_status ok
+RENEW_HELPER
+  write_file /etc/systemd/system/isomux-certificate-renew.service 644 <<EOF
+[Unit]
+Description=Renew the Isomux office certificate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=DOMAIN=$DOMAIN
+ExecStart=/usr/local/sbin/isomux-renew-certificate
+EOF
+  write_file /etc/systemd/system/isomux-certificate-renew.timer 644 <<'EOF'
+[Unit]
+Description=Check the Isomux office certificate each day
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+  run systemctl daemon-reload
+  run env DOMAIN="$DOMAIN" /usr/local/sbin/isomux-renew-certificate
+  run systemctl enable --now isomux-certificate-renew.timer
+}
+
+install_caddyfile_transaction() {
+  local rendered=$1 final=/etc/caddy/Caddyfile old=/etc/caddy/.Caddyfile.isomux-old
+  run caddy validate --config "$rendered" --adapter caddyfile
+  if [[ -f /etc/isomux/tls/key.pem ]]; then
+    assert_caddy_file /etc/isomux/tls/key.pem
+    assert_caddy_file /etc/isomux/tls/cert.pem
+    run runuser -u caddy -- openssl pkey -in /etc/isomux/tls/key.pem -noout
+    run runuser -u caddy -- openssl x509 -in /etc/isomux/tls/cert.pem -noout
+  fi
+  sync -f "$rendered"
+  [[ ! -f $final ]] || cp -a "$final" "$old"
+  mv -f "$rendered" "$final"
+  sync -f /etc/caddy
+  if ! systemctl restart caddy; then
+    if [[ -f $old ]]; then
+      cp -a "$old" "$rendered"
+      sync -f "$rendered"
+      mv -f "$rendered" "$final"
+      sync -f /etc/caddy
+      systemctl restart caddy || true
+    fi
+    die "Caddy rejected the new configuration; the previous file was restored"
+  fi
+  rm -f "$old"
+}
+
+assert_caddy_file() {
+  local file=$1 expected
+  expected=$(stat -c '%U:%G:%a' "$file")
+  [[ $expected == root:caddy:640 ]] || {
+    log "Caddy cannot use $file: expected root:caddy 640, got $expected"
+    return 1
+  }
+  [[ $(stat -c '%U:%G:%a' "$(dirname "$file")") == root:caddy:750 ]]
+}
+
 configure_caddy() {
   step configure-caddy
   # `admin off` turns off Caddy's admin API, which otherwise listens on
@@ -3132,9 +3269,8 @@ configure_caddy() {
   # refuses the handshake even though the certificate exists. A certificate
   # already in memory is served without asking, so cutting a name off takes
   # effect at the next cold load rather than immediately. The office approves
-  # its own host, and a live app's label once it has been admitted - up to ten
-  # labels can be newly admitted per hour, so an office turning this on with
-  # more apps than that admits the rest as the hour rolls.
+  # its own host and any live app label. There is no issuance counter in this
+  # request gate.
   #
   # Caddy's wildcard matches exactly one label, which is the shape apps use.
   #
@@ -3148,7 +3284,32 @@ configure_caddy() {
   # hostnames on for an office that already exists is an operator's decision
   # (it needs a DNS record they have to add anyway), so it is a documented
   # step, not something an update does to them.
-  write_file /etc/caddy/Caddyfile 644 <<EOF
+  install_hosted_tls_renewal
+  local rendered
+  rendered=$(mktemp /etc/caddy/.Caddyfile.XXXXXX)
+  if [[ -f /etc/isomux/renewal/enrollment.json ]]; then
+    cat > "$rendered" <<EOF
+$CADDY_MARKER
+{
+	admin off
+}
+
+$DOMAIN {
+	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
+	respond /__isomux/tls-ask 404
+	reverse_proxy 127.0.0.1:4000
+}
+
+*.$DOMAIN {
+	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
+	forward_auth 127.0.0.1:4000 {
+		uri /__isomux/tls-ask?domain={http.request.host}
+	}
+	reverse_proxy 127.0.0.1:4000
+}
+EOF
+  else
+    cat > "$rendered" <<EOF
 $CADDY_MARKER
 {
 	admin off
@@ -3169,8 +3330,10 @@ $DOMAIN {
 	reverse_proxy 127.0.0.1:4000
 }
 EOF
+  fi
+  chmod 0644 "$rendered"
   run systemctl enable caddy
-  run systemctl restart caddy
+  install_caddyfile_transaction "$rendered"
 }
 
 report() {

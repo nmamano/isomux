@@ -154,14 +154,19 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
-import { appRegistry } from "./app-registry.ts";
+import { appRegistry, appRegistrationGeneration } from "./app-registry.ts";
 import { handleAppHostRequest } from "./app-hosts.ts";
 import {
   appHostDomain,
   appPublicUrl,
   freezeAppHostDomain,
 } from "./app-domain.ts";
-import { APP_MINT_PATH, handleAppMintRequest } from "./app-auth.ts";
+import {
+  APP_MINT_PATH,
+  handleAppMintRequest,
+  invalidateAppRegistration,
+} from "./app-auth.ts";
+import { retireAppRegistration } from "./app-lifecycle.ts";
 import { TLS_ASK_PATH, handleTlsAsk } from "./tls-ask.ts";
 import type { AppRelayWsData } from "./app-ws-relay.ts";
 import {
@@ -1613,6 +1618,12 @@ function buildExecutorDeps(
         }
       },
       revokeToken: (name) => appTokens.revoke(name),
+      retireRegistration: (app) => retireAppRegistration(app),
+      invalidateRegistration: (app) =>
+        invalidateAppRegistration(
+          app.hostLabel,
+          appRegistrationGeneration(app),
+        ),
       // The app-to-agent message. The SENDER is constructed here from the app
       // name the token resolved to - the same rule the inter-agent branch
       // follows above, and for the same reason: a body-trusted sender is an
@@ -4372,9 +4383,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // hostnames (slice 7). The terminator calls it over loopback before
       // obtaining a certificate AND before loading one it already has in
       // storage, so this answers on every cold load, not once per name. It
-      // approves the office's own host and live app labels that have been
-      // admitted - ten new admissions an hour - and denies everything else
-      // (server/tls-ask.ts). Unauthenticated, and here rather than behind the
+      // approves the office's own host and live app labels, and denies
+      // everything else (server/tls-ask.ts). Unauthenticated, and here rather than behind the
       // auth wall for the same reason /readyz is: the caller is a service on
       // this box with no session to present. That placement is also what makes
       // a version mismatch safe - an office that predates this route answers
@@ -4382,7 +4392,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       if (url.pathname === TLS_ASK_PATH && req.method === "GET") {
         return handleTlsAsk(url, {
           domain: appHostDomain(),
-          admit: (label) => appRegistry.admitAppCertificate(label),
+          isLive: (label) => appRegistry.isLiveHostLabel(label),
         });
       }
 

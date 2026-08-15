@@ -939,6 +939,27 @@ describe("app-ws-upstream: the handshake's own limits", () => {
     expect(Date.now() - started).toBeLessThan(2000);
   });
 
+  it("abandons a pending dial when its app registration retires", async () => {
+    const fake = makeFakeConnector({ neverConnect: true });
+    const retirement = new AbortController();
+    const dialing = dial(4001, collector(), {
+      connector: fake.connector,
+      signal: retirement.signal,
+      limits: { handshakeTimeoutMs: 2000 },
+    });
+
+    retirement.abort();
+    const res = await dialing;
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.failure).toBe("connect_failed");
+      expect(res.detail).toBe("app registration retired");
+    }
+    fake.openLate();
+    expect(fake.writtenBytes().length).toBe(0);
+    expect(fake.socket.ended).toBe(true);
+  });
+
   it("writes the rest of the upgrade request when the socket only took part", async () => {
     // Raw TCP writes are partial - that is why this module exists - and a
     // truncated upgrade request would leave the app waiting for headers that

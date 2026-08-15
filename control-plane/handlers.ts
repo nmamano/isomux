@@ -64,6 +64,10 @@ import {
 import { auditOutcomeOf } from "./tick.ts";
 import type { HandlerContext, Handler, HandlerResult } from "./tick.ts";
 import type { CreateRequest } from "./provider.ts";
+import {
+  issueCertificateCredential,
+  revokeCertificateCredentials,
+} from "./certificate-credentials.ts";
 
 export interface HandlerDeps {
   exec: Exec;
@@ -76,6 +80,8 @@ export interface HandlerDeps {
   /** Where the installer comes from. Injected so a test needs no 100KB fixture. */
   installerPath?: string;
   ownerName?: string;
+  /** Public provisioner URL. Its absence refuses a hosted install. */
+  certificateEndpoint?: string;
   /** DNS record reads are injected for the provisioning predicate's tests. */
   resolveDns?: (host: string) => Promise<DnsAnswers>;
   probeHttps?: (
@@ -545,6 +551,54 @@ export function runInstallerHandler(deps: HandlerDeps): Handler {
       const attempts = (ev.attempts as unknown[]) ?? [];
 
       if (phase === "") {
+        if (!deps.certificateEndpoint) {
+          return {
+            kind: "fatal",
+            reason: "the hosted certificate endpoint is not configured",
+          };
+        }
+        let certificateEndpoint: URL;
+        try {
+          certificateEndpoint = new URL(deps.certificateEndpoint);
+        } catch {
+          return {
+            kind: "fatal",
+            reason: "the hosted certificate endpoint is invalid",
+          };
+        }
+        if (
+          certificateEndpoint.protocol !== "https:" ||
+          certificateEndpoint.pathname !== "/internal/certificates/renew" ||
+          certificateEndpoint.search !== "" ||
+          certificateEndpoint.hash !== ""
+        ) {
+          return {
+            kind: "fatal",
+            reason:
+              "the hosted certificate endpoint is not the HTTPS renewal route",
+          };
+        }
+        // A retry replaces the prior unused identity. The raw token exists only
+        // here and in the root-owned file sent on stdin; it is never evidence,
+        // an argument, or a log field.
+        const credential = await ctx.store.tx(async () => {
+          await revokeCertificateCredentials(ctx.store, ctx.instance.id);
+          return issueCertificateCredential(ctx.store, ctx.instance.id);
+        });
+        await remote(ctx, "stage_certificate_identity", async () => {
+          const made = await ssh.script(
+            `${rec.loginUser === "root" ? "" : "sudo -n "}install -d -m 0700 -o root -g root /etc/isomux/renewal\n`,
+          );
+          if (made.code !== 0)
+            throw new Error("could not create the renewal identity directory");
+          await installText(
+            ssh,
+            identity,
+            `${JSON.stringify({ endpoint: certificateEndpoint.href, token: credential.token })}\n`,
+            "/etc/isomux/renewal/enrollment.json",
+            "0600",
+          );
+        });
         await remote(ctx, "stage_wrapper", () =>
           installFile(
             ssh,

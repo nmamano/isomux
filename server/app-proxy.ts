@@ -25,6 +25,7 @@
 // (slice 6 relays them).
 
 import type { AppRecord } from "../shared/types.ts";
+import { appRegistrationKey, watchAppRetirement } from "./app-lifecycle.ts";
 import type { AppRuntime, AppSupervisor } from "./app-supervisor.ts";
 import { APP_COOKIE_NAME } from "./app-auth.ts";
 import { COOKIE_NAME, HOST_COOKIE_NAME } from "./auth.ts";
@@ -179,7 +180,7 @@ export function stripIsomuxCookies(header: string | null): string | null {
 // responses is still unwinding, and a release from the dead app must not
 // decrement the live one's bucket. A label is issued once, forever.
 function permitKey(app: AppRecord): string {
-  return `${app.hostLabel}#${app.hostGen}`;
+  return appRegistrationKey(app);
 }
 
 const perApp = new Map<string, number>();
@@ -376,21 +377,32 @@ export async function relayToApp(
   req: Request,
   ctx: RelayContext,
 ): Promise<Response> {
+  const ac = new AbortController();
+  let terminateStartedResponse = (): void => {};
+  const stopWatchingRetirement = watchAppRetirement(ctx.app, () => {
+    ac.abort();
+    terminateStartedResponse();
+  });
   // 1. The app is running - proven before anything opens a socket.
   const running = proveAppRunning(ctx);
-  if (!running.ok) return running.response;
+  if (!running.ok) {
+    stopWatchingRetirement();
+    return running.response;
+  }
 
   // 2. A permit, taken in this same synchronous turn.
   const permit = acquirePermit(permitKey(ctx.app), {
     perApp: ctx.maxPerApp ?? APP_RELAY_MAX_CONCURRENT_PER_APP,
     total: ctx.maxTotal ?? APP_RELAY_MAX_CONCURRENT_TOTAL,
   });
-  if (permit === null) return neutral(429, APP_BUSY_BODY);
+  if (permit === null) {
+    stopWatchingRetirement();
+    return neutral(429, APP_BUSY_BODY);
+  }
 
   // Everything below releases EXACTLY ONCE, on every path out: a rejected
   // fetch, a bodyless response, the end of the stream, an error in it, the
   // client hanging up, a stall, or a throw nobody expected.
-  const ac = new AbortController();
   const onClientGone = (): void => ac.abort();
   // Registered FIRST, then the past checked - `addEventListener` does not
   // replay an abort that already happened, and there is real time between the
@@ -413,6 +425,7 @@ export async function relayToApp(
     disarmStall?.();
     disarmStall = null;
     req.signal.removeEventListener("abort", onClientGone);
+    stopWatchingRetirement();
     permit.release();
   };
 
@@ -481,6 +494,7 @@ export async function relayToApp(
       onStall: () => ac.abort(),
       onDone: release,
     });
+    terminateStartedResponse = guarded.terminate;
     disarmStall = guarded.disarm;
     return new Response(guarded.body, {
       status: upstream.status,
@@ -508,9 +522,15 @@ export async function relayToApp(
 function guardBody(
   upstream: ReadableStream<Uint8Array>,
   opts: { stallMs: number; onStall: () => void; onDone: () => void },
-): { body: ReadableStream<Uint8Array>; disarm: () => void } {
+): {
+  body: ReadableStream<Uint8Array>;
+  disarm: () => void;
+  terminate: () => void;
+} {
   const reader = upstream.getReader();
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
+  let finished = false;
   const disarm = (): void => {
     if (timer !== null) clearTimeout(timer);
     timer = null;
@@ -522,10 +542,23 @@ function guardBody(
     timer = setTimeout(opts.onStall, opts.stallMs);
   };
   const finish = (): void => {
+    if (finished) return;
+    finished = true;
     disarm();
     opts.onDone();
   };
+  const terminate = (): void => {
+    if (finished) return;
+    void reader.cancel("app registration retired");
+    finish();
+    controllerRef?.error(
+      new DOMException("app registration retired", "AbortError"),
+    );
+  };
   const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controllerRef = controller;
+    },
     // ARMED ONLY ACROSS A PENDING READ, which is the whole distinction this
     // guard has to draw. "The app has produced nothing" and "the client has not
     // consumed what the app produced" look identical from a timer that runs
@@ -539,6 +572,7 @@ function guardBody(
     // stream, and its permit, waiting for a client that is still perfectly
     // happy.
     async pull(controller) {
+      if (finished) return;
       arm();
       try {
         const { done, value } = await reader.read();
@@ -550,6 +584,7 @@ function guardBody(
         }
         controller.enqueue(value);
       } catch (err) {
+        if (finished) return;
         finish();
         controller.error(err);
       }
@@ -564,5 +599,5 @@ function guardBody(
       reader.cancel(reason).catch(() => {});
     },
   });
-  return { body, disarm };
+  return { body, disarm, terminate };
 }

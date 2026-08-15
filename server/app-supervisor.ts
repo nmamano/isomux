@@ -1189,9 +1189,8 @@ export function createAppSupervisor(
           "the app was NOT deleted",
         );
         // Only on the way out clean: the app is gone, so its remembered
-        // failure has nothing left to describe. Names are never reused, so
-        // nothing would ever overwrite this entry - without the delete it
-        // would sit in the map for the life of the process.
+        // failure has nothing left to describe. Clear it before the reusable
+        // name can describe a replacement registration.
         startErrors.delete(appName);
       } finally {
         // On every exit, including the throwing ones: systemd may well have

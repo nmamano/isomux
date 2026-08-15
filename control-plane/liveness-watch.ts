@@ -23,6 +23,7 @@ import {
   strikesAfter,
 } from "./liveness.ts";
 import type { Store } from "./store.ts";
+import { applyCertificateContactAttention } from "./certificate-credentials.ts";
 
 /** The reason text carried by a liveness attention row. Matched on to find our
  * own row again, so it is a constant rather than an interpolated sentence. */
@@ -56,6 +57,7 @@ export async function watchLiveness(
   let probed = 0;
   for (const instance of await store.listInstances()) {
     if (instance.service_state !== "live") continue;
+    await applyCertificateContactAttention(store, instance.id);
     const now = store.now();
     await store.ensureLiveness(instance.id, now);
     const claimed = await store.claimLiveness(

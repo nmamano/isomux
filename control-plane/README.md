@@ -1,5 +1,25 @@
 # Control plane: provider adapter and SSH driver
 
+## Hosted certificate configuration
+
+The provisioner refuses hosted certificate work unless its target is complete.
+Fly supplies the pinned production CA, Cloudflare API, and renewal endpoint from
+`deploy/fly.toml`. The deployment must also supply these secrets:
+
+- `ISOMUX_CF_ZONE_ID`: the one production zone that the token can edit
+- `ISOMUX_CF_TOKEN`: a token limited to DNS records in that zone
+- `ISOMUX_ACME_EMAIL`: the ACME account contact
+
+Stage and verify only these values with
+`bun control-plane/deploy/certificate-secrets.ts` and
+`bun control-plane/deploy/certificate-secrets.ts --verify`. The importer reads
+`~/.config/isomux/control-plane-certificate.env` as a strict 0600 file and cannot
+touch database, invite-seam, or provider credentials.
+
+Automated tests use loopback ACME and DNS fakes. The target validator rejects
+the production CA, Cloudflare API, or production zone in a test process even if
+the caller sets the production opt-in.
+
 The provisioning half of hosted isomux. One command turns a provider API call
 into a live HTTPS office with an owner invite in hand and our key removed, with
 the removal proven by a failed reconnect using the removed key.

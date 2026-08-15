@@ -352,13 +352,13 @@ describe("app hosts: the arm", () => {
     expect(retired.stable).toBe(unknown.stable);
   });
 
-  it("serves a re-registered app on its NEW label, never the predecessor's", async () => {
+  it("serves a re-registered app on its stable label", async () => {
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);
     await registerApp(srv, token, "hello");
     await deleteApp(srv, token, "hello");
     const label = await registerApp(srv, token, "hello");
-    expect(label).not.toBe("hello");
+    expect(label).toBe("hello");
 
     expect(
       (
@@ -368,9 +368,6 @@ describe("app hosts: the arm", () => {
         })
       ).status,
     ).toBe(302);
-    expect((await raw(srv.port, { host: `hello.${OFFICE_HOST}` })).status).toBe(
-      404,
-    );
   });
 
   it("404s anything more than one label below the domain", async () => {

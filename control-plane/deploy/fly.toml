@@ -12,6 +12,13 @@
 app = "isomux-provisioner"
 primary_region = "fra"
 
+[env]
+  ISOMUX_CERT_TARGET = "production"
+  ISOMUX_ACME_DIRECTORY = "https://acme-v02.api.letsencrypt.org/directory"
+  ISOMUX_CF_API = "https://api.cloudflare.com/client/v4"
+  ISOMUX_CERTIFICATE_ENDPOINT = "https://isomux-provisioner.fly.dev/internal/certificates/renew"
+  ISOMUX_CERTIFICATE_LIVE = "1"
+
 [build]
   dockerfile = "Dockerfile"
 

@@ -114,6 +114,11 @@ async function bed(exec: Exec): Promise<Bed> {
     goal: "live",
     access_window_expires_at: Date.parse("2026-08-09T18:04:23Z"),
   });
+  await store.sqlRun(
+    "insert into name_reservations (name, id, account_id, instance_id, plan, coupon_id, version, created_at, updated_at) " +
+      "values ('cp1', 'reservation-inst-1', 'account-inst-1', 'inst-1', 'monthly', null, 1, $1, $1)",
+    [store.now()],
+  );
   await store.createAsset({
     id: "asset-1",
     instance_id: "inst-1",
@@ -132,6 +137,8 @@ async function bed(exec: Exec): Promise<Bed> {
     runsDir: dir,
     keysDir: dir,
     installerPath: installer,
+    certificateEndpoint:
+      "https://certificates.test/internal/certificates/renew",
   };
   return {
     dir,
@@ -624,7 +631,11 @@ describe("run_installer", () => {
     // Every remote call this phase makes is a file upload. Matching on the
     // stdin text would not do: the wrapper's own source contains the word
     // "launch", and it travels as the payload of an upload.
-    expect(exec.calls.every((c) => c.argv.includes("install"))).toBe(true);
+    expect(
+      exec.calls.every(
+        (c) => c.argv.includes("install") || c.stdin?.includes("install -d"),
+      ),
+    ).toBe(true);
   });
 
   test("the runId is persisted BEFORE any launch is issued", async () => {

@@ -151,11 +151,13 @@ export function handshake(
 export function handshakeRedirect(
   location: string,
   setCookieLines: string[] = [],
+  extraHeaders: Record<string, string> = {},
 ): Response {
   const headers = new Headers({
     Location: location,
     "Cache-Control": "no-store",
     "Referrer-Policy": "no-referrer",
+    ...extraHeaders,
   });
   for (const line of setCookieLines) headers.append("Set-Cookie", line);
   return new Response(null, { status: 302, headers });

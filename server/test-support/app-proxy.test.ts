@@ -37,6 +37,12 @@ import {
 import { createFakeAppSupervisor } from "./fake-app-supervisor.ts";
 import type { AppRuntime } from "../app-supervisor.ts";
 import type { AppRecord } from "../../shared/types.ts";
+import { _testSetAppRegistrationGeneration } from "../app-registry.ts";
+import {
+  _testActiveAppLifecycles,
+  _testResetAppLifecycles,
+  retireAppRegistration,
+} from "../app-lifecycle.ts";
 
 const APP_HOST = "hello.office.example";
 
@@ -55,18 +61,18 @@ interface Upstream {
   // Requests whose handler observed an abort - the only proof that a client
   // hanging up reached the app rather than being swallowed by the relay.
   aborted: string[];
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 const GZIP_TEXT = "compressed ".repeat(40);
 const BINARY = new Uint8Array(1024);
 for (let i = 0; i < BINARY.length; i++) BINARY[i] = (i * 31) % 256;
 
-function startUpstream(): Upstream {
+function startUpstream(port = 0, defaultBody = "ok"): Upstream {
   const seen: SeenRequest[] = [];
   const aborted: string[] = [];
   const server = Bun.serve({
-    port: 0,
+    port,
     hostname: "127.0.0.1",
     idleTimeout: 0,
     async fetch(req) {
@@ -212,7 +218,7 @@ function startUpstream(): Upstream {
           });
         }
         default:
-          return new Response("ok", {
+          return new Response(defaultBody, {
             headers: { "Content-Type": "text/plain" },
           });
       }
@@ -222,9 +228,7 @@ function startUpstream(): Upstream {
     port: server.port as number,
     seen,
     aborted,
-    stop: () => {
-      void server.stop(true);
-    },
+    stop: () => server.stop(true),
   };
 }
 
@@ -293,10 +297,11 @@ function get(path: string, init: RequestInit = {}): Request {
 }
 
 let up: Upstream | null = null;
-afterEach(() => {
-  up?.stop();
+afterEach(async () => {
+  await up?.stop();
   up = null;
   _testResetRelay();
+  _testResetAppLifecycles();
 });
 
 describe("relay: the app's bytes", () => {
@@ -966,13 +971,15 @@ describe("relay: concurrency permits", () => {
     expect(_testRelayInFlight().total).toBe(0);
   });
 
-  it("counts by issuance, so a reused name gets its own bucket", async () => {
+  it("counts by registration identity, so a reused name gets its own bucket", async () => {
     up = startUpstream();
-    // Same NAME, next generation: a deleted app re-registered while an older
+    // Same name and public origin, next registration: a deleted app
+    // re-registered while an older
     // response is still unwinding. The two must not share a counter, or the
     // dead app's release would decrement the live app's bucket.
     const gen1 = appRecord(up.port);
-    const gen2 = appRecord(up.port, { hostLabel: "hello-g2", hostGen: 2 });
+    const gen2 = appRecord(up.port);
+    _testSetAppRegistrationGeneration(gen2, 2);
     const first = await relay(get("/sse"), { app: gen1 });
     const firstReader = first.body!.getReader();
     await firstReader.read();
@@ -986,5 +993,33 @@ describe("relay: concurrency permits", () => {
     await secondReader.cancel();
     await Bun.sleep(50);
     expect(_testRelayInFlight()).toEqual({ total: 0, perApp: 0 });
+  });
+
+  it("retires old HTTP before the same port serves the replacement", async () => {
+    up = startUpstream(0, "retired");
+    const port = up.port;
+    const retired = appRecord(port);
+    const oldResponse = await relay(get("/sse"), { app: retired });
+    const oldReader = oldResponse.body!.getReader();
+    expect((await oldReader.read()).done).toBe(false);
+    expect(_testActiveAppLifecycles(retired)).toBe(1);
+
+    retireAppRegistration(retired);
+    expect(_testActiveAppLifecycles(retired)).toBe(0);
+    await up.stop();
+    up = startUpstream(port, "replacement");
+
+    const replacement = appRecord(port);
+    _testSetAppRegistrationGeneration(replacement, 2);
+    const replacementResponse = await relay(get("/plain"), {
+      app: replacement,
+    });
+    expect(await replacementResponse.text()).toBe("replacement");
+    expect(up.seen.map((request) => request.path)).toEqual(["/plain"]);
+
+    await Bun.sleep(50);
+    const oldEnd = await oldReader.read().catch(() => ({ done: true }));
+    expect(oldEnd.done).toBe(true);
+    expect(_testRelayInFlight().total).toBe(0);
   });
 });

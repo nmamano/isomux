@@ -19,11 +19,23 @@
 
 FROM oven/bun:1.3.11-slim
 
+ARG TARGETARCH
+ARG LEGO_VERSION=5.3.1
+
 # The driver shells `ssh` and keys.ts shells `ssh-keygen`. Neither is used while
 # no box exists, and leaving them out would hide that gap until the slice that
 # provisions one.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssh-client \
+    && apt-get install -y --no-install-recommends ca-certificates curl openssh-client \
+    && case "$TARGETARCH" in \
+      amd64) LEGO_SHA=b3c71b122ee1947eacfe0b809b955647f6377239fe4bfc49f73b1a091ae1252a ;; \
+      arm64) LEGO_SHA=58db563a2b97c2259516fa9910b4a9e1634a0737723d0381a65af1bf93a4b433 ;; \
+      *) echo "unsupported lego architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSLo /tmp/lego.tar.gz "https://github.com/go-acme/lego/releases/download/v${LEGO_VERSION}/lego_v${LEGO_VERSION}_linux_${TARGETARCH}.tar.gz" \
+    && echo "$LEGO_SHA  /tmp/lego.tar.gz" | sha256sum -c - \
+    && tar -xzf /tmp/lego.tar.gz -C /usr/local/bin lego \
+    && rm -f /tmp/lego.tar.gz \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -33,6 +45,7 @@ RUN bun install --frozen-lockfile
 
 COPY control-plane ./control-plane
 COPY deploy/install.sh ./deploy/install.sh
+RUN chmod 0755 /app/control-plane/cloudflare-dns-hook.ts
 
 # Keep the image's payload inventory tied to every repository file that the
 # running provisioner reads. This runs against the final deployed paths.

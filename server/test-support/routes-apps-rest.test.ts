@@ -32,7 +32,11 @@ import { createAppTokenStore } from "../app-tokens.ts";
 import { createAppMessageLimiter } from "../app-message-limits.ts";
 import { STATE_ROOT } from "../config.ts";
 import { getUserByName } from "../users.ts";
-import { APP_PORT_MIN, APP_PORT_MAX } from "../app-registry.ts";
+import {
+  APP_PORT_MIN,
+  APP_PORT_MAX,
+  AppRegistryError,
+} from "../app-registry.ts";
 import { APP_LOG_LINES_DEFAULT } from "../app-supervisor.ts";
 import type { AppWire } from "../../shared/contract-shapes.ts";
 import type { AgentInfo, AppRecord } from "../../shared/types.ts";
@@ -1762,6 +1766,41 @@ describe("routes/apps REST: app tokens", () => {
     expect(srv.appSupervisor.tokenFiles.has("hello")).toBe(false);
   });
 
+  it("revokes the restart-surviving app token before the name is reused", async () => {
+    let srv = await startTestServer();
+    server = srv;
+    const { bearer, raw: retiredToken } = await registerApp(srv);
+
+    expect(
+      (
+        await api(srv, "/api/apps/hello", {
+          method: "DELETE",
+          bearer,
+        })
+      ).status,
+    ).toBe(204);
+    expect(officeTokens().lookup(retiredToken)).toBeNull();
+
+    expect(
+      (
+        await api(srv, "/api/apps", {
+          method: "POST",
+          bearer,
+          body: body(srv, "hello"),
+        })
+      ).status,
+    ).toBe(201);
+    const replacementToken = srv.appSupervisor.tokenFiles.get("hello")!;
+    expect(replacementToken).not.toBe(retiredToken);
+    expect(officeTokens().lookup(retiredToken)).toBeNull();
+    expect(officeTokens().lookup(replacementToken)?.appName).toBe("hello");
+
+    srv = await srv.restart();
+    server = srv;
+    expect(officeTokens().lookup(retiredToken)).toBeNull();
+    expect(officeTokens().lookup(replacementToken)?.appName).toBe("hello");
+  });
+
   it("registration succeeds even when the token cannot be delivered - and leaves no half-token", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -1925,6 +1964,8 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     announceRemoved: boom,
     provisionToken: () => true,
     revokeToken: () => {},
+    retireRegistration: () => {},
+    invalidateRegistration: () => {},
     install: () => {},
     reinstall: () => {},
     teardown: () => {},
@@ -1956,6 +1997,91 @@ const unitCtx = (
 });
 
 describe("routes/apps: a failed announcement never rewrites a committed answer", () => {
+  it("keeps teardown, retirement, auth purge, token revoke and removal synchronous and ordered", () => {
+    const calls: string[] = [];
+    const handlers = appsHandlers(
+      throwingDeps({
+        teardown: () => calls.push("teardown"),
+        retireRegistration: () => calls.push("retire"),
+        invalidateRegistration: () => calls.push("invalidate"),
+        revokeToken: () => calls.push("revoke-token"),
+        remove: () => {
+          calls.push("remove");
+          return throwingDeps().get("hello");
+        },
+        announceRemoved: () => calls.push("announce"),
+      }),
+    );
+    const result = handlers["apps.delete"](unitCtx());
+    expect(result).not.toBeInstanceOf(Promise);
+    expect(calls).toEqual([
+      "teardown",
+      "retire",
+      "invalidate",
+      "revoke-token",
+      "remove",
+      "announce",
+    ]);
+  });
+
+  it("a partial delete keeps the reservation and converges on retry", async () => {
+    const calls: string[] = [];
+    const record = throwingDeps().get("hello")!;
+    let live: AppRecord | null = record;
+    let revokeAttempts = 0;
+    const handlers = appsHandlers(
+      throwingDeps({
+        get: () => live,
+        teardown: () => {
+          calls.push("teardown");
+        },
+        retireRegistration: () => {
+          calls.push("retire");
+        },
+        invalidateRegistration: () => {
+          calls.push("invalidate");
+        },
+        revokeToken: () => {
+          calls.push("revoke-token");
+          if (revokeAttempts++ === 0) {
+            throw new AppRegistryError(
+              "persist_failed",
+              "token store unavailable",
+            );
+          }
+        },
+        remove: () => {
+          calls.push("remove");
+          const removed = live;
+          live = null;
+          return removed;
+        },
+        announceRemoved: () => {
+          calls.push("announce");
+        },
+      }),
+    );
+
+    const first = await handlers["apps.delete"](unitCtx());
+    expect(first.kind).toBe("error");
+    if (first.kind !== "error") throw new Error("expected handler error");
+    expect(first.status).toBe(500);
+    expect(live).toBe(record);
+    expect(calls).toEqual(["teardown", "retire", "invalidate", "revoke-token"]);
+
+    const second = await handlers["apps.delete"](unitCtx());
+    expect(second.kind).toBe("noContent");
+    expect(live).toBeNull();
+    expect(calls.slice(4)).toEqual([
+      "teardown",
+      "retire",
+      "invalidate",
+      "revoke-token",
+      "remove",
+      "announce",
+    ]);
+  });
+
   it("register still answers 201 with the app when announcing throws", async () => {
     const handlers = appsHandlers(throwingDeps());
     const res = await handlers["apps.register"](

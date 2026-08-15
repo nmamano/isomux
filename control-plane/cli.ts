@@ -72,6 +72,9 @@ import {
 import { InviteHold } from "./invite-hold.ts";
 import { watchLiveness } from "./liveness-watch.ts";
 import { startMintSeam, type RunningMintSeam } from "./mint-seam.ts";
+import { CertificateService } from "./certificate-service.ts";
+import { certificateTargetFromEnv } from "./certificate-target.ts";
+import { obtainCertificateWithLego } from "./lego-acme.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
 import { PROVIDER_DEPENDENT_KINDS, tickerHandlerRoster } from "./run-roster.ts";
 import { setOperator } from "./operator-admin.ts";
@@ -366,6 +369,7 @@ function makeTicker(
         keysDir: KEYS_DIR,
         ownerName,
         deliver,
+        certificateEndpoint: process.env.ISOMUX_CERTIFICATE_ENDPOINT,
       },
       provider,
       report: line,
@@ -694,6 +698,38 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   let providerConfigured = false;
   let seam: RunningMintSeam | null = null;
   if (token) {
+    const certificateTarget = certificateTargetFromEnv(process.env);
+    if (!process.env.ISOMUX_ACME_EMAIL || !process.env.ISOMUX_CF_TOKEN) {
+      throw new Error(
+        "ISOMUX_ACME_EMAIL and ISOMUX_CF_TOKEN are required for hosted certificate renewal",
+      );
+    }
+    const certificateService = new CertificateService(store, {
+      issue: (input) =>
+        obtainCertificateWithLego(
+          {
+            root: path.join(STATE_ROOT, "certificates"),
+            target: certificateTarget,
+            email: process.env.ISOMUX_ACME_EMAIL ?? "",
+            dnsHookPath: path.join(import.meta.dir, "cloudflare-dns-hook.ts"),
+            cloudflareToken: process.env.ISOMUX_CF_TOKEN ?? "",
+            run: async (argv, environment) => {
+              const proc = Bun.spawn(argv, {
+                env: { ...process.env, ...environment },
+                stdout: "pipe",
+                stderr: "pipe",
+              });
+              const [stdout, stderr, code] = await Promise.all([
+                new Response(proc.stdout).text(),
+                new Response(proc.stderr).text(),
+                proc.exited,
+              ]);
+              return { stdout, stderr, code };
+            },
+          },
+          input,
+        ),
+    });
     seam = startMintSeam({
       store,
       hold,
@@ -709,6 +745,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           providerConfigured: () => providerConfigured,
         }),
       report: (line) => reporter.line(line),
+      certificates: certificateService,
     });
   } else {
     // Said out loud, because the consequence is invisible otherwise: customer

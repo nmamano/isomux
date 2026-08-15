@@ -233,6 +233,7 @@ export const PRODUCT_TABLES = [
   "accounts",
   "attention_reasons",
   "audit_events",
+  "certificate_credentials",
   "create_intents",
   "instance_liveness",
   "instances",
@@ -372,6 +373,21 @@ create table if not exists audit_events (
   outcome text not null,
   detail text
 );
+-- One-office outbound renewal identities. Only hashes are stored. Several
+-- active rows may exist briefly during an explicit rotation; every row remains
+-- bound to the immutable instance and name reservation.
+create table if not exists certificate_credentials (
+  id text primary key,
+  instance_id text not null,
+  token_hash text not null unique,
+  status text not null check (status in ('active', 'revoked')),
+  created_at bigint not null,
+  last_used_at bigint,
+  revoked_at bigint,
+  version integer not null
+);
+create index if not exists certificate_credentials_instance
+  on certificate_credentials (instance_id, status);
 -- Billing (slice 3). Two column families with DIFFERENT WRITERS, which is what
 -- keeps the design's "webhooks are the only writer of subscription state"
 -- literally true rather than roughly true:

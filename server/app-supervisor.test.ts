@@ -951,9 +951,8 @@ describe("app-supervisor: teardown", () => {
   });
 
   it("forgets a deleted app's recorded failure", () => {
-    // Names are never reused, so nothing would ever overwrite this entry: with
-    // no delete it sits in the map for the life of the process, describing an
-    // app that no longer exists.
+    // Without delete it can survive until the name describes a later
+    // registration, carrying a failure that belongs to an app that is gone.
     let failing = true;
     const host = fakeHost((argv) =>
       argv[2] === "daemon-reload" && failing

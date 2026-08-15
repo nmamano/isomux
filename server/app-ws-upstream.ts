@@ -413,6 +413,7 @@ export interface AppUpstreamOptions extends AppUpstreamHandlers {
   headers: Record<string, string>;
   // Subprotocols the browser offered, in order.
   protocols: string[];
+  signal?: AbortSignal;
   limits?: Partial<AppUpstreamLimits>;
   // TEST SEAM ONLY, and the only one here. Some of this module's contract is
   // about what happens when a socket misbehaves - a connect that never
@@ -882,11 +883,19 @@ export async function dialAppUpstream(
   let requestTail: Buffer | null = null;
 
   return await new Promise<DialResult>((resolve) => {
+    const onAbort = (): void => {
+      failHandshake(
+        "connect_failed",
+        "app registration retired",
+        socketRef ?? undefined,
+      );
+    };
     const settle = (result: DialResult): void => {
       if (settled) return;
       settled = true;
       if (timer !== null) clearTimeout(timer);
       timer = null;
+      opts.signal?.removeEventListener("abort", onAbort);
       resolve(result);
     };
 
@@ -923,6 +932,12 @@ export async function dialAppUpstream(
         // already gone
       }
     };
+
+    opts.signal?.addEventListener("abort", onAbort, { once: true });
+    if (opts.signal?.aborted) {
+      onAbort();
+      return;
+    }
 
     // ONE budget for the whole upgrade - the TCP connect, the request, and the
     // response headers - which means it has to start before connect() rather
