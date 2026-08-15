@@ -112,7 +112,7 @@ afterAll(async () => {
     await admin.query(`drop database if exists ${name}`).catch(() => {});
   }
   await admin.end().catch(() => {});
-});
+}, 30_000);
 
 /** A schema-ready database governed exactly as PRODUCTION is today: the roles
  * in place and the catalog carrying the PRIOR matrix. */
