@@ -31,6 +31,8 @@ import {
 import type { OpenCheckoutArgs } from "./stripe/checkout.ts";
 import { validateOfficeName } from "./stripe/checkout.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
+import { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
+export { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
 
 /**
  * The domain offices are named under. A constant rather than an environment
@@ -40,8 +42,8 @@ import { validateCustomerSshKey } from "./key-lines.ts";
 export const OFFICE_DOMAIN = "test.isomux.app";
 
 /**
- * The access-window ceiling written with the instance row, per R-2026-08-09-3:
- * a ~30-day fail-safe backstop, with customer-confirmed early revocation as the
+ * The access-window ceiling written with the instance row, per R-2026-08-15-1:
+ * a seven-day fail-safe backstop, with customer-confirmed early revocation as the
  * normal path.
  *
  * It is written HERE because it can be written nowhere else. `createInstance`
@@ -52,8 +54,6 @@ export const OFFICE_DOMAIN = "test.isomux.app";
  * one, and the driver is fail-closed on a missing ceiling - so signup writes it
  * or the office can never be provisioned at all.
  */
-export const ACCESS_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
-
 /**
  * Plans, as configuration rather than code (design: "plan tiers map to provider
  * products in configuration").
@@ -415,6 +415,17 @@ export async function reserveOffice(
       const heldInstance = await store.getInstance(held.instance_id);
       if (!heldInstance)
         throw new Error("reserved instance is missing", { cause: err });
+      if (
+        heldInstance.access_window_expires_at !==
+        held.created_at + ACCESS_WINDOW_MS
+      ) {
+        return {
+          ok: false,
+          reason:
+            `"${req.officeName}" was reserved before the seven-day ` +
+            `setup-access policy; recycle it from a new signup`,
+        };
+      }
       if ((heldInstance.customer_ssh_key ?? null) !== customerSshKey) {
         return {
           ok: false,

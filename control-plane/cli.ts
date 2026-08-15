@@ -23,6 +23,8 @@
 // handler that can spend money is not even registered in this process, and the
 // call itself is latched durably by create-latch.ts.
 
+import { accessWindowDurationMs } from "./access-window-policy.ts";
+
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
@@ -121,11 +123,9 @@ function die(message: string): never {
 /**
  * Parse the access window into an absolute instant.
  *
- * MANAGER RULING (2026-08-09, slice 1): slice 1 takes the access window as a
- * REQUIRED parameter with NO DEFAULT, and does not invent a product default -
- * that choice is parked for Nil. This is the argument-parsing layer of clause
- * 1; the driver enforces the same precondition independently, so no front end
- * can talk it out of a ceiling.
+ * The window stays explicit for operator runs, but R-2026-08-15-1 makes seven
+ * days an absolute maximum. A shorter diagnostic run is allowed; a longer one
+ * fails before the instance row can be created.
  */
 function accessWindowInstant(
   args: Map<string, string>,
@@ -134,16 +134,14 @@ function accessWindowInstant(
   const raw = args.get("access-window");
   if (!raw || raw === "true") {
     die(
-      "--access-window is required and has no default (e.g. 2h, 45m, 3d). " +
-        "The product's ceiling is an open question for Nil; slice 1 will not pick one.",
+      "--access-window is required (e.g. 2h, 45m, 7d) and cannot exceed seven days.",
     );
   }
-  const m = /^(\d+)([mhd])$/.exec(raw);
-  if (!m) die(`--access-window must look like 90m, 2h or 3d (got ${raw})`);
-  const n = Number(m[1]);
-  const unitMs = { m: 60_000, h: 3_600_000, d: 86_400_000 }[m[2]];
-  if (!unitMs) die(`unknown access-window unit in ${raw}`);
-  return new Date(now.getTime() + n * unitMs);
+  try {
+    return new Date(now.getTime() + accessWindowDurationMs(raw));
+  } catch (err) {
+    die(`--access-window ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 // ------------------------------------------------------------------ adapter

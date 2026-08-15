@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  firstContactHandler,
   mintInviteHandler,
   installCustomerKeyHandler,
   revokeAccessHandler,
@@ -283,6 +284,24 @@ describe("wait_for_package_manager", () => {
     expect(
       (await waitForPackageManagerHandler(b.deps).run(await b.ctx({}))).kind,
     ).toBe("done");
+  });
+});
+
+describe("first_contact", () => {
+  test("refuses an existing prelaunch ceiling over seven days before touching the box", async () => {
+    const exec = new FakeExec(() => OK);
+    const b = await bed(exec);
+    const instance = (await b.store.getInstance("inst-1"))!;
+    await b.store.sqlRun(
+      "update instances set access_window_expires_at = $1 where id = $2",
+      [instance.created_at + 30 * 24 * 60 * 60 * 1000, instance.id],
+    );
+    const result = await firstContactHandler(b.deps).run(await b.ctx({}));
+    expect(result).toMatchObject({ kind: "fatal" });
+    expect((result as { reason: string }).reason).toContain(
+      "delete and recreate",
+    );
+    expect(exec.calls).toHaveLength(0);
   });
 });
 

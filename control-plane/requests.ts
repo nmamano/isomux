@@ -222,7 +222,7 @@ export async function requestInvite(
  * "Revoke isomux's access" - the customer confirming they are in.
  *
  * This is the confirmation the design's ruling 7 is about: an observable act,
- * rather than a clock. The 30-day ceiling stays underneath it as the fail-safe
+ * rather than a clock. The seven-day ceiling stays underneath it as the fail-safe
  * for customers who never click.
  *
  * Refusing while the office is not yet live mirrors the operator path, which

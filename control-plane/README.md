@@ -66,11 +66,10 @@ the file that holds them is the caller's job. Runtime state - generated keys,
 run records, the audit log - lives in `~/.isomux-control-plane/`, never in the
 repo.
 
-`--access-window` is required and has no default. The driver refuses to rewrite
-an authorized_keys line without an absolute expiry instant, and the CLI refuses
-to start without one: a missing ceiling stops the run at every layer. What the
-product's ceiling should be is an open question, and this code does not answer
-it.
+`--access-window` is required and has no default. It may shorten a diagnostic
+run, but it cannot exceed seven days. The driver refuses to rewrite an
+authorized_keys line without an absolute expiry instant, and the CLI refuses to
+start without one: a missing ceiling stops the run at every layer.
 
 There is no create command. The adapter can create a box and the tests exercise
 that path, but no flag reaches it: creating one is latched durably by
@@ -2371,7 +2370,7 @@ a provisioner started without one refuses to serve the seam at all, and says so.
 - **Confirmation is not a column.** "Revoke isomux's access" opens a
   `revoke_access` row stamped `via: "dashboard"`, and that stamp is what makes
   it the customer's confirmation. A row opened by an operator or the chain still
-  renders, but is never described as their choice. The 30-day ceiling stays the
+  renders, but is never described as their choice. The seven-day ceiling stays the
   fail-safe underneath. The dashboard also requires an ordinary hosted office
   to have minted an owner invite before it enables confirmation. That fact proves
   only that the sign-in path was offered, not that the customer used it; the
@@ -2775,7 +2774,19 @@ instance, because nothing else can. `createInstance` is the only statement that
 sets `access_window_expires_at`; `casInstance` refuses it in its type and at
 runtime. A row created without a ceiling could never be given one, and the
 driver is fail-closed on a missing ceiling, so the row would be unprovisionable
-forever. The value is the 30-day fail-safe backstop of R-2026-08-09-3.
+forever. The value is the seven-day fail-safe backstop of R-2026-08-15-1.
+Existing prelaunch rows or boxes with a longer deadline are unsupported test
+state. Provisioning refuses them, and operators delete and recreate them from a
+new signup; there is no migration in place. Retries, reconciliation,
+cancellation and reinstatement have no path to move a stored instant.
+
+The enforcement is structural. `instance.ts` rejects a new or existing ceiling
+over seven days. `store.ts` excludes
+the column from `casInstance` and rejects a cast that tries to add it. Signup
+retries read the snapshot; reconciliation handlers can use only that CAS
+surface; `cancel.ts` changes subscription cancellation fields only; and a
+resubscription gets a new box. A rollback cannot turn an unsupported old row
+into a supported office or move its stored instant.
 
 An abandoned checkout keeps its name. Releasing one is slice-5 work with its own
 ruling, and a state column nobody transitions is a claim the code cannot keep.

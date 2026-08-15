@@ -369,12 +369,12 @@
 
       <h2>Our access to your server</h2>
       <p>
-        We hold an SSH key to your server while we set it up, and only then. It
-        is removed when you confirm from your office that you are in, or
-        automatically after 30 days, whichever comes first. We confirm the
-        removal by trying to reconnect with the key we just deleted and
-        requiring that attempt to fail. Our copy is then destroyed. After that
-        we have no way into your running office, and we never see what is inside
+        We hold an SSH key to your server while we set it up, and only then. If
+        you confirm from your office that you are in, we remove the key, prove
+        the removal by requiring a reconnect attempt to fail, and destroy our
+        copy. If you do not confirm, the server makes the key unusable seven
+        days after signup and removes it during cleanup. After either event, we
+        have no way into your running office, and we never see what is inside
         it.
       </p>
       <p>

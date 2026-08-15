@@ -151,6 +151,7 @@ describe("the reservation", () => {
     expect(instance?.plan).toBe(planById("office")?.providerProduct);
     // Written with the row because nothing can write it afterwards.
     expect(instance?.access_window_expires_at).toBe(now + ACCESS_WINDOW_MS);
+    expect(ACCESS_WINDOW_MS).toBe(7 * 24 * 60 * 60 * 1000);
 
     const asset = await store.assetForInstance(out.reservation.instance_id);
     expect(asset?.provider_id).toBeNull();
@@ -168,6 +169,44 @@ describe("the reservation", () => {
         access_window_expires_at: 1,
       } as never),
     ).rejects.toThrow(/written once/);
+  });
+
+  test("a retry after the clock moves cannot extend the signup ceiling", async () => {
+    let now = 1_700_000_000_000;
+    const store = await tempStore(() => now);
+    const first = await signup(store);
+    if (!first.ok) throw new Error("signup failed");
+    const fixed = now + ACCESS_WINDOW_MS;
+
+    now += 6 * 24 * 60 * 60 * 1000;
+    const retry = await signup(store);
+    expect(retry.ok).toBe(true);
+    if (!retry.ok) return;
+    expect(retry.reused).toBe(true);
+    expect(
+      (await store.getInstance(retry.reservation.instance_id))
+        ?.access_window_expires_at,
+    ).toBe(fixed);
+  });
+
+  test("a pre-change reservation cannot become a customer office", async () => {
+    const now = 1_700_000_000_000;
+    const store = await tempStore(() => now);
+    const first = await signup(store);
+    if (!first.ok) throw new Error("signup failed");
+    await store.sqlRun(
+      "update instances set access_window_expires_at = $1 where id = $2",
+      [now + 30 * 24 * 60 * 60 * 1000, first.reservation.instance_id],
+    );
+
+    const retry = await signup(store);
+    expect(retry.ok).toBe(false);
+    if (!retry.ok)
+      expect(retry.reason).toContain("recycle it from a new signup");
+    expect(
+      (await store.getInstance(first.reservation.instance_id))
+        ?.access_window_expires_at,
+    ).toBe(now + 30 * 24 * 60 * 60 * 1000);
   });
 
   test("two independent connections racing for one name: exactly one wins", async () => {

@@ -8,6 +8,7 @@
 import type { Goal } from "./operations.ts";
 import type { RunRecord } from "./run-record.ts";
 import type { Store } from "./store.ts";
+import { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
 
 export class CeilingIsImmutable extends Error {}
 
@@ -67,7 +68,19 @@ export async function ensureInstance(
   const now = args.now ?? (() => Date.now());
   const id = `inst-${rec.runId}`;
   let existing = await store.getInstance(id);
+  if (
+    existing &&
+    existing.access_window_expires_at !== null &&
+    existing.access_window_expires_at - existing.created_at > ACCESS_WINDOW_MS
+  ) {
+    throw new Error(
+      "the existing access-window ceiling exceeds seven days; delete and recreate this prelaunch instance",
+    );
+  }
   if (!existing) {
+    if (expiresAt && expiresAt.getTime() > now() + ACCESS_WINDOW_MS) {
+      throw new Error("a new access-window ceiling cannot exceed seven days");
+    }
     try {
       // ONE transaction. A death between the instance row and its provider
       // asset would leave an instance with no provider axis at all, and the

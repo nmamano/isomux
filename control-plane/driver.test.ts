@@ -336,6 +336,15 @@ describe("cleanup units", () => {
     expect(units.timer).toContain("OnCalendar=2026-08-10 06:00:00 UTC");
   });
 
+  test("the timer preserves an arbitrary stored in-policy instant", () => {
+    const arbitrary = renderCleanupUnits(
+      "/root/.ssh/authorized_keys",
+      KEY.blob,
+      new Date("2026-08-08T03:02:01Z"),
+    );
+    expect(arbitrary.timer).toContain("OnCalendar=2026-08-08 03:02:01 UTC");
+  });
+
   // Revocation deletes /var/lib/isomux-cp while this timer is still armed, so
   // nothing it needs may live there.
   test("the cleanup command does not live in the directory revocation deletes", async () => {

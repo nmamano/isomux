@@ -35,6 +35,7 @@ import {
   rewriteKeyWithExpiry,
   timerIsArmed,
 } from "./driver.ts";
+import { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
 import { runtimeRepoFile } from "./runtime-files.ts";
 import { destroyPrivateKey, type KeyPair } from "./keys.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
@@ -336,6 +337,14 @@ export function firstContactHandler(deps: HandlerDeps): Handler {
           reason:
             "the instance has no access-window ceiling; refusing to rewrite an " +
             "authorized_keys line without an absolute expiry instant",
+        };
+      }
+      if (expiresAt - ctx.instance.created_at > ACCESS_WINDOW_MS) {
+        return {
+          kind: "fatal",
+          reason:
+            "the instance has a prelaunch access-window ceiling over seven days; " +
+            "delete and recreate it before provisioning",
         };
       }
       const ssh = sshFor(ctx, rec, deps, "arm_expiry");

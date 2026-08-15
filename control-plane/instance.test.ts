@@ -64,6 +64,52 @@ const T1 = new Date("2026-08-09T19:00:00Z");
 const T2 = new Date("2026-08-09T23:00:00Z");
 
 describe("the ceiling", () => {
+  test("a new instance cannot originate a window over seven days", async () => {
+    const store = await tempStore();
+    const rec = record();
+    const now = Date.parse("2026-08-01T00:00:00Z");
+    expect(
+      ensureInstance({
+        store,
+        rec,
+        goal: "live",
+        expiresAt: new Date(now + 7 * 24 * 60 * 60 * 1000 + 1),
+        now: () => now,
+      }),
+    ).rejects.toThrow(/cannot exceed seven days/);
+    expect(await store.getInstance("inst-run-1")).toBeNull();
+  });
+
+  test("an existing prelaunch row over seven days fails closed", async () => {
+    const store = await tempStore();
+    const rec = record();
+    const now = Date.parse("2026-08-01T00:00:00Z");
+    const legacy = new Date(now + 30 * 24 * 60 * 60 * 1000);
+    await store.createInstance({
+      id: "inst-run-1",
+      run_id: rec.runId,
+      name: rec.host,
+      plan: "V153",
+      region: "EU",
+      service_state: "provisioning",
+      goal: "live",
+      access_window_expires_at: legacy.getTime(),
+    });
+    expect(
+      ensureInstance({
+        store,
+        rec,
+        goal: "live",
+        expiresAt: legacy,
+        createAsset: false,
+        now: () => now,
+      }),
+    ).rejects.toThrow(/delete and recreate/);
+    expect(
+      (await store.getInstance("inst-run-1"))?.access_window_expires_at,
+    ).toBe(legacy.getTime());
+  });
+
   test("is written once, with the row, and never again", async () => {
     const store = await tempStore();
     const rec = record();

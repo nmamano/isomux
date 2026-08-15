@@ -78,13 +78,15 @@ Second round (2026-07-31, after the open-items review; recorded by the
 manager - body sections that still describe the superseded versions get
 reworked at implementation time):
 
-7. **Setup access ends when the customer is in, not on a clock.** Nil: "when
+7. **Superseded 2026-08-15:** setup access was to end only when the customer
+   confirmed. Nil: "when
    the customer is in, we should be locked out. never see any user data." The
    72h ceiling is dropped - there is no point locking ourselves out while the
    customer has not yet arrived. Mechanically: the key stays until the customer
    confirms from the dashboard that they are in (an observable act), then the
    revoke-and-verify sequence runs. Consequence accepted: a customer who never
    confirms leaves the key valid, so the dashboard nags until they confirm.
+   R-2026-08-15-1 replaces this with the seven-day fail-safe in ruling 12.
 8. **Superseded 2026-08-13:** the former one-month cancellation retention is
    grandfathered only. Launch retention is 14 days.
 9. **Superseded 2026-08-13:** the former grace week is grandfathered only.
@@ -101,6 +103,17 @@ reworked at implementation time):
     servers with sessions logged for 90 days), so the comparison is evidenced,
     not asserted. The guarantee copy stays honest that this layer is
     procedural: provider-account control cannot be technically dropped.
+12. **Seven-day immutable setup-access fail-safe (R-2026-08-15-1).** The
+    30-day fail-safe is superseded. Customer-confirmed handoff still runs the
+    revoke-and-verify sequence immediately and is the normal path. Otherwise,
+    the provisioning key expires seven days after signup. Signup writes that
+    absolute instant once; no control-plane retry, reconciliation, cancellation,
+    reinstatement, update, or rollback path may move it later.
+    Pre-change rows and boxes with a longer deadline are unsupported test state:
+    provisioning fails closed, and operators delete and recreate them from a new
+    signup. There is no migration path. There were zero paid customer hosted
+    offices as measured 2026-08-13, so customer copy needs no compatibility
+    caveat.
 
 ## Provider-agnostic, Contabo first
 
@@ -273,9 +286,9 @@ the invite expires in 24h and re-minting needs shell, removing access the
 instant we display a link means a customer who opens the dashboard a day later
 is locked out of a box they just paid for.
 
-So the access window closes at **customer-confirmed handoff, or 72h, whichever
-comes first**. The confirmation is a "Revoke isomux's access" button, which is
-also how the customer sees the guarantee is real; the ceiling is what closes
+So the access window closes at **customer-confirmed handoff, or seven days,
+whichever comes first**. The confirmation is a "Revoke isomux's access" button,
+which is also how the customer sees the guarantee is real; the ceiling is what closes
 the window for everyone who never clicks it. Until it closes, resend works;
 after it closes, the dashboard says plainly that it cannot.
 
@@ -286,9 +299,9 @@ confirm - both are fine, because the ceiling covers them. Making the boundary
 genuinely mean first sign-in would need a box-to-control-plane signal, which
 reopens the callback surface this design closed.
 
-**This wants Nil's nod:** it interprets ruling 3 as ending at a confirmed
-handoff or a ceiling rather than at the moment we show a link, and 72h is a
-provisional number (three invite lifetimes).
+R-2026-08-15-1 settles this interpretation of ruling 3. The fixed ceiling is a
+fail-safe, not the handoff target, and the customer action remains the normal
+way setup access ends.
 
 ## The box is driven over SSH, not by the install callback
 
@@ -879,11 +892,9 @@ Slices 1-2 are the risk. Everything after is well-trodden Next.js work.
 2. **Plan and price table** (ruling 2 sets the posture, not the numbers).
    Provider-backup add-on cost was removed by Nil's 2026-08-15 ruling;
    grandfathered grace liabilities remain.
-3. **Where "after setup" ends** - customer-confirmed handoff or 72h, which
-   interprets ruling 3 rather than following from it.
 
-Exact deadline values are not on this list; they come from slice 1's
-measurements.
+Other exact deadline values are not on this list; they come from slice 1's
+measurements. The setup-access boundary is settled by R-2026-08-15-1.
 
 ## Verify at implementation time
 
