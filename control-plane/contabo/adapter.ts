@@ -34,8 +34,6 @@ import type {
   ProviderAdapter,
   RecyclableProvider,
   ReinstallRequest,
-  ProviderSnapshotEvidence,
-  SnapshotProvider,
 } from "../provider.ts";
 import type { ContaboHttp } from "./http.ts";
 
@@ -88,18 +86,6 @@ interface ContaboInstanceRow {
   ipConfig?: { v4?: { ip?: string } };
 }
 
-interface ContaboSnapshotRow {
-  snapshotId?: string;
-  instanceId?: number;
-  createdDate?: string;
-  autoDeleteDate?: string;
-}
-
-interface ContaboSnapshotListBody {
-  data?: ContaboSnapshotRow[];
-  _pagination?: { totalElements?: number; totalPages?: number; page?: number };
-}
-
 interface ContaboListBody {
   data?: ContaboInstanceRow[];
   _pagination?: { totalElements?: number };
@@ -114,9 +100,7 @@ export interface ContaboAdapterOptions {
   loginUser: LoginUser;
 }
 
-export class ContaboAdapter
-  implements ProviderAdapter, RecyclableProvider, SnapshotProvider
-{
+export class ContaboAdapter implements ProviderAdapter, RecyclableProvider {
   private readonly http: ContaboHttp;
   private readonly imageId: string;
   private readonly periodMonths: number;
@@ -138,10 +122,6 @@ export class ContaboAdapter
       period: this.periodMonths,
       displayName: intentStamp(req.intentId),
       defaultUser: this.loginUser,
-      // Asking for the add-on is not verification. providerSnapshots() later
-      // proves only that snapshot rows exist. The API does not identify which
-      // rows came from the add-on, so request and snapshot evidence stay apart.
-      addOns: { backup: {} },
     });
     if (result.kind === "ambiguous") {
       return { outcome: "ambiguous", reason: result.reason };
@@ -217,100 +197,6 @@ export class ContaboAdapter
       assetState: "cancel_scheduled",
       serviceEndsAt: row?.cancelDate ?? undefined,
     };
-  }
-
-  /**
-   * Read every provider snapshot for one instance and return only evidence the
-   * adapter can prove complete. Contabo silently ignores unknown query params,
-   * so no server-side ordering or one-row shortcut is trusted here.
-   */
-  async providerSnapshots(
-    providerId: string,
-  ): Promise<ProviderSnapshotEvidence> {
-    const numericId = Number(providerId);
-    if (!Number.isSafeInteger(numericId) || numericId <= 0) {
-      throw new Error(`invalid Contabo instance id: ${providerId}`);
-    }
-    const rows: ContaboSnapshotRow[] = [];
-    let page = 1;
-    let total = -1;
-    for (;;) {
-      const result = await this.http.request(
-        "GET",
-        `/v1/compute/instances/${encodeURIComponent(providerId)}/snapshots?size=100&page=${page}`,
-      );
-      if (result.kind === "ambiguous") {
-        throw new IndeterminateProviderError(
-          `provider snapshot evidence for ${providerId} could not be read: ${result.reason}`,
-        );
-      }
-      if (result.kind !== "ok") {
-        throw new Error(
-          `provider snapshot read for ${providerId} failed: ${result.reason}`,
-        );
-      }
-      const body = result.body as ContaboSnapshotListBody | null;
-      const reportedTotal = body?._pagination?.totalElements;
-      if (
-        !Number.isSafeInteger(reportedTotal) ||
-        (reportedTotal as number) < 0
-      ) {
-        throw new IndeterminateProviderError(
-          `provider snapshot evidence for ${providerId} returned no usable total`,
-        );
-      }
-      if (total < 0) total = reportedTotal as number;
-      if (total !== reportedTotal) {
-        throw new IndeterminateProviderError(
-          `provider snapshot evidence for ${providerId} changed while it was read`,
-        );
-      }
-      const batch = body?.data;
-      if (!Array.isArray(batch)) {
-        throw new IndeterminateProviderError(
-          `provider snapshot evidence for ${providerId} returned no snapshot rows`,
-        );
-      }
-      for (const row of batch) {
-        if (
-          row.instanceId !== numericId ||
-          typeof row.snapshotId !== "string"
-        ) {
-          throw new IndeterminateProviderError(
-            `provider snapshot evidence for ${providerId} returned a row outside that instance`,
-          );
-        }
-        rows.push(row);
-      }
-      if (rows.length >= total) break;
-      if (batch.length === 0 || page >= 10_000) {
-        throw new IndeterminateProviderError(
-          `provider snapshot evidence for ${providerId} returned an incomplete listing`,
-        );
-      }
-      page++;
-    }
-    if (rows.length !== total) {
-      throw new IndeterminateProviderError(
-        `provider snapshot evidence for ${providerId} returned ${rows.length} rows for a total of ${total}`,
-      );
-    }
-    let newestSnapshotAt: number | null = null;
-    for (const row of rows) {
-      if (typeof row.createdDate !== "string") {
-        throw new IndeterminateProviderError(
-          `provider snapshot evidence for ${providerId} returned a snapshot with no creation time`,
-        );
-      }
-      const created = Date.parse(row.createdDate);
-      if (!Number.isFinite(created)) {
-        throw new IndeterminateProviderError(
-          `provider snapshot evidence for ${providerId} returned an invalid creation time`,
-        );
-      }
-      newestSnapshotAt = Math.max(newestSnapshotAt ?? created, created);
-    }
-    return { newestSnapshotAt, snapshotCount: rows.length };
   }
 
   /**

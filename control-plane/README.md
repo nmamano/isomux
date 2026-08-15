@@ -3242,39 +3242,6 @@ because snapshots would retain destroyed temporary private keys. The operator
 restore procedure and the decision about what non-key state deserves backup
 remain coupled: never enable volume snapshots as an ad hoc substitute.
 
-### Hosted backup operations
-
-New Contabo orders request `addOns: { backup: {} }`. That is an order request,
-not proof. On startup and at most hourly, the provisioner reads the complete
-provider snapshot listing. It refuses incomplete pagination, a row for another
-instance, a missing or invalid creation time, or an unreadable response.
-
-Snapshot presence is a proxy, not direct observation of Automated Backup add-on
-health. The official API snapshot rows do not identify whether a row came from
-the add-on or a manual snapshot. A fresh manual snapshot can therefore satisfy
-this monitor even if the add-on is unhealthy. Operator prose says "provider
-snapshot", never "backup coverage", for this reason.
-
-The operator loop prints the following durable attention prose verbatim:
-
-- `the hosted office has no recent provider snapshot` (critical after 26 hours
-  without a first snapshot row)
-- `the hosted office provider snapshot is more than 26 hours old` (critical)
-- `provider snapshot evidence could not be read` (warning)
-
-A fresh provider snapshot clears only these backup reasons. The check uses 26
-hours so normal scheduling has a two-hour alerting tolerance around the
-published 24-hour promise. The tolerance was set in the 2026-08-13 backup load;
-it is not a broader product promise.
-
-Provider rollback is manual. Before acting, identify the exact instance and
-newest verified snapshot, record its creation time, and state the data-loss
-window. The official API warns that rolling back a snapshot other than the
-newest deletes newer snapshots. Do not automate or run rollback until Nil
-classifies it as ordinary provider administration or customer-authorized
-console access. After rollback, verify power, DNS, TLS, `/readyz`, sign-in, and
-that the provider produces the next snapshot.
-
 No control-plane state is backed up. Keep Fly scheduled snapshots disabled.
 The volume can contain a temporary provisioning private key, and restoring a
 volume snapshot could resurrect a key after revocation proved it destroyed.

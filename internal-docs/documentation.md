@@ -49,7 +49,7 @@ Keep these consistent across all surfaces below.
 - **Files:** `site/hosted-terms.html`, `site/hosted-privacy.html`.
 - **Audience:** Hosted customers before they pay, and anyone checking what the access guarantee means in writing.
 - **Status:** drafts. Not linked from any page, `noindex`, with a visible draft banner. Open decisions are marked with `<span class="pending">[NIL DECISION: ...]</span>`; the entity name is a placeholder until the LLC is filed. Strip the pending spans, the banner and the noindex tag before launch.
-- **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, governing law.
+- **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, liability limits, governing law.
 - **Update when:** any hosted promise changes. These must agree with `site/hosted.html` sentence by sentence - it is the marketing statement of the same promises. Both trace back to the rulings in `internal-docs/control-plane-design.md`.
 - **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms` and `/hosted-privacy` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not isomux the open-source project.
 
@@ -66,8 +66,8 @@ Keep these consistent across all surfaces below.
 - **Sources:** `docs/*.md` (one markdown file per page). Each is rendered to a self-contained HTML page by `scripts/build-docs.ts` at Vercel build time. Output is directory-style (`site/docs/<slug>/index.html`) so any static server resolves clean URLs without needing `cleanUrls`. `site/docs/` is gitignored - only the markdown sources are tracked.
 - **Audience:** Anyone who needs more than the README/landing highlights - operators, security reviewers, would-be contributors.
 - **Pages (in sidebar/nav order):**
-  - `features.md` - canonical long-form feature inventory. Built as the docs **landing page** at `/docs` (not `/docs/features`). Also contains the Backup and Restore section (no separate page).
-  - `self-hosted.md` - three-part always-on-server walkthrough: keep it running (systemd), make it reachable (VPN vs public URL), authorize users (links to access-and-invites).
+  - `features.md` - canonical long-form feature inventory. Built as the docs **landing page** at `/docs` (not `/docs/features`).
+  - `self-hosted.md` - three-part always-on-server walkthrough: keep it running (systemd), make it reachable (VPN vs public URL), authorize users (links to access-and-invites). Its first section carries the operational backup details.
   - `vps-install.md` - one-command unattended VPS setup (`deploy/install.sh`): fresh Ubuntu 24.04 → HTTPS-served office + owner invite link. Keep the parameter table in sync with the script's env vars.
   - `access-and-invites.md` - canonical reachability/auth deep dive: invite-link flow, Tailscale Funnel agent prompt, Caddy, `ISOMUX_PUBLIC_ORIGIN`, cookie semantics. The Funnel prompt lives here, nowhere else.
   - `how-it-works.md` - short multi-provider technical overview (Bun process, Claude SDK + Codex app-server, WebSocket sync, persistence).

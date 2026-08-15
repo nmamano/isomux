@@ -96,24 +96,6 @@ export interface RecyclableProvider {
   reinstall(providerId: string, req: ReinstallRequest): Promise<void>;
 }
 
-/**
- * Provider-specific snapshot evidence.
- *
- * This does not join ProviderAdapter: the portable seven-verb seam is fixed by
- * the control-plane design, while automated off-box backup is a Contabo product
- * capability. A create request that asks for the add-on is not proof, and the
- * snapshot endpoint does not label rows as manual or automated. This type
- * therefore claims snapshot presence only, never add-on health.
- */
-export interface SnapshotProvider {
-  providerSnapshots(providerId: string): Promise<ProviderSnapshotEvidence>;
-}
-
-export interface ProviderSnapshotEvidence {
-  newestSnapshotAt: number | null;
-  snapshotCount: number;
-}
-
 export interface ReinstallRequest {
   imageId: string;
   publicKeys: number[];

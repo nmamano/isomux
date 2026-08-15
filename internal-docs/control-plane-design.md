@@ -7,8 +7,9 @@
 > `release-design.md` (versions and the update trigger, already shipped),
 > `deploy/install.sh` (the contract the provisioner drives),
 > `port-proxy-design.md` (what the DNS design must not foreclose).
-> Related tasks: 962965dc (operator restore procedure, P1, blocks taking
-> money), d2a4a381 (fleet security-update window), 523eec92 (move the
+> Related tasks: 962965dc (completed operator restore-from-backup procedure; its
+> launch-blocking rationale was superseded by Nil on 2026-08-15), d2a4a381 (fleet
+> security-update window), 523eec92 (move the
 > `isomux.app` zone to Cloudflare).
 
 ## The MVP loop
@@ -603,6 +604,14 @@ Seattle (ruling 2); the exact table is still open.
 
 ## Cancellation, retention and the promises we publish
 
+**Settled 2026-08-15 (draft hosted terms liability).** Aggregate liability is
+limited to the greater of $100 or fees paid in the 12 months before the event.
+To the extent permitted by law, the terms exclude indirect, incidental,
+special, consequential, exemplary, and punitive damages, plus lost profits,
+business interruption, and lost data. Liabilities that applicable law does not
+allow us to exclude or limit remain outside those limits. Nil approved this
+substance for task c1d6ed82; the terms remain draft and noindex.
+
 Ruling 5 is to mirror oneclickclaw. What they actually publish (fetched
 2026-07-31 from their terms, FAQ and privacy policy):
 
@@ -627,8 +636,9 @@ Ruling 5 is to mirror oneclickclaw. What they actually publish (fetched
 
 Mirroring that gives us: dunning is whatever Stripe's schedule does, then
 suspension by provider `power_off` on exhaustion, since after handoff nothing
-can stop the service from inside; the backup promise covers box loss only and is
-at most 24h stale; we publish no security-update window and no support SLA.
+can stop the service from inside; we publish no security-update window and no
+support SLA. The former conclusion that the backup promise covered box loss and
+was at most 24 hours stale was superseded by Nil on 2026-08-15.
 
 **Settled 2026-08-13 (launch cancellation policy).** Access ends when the paid
 period ends. At that instant the provider powers the office off. There is no
@@ -672,12 +682,12 @@ control-plane rebuild operation that transactionally writes durable proof in
 the control-plane store and preserves the old provider ID as evidence. Operator
 run files and file audit logs are not proof.
 
-Three mechanical consequences. The backup promise is only real once task
-962965dc lands a tested restore procedure, and it is P1 for exactly that reason.
-Box-loss coverage means buying the provider's backup add-on per box, which the
-pilot did not order and which belongs in the cost model behind ruling 2. And
-`power_off`, `remove_dns` and `cancel_asset` stay separate retryable
-operations rather than one "destroy", because Stripe's clock and the provider's
+Historical backup consequences, superseded by Nil on 2026-08-15: the backup
+promise was only real once task 962965dc landed a tested restore procedure, and
+box-loss coverage meant buying the provider's backup add-on per box. The other
+mechanical consequence remains: `power_off`, `remove_dns` and `cancel_asset`
+stay separate retryable operations rather than one "destroy", because Stripe's
+clock and the provider's
 term are independent; if `cancel_asset` succeeds and our write fails, the next
 tick's reconcile against `get` adopts the truth. Nothing assumes a cancellation
 can be revoked or a name reused before its term ends: a customer who resubscribes
@@ -794,13 +804,13 @@ can run. It does not share a box with Nil's office.
 - Terms and a privacy policy stating what ruling 3 gives (no standing access to
   a running office) and what it does not (we rent the box, so reboot, power and
   reinstall remain ours) - with the console wording following whichever of
-  (a)/(b)/(c) Nil picks - plus the retention and backup wording above.
+  (a)/(b)/(c) Nil picks. The former provider-backup wording was superseded by
+  Nil's 2026-08-15 ruling.
 - One support channel. No response-time commitment, matching the reference.
 - Alerting on any raised attention: an operation past its absolute deadline, a
   live box failing liveness, a host key mismatch, an ambiguous create, a failed
   access revocation.
-- A **tested, documented operator restore procedure** - task 962965dc, P1 -
-  before the backup wording above can honestly be published.
+- The local backup restore procedure remains documented for box operators.
 - The fleet security-update policy, task d2a4a381. Customers click the update
   banner (`release-design.md` picked that policy), so the fleet fragments by
   design, which is fine for features and not for a security fix. We publish no
@@ -844,9 +854,9 @@ Slices 1-2 are the risk. Everything after is well-trodden Next.js work.
    consent-gated per incident. Recommendation: (c). This is the one that decides
    whether "we cannot repair or export" is literally true, so it cannot be
    settled by wording.
-2. **Plan and price table** (ruling 2 sets the posture, not the numbers). The
-   cost model must include the provider's backup add-on and grandfathered grace
-   liabilities.
+2. **Plan and price table** (ruling 2 sets the posture, not the numbers).
+   Provider-backup add-on cost was removed by Nil's 2026-08-15 ruling;
+   grandfathered grace liabilities remain.
 3. **Where "after setup" ends** - customer-confirmed handoff or 72h, which
    interprets ruling 3 rather than following from it.
 

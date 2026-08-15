@@ -71,10 +71,12 @@ the control plane only health-checks it and pushes updates.
 
 Provider notes (Hetzner in practice, 2026-07-21): the cost-optimized CX
 line is effectively sold out fleet-wide, so tier pricing must assume
-CPX-class costs (~$13-42/box), not the €6-18 CX prices. Every customer box
-gets Hetzner's box-level backup option (+20% of box price, 7 off-box
-snapshots): it covers box loss, which isomux's own same-disk daily backups
-don't (decided with Nil).
+CPX-class costs (~$13-42/box), not the €6-18 CX prices. Historical provider
+decision, superseded by Nil on 2026-08-15: every customer box would have
+received Hetzner's box-level backup option (+20% of box price, 7 off-box
+snapshots) to cover box loss. Hosted backups now stay inside each customer's
+VPS, like self-hosted Isomux. External backups are the customer's
+responsibility.
 
 ## What isomux already has (audit, 2026-07-19)
 

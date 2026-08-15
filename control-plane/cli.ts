@@ -26,10 +26,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { AuditLog } from "./audit.ts";
-import {
-  BACKUP_CHECK_INTERVAL_MS,
-  watchHostedBackups,
-} from "./backup-watch.ts";
 import { BRANCH_PIN_ENV, provePinnedBranch } from "./boot.ts";
 import {
   bootstrapDatabase,
@@ -738,14 +734,6 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   // provisioner without provider means idles correctly and looks identical to
   // one that is working, until an operation needs a provider and fails.
   reporter.line(`provider-configured ${providerConfigured}`);
-  let nextBackupCheckAt = 0;
-  let backupAdapter: ContaboAdapter | null = null;
-  try {
-    backupAdapter = makeAdapter();
-  } catch {
-    // The provider-configured line above is the durable deployment signal. A
-    // process with no provider credential cannot read provider snapshots.
-  }
   try {
     await driveTicks(store, running, {
       forever: args.get("once") !== "true",
@@ -757,14 +745,6 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           holder: running.holder,
           report: (line) => reporter.line(line),
         });
-        if (backupAdapter && Date.now() >= nextBackupCheckAt) {
-          nextBackupCheckAt = Date.now() + BACKUP_CHECK_INTERVAL_MS;
-          await watchHostedBackups(store, {
-            snapshots: (providerId) =>
-              backupAdapter.providerSnapshots(providerId),
-            report: (line) => reporter.line(line),
-          });
-        }
       },
     });
   } finally {

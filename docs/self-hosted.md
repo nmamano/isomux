@@ -30,6 +30,10 @@ The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.j
 
 Optional: install a Chrome-family browser on the host to enable browser preview cards (agents screenshot web pages straight into the chat).
 
+### Backups
+
+Isomux stores seven daily backups of `~/.isomux/` in the server's backup directory on the same disk as the office, so copy them elsewhere if you need protection from server loss. Current backup health and the exact directory are at `GET /api/backup/status`.
+
 ### Surviving a memory spike
 
 A busy office can exhaust the box's memory, and left to the kernel that ends with the whole machine swapping until nothing answers. Isomux handles its half automatically: the office marks every process it starts as a better out-of-memory kill candidate than the office server itself, so a spike usually costs one runaway agent or build instead of the whole office. Linux only, no setup, no privileges.

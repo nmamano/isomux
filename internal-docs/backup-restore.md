@@ -223,27 +223,8 @@ copy pulled off earlier:
 scp root@office.example.com:/home/isomux/isomux-backups/isomux-2026-08-01.tar.gz .
 ```
 
-Hosted offices request the provider's Automated Backup add-on for box loss. The
-operator selects the newest provider snapshot that the control-plane watch
-observed. Snapshot presence is only a proxy: the provider API does not label a
-row as manual or add-on-created, so this monitor cannot directly prove add-on
-health. The
-provider API exposes rollback, but Isomux does not automate it: rolling back a
-non-newest snapshot removes newer snapshots, and the administrative-versus-
-console classification remains a Nil decision as of 2026-08-13. Record the
-chosen snapshot time and expected data-loss window before acting. After rollback,
-wait for power, DNS, TLS and `/readyz`, then verify sign-in and the next provider
-snapshot.
-
-The control plane raises these durable reasons:
-
-- `the hosted office has no recent provider snapshot`
-- `the hosted office provider snapshot is more than 26 hours old`
-- `provider snapshot evidence could not be read`
-
-The 26-hour check includes a two-hour alerting tolerance around the 24-hour
-product promise. A request for the add-on and a provider snapshot row are two
-different facts; neither identifies which mechanism created a snapshot row.
+Hosted local backups also stay on the customer VPS. The customer is responsible
+for keeping an external copy for recovery after box loss.
 
 **1. Point the domain's DNS records at the new box, then install isomux
 normally.**

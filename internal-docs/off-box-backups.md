@@ -1,8 +1,10 @@
 # Off-box backup copies
 
-> Status: hosted add-on request and provider-snapshot proxy implemented; the API
-> does not expose direct add-on health, and one restore-classification decision
-> remains for Nil. Initial design
+> Status: superseded by Nil on 2026-08-15. Hosted backups stay inside each
+> customer's VPS, like self-hosted Isomux. The provider add-on request and
+> snapshot proxy were removed. External backups are the customer's
+> responsibility. The local archive publication design below remains current.
+> Initial design
 > drafted 2026-08-02 and reviewed by Reviewer5. Implementation decisions below
 > were approved by Isomux Manager and Reviewer2 on 2026-08-13 for tasks
 > 903ce4c6 and 624f38d0. They are not Nil rulings unless stated.
@@ -15,21 +17,23 @@ There are two backup layers.
 
 - Every office makes a verified local archive of its state root. This covers a
   deleted or damaged file while the VPS disk still works.
-- A hosted office asks the VPS provider for its Automated Backup add-on. The
-  control plane monitors provider snapshot rows as a proxy. The API does not
+- Historical provider layer, removed on 2026-08-15: a hosted office asked the
+  VPS provider for its Automated Backup add-on. The control plane monitored
+  provider snapshot rows as a proxy. The API does not
   identify which rows came from the add-on, so it does not directly prove
   add-on health.
 
-Neither layer backs up control-plane state. The provisioner state can contain a
+Neither layer in this historical design backed up control-plane state. The
+provisioner state can contain a
 temporary private key until revocation. A snapshot could restore a key after
 the control plane proved that it was destroyed. The Fly volume therefore keeps
 scheduled snapshots off. A separate control-plane recovery design needs its own
 threat model and must preserve key destruction structurally.
 
-The hosted promise remains narrow: box loss only. The control-plane proxy checks
-for a provider snapshot no more than 26 hours old. The published
-promise can remain "at most 24 hours old"; the two-hour margin is an alerting
-tolerance, not a promise expansion.
+Historical promise, superseded on 2026-08-15: box loss only. The control-plane
+proxy checked for a provider snapshot no more than 26 hours old. The published
+promise would have remained "at most 24 hours old"; the two-hour margin was an
+alerting tolerance, not a promise expansion.
 
 ## Local archive publication
 
@@ -65,7 +69,10 @@ removed before free space is checked. Backup status is reconstructed from verifi
 restart. No archive, a stale newest archive, and a failed attempt after the
 newest archive do not read as success.
 
-## Hosted request and verification
+## Superseded provider request and verification
+
+The remainder of this section records the removed provider design. It is not
+current behavior or a product promise.
 
 The official Contabo API, read 2026-08-13, provides the required operations:
 
@@ -107,7 +114,7 @@ customer VPS disk, including office data and model credentials stored there. It
 does not contain the provisioner's temporary private key, which exists only on
 the separate provisioner volume.
 
-## Restore boundary
+## Superseded provider restore boundary
 
 This load does not automate provider rollback. A rollback may delete newer
 snapshots, and the access classification is not settled. The operator must:
@@ -127,19 +134,25 @@ one, the provider whole-disk rollback is the available box-loss path.
 ## Retention
 
 - Local: seven finalized, verified archive-marker pairs.
-- Hosted off-box: provider Automated Backup retention. Isomux observes the
-  newest provider snapshot time as a proxy and does not delete snapshots.
+- Hosted off-box: removed on 2026-08-15. Customers are responsible for external
+  backups.
 - Control plane: no backup. Scheduled Fly volume snapshots remain disabled.
 
-## Still needs Nil
+## Closed by Nil
+
+Nil's 2026-08-15 ruling removed the provider backup and restore promise, so the
+provider rollback question no longer blocks launch:
 
 1. **Provider rollback classification.** Is it administrative, like reboot and
    reinstall, or customer-authorized console access under ruling 11? This
    decides the terms copy and whether an operator can start a box-loss restore
    without a per-incident customer request. Open as of 2026-08-13.
-2. **User-facing backup copy.** The draft in `docs/features.md` needs Nil's copy
-   approval before push. It describes what the user gets and does not expose the
-   internal evidence mechanism.
+
+## Pending copy
+
+Nil approved the exact `docs/features.md` bullet on 2026-08-15. The compact
+backup details proposed for `docs/self-hosted.md` remain pending Nil's copy
+approval.
 
 Customer-owned object storage, backup download UI, and broader restore promises
 remain deferred. They are not hosted launch blockers for this mechanism.
