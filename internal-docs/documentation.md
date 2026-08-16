@@ -48,7 +48,7 @@ Keep these consistent across all surfaces below.
 
 - **Files:** `site/hosted-terms.html`, `site/hosted-privacy.html`.
 - **Audience:** Hosted customers before they pay, and anyone checking what the access guarantee means in writing.
-- **Status:** drafts. Not linked from any page, `noindex`, with a visible draft banner. Open decisions are marked with `<span class="pending">[NIL DECISION: ...]</span>`; the entity name is a placeholder until the LLC is filed. Strip the pending spans, the banner and the noindex tag before launch.
+- **Status:** published when this change merges. Both pages have canonical URLs and appear in the sitemap. The pages no longer state an effective date - choose one at launch.
 - **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, liability limits, governing law.
 - **Update when:** any hosted promise changes. These must agree with `site/hosted.html` sentence by sentence - it is the marketing statement of the same promises. Both trace back to the rulings in `internal-docs/control-plane-design.md`.
 - **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms` and `/hosted-privacy` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not isomux the open-source project.

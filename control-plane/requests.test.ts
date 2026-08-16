@@ -201,7 +201,12 @@ describe("one active operation, whatever the caller does", () => {
         accountId: b.accountId,
         instanceId: b.instanceId,
       }),
-    ).toMatchObject({ ok: false, code: "cancellation_suspended" });
+    ).toMatchObject({
+      ok: false,
+      code: "cancellation_suspended",
+      reason:
+        "This office cannot be restarted. Your office dashboard shows the options available now.",
+    });
     expect(
       (await b.store.operationsFor(b.instanceId)).some(
         (op) => op.kind === "reboot",

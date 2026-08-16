@@ -73,7 +73,7 @@ export const REFUSAL_WORDS: Record<RefusalCode, string> = {
   already_revoked: "Hosted Isomux Provisioning has already removed its access.",
   restart_in_progress: "a restart is already running.",
   cancellation_suspended:
-    "this subscription has ended, so this office cannot be restarted here. Contact support for recovery help.",
+    "This office cannot be restarted. Your office dashboard shows the options available now.",
 };
 
 export type RequestOutcome =

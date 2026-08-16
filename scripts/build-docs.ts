@@ -26,11 +26,14 @@ const LANDING_SLUG = "features";
 // request is what lets www.isomux.com claim to be the original.
 const SITE_ORIGIN = "https://isomux.com";
 
-// Sitemap entries that aren't generated from docs/. Deliberately absent:
-// `/hosted-terms` and `/hosted-privacy` are unreviewed drafts that carry
-// `<meta name="robots" content="noindex">`, so listing them would be asking
-// Google to index a page that tells it not to.
-const STATIC_PATHS = ["/", "/demo", "/hosted"];
+// Sitemap entries that aren't generated from docs/.
+const STATIC_PATHS = [
+  "/",
+  "/demo",
+  "/hosted",
+  "/hosted-terms",
+  "/hosted-privacy",
+];
 
 type TocItem = { depth: number; id: string; text: string };
 type Frontmatter = {

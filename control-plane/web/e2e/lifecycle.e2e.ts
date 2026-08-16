@@ -253,7 +253,7 @@ async function main(): Promise<void> {
       "S3 states period-end power-off and the retention request",
       scheduled.includes("is powered off when that period ends") &&
         scheduled.includes(
-          "We retain the server data for 14 days for manual recovery. After that, we request permanent deletion as soon as the provider permits.",
+          "We retain the server data for 14 days. During that time, restart your subscription to restore the same office, or contact support for free temporary access to your office so you can get your data out. After that, your office cannot be recovered.",
         ),
     );
     check(
@@ -285,9 +285,9 @@ async function main(): Promise<void> {
     const grace = await waitFor(page, "cancel-power-off");
     say(`S5: ${grace}`);
     check(
-      "S5 says the office is being powered off",
+      "S5 gives the dated restore and recovery paths",
       grace ===
-        "Your subscription ended on 2027-01-31. Your office is being powered off. Contact support by 2027-02-14 if you need manual recovery. After that date, we request permanent deletion as soon as the provider permits.",
+        "Your subscription ended on 2027-01-31. Your office is being powered off. Restart your subscription by 2027-02-14 to restore it, or contact support for free temporary access to your office so you can get your data out. After 2027-02-14, your office cannot be recovered.",
     );
     const planS5 = await textOf(page, "subscription");
     say(`S5 plan: ${planS5}`);
@@ -320,14 +320,14 @@ async function main(): Promise<void> {
       .slice(0, 10);
     say(`S6: ${suspended}`);
     check(
-      "S6 names the retention deadline and says we REQUEST deletion",
+      "S6 names the retention deadline and both available paths",
       suspended ===
-        `Your office is powered off. Contact support by ${retention} if you need manual recovery. After that date, we request permanent deletion as soon as the provider permits.`,
+        `Your office is powered off. Restart your subscription by ${retention} to restore it, or contact support for free temporary access to your office so you can get your data out. After ${retention}, your office cannot be recovered.`,
       retention,
     );
     check(
-      "S6 does not claim the provider deletes on our date",
-      !suspended.includes("the server is deleted on"),
+      "S6 does not claim when the provider deletes the server",
+      !suspended.includes("deleted"),
     );
     const planS6 = await textOf(page, "subscription");
     check(
@@ -339,6 +339,31 @@ async function main(): Promise<void> {
       "S6 offers reinstatement of the retained office",
       (await page.$('[data-testid="reinstate-button"]')) !== null,
     );
+
+    // ---- S6b: powered off, at or after the retention boundary
+    const expiredEnd = Date.now() - RETENTION_MS - 1_000;
+    await stripeSays(store, { ended_at: expiredEnd });
+    await succeed(
+      store,
+      instanceId,
+      "power_off",
+      lifecycleOperationId("power_off", "sub_e2e", expiredEnd),
+      { reason: LIFECYCLE_REASON, poweredOffAt: expiredEnd },
+    );
+    await page.goto(office);
+    const retentionEnded = await waitFor(page, "cancel-retention-ended");
+    say(`S6b: ${retentionEnded}`);
+    check(
+      "S6b offers neither restore nor recovery after the deadline",
+      retentionEnded ===
+        "The retention period for this office has ended. It can no longer be recovered.",
+      retentionEnded,
+    );
+    check(
+      "S6b does not render the dated retained callout",
+      (await page.$('[data-testid="cancel-suspended"]')) === null,
+    );
+    await stripeSays(store, { ended_at: periodEnd });
 
     // ---- S7: Checkout was accepted before the hard boundary. The customer
     // sees the exact remaining deadline; this does not claim when a later

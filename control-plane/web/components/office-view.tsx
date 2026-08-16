@@ -738,15 +738,24 @@ function CancelPanel({
         </p>
       );
     }
-    if (life.retentionEnd !== null && life.poweredOff) {
+    if (life.phase === "suspended" && life.retentionEnd !== null) {
       // A PROVEN date: the machine measured this calendar month from the
       // instant the box was actually powered off, and this is that same number
       // carried across rather than a second computation of it.
       return (
         <p className="callout" data-testid="cancel-suspended">
-          Your office is powered off. Contact support by{" "}
-          {day(life.retentionEnd)} if you need manual recovery. After that date,
-          we request permanent deletion as soon as the provider permits.
+          Your office is powered off. Restart your subscription by{" "}
+          {day(life.retentionEnd)} to restore it, or contact support for free
+          temporary access to your office so you can get your data out. After{" "}
+          {day(life.retentionEnd)}, your office cannot be recovered.
+        </p>
+      );
+    }
+    if (life.phase === "deprovision_due") {
+      return (
+        <p className="callout" data-testid="cancel-retention-ended">
+          The retention period for this office has ended. It can no longer be
+          recovered.
         </p>
       );
     }
@@ -755,12 +764,14 @@ function CancelPanel({
         <>
           <p className="callout" data-testid="cancel-power-off">
             Your subscription ended on {day(sub.endedAt!)}. Your office is being
-            powered off. Contact support by {day(life.retentionEnd!)} if you
-            need manual recovery. After that date, we request permanent deletion
-            as soon as the provider permits.
+            powered off. Restart your subscription by {day(life.retentionEnd!)}{" "}
+            to restore it, or contact support for free temporary access to your
+            office so you can get your data out. After {day(life.retentionEnd!)}
+            , your office cannot be recovered.
           </p>
           <p className="note" data-testid="cancel-restart-refused">
-            This office cannot be restarted here after the subscription ends.
+            This office cannot be restarted. Your office dashboard shows the
+            options available now.
           </p>
         </>
       );
@@ -792,8 +803,10 @@ function CancelPanel({
             off when that period ends.
           </p>
           <p>
-            We retain the server data for 14 days for manual recovery. After
-            that, we request permanent deletion as soon as the provider permits.
+            We retain the server data for 14 days. During that time, restart
+            your subscription to restore the same office, or contact support for
+            free temporary access to your office so you can get your data out.
+            After that, your office cannot be recovered.
           </p>
           <p className="action">
             <button
