@@ -176,6 +176,8 @@ describe("the matrix is exactly what the deployed command reaches", () => {
       "certificate_credentials:select",
       "certificate_credentials:update",
       "name_reservations:select",
+      "reinstatement_attempts:select",
+      "reinstatement_attempts:update",
     ]);
     expect(prior.excess).toEqual([
       "accounts:select",

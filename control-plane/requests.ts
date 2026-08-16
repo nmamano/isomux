@@ -18,7 +18,7 @@
 //   message's provenance, never the outcome.
 
 import { accessForInstance, windowIsOpen, type AccessView } from "./access.ts";
-import { cancellationStateFrom } from "./lifecycle.ts";
+import { cancellationStateFrom, restartAllowedIn } from "./lifecycle.ts";
 import {
   deadlinesFor,
   newOperationId,
@@ -26,6 +26,7 @@ import {
 } from "./operations.ts";
 import { instanceOwnedBy } from "./signup.ts";
 import { ACTIVE_STATUSES, isUniqueViolation, type Store } from "./store.ts";
+import { currentSubscriptionForInstance } from "./reinstatement.ts";
 
 /** The kinds a customer may open. Listed, so this file cannot become a general
  * enqueue by someone passing a different string. */
@@ -306,15 +307,9 @@ export async function requestRestart(
     }
     const asset = await store.assetForInstance(req.instanceId);
     if (!asset || !asset.provider_id) return refuse("no_box");
-    const cancelled = await store.sqlGet<{
-      id: string;
-      ended_at: number | null;
-      cancellation_reason: string | null;
-      cancellation_policy: "legacy" | "launch" | null;
-    }>(
-      "select id, ended_at, cancellation_reason, cancellation_policy " +
-        "from subscriptions where instance_id = $1 order by created_at desc limit 1",
-      [req.instanceId],
+    const cancelled = await currentSubscriptionForInstance(
+      store,
+      req.instanceId,
     );
     const cancellation = cancellationStateFrom(
       cancelled
@@ -329,7 +324,7 @@ export async function requestRestart(
       asset,
       store.now(),
     );
-    if (cancellation && cancellation.timeline.phase !== "grace") {
+    if (cancellation && !restartAllowedIn(cancellation.timeline.phase)) {
       return refuse("cancellation_suspended");
     }
     const active = await store.activeOperation(req.instanceId, "reboot");

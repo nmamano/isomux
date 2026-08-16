@@ -31,6 +31,8 @@ export type OperationKind =
    * customer's own cancellation running its course.
    */
   | "power_on"
+  /** Stripe Checkout expiry at a retained-office deletion boundary. */
+  | "expire_checkout"
   /**
    * End of life (slice 5), opened by the lifecycle tick at the retention
    * deadline. Both are separate retryable operations rather than one "destroy",
@@ -174,6 +176,11 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     absoluteMs: 30 * MINUTE,
     maxRemoteMs: 60_000,
   },
+  expire_checkout: {
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 30 * MINUTE,
+    maxRemoteMs: 30_000,
+  },
   // The money-ending call. Its ceiling is wide because giving up is not an
   // option a deprovision has: an asset we asked to cancel and then forgot about
   // is a bill that renews forever.
@@ -258,6 +265,7 @@ export function nextKind(
     case "power_off":
     case "reboot":
     case "power_on":
+    case "expire_checkout":
     case "cancel_asset":
     case "remove_dns":
       return null;

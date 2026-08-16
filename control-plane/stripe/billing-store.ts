@@ -332,10 +332,9 @@ export async function subscriptionForInstance(
   store: Store,
   instanceId: string,
 ): Promise<SubscriptionRow | null> {
-  return store.sqlGet<SubscriptionRow>(
-    "select * from subscriptions where instance_id = $1 order by created_at desc limit 1",
-    [instanceId],
-  );
+  const { currentSubscriptionForInstance } =
+    await import("../reinstatement.ts");
+  return currentSubscriptionForInstance(store, instanceId);
 }
 
 export async function listSubscriptions(

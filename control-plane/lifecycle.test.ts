@@ -14,12 +14,14 @@ import {
   lifecycleOperationId,
   LIFECYCLE_REASON,
   LIFECYCLE_REPOWERED,
+  LIFECYCLE_STRAY,
   PROMISE_AT_RISK,
   PROMISE_BROKEN,
   parseServiceEndsAt,
   phaseAt,
   poweredOffAtFrom,
   promiseAtRisk,
+  RETENTION_MS,
 } from "./lifecycle.ts";
 import { suspensionOperationId } from "./stripe/dunning.ts";
 import { Store, type AssetRow, type OperationRow } from "./store.ts";
@@ -378,6 +380,50 @@ describe("decideLifecycle", () => {
     expect(d.open).toEqual([]);
     expect(raiseOf(d)?.severity).toBe("critical");
     expect(raiseOf(d)?.reason).toContain("is not terminal");
+  });
+
+  test("accepted reinstatement excuses only its exact succeeded suspension", () => {
+    const exact = op({
+      id: lifecycleOperationId("power_off", "sub_1", endedAt),
+      kind: "power_off",
+      status: "succeeded",
+      evidence: JSON.stringify({
+        reason: LIFECYCLE_REASON,
+        poweredOffAt: endedAt,
+      }),
+    });
+    const input = {
+      instance,
+      asset: asset(),
+      subscription: {
+        ...sub,
+        cancellationPolicy: "launch" as const,
+      },
+      reinstatement: {
+        state: "accepted" as const,
+        attemptId: "reinstate-sub_1",
+        fenceExpiresAt: endedAt + RETENTION_MS,
+        expiryProven: false,
+      },
+      now: endedAt + 1,
+    };
+    expect(
+      decideLifecycle({ ...input, operations: [exact] }).attention,
+    ).toEqual([{ kind: "clear", key: PROMISE_AT_RISK }]);
+    const foreign = op({
+      id: lifecycleOperationId("power_off", "sub_other", endedAt),
+      kind: "power_off",
+      status: "succeeded",
+      evidence: JSON.stringify({ reason: LIFECYCLE_REASON }),
+    });
+    expect(
+      decideLifecycle({
+        ...input,
+        operations: [exact, foreign],
+      }).attention.some(
+        (action) => action.kind === "raise" && action.key === LIFECYCLE_STRAY,
+      ),
+    ).toBe(true);
   });
 
   test("data end is recorded from provider truth, once", async () => {

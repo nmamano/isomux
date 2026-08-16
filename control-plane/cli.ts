@@ -85,6 +85,8 @@ import { readAndRefreshMarker } from "./state-marker.ts";
 import { Store } from "./store.ts";
 import { PROVISIONER_POOL } from "./roles.ts";
 import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
+import { StripeClient } from "./stripe/client.ts";
+import { LiveStripeReader } from "./stripe/reader.ts";
 
 const reporter = new Reporter();
 const audit = new AuditLog(AUDIT_FILE, "control-plane-cli");
@@ -353,6 +355,17 @@ function makeTicker(
 ): Ticker {
   const provider = adapterOrNothing();
   const line = (l: string) => reporter.line(l);
+  const stripeKey = process.env.STRIPE_TEST_SECRET_KEY;
+  if (!stripeKey) {
+    throw new Error(
+      "STRIPE_TEST_SECRET_KEY is required by the provisioner because retained-office deletion must expire Checkout first",
+    );
+  }
+  const stripeClient = new StripeClient({ key: stripeKey });
+  const stripe = {
+    client: stripeClient,
+    reader: new LiveStripeReader(stripeClient),
+  };
   return new Ticker({
     store,
     // The roster lives in `run-roster.ts` so a test can read the ACTUAL list
@@ -371,6 +384,7 @@ function makeTicker(
       },
       provider,
       report: line,
+      stripe,
     }),
     reconcile: reconcileFn(),
     report: (line) => reporter.line(line),

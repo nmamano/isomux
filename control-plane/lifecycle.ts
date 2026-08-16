@@ -92,6 +92,9 @@ export type LifecyclePhase =
   | "power_off_due"
   | "suspended"
   | "deprovision_due"
+  | "reinstatement_pending"
+  | "checkout_expiry_due"
+  | "reinstated"
   | "ended";
 
 export interface TimelineFacts {
@@ -107,6 +110,12 @@ export interface TimelineFacts {
   cancellationPolicy?: CancellationPolicy | null;
   /** Whether provider truth already reports the asset gone. */
   assetGone: boolean;
+  reinstatement?: {
+    state: "pending" | "accepted" | "expired" | "attention";
+    attemptId: string;
+    fenceExpiresAt: number;
+    expiryProven: boolean;
+  } | null;
 }
 
 export interface Timeline {
@@ -127,6 +136,27 @@ export interface Timeline {
    * unwatched.
    */
   promisedUntil: number | null;
+}
+
+/** Explicit so a new lifecycle phase cannot inherit a restart policy silently. */
+export function restartAllowedIn(phase: LifecyclePhase): boolean {
+  switch (phase) {
+    case "grace":
+      return true;
+    case "serving":
+    case "power_off_due":
+    case "suspended":
+    case "deprovision_due":
+    case "reinstatement_pending":
+    case "checkout_expiry_due":
+    case "reinstated":
+    case "ended":
+      return false;
+    default: {
+      const neverPhase: never = phase;
+      return neverPhase;
+    }
+  }
 }
 
 /** Is this a CUSTOMER cancellation - the only thing this machine drives? */
@@ -170,9 +200,23 @@ export function phaseAt(facts: TimelineFacts, now: number): Timeline {
     : facts.endedAt! + RETENTION_MS;
   const base = { graceEnd, retentionEnd, promisedUntil };
 
+  // Provider truth still wins after payment. An accepted linkage cannot make a
+  // provider asset that is already gone exist again.
   if (facts.assetGone) {
     return { ...base, phase: "ended" };
   }
+  if (facts.reinstatement?.state === "accepted") {
+    return { ...base, phase: "reinstated" };
+  }
+  if (facts.reinstatement?.state === "pending") {
+    if (now < facts.reinstatement.fenceExpiresAt) {
+      return { ...base, phase: "reinstatement_pending" };
+    }
+    if (!facts.reinstatement.expiryProven) {
+      return { ...base, phase: "checkout_expiry_due" };
+    }
+  }
+
   if (facts.poweredOffAt !== null && (facts.repoweredAt ?? null) === null) {
     return {
       ...base,
@@ -278,6 +322,7 @@ export interface LifecycleInputs {
     cancellationReason: string | null;
     cancellationPolicy?: CancellationPolicy | null;
   } | null;
+  reinstatement?: TimelineFacts["reinstatement"];
   now: number;
 }
 
@@ -415,6 +460,7 @@ export function cancellationStateFrom(
   operations: OperationRow[],
   asset: AssetRow | null,
   now: number,
+  reinstatement?: TimelineFacts["reinstatement"],
 ): CancellationState | null {
   if (!subscription || !isCustomerCancellation(subscription)) return null;
   const endedAt = subscription.endedAt!;
@@ -437,6 +483,7 @@ export function cancellationStateFrom(
         cancellationPolicy:
           subscription.cancellationPolicy === "launch" ? "launch" : "legacy",
         assetGone: !!asset && GONE_STATES.has(asset.asset_state),
+        reinstatement,
       },
       now,
     ),
@@ -490,7 +537,13 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
   }
 
   const endedAt = subscription.endedAt!;
-  const state = cancellationStateFrom(subscription, operations, asset, now)!;
+  const state = cancellationStateFrom(
+    subscription,
+    operations,
+    asset,
+    now,
+    inputs.reinstatement,
+  )!;
   const { timeline, repower } = state;
 
   // A provider term that ends before the retention deadline is a PROMISE AT
@@ -573,6 +626,64 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
         },
       ]
     : [{ kind: "clear", key: PROMISE_AT_RISK }];
+  if (timeline.phase === "reinstated") {
+    const allowed = lifecycleOperationId("power_off", subscription.id, endedAt);
+    const stray = operations.some(
+      (op) =>
+        isLifecycleRow(op) &&
+        !(
+          op.id === allowed &&
+          op.kind === "power_off" &&
+          op.status === "succeeded"
+        ),
+    );
+    return {
+      open: [],
+      finish: false,
+      attention: [
+        { kind: "clear", key: PROMISE_AT_RISK },
+        ...(stray
+          ? [
+              {
+                kind: "raise" as const,
+                key: LIFECYCLE_STRAY,
+                reason:
+                  "a reinstated office has cancellation lifecycle rows beyond its exact succeeded suspension; a person must inspect them",
+                severity: "critical" as const,
+              },
+            ]
+          : []),
+      ],
+      phase: timeline.phase,
+      note: "the retained office was reinstated",
+    };
+  }
+  if (timeline.phase === "reinstatement_pending") {
+    return {
+      open: [],
+      finish: false,
+      attention,
+      phase: timeline.phase,
+      note: "reinstatement Checkout remains pending until the lifecycle tick runs",
+    };
+  }
+  if (timeline.phase === "checkout_expiry_due") {
+    const attemptId = inputs.reinstatement?.attemptId;
+    if (attemptId) {
+      open.push({
+        kind: "expire_checkout",
+        id: `op-checkout_expire-${attemptId}`,
+        evidence: { reason: "reinstatement", attempt: attemptId },
+      });
+    }
+    return {
+      open,
+      finish: false,
+      attention,
+      phase: timeline.phase,
+      note: "Checkout must be expired and fetched before deletion may open",
+    };
+  }
   if (timeline.phase === "power_off_due") {
     const activeCorrection = operations.find(
       (op) =>

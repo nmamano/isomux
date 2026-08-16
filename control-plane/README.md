@@ -2784,9 +2784,10 @@ The enforcement is structural. `instance.ts` rejects a new or existing ceiling
 over seven days. `store.ts` excludes
 the column from `casInstance` and rejects a cast that tries to add it. Signup
 retries read the snapshot; reconciliation handlers can use only that CAS
-surface; `cancel.ts` changes subscription cancellation fields only; and a
-resubscription gets a new box. A rollback cannot turn an unsupported old row
-into a supported office or move its stored instant.
+surface; `cancel.ts` changes subscription cancellation fields only; and
+retained-office reinstatement does not change the setup window. A rollback
+cannot turn an unsupported old row into a supported office or move its stored
+instant.
 
 An abandoned checkout keeps its name. Releasing one is slice-5 work with its own
 ruling, and a state column nobody transitions is a claim the code cannot keep.
@@ -3123,6 +3124,73 @@ authority. Newest-first with no skipping says the honest thing instead.
 `serviceStateAfter("power_on")` is `live`: `suspended` is a claim about what we
 did to the box, and after a proven power_on it is no longer true. Whether the
 office ANSWERS is the liveness axis, which the design keeps separate.
+
+### Reinstating the retained office
+
+Launch re-subscription keeps the reservation and provider asset. It creates a
+new Stripe subscription and links it to the retained instance only after the
+fetched Stripe object and the control-plane rows agree. The plan comes from
+`name_reservations.plan`, the price comes from deployment configuration, and
+the reservation's coupon and Stripe customer are reused. A changed plan,
+coupon, or customer SSH key remains a refusal. No second provider asset is
+created.
+
+`reinstatement_attempts` is the durable bridge from the terminal subscription
+to the new one. Its identity is derived from the terminal subscription. A
+durable generation makes each replacement Checkout session a new Stripe
+idempotency key without making a second logical attempt. The customer boundary
+and Stripe's technical expiry are separate fields: `fence_expires_at` is always
+the launch retention end; `stripe_expires_at` is computed when the Stripe call
+is prepared and includes five seconds of transport/API-floor safety above the
+measured 1,800-second minimum. That margin does not extend eligibility.
+
+Checkout can start only while `now < fence_expires_at`. Acceptance and webhook
+linkage both re-read the account history, reservation ownership, active asset,
+suspended instance, exact succeeded cancellation `power_off`, absence of every
+`cancel_asset` and `remove_dns` row, and customer access proof. Customer access
+means an installed customer-key fingerprint or a succeeded handoff; a stored
+login user is not proof. Linkage also refuses after any Checkout-expiry
+operation starts. The attempt row is locked by linkage and by the lifecycle
+tick, so linkage and expiry/deletion cannot both commit.
+
+At the boundary, the lifecycle opens one derived `expire_checkout` operation
+before either deletion rung. Its Stripe call runs in the operation handler, not
+inside the lifecycle transaction. A refused or ambiguous expire call is
+followed by a fetched Checkout read. `expired` permits deletion. `complete`
+opens the stable refund/reconciliation incident on the retained instance and
+then permits deletion. `open` or unreadable truth fails closed and permits no
+deletion. The incident records `payment_status`: `paid` means refund or
+reconcile; `unpaid` means monitor and reconcile if it clears;
+`no_payment_required` means confirm and close because nothing was owed. A late
+webhook never rescues the office after the boundary.
+
+An open or unreadable Checkout keeps the expiry operation retryable and raises
+critical attention; it does not consume the operation's derived id in a failed
+terminal row. A missing Checkout session id is positive proof that no payment
+URL was issued, so expiry records that attempt as expired without calling
+Stripe. The provisioner refuses startup when its Stripe expiry capability is
+missing. Checkout-create ambiguity keeps the same generation and Stripe
+idempotency key; a definite create refusal records the generation expired so a
+later click gets a fresh key and technical expiry.
+
+Only after linkage commits does the webhook open the separate derived
+reinstatement `power_on`. It is not a reboot, so the cancellation repower alarm
+cannot open a corrective power-off. The accepted attempt is a lifecycle fact
+that closes the old subscription's timeline. A later cancellation of the new
+subscription starts a new timeline with ids derived from that subscription.
+
+**Measured 2026-08-16 in Stripe test mode:** Checkout accepted a session expiry
+1,800 seconds after call preparation. Manual expiry returned `expired`; the
+probe left no subscription and no charge. Product code does not match an error
+message when expiry is refused: it fetches the session and uses the normalized
+status as authority.
+
+**Measured 2026-08-16 at f4f9cf0:** there is no scheduler for
+`lifecycleTick`. It runs only when an operator runs `billing-cli tick`. The
+provisioning ticker's five-second loop does not run the billing lifecycle.
+Therefore the code promises what happens WHEN the tick runs, not prompt
+power-off, Checkout expiry, or deletion. Adding a hosted lifecycle scheduler is
+a separate launch decision.
 
 ### Cancel and un-cancel
 

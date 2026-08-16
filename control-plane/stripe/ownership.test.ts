@@ -88,6 +88,7 @@ describe("the subscription insert", () => {
       "exercises/cancel-live.ts",
       "lifecycle-tick.test.ts",
       "reboot.test.ts",
+      "reinstatement.test.ts",
       "requests.test.ts",
       "resume.test.ts",
       "stripe/billing-store.test.ts",

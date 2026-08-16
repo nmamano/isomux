@@ -21,6 +21,7 @@ import {
   META_ACCOUNT,
   META_EMAIL,
   META_INSTANCE,
+  META_REINSTATEMENT,
   META_OFFICE_NAME,
 } from "./metadata.ts";
 
@@ -213,6 +214,9 @@ export interface CheckoutArgs {
   /** Pre-linked instance, when the caller already has one. Slice 4 sets this from
    * the provisioning flow. */
   instanceId?: string;
+  reinstatementAttemptId?: string;
+  /** Seconds since epoch. Stripe's technical session expiry, not retention. */
+  expiresAt?: number;
 }
 
 export interface CheckoutSessionCreated {
@@ -222,6 +226,16 @@ export interface CheckoutSessionCreated {
    * that asking for `if_required` was honoured. */
   paymentMethodCollection: string | null;
   livemode: boolean;
+}
+
+/** Preserves whether a failed create might have reached Stripe. */
+export class CheckoutCreationError extends Error {
+  constructor(
+    message: string,
+    readonly ambiguous: boolean,
+  ) {
+    super(message);
+  }
 }
 
 /**
@@ -237,6 +251,9 @@ export function checkoutParams(args: CheckoutArgs): Record<string, FormValue> {
     [META_EMAIL]: args.email,
     [META_OFFICE_NAME]: args.officeName,
     ...(args.instanceId ? { [META_INSTANCE]: args.instanceId } : {}),
+    ...(args.reinstatementAttemptId
+      ? { [META_REINSTATEMENT]: args.reinstatementAttemptId }
+      : {}),
   };
   return {
     mode: "subscription",
@@ -244,6 +261,7 @@ export function checkoutParams(args: CheckoutArgs): Record<string, FormValue> {
     "line_items[0][quantity]": 1,
     success_url: args.successUrl,
     cancel_url: args.cancelUrl,
+    ...(args.expiresAt ? { expires_at: args.expiresAt } : {}),
     // NO TRIAL (ruling 1): the card is charged at checkout. The only reason a
     // card is not collected is that a 100% discount leaves nothing to charge.
     // `if_required` ONLY behind a verified full discount: nothing is owed, so
@@ -278,7 +296,10 @@ export async function createCheckoutSession(
     idempotencyKey,
   );
   if (res.kind !== "ok") {
-    throw new Error(`could not create a Checkout session: ${res.reason}`);
+    throw new CheckoutCreationError(
+      `could not create a Checkout session: ${res.reason}`,
+      res.kind === "ambiguous",
+    );
   }
   const body = res.body;
   const livemode = body.livemode;

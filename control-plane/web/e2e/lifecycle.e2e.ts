@@ -30,7 +30,7 @@ import {
 import { setOperator } from "../../operator-admin.ts";
 import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { Store } from "../../store.ts";
-import { databaseUrl } from "../../config.ts";
+import { releaseTestStores, testDsn } from "../../testing/pg.ts";
 import {
   ensureAccount,
   insertSubscription,
@@ -123,7 +123,7 @@ async function stripeSays(
 
 async function main(): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp5-lifecycle-"));
-  const db = databaseUrl();
+  const db = await testDsn();
   const store = await Store.open(db);
   say("# slice 5 transcript: cancellation copy and the ops floor");
   say(`database: ${store.describe()}`);
@@ -200,8 +200,8 @@ async function main(): Promise<void> {
         AUTH_URL: BASE,
         NEXTAUTH_URL: BASE,
       },
-      stdout: "pipe",
-      stderr: "pipe",
+      stdout: "inherit",
+      stderr: "inherit",
     },
   );
 
@@ -335,6 +335,44 @@ async function main(): Promise<void> {
       planS6 === "office - canceled",
       planS6,
     );
+    check(
+      "S6 offers reinstatement of the retained office",
+      (await page.$('[data-testid="reinstate-button"]')) !== null,
+    );
+
+    // ---- S7: Checkout was accepted before the hard boundary. The customer
+    // sees the exact remaining deadline; this does not claim when a later
+    // operator-driven lifecycle tick will run.
+    await store.sqlRun(
+      "insert into reinstatement_attempts " +
+        "(id, account_id, reservation_id, instance_id, closed_subscription_id, closed_ended_at, " +
+        "checkout_generation, accepted_at, fence_expires_at, stripe_expires_at, state, version, created_at, updated_at) " +
+        "values ($1,$2,$3,$4,$5,$6,1,$7,$8,$9,'pending',1,$7,$7)",
+      [
+        "reinstate-sub_e2e",
+        customer.id,
+        reserved.reservation.id,
+        instanceId,
+        "sub_e2e",
+        periodEnd,
+        Date.now(),
+        periodEnd + RETENTION_MS,
+        Date.now() + 30 * 60_000,
+      ],
+    );
+    await page.goto(office);
+    const pendingReinstatement = await waitFor(page, "reinstate-pending");
+    say(`S7: ${pendingReinstatement}`);
+    check(
+      "S7 says the same retained office stays off until payment and gives the exact boundary",
+      pendingReinstatement ===
+        "Your office remains powered off while payment is pending. Complete payment before 2027-02-14T09:00:00Z to reinstate this same office.",
+      pendingReinstatement,
+    );
+    check(
+      "S7 does not offer a second Checkout while one is pending",
+      (await page.$('[data-testid="reinstate-button"]')) === null,
+    );
 
     // ---- the ops floor. A real raised attention from the DNS rung.
     await raiseAttention(store, {
@@ -407,6 +445,7 @@ async function main(): Promise<void> {
     fs.writeFileSync(out, `${transcript.join("\n")}\n`);
     say(`transcript: ${out}`);
     await store.close();
+    await releaseTestStores();
   }
 }
 

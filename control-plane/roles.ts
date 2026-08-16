@@ -219,6 +219,12 @@ export const WEB_GRANTS: readonly TableGrant[] = [
     because:
       "progress and the cancel pages read subscription state; webhooks are its only writer",
   },
+  {
+    table: "reinstatement_attempts",
+    verbs: ["select", "insert", "update"],
+    because:
+      "the signed-in owner opens a retained-office Checkout and progress reads its fence",
+  },
 ];
 
 /**
@@ -249,6 +255,12 @@ export const WEB_GRANTS: readonly TableGrant[] = [
  * and DELETE anywhere.
  */
 export const PROVISIONER_GRANTS: readonly TableGrant[] = [
+  {
+    table: "reinstatement_attempts",
+    verbs: ["select", "update"],
+    because:
+      "the lifecycle tick expires Checkout before deletion and records fetched truth",
+  },
   {
     table: "certificate_credentials",
     verbs: ["select", "insert", "update"],
@@ -340,6 +352,16 @@ export interface ReachableVerb {
  * a failing comparison rather than a surprise 42501 in production.
  */
 export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
+  {
+    table: "reinstatement_attempts",
+    verb: "select",
+    via: "expire_checkout handler reads the attempt and its Stripe session identity",
+  },
+  {
+    table: "reinstatement_attempts",
+    verb: "update",
+    via: "expire_checkout handler records fetched expired or complete truth",
+  },
   {
     table: "certificate_credentials",
     verb: "select",
@@ -497,6 +519,9 @@ export const AUDITED_PROVIDER_HANDLER_KINDS = [
   "power_on",
   "cancel_asset",
 ] as const;
+
+/** Registered only when the provisioner has test-mode Stripe access. */
+export const AUDITED_STRIPE_HANDLER_KINDS = ["expire_checkout"] as const;
 
 /**
  * EVERYTHING `cmdRun` CALLS that is not a handler, as the names in its body.

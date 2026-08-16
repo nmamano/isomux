@@ -14,6 +14,10 @@ import { deadlinesFor } from "./operations.ts";
 import { decideLifecycle, type LifecyclePhase } from "./lifecycle.ts";
 import type { Store } from "./store.ts";
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
+import {
+  checkoutExpiryOperationId,
+  type ReinstatementAttemptRow,
+} from "./reinstatement.ts";
 
 export const LIFECYCLE_TICK_ACTOR = "lifecycle-tick";
 
@@ -91,6 +95,28 @@ export async function lifecycleTick(
         const instance = await store.getInstance(sub.instance_id);
         if (!instance) return null;
 
+        // Same serialization row as webhook linkage. If linkage wins, this
+        // sees accepted and opens no deletion. If this wins at the boundary,
+        // linkage later sees the expiry/deletion path and becomes a refund.
+        const attempt = await store.sqlGet<ReinstatementAttemptRow>(
+          "select * from reinstatement_attempts where closed_subscription_id = $1 for update",
+          [sub.id],
+        );
+        const expiry = attempt
+          ? await store.getOperation(checkoutExpiryOperationId(attempt.id))
+          : null;
+        const reinstatement = attempt
+          ? {
+              state: attempt.state === "opening" ? "pending" : attempt.state,
+              attemptId: attempt.id,
+              fenceExpiresAt: attempt.fence_expires_at,
+              expiryProven:
+                attempt.state === "expired" ||
+                attempt.state === "attention" ||
+                expiry?.status === "succeeded",
+            }
+          : null;
+
         const decision = decideLifecycle({
           instance,
           asset: await store.assetForInstance(instance.id),
@@ -101,6 +127,7 @@ export async function lifecycleTick(
             cancellationReason: sub.cancellation_reason,
             cancellationPolicy: sub.cancellation_policy,
           },
+          reinstatement,
           now,
         });
 

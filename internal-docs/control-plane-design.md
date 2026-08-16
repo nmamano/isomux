@@ -725,8 +725,19 @@ stay separate retryable operations rather than one "destroy", because Stripe's
 clock and the provider's
 term are independent; if `cancel_asset` succeeds and our write fails, the next
 tick's reconcile against `get` adopts the truth. Nothing assumes a cancellation
-can be revoked or a name reused before its term ends: a customer who resubscribes
-gets a new box unless the adapter proves otherwise.
+can be revoked or a name reused before its term ends.
+
+**Settled 2026-08-16 (retained-office reinstatement).** Before the launch
+retention boundary, the same account can start a new Stripe Checkout for its
+retained office. Successful reconciliation links the new subscription to the
+same reservation, instance, and provider asset, then opens a separate safe
+power-on. It never creates a second box. The durable acceptance predicate
+requires the exact cancellation power-off, an active retained asset, proven
+customer access, same-account history, and no deletion row in any status. At or
+after the boundary, no Checkout starts and no linkage succeeds. A technical
+Stripe session may have a later nominal expiry, so the lifecycle must establish
+fetched expired-or-complete truth before deletion opens. A completed session
+that cannot link becomes a human refund/reconciliation incident, not recovery.
 
 One place we cannot copy them: they publish that they hold SSH access and log
 sessions for 90 days. Ruling 3 says we do not, which is a real difference worth

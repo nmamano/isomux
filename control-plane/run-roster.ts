@@ -23,6 +23,9 @@ import { type HandlerDeps, boxHandlers } from "./handlers.ts";
 import { rebootHandler } from "./reboot.ts";
 import { powerOnHandler } from "./resume.ts";
 import { powerOffHandler } from "./stripe/suspension.ts";
+import { checkoutExpiryHandler } from "./reinstatement-operations.ts";
+import type { StripeClient } from "./stripe/client.ts";
+import type { StripeObjectReader } from "./stripe/reader.ts";
 import type { Handler } from "./tick.ts";
 
 /**
@@ -88,6 +91,7 @@ export function tickerHandlerRoster(args: {
   box: HandlerDeps;
   provider: ProviderVerbs | null;
   report: (line: string) => void;
+  stripe?: { client: StripeClient; reader: StripeObjectReader } | null;
 }): Handler[] {
   const { box, provider, report } = args;
   return [
@@ -110,5 +114,6 @@ export function tickerHandlerRoster(args: {
       : []),
     // No credentials needed: it removes nothing and only READS DNS.
     removeDnsHandler({ report }),
+    ...(args.stripe ? [checkoutExpiryHandler(args.stripe)] : []),
   ];
 }

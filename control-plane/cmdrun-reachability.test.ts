@@ -27,6 +27,7 @@ import {
   AUDITED_CMDRUN_SURFACES,
   AUDITED_HANDLER_KINDS,
   AUDITED_PROVIDER_HANDLER_KINDS,
+  AUDITED_STRIPE_HANDLER_KINDS,
   PROVISIONER_REACHABLE,
 } from "./roles.ts";
 import {
@@ -35,6 +36,8 @@ import {
   tickerHandlerRoster,
 } from "./run-roster.ts";
 import type { HandlerDeps } from "./handlers.ts";
+import type { StripeClient } from "./stripe/client.ts";
+import type { StripeObjectReader } from "./stripe/reader.ts";
 
 /** Enough of the deps to CONSTRUCT the handlers. None of them runs here: what
  * is being read is the roster, and a handler that ran would need a database. */
@@ -64,6 +67,11 @@ const kindsOf = (p: ProviderVerbs | null): string[] =>
     (h) => h.kind,
   );
 
+const stripe = {
+  client: {} as StripeClient,
+  reader: {} as StripeObjectReader,
+};
+
 describe("the audited roster is the roster the loop is built from", () => {
   test("the registered kinds are exactly the audited ones", () => {
     expect(kindsOf(null).sort()).toEqual([...AUDITED_HANDLER_KINDS].sort());
@@ -72,6 +80,29 @@ describe("the audited roster is the roster the loop is built from", () => {
   test("provider credentials add exactly the audited provider kinds", () => {
     const extra = kindsOf(provider).filter((k) => !kindsOf(null).includes(k));
     expect(extra.sort()).toEqual([...AUDITED_PROVIDER_HANDLER_KINDS].sort());
+  });
+
+  test("Stripe credentials add exactly the Checkout-expiry handler", () => {
+    const base = kindsOf(null);
+    const withStripe = tickerHandlerRoster({
+      box,
+      provider: null,
+      report: () => {},
+      stripe,
+    }).map((handler) => handler.kind);
+    expect(withStripe.filter((kind) => !base.includes(kind))).toEqual([
+      ...AUDITED_STRIPE_HANDLER_KINDS,
+    ]);
+  });
+
+  test("the provisioner refuses startup without Checkout-expiry capability", () => {
+    const source = fs.readFileSync(
+      path.join(import.meta.dir, "cli.ts"),
+      "utf8",
+    );
+    expect(source).toContain(
+      'if (!stripeKey) {\n    throw new Error(\n      "STRIPE_TEST_SECRET_KEY is required by the provisioner because retained-office deletion must expire Checkout first"',
+    );
   });
 
   // The health surface reports whether the provider handlers exist, and it asks

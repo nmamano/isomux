@@ -240,6 +240,7 @@ export const PRODUCT_TABLES = [
   "name_reservations",
   "operations",
   "provider_assets",
+  "reinstatement_attempts",
   "schema_meta",
   "sequences",
   "stripe_events",
@@ -454,6 +455,26 @@ create table if not exists subscriptions (
   ),
   last_event_id text,
   last_event_created bigint,
+  version integer not null,
+  created_at bigint not null,
+  updated_at bigint not null
+);
+create table if not exists reinstatement_attempts (
+  id text primary key,
+  account_id text not null,
+  reservation_id text not null,
+  instance_id text not null,
+  closed_subscription_id text not null unique,
+  closed_ended_at bigint not null,
+  new_subscription_id text unique,
+  checkout_session_id text,
+  checkout_generation integer not null default 0,
+  accepted_at bigint not null,
+  fence_expires_at bigint not null,
+  stripe_expires_at bigint not null,
+  state text not null check (
+    state in ('opening', 'pending', 'accepted', 'expired', 'attention')
+  ),
   version integer not null,
   created_at bigint not null,
   updated_at bigint not null

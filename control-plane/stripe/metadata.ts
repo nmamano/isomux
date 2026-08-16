@@ -12,3 +12,4 @@ export const META_ACCOUNT = "isomux_account";
 export const META_EMAIL = "isomux_email";
 export const META_OFFICE_NAME = "isomux_office_name";
 export const META_INSTANCE = "isomux_instance";
+export const META_REINSTATEMENT = "isomux_reinstatement";

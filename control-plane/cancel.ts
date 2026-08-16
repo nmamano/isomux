@@ -33,6 +33,7 @@
 import { instanceOwnedBy } from "./signup.ts";
 import type { StripeClient } from "./stripe/client.ts";
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
+import { currentSubscriptionForInstance } from "./reinstatement.ts";
 import type { Store } from "./store.ts";
 
 export type CancelRefusal =
@@ -104,10 +105,7 @@ async function prepare(
     if (!(await instanceOwnedBy(store, req.accountId, req.instanceId))) {
       return refuse("not_yours");
     }
-    const row = await store.sqlGet<SubscriptionRow>(
-      "select * from subscriptions where instance_id = $1 order by created_at desc",
-      [req.instanceId],
-    );
+    const row = await currentSubscriptionForInstance(store, req.instanceId);
     if (!row) return refuse("no_subscription");
     // A terminal subscription cannot be cancelled or reactivated. Stripe does
     // not un-delete one, so offering either would be a button that always fails.

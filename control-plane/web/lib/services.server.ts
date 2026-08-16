@@ -276,6 +276,127 @@ export async function continueSignup(
   return openReservedCheckout(owned);
 }
 
+export async function reinstateOffice(
+  accountId: string,
+  instanceId: string,
+): Promise<SignupResult> {
+  const [
+    {
+      prepareReinstatementCheckout,
+      recordReinstatementSession,
+      recordFetchedExpiredReinstatementSession,
+      recordReinstatementCheckoutFailure,
+      reinstatementSessionKey,
+    },
+    { StripeClient },
+    { LiveStripeReader },
+    { CheckoutCreationError, openCheckout },
+  ] = await Promise.all([
+    import("../../reinstatement"),
+    import("../../stripe/client"),
+    import("../../stripe/reader"),
+    import("../../stripe/checkout"),
+  ]);
+  const priceId = process.env.CONTROL_PLANE_PRICE_ID;
+  const key = process.env.STRIPE_TEST_SECRET_KEY;
+  const origin = deploymentOrigin();
+  if (!priceId || !key || !origin)
+    return { ok: false, reason: "reinstatement payment is not configured" };
+
+  let prepared = await withStore((store) =>
+    prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
+  );
+  if (!prepared.ok) return prepared;
+  const client = new StripeClient({ key });
+  if (prepared.existingSessionId) {
+    const fetched = await new LiveStripeReader(client).getCheckoutSession(
+      prepared.existingSessionId,
+    );
+    if (fetched.kind !== "ok")
+      return {
+        ok: false,
+        reason: "we could not verify the prior payment session",
+      };
+    if (fetched.object.status === "complete")
+      return {
+        ok: false,
+        reason: "the prior payment is still being reconciled",
+      };
+    if (fetched.object.status === "expired") {
+      await withStore((store) =>
+        recordFetchedExpiredReinstatementSession(
+          store,
+          prepared.ok ? prepared.attemptId : "",
+          prepared.ok ? prepared.existingSessionId! : "",
+        ),
+      );
+      prepared = await withStore((store) =>
+        prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
+      );
+      if (!prepared.ok) return prepared;
+    }
+  }
+  let opened: Awaited<ReturnType<typeof openCheckout>>;
+  try {
+    opened = await openCheckout(client, {
+      accountId,
+      email: prepared.account.email,
+      officeName: prepared.reservation.name,
+      priceId,
+      successUrl: `${origin}/office/${prepared.reservation.name}`,
+      cancelUrl: `${origin}/office/${prepared.reservation.name}`,
+      instanceId,
+      reinstatementAttemptId: prepared.attemptId,
+      expiresAt: Math.floor(prepared.stripeExpiresAt / 1000),
+      ...(prepared.reservation.coupon_id
+        ? { couponId: prepared.reservation.coupon_id }
+        : {}),
+      customerId: prepared.account.stripe_customer_id!,
+      label: prepared.reservation.name,
+      idempotencyKeys: {
+        customer: `unused-${prepared.attemptId}`,
+        session: reinstatementSessionKey(
+          prepared.attemptId,
+          prepared.generation,
+        ),
+      },
+    });
+  } catch (err) {
+    // An ambiguous create may already exist at Stripe. Keep the generation and
+    // idempotency key so the next click resolves that same request. A definite
+    // refusal created nothing and may advance safely.
+    if (!(err instanceof CheckoutCreationError && err.ambiguous)) {
+      await withStore((store) =>
+        recordReinstatementCheckoutFailure(
+          store,
+          prepared,
+          err instanceof Error ? err.message : "Checkout creation threw",
+        ),
+      );
+    }
+    return {
+      ok: false,
+      reason: "we could not open reinstatement payment just now",
+    };
+  }
+  if (!opened.ok) {
+    await withStore((store) =>
+      recordReinstatementCheckoutFailure(store, prepared, opened.reason),
+    );
+    return { ok: false, reason: opened.reason };
+  }
+  if (!opened.session.url) {
+    await withStore((store) =>
+      recordReinstatementSession(store, prepared, opened.session.id),
+    );
+    return { ok: false, reason: "Stripe returned no payment URL" };
+  }
+  await withStore((store) =>
+    recordReinstatementSession(store, prepared, opened.session.id),
+  );
+  return { ok: true, checkoutUrl: opened.session.url, instanceId };
+}
+
 /**
  * Reserve a name and open Checkout for it.
  *

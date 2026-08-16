@@ -26,6 +26,11 @@ import {
   isCustomerCancellation,
   type LifecyclePhase,
 } from "./lifecycle.ts";
+import {
+  attemptForClosedSubscription,
+  checkoutExpiryOperationId,
+  currentSubscriptionForInstance,
+} from "./reinstatement.ts";
 import { LIVENESS_STRIKES } from "./liveness.ts";
 import {
   type Goal,
@@ -211,6 +216,7 @@ const LABELS: Record<OperationKind, string> = {
   power_off: "Suspending the office",
   reboot: "Restarting your server",
   power_on: "Bringing your office back",
+  expire_checkout: "Closing an unfinished reinstatement payment",
   cancel_asset: "Cancelling your server with the provider",
   remove_dns: "Removing your office's address",
 };
@@ -360,6 +366,7 @@ function attentionViews(reasons: AttentionReasonRow[]): AttentionView[] {
 }
 
 interface SubscriptionFacts {
+  id: string;
   status: string;
   current_period_end: number | null;
   cancel_at_period_end: number;
@@ -374,12 +381,7 @@ async function subscriptionRowFor(
   store: Store,
   instanceId: string,
 ): Promise<SubscriptionFacts | null> {
-  return store.sqlGet<SubscriptionFacts>(
-    "select status, current_period_end, cancel_at_period_end, ended_at, " +
-      "cancellation_reason, cancellation_policy, discount_percent_off, discount_ends_at " +
-      "from subscriptions where instance_id = $1 order by created_at desc",
-    [instanceId],
-  );
+  return currentSubscriptionForInstance(store, instanceId);
 }
 
 function subscriptionViewOf(
@@ -422,15 +424,16 @@ async function lifecycleViewOf(
   ) {
     return null;
   }
-  const subscriptionId = await store.sqlGet<{ id: string }>(
-    "select id from subscriptions where instance_id = $1 order by created_at desc",
-    [instanceId],
-  );
+  const subscriptionId = row.id;
   const asset = await store.assetForInstance(instanceId);
+  const attempt = await attemptForClosedSubscription(store, subscriptionId);
+  const expiry = attempt
+    ? await store.getOperation(checkoutExpiryOperationId(attempt.id))
+    : null;
   const state = subscriptionId
     ? cancellationStateFrom(
         {
-          id: subscriptionId.id,
+          id: subscriptionId,
           endedAt: row.ended_at,
           cancellationReason: row.cancellation_reason,
           cancellationPolicy: row.cancellation_policy,
@@ -438,6 +441,17 @@ async function lifecycleViewOf(
         operations,
         asset,
         now,
+        attempt
+          ? {
+              state: attempt.state === "opening" ? "pending" : attempt.state,
+              attemptId: attempt.id,
+              fenceExpiresAt: attempt.fence_expires_at,
+              expiryProven:
+                attempt.state === "expired" ||
+                attempt.state === "attention" ||
+                expiry?.status === "succeeded",
+            }
+          : null,
       )
     : null;
   if (!state) return null;
@@ -447,7 +461,10 @@ async function lifecycleViewOf(
     graceEnd: timeline.graceEnd,
     retentionEnd: timeline.retentionEnd,
     poweredOff:
-      timeline.phase === "suspended" || timeline.phase === "deprovision_due",
+      timeline.phase === "suspended" ||
+      timeline.phase === "reinstatement_pending" ||
+      timeline.phase === "checkout_expiry_due" ||
+      timeline.phase === "deprovision_due",
   };
 }
 

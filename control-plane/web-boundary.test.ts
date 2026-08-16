@@ -84,6 +84,7 @@ describe("only one file reaches the store", () => {
       "opsInstance",
       "plans",
       "progressForAccount",
+      "reinstateOffice",
       "requestCancel",
       "requestInvite",
       "requestRestart",
@@ -120,6 +121,7 @@ describe("only one file reaches the store", () => {
       "../../store",
       "../../stripe/client",
       "../../stripe/checkout",
+      "../../stripe/reader",
       "../../stripe/billing-store",
       // Slice 4b. `requests` is the customer's three verbs over the store;
       // `mint-client` is fetch plus a bearer credential and imports nothing
@@ -135,6 +137,7 @@ describe("only one file reaches the store", () => {
       // clear.
       "../../cancel",
       "../../ops",
+      "../../reinstatement",
     ]);
     for (const specifier of specifiers) {
       expect([specifier, allowed.has(specifier)]).toEqual([specifier, true]);
@@ -299,6 +302,7 @@ describe("the privileged half of the control plane is unreachable", () => {
       // Added in 5. The lifecycle's kinds are opened by a tick, never by a
       // page, and the app cannot name one to ask for it.
       "power_on",
+      "expire_checkout",
       "cancel_asset",
       "remove_dns",
     ];

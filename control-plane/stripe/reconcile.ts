@@ -38,7 +38,25 @@ import type {
   SubscriptionSnapshot,
 } from "./shapes.ts";
 
-import { META_ACCOUNT, META_EMAIL, META_INSTANCE } from "./metadata.ts";
+import {
+  META_ACCOUNT,
+  META_EMAIL,
+  META_INSTANCE,
+  META_REINSTATEMENT,
+} from "./metadata.ts";
+import {
+  attemptById,
+  checkReinstatementEligibility,
+  checkoutExpiryOperationId,
+  currentSubscriptionForInstance,
+  requestReinstatementPowerOn,
+  type ReinstatementAttemptRow,
+} from "../reinstatement.ts";
+import {
+  clearRefundRequired,
+  raiseRefundRequired,
+} from "../reinstatement-operations.ts";
+import { reservationForInstance } from "../signup.ts";
 
 export const WEBHOOK_ACTOR = "stripe-webhook";
 
@@ -118,6 +136,14 @@ export async function applyEvent(
   }
 
   let current: SubscriptionRow = afterOwned;
+  let reinstatement: ReinstatementAttemptRow | null = null;
+  if (linkage.reinstatementAttemptId) {
+    await store.sqlRun(
+      "update reinstatement_attempts set new_subscription_id=$1, state='accepted', updated_at=$2, version=version+1 where id=$3",
+      [current.id, store.now(), linkage.reinstatementAttemptId],
+    );
+    reinstatement = await attemptById(store, linkage.reinstatementAttemptId);
+  }
   if (
     row.cancel_at_period_end === 1 &&
     !input.subscription.cancelAtPeriodEnd &&
@@ -187,6 +213,21 @@ export async function applyEvent(
         `resume requested for ${current.instance_id}: ${asked.operationId}`,
       );
     }
+  }
+  if (reinstatement) {
+    const powerOn = await requestReinstatementPowerOn(
+      store,
+      reinstatement,
+      current,
+      store.now(),
+    );
+    if (powerOn) resumeOpId = powerOn;
+    else
+      await raiseRefundRequired(
+        store,
+        reinstatement,
+        `subscription=${current.id}; power-on predicates failed; observed=${new Date(store.now()).toISOString()}`,
+      );
   }
   await applyBillingAttention(
     store,
@@ -383,14 +424,84 @@ async function linkageFrom(
 ): Promise<{
   patch: { instance_id?: string };
   blockedInstanceId: string | null;
+  reinstatementAttemptId: string | null;
 }> {
-  if (row.instance_id) return { patch: {}, blockedInstanceId: null };
+  if (row.instance_id)
+    return { patch: {}, blockedInstanceId: null, reinstatementAttemptId: null };
   const meta = {
     ...input.subscription.metadata,
     ...(input.session?.metadata ?? {}),
   };
   const instanceId = meta[META_INSTANCE];
-  if (!instanceId) return { patch: {}, blockedInstanceId: null };
+  if (!instanceId)
+    return { patch: {}, blockedInstanceId: null, reinstatementAttemptId: null };
+  const attemptId = meta[META_REINSTATEMENT];
+  if (attemptId) {
+    // This lock is shared with lifecycleTick. It makes linkage-versus-deletion
+    // one serial answer rather than two successful half-transactions.
+    const attempt = await store.sqlGet<ReinstatementAttemptRow>(
+      "select * from reinstatement_attempts where id = $1 for update",
+      [attemptId],
+    );
+    const reservation = await reservationForInstance(store, instanceId);
+    const closed = attempt
+      ? await getSubscription(store, attempt.closed_subscription_id)
+      : null;
+    const now = store.now();
+    const noActivePower = attempt
+      ? !(await store.operationsFor(attempt.instance_id)).some(
+          (op) =>
+            ["power_on", "power_off"].includes(op.kind) &&
+            ["pending", "running", "ambiguous"].includes(op.status),
+        )
+      : false;
+    const expiryStarted = attempt
+      ? await store.getOperation(checkoutExpiryOperationId(attempt.id))
+      : null;
+    const eligibility =
+      attempt && reservation && closed
+        ? await checkReinstatementEligibility(store, {
+            reservation,
+            closed,
+            now,
+          })
+        : null;
+    const terminalRefusal =
+      !attempt ||
+      !reservation ||
+      !closed ||
+      attempt.state !== "pending" ||
+      attempt.instance_id !== instanceId ||
+      attempt.account_id !== row.account_id ||
+      expiryStarted !== null ||
+      now >= attempt.fence_expires_at ||
+      eligibility?.ok !== true;
+    const healthyStatus = ["active", "trialing"].includes(
+      input.subscription.status,
+    );
+    if (!terminalRefusal && healthyStatus && noActivePower) {
+      await clearRefundRequired(store, attempt);
+      return {
+        patch: { instance_id: instanceId },
+        blockedInstanceId: null,
+        reinstatementAttemptId: attempt.id,
+      };
+    }
+    if (attempt && terminalRefusal) {
+      await raiseRefundRequired(
+        store,
+        attempt,
+        `subscription=${row.id}; linkage predicates failed; paymentStatus=${input.session?.paymentStatus ?? "unknown"}; observed=${new Date(now).toISOString()}`,
+      );
+    }
+    return {
+      patch: {},
+      // The retained instance belongs to this same account. The generic
+      // prior-customer-data incident is for cross-customer linkage only.
+      blockedInstanceId: null,
+      reinstatementAttemptId: null,
+    };
+  }
   // Subscription history is independent of the asset row. An INNER JOIN here
   // would fail open when the retained instance had no provider_assets row.
   const priorCancellation = await store.sqlGet<{ id: string }>(
@@ -404,8 +515,12 @@ async function linkageFrom(
     asset?.asset_state === "cancel_scheduled" ||
     asset?.asset_state === "cancelled";
   return forbidden
-    ? { patch: {}, blockedInstanceId: instanceId }
-    : { patch: { instance_id: instanceId }, blockedInstanceId: null };
+    ? { patch: {}, blockedInstanceId: instanceId, reinstatementAttemptId: null }
+    : {
+        patch: { instance_id: instanceId },
+        blockedInstanceId: null,
+        reinstatementAttemptId: null,
+      };
 }
 
 /** Slice 2 left `instances.subscription_state` as a stub column. This is the only
@@ -415,6 +530,8 @@ async function mirrorToInstance(
   sub: SubscriptionRow,
 ): Promise<void> {
   if (!sub.instance_id) return;
+  const current = await currentSubscriptionForInstance(store, sub.instance_id);
+  if (current?.id !== sub.id) return;
   const inst = await store.getInstance(sub.instance_id);
   if (!inst || inst.subscription_state === sub.status) return;
   if (

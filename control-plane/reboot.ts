@@ -15,8 +15,9 @@
 // touch a real box.
 
 import type { Handler, HandlerContext, HandlerResult } from "./tick.ts";
-import { cancellationStateFrom } from "./lifecycle.ts";
+import { cancellationStateFrom, restartAllowedIn } from "./lifecycle.ts";
 import { openerStamp } from "./stripe/suspension.ts";
+import { currentSubscriptionForInstance } from "./reinstatement.ts";
 
 export interface RebootDeps {
   /** Resolves when the provider has accepted the reboot. Throws otherwise; the
@@ -44,15 +45,9 @@ export function rebootHandler(deps: RebootDeps): Handler {
             "nothing to reboot",
         };
       }
-      const cancelled = await ctx.store.sqlGet<{
-        id: string;
-        ended_at: number | null;
-        cancellation_reason: string | null;
-        cancellation_policy: "legacy" | "launch" | null;
-      }>(
-        "select id, ended_at, cancellation_reason, cancellation_policy " +
-          "from subscriptions where instance_id = $1 order by created_at desc limit 1",
-        [ctx.instance.id],
+      const cancelled = await currentSubscriptionForInstance(
+        ctx.store,
+        ctx.instance.id,
       );
       const cancellation = cancellationStateFrom(
         cancelled
@@ -67,7 +62,7 @@ export function rebootHandler(deps: RebootDeps): Handler {
         ctx.asset,
         ctx.now,
       );
-      if (cancellation && cancellation.timeline.phase !== "grace") {
+      if (cancellation && !restartAllowedIn(cancellation.timeline.phase)) {
         return {
           kind: "fatal",
           reason: "cannot reboot an office in the cancellation lifecycle",

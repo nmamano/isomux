@@ -10,6 +10,7 @@ import { openTestStore, releaseTestStores } from "../testing/pg.ts";
 import { listAccounts, listSubscriptions } from "./billing-store.ts";
 import { StripeClient, formEncode, type FetchLike } from "./client.ts";
 import {
+  CheckoutCreationError,
   RESERVED_OFFICE_NAMES,
   checkoutParams,
   createCheckoutSession,
@@ -106,6 +107,23 @@ describe("the comped path", () => {
     ]) {
       expect(encoded).toContain(key);
     }
+  });
+
+  test("reinstatement identity and technical expiry ride on Checkout", () => {
+    const params = checkoutParams({
+      ...base,
+      instanceId: "inst-retained",
+      reinstatementAttemptId: "reinstate-sub-old",
+      expiresAt: 1_800_000_000,
+    });
+    expect(params.expires_at).toBe(1_800_000_000);
+    const encoded = formEncode(params);
+    expect(encoded).toContain(
+      "metadata%5Bisomux_reinstatement%5D=reinstate-sub-old",
+    );
+    expect(encoded).toContain(
+      "subscription_data%5Bmetadata%5D%5Bisomux_reinstatement%5D=reinstate-sub-old",
+    );
   });
 
   test("a pre-made customer replaces the email, never both", async () => {
@@ -308,6 +326,35 @@ describe("what comes back", () => {
     expect(createCheckoutSession(client, base, "k")).rejects.toThrow(
       /not test mode/,
     );
+  });
+
+  test("session creation preserves ambiguous versus definite failure", async () => {
+    const ambiguous = new StripeClient({
+      key: TEST_KEY,
+      attempts: 1,
+      fetchImpl: async () => {
+        throw new Error("injected network loss");
+      },
+    });
+    expect(
+      createCheckoutSession(ambiguous, base, "ambiguous-key"),
+    ).rejects.toMatchObject({
+      ambiguous: true,
+    } satisfies Partial<CheckoutCreationError>);
+    const rejected = new StripeClient({
+      key: TEST_KEY,
+      attempts: 1,
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ error: { message: "bad price" } }), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    expect(
+      createCheckoutSession(rejected, base, "rejected-key"),
+    ).rejects.toMatchObject({
+      ambiguous: false,
+    } satisfies Partial<CheckoutCreationError>);
   });
 });
 

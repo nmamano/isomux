@@ -279,6 +279,18 @@ export function OfficeView({
     }
   };
 
+  const reinstate = async (): Promise<void> => {
+    setBillingProblem(null);
+    const { data, status } = await postJson("/api/reinstate", { instanceId });
+    if (status === 200 && typeof data.checkoutUrl === "string") {
+      window.location.assign(data.checkoutUrl);
+      return;
+    }
+    setBillingProblem(
+      reasonOf(data, "we could not open reinstatement payment."),
+    );
+  };
+
   const act = async (path: string, label: string): Promise<boolean> => {
     setAction(null);
     try {
@@ -606,6 +618,16 @@ export function OfficeView({
           pending={billing}
           onAct={(path, label) => void billingAct(path, label)}
         />
+        {view.lifecycle?.phase === "suspended" && (
+          <p className="action">
+            <button
+              data-testid="reinstate-button"
+              onClick={() => void reinstate()}
+            >
+              Reinstate this office
+            </button>
+          </p>
+        )}
         {billingProblem && (
           <p className="callout callout-danger" data-testid="billing-problem">
             {billingProblem}
@@ -641,6 +663,11 @@ function revocationSentence(
 /** Dates as yyyy-mm-dd, the format the rest of this page already uses. */
 function day(instant: number): string {
   return new Date(instant).toISOString().slice(0, 10);
+}
+
+/** Exact UTC boundary for a payment whose remaining window can be under a day. */
+function instant(value: number): string {
+  return new Date(value).toISOString().replace(".000Z", "Z");
 }
 
 /**
@@ -693,6 +720,23 @@ function CancelPanel({
   if (life) {
     if (life.phase === "ended") {
       return <p data-testid="cancel-ended">This office has been deleted.</p>;
+    }
+    if (life.phase === "reinstatement_pending" && life.retentionEnd !== null) {
+      return (
+        <p className="callout" data-testid="reinstate-pending">
+          Your office remains powered off while payment is pending. Complete
+          payment before {instant(life.retentionEnd)} to reinstate this same
+          office.
+        </p>
+      );
+    }
+    if (life.phase === "checkout_expiry_due") {
+      return (
+        <p className="callout" data-testid="reinstate-expired">
+          The reinstatement deadline has been reached. This payment can no
+          longer reinstate the office.
+        </p>
+      );
     }
     if (life.retentionEnd !== null && life.poweredOff) {
       // A PROVEN date: the machine measured this calendar month from the
