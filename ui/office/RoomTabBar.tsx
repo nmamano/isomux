@@ -3,7 +3,7 @@ import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import type { ViewOrderReq } from "../../shared/contract-shapes.ts";
 import { RoomSettingsModal } from "../components/RoomSettingsModal.tsx";
-import { GhostGraphic } from "./ghostVariants.tsx";
+import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
 import type { PresenceInfo } from "../../shared/types.ts";
 
 // Per-tab mini-ghost cluster sizing. Kept small so the bar height
@@ -15,75 +15,6 @@ const MAX_MINI_GHOSTS = 3;
 // width past the previous one, keeping the cluster narrow. Color is
 // enough to distinguish individual ghosts.
 const MINI_GHOST_OVERLAP = -8;
-
-function MiniGhostCluster({
-  presences,
-  selfConnectionId,
-}: {
-  presences: PresenceInfo[];
-  selfConnectionId: string | null;
-}) {
-  // Same rules as the in-scene ghost layer: one mini-ghost per WS
-  // connection (no user-level dedupe - a single user on phone + laptop
-  // is two ghosts), and the viewer only hides their OWN connection;
-  // other tabs/devices of the same user remain visible as their own
-  // mini-ghosts. Mini-ghosts in the tab bar are non-interactive - the
-  // scene ghost is the click target for opening a user.
-  const others = selfConnectionId
-    ? presences.filter((p) => p.connectionId !== selfConnectionId)
-    : presences;
-  const visible = others.slice(0, MAX_MINI_GHOSTS);
-  // Collapse the cluster entirely when there's no one to show - a
-  // zero-width span would leave hidden hover/focus regions. Tabs shift
-  // laterally as ghosts arrive/leave; the pills themselves keep a
-  // constant width either way.
-  if (visible.length === 0) return null;
-  // No "+K" overflow indicator: three visible ghosts is enough signal
-  // that a room is populated; the total online count at the right end
-  // of the bar carries the global figure.
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        flexShrink: 0,
-        verticalAlign: "middle",
-      }}
-    >
-      {visible.map((p, idx) => {
-        const title = p.device ? `${p.username} (${p.device})` : p.username;
-        return (
-          <span
-            key={p.connectionId}
-            title={title}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              marginLeft: idx === 0 ? 0 : MINI_GHOST_OVERLAP,
-              // Dim away-mode ghosts at the same ~40% the in-scene
-              // layer uses (viewer is in TaskView/CronjobsView/Settings).
-              opacity: p.viewMode === "away" ? 0.4 : 1,
-              // Nudge down by 1px - the SVG body sits slightly above
-              // the geometric center of its bounding box, which reads
-              // as the ghost floating high vs. text x-height. 1px puts
-              // the body visually aligned with the room-name letters.
-              transform: "translateY(1px)",
-            }}
-          >
-            <GhostGraphic
-              variant={p.avatarVariant}
-              color={p.avatarColor}
-              size={MINI_GHOST_SIZE}
-              animated={false}
-              shadow={false}
-            />
-          </span>
-        );
-      })}
-    </span>
-  );
-}
 
 // Edge affordance for an overflowing tab bar: a gradient fade signals
 // "more rooms this way" on both platforms; on desktop a chevron button
@@ -505,6 +436,12 @@ export function RoomTabBar() {
               <MiniGhostCluster
                 presences={roomPresences}
                 selfConnectionId={selfConnectionId}
+                size={MINI_GHOST_SIZE}
+                max={MAX_MINI_GHOSTS}
+                overlap={MINI_GHOST_OVERLAP}
+                // The SVG body sits high inside its viewBox. This nudge aligns
+                // the painted body with the room-name letters.
+                ghostStyle={{ transform: "translateY(1px)" }}
               />
               {/* Close button: closeable-when-empty rooms only.
                 room.canCloseWhenEmpty is the server-authoritative

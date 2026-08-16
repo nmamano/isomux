@@ -26,6 +26,7 @@ interface GhostGraphicProps {
   // shadow adds visual mass below the body that throws off vertical
   // centering against text. Default true.
   shadow?: boolean;
+  hitTestPainted?: boolean;
 }
 
 // Per-variant bob period. A handful of small differences keep multiple
@@ -47,6 +48,7 @@ export function GhostGraphic({
   size = 40,
   animated = true,
   shadow = true,
+  hitTestPainted = false,
 }: GhostGraphicProps) {
   // Body sits in a 100x100 box (head at y=0, waves at y=100); the
   // viewBox extends -15..115 horizontally and -30..140 vertically to
@@ -61,13 +63,16 @@ export function GhostGraphic({
       height={height}
       viewBox="-15 -30 130 170"
       overflow="visible"
-      style={
-        shadow
+      style={{
+        ...(shadow
           ? { filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.35))" }
-          : undefined
-      }
+          : {}),
+        ...(hitTestPainted ? { pointerEvents: "none" } : {}),
+      }}
     >
-      <g>
+      <g
+        style={hitTestPainted ? { pointerEvents: "visiblePainted" } : undefined}
+      >
         {animated && (
           <animateTransform
             attributeName="transform"
@@ -323,7 +328,15 @@ function Nightcap() {
 function GlowHalo({ color }: { color: string }) {
   return (
     <>
-      <ellipse cx={50} cy={50} rx={62} ry={68} fill={color} opacity={0.14}>
+      <ellipse
+        cx={50}
+        cy={50}
+        rx={62}
+        ry={68}
+        fill={color}
+        opacity={0.14}
+        pointerEvents="none"
+      >
         <animate
           attributeName="rx"
           values="58; 66; 58"
@@ -343,7 +356,15 @@ function GlowHalo({ color }: { color: string }) {
           repeatCount="indefinite"
         />
       </ellipse>
-      <ellipse cx={50} cy={50} rx={48} ry={56} fill={color} opacity={0.22} />
+      <ellipse
+        cx={50}
+        cy={50}
+        rx={48}
+        ry={56}
+        fill={color}
+        opacity={0.22}
+        pointerEvents="none"
+      />
     </>
   );
 }

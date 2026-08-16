@@ -26,8 +26,11 @@ export const GHOST_TAG_Z = 20000;
 // SVG viewBox is "-15 -30 130 170". The visible head top (viewBox y=0)
 // sits at vertical offset size * 30/130 inside the rendered SVG box,
 // and the rendered height comes out as size * 170/130.
-const SVG_HEIGHT_RATIO = 170 / 130;
-const SVG_HEAD_TOP_RATIO = 30 / 130;
+export const SVG_HEIGHT_RATIO = 170 / 130;
+export const SVG_HEAD_TOP_RATIO = 30 / 130;
+export function ghostBodyBottomOffset(size: number): number {
+  return Math.round(size * (SVG_HEIGHT_RATIO - SVG_HEAD_TOP_RATIO - 100 / 130));
+}
 const TAG_GAP_ABOVE_HEAD = 4;
 const TAG_HEIGHT_PX = 16;
 
@@ -59,12 +62,16 @@ interface SharedGhostProps {
 // opacity transition handles the dim/undim smoothly; new ghosts
 // just appear (acceptable v1 cost - imperative ref.animate() on
 // mount is the planned upgrade if we want the fade back).
-function motionStyle(dimmed: boolean, onClick?: unknown): CSSProperties {
+function motionStyle(
+  dimmed: boolean,
+  onClick: unknown,
+  pointerEvents: CSSProperties["pointerEvents"],
+): CSSProperties {
   return {
     transition: "left 220ms ease-out, top 220ms ease-out, opacity 220ms",
     opacity: dimmed ? 0.4 : 1,
     cursor: onClick ? "pointer" : "default",
-    pointerEvents: "auto",
+    pointerEvents,
   };
 }
 
@@ -111,13 +118,20 @@ export function GhostBody({
         width: size,
         height: bodyHeight,
         zIndex: GHOST_BODY_Z,
-        ...motionStyle(dimmed, onClick),
+        ...motionStyle(dimmed, onClick, "none"),
+        // Let transparent parts of the SVG box fall through to the desk.
+        // Painted SVG pixels opt back into hit testing below.
       }}
       onClick={makeClickHandler(userId, onClick)}
       data-no-pan
       title={tagText(username, device)}
     >
-      <GhostGraphic variant={variant} color={color} size={size} />
+      <GhostGraphic
+        variant={variant}
+        color={color}
+        size={size}
+        hitTestPainted
+      />
     </div>
   );
 }
@@ -150,7 +164,7 @@ export function GhostTag({
         top: tagTop,
         transform: "translateX(-50%)",
         zIndex: GHOST_TAG_Z,
-        ...motionStyle(dimmed, onClick),
+        ...motionStyle(dimmed, onClick, "auto"),
       }}
       onClick={makeClickHandler(userId, onClick)}
       data-no-pan

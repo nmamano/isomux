@@ -23,6 +23,8 @@ import {
 import { styleForModel } from "../model-styles.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
+import { ghostBodyBottomOffset } from "../office/Ghost.tsx";
+import { MiniGhostCluster } from "../office/MiniGhostCluster.tsx";
 import { send } from "../ws.ts";
 import {
   addFinalized,
@@ -606,6 +608,8 @@ export function LogView({
     isMobile,
     connected,
     sidePanels,
+    presences,
+    sessionContext,
   } = useAppState();
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
@@ -2322,33 +2326,57 @@ export function LogView({
             selections on layout commit). */}
                 {showAvatar && (
                   <div
-                    onClick={onEditAgent}
                     style={{
                       position: "sticky",
                       top: isMobile ? 12 : 16,
                       float: "right",
                       marginRight: 0,
                       zIndex: 10,
-                      width: 62,
                       height: 78,
                       display: "flex",
-                      alignItems: "center",
+                      alignItems: "flex-end",
                       justifyContent: "center",
-                      borderRadius: 8,
-                      border: `2px solid ${modelStyle.border}`,
-                      background: modelStyle.bg,
-                      backdropFilter: "blur(8px)",
-                      WebkitBackdropFilter: "blur(8px)",
-                      cursor: "pointer",
-                      transition: "opacity 0.2s",
                     }}
-                    title="Edit agent"
                   >
-                    <Character
-                      key={agent.state}
-                      state={agent.state}
-                      outfit={agent.outfit}
+                    <MiniGhostCluster
+                      presences={presences}
+                      selfConnectionId={sessionContext?.connectionId ?? null}
+                      size={30}
+                      max={3}
+                      overlap={-8}
+                      paintedHitTest
+                      filter={(presence) =>
+                        presence.viewMode === "log" &&
+                        presence.focusedAgentId === agent.id
+                      }
+                      ghostStyle={{
+                        transform: `translateY(${ghostBodyBottomOffset(30)}px)`,
+                      }}
                     />
+                    <div
+                      onClick={onEditAgent}
+                      style={{
+                        width: 62,
+                        height: 78,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: 8,
+                        border: `2px solid ${modelStyle.border}`,
+                        background: modelStyle.bg,
+                        backdropFilter: "blur(8px)",
+                        WebkitBackdropFilter: "blur(8px)",
+                        cursor: "pointer",
+                        transition: "opacity 0.2s",
+                      }}
+                      title="Edit agent"
+                    >
+                      <Character
+                        key={agent.state}
+                        state={agent.state}
+                        outfit={agent.outfit}
+                      />
+                    </div>
                   </div>
                 )}
                 {logs.length === 0 && (

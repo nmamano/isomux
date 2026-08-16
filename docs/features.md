@@ -39,7 +39,7 @@ Isomux is a meta-harness: it sits one level above Claude Code and Codex and mana
 - **Invite-link access** - the owner mints an invite URL per new user, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords. Existing users add their own devices with device links from My devices; if someone is signed out of every device, the owner can mint them a recovery link.
 - **Per-member room access** - owners pick which rooms each member sees: on the member's invite (so they land in the right rooms from the first click) or any time from their user settings.
 - **Per-user room display** - each user picks which of their accessible rooms actually show in their own view, from the Users page.
-- **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings.
+- **Live user presence** - other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. The name tag above each ghost shows username and device. Click a ghost to open that user's settings. They also appear beside the agent's portrait while you view its log.
 - **User roster** - owners can see each user's signed-in sessions, with device name and last-active time, from the Users page.
 - **Customizable ghosts** - each user picks a color and one of 8 ghost styles from User Settings.
 
