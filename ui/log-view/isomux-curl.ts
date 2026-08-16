@@ -86,7 +86,8 @@ export type IsomuxCurlRequest = {
   /** True when outputFile is appended to (`>>`) rather than overwritten. */
   outputAppend: boolean;
   /**
-   * Trailing statements chained onto the curl with `;` or `&&`, verbatim and
+   * Trailing statements chained onto the curl with `;`, `&&`, or a matching
+   * Isomux-curl `||` fallback, verbatim and
    * including the separator, e.g. `; wc -c /tmp/tasks.json` or
    * `&& echo "posted"`. Null when the command is a single statement.
    *
@@ -284,8 +285,7 @@ type Statement = { sep: string; text: string };
  * verbatim.
  *
  * Returns null when there is nothing to split, or on a separator we don't
- * model: `;;` (case), a lone `&` (backgrounding). `||` needs no special case -
- * it stays inside a statement, where tokenize() rejects it. Every null path is
+ * model: `;;` (case), a lone `&` (backgrounding). Every null path is
  * safe because the caller then hands the UN-split command to tokenize(), which
  * bails on the `;`/`&` it kept: a rejected shape degrades to raw rendering, not
  * to a wrong card.
@@ -323,11 +323,13 @@ function splitStatements(command: string): Statement[] | null {
       i += 2;
       continue;
     }
-    if (c === ";" || c === "&") {
+    if (c === ";" || c === "&" || (c === "|" && command[i + 1] === "|")) {
       let next: string;
       if (c === ";") {
         if (command[i + 1] === ";") return null;
         next = ";";
+      } else if (c === "|") {
+        next = "||";
       } else if (command[i + 1] === "&") {
         next = "&&";
       } else if (command[i - 1] === ">") {
@@ -1493,6 +1495,29 @@ function parseIsomuxCurlInner(
   if (!heredoc) {
     const statements = splitStatements(command);
     if (statements) {
+      const fallbackAt = statements.findIndex((st) => st.sep === "||");
+      if (fallbackAt !== -1) {
+        // One fallback request is useful in transcripts, but only when both
+        // arms assert the same card summary. Keep curl out of the generic
+        // trailing-command allowlist so `; curl ...` remains raw.
+        if (fallbackAt !== 1 || statements.length !== 2) return null;
+        const primary = parseIsomuxCurlInner(
+          statements[0].text,
+          ports,
+          outerExpandedBody,
+        );
+        const fallback = parseIsomuxCurlInner(
+          statements[1].text,
+          ports,
+          outerExpandedBody,
+        );
+        if (!primary || !fallback || !sameAssertedSummary(primary, fallback))
+          return null;
+        return withTrailing(
+          primary,
+          command.slice(statements[0].text.length).trim(),
+        );
+      }
       // Every statement after the first must be an allowed inspection command;
       // one stray `&& curl ...` (a second request the card could not describe)
       // or `&& git push` takes the whole command back to raw rendering.
@@ -1563,6 +1588,23 @@ function parseIsomuxCurlInner(
     );
   }
   return null;
+}
+
+function sameAssertedSummary(
+  a: IsomuxCurlRequest,
+  b: IsomuxCurlRequest,
+): boolean {
+  return (
+    a.method === b.method &&
+    a.path === b.path &&
+    a.action === b.action &&
+    JSON.stringify(a.bodyFields) === JSON.stringify(b.bodyFields) &&
+    a.bodyRaw === b.bodyRaw &&
+    a.bodyNote === b.bodyNote &&
+    a.hasAuth === b.hasAuth &&
+    a.outputFile === b.outputFile &&
+    a.outputAppend === b.outputAppend
+  );
 }
 
 /** Attach the verbatim trailing statements to a successfully parsed request. */

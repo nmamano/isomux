@@ -35,9 +35,13 @@ import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
 import {
   LogEntryCard,
+  RawToolCallGroupCard,
   serializeEntries,
-  isFoldedToolResult,
 } from "./LogEntryCard.tsx";
+import {
+  findRawToolCallGroups,
+  lastVisibleEntryIndex,
+} from "./tool-call-groups.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { ThemePicker } from "../components/ThemePicker.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
@@ -1162,6 +1166,34 @@ export function LogView({
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  // Do not collapse the live tail: active tool work must stay visible as it
+  // arrives. Historical groups stay mounted, so the whole transcript does not
+  // change height and an expanded group's local state survives each new turn.
+  const activeTurnEntryIds = useMemo(() => {
+    if (!isBusy) return new Set<string>();
+    const lastUserMessage = logs.findLastIndex(
+      (entry) => entry.kind === "user_message",
+    );
+    return new Set(logs.slice(lastUserMessage + 1).map((entry) => entry.id));
+  }, [isBusy, logs]);
+  const rawToolGroups = useMemo(
+    () => findRawToolCallGroups(logs, activeTurnEntryIds),
+    [activeTurnEntryIds, logs],
+  );
+  const rawToolGroupByFirstId = useMemo(
+    () => new Map(rawToolGroups.map((group) => [group.firstId, group])),
+    [rawToolGroups],
+  );
+  const groupedChildIds = useMemo(
+    () =>
+      new Set(
+        rawToolGroups.flatMap((group) =>
+          group.entries.slice(1).map((entry) => entry.id),
+        ),
+      ),
+    [rawToolGroups],
+  );
+
   // Compute agent turns: group entries between user_messages
   // For each entry, determine if it's the last in its agent turn
   const turnData = useMemo(() => {
@@ -1210,13 +1242,10 @@ export function LogView({
       // Find the last entry that will actually render. Folded tool_results
       // are hidden, so the turn-level copy button needs to land on the
       // preceding visible entry (usually the matching tool_call).
-      let lastVisibleIdx = -1;
-      for (let i = turn.entries.length - 1; i >= 0; i--) {
-        if (!isFoldedToolResult(turn.entries[i], turn.entries)) {
-          lastVisibleIdx = i;
-          break;
-        }
-      }
+      const lastVisibleIdx = lastVisibleEntryIndex(
+        turn.entries,
+        groupedChildIds,
+      );
       for (let i = 0; i < turn.entries.length; i++) {
         entryMap.set(turn.entries[i].id, {
           isLastInTurn: i === lastVisibleIdx,
@@ -1226,7 +1255,7 @@ export function LogView({
     }
 
     return entryMap;
-  }, [logs]);
+  }, [logs, groupedChildIds]);
 
   const getConversationText = useCallback(() => serializeEntries(logs), [logs]);
 
@@ -2336,7 +2365,9 @@ export function LogView({
                   </div>
                 )}
                 {logs.map((entry) => {
+                  if (groupedChildIds.has(entry.id)) return null;
                   const td = turnData.get(entry.id);
+                  const rawToolGroup = rawToolGroupByFirstId.get(entry.id);
                   const canEditMsg =
                     entry.kind === "user_message" &&
                     agent.state === "waiting_for_response" &&
@@ -2348,23 +2379,35 @@ export function LogView({
                       key={entry.id}
                       ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
                     >
-                      <LogEntryCard
-                        entry={entry}
-                        isLastInTurn={td?.isLastInTurn}
-                        turnEntries={td?.turnEntries}
-                        isMobile={isMobile}
-                        canEdit={canEditMsg}
-                        isEditing={editingLogEntryId === entry.id}
-                        onStartEdit={setEditingLogEntryId}
-                        onCancelEdit={handleCancelEdit}
-                        onSubmitEdit={handleSubmitEdit}
-                        onOpenInEditor={
-                          features.editor ? openInEditor : undefined
-                        }
-                        onCopyToTerminal={
-                          features.terminal ? copyToTerminal : undefined
-                        }
-                      />
+                      {rawToolGroup ? (
+                        <RawToolCallGroupCard
+                          entries={rawToolGroup.entries}
+                          isLastInTurn={td?.isLastInTurn}
+                          turnEntries={td?.turnEntries}
+                          isMobile={isMobile}
+                          onCopyToTerminal={
+                            features.terminal ? copyToTerminal : undefined
+                          }
+                        />
+                      ) : (
+                        <LogEntryCard
+                          entry={entry}
+                          isLastInTurn={td?.isLastInTurn}
+                          turnEntries={td?.turnEntries}
+                          isMobile={isMobile}
+                          canEdit={canEditMsg}
+                          isEditing={editingLogEntryId === entry.id}
+                          onStartEdit={setEditingLogEntryId}
+                          onCancelEdit={handleCancelEdit}
+                          onSubmitEdit={handleSubmitEdit}
+                          onOpenInEditor={
+                            features.editor ? openInEditor : undefined
+                          }
+                          onCopyToTerminal={
+                            features.terminal ? copyToTerminal : undefined
+                          }
+                        />
+                      )}
                     </div>
                   );
                 })}

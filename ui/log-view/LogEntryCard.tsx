@@ -12,12 +12,13 @@ import { DiffCard } from "./DiffCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
-import { parseIsomuxCurl, BASH_RAW_SUMMARY_CHARS } from "./isomux-curl.ts";
+import { BASH_RAW_SUMMARY_CHARS } from "./isomux-curl.ts";
+import { IsomuxCurlHeader, IsomuxCurlFields } from "./IsomuxCurlSummary.tsx";
 import {
-  IsomuxCurlHeader,
-  IsomuxCurlFields,
-  isomuxUiPorts,
-} from "./IsomuxCurlSummary.tsx";
+  commandForPermissionDenial,
+  isFoldedToolResult,
+  isomuxRequestForToolCall,
+} from "./tool-call-groups.ts";
 
 function EditIcon() {
   return (
@@ -95,30 +96,6 @@ function SubagentPill({
     >
       {origin.type ? `subagent · ${origin.type}` : "subagent"}
     </span>
-  );
-}
-
-/**
- * True when this tool_result is paired with a tool_call in the same turn and
- * has nothing the user needs to see in its own row (no attachments). Folded
- * results are hidden - the tool_call's expand panel renders their text, and
- * errored results additionally show a compact preview inside their (red)
- * tool_call card. Errors fold too: with parallel tool calls the results
- * arrive after ALL the calls, so a standalone error row would sit under an
- * unrelated call's card instead of the one that failed.
- * Shared between LogEntryCard (skips rendering folded rows) and LogView
- * (recomputes isLastInTurn against visible entries).
- */
-export function isFoldedToolResult(
-  entry: LogEntry,
-  turnEntries: LogEntry[] | undefined,
-): boolean {
-  if (entry.kind !== "tool_result") return false;
-  if ((entry.attachments?.length ?? 0) > 0) return false;
-  const toolUseId = entry.metadata?.toolUseId;
-  if (!toolUseId || !turnEntries) return false;
-  return turnEntries.some(
-    (e) => e.kind === "tool_call" && e.metadata?.toolId === toolUseId,
   );
 }
 
@@ -505,11 +482,21 @@ export const LogEntryCard = memo(function LogEntryCard({
       // feature (or older SDKs that never emit the event) simply have no such
       // entries; nothing else guards on it.
       const permissionDenied = entry.metadata?.permissionDenied as
-        | { toolName?: string; message?: string; decisionReason?: string }
+        | {
+            toolUseId?: string;
+            toolName?: string;
+            message?: string;
+            decisionReason?: string;
+          }
         | undefined;
       if (permissionDenied) {
         return (
-          <PermissionDeniedCard denial={permissionDenied} isMobile={isMobile} />
+          <PermissionDeniedCard
+            denial={permissionDenied}
+            turnEntries={turnEntries}
+            onCopyToTerminal={onCopyToTerminal}
+            isMobile={isMobile}
+          />
         );
       }
       // Background-task lifecycle breadcrumbs carry metadata.taskEvent (see
@@ -589,6 +576,90 @@ export const LogEntryCard = memo(function LogEntryCard({
       );
   }
 });
+
+export function RawToolCallGroupCard({
+  entries,
+  isLastInTurn,
+  turnEntries,
+  isMobile,
+  onCopyToTerminal,
+}: {
+  entries: LogEntry[];
+  isLastInTurn?: boolean;
+  turnEntries?: LogEntry[];
+  isMobile?: boolean;
+  onCopyToTerminal?: (command: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const subagent = subagentOf(entries[0]);
+  if (open) {
+    return (
+      <div>
+        <button
+          onClick={() => setOpen(false)}
+          style={{
+            border: "none",
+            background: "transparent",
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            fontSize: isMobile ? 13 : 11,
+            padding: "2px 8px",
+          }}
+        >
+          &#9660; {entries.length} tool calls
+        </button>
+        {entries.map((entry, index) => (
+          <LogEntryCard
+            key={entry.id}
+            entry={entry}
+            isLastInTurn={isLastInTurn && index === entries.length - 1}
+            turnEntries={turnEntries}
+            isMobile={isMobile}
+            onCopyToTerminal={onCopyToTerminal}
+          />
+        ))}
+      </div>
+    );
+  }
+  return (
+    <div
+      style={{
+        margin: "2px 0",
+        position: "relative",
+        ...(subagent && {
+          marginLeft: 12,
+          paddingLeft: 8,
+          borderLeft: "2px solid var(--border-light)",
+        }),
+      }}
+    >
+      <button
+        onClick={() => setOpen(true)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          padding: "3px 10px",
+          paddingRight: isLastInTurn ? 40 : 10,
+          border: "1px solid var(--green-border)",
+          borderRadius: 6,
+          background: "var(--tool-call-bg)",
+          color: "var(--green)",
+          fontSize: isMobile ? 14 : 12,
+          cursor: "pointer",
+          fontFamily: "'JetBrains Mono',monospace",
+          width: "100%",
+          textAlign: "left",
+        }}
+      >
+        <span style={{ fontSize: 8 }}>&#9654;</span>
+        {subagent && <SubagentPill origin={subagent} isMobile={isMobile} />}
+        <span style={{ fontWeight: 600 }}>{entries.length} tool calls</span>
+      </button>
+      {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
+    </div>
+  );
+}
 
 function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   const getText = useCallback(
@@ -1010,13 +1081,10 @@ function ToolCall({
   // Bash commands that curl the isomux API render as a structured summary
   // (method badge, route, payload fields) instead of raw shell text. The
   // expanded view still shows the raw command and output unchanged.
-  const curlReq = useMemo(() => {
-    if (name !== "Bash" || !input || typeof input !== "object") return null;
-    const command = (input as { command?: unknown }).command;
-    return typeof command === "string"
-      ? parseIsomuxCurl(command, isomuxUiPorts)
-      : null;
-  }, [name, input]);
+  const curlReq = useMemo(
+    () => isomuxRequestForToolCall(name, input),
+    [name, input],
+  );
   // Isomux API cards get an accent tint so they read differently from
   // ordinary (green) tool calls; errors stay red either way. The tint uses
   // dedicated --isomux-card-* vars (not raw --accent-bg / --border) so light
@@ -1497,14 +1565,24 @@ function TaskBreadcrumb({
 // Safari emoji-renders glyphs, overriding CSS color).
 function PermissionDeniedCard({
   denial,
+  turnEntries,
+  onCopyToTerminal,
   isMobile,
 }: {
-  denial: { toolName?: string; message?: string; decisionReason?: string };
+  denial: {
+    toolUseId?: string;
+    toolName?: string;
+    message?: string;
+    decisionReason?: string;
+  };
+  turnEntries?: LogEntry[];
+  onCopyToTerminal?: (command: string) => void;
   isMobile?: boolean;
 }) {
   // Prefer the deciding component's human-readable reason; the message (what
   // the model was told) is the fallback and stays available on hover.
   const reason = denial.decisionReason || denial.message;
+  const command = commandForPermissionDenial(denial, turnEntries);
   return (
     <div
       style={{
@@ -1540,6 +1618,26 @@ function PermissionDeniedCard({
         <span style={{ color: "var(--text-dim)", overflowWrap: "anywhere" }}>
           {reason}
         </span>
+      )}
+      {command && onCopyToTerminal && (
+        <button
+          onClick={() => onCopyToTerminal(command)}
+          style={{
+            marginLeft: "auto",
+            padding: "4px 12px",
+            borderRadius: 6,
+            border: "1px solid var(--green-border)",
+            background: "var(--green-bg)",
+            color: "var(--green)",
+            fontSize: 12,
+            fontFamily: "'JetBrains Mono',monospace",
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
+          title="Open the terminal panel and type this command at the prompt (not auto-executed)"
+        >
+          Copy to terminal
+        </button>
       )}
     </div>
   );

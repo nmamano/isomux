@@ -1801,3 +1801,61 @@ describe("parseIsomuxCurl trailing ;/&& statements", () => {
     }
   });
 });
+
+describe("parseIsomuxCurl matching || fallback", () => {
+  const reported = `curl -s localhost:4000/api/agents/agent-1782317790021-xp9e/scheduled-messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" | jq -c '.[] | {id: (.scheduledId // .id), at: (.deliverAt // .at)}' 2>/dev/null || curl -s localhost:4000/api/agents/agent-1782317790021-xp9e/scheduled-messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" | head -c 400`;
+
+  test("the verbatim reported two-curl fallback gets a card", () => {
+    const req = parseIsomuxCurl(reported);
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("GET");
+    expect(req!.path).toBe(
+      "/api/agents/agent-1782317790021-xp9e/scheduled-messages",
+    );
+    expect(req!.hasAuth).toBe(true);
+    expect(req!.pipeTail).toStartWith("| jq -c");
+    expect(req!.trailingCommand).toStartWith("|| curl -s localhost:4000");
+  });
+
+  test("both arms must assert the same request summary", () => {
+    expect(
+      parseIsomuxCurl(
+        "curl -s localhost:4000/api/tasks || curl -s localhost:4000/api/memory",
+      ),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(
+        "curl -s localhost:4000/api/tasks || curl -s localhost:4000/api/tasks -H 'Authorization: Bearer x'",
+      ),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(
+        'curl -s -X POST localhost:4000/api/tasks -d \'{"title":"a"}\' || curl -s -X POST localhost:4000/api/tasks -d \'{"title":"b"}\'',
+      ),
+    ).toBeNull();
+  });
+
+  test("generic or nested control flow stays raw", () => {
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/api/tasks || true"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(
+        "curl -s localhost:4000/api/tasks || curl -s localhost:4000/api/tasks || curl -s localhost:4000/api/tasks",
+      ),
+    ).toBeNull();
+  });
+
+  test("displayed fallback never shows less than the raw row would", () => {
+    const prefix = "curl localhost:4000";
+    const fallback = `|| curl localhost:4000 | jq '${"z".repeat(300)}'`;
+    const command = `${prefix} ${fallback}`;
+    const req = parseIsomuxCurl(command);
+    expect(req).not.toBeNull();
+    const rawRow = command.slice(0, BASH_RAW_SUMMARY_CHARS);
+    const at = command.indexOf(fallback);
+    const rawPart = rawRow.slice(at, at + fallback.length);
+    const shown = pipeTailForDisplay(req!.trailingCommand!).replace("…", "");
+    expect(shown).toStartWith(rawPart);
+  });
+});
