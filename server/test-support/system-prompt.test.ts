@@ -333,9 +333,8 @@ describe("buildSystemPrompt - inter-agent messaging copy", () => {
   it("shows the scheduled-message ack and list shapes side by side", () => {
     const p = build();
     expect(p).toContain(
-      "The schedule ack uses `scheduledId`, but list entries use `id`.",
+      'The list response is `{"scheduled":[...]}` with entries keyed `id` (the ack calls it `scheduledId`) and epoch-ms timestamps.',
     );
-    expect(p).toContain('`{"scheduled":[{"id":"sm_a1b2c3d4"');
     expect(p).toContain("your outgoing scheduled messages");
     expect(p).toContain(
       "'.scheduled[] | \"\\(.id) \\(.receiverAgentId) \\(.deliverAt/1000 | todate) :: \\(.text[0:120])\"'",
