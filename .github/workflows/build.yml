@@ -70,3 +70,27 @@ jobs:
 
       - name: Run tests
         run: bun test
+
+  # The control-plane web app (`bun run ci:web`) is part of the local pre-push
+  # gate (`bun run ci`), so it must be enforced here too - otherwise the hook
+  # checks something GitHub never does and the two gates drift. Its own job so
+  # it runs in parallel with the main build.
+  web:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      # Root install too: lint:web runs the repo-root ESLint against the web
+      # tree, and ci:web does the web app's own frozen install itself.
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build, typecheck and lint the web app
+        run: bun run ci:web

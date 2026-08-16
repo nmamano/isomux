@@ -18,8 +18,9 @@ build:ui`) and pins deps via the committed lockfile
 determines the deployment. Bun must be pinned in CI too, or the release
 gate tests a different runtime than customer boxes run.
 
-**Gates.** CI already runs format, lint, tsc, the full test suite, and the
-UI build on every push to main (`.github/workflows/build.yml`). Tagging
+**Gates.** CI already runs format, lint, tsc, the full test suite, the
+UI build, and the control-plane web app's build/typecheck/lint on every
+push to main (`.github/workflows/build.yml`). Tagging
 adds two manual conditions:
 
 1. The commit has been serving Nil's own office for ~a day (dogfooding is
