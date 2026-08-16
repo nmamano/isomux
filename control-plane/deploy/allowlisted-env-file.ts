@@ -9,7 +9,9 @@ export function readAllowlistedEnvFile(
 ): Map<string, string> {
   const stat = fs.statSync(file);
   if (!stat.isFile() || (stat.mode & 0o777) !== 0o600) {
-    throw new Error(`${label} credential file must be a regular 0600 file`);
+    throw new Error(
+      `${label} credential file must be a regular file that only its owner can read (chmod 600)`,
+    );
   }
   const values = new Map<string, string>();
   for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {

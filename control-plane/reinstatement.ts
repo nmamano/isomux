@@ -92,21 +92,21 @@ export type ReinstatementRefusal =
 
 export const REINSTATEMENT_REFUSAL_WORDS: Record<ReinstatementRefusal, string> =
   {
-    not_cancelled: "this office is not in retained cancellation.",
+    not_cancelled: "This office is not in retained cancellation.",
     too_late:
-      "the retention period has ended, so we cannot open a reinstatement payment.",
+      "The retention period has ended, so we cannot open a reinstatement payment.",
     power_off_not_proven:
-      "the office has not finished powering off safely. Contact support before paying.",
+      "The office has not finished powering off safely. Contact support before paying.",
     not_suspended:
-      "the retained office is not safely suspended. Contact support before paying.",
+      "The retained office is not safely suspended. Contact support before paying.",
     deletion_started:
-      "permanent deletion has already started, so this office cannot be reinstated.",
+      "Permanent deletion has already started, so this office cannot be reinstated.",
     asset_not_retainable:
-      "the retained server is no longer available for reinstatement.",
+      "The retained server is no longer available for reinstatement.",
     ownership_mismatch:
-      "we could not prove that every subscription for this office belongs to your account.",
+      "We could not prove that every subscription for this office belongs to your account.",
     no_customer_access:
-      "we cannot prove that you can enter this office after it starts. Contact support before paying.",
+      "We cannot prove that you can enter this office after it starts. Contact support before paying.",
   };
 
 export type Eligibility =

@@ -624,7 +624,9 @@ export function OfficeView({
               data-testid="reinstate-button"
               onClick={() => void reinstate()}
             >
-              Reinstate this office
+              {view.lifecycle.phase === "reinstatement_pending"
+                ? "Return to payment"
+                : "Reinstate this office"}
             </button>
           </p>
         )}

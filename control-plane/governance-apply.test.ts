@@ -195,8 +195,9 @@ async function dropRoles(
   }
 }
 
-// Serial database and role cleanup measured near Bun's 5s hook default under
-// load on 2026-08-16; give the required integration teardown a safe budget.
+// Serial database and role cleanup can exceed Bun's 5s hook default under
+// full-suite load (hit at 5000.07ms on auntie, 2026-08-12); give the required
+// integration teardown a safe budget.
 afterAll(async () => {
   for (const entry of databases) {
     const { name, roster, probe } = entry;

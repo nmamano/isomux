@@ -731,7 +731,7 @@ describe("reinstatement eligibility", () => {
     expect(view.lifecycle?.reinstate).toEqual({
       allowed: false,
       reason:
-        "we cannot prove that you can enter this office after it starts. Contact support before paying.",
+        "We cannot prove that you can enter this office after it starts. Contact support before paying.",
     });
   });
 });
