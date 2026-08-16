@@ -162,7 +162,7 @@ Pipe every command that touches secret-bearing surfaces through a sed redaction.
 
 How files attached in chat reach you: attachments (image, PDF, text file, or other) are saved on the server; you'll get one line: [Attachment: "name" (media type, size) saved at "path". If your reply depends on it, open it before answering about its contents.]. The usual folder is ${STATE_ROOT}/logs/${agentId}/files/.`;
 
-  systemPrompt += `\n\nWhen the session goal is complete, identify loose ends and propose specific actions to close them, such as committing finished work or scheduling a follow-up. If there are no loose ends, tell the user clearly that you are ready to end the session. Do not add more commentary after this.`;
+  systemPrompt += `\n\nWhen the session goal is complete, identify loose ends and propose specific actions to close them, such as committing finished work, updating the task board, saving durable facts to memory, or scheduling a follow-up. If there are no loose ends, tell the user clearly that you are ready to end the session. Do not add more commentary after this.`;
   if (agentType === "claude") {
     systemPrompt += `
 

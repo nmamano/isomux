@@ -351,7 +351,7 @@ describe("buildSystemPrompt - session hygiene", () => {
   it("gives one explicit wrap-up path for each loose-end state", () => {
     const p = build();
     expect(p).toContain(
-      "identify loose ends and propose specific actions to close them, such as committing finished work or scheduling a follow-up",
+      "identify loose ends and propose specific actions to close them, such as committing finished work, updating the task board, saving durable facts to memory, or scheduling a follow-up",
     );
     expect(p).toContain(
       "If there are no loose ends, tell the user clearly that you are ready to end the session. Do not add more commentary after this.",
