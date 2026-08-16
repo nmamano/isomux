@@ -26,6 +26,7 @@ export interface LifecycleTickSummary {
   opened: number;
   finished: number;
   raised: number;
+  failed: number;
   /** Conditions that went away. Counted separately from raises so a pass that
    * resolved something reads differently from one that found nothing. */
   cleared: number;
@@ -62,6 +63,7 @@ export async function lifecycleTick(
     opened: 0,
     finished: 0,
     raised: 0,
+    failed: 0,
     cleared: 0,
     phases: {},
   };
@@ -250,6 +252,7 @@ export async function lifecycleTick(
         };
       });
     } catch (err) {
+      summary.failed++;
       report(`lifecycle ${scanned.id} failed: ${messageOf(err)}`);
       continue;
     }

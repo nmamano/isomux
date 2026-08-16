@@ -663,4 +663,20 @@ describe("the walk, on seeded dates", () => {
     expect(await lifecycleTick(store, c.now())).toMatchObject({ examined: 0 });
     await store.close();
   });
+
+  test("a per-subscription transaction failure is counted and reported", async () => {
+    const c = clock(GRACE_END);
+    const store = await tempStore(c.now);
+    await seed(store);
+    const lines: string[] = [];
+    store.tx = async () => {
+      throw new Error("transaction denied");
+    };
+    const result = await lifecycleTick(store, c.now(), (line) =>
+      lines.push(line),
+    );
+    expect(result.failed).toBe(1);
+    expect(lines).toEqual(["lifecycle sub_1 failed: transaction denied"]);
+    await store.close();
+  });
 });

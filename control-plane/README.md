@@ -588,6 +588,9 @@ wrong in both directions at once:
 | `provider_assets` INSERT   | removed - the asset is created on the create path       |
 | `create_intents` UPDATE    | removed - `casIntent` is on the create path             |
 
+**Reversed 2026-08-16:** `subscriptions` SELECT is required again because the
+deployed command now runs the lifecycle cadence.
+
 **The four removals are correct only while the provisioner does not provision.**
 `cli.ts`'s `cmdRun` deliberately does not register the `create_instance`
 handler, so the create path is unreachable on the deployed command. THE SLICE
@@ -1474,8 +1477,10 @@ rather than by re-reading the environment beside it. A second derivation of the
 same answer is a copy that can drift, which is the class of omission
 `run-roster.ts` was extracted to prevent. `database_reachable` is
 a `select 1` whose failure discards the error object entirely. `tick_recent`
-means the last completed pass is younger than three poll intervals, which is the
-difference between "the port answers" and "the loop is running".
+means both the provisioning pass and the lifecycle pass completed within three
+poll intervals. This distinguishes "the port answers" from "both loops run".
+A missing `subscriptions` grant does not break `select 1`, so `tick_recent` is
+the gate that makes that lifecycle failure visible to the deployed probe.
 
 The route ALWAYS answers 200 while the process is serving. A database that
 blinked is a boolean, not a dead machine: fly's check is TCP precisely so that
@@ -2070,10 +2075,21 @@ bun control-plane/deploy/secrets.ts --verify
 bun control-plane/deploy/probe.ts
 ```
 
-A redeploy is the last three lines, and nothing else. Measured 2026-08-11: the
-image and the machine's configuration are updated IN PLACE - the same machine id
-came back started, with its event counts unchanged - and the volume stays
-attached throughout.
+A lifecycle-cadence redeploy adds one required step before those lines:
+
+```
+bun control-plane/exercises/neon.ts regovern --branch production
+```
+
+Run the grant re-application first and prove its exact read-back. Then deploy
+the image, verify its secrets, and run the authenticated probe. Deploying the
+image first leaves `tick_recent` false because the lifecycle scan cannot read
+`subscriptions`.
+
+A routine redeploy is the last three lines, and nothing else. Measured
+2026-08-11: the image and the machine's configuration are updated IN PLACE -
+the same machine id came back started, with its event counts unchanged - and
+the volume stays attached throughout.
 
 **The first deploy, measured 2026-08-11.** Build on Depot ("Building image with
 Depot"; no `fly-builder-*` app was created or reused). Context 940.20 kB, which
@@ -3236,12 +3252,28 @@ probe left no subscription and no charge. Product code does not match an error
 message when expiry is refused: it fetches the session and uses the normalized
 status as authority.
 
-**Measured 2026-08-16 at f4f9cf0:** there is no scheduler for
-`lifecycleTick`. It runs only when an operator runs `billing-cli tick`. The
-provisioning ticker's five-second loop does not run the billing lifecycle.
-Therefore the code promises what happens WHEN the tick runs, not prompt
-power-off, Checkout expiry, or deletion. Adding a hosted lifecycle scheduler is
-a separate launch decision.
+The deployed provisioner runs `lifecycleTick` after each operation tick in its
+five-second loop. The passes are sequential in one process, so they cannot
+overlap. Fly keeps one machine running and restarts the same command; durable
+operation rows make a restart resume rather than duplicate work. A failed
+lifecycle pass goes to the machine journal and leaves `tick_recent` false. A
+per-subscription failure is counted and reported as a problem while the next
+subscription and the next pass continue.
+
+**Measured 2026-08-16 before deployment:** production had two subscriptions in
+the lifecycle scan, so a five-second cadence would open 34,560 per-subscription
+transactions per day. The scan is intentionally cumulative. Re-measure this
+cost as the lifetime cancellation population grows. The same growth spends the
+15-second `tick_recent` window; a slow pass can make health flap false and make
+a deploy read `readiness_pending` even while the process continues to work.
+
+**Measured 2026-08-16 on the deployed provisioner before this change:** the
+authenticated probe reported `provider_configured: true`, so opened
+`power_off` operations have a registered handler. A direct lifecycle scan under
+`cp_provisioner` failed with PostgreSQL 42501 on `subscriptions`; the widened
+grant in `roles.ts` must be applied with the deployment. After deployment, run
+`deploy/probe.ts`: `tick_recent: true` then proves both the operation and
+lifecycle passes completed under the deployed role.
 
 ### Cancel and un-cancel
 

@@ -22,8 +22,9 @@
 // control and must not put in a transcript.
 //
 // THE THIRD ANSWER, and why it is not "failed". A machine that has just been
-// replaced is healthy and not yet TICKING: `tick_recent` is false until the
-// first pass completes, and the probe correctly refuses. That is a deployment
+// replaced is healthy and not yet TICKING: `tick_recent` is false until both
+// provisioning and lifecycle passes complete, and the probe correctly refuses.
+// That is a deployment
 // still coming up, not a deployment that is wrong, and telling the two apart is
 // the difference between a rollback and a wait. `readiness_pending` is that
 // state, and it is defined NARROWLY - one named boolean false, everything else
@@ -317,8 +318,9 @@ export interface ProbeOutcome {
  * IS THIS A DEPLOYMENT STILL COMING UP?
  *
  * The predicate is deliberately narrow and positive: everything that must be
- * true is named, `tick_recent` is the ONE reading allowed to be false, and the
- * machine's own `ok` follows from it (it is the conjunction that includes
+ * true is named, `tick_recent` is the ONE reading allowed to be false while the
+ * provisioning and lifecycle passes finish, and the machine's own `ok` follows
+ * from it (it is the conjunction that includes
  * `tick_recent`, so a healthy machine mid-boot reports it false). `ok` being
  * false is therefore not independently a failure here - and `ok` being TRUE
  * while `tick_recent` is false is a machine contradicting itself, which falls

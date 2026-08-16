@@ -87,6 +87,8 @@ import { PROVISIONER_POOL } from "./roles.ts";
 import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
 import { StripeClient } from "./stripe/client.ts";
 import { LiveStripeReader } from "./stripe/reader.ts";
+import { driveTicks } from "./drive-loop.ts";
+import { lifecycleTick } from "./lifecycle-tick.ts";
 
 const reporter = new Reporter();
 const audit = new AuditLog(AUDIT_FILE, "control-plane-cli");
@@ -392,68 +394,6 @@ function makeTicker(
 }
 
 /**
- * Drive ticks until the work is done, or forever.
- *
- * Raised attention NEVER stops the loop. A deadline flags and the operation
- * keeps going, so a provisioner that stopped on the first flag would be exactly
- * the process that is supposed to keep reconciling giving up.
- */
-async function driveTicks(
-  store: Store,
-  ticker: Ticker,
-  opts: {
-    forever: boolean;
-    watch?: () => Promise<void>;
-    /** Called after each completed pass. A deployed process reports how long
-     * ago that was, which is the difference between "the port answers" and
-     * "the loop is running". */
-    onTick?: () => void;
-  },
-): Promise<void> {
-  let stopping = false;
-  const onSignal = () => {
-    stopping = true;
-    reporter.line("stopping after this tick");
-  };
-  process.on("SIGINT", onSignal);
-  process.on("SIGTERM", onSignal);
-  const announced = new Set<string>();
-  try {
-    for (;;) {
-      const summary = await ticker.once();
-      opts.onTick?.();
-      if (opts.watch) {
-        // Liveness is a MEASUREMENT, not an operation, so it runs beside the
-        // tick rather than inside it. A probe that throws must not stop the
-        // provisioner: the reading is worth less than the loop.
-        try {
-          await opts.watch();
-        } catch (err) {
-          reporter.problem(
-            `monitoring pass failed: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-      for (const inst of await store.listInstances()) {
-        for (const reason of await store.openReasons(inst.id)) {
-          if (announced.has(reason.id)) continue;
-          announced.add(reason.id);
-          reporter.problem(
-            `ATTENTION (${reason.severity}) on ${inst.id}: ${reason.reason}`,
-          );
-        }
-      }
-      if (stopping) return;
-      if (!opts.forever && summary.live === 0) return;
-      await Bun.sleep(POLL_INTERVAL_MS);
-    }
-  } finally {
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
-  }
-}
-
-/**
  * Where the invite seam listens.
  *
  * Loopback unless a deployment says otherwise, which keeps every operator run
@@ -507,7 +447,9 @@ async function healthReport(deps: {
     // in booleans, so there is nothing here for a message to add.
   }
   const last = deps.lastTickAt();
-  // False until the first pass completes, which is a few seconds after boot.
+  // False until BOTH the provisioning and lifecycle passes complete. A missing
+  // subscriptions grant leaves `select 1` healthy, so this is the gate that
+  // makes that otherwise silent 42501 visible to the deployed probe.
   const tickRecent = last > 0 && Date.now() - last < 3 * POLL_INTERVAL_MS;
   const boundsGoverned = true; // Store.open read both bounds back, or threw.
   return {
@@ -667,9 +609,20 @@ async function cmdProvision(args: Map<string, string>): Promise<void> {
     "provision",
     `goal=${goal}, ceiling=${expiresAt.toISOString()}`,
   );
-  await driveTicks(store, ticker, { forever: false });
+  await driveTicks(store, ticker, { forever: false, reporter });
   await printOperations(store, instanceId);
   process.exitCode = await exitCodeFor(store);
+}
+
+async function runLifecycleCadence(store: Store): Promise<void> {
+  const summary = await lifecycleTick(store, store.now(), (line) =>
+    reporter.line(line),
+  );
+  if (summary.failed > 0) {
+    reporter.problem(
+      `lifecycle pass had ${summary.failed} failed subscription(s)`,
+    );
+  }
 }
 
 /**
@@ -786,6 +739,11 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   try {
     await driveTicks(store, running, {
       forever: args.get("once") !== "true",
+      reporter,
+      cadence: {
+        failureLabel: "lifecycle pass failed",
+        run: () => runLifecycleCadence(store),
+      },
       onTick: () => {
         lastTickAt = Date.now();
       },
@@ -832,7 +790,7 @@ async function cmdFinish(args: Map<string, string>): Promise<void> {
   const instanceId = await ensureInstance(store, rec, goal);
   const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
   await enqueueOnce(store, ticker, instanceId, "verify_https");
-  await driveTicks(store, ticker, { forever: false });
+  await driveTicks(store, ticker, { forever: false, reporter });
   await printOperations(store, instanceId);
   process.exitCode = await exitCodeFor(store);
 }
@@ -843,7 +801,7 @@ async function cmdMint(args: Map<string, string>): Promise<void> {
   const instanceId = await ensureInstance(store, rec, "live");
   const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
   await enqueueOnce(store, ticker, instanceId, "mint_invite");
-  await driveTicks(store, ticker, { forever: false });
+  await driveTicks(store, ticker, { forever: false, reporter });
   process.exitCode = await exitCodeFor(store);
 }
 
@@ -859,6 +817,7 @@ async function cmdRevoke(args: Map<string, string>): Promise<void> {
   await enqueueOnce(store, ticker, instanceId, "revoke_access");
   await driveTicks(store, ticker, {
     forever: args.get("until-proven") === "true",
+    reporter,
   });
   await printOperations(store, instanceId);
   process.exitCode = await exitCodeFor(store);

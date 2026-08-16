@@ -81,9 +81,9 @@ describe("the grants are bounded by what the call graph needs", () => {
 
   test("subscription state is read-only where it is read at all", () => {
     expect(verbsFor(WEB_GRANTS, "subscriptions")).toEqual(["select"]);
-    // The lifecycle tick is the only provisioner-side reader, and the deployed
-    // command does not run it - so the provisioner holds nothing here.
-    expect(verbsFor(PROVISIONER_GRANTS, "subscriptions")).toEqual([]);
+    // The deployed command runs the lifecycle cadence, which reads but never
+    // writes subscription projection state.
+    expect(verbsFor(PROVISIONER_GRANTS, "subscriptions")).toEqual(["select"]);
   });
 
   test("the provisioner drives operations and holds the latch it can reach", () => {
@@ -175,16 +175,11 @@ describe("the matrix is exactly what the deployed command reaches", () => {
       "certificate_credentials:insert",
       "certificate_credentials:select",
       "certificate_credentials:update",
-      "name_reservations:select",
       "reinstatement_attempts:select",
       "reinstatement_attempts:update",
-    ]);
-    expect(prior.excess).toEqual([
-      "accounts:select",
-      "create_intents:update",
-      "provider_assets:insert",
       "subscriptions:select",
     ]);
+    expect(prior.excess).toEqual([]);
   });
 });
 

@@ -256,6 +256,12 @@ export const WEB_GRANTS: readonly TableGrant[] = [
  */
 export const PROVISIONER_GRANTS: readonly TableGrant[] = [
   {
+    table: "subscriptions",
+    verbs: ["select"],
+    because:
+      "the deployed lifecycle cadence scans ended subscriptions and re-reads each one before acting",
+  },
+  {
     table: "reinstatement_attempts",
     verbs: ["select", "update"],
     because:
@@ -352,6 +358,11 @@ export interface ReachableVerb {
  * a failing comparison rather than a surprise 42501 in production.
  */
 export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
+  {
+    table: "subscriptions",
+    verb: "select",
+    via: "lifecycle-tick.ts cancelledSubscriptions and the transactional subscription re-read",
+  },
   {
     table: "reinstatement_attempts",
     verb: "select",
@@ -564,6 +575,7 @@ export const AUDITED_CMDRUN_SURFACES = [
   "PROVIDER_DEPENDENT_KINDS.every",
   "running.handles",
   "driveTicks",
+  "runLifecycleCadence",
   "watchLiveness",
   "exitCodeFor",
 ] as const;
@@ -572,7 +584,7 @@ export const AUDITED_CMDRUN_SURFACES = [
  * THE MATRIX THE PREVIOUS POSTURE APPLIED, kept because a re-apply has to prove
  * its own before-state.
  *
- * G2 put this exact set in the catalog on production on 2026-08-11. The
+ * Read from the production catalog on 2026-08-16. The
  * incremental re-apply (`reapplyMatrix`) refuses unless the catalog carries
  * EXACTLY this, and its rollback is this set restored - so both directions are
  * a destination rather than a diff nobody wrote down. Delete it when the
@@ -582,48 +594,47 @@ export const PRIOR_PROVISIONER_GRANTS: readonly TableGrant[] = [
   {
     table: "instances",
     verbs: ["select", "update"],
-    because: "as applied 2026-08-11",
+    because: "as observed in production 2026-08-16",
   },
   {
     table: "provider_assets",
-    verbs: ["select", "insert", "update"],
-    because: "as applied 2026-08-11",
+    verbs: ["select", "update"],
+    because: "as observed in production 2026-08-16",
   },
   {
     table: "operations",
     verbs: ["select", "insert", "update"],
-    because: "as applied 2026-08-11",
+    because: "as observed in production 2026-08-16",
   },
   {
     table: "create_intents",
-    verbs: ["select", "insert", "update"],
-    because: "as applied 2026-08-11",
+    verbs: ["select", "insert"],
+    because: "as observed in production 2026-08-16",
   },
   {
     table: "instance_liveness",
     verbs: ["select", "insert", "update"],
-    because: "as applied 2026-08-11",
+    because: "as observed in production 2026-08-16",
   },
   {
     table: "attention_reasons",
     verbs: ["select", "insert", "update"],
-    because: "as applied 2026-08-11",
+    because: "as observed in production 2026-08-16",
   },
   {
     table: "audit_events",
     verbs: ["insert"],
-    because: "as applied 2026-08-11",
+    because: "as observed in production 2026-08-16",
   },
-  { table: "accounts", verbs: ["select"], because: "as applied 2026-08-11" },
   {
-    table: "subscriptions",
+    table: "name_reservations",
     verbs: ["select"],
-    because: "as applied 2026-08-11",
+    because: "as observed in production 2026-08-16",
   },
   {
     table: "sequences",
     verbs: ["select", "update"],
-    because: "as applied 2026-08-11",
+    because: "as observed in production 2026-08-16",
   },
 ];
 

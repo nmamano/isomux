@@ -137,14 +137,16 @@ async function matrixOf(dsn: string): Promise<string[]> {
 
 suite("the incremental matrix change", () => {
   test(
-    "forward lands exactly the current matrix and removes what the audit dropped",
+    "forward lands exactly the current matrix from production's observed baseline",
     () =>
       serial(async () => {
         const dsn = await asProductionIsToday();
         const before = await matrixOf(dsn);
-        expect(before).toContain(`${PROVISIONER_ROLE}:accounts:SELECT`);
-        expect(before).not.toContain(
+        expect(before).toContain(
           `${PROVISIONER_ROLE}:name_reservations:SELECT`,
+        );
+        expect(before).not.toContain(
+          `${PROVISIONER_ROLE}:subscriptions:SELECT`,
         );
 
         const applied = await reapplyMatrix(dsn, "forward");
@@ -164,18 +166,8 @@ suite("the incremental matrix change", () => {
         expect(applied.noMemberships.map(([, ok]) => ok)).toEqual([true, true]);
 
         const after = await matrixOf(dsn);
-        // The read the live probe was refused, now granted.
-        expect(after).toContain(`${PROVISIONER_ROLE}:name_reservations:SELECT`);
-        // And the four the call-graph audit found unreachable, actually gone -
-        // `GRANT` only adds, so this is the convergence being load-bearing.
-        for (const gone of [
-          "accounts:SELECT",
-          "subscriptions:SELECT",
-          "provider_assets:INSERT",
-          "create_intents:UPDATE",
-        ]) {
-          expect(after).not.toContain(`${PROVISIONER_ROLE}:${gone}`);
-        }
+        // The lifecycle read production refused is now granted.
+        expect(after).toContain(`${PROVISIONER_ROLE}:subscriptions:SELECT`);
         await dropRoles(dsn);
       }),
     60_000,
