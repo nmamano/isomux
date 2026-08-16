@@ -195,6 +195,8 @@ async function dropRoles(
   }
 }
 
+// Serial database and role cleanup measured near Bun's 5s hook default under
+// load on 2026-08-16; give the required integration teardown a safe budget.
 afterAll(async () => {
   for (const entry of databases) {
     const { name, roster, probe } = entry;
@@ -225,7 +227,7 @@ afterAll(async () => {
   expect(leftovers.rows[0]?.n).toBe("0");
   expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
   await admin.end().catch(() => {});
-});
+}, 30_000);
 
 suite("a fresh, empty database", () => {
   // THE ONE THAT WAS BROKEN. Nothing in this repo had ever run the posture

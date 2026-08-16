@@ -1328,11 +1328,14 @@ describe("connection details on the error path", () => {
     const original = new Error(
       'duplicate key value violates unique constraint "operations_pkey"',
     );
+    original.stack =
+      "Error: duplicate key value violates unique constraint\n" +
+      "    at cleanFrame (/safe/frame.ts:1:1)";
     const err = redactConnectionDetails(original, dsn);
     for (const surface of [err.message, err.stack ?? ""]) {
       expect(surface).not.toContain("duplicate key value violates");
     }
-    // And the debugging property the rebuild exists to keep: a real call-site
+    // And the debugging property the rebuild exists to keep: a clean call-site
     // frame is still there, under a header that is ours.
     expect(err.stack ?? "").toMatch(/^RedactedDatabaseError: /);
     expect(err.stack ?? "").toMatch(/\n\s+at\s/);

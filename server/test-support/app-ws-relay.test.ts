@@ -358,6 +358,7 @@ describe("app-host websockets: frames both ways", () => {
     client.sendClose(4002, "client done");
     await until(() => closes.length > 0);
     expect(closes[0]).toEqual({ code: 4002, reason: "client done" });
+    await until(() => _testWsSocketsOpen().total === 0);
   });
 
   it("tells the app the truth when the client's connection drops", async () => {
