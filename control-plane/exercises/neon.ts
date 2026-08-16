@@ -330,8 +330,11 @@ async function cmdGovern(branchName: string): Promise<void> {
       return out;
     };
     const before = await counts();
-    const accountsBefore = before.get("accounts") === 1;
-    if (isProduction) claim("accounts_exactly_1_before", accountsBefore);
+    // At least one account proves a real production dataset; the exact count
+    // grew past 1 with the first customer (2026-08-16), so governance now
+    // proves it MOVES no rows instead of pinning a count it does not own.
+    const accountsBefore = (before.get("accounts") ?? 0) >= 1;
+    if (isProduction) claim("accounts_at_least_1_before", accountsBefore);
     else console.log(`accounts_before: ${before.get("accounts") !== -1}`);
 
     // EVERY PREDICATE THAT MUST HOLD BEFORE A WRITE is settled here, so a
@@ -346,7 +349,10 @@ async function cmdGovern(branchName: string): Promise<void> {
 
     const after = await counts();
     if (isProduction)
-      claim("accounts_exactly_1_after", after.get("accounts") === 1);
+      claim(
+        "accounts_unchanged",
+        after.get("accounts") === before.get("accounts"),
+      );
     let moved = 0;
     for (const table of EXPECTED_TABLES) {
       const same = before.get(table) === after.get(table);
@@ -525,7 +531,7 @@ async function cmdRegovern(
     };
     const before = await counts();
     if (isProduction) {
-      claim("accounts_exactly_1_before", before.get("accounts") === 1);
+      claim("accounts_at_least_1_before", (before.get("accounts") ?? 0) >= 1);
     } else {
       console.log(`accounts_before: ${before.get("accounts") !== -1}`);
     }
@@ -546,7 +552,10 @@ async function cmdRegovern(
 
     const after = await counts();
     if (isProduction) {
-      claim("accounts_exactly_1_after", after.get("accounts") === 1);
+      claim(
+        "accounts_unchanged",
+        after.get("accounts") === before.get("accounts"),
+      );
     }
     let moved = 0;
     for (const table of EXPECTED_TABLES) {
