@@ -99,19 +99,27 @@ async function dropRoles(dsn: string): Promise<void> {
 }
 
 afterAll(async () => {
+  const failures: unknown[] = [];
   for (const name of databases) {
-    const url = new URL(LOCAL_DATABASE_URL);
-    url.pathname = `/${name}`;
-    await dropRoles(url.toString());
-    await admin
-      .query(
-        "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
-        [name],
-      )
-      .catch(() => {});
-    await admin.query(`drop database if exists ${name}`).catch(() => {});
+    try {
+      const url = new URL(LOCAL_DATABASE_URL);
+      url.pathname = `/${name}`;
+      await dropRoles(url.toString());
+      await admin
+        .query(
+          "select pg_terminate_backend(pid) from pg_stat_activity where datname = $1",
+          [name],
+        )
+        .catch(() => {});
+      await admin.query(`drop database if exists ${name}`);
+    } catch (error) {
+      failures.push(error);
+    }
   }
   await admin.end().catch(() => {});
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "failed to drop scratch databases");
+  }
 }, 30_000);
 
 /** A schema-ready database governed exactly as PRODUCTION is today: the roles

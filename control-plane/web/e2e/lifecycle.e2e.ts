@@ -155,6 +155,7 @@ async function main(): Promise<void> {
     asset_state: "active",
   });
   await succeed(store, instanceId, "verify_https");
+  await succeed(store, instanceId, "revoke_access");
 
   const periodEnd = Date.parse("2027-01-31T09:00:00Z");
   await store.tx(async () => {
@@ -313,6 +314,10 @@ async function main(): Promise<void> {
       lifecycleOperationId("power_off", "sub_e2e", periodEnd),
       { reason: LIFECYCLE_REASON, poweredOffAt },
     );
+    const suspendedInstance = (await store.getInstance(instanceId))!;
+    await store.casInstance(suspendedInstance.id, suspendedInstance.version, {
+      service_state: "suspended",
+    });
     await page.goto(office);
     const suspended = await waitFor(page, "cancel-suspended");
     const retention = new Date(periodEnd + RETENTION_MS)
@@ -395,7 +400,27 @@ async function main(): Promise<void> {
       pendingReinstatement,
     );
     check(
-      "S7 does not offer a second Checkout while one is pending",
+      "S7 offers the existing Checkout path while payment is pending",
+      (await page.$('[data-testid="reinstate-button"]')) !== null,
+    );
+
+    // ---- S7b: the same pending attempt at its hard boundary is no longer
+    // eligible. The phase sentence owns this state; there is no stale action.
+    await stripeSays(store, { ended_at: expiredEnd });
+    await store.sqlRun(
+      "update reinstatement_attempts set closed_ended_at = $1, fence_expires_at = $2 where id = $3",
+      [expiredEnd, expiredEnd + RETENTION_MS, "reinstate-sub_e2e"],
+    );
+    await page.goto(office);
+    const reinstatementExpired = await waitFor(page, "reinstate-expired");
+    check(
+      "S7b keeps the phase-true expiry sentence",
+      reinstatementExpired ===
+        "The reinstatement deadline has been reached. This payment can no longer reinstate the office.",
+      reinstatementExpired,
+    );
+    check(
+      "S7b offers no reinstatement after the hard boundary",
       (await page.$('[data-testid="reinstate-button"]')) === null,
     );
 

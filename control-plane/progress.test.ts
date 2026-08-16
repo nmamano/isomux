@@ -13,6 +13,11 @@ import { raiseAttention } from "./attention.ts";
 import { DECLARED_UNIMPLEMENTED_KINDS, nextKind } from "./operations.ts";
 import { ladderFor, projectionFor } from "./progress.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
+import {
+  CUSTOMER_CANCELLATION_REASON,
+  LIFECYCLE_REASON,
+  lifecycleOperationId,
+} from "./lifecycle.ts";
 
 const temps: string[] = [];
 
@@ -683,6 +688,51 @@ describe("comped means an ACTIVE full discount", () => {
         instanceId: reservation.instance_id,
       }))!.subscription?.comped,
     ).toBe(false);
+  });
+});
+
+describe("reinstatement eligibility", () => {
+  test("a suspended phase publishes a real non-phase refusal", async () => {
+    const NOW = 1_700_000_000_000;
+    const endedAt = NOW - 1_000;
+    const store = await tempStore(() => NOW);
+    const { reservation, account } = await signedUp(store);
+    const instanceId = reservation.instance_id;
+    await adopt(store, instanceId);
+    const instance = (await store.getInstance(instanceId))!;
+    await store.casInstance(instance.id, instance.version, {
+      service_state: "suspended",
+    });
+    await store.sqlRun(
+      "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, " +
+        "status, cancel_at_period_end, ended_at, cancellation_reason, cancellation_policy, " +
+        "ever_full_discount, payment_failures, episode_state, version, created_at, updated_at) " +
+        "values ('sub_cancelled', $1, $2, 'cus_1', 'canceled', 0, $3, $4, 'launch', 0, 0, 'none', 1, $3, $3)",
+      [account.id, instanceId, endedAt, CUSTOMER_CANCELLATION_REASON],
+    );
+    const powerOff = await store.enqueue({
+      id: lifecycleOperationId("power_off", "sub_cancelled", endedAt),
+      instance_id: instanceId,
+      kind: "power_off",
+      inactivity_deadline_at: NOW + 60_000,
+      absolute_deadline_at: NOW + 120_000,
+      evidence: { reason: LIFECYCLE_REASON, poweredOffAt: endedAt },
+    });
+    await store.sqlRun(
+      "update operations set status = 'succeeded' where id = $1",
+      [powerOff.id],
+    );
+
+    const view = (await projectionFor(store, {
+      accountId: account.id,
+      instanceId,
+    }))!;
+    expect(view.lifecycle?.phase).toBe("suspended");
+    expect(view.lifecycle?.reinstate).toEqual({
+      allowed: false,
+      reason:
+        "we cannot prove that you can enter this office after it starts. Contact support before paying.",
+    });
   });
 });
 

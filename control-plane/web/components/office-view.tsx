@@ -618,7 +618,7 @@ export function OfficeView({
           pending={billing}
           onAct={(path, label) => void billingAct(path, label)}
         />
-        {view.lifecycle?.phase === "suspended" && (
+        {view.lifecycle?.reinstate.allowed && (
           <p className="action">
             <button
               data-testid="reinstate-button"
@@ -723,11 +723,18 @@ function CancelPanel({
     }
     if (life.phase === "reinstatement_pending" && life.retentionEnd !== null) {
       return (
-        <p className="callout" data-testid="reinstate-pending">
-          Your office remains powered off while payment is pending. Complete
-          payment before {instant(life.retentionEnd)} to reinstate this same
-          office.
-        </p>
+        <>
+          <p className="callout" data-testid="reinstate-pending">
+            Your office remains powered off while payment is pending. Complete
+            payment before {instant(life.retentionEnd)} to reinstate this same
+            office.
+          </p>
+          {!life.reinstate.allowed && (
+            <p className="note" data-testid="reinstate-refused">
+              {life.reinstate.reason}
+            </p>
+          )}
+        </>
       );
     }
     if (life.phase === "checkout_expiry_due") {
@@ -743,12 +750,19 @@ function CancelPanel({
       // instant the box was actually powered off, and this is that same number
       // carried across rather than a second computation of it.
       return (
-        <p className="callout" data-testid="cancel-suspended">
-          Your office is powered off. Restart your subscription by{" "}
-          {day(life.retentionEnd)} to restore it, or contact support for free
-          temporary access to your office so you can get your data out. After{" "}
-          {day(life.retentionEnd)}, your office cannot be recovered.
-        </p>
+        <>
+          <p className="callout" data-testid="cancel-suspended">
+            Your office is powered off. Restart your subscription by{" "}
+            {day(life.retentionEnd)} to restore it, or contact support for free
+            temporary access to your office so you can get your data out. After{" "}
+            {day(life.retentionEnd)}, your office cannot be recovered.
+          </p>
+          {!life.reinstate.allowed && (
+            <p className="note" data-testid="reinstate-refused">
+              {life.reinstate.reason}
+            </p>
+          )}
+        </>
       );
     }
     if (life.phase === "deprovision_due") {

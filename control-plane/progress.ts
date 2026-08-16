@@ -28,6 +28,7 @@ import {
 } from "./lifecycle.ts";
 import {
   attemptForClosedSubscription,
+  checkReinstatementEligibility,
   checkoutExpiryOperationId,
   currentSubscriptionForInstance,
 } from "./reinstatement.ts";
@@ -38,6 +39,7 @@ import {
   DECLARED_UNIMPLEMENTED_KINDS,
   nextKind,
 } from "./operations.ts";
+import type { SubscriptionRow } from "./stripe/billing-store.ts";
 import {
   ACTIVE_STATUSES,
   type AttentionReasonRow,
@@ -108,6 +110,9 @@ export interface LifecycleView {
   graceEnd: number | null;
   retentionEnd: number | null;
   poweredOff: boolean;
+  reinstate:
+    | { allowed: true; reason: null }
+    | { allowed: false; reason: string };
 }
 
 /**
@@ -380,7 +385,7 @@ interface SubscriptionFacts {
 async function subscriptionRowFor(
   store: Store,
   instanceId: string,
-): Promise<SubscriptionFacts | null> {
+): Promise<SubscriptionRow | null> {
   return currentSubscriptionForInstance(store, instanceId);
 }
 
@@ -411,7 +416,8 @@ function subscriptionViewOf(
 async function lifecycleViewOf(
   store: Store,
   instanceId: string,
-  row: SubscriptionFacts | null,
+  reservation: ReservationRow,
+  row: SubscriptionRow | null,
   operations: OperationRow[],
   now: number,
 ): Promise<LifecycleView | null> {
@@ -456,6 +462,11 @@ async function lifecycleViewOf(
     : null;
   if (!state) return null;
   const { timeline } = state;
+  const eligibility = await checkReinstatementEligibility(store, {
+    reservation,
+    closed: row,
+    now,
+  });
   return {
     phase: timeline.phase,
     graceEnd: timeline.graceEnd,
@@ -465,6 +476,9 @@ async function lifecycleViewOf(
       timeline.phase === "reinstatement_pending" ||
       timeline.phase === "checkout_expiry_due" ||
       timeline.phase === "deprovision_due",
+    reinstate: eligibility.ok
+      ? { allowed: true, reason: null }
+      : { allowed: false, reason: eligibility.reason },
   };
 }
 
@@ -632,6 +646,7 @@ export async function projectionFor(
   const lifecycle = await lifecycleViewOf(
     store,
     instance.id,
+    reservation,
     subscriptionRow,
     operations,
     store.now(),

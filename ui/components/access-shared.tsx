@@ -380,7 +380,8 @@ export function formatRelative(ts: number): string {
   return `${d}d ago`;
 }
 
-export function formatExpiry(ts: number, now = Date.now()): string {
+function formatExpiry(ts: number): string {
+  const now = Date.now();
   const diffMs = ts - now;
   if (diffMs <= 0) return "expired";
   const h = Math.round(diffMs / 3600_000);
