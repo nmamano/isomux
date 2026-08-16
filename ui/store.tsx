@@ -52,7 +52,6 @@ import {
 import {
   DEFAULT_THEME_ID,
   getThemeById,
-  THEMES,
   type Theme,
   type ThemeMode,
 } from "./themes.ts";
@@ -1302,14 +1301,14 @@ interface ThemeContextValue {
   theme: string;
   mode: ThemeMode;
   setTheme: (id: string) => void;
-  toggleTheme: () => void;
+  cycleTheme: () => void;
 }
 
 const ThemeCtx = createContext<ThemeContextValue>({
   theme: DEFAULT_THEME_ID,
   mode: "dark",
   setTheme: () => {},
-  toggleTheme: () => {},
+  cycleTheme: () => {},
 });
 
 // Resolve the OS / browser color-scheme preference. Used as the default when
@@ -1348,24 +1347,15 @@ function getInitialThemeId(): string {
   return getSystemThemeId();
 }
 
-const LAST_THEME_KEY = {
-  dark: "isomux-theme-dark",
-  light: "isomux-theme-light",
-} as const;
-
-// Remembers the most recent theme picked within each mode so the moon/sun
-// toggle can return the user to their preferred Nord (dark) or Solarized
-// Light (light) instead of always reverting to the canonical pair.
-function getLastModeTheme(mode: ThemeMode): string {
-  if (typeof localStorage !== "undefined") {
-    const saved = localStorage.getItem(LAST_THEME_KEY[mode]);
-    if (saved) {
-      const resolved = getThemeById(saved);
-      if (resolved.mode === mode) return resolved.id;
-    }
-  }
-  return THEMES.find((t) => t.mode === mode)?.id ?? DEFAULT_THEME_ID;
-}
+// The wall sun/moon walks this loop, lightest background to darkest.
+const THEME_CYCLE_ORDER = [
+  "solarized-light",
+  "light",
+  "nord",
+  "dracula",
+  "solarized-dark",
+  "dark",
+] as const;
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themeId, setThemeId] = useState<string>(getInitialThemeId);
@@ -1381,7 +1371,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("data-theme-mode", resolved.mode);
     if (userPicked) {
       localStorage.setItem(USER_PICK_KEY, resolved.id);
-      localStorage.setItem(LAST_THEME_KEY[resolved.mode], resolved.id);
     }
     const color = resolved.vars["--bg-base"];
     let meta = document.querySelector<HTMLMetaElement>(
@@ -1434,22 +1423,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemeId(getThemeById(id).id);
   }, []);
 
-  // The moon/sun nav button (and the wall sun/moon Easter egg) flip between
-  // modes. We jump to the user's most recently picked theme in the opposite
-  // mode rather than the canonical Dark/Light pair, so someone using Nord +
-  // Solarized Light gets ferried between their two preferred themes.
-  const toggleTheme = useCallback(() => {
+  // The wall sun/moon Easter egg steps through every theme, lightest to
+  // darkest, wrapping at the end.
+  const cycleTheme = useCallback(() => {
     setUserPicked(true);
     setThemeId((current) => {
-      const currentMode = getThemeById(current).mode;
-      const oppositeMode: ThemeMode = currentMode === "dark" ? "light" : "dark";
-      return getLastModeTheme(oppositeMode);
+      const at = THEME_CYCLE_ORDER.indexOf(
+        getThemeById(current).id as (typeof THEME_CYCLE_ORDER)[number],
+      );
+      return THEME_CYCLE_ORDER[(at + 1) % THEME_CYCLE_ORDER.length];
     });
   }, []);
 
   return (
     <ThemeCtx.Provider
-      value={{ theme: resolved.id, mode: resolved.mode, setTheme, toggleTheme }}
+      value={{ theme: resolved.id, mode: resolved.mode, setTheme, cycleTheme }}
     >
       {children}
     </ThemeCtx.Provider>

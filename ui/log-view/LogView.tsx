@@ -46,6 +46,7 @@ import {
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
+import { ThemePicker } from "../components/ThemePicker.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
 import { SubscriptionPill } from "./SubscriptionPill.tsx";
@@ -622,7 +623,8 @@ export function LogView({
   const dispatch = useDispatch();
   const features = useFeatures();
   const device = getDevice();
-  const { mode, toggleTheme } = useTheme();
+  const { mode } = useTheme();
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
   inputRef.current = input;
@@ -1331,8 +1333,8 @@ export function LogView({
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
       label: "Theme",
-      onClick: toggleTheme,
-      title: `Switch to ${mode === "dark" ? "light" : "dark"} theme`,
+      onClick: () => setThemePickerOpen(true),
+      title: "Change theme",
     },
   ];
 
@@ -3318,6 +3320,10 @@ export function LogView({
           />
         </div>
       )}
+      <ThemePicker
+        open={themePickerOpen}
+        onClose={() => setThemePickerOpen(false)}
+      />
       {cite && scrollRef.current && (
         <CiteSelectionButton
           cite={cite}
