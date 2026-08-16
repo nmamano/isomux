@@ -198,6 +198,7 @@ import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
 import { storageHandlers } from "./routes/handlers/storage.ts";
+import { usageHandlers } from "./routes/handlers/usage.ts";
 import { STATE_ROOT } from "./config.ts";
 import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
@@ -3166,6 +3167,12 @@ function buildExecutorDeps(
       getUsage: () => measureStorageCached(productionStorageRoots()),
       planPrune: (target, policy) => planPrune(target, policy, pruneDeps()),
       applyPrune: (plan) => applyPrune(plan, pruneDeps()),
+    }),
+  );
+  register(
+    usageHandlers({
+      getUserById,
+      getReport: (audience) => agentManager.getUsageReportData(audience),
     }),
   );
   // In-UI update trigger (release channel). The conf is read per call so an

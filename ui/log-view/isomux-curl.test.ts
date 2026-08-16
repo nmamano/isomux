@@ -1130,6 +1130,12 @@ describe("describeIsomuxRoute", () => {
     );
   });
 
+  test("office usage read is labeled", () => {
+    expect(describeIsomuxRoute("GET", "/api/usage")).toBe(
+      "Check office token usage",
+    );
+  });
+
   test("the conversation-log route is labeled in every mode", () => {
     // describeIsomuxRoute matches on path segments only, so all three modes of
     // /logs share this static fallback; humanizeIsomuxRequest is what tells

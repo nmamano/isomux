@@ -789,6 +789,7 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   // Storage breakdown (reachable by privileged agent tokens); the prune is
   // owner-only but still worth a label if an owner runs it from a terminal.
   ["GET", "/api/storage/usage", "Check office disk usage"],
+  ["GET", "/api/usage", "Check office token usage"],
   ["POST", "/api/storage/prune", "Prune stored history"],
 ];
 

@@ -12,6 +12,10 @@ import {
 } from "./cronjob-persistence.ts";
 import type { ManagedAgent } from "./internal-types.ts";
 import type { RoomWire, UserRecord } from "../shared/types.ts";
+import type {
+  UsageReportWire,
+  CronjobUsageWire,
+} from "../shared/contract-shapes.ts";
 
 // `cacheRead` is discounted cache hits; `cacheCreation` is the 1.25x write
 // tier. Raw `input_tokens` (uncached) is usually ~10 - just the new user
@@ -205,65 +209,30 @@ export function usageAudienceForUser(
   return { kind: "member", roomIds: new Set(user?.allowedRooms ?? []) };
 }
 
-export function renderUsageReport(
+export function buildUsageReportData(
   agents: Map<string, ManagedAgent>,
   rooms: RoomWire[],
   audience: UsageAudience,
-): string {
-  const lines: string[] = [];
+): UsageReportWire {
   const isOwner = audience.kind === "owner";
   const canSeeRoom = (roomId: string): boolean =>
     audience.kind === "owner" || audience.roomIds.has(roomId);
-  // Every table below is built from this list, so a room the caller can't
-  // access can't leak through any of them.
   const visibleRooms = isOwner ? rooms : rooms.filter((r) => canSeeRoom(r.id));
-
-  lines.push(
-    `_Subscription plan limits aren't shown here. Open the embedded terminal and run \`claude\` + \`/usage\` or \`codex\` + \`/status\`._`,
-  );
-  if (!isOwner) {
-    lines.push("");
-    lines.push(
-      `_Scoped to the rooms you can access; cron job spend isn't included._`,
-    );
-  }
-  lines.push("");
-
-  // Office-wide table: per-agent session and lifetime usage. "In" is all
-  // input tiers summed (raw + cache read + cache creation); the inline "%
-  // hit" is cache hit rate over cacheable input. Markdown only supports a
-  // single header row, so session/lifetime groupings are encoded as
-  // parenthesised suffixes on each column.
-  lines.push(`## Agent usage`);
-  lines.push("");
-  lines.push(
-    `| Agent | Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
-  );
-  lines.push(`| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
-  // Phase 3c: resolve each agent's room by its authoritative roomId (the only
-  // room reference - the dense AgentInfo.room index has been removed). Local map
-  // mirrors the id-keyed bucket pass below, so no AgentManager helper needs
-  // threading in here.
   const roomByIdMap = new Map(visibleRooms.map((r) => [r.id, r] as const));
-  const rows = [...agents.values()]
+  const agentRows = [...agents.values()]
     .filter((a) => canSeeRoom(a.info.roomId))
     .map((a) => {
       const usage = readAgentUsage(a.info.id, a.sessionId);
-      const roomName = roomByIdMap.get(a.info.roomId)?.name ?? "?";
       return {
         id: a.info.id,
         name: a.info.name,
-        room: roomName,
-        sess: usage.session,
-        life: usage.lifetime,
+        roomId: a.info.roomId,
+        roomName: roomByIdMap.get(a.info.roomId)?.name ?? "?",
+        session: usage.session,
+        lifetime: usage.lifetime,
       };
     });
-  rows.sort((a, b) => b.life.costUSD - a.life.costUSD);
-  for (const r of rows) {
-    lines.push(
-      `| ${r.name} | ${r.room} | ${formatInCell(r.sess)} | ${formatTokenCount(r.sess.totalOut)} | ${formatUsd(r.sess.costUSD)} | ${formatInCell(r.life)} | ${formatTokenCount(r.life.totalOut)} | ${formatUsd(r.life.costUSD)} |`,
-    );
-  }
+  agentRows.sort((a, b) => b.lifetime.costUSD - a.lifetime.costUSD);
 
   // Per-room totals + grand total. Each agent (live or killed) contributes to
   // the room it was last in - resolved via agent-history.json, which persists
@@ -331,65 +300,35 @@ export function renderUsageReport(
   const sortedBuckets = [...roomBuckets.values()].sort(
     (a, b) => b.life.costUSD - a.life.costUSD,
   );
-
-  lines.push("");
-  lines.push(`## Per-room usage`);
-  lines.push("");
-  lines.push(
-    `_Agents contribute to the room they were last in (killed agents included)._`,
-  );
-  lines.push("");
-  lines.push(
-    `| Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
-  );
-  lines.push(`| --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
-  for (const r of sortedBuckets) {
-    const label = r.deleted ? `${r.name} _(deleted)_` : r.name;
-    lines.push(
-      `| ${label} | ${formatInCell(r.sess)} | ${formatTokenCount(r.sess.totalOut)} | ${formatUsd(r.sess.costUSD)} | ${formatInCell(r.life)} | ${formatTokenCount(r.life.totalOut)} | ${formatUsd(r.life.costUSD)} |`,
-    );
-  }
-
-  // Per-cronjob lifetime usage. Mirrors the per-room shape: live cronjobs +
-  // any disk-only cronjobs (deleted) so historical spend isn't lost. Cron jobs
-  // are not room-scoped, so this whole section - table AND its contribution to
-  // the total below - is owner-only.
-  if (isOwner) renderCronjobSection(lines, total.life);
-
-  lines.push("");
-  lines.push(isOwner ? `## Office total` : `## Total`);
-  lines.push("");
-  lines.push(
-    `| | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
-  );
-  lines.push(`| --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
-  lines.push(
-    `| **Total** | ${formatInCell(total.sess)} | ${formatTokenCount(total.sess.totalOut)} | ${formatUsd(total.sess.costUSD)} | ${formatInCell(total.life)} | ${formatTokenCount(total.life.totalOut)} | ${formatUsd(total.life.costUSD)} |`,
-  );
-
-  return lines.join("\n");
+  const cronjobs = isOwner ? buildCronjobRows(total.life) : undefined;
+  return {
+    scoped: !isOwner,
+    agents: agentRows,
+    rooms: sortedBuckets.map((r) => ({
+      id: r.id,
+      name: r.name,
+      deleted: r.deleted,
+      session: r.sess,
+      lifetime: r.life,
+    })),
+    ...(cronjobs ? { cronjobs } : {}),
+    total: { session: total.sess, lifetime: total.life },
+  };
 }
 
-// Owner-only section: per-cron job lifetime spend, plus the roll-up of that
-// spend into the report's lifetime total. Mutates both `lines` and `totalLife`.
-function renderCronjobSection(lines: string[], totalLife: UsageBucket): void {
+// Owner-only rows plus their roll-up into the report's lifetime total.
+function buildCronjobRows(totalLife: UsageBucket): CronjobUsageWire[] {
   const liveCronjobs = listCronjobs();
   const liveCronjobIds = new Set(liveCronjobs.map((c) => c.id));
   const cronjobHistory = loadCronjobHistory();
-  type CronjobBucket = {
-    id: string;
-    name: string;
-    deleted: boolean;
-    life: UsageBucket;
-  };
-  const cronjobBuckets: CronjobBucket[] = [];
+  const cronjobBuckets: CronjobUsageWire[] = [];
   for (const job of liveCronjobs) {
     const u = readCronjobLifetimeUsage(job.id);
     cronjobBuckets.push({
       id: job.id,
       name: job.name,
       deleted: false,
-      life: {
+      lifetime: {
         totalIn: u.totalIn,
         cacheRead: u.cacheRead,
         cacheCreation: u.cacheCreation,
@@ -406,7 +345,7 @@ function renderCronjobSection(lines: string[], totalLife: UsageBucket): void {
       id,
       name: cronjobHistory[id]?.lastName ?? "(unknown cron job)",
       deleted: true,
-      life: {
+      lifetime: {
         totalIn: u.totalIn,
         cacheRead: u.cacheRead,
         cacheCreation: u.cacheCreation,
@@ -418,21 +357,77 @@ function renderCronjobSection(lines: string[], totalLife: UsageBucket): void {
 
   // Roll cronjob spend into the office total so the bottom line is honest.
   const cronjobLifeTotal = emptyBucket();
-  for (const b of cronjobBuckets) addBucket(cronjobLifeTotal, b.life);
+  for (const b of cronjobBuckets) addBucket(cronjobLifeTotal, b.lifetime);
   addBucket(totalLife, cronjobLifeTotal);
+  cronjobBuckets.sort((a, b) => b.lifetime.costUSD - a.lifetime.costUSD);
+  return cronjobBuckets;
+}
 
-  if (cronjobBuckets.length > 0) {
-    cronjobBuckets.sort((a, b) => b.life.costUSD - a.life.costUSD);
-    lines.push("");
-    lines.push(`## Per-cron job usage`);
-    lines.push("");
-    lines.push(`| Cron job | In (life) | Out (life) | $ (life) |`);
-    lines.push(`| --- | ---: | ---: | ---: |`);
-    for (const r of cronjobBuckets) {
+export function renderUsageReport(
+  agents: Map<string, ManagedAgent>,
+  rooms: RoomWire[],
+  audience: UsageAudience,
+): string {
+  const data = buildUsageReportData(agents, rooms, audience);
+  const lines = [
+    `_Subscription plan limits aren't shown here. Open the embedded terminal and run \`claude\` + \`/usage\` or \`codex\` + \`/status\`._`,
+  ];
+  if (data.scoped) {
+    lines.push(
+      "",
+      `_Scoped to the rooms you can access; cron job spend isn't included._`,
+    );
+  }
+  lines.push(
+    "",
+    `## Agent usage`,
+    "",
+    `| Agent | Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
+    `| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |`,
+  );
+  for (const r of data.agents) {
+    lines.push(
+      `| ${r.name} | ${r.roomName} | ${formatInCell(r.session)} | ${formatTokenCount(r.session.totalOut)} | ${formatUsd(r.session.costUSD)} | ${formatInCell(r.lifetime)} | ${formatTokenCount(r.lifetime.totalOut)} | ${formatUsd(r.lifetime.costUSD)} |`,
+    );
+  }
+  lines.push(
+    "",
+    `## Per-room usage`,
+    "",
+    `_Agents contribute to the room they were last in (killed agents included)._`,
+    "",
+    `| Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
+    `| --- | ---: | ---: | ---: | ---: | ---: | ---: |`,
+  );
+  for (const r of data.rooms) {
+    const label = r.deleted ? `${r.name} _(deleted)_` : r.name;
+    lines.push(
+      `| ${label} | ${formatInCell(r.session)} | ${formatTokenCount(r.session.totalOut)} | ${formatUsd(r.session.costUSD)} | ${formatInCell(r.lifetime)} | ${formatTokenCount(r.lifetime.totalOut)} | ${formatUsd(r.lifetime.costUSD)} |`,
+    );
+  }
+  if (data.cronjobs && data.cronjobs.length > 0) {
+    lines.push(
+      "",
+      `## Per-cron job usage`,
+      "",
+      `| Cron job | In (life) | Out (life) | $ (life) |`,
+      `| --- | ---: | ---: | ---: |`,
+    );
+    for (const r of data.cronjobs) {
       const label = r.deleted ? `${r.name} _(deleted)_` : r.name;
       lines.push(
-        `| ${label} | ${formatInCell(r.life)} | ${formatTokenCount(r.life.totalOut)} | ${formatUsd(r.life.costUSD)} |`,
+        `| ${label} | ${formatInCell(r.lifetime)} | ${formatTokenCount(r.lifetime.totalOut)} | ${formatUsd(r.lifetime.costUSD)} |`,
       );
     }
   }
+  const total = data.total;
+  lines.push(
+    "",
+    data.scoped ? `## Total` : `## Office total`,
+    "",
+    `| | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
+    `| --- | ---: | ---: | ---: | ---: | ---: | ---: |`,
+    `| **Total** | ${formatInCell(total.session)} | ${formatTokenCount(total.session.totalOut)} | ${formatUsd(total.session.costUSD)} | ${formatInCell(total.lifetime)} | ${formatTokenCount(total.lifetime.totalOut)} | ${formatUsd(total.lifetime.costUSD)} |`,
+  );
+  return lines.join("\n");
 }

@@ -4,10 +4,13 @@
 import { describe, expect, it } from "bun:test";
 import {
   addFinalized,
+  advanceDictationSession,
   applySpokenPunctuation,
   dictationText,
   joinSpoken,
+  reconcileDictationEdit,
   startDictation,
+  startDictationSession,
   type Dictation,
 } from "./spoken-punctuation.ts";
 
@@ -193,5 +196,125 @@ describe("dictation session", () => {
     expect(replay("typed draft", [], "hello")).toBe("typed draft hello");
     expect(replay("hello", ["question mark"])).toBe("hello?");
     expect(replay("", [])).toBe("");
+  });
+
+  it("does not restore finalized speech deleted while the mic stays open", () => {
+    let session = startDictationSession("");
+    session = advanceDictationSession(session, ["delete this"], "");
+    session = reconcileDictationEdit(session, "");
+    session = advanceDictationSession(session, ["keep this"], "");
+    expect(session.display).toBe("keep this");
+  });
+
+  it("does not lose speech when results arrive before React renders", () => {
+    let session = startDictationSession("");
+    session = advanceDictationSession(session, ["one"], "");
+    session = advanceDictationSession(session, ["two"], "");
+    expect(session.display).toBe("one two");
+  });
+
+  it("maps stable edits without making interim speech permanent", () => {
+    let session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello world"],
+      "foo",
+    );
+    session = reconcileDictationEdit(session, "world foo");
+    expect(session.display).toBe("world");
+    session = advanceDictationSession(session, [], "bar");
+    expect(session.display).toBe("world bar");
+  });
+
+  it("anchors edits that cross from finalized into interim speech", () => {
+    let session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello world"],
+      "foo",
+    );
+    session = reconcileDictationEdit(session, "hello");
+    expect(session.display).toBe("hello");
+    session = advanceDictationSession(session, ["again"], "");
+    expect(session.display).toBe("hello again");
+  });
+
+  it("keeps select-all-delete across an interim revision", () => {
+    let session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello world"],
+      "foo",
+    );
+    session = reconcileDictationEdit(session, "");
+    expect(session.display).toBe("");
+    session = advanceDictationSession(session, ["keep"], "");
+    expect(session.display).toBe("keep");
+  });
+
+  it("drops edits wholly inside recognizer-controlled text", () => {
+    let session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello"],
+      "world",
+    );
+    session = reconcileDictationEdit(session, "hello worx");
+    expect(session.display).toBe("hello");
+  });
+
+  it("preserves a pure append after recognizer-controlled text", () => {
+    let session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello world"],
+      "foo",
+    );
+    session = reconcileDictationEdit(session, "hello world foo!");
+    expect(session.display).toBe("hello world!");
+
+    session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello world"],
+      "foo",
+    );
+    session = reconcileDictationEdit(session, "hello world foox");
+    expect(session.display).toBe("hello world x");
+
+    session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello world"],
+      "foo",
+    );
+    session = reconcileDictationEdit(session, "hello world foo and more");
+    expect(session.display).toBe("hello world and more");
+  });
+
+  it("treats backspace inside interim text as dropping the interim", () => {
+    let session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello"],
+      "world",
+    );
+    session = reconcileDictationEdit(session, "hello worl");
+    expect(session.display).toBe("hello");
+  });
+
+  it("handles interim punctuation that rewrites finalized text", () => {
+    let session = advanceDictationSession(
+      startDictationSession(""),
+      ["question"],
+      "mark",
+    );
+    expect(session.display).toBe("?");
+    session = reconcileDictationEdit(session, "");
+    expect(session.display).toBe("");
+  });
+
+  it("uses each reconciled draft as the base for the next edit", () => {
+    let session = advanceDictationSession(
+      startDictationSession(""),
+      ["hello"],
+      "world",
+    );
+    session = reconcileDictationEdit(session, "hello cite world");
+    session = reconcileDictationEdit(session, "/help ");
+    session = advanceDictationSession(session, ["now"], "");
+    expect(session.display).toBe("/help now");
   });
 });

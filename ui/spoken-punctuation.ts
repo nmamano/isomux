@@ -151,3 +151,86 @@ export function dictationText(d: Dictation, interimRaw: string): string {
   );
   return joinSpoken(d.base, spoken);
 }
+
+// State held by LogView while one SpeechRecognition session is open. `display`
+// is the exact draft produced by the last transition, including any revisable
+// interim result. Keeping it beside the finalized fragments lets a composer
+// edit be reconciled synchronously, at the edit's source, without depending on
+// React committing the previous draft first.
+export type DictationSession = {
+  dictation: Dictation;
+  display: string;
+};
+
+export function startDictationSession(base: string): DictationSession {
+  return { dictation: startDictation(base), display: base };
+}
+
+export function advanceDictationSession(
+  session: DictationSession,
+  finalized: readonly string[],
+  interimRaw: string,
+): DictationSession {
+  let dictation = session.dictation;
+  for (const transcript of finalized) {
+    dictation = addFinalized(dictation, transcript);
+  }
+  return {
+    dictation,
+    display: dictationText(dictation, interimRaw),
+  };
+}
+
+function commonPrefixLength(a: string, b: string): number {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i;
+}
+
+function commonSuffixLength(a: string, b: string, prefix: number): number {
+  let i = 0;
+  const limit = Math.min(a.length, b.length) - prefix;
+  while (i < limit && a[a.length - 1 - i] === b[b.length - 1 - i]) {
+    i++;
+  }
+  return i;
+}
+
+/**
+ * Record a non-STT composer change while dictation remains open.
+ *
+ * Only offsets inside the common prefix of the finalized display and the last
+ * STT display are stable. An edit wholly inside that prefix transfers exactly;
+ * an edit that starts there and reaches into recognizer-controlled text keeps
+ * its stable start and removes the finalized tail. An edit wholly beyond the
+ * prefix is discarded because the recognizer is free to revise that region.
+ * Every case drops the pending interim result and makes the returned draft the
+ * reference display for the next edit.
+ */
+export function reconcileDictationEdit(
+  session: DictationSession,
+  nextDraft: string,
+): DictationSession {
+  const displayed = session.display;
+  if (displayed === nextDraft) return session;
+
+  const finalized = dictationText(session.dictation, "");
+  const stablePrefix = commonPrefixLength(finalized, displayed);
+  const start = commonPrefixLength(displayed, nextDraft);
+  const suffix = commonSuffixLength(displayed, nextDraft, start);
+  const end = displayed.length - suffix;
+  const inserted = nextDraft.slice(start, nextDraft.length - suffix);
+
+  let rebased = finalized;
+  if (end <= stablePrefix) {
+    rebased = finalized.slice(0, start) + inserted + finalized.slice(end);
+  } else if (start <= stablePrefix) {
+    rebased = finalized.slice(0, start) + inserted;
+  } else if (start === displayed.length && end === displayed.length) {
+    // A pure append has an unambiguous home even beyond the stable prefix.
+    // Preserve it after finalized speech; joinSpoken supplies word spacing but
+    // still hugs punctuation. In-place edits remain recognizer-controlled.
+    rebased = joinSpoken(finalized, inserted);
+  }
+  return startDictationSession(rebased);
+}

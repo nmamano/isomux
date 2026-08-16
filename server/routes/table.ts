@@ -126,6 +126,7 @@ import type {
   UserSelfWire,
   UserAdminWire,
   StorageUsageWire,
+  UsageReportWire,
   StoragePruneReq,
   StoragePruneRes,
   BackupStatusWire,
@@ -1242,6 +1243,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "storage.usage",
     method: "GET",
     path: "/api/storage/usage",
+    auth: cap("office:read", authenticated),
+    emits: [],
+  }),
+  // Structured counterpart to /isomux-usage. The handler derives the audience
+  // from the authenticated caller; no query or body field can widen it.
+  defineRoute<void, UsageReportWire>({
+    opId: "usage.read",
+    method: "GET",
+    path: "/api/usage",
     auth: cap("office:read", authenticated),
     emits: [],
   }),

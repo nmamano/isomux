@@ -814,6 +814,52 @@ export interface StorageUsageWire {
   agents: AgentStorageWire[];
 }
 
+// --- Token usage -----------------------------------------------------------
+
+export interface UsageBucketWire {
+  totalIn: number;
+  cacheRead: number;
+  cacheCreation: number;
+  totalOut: number;
+  costUSD: number;
+}
+
+export interface AgentUsageWire {
+  id: string;
+  name: string;
+  roomId: string;
+  roomName: string;
+  session: UsageBucketWire;
+  lifetime: UsageBucketWire;
+}
+
+export interface RoomUsageWire {
+  id: string;
+  name: string;
+  deleted: boolean;
+  session: UsageBucketWire;
+  lifetime: UsageBucketWire;
+}
+
+export interface CronjobUsageWire {
+  id: string;
+  name: string;
+  deleted: boolean;
+  lifetime: UsageBucketWire;
+}
+
+export interface UsageReportWire {
+  scoped: boolean;
+  agents: AgentUsageWire[];
+  rooms: RoomUsageWire[];
+  // Cron jobs have no room projection, so this field exists only for owners.
+  cronjobs?: CronjobUsageWire[];
+  total: {
+    session: UsageBucketWire;
+    lifetime: UsageBucketWire;
+  };
+}
+
 export type PruneTarget = "transcripts" | "attachments";
 
 export interface PrunePolicy {

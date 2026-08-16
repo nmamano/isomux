@@ -407,6 +407,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Storage (task 2366ccb0). usage reads like backupStatus (office:read, agents
   // included - it is a size report); prune deletes, so office:admin + owner.
   "storage.usage": { caps: ["office:read"], emits: [] },
+  "usage.read": { caps: ["office:read"], emits: [] },
   "storage.prune": { caps: ["office:admin"], emits: [] },
   // Memory (isomux-memory)
   "memory.read": { caps: ["memory:read"], emits: [] },

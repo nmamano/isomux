@@ -112,7 +112,11 @@ import {
   discoverBundledSkills,
   deduplicateSkills,
 } from "./skills.ts";
-import { findUsageAtFork } from "./usage-report.ts";
+import {
+  buildUsageReportData,
+  findUsageAtFork,
+  type UsageAudience,
+} from "./usage-report.ts";
 import {
   openTerminal as openTerminalImpl,
   getTerminalBuffer as getTerminalBufferImpl,
@@ -1045,6 +1049,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       queue: [...a.messageQueue],
       pendingPrompt: pendingPromptOf(a),
     }));
+  }
+
+  function getUsageReportData(audience: UsageAudience) {
+    return buildUsageReportData(agents, officeState.rooms, audience);
   }
 
   // Shared entry builder for the on-disk manifest (agents-summary.json) and
@@ -7828,6 +7836,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     renameRoom,
     moveAgent,
     getAllAgents,
+    getUsageReportData,
     getManifest,
     pendingPrompt,
     getKilledAgentSummaries,

@@ -25,11 +25,13 @@ import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 import {
+  buildUsageReportData,
   renderUsageReport,
   usageAudienceForUser,
   type UsageAudience,
 } from "../usage-report.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { CronjobManager } from "../cronjob-manager.ts";
 import type { ManagedAgent } from "../internal-types.ts";
 import type { RoomWire, UserRecord } from "../../shared/types.ts";
@@ -243,6 +245,21 @@ describe("renderUsageReport room scoping", () => {
   });
 });
 
+describe("buildUsageReportData parity", () => {
+  it("includes accessible killed-agent lifetime spend without exposing an agent row", () => {
+    const data = buildUsageReportData(seedOffice(), ROOMS, {
+      kind: "member",
+      roomIds: new Set([ROOM_B]),
+    });
+    expect(data.agents.map((a) => a.name)).toEqual(["Beta"]);
+    expect(data.rooms.map((r) => r.name)).toEqual(["Room B"]);
+    expect(data.rooms[0].session.costUSD).toBe(2);
+    expect(data.rooms[0].lifetime.costUSD).toBe(6);
+    expect(data.total.lifetime.costUSD).toBe(6);
+    expect(data.cronjobs).toBeUndefined();
+  });
+});
+
 // The direct-call tests above pin the report; this one pins the WIRING - that
 // the /isomux-usage handler resolves the AUTHENTICATED CALLER to an audience.
 // A regression that dropped the caller (e.g. always passing the owner audience)
@@ -328,5 +345,135 @@ describe("/isomux-usage end to end (caller -> audience)", () => {
     expect(ownerReport).toContain("Beta");
     expect(ownerReport).toContain("## Office total");
     expect(ownerReport).not.toContain("Scoped to the rooms you can access");
+  });
+});
+
+describe("GET /api/usage caller scoping", () => {
+  let server: TestServer | null = null;
+
+  afterEach(async () => {
+    await server?.stop();
+    server = null;
+  });
+
+  it("returns the shared owner and member projections", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    await srv.http(`/api/users/${encodeURIComponent(member.username)}/access`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowedRooms: [roomB] }),
+      rawSessionId: owner.rawSessionId,
+    });
+    await srv.agentManager.spawn(
+      "Alpha",
+      srv.stateRoot,
+      "default",
+      0,
+      undefined,
+      roomA,
+    );
+    await srv.agentManager.spawn(
+      "Beta",
+      srv.stateRoot,
+      "default",
+      1,
+      undefined,
+      roomB,
+    );
+
+    const memberRes = await srv.http("/api/usage", {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(memberRes.status).toBe(200);
+    const memberBody = (await memberRes.json()) as {
+      scoped: boolean;
+      agents: { name: string; roomId: string }[];
+      rooms: { id: string }[];
+      cronjobs?: unknown;
+    };
+    expect(memberBody.scoped).toBe(true);
+    expect(memberBody.agents.map((a) => a.name)).toEqual(["Beta"]);
+    expect(memberBody.agents.every((a) => a.roomId === roomB)).toBe(true);
+    expect(memberBody.rooms.map((r) => r.id)).toEqual([roomB]);
+    expect(memberBody.cronjobs).toBeUndefined();
+
+    const ownerRes = await srv.http("/api/usage", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(ownerRes.status).toBe(200);
+    const ownerBody = (await ownerRes.json()) as {
+      scoped: boolean;
+      agents: { name: string }[];
+      rooms: { id: string }[];
+      cronjobs: unknown[];
+    };
+    expect(ownerBody.scoped).toBe(false);
+    expect(ownerBody.agents.map((a) => a.name).sort()).toEqual([
+      "Alpha",
+      "Beta",
+    ]);
+    expect(ownerBody.rooms.map((r) => r.id).sort()).toEqual(
+      [roomA, roomB].sort(),
+    );
+    expect(Array.isArray(ownerBody.cronjobs)).toBe(true);
+
+    const plain = await srv.agentManager.spawn(
+      "Plain",
+      srv.stateRoot,
+      "default",
+      2,
+      undefined,
+      roomB,
+      undefined,
+      undefined,
+      undefined,
+      member.username,
+      "claude",
+    );
+    const privileged = await srv.agentManager.spawn(
+      "Privileged",
+      srv.stateRoot,
+      "default",
+      3,
+      undefined,
+      roomB,
+      undefined,
+      undefined,
+      undefined,
+      member.username,
+      "claude",
+    );
+    if (!plain || !privileged) throw new Error("agent spawn failed");
+
+    const plainRes = await srv.http("/api/usage", {
+      headers: { Authorization: `Bearer ${getAgentTokenRaw(plain.id)!}` },
+    });
+    expect(plainRes.status).toBe(403);
+
+    await srv.agentManager.setPrivileged(privileged.id, true);
+    const privilegedRes = await srv.http("/api/usage", {
+      headers: {
+        Authorization: `Bearer ${getAgentTokenRaw(privileged.id)!}`,
+      },
+    });
+    expect(privilegedRes.status).toBe(200);
+    const privilegedBody = (await privilegedRes.json()) as {
+      scoped: boolean;
+      agents: { name: string; roomId: string }[];
+      rooms: { id: string }[];
+      cronjobs?: unknown;
+    };
+    expect(privilegedBody.scoped).toBe(true);
+    expect(privilegedBody.agents.some((a) => a.name === "Alpha")).toBe(false);
+    expect(privilegedBody.agents.every((a) => a.roomId === roomB)).toBe(true);
+    expect(privilegedBody.rooms.map((r) => r.id)).toEqual([roomB]);
+    expect(privilegedBody.cronjobs).toBeUndefined();
+
+    expect((await srv.http("/api/usage")).status).toBe(401);
   });
 });

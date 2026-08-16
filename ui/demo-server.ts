@@ -1063,6 +1063,70 @@ export async function demoApi(
     // PUT below ignore it.
     case "GET /api/office/settings":
       return { ...state.office, version: "demo-version" };
+    case "GET /api/usage":
+      return {
+        scoped: false,
+        agents: [
+          {
+            id: "demo-claude",
+            name: "Claude",
+            roomId: state.rooms[0]?.id ?? "demo-room",
+            roomName: state.rooms[0]?.name ?? "Main",
+            session: {
+              totalIn: 18400,
+              cacheRead: 15000,
+              cacheCreation: 1200,
+              totalOut: 2300,
+              costUSD: 0.84,
+            },
+            lifetime: {
+              totalIn: 93000,
+              cacheRead: 78000,
+              cacheCreation: 6000,
+              totalOut: 12400,
+              costUSD: 4.62,
+            },
+          },
+        ],
+        rooms: [
+          {
+            id: state.rooms[0]?.id ?? "demo-room",
+            name: state.rooms[0]?.name ?? "Main",
+            deleted: false,
+            session: {
+              totalIn: 18400,
+              cacheRead: 15000,
+              cacheCreation: 1200,
+              totalOut: 2300,
+              costUSD: 0.84,
+            },
+            lifetime: {
+              totalIn: 93000,
+              cacheRead: 78000,
+              cacheCreation: 6000,
+              totalOut: 12400,
+              costUSD: 4.62,
+            },
+          },
+        ],
+        cronjobs: [],
+        total: {
+          session: {
+            totalIn: 18400,
+            cacheRead: 15000,
+            cacheCreation: 1200,
+            totalOut: 2300,
+            costUSD: 0.84,
+          },
+          lifetime: {
+            totalIn: 93000,
+            cacheRead: 78000,
+            cacheCreation: 6000,
+            totalOut: 12400,
+            costUSD: 4.62,
+          },
+        },
+      };
     // office.setSettings - set + broadcast office_settings_updated; no body
     // (204-like). Mirrors the retired update_office_settings handleCommand:
     // name === undefined preserves the current name (a stale tab), else it sets

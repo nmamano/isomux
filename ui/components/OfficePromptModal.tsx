@@ -16,6 +16,7 @@ import {
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
 import { StorageModal } from "./StorageModal.tsx";
+import { UsageModal } from "./UsageModal.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -48,6 +49,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   // disabled; the store values paint first purely as placeholders.
   const [settingsVersion, setSettingsVersion] = useState<string | null>(null);
   const [storageOpen, setStorageOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -166,7 +168,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   // and stands down while an expanded editor is open, which collapses instead
   // (this capture listener runs before the overlay's own).
   useEffect(() => {
-    if (storageOpen) return;
+    if (storageOpen || usageOpen) return;
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape" && !isExpandedEditorOpen()) {
         e.stopPropagation();
@@ -175,7 +177,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onClose, storageOpen]);
+  }, [onClose, storageOpen, usageOpen]);
 
   // Exactly ONE dialog layer is live at a time. The storage panel REPLACES this
   // one rather than stacking on it: two overlays means two backdrops, two
@@ -183,6 +185,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   // mounted throughout, so unsaved edits in the fields below survive a trip
   // through storage and back.
   if (storageOpen) return <StorageModal onBack={() => setStorageOpen(false)} />;
+  if (usageOpen) return <UsageModal onBack={() => setUsageOpen(false)} />;
 
   return (
     <div
@@ -379,6 +382,33 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             </p>
           </>
         )}
+
+        <label
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--text-muted)",
+            marginTop: 14,
+            marginBottom: 5,
+          }}
+        >
+          Usage{" "}
+          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+            (tokens and estimated cost)
+          </span>
+        </label>
+        <button
+          onClick={() => setUsageOpen(true)}
+          style={{
+            ...cancelBtnStyle,
+            width: "100%",
+            textAlign: "left",
+            padding: "9px 12px",
+          }}
+        >
+          Open usage…
+        </button>
 
         {/* Storage is owner-only, matching the server: POST /api/storage/prune
             is gated on officeOwner, and GET /api/storage/usage strips the

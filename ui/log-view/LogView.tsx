@@ -27,10 +27,10 @@ import { ghostBodyBottomOffset } from "../office/Ghost.tsx";
 import { MiniGhostCluster } from "../office/MiniGhostCluster.tsx";
 import { send } from "../ws.ts";
 import {
-  addFinalized,
-  dictationText,
+  advanceDictationSession,
   joinSpoken,
-  startDictation,
+  reconcileDictationEdit,
+  startDictationSession,
 } from "../spoken-punctuation.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
@@ -627,8 +627,13 @@ export function LogView({
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
   inputRef.current = input;
-  const setInput = (text: string) =>
+  function setInput(text: string) {
+    if (isListeningRef.current) {
+      dictationRef.current = reconcileDictationEdit(dictationRef.current, text);
+      text = dictationRef.current.display;
+    }
     dispatch({ type: "set_draft", agentId: agent.id, text });
+  }
   const [autoScroll, setAutoScroll] = useState(true);
   // Slide Mode view toggle - per device, per agent. LogView can stay mounted
   // across an agent switch, so re-read the pref when agent.id changes using the
@@ -1407,13 +1412,13 @@ export function LogView({
     window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
   // The draft text before voice started + every finalized speech segment since.
-  const dictationRef = useRef(startDictation(""));
+  const dictationRef = useRef(startDictationSession(""));
 
   function startListening() {
     if (isListeningRef.current || !SpeechRecognition) return;
     isListeningRef.current = true;
     setIsListening(true);
-    dictationRef.current = startDictation(inputRef.current);
+    dictationRef.current = startDictationSession(inputRef.current);
     const recognition = new SpeechRecognition();
     recognition.continuous = true;
     recognition.interimResults = true;
@@ -1424,20 +1429,24 @@ export function LogView({
     recognition.lang = speechLocale;
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       let interimRaw = "";
+      const finalized: string[] = [];
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          // Fold each finalized segment in individually so that multiple finals
-          // arriving in one event can't concatenate into a run-together blob.
-          dictationRef.current = addFinalized(dictationRef.current, t);
+          finalized.push(t);
         } else {
           interimRaw = joinSpoken(interimRaw, t);
         }
       }
+      dictationRef.current = advanceDictationSession(
+        dictationRef.current,
+        finalized,
+        interimRaw,
+      );
       dispatch({
         type: "set_draft",
         agentId: agent.id,
-        text: dictationText(dictationRef.current, interimRaw),
+        text: dictationRef.current.display,
       });
       requestAnimationFrame(() => {
         const el = textareaRef.current;
