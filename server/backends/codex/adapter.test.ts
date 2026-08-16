@@ -751,6 +751,166 @@ describe("CodexSession misc notifications", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Subagent visibility (task 245ce74c). Child threads surface their TOOL
+// activity tagged with a SubagentOrigin; everything else from a child stays
+// dropped, and parent turn bookkeeping never sees child traffic.
+// ---------------------------------------------------------------------------
+describe("CodexSession subagent visibility (task 245ce74c)", () => {
+  it("spawnAgent collab call renders as a tool card and the child's commands surface with a subagent origin", async () => {
+    const { fake, it } = await bootstrapped();
+    fireItem(fake, {
+      type: "collabAgentToolCall",
+      id: "collab-1",
+      tool: "spawnAgent",
+      status: "completed",
+      senderThreadId: FIXTURE_THREAD_ID,
+      receiverThreadIds: ["child-1"],
+      prompt: "Investigate the flaky test",
+      model: "gpt-5.3-codex",
+      reasoningEffort: null,
+      agentsStates: { "child-1": { status: "running", message: null } },
+    });
+    const call = expectKind(
+      await nextEvent(it, "collab tool_call"),
+      "tool_call",
+    );
+    expect(call.toolUseId).toBe("collab-1");
+    expect(call.name).toBe("spawnAgent");
+    expect(call.input).toEqual({
+      prompt: "Investigate the flaky test",
+      model: "gpt-5.3-codex",
+      threadIds: ["child-1"],
+    });
+    expect(call.subagent).toBeUndefined();
+    const result = expectKind(
+      await nextEvent(it, "collab tool_result"),
+      "tool_result",
+    );
+    expect(result.content).toBe("status: completed\nchild-1: running");
+    expect(result.isError).toBe(false);
+
+    // The child's own command execution surfaces, tagged with the origin.
+    fireItem(
+      fake,
+      {
+        type: "commandExecution",
+        id: "cmd-1",
+        command: "bun test",
+        cwd: "/work",
+        aggregatedOutput: "ok",
+        exitCode: 0,
+        durationMs: 5,
+      },
+      "child-1",
+    );
+    const childCall = expectKind(
+      await nextEvent(it, "child tool_call"),
+      "tool_call",
+    );
+    expect(childCall.name).toBe("Bash");
+    expect(childCall.subagent).toEqual({
+      parentToolUseId: "collab-1",
+      type: "gpt-5.3-codex",
+      description: "Investigate the flaky test",
+    });
+    const childResult = expectKind(
+      await nextEvent(it, "child tool_result"),
+      "tool_result",
+    );
+    expect(childResult.subagent?.parentToolUseId).toBe("collab-1");
+  });
+
+  it("a child's prose, compaction, and turn lifecycle stay internal", async () => {
+    const { fake, it } = await bootstrapped();
+    fireItem(fake, {
+      type: "collabAgentToolCall",
+      id: "collab-2",
+      tool: "spawnAgent",
+      status: "completed",
+      senderThreadId: FIXTURE_THREAD_ID,
+      receiverThreadIds: ["child-9"],
+      prompt: "p",
+      model: null,
+      agentsStates: {},
+    });
+    expectKind(await nextEvent(it, "collab tool_call"), "tool_call");
+    expectKind(await nextEvent(it, "collab tool_result"), "tool_result");
+
+    // None of these may reach the stream: a child's prose/reasoning, its
+    // contextCompaction (would emit a parent-scoped `compacted`), or its
+    // turn/completed (would resolve the parent's turn).
+    fireItem(fake, { type: "agentMessage", text: "child prose" }, "child-9");
+    fireItem(fake, { type: "contextCompaction", id: "cc-1" }, "child-9");
+    fake.fireNotification("turn/completed", {
+      threadId: "child-9",
+      turn: { status: "completed", error: null },
+    });
+    fireItem(fake, { type: "agentMessage", text: "parent speaks" });
+    const ev = expectKind(
+      await nextEvent(it, "assistant_text"),
+      "assistant_text",
+    );
+    expect(ev.text).toBe("parent speaks");
+  });
+
+  it("thread/started with our parentThreadId registers the child; nickname labels the origin", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireNotification("thread/started", {
+      thread: {
+        id: "child-3",
+        parentThreadId: FIXTURE_THREAD_ID,
+        agentNickname: "reviewer",
+        agentRole: null,
+        preview: "review the diff",
+      },
+    });
+    fireItem(
+      fake,
+      {
+        type: "fileChange",
+        id: "fc-1",
+        changes: [{ path: "a.ts", kind: "modify" }],
+        status: "completed",
+      },
+      "child-3",
+    );
+    const call = expectKind(
+      await nextEvent(it, "child tool_call"),
+      "tool_call",
+    );
+    expect(call.name).toBe("Edit");
+    expect(call.subagent).toEqual({
+      parentToolUseId: "child-3",
+      type: "reviewer",
+      description: "review the diff",
+    });
+  });
+
+  it("a thread/started for someone else's child is not registered", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireNotification("thread/started", {
+      thread: {
+        id: "stranger-child",
+        parentThreadId: "not-our-thread",
+        agentNickname: "x",
+        preview: "y",
+      },
+    });
+    fireItem(
+      fake,
+      { type: "commandExecution", id: "cmd-2", command: "ls" },
+      "stranger-child",
+    );
+    fireItem(fake, { type: "agentMessage", text: "ours" });
+    const ev = expectKind(
+      await nextEvent(it, "assistant_text"),
+      "assistant_text",
+    );
+    expect(ev.text).toBe("ours");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Approvals (server-initiated requests). Response enums differ between the
 // legacy exec/patch methods and the v2 item/* methods, so cover one of each.
 // ---------------------------------------------------------------------------
@@ -1594,6 +1754,29 @@ describe("CodexSession auth coalescing", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Stderr surfacing. Codex's rust tracing colors its log lines; the persisted
+// system_text must be plain text or the escapes reach the chat as literal
+// bytes (task ebe1bc1e).
+// ---------------------------------------------------------------------------
+describe("CodexSession stderr surfacing", () => {
+  it("strips ANSI escape codes and keeps the [codex stderr] prefix", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireStderr(
+      "\x1b[2m2026-08-13T01:31:30.815540Z\x1b[0m \x1b[31mERROR\x1b[0m " +
+        "\x1b[2mcodex_core::tools::router\x1b[0m\x1b[2m:\x1b[0m " +
+        "\x1b[3merror\x1b[0m\x1b[2m=\x1b[0mexec_command failed\n",
+    );
+    const ev = expectKind(
+      await nextEvent(it, "stderr system_text"),
+      "system_text",
+    );
+    expect(ev.text).toBe(
+      "[codex stderr] 2026-08-13T01:31:30.815540Z ERROR codex_core::tools::router: error=exec_command failed",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Subprocess death mid-turn synthesizes a failed turn_completed (invariant: the
 // orchestrator's pendingTurn must always unblock).
 // ---------------------------------------------------------------------------
@@ -1792,7 +1975,7 @@ describe("codex subscription usage", () => {
     expect(out).toEqual({
       kind: "usage",
       usage: {
-        plan: "plus",
+        plan: "Plus",
         windows: [
           { label: "Weekly", usedPercent: 34.5, resetsAtMs: null },
           { label: "5-hour", usedPercent: 80, resetsAtMs: null },
@@ -1811,13 +1994,30 @@ describe("codex subscription usage", () => {
     expect(out).toEqual({
       kind: "usage",
       usage: {
-        plan: "plus",
+        plan: "Plus",
         windows: [
           { label: "Weekly", usedPercent: 100, resetsAtMs: null },
           { label: "5-hour", usedPercent: 0, resetsAtMs: null },
         ],
       },
     });
+  });
+
+  it("maps wire plan slugs to ChatGPT display names, unknown slugs verbatim (task bf1d2573)", () => {
+    const planOf = (planType: string) => {
+      const out = normalizeCodexSubscriptionUsage(snapshot({ planType }));
+      if (out.kind !== "usage") throw new Error(out.kind);
+      return out.usage.plan;
+    };
+    // "pro" is the $200 Pro Max tier (observed live 2026-08-16); "prolite"
+    // is the $100 Pro Codex tier. Verbatim slugs read as the wrong plan.
+    expect(planOf("pro")).toBe("Pro Max");
+    expect(planOf("prolite")).toBe("Pro Codex");
+    expect(planOf("plus")).toBe("Plus");
+    // A slug this table doesn't know survives untouched.
+    expect(planOf("self_serve_business_usage_based")).toBe(
+      "self_serve_business_usage_based",
+    );
   });
 
   it("separates 'nothing to report' from 'nothing asked yet'", () => {
@@ -1837,7 +2037,7 @@ describe("codex subscription usage", () => {
       rateLimits: snapshot(),
     });
     const usage = await usageOf(session);
-    expect(usage.plan).toBe("plus");
+    expect(usage.plan).toBe("Plus");
     expect(usage.windows[0]).toEqual({
       label: "Weekly",
       usedPercent: 34.5,
@@ -1864,7 +2064,7 @@ describe("codex subscription usage", () => {
       }),
     });
     const usage = await usageOf(session);
-    expect(usage.plan).toBe("plus");
+    expect(usage.plan).toBe("Plus");
     expect(usage.windows.map((w) => w.usedPercent)).toEqual([41, 80]);
   });
 
@@ -1921,7 +2121,7 @@ describe("codex subscription usage", () => {
       rateLimitResetCredits: null,
     };
     const { session } = await bootstrapped(fake);
-    expect((await usageOf(session)).plan).toBe("pro");
+    expect((await usageOf(session)).plan).toBe("Pro Max");
     // Cached now: a second call is served locally.
     await session.getSubscriptionUsage();
     expect(
@@ -2012,7 +2212,7 @@ describe("codex subscription usage", () => {
       resetsAtMs: 1785000000000,
     });
     // Plan came from the baseline too - the push left it null.
-    expect(usage.plan).toBe("plus");
+    expect(usage.plan).toBe("Plus");
   });
 
   it("files a keyed read entry under its MAP key, not its nullable limitId", async () => {
@@ -2064,7 +2264,7 @@ describe("codex subscription usage", () => {
       }),
     });
     const usage = await usageOf(session);
-    expect(usage.plan).toBe("plus");
+    expect(usage.plan).toBe("Plus");
     expect(usage.windows[0]).toEqual({
       label: "Weekly",
       usedPercent: 47,

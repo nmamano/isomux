@@ -17,6 +17,9 @@
 //   2. Per-thread filtering. Every codex notification with a threadId is
 //      filtered against this session's threadId. Sub-agent / review-mode
 //      child threads have their own ids and must never resolve our turn.
+//      One deliberate carve-out (task 245ce74c): a KNOWN child thread's
+//      item/completed surfaces as subagent tool activity - display only,
+//      never turn bookkeeping.
 //
 //   3. experimentalApi: true at initialize. We generated schemas with
 //      --experimental, so missing this flag would silently strip experimental
@@ -33,6 +36,7 @@ import {
 import { mimeTypeForFilename } from "../../mime-types.ts";
 import { markdownInlineCode } from "../../../shared/format-human.ts";
 import { errMessage } from "../../../shared/errors.ts";
+import type { SubagentOrigin } from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
 
 import type {
@@ -403,6 +407,23 @@ export function mergeRateLimitSnapshots(
   };
 }
 
+// OpenAI's wire slugs vs the ChatGPT plan names users know (task bf1d2573:
+// a Pro Max account reports planType "pro", which the pill showed verbatim
+// and read as a different tier). "pro" -> "Pro Max" observed live against a
+// Pro Max account 2026-08-16; "prolite" -> "Pro Codex" (the $100 tier)
+// follows the same wire naming. An unknown slug passes through verbatim.
+const CODEX_PLAN_DISPLAY_NAMES: Record<string, string> = {
+  free: "Free",
+  go: "Go",
+  plus: "Plus",
+  prolite: "Pro Codex",
+  pro: "Pro Max",
+  team: "Team",
+  business: "Business",
+  enterprise: "Enterprise",
+  edu: "Edu",
+};
+
 // RateLimitSnapshot -> isomux's backend-agnostic reading. Exported for tests.
 // Windows come back in DISPLAY order, longest first (the plan-shaped one
 // leads); which of them the pill's number comes from is the orchestrator's
@@ -440,10 +461,34 @@ export function normalizeCodexSubscriptionUsage(
   return {
     kind: "usage",
     usage: {
-      plan: snapshot.planType ?? null,
+      plan: snapshot.planType
+        ? (CODEX_PLAN_DISPLAY_NAMES[snapshot.planType] ?? snapshot.planType)
+        : null,
       windows: scored.map((s) => s.window),
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Subagent (child-thread) visibility - task 245ce74c
+// ---------------------------------------------------------------------------
+
+// Which child-thread items surface in the parent's transcript. Tool activity
+// only, matching Claude subagents: a child's agentMessage/reasoning stays
+// internal, and parent-scoped markers (contextCompaction -> `compacted`)
+// must never fire from a child.
+const SUBAGENT_VISIBLE_ITEMS = new Set([
+  "commandExecution",
+  "fileChange",
+  "mcpToolCall",
+  "webSearch",
+]);
+
+// One bounded line for SubagentOrigin labels (same 200-char cap as the
+// Claude backend's sanitizeTaskLabel - the UI pill ellipsizes, but the
+// metadata is persisted per entry).
+function subagentLabel(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 200);
 }
 
 // ---------------------------------------------------------------------------
@@ -608,6 +653,15 @@ export class CodexSession implements BackendSession {
   // re-reads (which sum across turns) as live context usage. Null until the
   // first notification arrives (typically right after the first turn).
   private modelContextWindow: number | null = null;
+  // Child (subagent / review-mode) threads spawned by this thread, keyed by
+  // child thread id (task 245ce74c). Registered from thread/started
+  // (parentThreadId === ours), collabAgentToolCall spawns (richest info,
+  // overwrites), and subAgentActivity items (set-if-absent). Consulted by
+  // the notification filter so a known child's item/completed can surface
+  // as subagent tool activity; the value is the SubagentOrigin stamped on
+  // those entries. Lives and dies with this session instance, like the
+  // thread itself.
+  private childThreads = new Map<string, SubagentOrigin>();
   // Latest known subscription rate limits for the signed-in ChatGPT account,
   // keyed by metered limitId (see codexLimitKey). Fed by
   // `account/rateLimits/updated` notifications and, until one arrives, a
@@ -1255,6 +1309,16 @@ export class CodexSession implements BackendSession {
       this.threadId &&
       eventThreadId !== this.threadId
     ) {
+      // Carve-out (task 245ce74c): a KNOWN child thread's completed items
+      // surface as subagent tool activity. Everything else from foreign
+      // threads - turn lifecycle, token usage, deltas - stays dropped, so
+      // parent turn bookkeeping is untouched.
+      if (n.method === "item/completed") {
+        const origin = this.childThreads.get(eventThreadId as string);
+        if (origin && params?.item) {
+          this.translateCompletedItem(params.item, origin);
+        }
+      }
       return;
     }
 
@@ -1404,6 +1468,43 @@ export class CodexSession implements BackendSession {
         break;
       }
 
+      // ---- Child-thread tracking (task 245ce74c) ----
+      // ThreadStartedNotification is { thread } with NO top-level threadId,
+      // so it reaches this switch even when it announces a child thread. A
+      // thread whose parentThreadId is ours is a subagent (or review-mode)
+      // thread: register it so its tool items surface with a subagent
+      // origin. Our own thread (parentThreadId null) falls through.
+      case "thread/started": {
+        const thread = params?.thread as
+          | {
+              id?: string;
+              parentThreadId?: string | null;
+              agentNickname?: string | null;
+              agentRole?: string | null;
+              preview?: string;
+            }
+          | null
+          | undefined;
+        if (
+          thread?.id &&
+          thread.parentThreadId &&
+          thread.parentThreadId === this.threadId &&
+          !this.childThreads.has(thread.id)
+        ) {
+          const type = thread.agentNickname ?? thread.agentRole ?? undefined;
+          const preview =
+            typeof thread.preview === "string" && thread.preview.trim()
+              ? subagentLabel(thread.preview)
+              : undefined;
+          this.childThreads.set(thread.id, {
+            parentToolUseId: thread.id,
+            ...(type ? { type } : {}),
+            ...(preview ? { description: preview } : {}),
+          });
+        }
+        break;
+      }
+
       // ---- Item lifecycle ----
       case "item/started":
         // Carries the full ThreadItem but we wait for completion.
@@ -1524,11 +1625,17 @@ export class CodexSession implements BackendSession {
     }
   }
 
-  private translateCompletedItem(rawItem: unknown): void {
+  private translateCompletedItem(
+    rawItem: unknown,
+    subagent?: SubagentOrigin,
+  ): void {
     // ThreadItem union is too broad (~20 variants) to model exactly here.
     // Cast to a loose Record so per-branch field reads stay typed without
     // committing to the generated schema.
     const item = rawItem as Record<string, unknown>;
+    // `subagent` set = this item came from a child thread (task 245ce74c).
+    // Only tool activity surfaces from there - see SUBAGENT_VISIBLE_ITEMS.
+    if (subagent && !SUBAGENT_VISIBLE_ITEMS.has(item?.type as string)) return;
     switch (item?.type) {
       case "agentMessage": {
         const text = item.text as string | undefined;
@@ -1558,6 +1665,7 @@ export class CodexSession implements BackendSession {
           toolUseId,
           name: "Bash",
           input: cwd ? { command, cwd } : { command },
+          ...(subagent ? { subagent } : {}),
         });
         const content =
           (aggregatedOutput ?? "") +
@@ -1568,6 +1676,7 @@ export class CodexSession implements BackendSession {
           content,
           durationMs: durationMs ?? undefined,
           isError: exitCode != null && exitCode !== 0,
+          ...(subagent ? { subagent } : {}),
         });
         break;
       }
@@ -1583,6 +1692,7 @@ export class CodexSession implements BackendSession {
           toolUseId,
           name: "Edit",
           input: { changes },
+          ...(subagent ? { subagent } : {}),
         });
         this.enqueue({
           kind: "tool_result",
@@ -1590,6 +1700,7 @@ export class CodexSession implements BackendSession {
           content: `${summary}\n\nstatus: ${status ?? "unknown"}`,
           isError:
             status != null && status !== "completed" && status !== "applied",
+          ...(subagent ? { subagent } : {}),
         });
         break;
       }
@@ -1603,6 +1714,7 @@ export class CodexSession implements BackendSession {
           toolUseId,
           name: `mcp__${server}__${tool}`,
           input: (item.arguments ?? {}) as Record<string, unknown>,
+          ...(subagent ? { subagent } : {}),
         });
         const result = item.result;
         const error = item.error;
@@ -1615,6 +1727,7 @@ export class CodexSession implements BackendSession {
           content,
           durationMs: durationMs ?? undefined,
           isError: !!error,
+          ...(subagent ? { subagent } : {}),
         });
         break;
       }
@@ -1627,12 +1740,14 @@ export class CodexSession implements BackendSession {
           toolUseId,
           name: "WebSearch",
           input: query ? { query } : {},
+          ...(subagent ? { subagent } : {}),
         });
         this.enqueue({
           kind: "tool_result",
           toolUseId,
           content: actionSummary,
           isError: false,
+          ...(subagent ? { subagent } : {}),
         });
         break;
       }
@@ -1688,8 +1803,89 @@ export class CodexSession implements BackendSession {
       case "contextCompaction":
         this.enqueue({ kind: "compacted" });
         break;
-      // userMessage, hookPrompt, dynamicToolCall, collabAgentToolCall,
-      // enteredReviewMode, exitedReviewMode: ignored at v1.
+      // The parent's collab tool call (spawnAgent / sendInput / resumeAgent /
+      // wait / closeAgent) - the codex counterpart of Claude's Task card
+      // (task 245ce74c). Rendered as a normal tool card under the codex tool
+      // name, and a spawn's receiver threads are registered as children so
+      // their own tool items surface.
+      case "collabAgentToolCall": {
+        const toolUseId = item.id as string;
+        const tool = typeof item.tool === "string" ? item.tool : "collabAgent";
+        const status = item.status as string | undefined;
+        const prompt = typeof item.prompt === "string" ? item.prompt : null;
+        const model = typeof item.model === "string" ? item.model : null;
+        const receivers = Array.isArray(item.receiverThreadIds)
+          ? (item.receiverThreadIds as string[])
+          : [];
+        if (tool === "spawnAgent") {
+          for (const childId of receivers) {
+            if (typeof childId !== "string" || !childId) continue;
+            // Merge with any earlier thread/started registration: keep its
+            // nickname/role as the type (beats a model slug as the pill
+            // label), take the spawn's prompt as the description.
+            const prev = this.childThreads.get(childId);
+            const type = prev?.type ?? model ?? undefined;
+            const description = prompt
+              ? subagentLabel(prompt)
+              : prev?.description;
+            this.childThreads.set(childId, {
+              parentToolUseId: toolUseId,
+              ...(type ? { type } : {}),
+              ...(description ? { description } : {}),
+            });
+          }
+        }
+        this.enqueue({
+          kind: "tool_call",
+          toolUseId,
+          name: tool,
+          input: {
+            ...(prompt ? { prompt } : {}),
+            ...(model ? { model } : {}),
+            ...(receivers.length ? { threadIds: receivers } : {}),
+          },
+        });
+        const states = item.agentsStates as
+          | Record<
+              string,
+              { status?: string; message?: string | null } | undefined
+            >
+          | null
+          | undefined;
+        const stateLines = states
+          ? Object.entries(states).map(
+              ([tid, st]) =>
+                `${tid}: ${st?.status ?? "?"}${st?.message ? ` - ${st.message}` : ""}`,
+            )
+          : [];
+        this.enqueue({
+          kind: "tool_result",
+          toolUseId,
+          content: [`status: ${status ?? "unknown"}`, ...stateLines].join("\n"),
+          isError: status === "failed",
+        });
+        break;
+      }
+      // Subagent lifecycle markers on the parent thread. No card of their
+      // own (the collab card + the child's surfaced tool items carry the
+      // visibility), but they name the child thread id - so they double as
+      // a registration path for spawns with no collab call (e.g. agent-file
+      // thread spawns). Set-if-absent: never clobber richer labels.
+      case "subAgentActivity": {
+        const childId =
+          typeof item.agentThreadId === "string" ? item.agentThreadId : null;
+        if (childId && !this.childThreads.has(childId)) {
+          const path = typeof item.agentPath === "string" ? item.agentPath : "";
+          const name = path ? basename(path).replace(/\.[^.]*$/, "") : "";
+          this.childThreads.set(childId, {
+            parentToolUseId: (item.id as string) || childId,
+            ...(name ? { type: name } : {}),
+          });
+        }
+        break;
+      }
+      // userMessage, hookPrompt, dynamicToolCall, sleep, enteredReviewMode,
+      // exitedReviewMode: ignored at v1.
       default:
         break;
     }
@@ -1866,9 +2062,12 @@ export class CodexSession implements BackendSession {
 
   private handleStderr(chunk: string): void {
     // Codex stderr is opaque process output. Route to the agent log as
-    // system_text so the boss has visibility. Trim trailing newlines and
-    // skip pure whitespace.
-    const text = chunk.trimEnd();
+    // system_text so the boss has visibility. Codex's rust tracing colors
+    // its log lines, so strip ANSI CSI sequences - the escapes would be
+    // persisted verbatim and reach the chat as literal bytes (task
+    // ebe1bc1e). Then trim trailing newlines and skip pure whitespace.
+    // eslint-disable-next-line no-control-regex -- ESC is the point here
+    const text = chunk.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").trimEnd();
     if (!text) return;
     // Drop known-benign startup notices. Codex logs these at ERROR level
     // but they're informational: the bubblewrap line is a "here's how our

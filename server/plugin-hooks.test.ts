@@ -135,16 +135,20 @@ describe("stripOutboundEnvelope", () => {
 // Context-fullness notice logic (task 50392514)
 // ---------------------------------------------------------------------------
 
-function snap(percentage: number): ContextUsageSnapshot {
+function snap(percentage: number, maxTokens = 200000): ContextUsageSnapshot {
   return {
     model: "claude-x",
-    totalTokens: Math.round((percentage / 100) * 200000),
-    maxTokens: 200000,
+    totalTokens: Math.round((percentage / 100) * maxTokens),
+    maxTokens,
     percentage,
     sampledAtMs: 0,
     source: "turn_completed",
   };
 }
+
+// A window large enough for every band, including the size-gated 50 one
+// (task 73a23f7c: bands with minWindowTokens skip smaller windows).
+const LARGE_WINDOW = 1_000_000;
 
 // The functions under test only read contextUsage + firedAgentThresholds; a
 // minimal shim keeps the test from constructing a whole ManagedAgent.
@@ -164,26 +168,55 @@ describe("pickContextThreshold", () => {
   });
 
   it("returns null below the lowest threshold", () => {
-    expect(pickContextThreshold(fakeManaged(snap(49.9)))).toBeNull();
+    expect(
+      pickContextThreshold(fakeManaged(snap(49.9, LARGE_WINDOW))),
+    ).toBeNull();
   });
 
-  it("returns 50 in the 50–74 band", () => {
-    expect(pickContextThreshold(fakeManaged(snap(50)))).toBe(50);
-    expect(pickContextThreshold(fakeManaged(snap(74.9)))).toBe(50);
+  it("returns 50 in the 50–74 band on a large window", () => {
+    expect(pickContextThreshold(fakeManaged(snap(50, LARGE_WINDOW)))).toBe(50);
+    expect(pickContextThreshold(fakeManaged(snap(74.9, LARGE_WINDOW)))).toBe(
+      50,
+    );
   });
 
   it("returns the HIGHEST newly-reached band when a first sample clears several", () => {
     // Lands at 90% with nothing fired yet - only the 75 notice should emit.
-    expect(pickContextThreshold(fakeManaged(snap(90)))).toBe(75);
+    expect(pickContextThreshold(fakeManaged(snap(90, LARGE_WINDOW)))).toBe(75);
   });
 
   it("returns 75 once 50 has already fired", () => {
-    expect(pickContextThreshold(fakeManaged(snap(90), [50]))).toBe(75);
+    expect(
+      pickContextThreshold(fakeManaged(snap(90, LARGE_WINDOW), [50])),
+    ).toBe(75);
   });
 
   it("returns null once every reached band has fired", () => {
-    expect(pickContextThreshold(fakeManaged(snap(90), [50, 75]))).toBeNull();
-    expect(pickContextThreshold(fakeManaged(snap(70), [50]))).toBeNull();
+    expect(
+      pickContextThreshold(fakeManaged(snap(90, LARGE_WINDOW), [50, 75])),
+    ).toBeNull();
+    expect(
+      pickContextThreshold(fakeManaged(snap(70, LARGE_WINDOW), [50])),
+    ).toBeNull();
+  });
+
+  // Task 73a23f7c: the 50 band is size-gated - a small window (e.g. Codex's
+  // ~250k, Sonnet's 200k) skips the early warning but keeps the 75 wrap-up.
+  describe("small windows skip the size-gated 50 band", () => {
+    it("returns null in the 50–74 band on a small window", () => {
+      expect(pickContextThreshold(fakeManaged(snap(55, 250_000)))).toBeNull();
+      expect(pickContextThreshold(fakeManaged(snap(74.9, 250_000)))).toBeNull();
+    });
+
+    it("still returns 75 on a small window", () => {
+      expect(pickContextThreshold(fakeManaged(snap(75, 250_000)))).toBe(75);
+      expect(pickContextThreshold(fakeManaged(snap(90, 250_000)))).toBe(75);
+    });
+
+    it("applies the gate at exactly minWindowTokens (inclusive)", () => {
+      expect(pickContextThreshold(fakeManaged(snap(55, 500_000)))).toBe(50);
+      expect(pickContextThreshold(fakeManaged(snap(55, 499_999)))).toBeNull();
+    });
   });
 });
 

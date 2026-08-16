@@ -76,14 +76,18 @@ function diRooms(...ids: string[]): RoomWire[] {
   }));
 }
 
-function usage(percentage: number): ContextUsage {
+function usage(percentage: number, maxTokens = 100_000): ContextUsage {
   return {
     model: "fake-model",
-    totalTokens: percentage * 1000,
-    maxTokens: 100_000,
+    totalTokens: Math.round((percentage / 100) * maxTokens),
+    maxTokens,
     percentage,
   };
 }
+
+// Wide enough for every notice band, including the size-gated 50 one (task
+// 73a23f7c: CONTEXT_NOTICE_BANDS minWindowTokens skips small windows).
+const WIDE_WINDOW = 1_000_000;
 
 // A FakeBackend whose sessions auto-complete each turn and report `ctx` from
 // getContextUsage (static value, function, or omitted for the null default).
@@ -678,7 +682,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({
         session: {
-          contextUsage: () => Promise.resolve(usage(pct)),
+          contextUsage: () => Promise.resolve(usage(pct, WIDE_WINDOW)),
           onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
         },
       }),
@@ -706,7 +710,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     const turn2 = lastSent();
     expect(turn2.startsWith("--- begin isomux: context-check ---")).toBe(true);
     expect(turn2).toContain(
-      "[context check: 68% full - 68,000 / 100,000 tokens. Budget accordingly.]",
+      "[context check: 68% full - 680,000 / 1,000,000 tokens. Budget accordingly.]",
     );
     const unwrapped2 = stripOutboundEnvelope(turn2);
     expect(unwrapped2).not.toContain("---");
@@ -730,13 +734,15 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     await runTurn(srv, agent.id, "five");
     const turn5 = lastSent();
     expect(turn5).toContain(
-      "[context check: 90% full - 90,000 / 100,000 tokens.",
+      "[context check: 90% full - 900,000 / 1,000,000 tokens.",
     );
     expect(turn5).toContain("Wrap up:");
   });
 
   it("resets the fired-notice set on /clear so the 50% notice can fire again", async () => {
-    const srv = await startTestServer({ fakeBackend: backendWith(usage(70)) });
+    const srv = await startTestServer({
+      fakeBackend: backendWith(usage(70, WIDE_WINDOW)),
+    });
     server = srv;
     await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0];
@@ -774,7 +780,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({
         session: {
-          contextUsage: () => Promise.resolve(usage(70)),
+          contextUsage: () => Promise.resolve(usage(70, WIDE_WINDOW)),
           manualSend: true,
         },
       }),
@@ -838,6 +844,42 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     await waitUntil(() => s2.sent.length === 2, WAIT_MS, "turn4 parked");
     expect(s2.sent[1].text).toContain("[context check: 70% full");
     s2.releaseSends();
+  });
+
+  it("skips the size-gated 50 notice on a small window but still injects the 75 wrap-up (task 73a23f7c)", async () => {
+    let pct = 68;
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({
+        session: {
+          contextUsage: () => Promise.resolve(usage(pct, 250_000)),
+          onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+        },
+      }),
+    });
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const sess = () => srv.fakeBackend.sessionForAgent(agent.id)!;
+    const lastSent = () => sess().sent[sess().sent.length - 1].text;
+
+    // Turn 1 commits 68%; on a wide window turn 2 would carry the 50 notice,
+    // but a 250k window is under that band's minWindowTokens.
+    await runTurn(srv, agent.id, "one");
+    let r = await getContext(srv, agent.id, { bearer: token });
+    expect(r.body).toMatchObject({ available: true, percentage: 68 });
+    await runTurn(srv, agent.id, "two");
+    expect(lastSent()).not.toContain("context check");
+
+    // The 75 wrap-up band applies at any window size.
+    pct = 90;
+    await runTurn(srv, agent.id, "three");
+    r = await getContext(srv, agent.id, { bearer: token });
+    expect(r.body).toMatchObject({ available: true, percentage: 90 });
+    await runTurn(srv, agent.id, "four");
+    expect(lastSent()).toContain("[context check: 90% full");
+    expect(lastSent()).toContain("Wrap up:");
   });
 });
 
@@ -1036,7 +1078,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
     let pct = 30;
     const fake = new FakeBackend({
       session: {
-        contextUsage: () => Promise.resolve(usage(pct)),
+        contextUsage: () => Promise.resolve(usage(pct, WIDE_WINDOW)),
         onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
       },
     });
@@ -1115,7 +1157,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
 
   it("a first sample already past both bands emits only the HIGHEST band's line", async () => {
     let pct = 87;
-    const fake = backendWith(() => Promise.resolve(usage(pct)));
+    const fake = backendWith(() => Promise.resolve(usage(pct, WIDE_WINDOW)));
     const mgr = makeManager(fake);
     const info = await diSpawn(mgr);
     try {
@@ -1144,8 +1186,39 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
     }
   });
 
+  it("skips the size-gated 50 band on a small window but still emits the 75 line (task 73a23f7c)", async () => {
+    let pct = 55;
+    const fake = backendWith(() => Promise.resolve(usage(pct, 250_000)));
+    const mgr = makeManager(fake);
+    const info = await diSpawn(mgr);
+    try {
+      // 55% on a 250k window: under the 50 band's minWindowTokens, no line.
+      await diRunTurn(mgr, info.id, "one");
+      await waitUntil(
+        () => mgr.getAgent(info.id)?.contextUsage?.percentage === 55,
+        WAIT_MS,
+        "55% committed",
+      );
+      expect(uiNotices(mgr, info.id)).toHaveLength(0);
+
+      // The 75 wrap-up band applies at any window size.
+      pct = 87;
+      await diRunTurn(mgr, info.id, "two");
+      await waitUntil(
+        () => uiNotices(mgr, info.id).length === 1,
+        WAIT_MS,
+        "75-band notice",
+      );
+      expect(uiNotices(mgr, info.id)[0].content).toBe(
+        "Context is 87% full." + NOTICE_SUFFIX,
+      );
+    } finally {
+      for (const s of fake.sessions) s.close();
+    }
+  });
+
   it("is a separate audience from the agent-facing injected notice: both fire for the same crossing", async () => {
-    const fake = backendWith(usage(68));
+    const fake = backendWith(usage(68, WIDE_WINDOW));
     const mgr = makeManager(fake);
     const info = await diSpawn(mgr);
     try {
@@ -1172,7 +1245,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
   });
 
   it("resets with the conversation generation: /clear lets the band fire again", async () => {
-    const fake = backendWith(usage(60));
+    const fake = backendWith(usage(60, WIDE_WINDOW));
     const mgr = makeManager(fake);
     const info = await diSpawn(mgr);
     try {

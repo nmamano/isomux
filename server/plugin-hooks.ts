@@ -455,12 +455,21 @@ export function stripOutboundEnvelope(text: string): string {
 // A notice delayed by one turn beats delaying every send.
 const CONTEXT_NOTICE_SAMPLE_WAIT_MS = 500;
 
-// Fullness thresholds (raw percentage), ascending. Once each per conversation
+// Fullness bands (raw percentage), ascending. Once each per conversation
 // generation, per audience: the agent-facing injected notice here, and the
 // boss-facing ephemeral chat line (agent-manager's maybeEmitUiContextNotice)
 // share the SAME bands but separate fired-sets. Kept in step with the UI color
 // bands in the design doc §3 (50 = orange/plan-around-it, 75 = red/wrap-up).
-export const CONTEXT_NOTICE_THRESHOLDS = [50, 75] as const;
+//
+// minWindowTokens gates a band on the REPORTED window size: the 50 band is an
+// early budget warning that on a small window (e.g. Codex's ~250k) fires
+// within a few turns of normal work and reads as noise, while the 75 wrap-up
+// band stays useful at any size (task 73a23f7c). Keyed on maxTokens, not the
+// backend, so it self-adjusts if window sizes change.
+export const CONTEXT_NOTICE_BANDS = [
+  { pct: 50, minWindowTokens: 500_000 },
+  { pct: 75, minWindowTokens: 0 },
+] as const;
 
 export function formatContextNotice(
   threshold: number,
@@ -529,15 +538,20 @@ export function formatMemoryNotice(
 }
 
 /** The highest fullness threshold newly reached (percentage >= threshold) but
- *  not yet fired this generation, or null. Pure read - never mutates the fired
- *  set. Uses the raw float percentage, never a rounded display value. */
+ *  not yet fired this generation, or null. Bands whose minWindowTokens exceeds
+ *  the reported window are skipped. Pure read - never mutates the fired set.
+ *  Uses the raw float percentage, never a rounded display value. */
 export function pickContextThreshold(managed: ManagedAgent): number | null {
   const snap = managed.contextUsage;
   if (!snap) return null;
   let chosen: number | null = null;
-  for (const t of CONTEXT_NOTICE_THRESHOLDS) {
-    if (snap.percentage >= t && !managed.firedAgentThresholds.has(t))
-      chosen = t;
+  for (const band of CONTEXT_NOTICE_BANDS) {
+    if (snap.maxTokens < band.minWindowTokens) continue;
+    if (
+      snap.percentage >= band.pct &&
+      !managed.firedAgentThresholds.has(band.pct)
+    )
+      chosen = band.pct;
   }
   return chosen;
 }
@@ -582,8 +596,8 @@ export function markContextThresholdFired(
   managed: ManagedAgent,
   threshold: number,
 ): void {
-  for (const t of CONTEXT_NOTICE_THRESHOLDS) {
-    if (t <= threshold) managed.firedAgentThresholds.add(t);
+  for (const band of CONTEXT_NOTICE_BANDS) {
+    if (band.pct <= threshold) managed.firedAgentThresholds.add(band.pct);
   }
 }
 

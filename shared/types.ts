@@ -560,16 +560,18 @@ export interface TerminalCommandPayload {
 }
 
 // Which loop a tool call came from, when it was NOT the agent's own. A
-// subagent (Claude's Agent/Task tool) runs its own tool calls, and the SDK
-// forwards them on the same stream as the parent's - so an unmarked transcript
-// reads as one flat run with no way to tell who made a call. Rides as
-// `metadata.subagent` on tool_call / tool_result entries and is simply absent
-// on the agent's own calls, on Codex, and on entries written before it existed.
+// subagent (Claude's Agent/Task tool, Codex's collab child threads) runs its
+// own tool calls on the same stream as the parent's - so an unmarked
+// transcript reads as one flat run with no way to tell who made a call. Rides
+// as `metadata.subagent` on tool_call / tool_result entries and is simply
+// absent on the agent's own calls and on entries written before it existed.
 //
-// `parentToolUseId` is the id of the Agent/Task call that spawned the
-// subagent - the join back to the parent card. `type` and `description` are
-// the SDK's labels for the subagent and its assignment (model-authored free
-// text, sanitized to one capped line by the backend); older SDKs omit both.
+// `parentToolUseId` is the id of the call that spawned the subagent (Claude:
+// the Agent/Task tool_use id; Codex: the spawning collabAgentToolCall id, or
+// the child thread id when no spawn call was seen) - the join back to the
+// parent card. `type` and `description` are the backend's labels for the
+// subagent and its assignment (model-authored free text, sanitized to one
+// capped line by the backend); older SDKs omit both.
 export interface SubagentOrigin {
   parentToolUseId: string;
   type?: string;

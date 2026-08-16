@@ -47,8 +47,8 @@ function EditIcon() {
 
 /**
  * Subagent origin of a tool_call / tool_result row, when the agent's SUBAGENT
- * made the call rather than the agent itself. Written by the Claude backend
- * (see SubagentOrigin); absent on the agent's own calls and on older entries.
+ * made the call rather than the agent itself. Written by both backends (see
+ * SubagentOrigin); absent on the agent's own calls and on older entries.
  */
 function subagentOf(entry: LogEntry): SubagentOrigin | undefined {
   const origin = entry.metadata?.subagent as SubagentOrigin | undefined;
@@ -56,9 +56,10 @@ function subagentOf(entry: LogEntry): SubagentOrigin | undefined {
 }
 
 /**
- * Marks a card as a subagent's work. Claude's Agent tool runs its own tool
- * calls and the SDK forwards them on the parent's stream, so without this the
- * subagent's Bash/Read run reads as the agent's own.
+ * Marks a card as a subagent's work. A subagent (Claude's Agent/Task tool, or
+ * a Codex collab child thread) runs its own tool calls surfaced on the
+ * parent's stream, so without this the subagent's Bash/Read run reads as the
+ * agent's own.
  */
 function SubagentPill({
   origin,
@@ -525,6 +526,12 @@ export const LogEntryCard = memo(function LogEntryCard({
             isMobile={isMobile}
           />
         );
+      }
+      // Subprocess stderr surfaced by a backend adapter (Codex prefixes it
+      // "[codex stderr]"). Multiline SystemMessage renders through Markdown
+      // and reads as agent prose - stderr needs a log block (task ebe1bc1e).
+      if (entry.content.startsWith("[codex stderr]")) {
+        return <StderrBlock content={entry.content} isMobile={isMobile} />;
       }
       return <SystemMessage content={entry.content} isMobile={isMobile} />;
     }
@@ -1371,6 +1378,41 @@ function ErrorBlock({
     >
       {content}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
+    </div>
+  );
+}
+
+// Raw subprocess stderr (system entries prefixed "[codex stderr]"): a dim
+// monospace log block, never Markdown (task ebe1bc1e). Entries persisted
+// before the server-side ANSI stripping still carry escape codes, so they
+// are stripped here too.
+function StderrBlock({
+  content,
+  isMobile,
+}: {
+  content: string;
+  isMobile?: boolean;
+}) {
+  // eslint-disable-next-line no-control-regex -- ESC is the point here
+  const clean = content.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+  return (
+    <div
+      style={{
+        margin: "8px 0",
+        padding: "10px 14px",
+        borderRadius: 8,
+        background: "var(--bg-code)",
+        borderLeft: "3px solid var(--border)",
+        color: "var(--text-dim)",
+        fontSize: isMobile ? 13 : 12,
+        fontFamily: "'JetBrains Mono',monospace",
+        lineHeight: 1.5,
+        whiteSpace: "pre-wrap",
+        overflowWrap: "break-word",
+        wordBreak: "break-word",
+      }}
+    >
+      {clean}
     </div>
   );
 }

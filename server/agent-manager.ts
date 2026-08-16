@@ -184,7 +184,7 @@ import {
   configurePluginHooks,
   runAgentTurn,
   stripOutboundEnvelope,
-  CONTEXT_NOTICE_THRESHOLDS,
+  CONTEXT_NOTICE_BANDS,
   formatMemoryNotice,
 } from "./plugin-hooks.ts";
 import { stripAttachmentNotices } from "./attachment-prompt.ts";
@@ -2655,12 +2655,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const snap = managed.contextUsage;
     if (!snap) return;
     let chosen: number | null = null;
-    for (const t of CONTEXT_NOTICE_THRESHOLDS) {
-      if (snap.percentage >= t && !managed.firedUiThresholds.has(t)) chosen = t;
+    for (const band of CONTEXT_NOTICE_BANDS) {
+      if (snap.maxTokens < band.minWindowTokens) continue;
+      if (
+        snap.percentage >= band.pct &&
+        !managed.firedUiThresholds.has(band.pct)
+      )
+        chosen = band.pct;
     }
     if (chosen === null) return;
-    for (const t of CONTEXT_NOTICE_THRESHOLDS) {
-      if (t <= chosen) managed.firedUiThresholds.add(t);
+    for (const band of CONTEXT_NOTICE_BANDS) {
+      if (band.pct <= chosen) managed.firedUiThresholds.add(band.pct);
     }
     const pct = Math.round(snap.percentage);
     // Same copy at every band (Nil's wording, 2026-07-18); the band machinery
@@ -3133,8 +3138,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           managed.toolCallTimestamps.set(ev.toolUseId, Date.now());
         }
         // metadata.subagent marks a call the agent's SUBAGENT made rather than
-        // the agent itself. Absent for the agent's own calls, for Codex, and
-        // for every entry written before this field existed.
+        // the agent itself - set by both backends (Claude: Agent/Task tool;
+        // Codex: collab child threads, task 245ce74c). Absent for the agent's
+        // own calls and for every entry written before this field existed.
         addLogEntry(agentId, "tool_call", ev.name, {
           toolId: ev.toolUseId,
           input: ev.input,
