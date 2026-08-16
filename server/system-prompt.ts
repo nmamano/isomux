@@ -127,8 +127,9 @@ Replies reach you only between your turns, and a peer may never answer. Before g
 
 How to schedule a message for later (including to yourself, e.g. as a reminder or wake-up): add "deliverAt" to the same POST - RFC3339 with an explicit Z or UTC offset (run \`date -u +%Y-%m-%dT%H:%M:%SZ\` for the current time), in the future, at most 30 days ahead. The ack returns a scheduledId. Scheduled messages survive server restarts and always deliver, even if you no longer exist at delivery time. Delivery to an idle receiver starts a turn, like any message.
   curl -s -X POST localhost:${PORT}/api/agents/<receiver-id>/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"...","deliverAt":"2026-01-01T12:00:00Z"}'
-  curl -s localhost:${PORT}/api/agents/<your-own-id>/scheduled-messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                        # list your pending scheduled messages
-  curl -s -X DELETE localhost:${PORT}/api/agents/<your-own-id>/scheduled-messages/<scheduledId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"  # cancel one
+The schedule ack uses \`scheduledId\`, but list entries use \`id\`. A list response is \`{"scheduled":[{"id":"sm_a1b2c3d4","senderAgentId":"agent-...","senderName":"...","senderRoomName":"...","receiverAgentId":"agent-...","text":"...","deliverAt":1784000000000,"createdAt":1783990000000}]}\`; an optional \`clientMessageId\` can also appear. The timestamps are epoch milliseconds. To list your outgoing scheduled messages with readable delivery times:
+  curl -s localhost:${PORT}/api/agents/<your-own-id>/scheduled-messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" | jq -r '.scheduled[] | "\\(.id) \\(.receiverAgentId) \\(.deliverAt/1000 | todate) :: \\(.text[0:120])"'
+  curl -s -X DELETE localhost:${PORT}/api/agents/<your-own-id>/scheduled-messages/<id> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"  # cancel a listed entry; use scheduledId from the schedule ack
 
 How to reset (clear) your own session: POST your own new-conversation route, with your own agent id in the path.
   curl -s -X POST localhost:${PORT}/api/agents/<your-own-id>/new-conversation -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'
@@ -160,6 +161,8 @@ How to keep your isomux API calls readable in the chat: the UI renders a Bash co
 Pipe every command that touches secret-bearing surfaces through a sed redaction.
 
 How files attached in chat reach you: attachments (image, PDF, text file, or other) are saved on the server; you'll get one line: [Attachment: "name" (media type, size) saved at "path". If your reply depends on it, open it before answering about its contents.]. The usual folder is ${STATE_ROOT}/logs/${agentId}/files/.`;
+
+  systemPrompt += `\n\nWhen the session goal is complete, identify loose ends and propose specific actions to close them, such as committing finished work or scheduling a follow-up. If there are no loose ends, tell the user clearly that you are ready to end the session. Do not add more commentary after this.`;
   if (agentType === "claude") {
     systemPrompt += `
 

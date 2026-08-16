@@ -1209,6 +1209,24 @@ describe("humanizeIsomuxRequest", () => {
     );
   });
 
+  test("scheduled-message management identifies the path agent as the sender", () => {
+    const who = () => "Todoer";
+    expect(
+      humanizeIsomuxRequest(
+        parse("curl -s localhost:4000/api/agents/agent-123/scheduled-messages"),
+        who,
+      ),
+    ).toBe("List Todoer's outgoing scheduled messages");
+    expect(
+      humanizeIsomuxRequest(
+        parse(
+          "curl -s -X DELETE localhost:4000/api/agents/agent-123/scheduled-messages/sm_12345678",
+        ),
+        who,
+      ),
+    ).toBe("Cancel one of Todoer's outgoing scheduled messages");
+  });
+
   test("steer turns send into interrupt, and only when it is true", () => {
     const say = (body: string) =>
       humanizeIsomuxRequest(

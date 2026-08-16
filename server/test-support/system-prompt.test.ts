@@ -327,4 +327,34 @@ describe("buildSystemPrompt - inter-agent messaging copy", () => {
       "Steer every message in a thread you started; in a thread they started, leave it out.",
     );
   });
+
+  // Task 4264e2df: the schedule POST ack and the GET outbox use different id
+  // fields, and the list is wrapped. Pin the worked command that agents copy.
+  it("shows the scheduled-message ack and list shapes side by side", () => {
+    const p = build();
+    expect(p).toContain(
+      "The schedule ack uses `scheduledId`, but list entries use `id`.",
+    );
+    expect(p).toContain('`{"scheduled":[{"id":"sm_a1b2c3d4"');
+    expect(p).toContain("your outgoing scheduled messages");
+    expect(p).toContain(
+      "'.scheduled[] | \"\\(.id) \\(.receiverAgentId) \\(.deliverAt/1000 | todate) :: \\(.text[0:120])\"'",
+    );
+    expect(p).toContain("/scheduled-messages/<id>");
+    expect(p).toContain("use scheduledId from the schedule ack");
+  });
+});
+
+describe("buildSystemPrompt - session hygiene", () => {
+  // Task 99f51f50: a completed session closes loose ends, or ends clearly
+  // without a trailing commentary coda.
+  it("gives one explicit wrap-up path for each loose-end state", () => {
+    const p = build();
+    expect(p).toContain(
+      "identify loose ends and propose specific actions to close them, such as committing finished work or scheduling a follow-up",
+    );
+    expect(p).toContain(
+      "If there are no loose ends, tell the user clearly that you are ready to end the session. Do not add more commentary after this.",
+    );
+  });
 });

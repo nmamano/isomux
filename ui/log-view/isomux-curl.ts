@@ -941,7 +941,7 @@ export function humanizeIsomuxRequest(
             : `Send a message to ${who}`;
         }
         if (sub === "scheduled-messages" && m === "GET")
-          return `List ${who}'s scheduled messages`;
+          return `List ${who}'s outgoing scheduled messages`;
         if (sub === "read-file" && m === "POST") return "Share a file to chat";
         if (sub === "preview-url" && m === "POST")
           return "Screenshot a page to chat";
@@ -977,7 +977,7 @@ export function humanizeIsomuxRequest(
       }
       if (segs.length === 4) {
         if (sub === "scheduled-messages" && m === "DELETE")
-          return `Cancel a scheduled message to ${who}`;
+          return `Cancel one of ${who}'s outgoing scheduled messages`;
         if (sub === "queue" && m === "DELETE")
           return `Cancel a queued message to ${who}`;
         if (sub === "messages" && m === "PATCH")
