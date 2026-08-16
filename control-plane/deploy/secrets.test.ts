@@ -8,9 +8,11 @@
 // rely on that scan for safety.
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   CANARY_NAME,
   CANARY_VALUE,
+  BOOT_REQUIRED_NAMES,
   SECRET_NAMES,
   pushCanary,
   pushSecrets,
@@ -19,6 +21,10 @@ import {
   validatePairs,
 } from "./secrets.ts";
 import { CONTABO_SECRET_NAMES } from "./fly-cli.ts";
+import {
+  CERTIFICATE_SECRET_NAMES,
+  STRIPE_SECRET_NAME,
+} from "./secret-names.ts";
 import type { Spawn, SpawnResult } from "./fly-cli.ts";
 
 const DSN =
@@ -309,6 +315,30 @@ describe("what the allowlist may carry (D4, 2026-08-12)", () => {
 });
 
 describe("the name check", () => {
+  test("the boot verifier requires every provisioner secret family", () => {
+    expect([...BOOT_REQUIRED_NAMES]).toEqual([
+      ...SECRET_NAMES,
+      ...CONTABO_SECRET_NAMES,
+      STRIPE_SECRET_NAME,
+      ...CERTIFICATE_SECRET_NAMES,
+    ]);
+  });
+
+  test("the command's verify arm uses the boot-required set", () => {
+    const source = readFileSync(
+      new URL("./secrets.ts", import.meta.url),
+      "utf8",
+    );
+    const start = source.indexOf('if (mode === "--verify")');
+    const end = source.indexOf("// The credential file is checked HERE");
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const verifyArm = source.slice(start, end);
+    expect(verifyArm).toContain("required: BOOT_REQUIRED_NAMES");
+    expect(verifyArm).toContain("for (const name of BOOT_REQUIRED_NAMES)");
+    expect(verifyArm).not.toContain("required: SECRET_NAMES");
+  });
+
   test("reports presence without ever printing a digest", async () => {
     const rows = SECRET_NAMES.map((n) => ({
       Name: n,
@@ -335,6 +365,25 @@ describe("the name check", () => {
         spawn: fly.spawn,
       }),
     ).toEqual({ present: false, readable: true });
+  });
+
+  test("each missing boot requirement makes the full check false", async () => {
+    for (const missing of BOOT_REQUIRED_NAMES) {
+      const fly = fakeFly({
+        stdout: JSON.stringify(
+          BOOT_REQUIRED_NAMES.filter((name) => name !== missing).map(
+            (Name) => ({ Name }),
+          ),
+        ),
+      });
+      expect(
+        await namesPresent({
+          required: BOOT_REQUIRED_NAMES,
+          flyToken: "t",
+          spawn: fly.spawn,
+        }),
+      ).toEqual({ present: false, readable: true });
+    }
   });
 
   test("an unreadable listing refuses rather than guessing", async () => {

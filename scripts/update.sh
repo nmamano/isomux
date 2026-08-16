@@ -477,7 +477,19 @@ main() {
       PHASE=$failed_phase
       case $failed_phase in
         deps) on_error ;;
-        restart) die "recorded the release tag for $TARGET_TAG, but $SERVICE_NAME could not be restarted; the tag repair was rolled back and the code is unchanged from before this run" ;;
+        restart)
+          # Restore the tag before starting. server/version.ts reads it once at
+          # process start, so the running process must see the same state as the
+          # checkout. Every command is guarded because the ERR trap is gone but
+          # `set -e` is still active, and the final message must always be told.
+          log "the restart did not take; trying once to bring $SERVICE_NAME back up"
+          svc stop "$SERVICE_NAME" || true
+          if svc start "$SERVICE_NAME" && ready_poll "$READY_TIMEOUT_S"; then
+            die "recorded the release tag for $TARGET_TAG, but $SERVICE_NAME did not come back up on the first attempt; the tag repair was rolled back and the code is unchanged from before this run; a second start brought $SERVICE_NAME back up, so the office is serving but is still not recording the release - re-run the update to finish the repair"
+          else
+            die "recorded the release tag for $TARGET_TAG, but $SERVICE_NAME could not be restarted; the tag repair was rolled back and the code is unchanged from before this run, but the office is still down and needs manual attention"
+          fi
+          ;;
         readiness) die "recorded the release tag for $TARGET_TAG and restarted $SERVICE_NAME, but it did not answer within ${READY_TIMEOUT_S}s; the tag repair was rolled back and the code is unchanged from before this run, so look at the service log" ;;
         finalize) die "repaired $TARGET_TAG, but could not record the successful result; the tag repair was rolled back so a retry can finish it" ;;
         *) die "the $TARGET_TAG repair failed during $failed_phase; the tag repair was rolled back so a retry can finish it" ;;

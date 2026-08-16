@@ -40,7 +40,7 @@ import {
   streamSink,
 } from "./fly-cli.ts";
 import { DEPLOY_ARGV } from "./provisioner-role.ts";
-import { SECRET_NAMES } from "./secrets.ts";
+import { BOOT_REQUIRED_NAMES } from "./secrets.ts";
 import { type Seams, moveProvisioner } from "./provisioner-move.ts";
 import { contextRules } from "./build-context.ts";
 import {
@@ -200,7 +200,7 @@ function rig(over: Partial<Options> = {}): Rig {
     stageCode: 0,
     stageEcho: false,
     secretsListCode: 0,
-    secretsList: JSON.stringify(SECRET_NAMES.map((Name) => ({ Name }))),
+    secretsList: JSON.stringify(BOOT_REQUIRED_NAMES.map((Name) => ({ Name }))),
     probeCode: probeTranscript().code,
     probeStdout: probeTranscript().stdout,
     probeThrows: false,
@@ -779,6 +779,17 @@ describe("the stage sets one name, over stdin", () => {
         secretsList: JSON.stringify([{ Name: "CONTROL_PLANE_DB" }]),
       }).seams.fly.secretNamesPresent(),
     ).toBe(false);
+    for (const missing of BOOT_REQUIRED_NAMES) {
+      expect(
+        await rig({
+          secretsList: JSON.stringify(
+            BOOT_REQUIRED_NAMES.filter((name) => name !== missing).map(
+              (Name) => ({ Name }),
+            ),
+          ),
+        }).seams.fly.secretNamesPresent(),
+      ).toBe(false);
+    }
   });
 });
 

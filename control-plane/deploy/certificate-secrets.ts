@@ -2,38 +2,21 @@
 // separate from the database bootstrap and Contabo importer, so using it cannot
 // rotate either credential family as a side effect.
 
-import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { readAllowlistedEnvFile } from "./allowlisted-env-file.ts";
 import { APP, FLY_TOKEN_FILE, readSecretFile, realSpawn } from "./fly-cli.ts";
+import { CERTIFICATE_SECRET_NAMES } from "./secret-names.ts";
 import { namesPresent, pushSecrets } from "./secrets.ts";
 
-export const CERTIFICATE_SECRET_NAMES = [
-  "ISOMUX_CF_ZONE_ID",
-  "ISOMUX_CF_TOKEN",
-  "ISOMUX_ACME_EMAIL",
-] as const;
+export { CERTIFICATE_SECRET_NAMES } from "./secret-names.ts";
 
 function readCertificateFile(file: string): Map<string, string> {
-  const stat = fs.statSync(file);
-  if (!stat.isFile() || (stat.mode & 0o777) !== 0o600) {
-    throw new Error(
-      "the certificate credential file must be a regular 0600 file",
-    );
-  }
-  const values = new Map<string, string>();
-  for (const line of fs.readFileSync(file, "utf8").split(/\r?\n/)) {
-    if (!line) continue;
-    const match = /^([A-Z0-9_]+)='([^'\r\n]+)'$/.exec(line);
-    if (!match || !CERTIFICATE_SECRET_NAMES.includes(match[1] as never)) {
-      throw new Error(
-        "the certificate credential file has an unknown or malformed line",
-      );
-    }
-    if (values.has(match[1]))
-      throw new Error("the certificate credential file repeats a name");
-    values.set(match[1], match[2]);
-  }
+  const values = readAllowlistedEnvFile(
+    file,
+    CERTIFICATE_SECRET_NAMES,
+    "the certificate",
+  );
   if (!/^[0-9a-f]{32}$/.test(values.get("ISOMUX_CF_ZONE_ID") ?? "")) {
     throw new Error("the Cloudflare zone id has the wrong shape");
   }

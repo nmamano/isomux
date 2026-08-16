@@ -102,6 +102,15 @@ updater copy the same way.
    and the banner keeps offering the release it already runs. Written before
    the already-on-target exit, so re-running the updater with the tag a box is
    on repairs a checkout updated before this existed.
+
+   That missing-tag repair restarts the unchanged checkout so the process reads
+   the repaired tag. If its first start fails after the stop succeeds, recovery
+   restores the provisional tag first and then tries one guarded start. The
+   order makes the new process agree with the checkout. Readiness decides
+   whether the office recovered. A failed second start or readiness poll reports
+   that the office is down and needs manual attention. A readiness failure after
+   a successful first start only restores the tag; a retry enters this repair
+   arm again and makes the tag and process agree.
 2b. Then, still before the checkout, install the system dependencies the
    target needs by
    running THAT release's `deploy/install.sh` with `ISOMUX_DEPS_ONLY=1`

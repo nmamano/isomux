@@ -64,7 +64,7 @@ import {
 } from "./fly-cli.ts";
 import {
   DB_SECRET_NAME,
-  SECRET_NAMES,
+  BOOT_REQUIRED_NAMES,
   provenProductionTarget,
   pushSecrets,
   namesPresent,
@@ -840,7 +840,7 @@ export function realSeams(
 
       secretNamesPresent: async () => {
         const answer = await namesPresent({
-          required: SECRET_NAMES,
+          required: BOOT_REQUIRED_NAMES,
           flyToken: p.flyToken(),
           spawn: boundedAsSpawn("secret_names", LIGHT_DEADLINE_MS),
           app: APP,

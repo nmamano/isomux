@@ -1,0 +1,8 @@
+export const CERTIFICATE_SECRET_NAMES = [
+  "ISOMUX_CF_ZONE_ID",
+  "ISOMUX_CF_TOKEN",
+  "ISOMUX_ACME_EMAIL",
+] as const;
+
+export const STRIPE_SECRET_NAME = "STRIPE_TEST_SECRET_KEY";
+export const STRIPE_SECRET_NAMES = [STRIPE_SECRET_NAME] as const;

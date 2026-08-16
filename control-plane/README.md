@@ -16,6 +16,14 @@ Stage and verify only these values with
 `~/.config/isomux/control-plane-certificate.env` as a strict 0600 file and cannot
 touch database, invite-seam, or provider credentials.
 
+The provisioner's Stripe test credential has the same isolated route:
+`bun control-plane/deploy/stripe-secrets.ts` stages it and
+`bun control-plane/deploy/stripe-secrets.ts --verify` checks its name. The
+importer reads `~/.config/isomux/control-plane-stripe.env`, a strict 0600 file
+built from the human-facing `~/nil/secrets/stripe-test.env` source on auntie.
+Do not edit the control-plane copy as an independent key. It accepts only
+`STRIPE_TEST_SECRET_KEY` with a test-mode `sk_test_` or `rk_test_` value.
+
 Automated tests use loopback ACME and DNS fakes. The target validator rejects
 the production CA, Cloudflare API, or production zone in a test process even if
 the caller sets the production opt-in.
@@ -1293,9 +1301,13 @@ bun control-plane/deploy/name-check.ts               # is the app name free?
 bun control-plane/deploy/secrets.ts --canary         # does flyctl echo what it is given?
 bun control-plane/deploy/secrets.ts --unset-canary   # remove that one fixed name
 bun control-plane/deploy/secrets.ts                  # the FIRST-DEPLOY three, over stdin
-bun control-plane/deploy/secrets.ts --verify         # are those three names set?
+bun control-plane/deploy/secrets.ts --verify         # are all boot-required names set?
 bun control-plane/deploy/provider-secrets.ts         # the provider four, over stdin
 bun control-plane/deploy/provider-secrets.ts --verify
+bun control-plane/deploy/stripe-secrets.ts           # the Stripe test key, over stdin
+bun control-plane/deploy/stripe-secrets.ts --verify
+bun control-plane/deploy/certificate-secrets.ts      # the certificate three, over stdin
+bun control-plane/deploy/certificate-secrets.ts --verify
 bun control-plane/deploy/preflight.ts                # may production be armed at all?
 bun control-plane/deploy/activate.ts --plan          # what the arming deploy would run
 bun control-plane/deploy/activate.ts --execute       # the one deploy that arms it
@@ -1341,7 +1353,7 @@ Next.js app into the machine holding the keys. The same test holds the intent of
 those rules, and a build whose reported context is not about 2 MB means they
 stopped working.
 
-### The secrets, which program sets which, and why that is two programs
+### The secrets, which program sets which
 
 `CONTROL_PLANE_DB` (the direct-endpoint DSN), `CONTROL_PLANE_DB_BRANCH` (the
 branch id that DSN must turn out to be) and `CONTROL_PLANE_MINT_TOKEN` (the seam
@@ -1350,6 +1362,13 @@ provider credentials - `CONTABO_CLIENT_ID`, `CONTABO_CLIENT_SECRET`,
 `CONTABO_API_USER`, `CONTABO_API_PASSWORD` - are set by `deploy/provider-secrets.ts`
 and by nothing else. All seven are fly secrets; nothing secret is in `fly.toml`,
 because this repository is public.
+
+The lifecycle loop also requires `STRIPE_TEST_SECRET_KEY`; its dedicated
+importer accepts only a test-mode key. Certificate work requires
+`ISOMUX_CF_ZONE_ID`, `ISOMUX_CF_TOKEN` and `ISOMUX_ACME_EMAIL`; its importer is
+separate too. `deploy/secrets.ts --verify` checks all eleven boot-required names
+in one discarded listing, but the import path in that file remains limited to
+the first-deploy three. Each narrow importer also has its own name check.
 
 **The split is structural, and it is there because the tidy version was a
 live-reachable defect** (2026-08-12). D4 first added the provider names to
@@ -1435,9 +1454,9 @@ secret name in it is one typo away from removing something the machine needs.
 The cleanup has to SUCCEED before the real import runs - a probe left staged on
 the app is a secret nobody meant to keep.
 
-`--verify` answers `required_secret_names_present` from a listing it parses and
-discards, because `flyctl secrets list` prints a digest beside each name and a
-digest is derived from the value.
+`--verify` answers `required_secret_names_present` for the full boot-required
+set from a listing it parses and discards, because `flyctl secrets list` prints
+a digest beside each name and a digest is derived from the value.
 
 ### What the machine proves about itself
 
@@ -1518,8 +1537,10 @@ secrets - which is the opposite operation from this one. What G3 reuses is its
 stdin boundary (`pushSecrets` and `fly-cli.ts`), not its command: the
 coordinator builds the `cp_provisioner` DIRECT DSN in memory and stages that one
 existing secret name. `secrets.ts --verify` is also not acceptance here - it
-proves NAMES are present, not which value is staged or live. What says the
-deployment works is the probe and the engine's own backend count.
+proves every boot-required NAME is present, not which value is staged or live.
+The move coordinator uses that full name set as a guard against replacing a
+machine with one that cannot boot. What says the deployment works is the probe
+and the engine's own backend count.
 
 FOUR PHASES, and the order is the whole procedure:
 

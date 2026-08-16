@@ -12,7 +12,7 @@
 //   bun control-plane/deploy/secrets.ts --canary        what does flyctl echo?
 //   bun control-plane/deploy/secrets.ts --unset-canary  remove that one name
 //   bun control-plane/deploy/secrets.ts                 the real import
-//   bun control-plane/deploy/secrets.ts --verify        are the three names set?
+//   bun control-plane/deploy/secrets.ts --verify        are all boot names set?
 //
 // THE ORDER IS THE PROCEDURE. The canary runs first, with a value that is
 // published in this file, and answers the one question a scanner cannot answer
@@ -39,6 +39,7 @@ import {
 import { BRANCH_PIN_ENV } from "../boot.ts";
 import {
   APP,
+  CONTABO_SECRET_NAMES,
   FLYCTL,
   FLY_TOKEN_FILE,
   MINT_TOKEN_NAME,
@@ -49,6 +50,10 @@ import {
   type Pair,
   type Spawn,
 } from "./fly-cli.ts";
+import {
+  CERTIFICATE_SECRET_NAMES,
+  STRIPE_SECRET_NAME,
+} from "./secret-names.ts";
 
 export type { Pair };
 
@@ -78,6 +83,14 @@ export const SECRET_NAMES = [
   DB_SECRET_NAME,
   BRANCH_PIN_ENV,
   MINT_TOKEN_NAME,
+] as const;
+
+/** Every Fly secret the provisioner needs to boot and complete its work. */
+export const BOOT_REQUIRED_NAMES = [
+  ...SECRET_NAMES,
+  ...CONTABO_SECRET_NAMES,
+  STRIPE_SECRET_NAME,
+  ...CERTIFICATE_SECRET_NAMES,
 ] as const;
 
 /**
@@ -328,13 +341,13 @@ async function main(): Promise<void> {
 
   if (mode === "--verify") {
     const answer = await namesPresent({
-      required: SECRET_NAMES,
+      required: BOOT_REQUIRED_NAMES,
       flyToken,
       spawn: realSpawn,
     });
     console.log(`listing_readable: ${answer.readable}`);
     console.log(`required_secret_names_present: ${answer.present}`);
-    for (const name of SECRET_NAMES) console.log(`  required: ${name}`);
+    for (const name of BOOT_REQUIRED_NAMES) console.log(`  required: ${name}`);
     process.exitCode = answer.present ? 0 : 1;
     return;
   }

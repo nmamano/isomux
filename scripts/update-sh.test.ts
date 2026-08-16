@@ -70,6 +70,7 @@ function buildFixture(opts: {
   tag?: string;
   newFiles?: Record<string, string>;
   readyAfterStarts?: number;
+  failStarts?: number;
   mutateStateOnStart?: boolean;
 }): Fixture {
   const base = mkdtempSync(join(tmpdir(), "isomux-update-test-"));
@@ -123,10 +124,20 @@ function buildFixture(opts: {
 echo "systemctl $*" >> "$STUB_LOG"
 [[ $1 == --user ]] && shift
 case $1 in
-  stop) echo inactive > "$STUB_STATE" ;;
+  stop)
+    echo inactive > "$STUB_STATE"
+    stops=$(grep -c "systemctl.* stop " "$STUB_LOG")
+    if [[ -n \${FAIL_RECOVERY_STOP:-} ]] && ((stops >= 2)); then
+      exit 1
+    fi
+    ;;
   start)
-    echo active > "$STUB_STATE"
     starts=$(grep -c "systemctl.* start " "$STUB_LOG")
+    if [[ -n \${FAIL_STARTS:-} ]] && ((starts <= FAIL_STARTS)); then
+      echo inactive > "$STUB_STATE"
+      exit 1
+    fi
+    echo active > "$STUB_STATE"
     if [[ -n \${READY_AFTER_STARTS:-} ]] && ((starts >= READY_AFTER_STARTS)); then
       touch "$READY_FLAG"
     fi
@@ -197,6 +208,7 @@ READY_TIMEOUT_S=3
     READY_FLAG: readyFlag,
     TEST_STATE_ROOT: stateRoot,
     READY_AFTER_STARTS: String(opts.readyAfterStarts ?? 1),
+    FAIL_STARTS: String(opts.failStarts ?? 0),
   };
   if (opts.mutateStateOnStart) env.MUTATE_STATE_ON_START = "1";
 
@@ -371,6 +383,53 @@ describe("update.sh happy path", () => {
     expect(retry.code).not.toBe(0);
     expect(retry.out).toContain("--- deps");
     expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+  });
+
+  it("a failed first start restores the tag and recovers the office", async () => {
+    fx.env.FAIL_STARTS = "1";
+    // The recovery stop also reports failure. Its guard must keep `set -e`
+    // from skipping the second start and the honest final message.
+    fx.env.FAIL_RECOVERY_STOP = "1";
+    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+
+    const r = await runUpdate(["v2026.7.20"]);
+
+    expect(r.code).not.toBe(0);
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(stubCalls().filter((line) => / start /.test(line))).toHaveLength(2);
+    expect(r.out).toContain("a second start brought isomux back up");
+    expect(r.out).toContain("re-run the update to finish the repair");
+    expect(status().result).toBe("failed");
+  });
+
+  it("reports manual attention when the recovery start also fails", async () => {
+    fx.env.FAIL_STARTS = "2";
+    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+
+    const r = await runUpdate(["v2026.7.20"]);
+
+    expect(r.code).not.toBe(0);
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(stubCalls().filter((line) => / start /.test(line))).toHaveLength(2);
+    expect(r.out).toContain("the office is still down");
+    expect(r.out).toContain("needs manual attention");
+    expect(status().result).toBe("failed");
+  });
+
+  it("does not claim recovery until the office answers", async () => {
+    fx.env.FAIL_STARTS = "1";
+    fx.env.READY_AFTER_STARTS = "3";
+    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+
+    const r = await runUpdate(["v2026.7.20"]);
+
+    expect(r.code).not.toBe(0);
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(stubCalls().filter((line) => / start /.test(line))).toHaveLength(2);
+    expect(r.out).toContain("the office is still down");
+    expect(r.out).toContain("needs manual attention");
+    expect(r.out).not.toContain("a second start brought isomux back up");
+    expect(status().result).toBe("failed");
   });
 });
 
