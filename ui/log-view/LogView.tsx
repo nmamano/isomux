@@ -42,10 +42,10 @@ import {
 } from "./LogEntryCard.tsx";
 import {
   findRawToolCallGroups,
+  liveTailEntryIds,
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
-import { ThemePicker } from "../components/ThemePicker.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
 import { SubscriptionPill } from "./SubscriptionPill.tsx";
@@ -622,8 +622,7 @@ export function LogView({
   const dispatch = useDispatch();
   const features = useFeatures();
   const device = getDevice();
-  const { mode } = useTheme();
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const { mode, toggleTheme } = useTheme();
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
   inputRef.current = input;
@@ -1175,19 +1174,16 @@ export function LogView({
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  // Do not collapse the live tail: active tool work must stay visible as it
-  // arrives. Historical groups stay mounted, so the whole transcript does not
-  // change height and an expanded group's local state survives each new turn.
-  const activeTurnEntryIds = useMemo(() => {
-    if (!isBusy) return new Set<string>();
-    const lastUserMessage = logs.findLastIndex(
-      (entry) => entry.kind === "user_message",
-    );
-    return new Set(logs.slice(lastUserMessage + 1).map((entry) => entry.id));
-  }, [isBusy, logs]);
+  // Do not collapse the trailing live tool batch: active tool work stays
+  // visible as it arrives, while settled history remains stable even when one
+  // agent turn runs for hours.
+  const liveTailIds = useMemo(
+    () => liveTailEntryIds(logs, isBusy),
+    [isBusy, logs],
+  );
   const rawToolGroups = useMemo(
-    () => findRawToolCallGroups(logs, activeTurnEntryIds),
-    [activeTurnEntryIds, logs],
+    () => findRawToolCallGroups(logs, liveTailIds),
+    [liveTailIds, logs],
   );
   const rawToolGroupByFirstId = useMemo(
     () => new Map(rawToolGroups.map((group) => [group.firstId, group])),
@@ -1335,8 +1331,8 @@ export function LogView({
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
       label: "Theme",
-      onClick: () => setThemePickerOpen(true),
-      title: "Change theme",
+      onClick: toggleTheme,
+      title: `Switch to ${mode === "dark" ? "light" : "dark"} theme`,
     },
   ];
 
@@ -3322,10 +3318,6 @@ export function LogView({
           />
         </div>
       )}
-      <ThemePicker
-        open={themePickerOpen}
-        onClose={() => setThemePickerOpen(false)}
-      />
       {cite && scrollRef.current && (
         <CiteSelectionButton
           cite={cite}

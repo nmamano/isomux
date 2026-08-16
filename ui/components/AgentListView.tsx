@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useAppState, useTheme } from "../store.tsx";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { RoomTabBar } from "../office/RoomTabBar.tsx";
@@ -16,7 +15,6 @@ import {
   UserIcon,
 } from "./NavIcons.tsx";
 import { SunIcon, MoonIcon } from "./ThemeIcons.tsx";
-import { ThemePicker } from "./ThemePicker.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 import { DESK_COUNT } from "../../shared/desks.ts";
 
@@ -53,8 +51,7 @@ export function AgentListView({
 }) {
   const { agents, currentRoomId, rooms, updateAvailable, needsAttention } =
     useAppState();
-  const { mode } = useTheme();
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const { mode, toggleTheme } = useTheme();
   const roomCount = rooms.length;
   const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
   const currentRoomName = rooms.find((r) => r.id === currentRoomId)?.name;
@@ -105,8 +102,8 @@ export function AgentListView({
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
       label: "Theme",
-      onClick: () => setThemePickerOpen(true),
-      title: "Change theme",
+      onClick: toggleTheme,
+      title: `Switch to ${mode === "dark" ? "light" : "dark"} theme`,
     },
     {
       id: "list",
@@ -309,10 +306,6 @@ export function AgentListView({
           +
         </button>
       </div>
-      <ThemePicker
-        open={themePickerOpen}
-        onClose={() => setThemePickerOpen(false)}
-      />
     </>
   );
 }

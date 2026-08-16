@@ -3,6 +3,8 @@ import type { LogEntry } from "../../shared/types.ts";
 import {
   commandForPermissionDenial,
   findRawToolCallGroups,
+  liveTailEntryIds,
+  MAX_LIVE_TAIL_ENTRIES,
   lastVisibleEntryIndex,
 } from "./tool-call-groups.ts";
 
@@ -116,6 +118,72 @@ describe("raw tool-call groups", () => {
         group.entries.map((item) => item.id),
       ),
     ).toEqual([["old-a", "old-b"]]);
+  });
+
+  test("a long autonomous tail keeps only its trailing tool batch live", () => {
+    const sub1 = call("sub-1");
+    const sub2 = call("sub-2");
+    sub1.metadata!.subagent = { parentToolUseId: "parent" };
+    sub2.metadata!.subagent = { parentToolUseId: "parent" };
+    const entries = [
+      call("old-a"),
+      result("old-ar", "old-a"),
+      call("old-b"),
+      result("old-br", "old-b"),
+      sub1,
+      sub2,
+      result("sub-1-r", "sub-1"),
+      entry("parent-text", "text", "parent agent speaks"),
+      result("sub-2-r", "sub-2"),
+      call("live-a"),
+      call("live-b"),
+    ];
+
+    const busyGroups = findRawToolCallGroups(
+      entries,
+      liveTailEntryIds(entries, true),
+    );
+    const idleGroups = findRawToolCallGroups(
+      entries,
+      liveTailEntryIds(entries, false),
+    );
+    expect(
+      busyGroups.map((group) => group.entries.map((item) => item.id)),
+    ).toEqual([
+      ["old-a", "old-b"],
+      ["sub-1", "sub-2"],
+    ]);
+    expect(
+      idleGroups
+        .slice(0, 2)
+        .map((group) => group.entries.map((item) => item.id)),
+    ).toEqual([
+      ["old-a", "old-b"],
+      ["sub-1", "sub-2"],
+    ]);
+    const busyChildren = new Set(
+      busyGroups.flatMap((group) =>
+        group.entries.slice(1).map((item) => item.id),
+      ),
+    );
+    const idleChildren = new Set(
+      idleGroups.flatMap((group) =>
+        group.entries.slice(1).map((item) => item.id),
+      ),
+    );
+    expect(lastVisibleEntryIndex(entries, busyChildren)).toBe(10);
+    expect(lastVisibleEntryIndex(entries, idleChildren)).toBe(9);
+  });
+
+  test("the live tool tail is capped without a user-message boundary", () => {
+    const entries = Array.from(
+      { length: MAX_LIVE_TAIL_ENTRIES + 20 },
+      (_, index) => call(`call-${index}`),
+    );
+    const liveIds = liveTailEntryIds(entries, true);
+    expect(liveIds.size).toBe(MAX_LIVE_TAIL_ENTRIES);
+    expect(liveIds.has("call-19")).toBe(false);
+    expect(liveIds.has("call-20")).toBe(true);
   });
 
   test("indexed and plain passes apply one grouping policy", () => {

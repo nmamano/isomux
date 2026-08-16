@@ -17,6 +17,7 @@ import {
 } from "./ExpandableTextarea.tsx";
 import { StorageModal } from "./StorageModal.tsx";
 import { UsageModal } from "./UsageModal.tsx";
+import { ThemePicker } from "./ThemePicker.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -245,6 +246,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             View only. Only office owners can edit office-wide settings.
           </p>
         )}
+
+        <ThemePicker />
 
         <label
           style={{

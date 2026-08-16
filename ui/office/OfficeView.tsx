@@ -14,7 +14,6 @@ import type {
   SwapDesksReq,
 } from "../../shared/contract-shapes.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
-import { ThemePicker } from "../components/ThemePicker.tsx";
 import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
@@ -180,7 +179,6 @@ export function OfficeView({
   const officePrompt = office.prompt;
   const dispatch = useDispatch();
   const { mode, toggleTheme } = useTheme();
-  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const { embed } = useFeatures();
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
@@ -329,8 +327,8 @@ export function OfficeView({
       id: "theme",
       icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
       label: "Theme",
-      onClick: () => setThemePickerOpen(true),
-      title: "Change theme",
+      onClick: toggleTheme,
+      title: `Switch to ${mode === "dark" ? "light" : "dark"} theme`,
     },
   ];
 
@@ -884,10 +882,6 @@ export function OfficeView({
           onClose={() => setWallMenu(null)}
         />
       )}
-      <ThemePicker
-        open={themePickerOpen}
-        onClose={() => setThemePickerOpen(false)}
-      />
     </div>
   );
 }

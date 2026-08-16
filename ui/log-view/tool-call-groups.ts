@@ -117,6 +117,32 @@ export type RawToolCallGroup = {
   entries: LogEntry[];
 };
 
+// The live tail keeps only the newest tool batch expanded while an agent is
+// busy. A cap prevents one uninterrupted, subagent-heavy batch from making a
+// large section of settled history change height on each busy/idle transition.
+export const MAX_LIVE_TAIL_ENTRIES = 100;
+
+export function liveTailEntryIds(
+  entries: LogEntry[],
+  isBusy: boolean,
+): ReadonlySet<string> {
+  if (!isBusy) return new Set();
+  const index = buildToolEntryIndex(entries);
+  let start = entries.length;
+  for (let cursor = entries.length - 1; cursor >= 0; cursor--) {
+    const entry = entries[cursor];
+    if (
+      entry.kind !== "tool_call" &&
+      !isFoldedToolResult(entry, entries, index)
+    ) {
+      break;
+    }
+    start = cursor;
+  }
+  start = Math.max(start, entries.length - MAX_LIVE_TAIL_ENTRIES);
+  return new Set(entries.slice(start).map((entry) => entry.id));
+}
+
 /**
  * Find runs of ordinary tool-call cards. Paired results do not break a run
  * because they already fold into their call. A visible entry, a structured

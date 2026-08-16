@@ -1,123 +1,52 @@
-import { useEffect, useRef } from "react";
 import { useTheme } from "../store.tsx";
-import { Portal } from "./Portal.tsx";
 import { THEMES, type Theme } from "../themes.ts";
-
-interface Props {
-  open: boolean;
-  onClose: () => void;
-}
 
 const HEADING_ID = "theme-picker-heading";
 
-export function ThemePicker({ open, onClose }: Props) {
+export function ThemePicker() {
   const { theme: currentId, setTheme } = useTheme();
-  const cardRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKey, true);
-    return () => window.removeEventListener("keydown", handleKey, true);
-  }, [open, onClose]);
-
-  // Focus management: on open, remember whoever had focus, then move focus
-  // into the dialog (selected row first, otherwise first row). On close,
-  // restore focus to the opener so keyboard navigation isn't stranded.
-  useEffect(() => {
-    if (!open) return;
-    previousFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    const card = cardRef.current;
-    if (card) {
-      const selected = card.querySelector<HTMLButtonElement>(
-        'button[data-theme-row][data-selected="true"]',
-      );
-      const first = card.querySelector<HTMLButtonElement>(
-        "button[data-theme-row]",
-      );
-      (selected ?? first)?.focus();
-    }
-    return () => {
-      previousFocusRef.current?.focus();
-    };
-  }, [open]);
-
-  if (!open) return null;
 
   return (
-    <Portal>
+    <section aria-labelledby={HEADING_ID} style={{ marginTop: 18 }}>
       <div
-        onMouseDown={(e) => {
-          if (e.target === e.currentTarget) onClose();
-        }}
+        id={HEADING_ID}
         style={{
-          position: "fixed",
-          inset: 0,
-          zIndex: 900,
-          background: "rgba(0,0,0,0.55)",
-          backdropFilter: "blur(2px)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 16,
+          fontSize: 11,
+          fontWeight: 600,
+          color: "var(--text-muted)",
+          marginBottom: 5,
         }}
       >
-        <div
-          ref={cardRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={HEADING_ID}
-          style={{
-            width: "100%",
-            maxWidth: 320,
-            background: "var(--bg-overlay)",
-            border: "1px solid var(--border-light)",
-            borderRadius: 12,
-            padding: 6,
-            boxShadow: "0 12px 40px var(--shadow-heavy)",
-            animation: "hudIn 0.12s ease-out",
-            maxHeight: "min(80vh, 480px)",
-            overflowY: "auto",
-          }}
-        >
-          <div
-            id={HEADING_ID}
-            style={{
-              padding: "8px 12px 6px",
-              fontSize: 10,
-              fontWeight: 600,
-              color: "var(--text-faint)",
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-            }}
-          >
-            Theme
-          </div>
-          <div role="radiogroup" aria-labelledby={HEADING_ID}>
-            {THEMES.map((theme) => (
-              <ThemeRow
-                key={theme.id}
-                theme={theme}
-                selected={theme.id === currentId}
-                onSelect={() => {
-                  setTheme(theme.id);
-                  onClose();
-                }}
-              />
-            ))}
-          </div>
-        </div>
+        Theme
       </div>
-    </Portal>
+      <p
+        style={{
+          fontSize: 10,
+          color: "var(--text-ghost)",
+          margin: "0 0 6px",
+        }}
+      >
+        Click the moon or sun to switch between your light and dark themes.
+      </p>
+      <div
+        role="radiogroup"
+        aria-labelledby={HEADING_ID}
+        style={{
+          border: "1px solid var(--border-subtle)",
+          borderRadius: 8,
+          padding: 4,
+        }}
+      >
+        {THEMES.map((theme) => (
+          <ThemeRow
+            key={theme.id}
+            theme={theme}
+            selected={theme.id === currentId}
+            onSelect={() => setTheme(theme.id)}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
