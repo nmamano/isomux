@@ -257,6 +257,7 @@ export function checkoutParams(args: CheckoutArgs): Record<string, FormValue> {
   };
   return {
     mode: "subscription",
+    "managed_payments[enabled]": true,
     "line_items[0][price]": args.priceId,
     "line_items[0][quantity]": 1,
     success_url: args.successUrl,

@@ -112,6 +112,8 @@ try {
     "set default pm",
   );
   const sub = ok(
+    // This direct create produces non-MoR evidence. Follow-up e818c077 re-measures
+    // the lifecycle through Managed Payments Checkout.
     await client.post(
       "/v1/subscriptions",
       {

@@ -78,6 +78,31 @@ const base = {
 };
 
 describe("the comped path", () => {
+  test("every session is a Managed Payments session", () => {
+    const encoded = formEncode(checkoutParams(base));
+    expect(encoded).toContain("managed_payments%5Benabled%5D=true");
+  });
+
+  test("merchant-of-record parameters stay under Stripe's control", () => {
+    const encoded = formEncode(checkoutParams(base));
+    // Stripe's update-checkout removal list, checked 2026-08-16. These are the
+    // parameters most likely to be added by an ordinary Checkout integration.
+    for (const parameter of [
+      "automatic_tax",
+      "tax_id_collection",
+      "invoice_creation",
+      "custom_text",
+      "customer_update[address]",
+      "customer_update[name]",
+      "payment_method_types",
+      "subscription_data[invoice_settings]",
+      "payment_intent_data[statement_descriptor]",
+      "payment_intent_data[statement_descriptor_suffix]",
+    ]) {
+      expect(encoded).not.toContain(encodeURIComponent(parameter));
+    }
+  });
+
   test("a VERIFIED full discount means if_required, so Checkout collects no card", async () => {
     const params = checkoutParams({
       ...base,

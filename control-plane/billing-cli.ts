@@ -34,6 +34,11 @@ import {
 import { billingTick } from "./stripe/billing-tick.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 import { StripeClient, type StripeResult } from "./stripe/client.ts";
+import {
+  DEFAULT_TEST_CURRENCY,
+  testPriceParams,
+  testProductParams,
+} from "./stripe/catalog.ts";
 import { openCheckout } from "./stripe/checkout.ts";
 import {
   deleteOwned,
@@ -146,15 +151,12 @@ function okOrDie(res: StripeResult, what: string): Record<string, unknown> {
 async function cmdBootstrap(args: Map<string, string>): Promise<void> {
   const client = makeClient();
   const amount = Number(args.get("amount") ?? 100);
-  const currency = args.get("currency") ?? "eur";
+  const currency = args.get("currency") ?? DEFAULT_TEST_CURRENCY;
 
   const product = okOrDie(
     await client.post(
       "/v1/products",
-      {
-        name: `${TEST_PREFIX} slice-3 test office (not a real plan)`,
-        metadata: { isomux_test: "slice3" },
-      },
+      testProductParams(),
       `${TEST_PREFIX}-product-1`,
     ),
     "could not create the test product",
@@ -162,14 +164,7 @@ async function cmdBootstrap(args: Map<string, string>): Promise<void> {
   const price = okOrDie(
     await client.post(
       "/v1/prices",
-      {
-        product: String(product.id),
-        currency,
-        unit_amount: amount,
-        recurring: { interval: "month" },
-        nickname: `${TEST_PREFIX} test price - not a product price`,
-        metadata: { isomux_test: "slice3" },
-      },
+      testPriceParams(String(product.id), amount, currency),
       `${TEST_PREFIX}-price-1`,
     ),
     "could not create the test price",

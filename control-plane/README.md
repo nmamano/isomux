@@ -2521,6 +2521,13 @@ subscription to an instance at signup, is where it stops happening.
 
 ### What Stripe actually does (observed 2026-08-09, API version 2026-07-29.dahlia)
 
+These 2026-08-09 and 2026-08-10 lifecycle observations are about non-Managed
+Payments subscriptions. The exercise created those subscriptions directly with
+`POST /v1/subscriptions`; Managed Payments requires new subscriptions to start
+through Checkout or Payment Links. Do not treat the observed dunning ladder,
+terminal states, invoice shapes or coupon-lapse behaviour as MoR evidence until
+the separate Managed Payments lifecycle exercise re-measures them.
+
 Everything below was measured against the real test account, not read from
 documentation. The pinned API version matters: three of these are shape changes
 that older examples get wrong.
@@ -2563,6 +2570,50 @@ that older examples get wrong.
   and its first hypothesis - an unpaid invoice with no `next_payment_attempt` -
   is what the exercise above confirmed. If Stripe's shape changes, that function
   is the only thing that has to change with it.
+
+### Managed Payments (verified in test mode 2026-08-16)
+
+Every new Checkout Session sets `managed_payments[enabled]=true`. Existing
+subscriptions cannot migrate into Managed Payments. The pinned API version,
+`2026-07-29.dahlia`, is later than Stripe's `2025-03-31.basil` minimum.
+
+The test catalogue matches the hosted decision: USD with Adaptive Pricing. Its
+Price sets `tax_behavior=exclusive` explicitly, so tax is added at Checkout and
+the amount does not depend on the Dashboard's "Include tax in prices" setting.
+Its Product uses tentative test-mode tax code `txcd_10701410` (Electronically
+Delivered Information Services - Business Use). Nil must approve the final live
+tax code before any live Product is changed.
+
+Stripe owns tax collection, customer tax IDs, statement descriptors, invoices,
+Checkout confirmation text, receipts and subscription-related customer emails
+for Managed Payments. As checked 2026-08-16, the control plane has no customer
+mailer: its dunning ladder records state, raises internal attention and requests
+suspension, so it does not duplicate Stripe's customer emails. Adding customer
+dunning email copy later is a policy decision, not an implementation default.
+
+Test-mode evidence from 2026-08-16:
+
+1. Bootstrap created a USD Product and recurring Price with the tax code and
+   exclusive tax behaviour above.
+2. Stripe accepted an ordinary Managed Payments subscription Session with
+   `payment_method_collection=always` and a comped Session with a verified
+   100%-off coupon plus `payment_method_collection=if_required`.
+3. A headless browser completed the ordinary Session with Stripe's `4242` test
+   card; the Session read back `complete`, `paid` and `livemode=false`.
+4. The comped Session rendered without card fields and accepted the API shape,
+   but the automated browser did not complete it. Complete that browser flow as
+   part of the separate Managed Payments lifecycle exercise.
+
+Open manual Dashboard check, owned by the live close-out: in test mode, open the
+payment and confirm its Product, Subscription, Invoice, tax withheld and
+statement descriptor. Then open its Invoice and use **Send receipt** to preview
+the MoR receipt. Sandbox receipts are not sent automatically.
+
+Managed Payments must be active and the Product must remain eligible. Stripe's
+test API accepted Managed Payments Sessions on 2026-08-16, which proves the test
+account was active for this flow. Eligibility can still be rejected after setup;
+the planned fallback is non-Union OSS plus Stripe Tax, but it is not implemented
+here.
 
 ### Running the endpoint against real Stripe deliveries
 
