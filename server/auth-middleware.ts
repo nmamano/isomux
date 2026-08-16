@@ -6,13 +6,16 @@
 import type { Server } from "bun";
 import {
   acceptInvite,
+  browserSessionDiagnostic,
   buildPublicOrigin,
   isLoopbackOrigin,
   claimOwnership,
   clearCookieHeaders,
+  emitBrowserSessionDiagnostic,
   logoutBySessionHash,
   peekInvite,
   readSessionCookie,
+  readSessionCookies,
   setCookieHeader,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
@@ -229,8 +232,12 @@ export function authenticate(
   if (bearerId) {
     return { kind: "ok", identity: bearerId };
   }
-  const cookie = readSessionCookie(req);
-  const session = validateSession(cookie);
+  const cookies = readSessionCookies(req);
+  const session = validateSession(cookies.selected || null);
+  emitBrowserSessionDiagnostic(
+    browserSessionDiagnostic(cookies, session, "http"),
+    req,
+  );
   if (!session) {
     return {
       kind: "rejected",

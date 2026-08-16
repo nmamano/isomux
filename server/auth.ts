@@ -1863,6 +1863,157 @@ export function readSessionCookie(req: Request): string | null {
   return readSessionCookies(req).selected || null;
 }
 
+export type BrowserSessionDiagnostic =
+  | { outcome: "cookie_absent"; gate: "http" | "ws" }
+  | { outcome: "legacy_selected"; gate: "http" | "ws" }
+  | {
+      outcome: "cookie_rejected";
+      gate: "http" | "ws";
+      selected: "host" | "legacy";
+      legacyAlsoPresent: boolean;
+      marker?: string;
+    }
+  | {
+      outcome: "session_matched";
+      gate: "ws";
+      selected: "host" | "legacy";
+      sessionPrefix: string;
+    };
+
+// Browser-lockout diagnostics deliberately cover only the two auth gates:
+// authenticate() and the /ws upgrade. handleLogout and
+// redirectConsumedVisitorIfSignedIn also read cookies, but a rejection there
+// is not evidence that a browser was unexpectedly locked out.
+//
+// The ordinary HTTP hot path (a valid __Host cookie) returns before allocating
+// a diagnostic object. A matched prefix is emitted only for a WS connection,
+// rather than once for every HTTP request.
+export function browserSessionDiagnostic(
+  cookies: SessionCookies,
+  lookup: SessionLookup | null,
+  gate: "http" | "ws",
+): BrowserSessionDiagnostic | null {
+  if (cookies.hostRaw === null && cookies.legacyRaw === null) {
+    return { outcome: "cookie_absent", gate };
+  }
+  const selected = cookies.hostRaw !== null ? "host" : "legacy";
+  if (!lookup) {
+    return {
+      outcome: "cookie_rejected",
+      gate,
+      selected,
+      legacyAlsoPresent: cookies.legacyRaw !== null,
+      // If Nil approves a non-reversible marker, add it here in one line:
+      // marker: cookies.selected ? hashOf(cookies.selected).slice(0, 6) : undefined,
+    };
+  }
+  if (gate === "http") {
+    return selected === "legacy" ? { outcome: "legacy_selected", gate } : null;
+  }
+  return {
+    outcome: "session_matched",
+    gate,
+    selected,
+    sessionPrefix: lookup.sessionPrefix,
+  };
+}
+
+const BROWSER_DIAGNOSTIC_WINDOW_MS = 60_000;
+const BROWSER_DIAGNOSTIC_KEY_LIMIT = 256;
+let browserDiagnosticWindowStartedAt = 0;
+const browserDiagnosticKeys = new Set<string>();
+let browserDiagnosticCapReported = false;
+
+function browserFamily(userAgent: string | null): string {
+  if (!userAgent) return "Unknown/Unknown";
+  const browser = /Edg\//.test(userAgent)
+    ? "Edge"
+    : /OPR\//.test(userAgent)
+      ? "Opera"
+      : /Chrome\//.test(userAgent)
+        ? "Chrome"
+        : /Firefox\//.test(userAgent)
+          ? "Firefox"
+          : /Safari\//.test(userAgent)
+            ? "Safari"
+            : "Other";
+  const os = /Windows/.test(userAgent)
+    ? "Windows"
+    : /(?:iPhone|iPad|iPod)/.test(userAgent)
+      ? "iOS"
+      : /Android/.test(userAgent)
+        ? "Android"
+        : /Macintosh|Mac OS X/.test(userAgent)
+          ? "macOS"
+          : /Linux/.test(userAgent)
+            ? "Linux"
+            : "Other";
+  return `${browser}/${os}`;
+}
+
+export function formatBrowserSessionDiagnostic(
+  diagnostic: BrowserSessionDiagnostic,
+  req: Request,
+): string {
+  const rawPath = new URL(req.url).pathname;
+  // /i/<token> carries a live invite credential. Non-GET requests can reach
+  // the auth wall, so collapse every such path before it enters a log or a
+  // dedupe key. No other office route carries an opaque secret in its path.
+  const path = (rawPath.startsWith("/i/") ? "/i/<redacted>" : rawPath).slice(
+    0,
+    120,
+  );
+  const context = `gate=${diagnostic.gate} path=${path} client=${browserFamily(req.headers.get("user-agent"))}`;
+  switch (diagnostic.outcome) {
+    case "cookie_absent":
+      return `[auth] browser session cookie absent ${context}`;
+    case "legacy_selected":
+      return `[auth] browser session selected legacy cookie ${context}`;
+    case "cookie_rejected": {
+      const selection =
+        diagnostic.selected === "host" && diagnostic.legacyAlsoPresent
+          ? "selected=__Host legacy_overridden=yes"
+          : `selected=${diagnostic.selected === "host" ? "__Host" : "legacy"}`;
+      const detail = diagnostic.marker
+        ? `${selection} marker=${diagnostic.marker}`
+        : selection;
+      return `[auth] browser session cookie rejected as invalid or stale ${detail} ${context}`;
+    }
+    case "session_matched":
+      return `[auth] browser session matched ${diagnostic.sessionPrefix}… selected=${diagnostic.selected === "host" ? "__Host" : "legacy"} ${context}`;
+  }
+}
+
+export function emitBrowserSessionDiagnostic(
+  diagnostic: BrowserSessionDiagnostic | null,
+  req: Request,
+  now = Date.now(),
+): void {
+  if (!diagnostic) return;
+  const line = formatBrowserSessionDiagnostic(diagnostic, req);
+  if (now - browserDiagnosticWindowStartedAt >= BROWSER_DIAGNOSTIC_WINDOW_MS) {
+    browserDiagnosticWindowStartedAt = now;
+    browserDiagnosticKeys.clear();
+    browserDiagnosticCapReported = false;
+  }
+  if (browserDiagnosticKeys.has(line)) return;
+  if (browserDiagnosticKeys.size >= BROWSER_DIAGNOSTIC_KEY_LIMIT) {
+    if (!browserDiagnosticCapReported) {
+      browserDiagnosticCapReported = true;
+      console.log("[auth] browser session diagnostics capped for this window");
+    }
+    return;
+  }
+  browserDiagnosticKeys.add(line);
+  console.log(line);
+}
+
+export function _testResetBrowserSessionDiagnostics(): void {
+  browserDiagnosticWindowStartedAt = 0;
+  browserDiagnosticKeys.clear();
+  browserDiagnosticCapReported = false;
+}
+
 // The two-step migration onto the `__Host-` name, as Set-Cookie lines (never
 // more than one - the steps must land in DIFFERENT responses).
 //

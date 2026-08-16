@@ -285,6 +285,13 @@ main strong {
   color: var(--accent);
   font-weight: 600;
 }
+.account-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
 .page-back {
   max-width: 760px;
   margin: 24px auto 0;

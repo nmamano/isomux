@@ -43,7 +43,7 @@ Once you're the owner, open `User Settings` → `Invites` section:
 
 - **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to, so they land in those rooms the moment they accept instead of an empty office (leave all unchecked to grant rooms later from their user settings). Click `Issue invite`. The URL appears once - copy it. It is one-time and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
-- **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section; revoke any to immediately disconnect them.
+- **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section with the local date and time when inactivity or the session's lifetime will expire it; revoke any to immediately disconnect them.
 
 Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords.
 

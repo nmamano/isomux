@@ -2762,7 +2762,8 @@ webhook path out of the storefront's module graph.
   credentials provider gated on `CONTROL_PLANE_DEV_AUTH=1` AND a non-production
   build drives every test, because no Google OAuth client exists yet. Sessions
   are JWTs with no database adapter: an adapter would make Auth.js a second
-  writer of `accounts`.
+  writer of `accounts`. The account surface signs out through an Auth.js server
+  action, so the framework's CSRF token protects the cookie-clearing request.
 - One facade, `lib/services.server.ts`, with a fixed export list. It holds ONE
   store for the life of the process and hands no store out - every export
   returns plain data, so no page or handler is one method call away from

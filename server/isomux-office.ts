@@ -102,7 +102,9 @@ import {
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
 import {
+  browserSessionDiagnostic,
   buildPublicOrigin,
+  emitBrowserSessionDiagnostic,
   evictSessionsForUserId,
   freezeBootState,
   isProcessBoundLoopback,
@@ -4332,6 +4334,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       if (url.pathname === "/ws") {
         const wsCookies = readSessionCookies(req);
         const wsSession = validateSession(wsCookies.selected || null);
+        emitBrowserSessionDiagnostic(
+          browserSessionDiagnostic(wsCookies, wsSession, "ws"),
+          req,
+        );
         if (!wsSession) {
           return new Response("unauthenticated", { status: 401 });
         }

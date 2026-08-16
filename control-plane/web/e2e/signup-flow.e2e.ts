@@ -181,6 +181,7 @@ async function main(): Promise<void> {
   );
 
   let browser: Browser | null = null;
+  let renderedOfficeHostname: string | null = null;
   try {
     await waitForServer(`${BASE}/signin`);
     say("dev server is up");
@@ -556,6 +557,12 @@ async function main(): Promise<void> {
             say(`office page navigation: ${err.message.split("\n")[0]}`),
           );
         const text = (await page.textContent("body")) ?? "";
+        const officeHostname = "continue-browser.test.isomux.app";
+        check(
+          "the signed-in office page renders its stored hostname",
+          text.includes(officeHostname),
+        );
+        renderedOfficeHostname = officeHostname;
         say(`office page: ${text.replace(/\s+/g, " ").slice(0, 300)}`);
         check(
           "the ladder renders with a live step",
@@ -660,6 +667,63 @@ async function main(): Promise<void> {
         );
       }
     }
+
+    // This is a sign-out regression, not a test of Office's existing auth
+    // redirect by itself: the store-backed page must become unreachable only
+    // after the server action clears the session that reached it above. It is
+    // last because this transcript's developer identity is intentionally not
+    // a reusable production sign-in provider.
+    await page.goto(BASE);
+    const sessionCookiesBefore = (await context.cookies()).filter((cookie) =>
+      cookie.name.includes("session-token"),
+    );
+    const signOutResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" && response.url() === `${BASE}/`,
+    );
+    await page.click('[data-testid="sign-out"]');
+    const signedOut = await signOutResponse;
+    await page.waitForURL(`${BASE}/`, { timeout: 20_000 });
+    const actionRedirect = signedOut.headers()["x-action-redirect"] ?? "";
+    // This is a Next server-action transport header, not an Auth.js contract.
+    // A Next upgrade that changes it should fail here with the observed value.
+    check(
+      "sign-out server action returns its redirect response",
+      signedOut.status() === 200 && actionRedirect === `${BASE}/;push`,
+      `status=${signedOut.status()} redirect=${actionRedirect}`,
+    );
+    const signOutSetCookie = (await signedOut.headerValues("set-cookie")).join(
+      "\n",
+    );
+    check(
+      "sign-out response clears the session cookie",
+      signOutSetCookie.includes("session-token=") &&
+        /(?:Max-Age=0|Expires=Thu, 01 Jan 1970)/i.test(signOutSetCookie),
+    );
+    const sessionCookiesAfter = (await context.cookies()).filter((cookie) =>
+      cookie.name.includes("session-token"),
+    );
+    check(
+      "sign-out removes the browser session cookie",
+      sessionCookiesBefore.length > 0 && sessionCookiesAfter.length === 0,
+      `before=${sessionCookiesBefore.length} after=${sessionCookiesAfter.length}`,
+    );
+    const signedOutOffice = await page.request.get(
+      `${BASE}/office/continue-browser`,
+      { maxRedirects: 0 },
+    );
+    const signedOutOfficeBody = await signedOutOffice.text();
+    check(
+      "signed-out store page redirects to sign-in",
+      signedOutOffice.status() === 307 &&
+        signedOutOffice.headers().location === "/signin",
+      `status=${signedOutOffice.status()} location=${signedOutOffice.headers().location ?? ""}`,
+    );
+    check(
+      "signed-out response contains no store-backed office content",
+      renderedOfficeHostname !== null &&
+        !signedOutOfficeBody.includes(renderedOfficeHostname),
+    );
 
     // ---- the tree the dev server left behind
     const agents = fs.existsSync(path.join(WEB_DIR, "AGENTS.md"));

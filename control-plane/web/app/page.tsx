@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { auth } from "../auth";
+import { auth, signOut } from "../auth";
 import { officeForAccount } from "../lib/services.server";
 
 export const dynamic = "force-dynamic";
@@ -24,9 +24,21 @@ export default async function Home() {
   return (
     <main>
       <h1>Your office</h1>
-      <p className="note" data-testid="signed-in-as">
-        Signed in as {email}
-      </p>
+      <div className="account-line">
+        <p className="note" data-testid="signed-in-as">
+          Signed in as {email}
+        </p>
+        <form
+          action={async () => {
+            "use server";
+            await signOut({ redirectTo: "/" });
+          }}
+        >
+          <button type="submit" data-testid="sign-out">
+            Sign out
+          </button>
+        </form>
+      </div>
       {office ? (
         <Link
           className="card office-card-link"

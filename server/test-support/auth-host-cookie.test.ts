@@ -17,7 +17,7 @@
 //     real Access route + a cold restart, since the signal is boot-frozen):
 //     writes and migrates onto `__Host-`.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, beforeEach } from "bun:test";
 import {
   startTestServer,
   type TestServer,
@@ -26,17 +26,28 @@ import {
 import {
   COOKIE_NAME,
   HOST_COOKIE_NAME,
+  _testResetBrowserSessionDiagnostics,
+  browserSessionDiagnostic,
   buildPublicOrigin,
+  formatBrowserSessionDiagnostic,
+  emitBrowserSessionDiagnostic,
+  listActiveSessions,
   mintInvite,
+  readSessionCookies,
+  validateSession,
 } from "../auth.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 
 const HTTPS_ORIGIN = "https://office.example";
 
 let server: TestServer | null = null;
+beforeEach(() => {
+  _testResetBrowserSessionDiagnostics();
+});
 afterEach(async () => {
   await server?.stop();
   server = null;
+  _testResetBrowserSessionDiagnostics();
 });
 
 // Boot an HTTPS-shaped office: enable external access with an https origin
@@ -88,6 +99,14 @@ function acceptViaHttp(srv: TestServer, rawToken: string): Promise<Response> {
 
 function setCookieLines(res: Response): string[] {
   return res.headers.getSetCookie();
+}
+
+function cookies(header?: string) {
+  return readSessionCookies(
+    new Request("https://office.example/api/sessions", {
+      headers: header ? { Cookie: header } : undefined,
+    }),
+  );
 }
 
 // A WebSocket upgrade driven over a raw socket, because the point of the
@@ -309,6 +328,192 @@ describe("__Host- cookie: HTTPS arm writes and reads the prefixed name", () => {
     };
     expect(ctx.context.username).toBe("Yu");
     sock.close();
+  });
+});
+
+describe("browser session lockout diagnostics", () => {
+  it("reports a request with no cookie while active server rows remain", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    expect(listActiveSessions()).toHaveLength(1);
+    expect(browserSessionDiagnostic(cookies(), null, "http")).toEqual({
+      outcome: "cookie_absent",
+      gate: "http",
+    });
+    expect(listActiveSessions()).toHaveLength(1);
+  });
+
+  it("reports legacy selection when the __Host cookie is missing", async () => {
+    server = await startTestServer();
+    const member = await server.seedMember("Yu");
+    const parsed = cookies(`${COOKIE_NAME}=${member.rawSessionId}`);
+    const lookup = validateSession(parsed.selected || null);
+    expect(lookup).not.toBeNull();
+    expect(browserSessionDiagnostic(parsed, lookup, "http")).toEqual({
+      outcome: "legacy_selected",
+      gate: "http",
+    });
+  });
+
+  it("reports a rejected __Host cookie overriding a valid legacy cookie", async () => {
+    server = await startTestServer();
+    const member = await server.seedMember("Yu");
+    const parsed = cookies(
+      `${HOST_COOKIE_NAME}=not-a-session; ${COOKIE_NAME}=${member.rawSessionId}`,
+    );
+    const lookup = validateSession(parsed.selected || null);
+    expect(lookup).toBeNull();
+    const diagnostic = browserSessionDiagnostic(parsed, lookup, "http");
+    expect(diagnostic).toEqual({
+      outcome: "cookie_rejected",
+      gate: "http",
+      selected: "host",
+      legacyAlsoPresent: true,
+    });
+    const line = formatBrowserSessionDiagnostic(
+      diagnostic!,
+      new Request("https://office.example/api/sessions", {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 Chrome/140.0 Safari/537.36",
+        },
+      }),
+    );
+    expect(line).toContain(
+      "cookie rejected as invalid or stale selected=__Host legacy_overridden=yes gate=http path=/api/sessions client=Chrome/Windows",
+    );
+    expect(line).not.toContain("not-a-session");
+    expect(line).not.toContain(member.rawSessionId);
+  });
+
+  it("reports the matched session prefix after invite-based recovery", async () => {
+    const { srv } = await startHttps();
+    server = srv;
+    const accepted = await acceptViaHttp(server, await mintFor("Yu"));
+    expect(accepted.status).toBe(302);
+    const issued = setCookieLines(accepted)[0]?.split(";", 1)[0] ?? "";
+    const parsed = cookies(issued);
+    const lookup = validateSession(parsed.selected || null);
+    expect(lookup).not.toBeNull();
+    expect(browserSessionDiagnostic(parsed, lookup, "http")).toBeNull();
+    expect(browserSessionDiagnostic(parsed, lookup, "ws")).toEqual({
+      outcome: "session_matched",
+      gate: "ws",
+      selected: "host",
+      sessionPrefix: lookup!.sessionPrefix,
+    });
+  });
+
+  it("redacts a live invite credential from a real HEAD diagnostic", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+    const token = "LIVE-INVITE-CREDENTIAL";
+    const original = console.log;
+    const lines: string[] = [];
+    console.log = (...args: unknown[]) => lines.push(args.join(" "));
+    try {
+      _testResetBrowserSessionDiagnostics();
+      const response = await server.http(`/i/${token}`, { method: "HEAD" });
+      expect(response.status).toBe(401);
+      const line = lines.find((entry) => entry.includes("path=/i/")) ?? "";
+      expect(line).toContain("path=/i/<redacted>");
+      expect(line).not.toContain(token);
+    } finally {
+      console.log = original;
+    }
+  });
+
+  it("wires diagnostics through the real HTTP and WebSocket gates", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const ownerLookup = validateSession(owner.rawSessionId);
+    expect(ownerLookup).not.toBeNull();
+    const original = console.log;
+    const lines: string[] = [];
+    console.log = (...args: unknown[]) => lines.push(args.join(" "));
+    try {
+      _testResetBrowserSessionDiagnostics();
+      const rejected = await server.http("/api/sessions");
+      expect(rejected.status).toBe(401);
+      expect(
+        lines.some((line) =>
+          line.includes(
+            "browser session cookie absent gate=http path=/api/sessions",
+          ),
+        ),
+      ).toBe(true);
+
+      _testResetBrowserSessionDiagnostics();
+      lines.length = 0;
+      const upgraded = await rawUpgrade(
+        server.port,
+        `${COOKIE_NAME}=${owner.rawSessionId}`,
+      );
+      expect(upgraded.status).toBe(101);
+      expect(
+        lines.some((line) =>
+          line.includes(
+            `browser session matched ${ownerLookup!.sessionPrefix}… selected=legacy gate=ws path=/ws`,
+          ),
+        ),
+      ).toBe(true);
+    } finally {
+      console.log = original;
+    }
+  });
+
+  it("dedupes repeated keys, admits distinct keys, and resets after the window", () => {
+    const original = console.log;
+    const lines: string[] = [];
+    console.log = (...args: unknown[]) => lines.push(args.join(" "));
+    try {
+      const diagnostic = { outcome: "cookie_absent", gate: "http" } as const;
+      const same = new Request("https://office.example/diagnostic-test-one");
+      emitBrowserSessionDiagnostic(diagnostic, same, 1);
+      emitBrowserSessionDiagnostic(diagnostic, same, 2);
+      emitBrowserSessionDiagnostic(
+        diagnostic,
+        new Request("https://office.example/diagnostic-test-two"),
+        3,
+      );
+      const relevant = () =>
+        lines.filter((line) => line.includes("path=/diagnostic-test-"));
+      expect(relevant()).toHaveLength(2);
+      emitBrowserSessionDiagnostic(diagnostic, same, 60_001);
+      expect(relevant()).toHaveLength(3);
+    } finally {
+      console.log = original;
+    }
+  });
+
+  it("emits one notice when the diagnostic key window reaches its cap", () => {
+    const original = console.log;
+    const lines: string[] = [];
+    console.log = (...args: unknown[]) => lines.push(args.join(" "));
+    try {
+      const diagnostic = { outcome: "cookie_absent", gate: "http" } as const;
+      for (let i = 0; i < 258; i++) {
+        emitBrowserSessionDiagnostic(
+          diagnostic,
+          new Request(`https://office.example/cap-test-${i}`),
+          1,
+        );
+      }
+      expect(
+        lines.filter((line) =>
+          line.includes("diagnostics capped for this window"),
+        ),
+      ).toHaveLength(1);
+      expect(
+        lines.filter(
+          (line) =>
+            line.includes("path=/cap-test-") ||
+            line.includes("diagnostics capped for this window"),
+        ),
+      ).toHaveLength(257);
+    } finally {
+      console.log = original;
+    }
   });
 });
 
