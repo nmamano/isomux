@@ -1903,8 +1903,11 @@ export function browserSessionDiagnostic(
       gate,
       selected,
       legacyAlsoPresent: cookies.legacyRaw !== null,
-      // If Nil approves a non-reversible marker, add it here in one line:
-      // marker: cookies.selected ? hashOf(cookies.selected).slice(0, 6) : undefined,
+      // Approved by Nil 2026-08-16: non-reversible, distinguishes a recurring
+      // stale cookie from changing ones; never the cookie value itself.
+      marker: cookies.selected
+        ? hashOf(cookies.selected).slice(0, 6)
+        : undefined,
     };
   }
   if (gate === "http") {

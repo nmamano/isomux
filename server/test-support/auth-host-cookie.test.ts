@@ -18,6 +18,7 @@
 //     writes and migrates onto `__Host-`.
 
 import { describe, it, expect, afterEach, beforeEach } from "bun:test";
+import { createHash } from "crypto";
 import {
   startTestServer,
   type TestServer,
@@ -364,11 +365,18 @@ describe("browser session lockout diagnostics", () => {
     const lookup = validateSession(parsed.selected || null);
     expect(lookup).toBeNull();
     const diagnostic = browserSessionDiagnostic(parsed, lookup, "http");
+    // The marker is the first 6 hex chars of SHA-256 of the selected cookie:
+    // non-reversible, and never the cookie value (approved by Nil 2026-08-16).
+    const expectedMarker = createHash("sha256")
+      .update("not-a-session")
+      .digest("hex")
+      .slice(0, 6);
     expect(diagnostic).toEqual({
       outcome: "cookie_rejected",
       gate: "http",
       selected: "host",
       legacyAlsoPresent: true,
+      marker: expectedMarker,
     });
     const line = formatBrowserSessionDiagnostic(
       diagnostic!,
@@ -380,7 +388,7 @@ describe("browser session lockout diagnostics", () => {
       }),
     );
     expect(line).toContain(
-      "cookie rejected as invalid or stale selected=__Host legacy_overridden=yes gate=http path=/api/sessions client=Chrome/Windows",
+      `cookie rejected as invalid or stale selected=__Host legacy_overridden=yes marker=${expectedMarker} gate=http path=/api/sessions client=Chrome/Windows`,
     );
     expect(line).not.toContain("not-a-session");
     expect(line).not.toContain(member.rawSessionId);
