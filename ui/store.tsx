@@ -1347,13 +1347,13 @@ function getInitialThemeId(): string {
   return getSystemThemeId();
 }
 
-// The wall sun/moon walks this loop, lightest background to darkest.
+// The wall sun/moon walks this loop, in Nil's chosen order.
 const THEME_CYCLE_ORDER = [
-  "solarized-light",
   "light",
+  "solarized-light",
   "nord",
-  "dracula",
   "solarized-dark",
+  "dracula",
   "dark",
 ] as const;
 
