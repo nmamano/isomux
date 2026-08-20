@@ -1,14 +1,23 @@
-// Stage only the provisioner's Stripe test credential. The importer reads a
-// strict file inside this process and cannot name any other Fly secret.
+// Stage only the provisioner's Stripe test credential and webhook signing
+// secret. The importer reads a strict file inside this process and cannot name
+// any other Fly secret.
 
 import * as os from "node:os";
 import * as path from "node:path";
 import { readAllowlistedEnvFile } from "./allowlisted-env-file.ts";
 import { APP, FLY_TOKEN_FILE, readSecretFile, realSpawn } from "./fly-cli.ts";
-import { STRIPE_SECRET_NAME, STRIPE_SECRET_NAMES } from "./secret-names.ts";
+import {
+  STRIPE_SECRET_NAME,
+  STRIPE_SECRET_NAMES,
+  STRIPE_WEBHOOK_SECRET_NAME,
+} from "./secret-names.ts";
 import { namesPresent, pushSecrets } from "./secrets.ts";
 
-export { STRIPE_SECRET_NAME, STRIPE_SECRET_NAMES } from "./secret-names.ts";
+export {
+  STRIPE_SECRET_NAME,
+  STRIPE_SECRET_NAMES,
+  STRIPE_WEBHOOK_SECRET_NAME,
+} from "./secret-names.ts";
 
 export function readStripeFile(file: string): Map<string, string> {
   const values = readAllowlistedEnvFile(
@@ -18,6 +27,11 @@ export function readStripeFile(file: string): Map<string, string> {
   );
   if (!/^(?:sk|rk)_test_.+$/.test(values.get(STRIPE_SECRET_NAME) ?? "")) {
     throw new Error("the Stripe credential is not a test-mode key");
+  }
+  if (
+    !/^whsec_[A-Za-z0-9]+$/.test(values.get(STRIPE_WEBHOOK_SECRET_NAME) ?? "")
+  ) {
+    throw new Error("the Stripe webhook credential is not a signing secret");
   }
   return values;
 }
@@ -43,9 +57,10 @@ async function main(): Promise<void> {
     path.join(os.homedir(), ".config", "isomux", "control-plane-stripe.env"),
   );
   const outcome = await pushSecrets({
-    pairs: [
-      { name: STRIPE_SECRET_NAME, value: values.get(STRIPE_SECRET_NAME)! },
-    ],
+    pairs: STRIPE_SECRET_NAMES.map((name) => ({
+      name,
+      value: values.get(name)!,
+    })),
     allowed: STRIPE_SECRET_NAMES,
     flyToken,
     spawn: realSpawn,

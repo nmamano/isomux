@@ -42,6 +42,36 @@ function callersOf(symbol: string): string[] {
   return callers.sort();
 }
 
+function productionStripePostCallers(): string[] {
+  return sourceFiles(CONTROL_PLANE)
+    .filter((file) => {
+      const relative = path.relative(CONTROL_PLANE, file);
+      return (
+        !relative.endsWith(".test.ts") &&
+        !relative.startsWith("exercises/") &&
+        !relative.includes("/e2e/") &&
+        /\.post\s*\(/.test(fs.readFileSync(file, "utf8"))
+      );
+    })
+    .map((file) => path.relative(CONTROL_PLANE, file))
+    .sort();
+}
+
+describe("Stripe writes", () => {
+  test("the webhook surface cannot add a Stripe POST", () => {
+    // The webhook receives a signal and may only use StripeObjectReader GETs.
+    // Pinning every production `.post(` caller makes a direct write or a new
+    // write helper a deliberate failing-test change rather than a prose claim.
+    expect(productionStripePostCallers()).toEqual([
+      "billing-cli.ts",
+      "cancel.ts",
+      "reinstatement-operations.ts",
+      "stripe/checkout.ts",
+      "stripe/test-clock.ts",
+    ]);
+  });
+});
+
 describe("the Stripe-owned setter", () => {
   test("is called only from reconciliation", async () => {
     // If this fails: something other than webhook reconciliation is writing the

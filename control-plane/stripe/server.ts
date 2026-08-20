@@ -34,6 +34,42 @@ export interface RunningWebhookServer {
   stop(): Promise<void>;
 }
 
+/**
+ * Handle the public Stripe route on either the local listener or the deployed
+ * provisioner listener. The processor owns every security-relevant decision;
+ * this adapter preserves the raw body and maps its classified result to HTTP.
+ */
+export async function handleWebhookRequest(
+  req: Request,
+  processor: WebhookProcessor,
+  report: (line: string) => void = () => {},
+): Promise<Response> {
+  if (req.method !== "POST") {
+    return new Response("method not allowed\n", { status: 405 });
+  }
+
+  const raw = await req.text();
+  const signature = req.headers.get("stripe-signature");
+  const outcome = await processor.handle(raw, signature);
+  report(
+    `${outcome.status} ${outcome.kind}` +
+      `${outcome.subscriptionId ? ` ${outcome.subscriptionId}` : ""}: ${outcome.detail}`,
+  );
+  return Response.json(
+    {
+      outcome: outcome.kind,
+      detail: outcome.detail,
+      ...(outcome.subscriptionId
+        ? { subscription: outcome.subscriptionId }
+        : {}),
+      ...(outcome.suspensionOpId
+        ? { suspensionOperation: outcome.suspensionOpId }
+        : {}),
+    },
+    { status: outcome.status },
+  );
+}
+
 export function serveWebhooks(
   opts: WebhookServerOptions,
 ): RunningWebhookServer {
@@ -52,36 +88,15 @@ export function serveWebhooks(
       if (url.pathname !== WEBHOOK_PATH) {
         return new Response("not found\n", { status: 404 });
       }
-      if (req.method !== "POST") {
-        return new Response("method not allowed\n", { status: 405 });
-      }
-
       // The RAW bytes. The signature covers exactly these; a parse-and-reserialise
       // anywhere in this path would break every genuine delivery.
-      const raw = await req.text();
-      const signature = req.headers.get("stripe-signature");
-      const outcome = await opts.processor.handle(raw, signature);
-
-      if (opts.recordDir && outcome.kind === "applied") {
-        recordRaw(opts.recordDir, raw, report);
+      const raw = await req.clone().text();
+      const response = await handleWebhookRequest(req, opts.processor, report);
+      if (opts.recordDir && response.ok) {
+        const body = (await response.clone().json()) as { outcome?: unknown };
+        if (body.outcome === "applied") recordRaw(opts.recordDir, raw, report);
       }
-      report(
-        `${outcome.status} ${outcome.kind}` +
-          `${outcome.subscriptionId ? ` ${outcome.subscriptionId}` : ""}: ${outcome.detail}`,
-      );
-      return Response.json(
-        {
-          outcome: outcome.kind,
-          detail: outcome.detail,
-          ...(outcome.subscriptionId
-            ? { subscription: outcome.subscriptionId }
-            : {}),
-          ...(outcome.suspensionOpId
-            ? { suspensionOperation: outcome.suspensionOpId }
-            : {}),
-        },
-        { status: outcome.status },
-      );
+      return response;
     },
   });
 

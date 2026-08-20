@@ -83,9 +83,10 @@ export class WebhookProcessor {
    * The fetch happens outside the transaction, so two deliveries about the same
    * subscription could otherwise interleave as fetch-fetch-apply-apply and let
    * the older fetch write last. Serialising per subscription removes that window
-   * inside this process; the durable event transaction is what covers crashes and
-   * redelivery. A second provisioner would need a database-level lock instead -
-   * recorded in the README, not solved here, because nothing deploys this slice.
+   * inside this process. During a provisioner deploy overlap, a subscription CAS
+   * miss throws and rolls the whole event transaction back; Stripe redelivery then
+   * converges on fetched truth. The durable transaction also covers crashes and
+   * duplicate delivery.
    */
   private readonly chains = new Map<string, Promise<unknown>>();
 
@@ -345,7 +346,7 @@ export class WebhookProcessor {
       cancellation_reason: string | null;
     }>(
       "select stripe_customer_id, ended_at, canceled_at, cancellation_reason " +
-        "from subscriptions where id = ?",
+        "from subscriptions where id = $1",
       [subscriptionId],
     );
     if (!cached) return null;

@@ -79,11 +79,13 @@ describe("the grants are bounded by what the call graph needs", () => {
     expect(verbsFor(WEB_GRANTS, "stripe_events")).toEqual([]);
   });
 
-  test("subscription state is read-only where it is read at all", () => {
+  test("only the deployed reconciler role may write subscription state", () => {
     expect(verbsFor(WEB_GRANTS, "subscriptions")).toEqual(["select"]);
-    // The deployed command runs the lifecycle cadence, which reads but never
-    // writes subscription projection state.
-    expect(verbsFor(PROVISIONER_GRANTS, "subscriptions")).toEqual(["select"]);
+    expect(verbsFor(PROVISIONER_GRANTS, "subscriptions")).toEqual([
+      "select",
+      "insert",
+      "update",
+    ]);
   });
 
   test("the provisioner drives operations and holds the latch it can reach", () => {
@@ -153,10 +155,10 @@ describe("the matrix is exactly what the deployed command reaches", () => {
   test("a verb nothing reaches is reported as EXCESS", () => {
     const widened = [
       ...PROVISIONER_GRANTS,
-      { table: "accounts", verbs: ["select"] as const, because: "nothing" },
+      { table: "accounts", verbs: ["update"] as const, because: "nothing" },
     ];
     const verdict = provisionerMatrixAgainstReachable(widened);
-    expect(verdict.excess).toEqual(["accounts:select"]);
+    expect(verdict.excess).toEqual(["accounts:update"]);
     expect(verdict.missing).toEqual([]);
     expect(verdict.exact).toBe(false);
   });
@@ -172,12 +174,19 @@ describe("the matrix is exactly what the deployed command reaches", () => {
   test("the prior matrix differs from the current one only where the audit moved it", () => {
     const prior = provisionerMatrixAgainstReachable(PRIOR_PROVISIONER_GRANTS);
     expect(prior.missing).toEqual([
+      "accounts:insert",
+      "accounts:select",
       "certificate_credentials:insert",
       "certificate_credentials:select",
       "certificate_credentials:update",
       "reinstatement_attempts:select",
       "reinstatement_attempts:update",
+      "schema_meta:select",
+      "stripe_events:insert",
+      "stripe_events:select",
+      "subscriptions:insert",
       "subscriptions:select",
+      "subscriptions:update",
     ]);
     expect(prior.excess).toEqual([]);
   });

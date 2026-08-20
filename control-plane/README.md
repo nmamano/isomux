@@ -16,13 +16,14 @@ Stage and verify only these values with
 `~/.config/isomux/control-plane-certificate.env` as a strict 0600 file and cannot
 touch database, invite-seam, or provider credentials.
 
-The provisioner's Stripe test credential has the same isolated route:
-`bun control-plane/deploy/stripe-secrets.ts` stages it and
-`bun control-plane/deploy/stripe-secrets.ts --verify` checks its name. The
+The provisioner's Stripe credentials have the same isolated route:
+`bun control-plane/deploy/stripe-secrets.ts` stages them and
+`bun control-plane/deploy/stripe-secrets.ts --verify` checks their names. The
 importer reads `~/.config/isomux/control-plane-stripe.env`, a strict 0600 file
 built from the human-facing `~/nil/secrets/stripe-test.env` source on auntie.
-Do not edit the control-plane copy as an independent key. It accepts only
-`STRIPE_TEST_SECRET_KEY` with a test-mode `sk_test_` or `rk_test_` value.
+Do not edit the control-plane copy as an independent source. It accepts only
+`STRIPE_TEST_SECRET_KEY` with a test-mode `sk_test_` or `rk_test_` value and
+`STRIPE_WEBHOOK_SECRET` with a `whsec_` value.
 
 Automated tests use loopback ACME and DNS fakes. The target validator rejects
 the production CA, Cloudflare API, or production zone in a test process even if
@@ -570,8 +571,10 @@ grants are per table and per verb, and the absences are the point:
   `operations`, no `update`. Leasing, completing and re-driving belong to the
   provisioner, and that sentence is now a grant rather than a convention.
 - **The web cannot read the billing event journal** (`stripe_events`).
-- **Subscription state is read-only on both tiers.** Webhooks remain its only
-  writer, and the reconciler runs operator-side.
+- **Subscription state is read-only on the web tier.** The provisioner's
+  reconciler is its only writer and writes from fetched Stripe truth, never from
+  a delivery payload. The provisioner also claims delivery ids in
+  `stripe_events` and reads the cancellation-policy cutover in `schema_meta`.
 - **The provisioner is not granted `instances` INSERT or any write to
   `name_reservations`**, because instance rows and reservations are created at
   signup.
@@ -1304,7 +1307,7 @@ bun control-plane/deploy/secrets.ts                  # the FIRST-DEPLOY three, o
 bun control-plane/deploy/secrets.ts --verify         # are all boot-required names set?
 bun control-plane/deploy/provider-secrets.ts         # the provider four, over stdin
 bun control-plane/deploy/provider-secrets.ts --verify
-bun control-plane/deploy/stripe-secrets.ts           # the Stripe test key, over stdin
+bun control-plane/deploy/stripe-secrets.ts           # the Stripe key and webhook secret, over stdin
 bun control-plane/deploy/stripe-secrets.ts --verify
 bun control-plane/deploy/certificate-secrets.ts      # the certificate three, over stdin
 bun control-plane/deploy/certificate-secrets.ts --verify
@@ -1314,6 +1317,68 @@ bun control-plane/deploy/activate.ts --execute       # the one deploy that arms 
 bun control-plane/deploy/provider-account.ts         # the provider account, read from the machine
 bun control-plane/deploy/probe.ts                    # does the surface refuse everyone else?
 ```
+
+### Activating the deployed Stripe listener
+
+This is the real deployed endpoint, in Stripe TEST mode, with an `rk_test_`
+restricted key. The provisioner rejects a live key, live event, or live fetched
+object. Opening live mode is separate pre-launch work; see the task titled
+"Open the hosted billing path from Stripe test mode to live mode."
+
+Apply these steps in order. Keep steps 4-6 in one sitting. In test mode Stripe
+retries a failed delivery three times over a few hours; after that, retry the
+event by hand from Workbench or re-query the Events list and reconcile the
+window. This retry budget was confirmed in Stripe's documentation on
+2026-08-20. The product cannot take money before the separate live-mode work, so
+a missed event in this activation window carries no real payment; re-run the
+test-mode operation.
+
+1. Create the restricted `rk_test_` key with Subscriptions read, Invoices read,
+   and Checkout Sessions read and write. Set `STRIPE_TEST_SECRET_KEY` to it.
+   Success means the Fly secret name is present and the old provisioner image
+   remains healthy: these permissions cover its reads and its one
+   `expire_checkout` write. Roll back by restoring the prior test key.
+2. Merge the listener into `~/nil/isomux`. Success means the merged source
+   contains `POST /stripe/webhook` and its tests. The matrix command reads its
+   destination from the current source; running it before this step applies the
+   old matrix and can report success while the webhook grants stay absent. Roll
+   back by reverting the source change before any deploy.
+3. From that merged tree, run
+   `bun control-plane/exercises/neon.ts regovern --branch production`.
+   Production carried `PRIOR_PROVISIONER_GRANTS` as observed 2026-08-16. The
+   success report must say both runtime-role matrices and effective privileges
+   are exact and user tables are unchanged. This command also lands the pending
+   subscriptions, reinstatement-attempts, and certificate-credentials grants
+   from the earlier matrix change; it is not webhook-only. If the catalog, role
+   budget, bounds, login state, or membership differs from the expected prior
+   posture, it refuses before its transaction opens and writes nothing. Roll
+   back with the same command plus `--reverse`, before deployment.
+4. Register `https://isomux-provisioner.fly.dev/stripe/webhook` for
+   `checkout.session.completed`, `customer.subscription.created`,
+   `customer.subscription.updated`, `customer.subscription.deleted`, and
+   `invoice.payment_failed`, and then read its signing secret. Success means the
+   URL and exact five-event allowlist read back correctly. Do not disable the
+   endpoint while waiting: Stripe drops events generated while a destination is
+   disabled instead of retrying them. Roll back by disabling the endpoint.
+5. Set `STRIPE_WEBHOOK_SECRET` to that signing secret. Success means both Stripe
+   Fly secret names read back as present and the old provisioner image remains
+   healthy; it ignores the new name. Deploying first makes `cmdRun` refuse to
+   start and the machine crash-loop. Roll back by disabling the endpoint and
+   restoring the prior secret inventory.
+6. Deploy the merged provisioner. Success means the process and its authenticated
+   health route are healthy. Deploying before step 3 makes valid deliveries hit
+   database error 42501 and return HTTP 500; the cache stays stale until the
+   matrix moves and Stripe retries. Registering the endpoint long before this
+   step spends the test-mode retry budget on 404 responses. Roll back by
+   disabling the endpoint and restoring the previous provisioner image.
+7. Generate a real test-mode event for a known test subscription, and verify its
+   delivery. Success requires HTTP 2xx, a `stripe_events` row for that exact
+   event id with `outcome='applied'`, and the matching `subscriptions` row
+   updated to the state fetched from Stripe. A 2xx alone is insufficient: an
+   unknown subscription is legitimately recorded as ignored. Roll back the
+   listener by disabling the endpoint; the system then returns to operator-held
+   delivery, and any test fixture created for this check is cleaned up through
+   the existing test-account procedure.
 
 Every one of those prints fixed names and booleans: no connection string, no
 token, no digest, no branch id, no app name other than this one, and nothing a
@@ -1363,10 +1428,11 @@ provider credentials - `CONTABO_CLIENT_ID`, `CONTABO_CLIENT_SECRET`,
 and by nothing else. All seven are fly secrets; nothing secret is in `fly.toml`,
 because this repository is public.
 
-The lifecycle loop also requires `STRIPE_TEST_SECRET_KEY`; its dedicated
-importer accepts only a test-mode key. Certificate work requires
+The lifecycle loop also requires `STRIPE_TEST_SECRET_KEY`, and the public Stripe
+listener requires `STRIPE_WEBHOOK_SECRET`; their dedicated importer accepts only
+a test-mode key and a webhook-signing-secret shape. Certificate work requires
 `ISOMUX_CF_ZONE_ID`, `ISOMUX_CF_TOKEN` and `ISOMUX_ACME_EMAIL`; its importer is
-separate too. `deploy/secrets.ts --verify` checks all eleven boot-required names
+separate too. `deploy/secrets.ts --verify` checks all twelve boot-required names
 in one discarded listing, but the import path in that file remains limited to
 the first-deploy three. Each narrow importer also has its own name check.
 
@@ -2415,7 +2481,7 @@ a provisioner started without one refuses to serve the seam at all, and says so.
   the mint gate because its existing owner can already be signed in without a new
   invite.
 
-## Billing (Stripe, test mode only)
+## Billing (Stripe test-mode account)
 
 Signup, the comped path, webhooks and the dunning ladder. Every module lives in
 `control-plane/stripe/` and every command in `control-plane/billing-cli.ts`,
@@ -2440,6 +2506,14 @@ the provider commands read the Contabo credentials: the caller sources the file,
 the code never learns its path, and nothing prints, logs or echoes the value.
 `StripeClient` refuses to issue a single request unless the key is an
 `sk_test_`/`rk_test_` one, and a live prefix gets its own named error.
+
+The deployed provisioner also serves `POST /stripe/webhook` on Fly's published
+internal port 4311. It reads the durable Dashboard endpoint secret from
+`STRIPE_WEBHOOK_SECRET`; this replaces the temporary secret printed by a
+hand-run `stripe listen` session. Its restricted Stripe key has Subscriptions
+read, Invoices read, and Checkout Sessions read and write. The write permission
+is used only by the existing `expire_checkout` lifecycle operation. Webhook
+processing uses only the three read resources.
 
 ### Test mode is enforced three times, not once
 

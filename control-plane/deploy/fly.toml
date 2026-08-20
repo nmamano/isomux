@@ -6,8 +6,9 @@
 # web app.
 #
 # NOTHING SECRET IS IN THIS FILE. The repository is public. The database string,
-# the branch this deployment expects and the seam credential are fly secrets,
-# imported over stdin by control-plane/deploy/secrets.ts.
+# the branch this deployment expects, the seam credential, and the Stripe
+# credentials are Fly secrets, imported over stdin by their narrow deploy
+# programs.
 
 app = "isomux-provisioner"
 primary_region = "fra"

@@ -33,6 +33,8 @@ import { accessForInstance, windowIsOpen } from "./access.ts";
 import type { InviteHold } from "./invite-hold.ts";
 import { instanceOwnedBy } from "./signup.ts";
 import type { Store } from "./store.ts";
+import { handleWebhookRequest, WEBHOOK_PATH } from "./stripe/server.ts";
+import type { WebhookProcessor } from "./stripe/webhook.ts";
 
 export const MINT_SEAM_PATH = "/internal/invite";
 export const HEALTH_PATH = "/internal/health";
@@ -150,6 +152,9 @@ export interface MintSeamOptions {
   health?: () => Promise<Record<string, boolean>>;
   report?: (line: string) => void;
   certificates?: CertificateService;
+  /** Present on the deployed provisioner. Stripe authenticates this public
+   * route with its signature header, not with the private seam bearer. */
+  webhook?: WebhookProcessor;
 }
 
 export interface RunningMintSeam {
@@ -233,6 +238,15 @@ export function startMintSeam(opts: MintSeamOptions): RunningMintSeam {
       // learns nothing beyond "no".
       const authorized = () =>
         tokenMatches(bearerOf(req.headers.get("authorization")), opts.token);
+
+      // This is deliberately before the bearer gate: Stripe cannot present the
+      // private seam token. The processor verifies the signature over the raw
+      // body before it parses, fetches or writes anything.
+      if (opts.webhook && url.pathname === WEBHOOK_PATH) {
+        return handleWebhookRequest(req, opts.webhook, (line) =>
+          report(`stripe webhook: ${line}`),
+        );
+      }
 
       if (opts.certificates && url.pathname === CERTIFICATE_RENEW_PATH) {
         if (req.method !== "POST")

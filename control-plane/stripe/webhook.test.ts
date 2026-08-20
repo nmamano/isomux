@@ -18,6 +18,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store } from "../store.ts";
+import { InviteHold } from "../invite-hold.ts";
+import { startMintSeam } from "../mint-seam.ts";
 import { openTestStore, releaseTestStores } from "../testing/pg.ts";
 import {
   getSubscription,
@@ -41,6 +43,7 @@ import {
   assertTestModeEvent,
   LiveModeEventRefused,
 } from "./webhook.ts";
+import { WEBHOOK_PATH } from "./server.ts";
 
 const SECRET = "whsec_NOT_A_REAL_SECRET_ONLY_A_SHAPE";
 const NOW = 1_770_000_000_000;
@@ -340,6 +343,54 @@ describe("the signature", () => {
   });
 });
 
+describe("the deployed provisioner route", () => {
+  test("only a signed POST reaches the processor without the seam bearer", async () => {
+    const store = await tempStore();
+    const reader = new FakeReader();
+    const processor = processorFor(store, reader);
+    const seam = startMintSeam({
+      store,
+      hold: new InviteHold(),
+      token: "t".repeat(40),
+      webhook: processor,
+      port: 0,
+    });
+    const payload = body({
+      id: "evt_route",
+      type: "customer.created",
+      object: { id: "cus_1" },
+    });
+    const url = `http://127.0.0.1:${seam.port}${WEBHOOK_PATH}`;
+    try {
+      const wrongMethod = await fetch(url, {
+        headers: { "stripe-signature": sign(payload) },
+      });
+      expect(wrongMethod.status).toBe(405);
+
+      const forged = await fetch(url, {
+        method: "POST",
+        headers: {
+          "stripe-signature": sign(payload, "whsec_SOMEONE_ELSES_ROUTE_SECRET"),
+        },
+        body: payload,
+      });
+      expect(forged.status).toBe(400);
+      expect(await listEvents(store)).toEqual([]);
+
+      const genuine = await fetch(url, {
+        method: "POST",
+        headers: { "stripe-signature": sign(payload) },
+        body: payload,
+      });
+      expect(genuine.status).toBe(200);
+      expect(await genuine.json()).toMatchObject({ outcome: "ignored" });
+      expect(await listEvents(store)).toHaveLength(1);
+    } finally {
+      await seam.stop();
+    }
+  });
+});
+
 describe("applying an event", () => {
   test("checkout.session.completed establishes the row from the FETCHED subscription", async () => {
     const store = await tempStore();
@@ -405,6 +456,23 @@ describe("applying an event", () => {
       }),
     );
     expect(outcome).toMatchObject({ status: 200, kind: "ignored" });
+    expect(await listEvents(store)).toHaveLength(1);
+  });
+
+  test("a delivery for a subscription Stripe does not know is ignored", async () => {
+    const store = await tempStore();
+    const reader = new FakeReader();
+    const outcome = await deliver(
+      processorFor(store, reader),
+      body({
+        id: "evt_unknown_subscription",
+        type: "customer.subscription.updated",
+        object: { id: "sub_unknown" },
+      }),
+    );
+    expect(outcome).toMatchObject({ status: 200, kind: "ignored" });
+    expect(reader.calls).toEqual(["subscription:sub_unknown"]);
+    expect(await listSubscriptions(store)).toEqual([]);
     expect(await listEvents(store)).toHaveLength(1);
   });
 

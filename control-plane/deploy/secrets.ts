@@ -52,7 +52,7 @@ import {
 } from "./fly-cli.ts";
 import {
   CERTIFICATE_SECRET_NAMES,
-  STRIPE_SECRET_NAME,
+  STRIPE_SECRET_NAMES,
 } from "./secret-names.ts";
 
 export type { Pair };
@@ -89,7 +89,7 @@ export const SECRET_NAMES = [
 export const BOOT_REQUIRED_NAMES = [
   ...SECRET_NAMES,
   ...CONTABO_SECRET_NAMES,
-  STRIPE_SECRET_NAME,
+  ...STRIPE_SECRET_NAMES,
   ...CERTIFICATE_SECRET_NAMES,
 ] as const;
 

@@ -546,9 +546,38 @@ Public Suffix List submission is **parked** by Nil.
 
 Stripe Checkout for signup, the Stripe customer portal for card changes (no
 billing UI of our own), and webhooks as the only writer of subscription state:
-`checkout.session.completed`, `customer.subscription.updated`,
-`customer.subscription.deleted`, `invoice.payment_failed`. Verify signatures,
-dedupe by event id, treat the local row as a cache.
+`checkout.session.completed`, `customer.subscription.created`,
+`customer.subscription.updated`, `customer.subscription.deleted`, and
+`invoice.payment_failed`. Verify signatures, dedupe by event id, and treat the
+local row as a cache.
+
+The provisioner's `POST /stripe/webhook` is the first unauthenticated HTTP route
+on the machine that holds provider and Stripe credentials. This is acceptable
+because unauthenticated means no Isomux bearer: Stripe still authenticates each
+delivery. `verifySignature` checks the `Stripe-Signature` HMAC over the exact raw
+body before JSON parsing, object fetches, or database work. A missing, stale, or
+invalid signature returns 400 and has no effect.
+
+The delivery is only a signal. The processor fetches the named subscription,
+invoice, or Checkout session from Stripe, and reconciliation writes only that
+fetched truth. A forged delivery that somehow had a valid signature could only
+request another read of Stripe's current state. No billing fact comes from the
+payload: status, period end, cancellation and discount are all written from the
+fetched object. What the payload contributes is its own identity - the event id,
+type and created timestamp - recorded as evidence and used to derive the dunning
+episode id and its suspension operation id, so a replay computes the same ones
+instead of opening a second episode. Event ids are claimed in the same
+transaction as the cache update, so duplicate delivery is harmless and a failed
+transaction remains replayable.
+
+The real deployed endpoint remains in Stripe TEST mode and uses an `rk_test_`
+restricted key; the existing live-mode gates remain closed. That key has
+Subscriptions read, Invoices read, and Checkout Sessions read and write.
+Checkout Sessions write is the one narrow write permission: the already-deployed
+`expire_checkout` operation expires an unfinished reinstatement Checkout session
+before deletion can continue. The webhook path itself performs no Stripe write,
+and the source-shape test pins every production Stripe POST caller so a future
+webhook write fails the suite.
 
 **No trial** (ruling 1). Checkout collects a card and charges immediately.
 (Amended by Nil 2026-08-03: he may still hand out free boxes for feedback, so

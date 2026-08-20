@@ -23,7 +23,7 @@ import {
 import { CONTABO_SECRET_NAMES } from "./fly-cli.ts";
 import {
   CERTIFICATE_SECRET_NAMES,
-  STRIPE_SECRET_NAME,
+  STRIPE_SECRET_NAMES,
 } from "./secret-names.ts";
 import type { Spawn, SpawnResult } from "./fly-cli.ts";
 
@@ -319,7 +319,7 @@ describe("the name check", () => {
     expect([...BOOT_REQUIRED_NAMES]).toEqual([
       ...SECRET_NAMES,
       ...CONTABO_SECRET_NAMES,
-      STRIPE_SECRET_NAME,
+      ...STRIPE_SECRET_NAMES,
       ...CERTIFICATE_SECRET_NAMES,
     ]);
   });

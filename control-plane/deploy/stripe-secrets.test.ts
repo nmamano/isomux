@@ -7,6 +7,7 @@ import { BOOT_REQUIRED_NAMES, pushSecrets } from "./secrets.ts";
 import {
   STRIPE_SECRET_NAME,
   STRIPE_SECRET_NAMES,
+  STRIPE_WEBHOOK_SECRET_NAME,
   readStripeFile,
 } from "./stripe-secrets.ts";
 
@@ -28,9 +29,10 @@ afterEach(() => {
 });
 
 describe("the Stripe source file", () => {
-  test("reads exactly one test credential and preserves internal spaces", () => {
+  test("reads exactly the two Stripe credentials and preserves internal spaces", () => {
     const file = credentialFile(
-      "STRIPE_TEST_SECRET_KEY='sk_test_public fixture value'\n",
+      "STRIPE_TEST_SECRET_KEY='sk_test_public fixture value'\n" +
+        "STRIPE_WEBHOOK_SECRET='whsec_public'\n",
     );
     expect(readStripeFile(file).get(STRIPE_SECRET_NAME)).toBe(
       "sk_test_public fixture value",
@@ -38,32 +40,57 @@ describe("the Stripe source file", () => {
   });
 
   test("refuses a live key", () => {
-    const file = credentialFile("STRIPE_TEST_SECRET_KEY='sk_live_public'\n");
+    const file = credentialFile(
+      "STRIPE_TEST_SECRET_KEY='sk_live_public'\n" +
+        "STRIPE_WEBHOOK_SECRET='whsec_public'\n",
+    );
     expect(() => readStripeFile(file)).toThrow("not a test-mode key");
+  });
+
+  test("refuses a value that is not a webhook signing secret", () => {
+    const file = credentialFile(
+      "STRIPE_TEST_SECRET_KEY='rk_test_public'\n" +
+        "STRIPE_WEBHOOK_SECRET='not-a-webhook-secret'\n",
+    );
+    expect(() => readStripeFile(file)).toThrow("not a signing secret");
   });
 
   test("refuses a malformed, unknown, repeated, missing, or loose-mode file", () => {
     const cases = [
-      credentialFile("export STRIPE_TEST_SECRET_KEY='sk_test_public'\n"),
-      credentialFile("OTHER='sk_test_public'\n"),
       credentialFile(
-        "STRIPE_TEST_SECRET_KEY='sk_test_one'\nSTRIPE_TEST_SECRET_KEY='sk_test_two'\n",
+        "export STRIPE_TEST_SECRET_KEY='sk_test_public'\n" +
+          "STRIPE_WEBHOOK_SECRET='whsec_public'\n",
+      ),
+      credentialFile(
+        "OTHER='sk_test_public'\nSTRIPE_WEBHOOK_SECRET='whsec_public'\n",
+      ),
+      credentialFile(
+        "STRIPE_TEST_SECRET_KEY='sk_test_one'\n" +
+          "STRIPE_TEST_SECRET_KEY='sk_test_two'\n" +
+          "STRIPE_WEBHOOK_SECRET='whsec_public'\n",
       ),
       credentialFile(""),
-      credentialFile("STRIPE_TEST_SECRET_KEY='sk_test_public'\n", 0o640),
+      credentialFile(
+        "STRIPE_TEST_SECRET_KEY='sk_test_public'\n" +
+          "STRIPE_WEBHOOK_SECRET='whsec_public'\n",
+        0o640,
+      ),
     ];
     for (const file of cases) expect(() => readStripeFile(file)).toThrow();
   });
 });
 
 describe("the Stripe importer allowlist", () => {
-  test("contains only the runtime key", () => {
-    expect([...STRIPE_SECRET_NAMES]).toEqual(["STRIPE_TEST_SECRET_KEY"]);
+  test("contains only the runtime Stripe credentials", () => {
+    expect([...STRIPE_SECRET_NAMES]).toEqual([
+      "STRIPE_TEST_SECRET_KEY",
+      "STRIPE_WEBHOOK_SECRET",
+    ]);
   });
 
   test("refuses every other boot secret before a child starts", async () => {
     for (const name of BOOT_REQUIRED_NAMES) {
-      if (name === STRIPE_SECRET_NAME) continue;
+      if ((STRIPE_SECRET_NAMES as readonly string[]).includes(name)) continue;
       let spawned = false;
       const spawn: Spawn = async () => {
         spawned = true;
@@ -91,13 +118,19 @@ describe("the Stripe importer allowlist", () => {
       return { code: 0, stdout: `echo ${value.slice(0, 10)}`, stderr: value };
     };
     const outcome = await pushSecrets({
-      pairs: [{ name: STRIPE_SECRET_NAME, value }],
+      pairs: [
+        { name: STRIPE_SECRET_NAME, value },
+        { name: STRIPE_WEBHOOK_SECRET_NAME, value: "whsec_public" },
+      ],
       allowed: STRIPE_SECRET_NAMES,
       flyToken: "public-token",
       spawn,
     });
     expect(calls[0].argv.join(" ")).not.toContain(value);
-    expect(calls[0].stdin).toBe(`${STRIPE_SECRET_NAME}=${value}\n`);
+    expect(calls[0].stdin).toBe(
+      `${STRIPE_SECRET_NAME}=${value}\n` +
+        `${STRIPE_WEBHOOK_SECRET_NAME}=whsec_public\n`,
+    );
     expect(JSON.stringify(outcome)).not.toContain(value);
     expect(outcome.valueInChildOutput).toBe(true);
   });

@@ -87,6 +87,7 @@ import { PROVISIONER_POOL } from "./roles.ts";
 import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
 import { StripeClient } from "./stripe/client.ts";
 import { LiveStripeReader } from "./stripe/reader.ts";
+import { WebhookProcessor } from "./stripe/webhook.ts";
 import { driveTicks } from "./drive-loop.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 
@@ -663,6 +664,25 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   let providerConfigured = false;
   let seam: RunningMintSeam | null = null;
   if (token) {
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
+    if (!webhookSecret) {
+      throw new Error(
+        "STRIPE_WEBHOOK_SECRET is required when the deployed provisioner seam is enabled",
+      );
+    }
+    const stripeKey = process.env.STRIPE_TEST_SECRET_KEY ?? "";
+    if (!stripeKey) {
+      throw new Error(
+        "STRIPE_TEST_SECRET_KEY is required when the deployed provisioner seam is enabled",
+      );
+    }
+    const webhookClient = new StripeClient({ key: stripeKey });
+    const webhook = new WebhookProcessor({
+      store,
+      reader: new LiveStripeReader(webhookClient),
+      secret: webhookSecret,
+      report: (line) => reporter.line(`stripe webhook: ${line}`),
+    });
     const certificateTarget = certificateTargetFromEnv(process.env);
     if (!process.env.ISOMUX_ACME_EMAIL || !process.env.ISOMUX_CF_TOKEN) {
       throw new Error(
@@ -711,6 +731,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
         }),
       report: (line) => reporter.line(line),
       certificates: certificateService,
+      webhook,
     });
   } else {
     // Said out loud, because the consequence is invisible otherwise: customer

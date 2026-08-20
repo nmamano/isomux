@@ -150,8 +150,10 @@ export interface TableGrant {
  *                     provisioner writes it; the internet-facing tier cannot
  *                     read or touch it.
  *   stripe_events   - the billing event journal. Its only writer is the
- *                     reconciler, which runs operator-side today.
- *   schema_meta     - schema bookkeeping. Nothing at runtime reads it.
+ *                     reconciler. It runs on the provisioner so Stripe can
+ *                     update the cache without an operator-held listener.
+ *   schema_meta     - the web does not classify first-seen subscriptions; the
+ *                     provisioner's reconciler reads the policy cutover.
  *   operations UPDATE - the web may ASK for work (insert) and read it back. It
  *                     cannot lease, complete, re-drive or flag an operation:
  *                     driving the machine is the provisioner's job, and this is
@@ -251,15 +253,36 @@ export const WEB_GRANTS: readonly TableGrant[] = [
  *
  * Still not granted, and each is a property rather than an oversight:
  * `instances` INSERT and `name_reservations` writes (rows created at signup, by
- * the web), `stripe_events` (the reconciler is operator-side), `schema_meta`,
- * and DELETE anywhere.
+ * the web), accounts UPDATE (reconciliation can establish an account but never
+ * edit one), and DELETE anywhere. The provisioner may write `stripe_events` and
+ * the subscription cache because it now serves the deployed Stripe listener;
+ * it reads `schema_meta` to classify a first-seen subscription's cancellation
+ * policy at the recorded cutover.
  */
 export const PROVISIONER_GRANTS: readonly TableGrant[] = [
   {
     table: "subscriptions",
+    verbs: ["select", "insert", "update"],
+    because:
+      "the lifecycle cadence reads subscriptions; webhook reconciliation creates and updates the cache from fetched Stripe truth",
+  },
+  {
+    table: "accounts",
+    verbs: ["select", "insert"],
+    because:
+      "webhook reconciliation finds or establishes the account named by fetched Stripe metadata",
+  },
+  {
+    table: "stripe_events",
+    verbs: ["select", "insert"],
+    because:
+      "webhook reconciliation checks and claims each Stripe event id for durable deduplication",
+  },
+  {
+    table: "schema_meta",
     verbs: ["select"],
     because:
-      "the deployed lifecycle cadence scans ended subscriptions and re-reads each one before acting",
+      "webhook reconciliation reads the cancellation-policy cutover when it first caches a subscription",
   },
   {
     table: "reinstatement_attempts",
@@ -362,6 +385,41 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
     table: "subscriptions",
     verb: "select",
     via: "lifecycle-tick.ts cancelledSubscriptions and the transactional subscription re-read",
+  },
+  {
+    table: "subscriptions",
+    verb: "insert",
+    via: "stripe/reconcile.ts insertFirstRow creates the cache from a fetched Stripe subscription",
+  },
+  {
+    table: "subscriptions",
+    verb: "update",
+    via: "stripe/reconcile.ts applies fetched Stripe truth through the subscription CAS setters",
+  },
+  {
+    table: "accounts",
+    verb: "select",
+    via: "stripe/billing-store.ts ensureAccount reads the account named by fetched Stripe metadata",
+  },
+  {
+    table: "accounts",
+    verb: "insert",
+    via: "stripe/billing-store.ts ensureAccount establishes an account for a first subscription event",
+  },
+  {
+    table: "stripe_events",
+    verb: "select",
+    via: "stripe/reconcile.ts eventSeen checks durable delivery deduplication before applying an event",
+  },
+  {
+    table: "stripe_events",
+    verb: "insert",
+    via: "stripe/reconcile.ts claimEvent records an applied or ignored delivery in the event journal",
+  },
+  {
+    table: "schema_meta",
+    verb: "select",
+    via: "stripe/reconcile.ts policyForFirstRow reads the cancellation-policy cutover for a first subscription event",
   },
   {
     table: "reinstatement_attempts",
@@ -565,6 +623,9 @@ export const AUDITED_CMDRUN_SURFACES = [
   "path.join",
   "text",
   "startMintSeam",
+  "StripeClient",
+  "LiveStripeReader",
+  "WebhookProcessor",
   "bindAddressOf",
   "healthReport",
   "makeTicker",
