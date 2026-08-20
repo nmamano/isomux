@@ -125,7 +125,7 @@ export const EXPECTED_CNAME_TARGET = "7f093b64d7196cf5.vercel-dns-017.com";
  * FIRST DEPLOY or REDEPLOY, and the difference is what may be written.
  *
  * A redeploy exists because the application changed, not the environment. The
- * seven Production values are already there, `AUTH_SECRET` among them is
+ * eleven Production values are already there, `AUTH_SECRET` among them is
  * write-only by design, and the process that generated it is gone - so a
  * redeploy cannot read it, cannot mint a session cookie, and must not try to
  * rewrite the environment to get one back. It therefore writes NOTHING and
@@ -241,10 +241,11 @@ export interface EnvShape {
   target: EnvTarget;
 }
 
-/** The seven, and the absences are as much of the contract as the entries.
+/** The eleven, and the absences are as much of the contract as the entries.
  * `encrypted` is used only for values that are public by construction: the
- * site's own address, the provisioner's hostname, and the OAuth client id,
- * which is sent to every browser on every sign-in. */
+ * site's own address, the provisioner's hostname, the OAuth client id which is
+ * sent to every browser on every sign-in, the Stripe mode, and the two Stripe
+ * price ids, which a customer sees in Checkout. */
 export const PRODUCTION_SHAPES: readonly EnvShape[] = [
   { key: "CONTROL_PLANE_DB", type: "sensitive", target: "production" },
   { key: "AUTH_SECRET", type: "sensitive", target: "production" },
@@ -1151,7 +1152,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // -------------------------------------------------- 4. the ten writes
+  // ----------------------------------------------- 4. the eleven writes
   //
   // A REDEPLOY READS NO CREDENTIAL AND GENERATES NONE. It writes nothing, so
   // opening the secret files or minting an AUTH_SECRET would be handling

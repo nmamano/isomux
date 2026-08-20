@@ -1171,7 +1171,7 @@ Then use one of two commands. The difference matters more than the flag
 suggests: the default one WRITES the environment.
 
 ```
-bun control-plane/deploy/production-phase.ts             # FIRST deploy: creates the seven Production entries
+bun control-plane/deploy/production-phase.ts             # FIRST deploy: creates the eleven Production entries
 bun control-plane/deploy/production-phase.ts --redeploy  # ships new code, writes nothing
 ```
 
@@ -1224,7 +1224,7 @@ background job.
 
 The rest of this section describes first-deploy mode. One process, because a
 `sensitive` value cannot be read back and only the process that generated
-`AUTH_SECRET` can mint a session cookie for the deployment. It writes the seven
+`AUTH_SECRET` can mint a session cookie for the deployment. It writes the eleven
 Production variables, deploys once from the
 transformed artifact, waits for the certificate, probes over HTTPS, and detaches
 the domain before reporting anything if a predicate fails after the deploy was
@@ -1262,16 +1262,18 @@ Vercel's environment list is a flat set of entries, and a check that maps them
 by key lets the Production `CONTROL_PLANE_DB` stand in for the Preview one - so
 a missing Preview entry reads as a complete inventory. `deploy/`'s production
 phase partitions by target first, requires every entry to name exactly one known
-target, refuses a repeated key on the same target, and requires nine entries in
-total: two on Preview and seven on Production. Verified exact on the live run,
-2026-08-11.
+target, refuses a repeated key on the same target, and requires thirteen entries
+in total: two on Preview and eleven on Production. The Production count grew from
+seven on 2026-08-20, when the tier lane added the two Stripe price ids and the
+live-mode lane added the Stripe mode and the live key.
 
 Every credential is stored `sensitive`, which on Vercel means **non-readable
 once created** - not by the dashboard, and not by the token that wrote it. Three
-values are deliberately `encrypted` instead, because all three are public by
-construction: the site's own address, the provisioner's hostname, and Google's
-client id, which is sent to the browser on every sign-in. Making those
-write-only would cost the ability to verify them and buy nothing.
+values are deliberately `encrypted` instead, because all six are public by
+construction: the site's own address, the provisioner's hostname, Google's client
+id which is sent to the browser on every sign-in, the Stripe mode, and the two
+Stripe price ids a customer sees in Checkout. Making those write-only would cost
+the ability to verify them and buy nothing.
 
 The price of write-only is worth stating plainly, because it shapes the
 procedure. A deployment never needs to know its own secrets - Vercel injects
