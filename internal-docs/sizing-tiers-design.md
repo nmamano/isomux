@@ -367,7 +367,7 @@ for the stress test to settle rather than something to assert here.
 | Tier | Box | Price/mo | MemoryMax | Concurrent builds | Active agents |
 | --- | --- | --- | --- | --- | --- |
 | Entry | Contabo V153, 4 vCPU / 8 GB / 100 GB SSD | **EUR 5.50** (verified: ordered 2026-07-29, 1-month term, no setup fee) | 7 GB | 1 (est) | ~12 (est) |
-| Poweruser | Contabo 8 vCPU / 24 GB (disk to confirm at order) | **EUR 11.90** (confirmed by Nil 2026-08-20; our supplier cost, customer price adds margin) | 23 GB | 2-3 (est) | ~55 (est) |
+| Poweruser | Contabo V155, 8 vCPU / 24 GB / 300 GB SSD (Contabo account read, 2026-08-20) | **EUR 11.90** (confirmed by Nil 2026-08-20; our supplier cost, customer price adds margin) | 23 GB | 2-3 (est) | ~55 (est) |
 | Large | Contabo 48 GB, or VDS M dedicated 32 GB | **EUR 20** / **EUR 43** | 47 / 31 GB | 4+ (est) | ~150 / ~100 (est) |
 
 **Both tiers ship** (Nil, 2026-07-31). Entry is positioned for customers who do

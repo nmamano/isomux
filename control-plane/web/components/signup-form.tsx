@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { OfficeAddressPreview } from "./office-address-preview";
+import type { CustomerPrice } from "../../plans";
+import { customerPriceLine } from "./plan-copy";
 import {
   generateServerAdministratorKey,
   type ServerAdministratorKey,
@@ -17,11 +19,16 @@ const CHECKOUT_ERROR =
 export function SignupForm({
   domain,
   initialName,
-  plan,
+  plans,
 }: {
   domain: string;
   initialName: string;
-  plan: string;
+  plans: Array<{
+    id: string;
+    label: string;
+    specification: string;
+    customerPrice: CustomerPrice | null;
+  }>;
 }) {
   const [key, setKey] = useState<ServerAdministratorKey | null>(null);
   const [saved, setSaved] = useState(false);
@@ -91,7 +98,26 @@ export function SignupForm({
         </p>
       )}
       <OfficeAddressPreview initialName={initialName} domain={domain} />
-      <input type="hidden" name="plan" value={plan} />
+      <fieldset>
+        <legend>Choose your office</legend>
+        {plans.map((plan, index) => (
+          <label key={plan.id} className="plan-option">
+            <input
+              type="radio"
+              name="plan"
+              value={plan.id}
+              defaultChecked={index === 0}
+            />
+            <strong>{plan.label}</strong>
+            <span className="note">{plan.specification}</span>
+            {customerPriceLine(plan.customerPrice) && (
+              <span className="note">
+                {customerPriceLine(plan.customerPrice)}
+              </span>
+            )}
+          </label>
+        ))}
+      </fieldset>
       <p>
         <label>Save your server administrator key</label>
         <span className="note">

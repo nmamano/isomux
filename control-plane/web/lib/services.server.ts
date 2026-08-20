@@ -39,6 +39,7 @@ import type { ProgressView } from "../../progress";
 import type { OpsFloor, OpsInstanceView } from "../../ops";
 import type { ReservationRow } from "../../signup";
 import type { AccountRow } from "../../stripe/billing-store";
+import type { CustomerPrice, StripePriceConfiguration } from "../../plans";
 
 export type { ProgressView, OpsFloor, OpsInstanceView };
 
@@ -154,13 +155,28 @@ export async function checkTrustedOrigin(
 export interface PlanOption {
   id: string;
   label: string;
+  specification: string;
+  customerPrice: CustomerPrice | null;
 }
 
 /** The plans a signup form may offer. Configuration, read through the same
  * module the validator uses, so a form cannot offer one signup would refuse. */
 export async function plans(): Promise<PlanOption[]> {
-  const { PLANS } = await import("../../signup");
-  return PLANS.map((p) => ({ id: p.id, label: p.label }));
+  const { PLANS } = await import("../../plans");
+  return PLANS.map(({ id, label, specification, customerPrice }) => ({
+    id,
+    label,
+    specification,
+    customerPrice,
+  }));
+}
+
+function stripePriceConfiguration(): StripePriceConfiguration {
+  return {
+    entryStripePriceId: process.env.CONTROL_PLANE_ENTRY_PRICE_ID,
+    poweruserStripePriceId: process.env.CONTROL_PLANE_POWERUSER_PRICE_ID,
+    legacyEntryStripePriceId: process.env.CONTROL_PLANE_PRICE_ID,
+  };
 }
 
 export type SignupResult =
@@ -199,16 +215,23 @@ async function openReservedCheckout(args: {
 }): Promise<SignupResult> {
   const [
     { checkoutInputsFor, customerReason },
+    { planById, resolveStripePrice },
     { StripeClient },
     { openCheckout },
   ] = await Promise.all([
     import("../../signup"),
+    import("../../plans"),
     import("../../stripe/client"),
     import("../../stripe/checkout"),
   ]);
-  const priceId = process.env.CONTROL_PLANE_PRICE_ID;
-  if (!priceId)
-    return { ok: false, reason: "This deployment has no price configured yet" };
+  const plan = planById(args.reservation.plan);
+  if (!plan)
+    return {
+      ok: false,
+      reason: `The stored plan ${args.reservation.plan} is not offered`,
+    };
+  const resolved = resolveStripePrice(plan, stripePriceConfiguration());
+  if (!resolved.ok) return resolved;
   const key = process.env.STRIPE_TEST_SECRET_KEY;
   if (!key)
     return {
@@ -224,7 +247,7 @@ async function openReservedCheckout(args: {
     reservation: args.reservation,
     account: args.account,
     email: args.account.email,
-    priceId,
+    priceId: resolved.stripePriceId,
     successUrl: `${origin}/office/${args.reservation.name}`,
     cancelUrl: `${origin}/signup`,
   });
@@ -297,11 +320,25 @@ export async function reinstateOffice(
     import("../../stripe/reader"),
     import("../../stripe/checkout"),
   ]);
-  const priceId = process.env.CONTROL_PLANE_PRICE_ID;
   const key = process.env.STRIPE_TEST_SECRET_KEY;
   const origin = deploymentOrigin();
-  if (!priceId || !key || !origin)
+  if (!key || !origin)
     return { ok: false, reason: "reinstatement payment is not configured" };
+
+  const tier = await withStore(async (store) => {
+    const { instanceOwnedBy } = await import("../../signup");
+    const owned = await instanceOwnedBy(store, accountId, instanceId);
+    if (!owned) return null;
+    const instance = await store.getInstance(instanceId);
+    if (!instance) return null;
+    const { planByProviderProduct } = await import("../../plans");
+    return planByProviderProduct(instance.plan);
+  });
+  if (!tier)
+    return { ok: false, reason: "reinstatement payment is not configured" };
+  const { resolveStripePrice } = await import("../../plans");
+  const resolved = resolveStripePrice(tier, stripePriceConfiguration());
+  if (!resolved.ok) return resolved;
 
   let prepared = await withStore((store) =>
     prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
@@ -342,7 +379,7 @@ export async function reinstateOffice(
       accountId,
       email: prepared.account.email,
       officeName: prepared.reservation.name,
-      priceId,
+      priceId: resolved.stripePriceId,
       successUrl: `${origin}/office/${prepared.reservation.name}`,
       cancelUrl: `${origin}/office/${prepared.reservation.name}`,
       instanceId,
@@ -415,6 +452,7 @@ export async function signUpOffice(args: {
 }): Promise<SignupResult> {
   if (!args.customerSshKey) return { ok: false, reason: "" };
   const { reserveOffice, validateSignup } = await import("../../signup");
+  const { resolveStripePrice } = await import("../../plans");
 
   // WHAT THE CUSTOMER TYPED IS JUDGED FIRST. Checking our own configuration
   // ahead of it answered every bad name with "no price configured", which is
@@ -427,13 +465,8 @@ export async function signUpOffice(args: {
   });
   if (!valid.ok) return { ok: false, reason: valid.reason };
 
-  const priceId = process.env.CONTROL_PLANE_PRICE_ID;
-  if (!priceId) {
-    return {
-      ok: false,
-      reason: "This deployment has no price configured yet",
-    };
-  }
+  const resolved = resolveStripePrice(valid.plan, stripePriceConfiguration());
+  if (!resolved.ok) return resolved;
   const key = process.env.STRIPE_TEST_SECRET_KEY;
   if (!key) {
     return {

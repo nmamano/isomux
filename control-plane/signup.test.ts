@@ -159,6 +159,17 @@ describe("the reservation", () => {
     expect(asset?.ipv4).toBeNull();
   });
 
+  test("Poweruser is stored by tier and reaches provisioning as V155", async () => {
+    const store = await tempStore();
+    const out = await signup(store, { plan: "poweruser" });
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    expect(out.reservation.plan).toBe("poweruser");
+    expect((await store.getInstance(out.reservation.instance_id))?.plan).toBe(
+      "V155",
+    );
+  });
+
   test("the ceiling cannot be changed after signup wrote it", async () => {
     const store = await tempStore();
     const out = await signup(store);
@@ -285,15 +296,9 @@ describe("retry identity does not come from the clock or the request", () => {
 
   test("a second request naming a different plan is refused, not silently ignored", async () => {
     const store = await tempStore();
-    // A second plan exists only for this test's sake; the refusal is what is
-    // being asserted, so it is driven through the stored value directly.
     const first = await signup(store);
     if (!first.ok) throw new Error("signup failed");
-    await store.sqlRun(
-      "update name_reservations set plan = $1 where name = $2",
-      ["other", "acme"],
-    );
-    const second = await signup(store);
+    const second = await signup(store, { plan: "poweruser" });
     expect(second.ok).toBe(false);
     if (!second.ok) expect(second.reason).toContain("already reserved on the");
   });

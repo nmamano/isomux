@@ -116,6 +116,7 @@ describe("only one file reaches the store", () => {
       ...source.matchAll(/(?:import\(|from )"(\.\.\/\.\.[^"]*)"/g),
     ].map((m) => m[1]);
     const allowed = new Set([
+      "../../plans",
       "../../signup",
       "../../progress",
       "../../store",

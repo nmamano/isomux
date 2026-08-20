@@ -2931,6 +2931,19 @@ a different plan, coupon or instance. A request that disagrees with the stored
 plan or coupon is REFUSED rather than silently served from the row: quietly
 using the stored plan would leave someone believing they had changed it.
 
+Signup offers Entry (`office`, Contabo V153, 4 vCPU / 8 GB / 100 GB SSD) and
+Poweruser (`poweruser`, Contabo V155, 8 vCPU / 24 GB / 300 GB SSD). V155 was
+confirmed by a Contabo account read on 2026-08-20. The customer-visible prices
+are nullable constants in `plans.ts`; an unset value renders no price line. A
+set value carries its amount, currency and monthly billing period together, and
+the UI formats its symbol from that currency.
+Stripe price ids are separate deployment configuration. The explicit Entry
+variable wins over the legacy single-price variable, which applies only to
+Entry and never to Poweruser. Signup refuses before reservation when its chosen
+plan has no Stripe price. Continuation uses the reservation's stored plan, and
+reinstatement resolves the instance's stored provider product, so neither path
+can silently charge the other tier's price.
+
 Signup writes four rows in one transaction - account, reservation, instance,
 placeholder provider asset - and it writes the access-window ceiling with the
 instance, because nothing else can. `createInstance` is the only statement that
@@ -3293,7 +3306,8 @@ office ANSWERS is the liveness axis, which the design keeps separate.
 Launch re-subscription keeps the reservation and provider asset. It creates a
 new Stripe subscription and links it to the retained instance only after the
 fetched Stripe object and the control-plane rows agree. The plan comes from
-`name_reservations.plan`, the price comes from deployment configuration, and
+the instance's stored provider product, the price comes from that tier's
+deployment configuration, and
 the reservation's coupon and Stripe customer are reused. A changed plan,
 coupon, or customer SSH key remains a refusal. No second provider asset is
 created.

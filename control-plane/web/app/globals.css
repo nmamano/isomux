@@ -609,6 +609,40 @@ main .btn-primary:hover:not(:disabled) {
 .form textarea + button {
   margin-top: 10px;
 }
+.form fieldset {
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+}
+.form legend {
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.form .plan-option {
+  position: relative;
+  padding: 12px 12px 12px 42px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.form .plan-option + .plan-option {
+  margin-top: 8px;
+}
+.form .plan-option input {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.form .plan-option .note {
+  display: block;
+  margin-top: 3px;
+  font-weight: 400;
+}
 
 /* ---------- Responsive ---------- */
 

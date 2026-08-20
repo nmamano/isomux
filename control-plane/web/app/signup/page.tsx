@@ -43,11 +43,7 @@ export default async function Signup({
           </button>
         </form>
       ) : (
-        <SignupForm
-          initialName={name}
-          domain={OFFICE_DOMAIN}
-          plan={options[0]?.id ?? ""}
-        />
+        <SignupForm initialName={name} domain={OFFICE_DOMAIN} plans={options} />
       )}
     </main>
   );

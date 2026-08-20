@@ -152,6 +152,8 @@ describe("what may be set on the deployment", () => {
     for (const name of [
       "STRIPE_TEST_SECRET_KEY",
       "CONTROL_PLANE_PRICE_ID",
+      "CONTROL_PLANE_ENTRY_PRICE_ID",
+      "CONTROL_PLANE_POWERUSER_PRICE_ID",
       "CONTROL_PLANE_COUPON_ID",
       "CONTROL_PLANE_DEV_AUTH",
       "NEXT_PUBLIC_CONTROL_PLANE_DEV_AUTH",
@@ -161,7 +163,8 @@ describe("what may be set on the deployment", () => {
       expect({
         name,
         allowed: (DEPLOYMENT_ENV_NAMES as readonly string[]).includes(name),
-      }).toEqual({ name, allowed: false });
+        forbidden: (FORBIDDEN_ENV_NAMES as readonly string[]).includes(name),
+      }).toEqual({ name, allowed: false, forbidden: true });
     }
   });
 

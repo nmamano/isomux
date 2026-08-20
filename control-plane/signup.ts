@@ -32,7 +32,22 @@ import type { OpenCheckoutArgs } from "./stripe/checkout.ts";
 import { validateOfficeName } from "./stripe/checkout.ts";
 import { validateCustomerSshKey } from "./key-lines.ts";
 import { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
+import { planById, type Plan } from "./plans.ts";
 export { ACCESS_WINDOW_MS } from "./access-window-policy.ts";
+export {
+  ENTRY_PLAN,
+  PLANS,
+  POWERUSER_PLAN,
+  planById,
+  planByProviderProduct,
+  planDisplayForProviderProduct,
+  resolveStripePrice,
+  type CustomerPrice,
+  type Plan,
+  type PlanDisplay,
+  type StripePriceConfiguration,
+  type StripePriceResolution,
+} from "./plans.ts";
 
 /**
  * The domain offices are named under. A constant rather than an environment
@@ -63,26 +78,6 @@ export const OFFICE_DOMAIN = "test.isomux.app";
  * from the environment with the rest of the Stripe credentials rather than
  * being frozen into a public repository.
  */
-export interface Plan {
-  id: string;
-  label: string;
-  providerProduct: string;
-  region: string;
-}
-
-export const PLANS: Plan[] = [
-  {
-    id: "office",
-    label: "Office",
-    providerProduct: "V153",
-    region: "EU",
-  },
-];
-
-export function planById(id: string): Plan | null {
-  return PLANS.find((p) => p.id === id) ?? null;
-}
-
 export interface ReservationRow {
   name: string;
   id: string;

@@ -51,7 +51,11 @@ import {
   type Severity,
   type Store,
 } from "./store.ts";
-import { reservationForInstance, type ReservationRow } from "./signup.ts";
+import {
+  planDisplayForProviderProduct,
+  reservationForInstance,
+  type ReservationRow,
+} from "./signup.ts";
 
 export type { AccessView };
 
@@ -180,6 +184,7 @@ export interface ProgressView {
   hostname: string;
   sshCommand: string | null;
   plan: string;
+  tier: import("./plans.ts").PlanDisplay;
   serviceState: ServiceState;
   goal: Goal;
   /**
@@ -661,6 +666,7 @@ export async function projectionFor(
         ? `ssh ${instance.ssh_login_user}@${instance.name}`
         : null,
     plan: reservation.plan,
+    tier: planDisplayForProviderProduct(instance.plan),
     serviceState: instance.service_state,
     goal,
     origin,

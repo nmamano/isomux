@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ProgressView } from "../lib/services.server";
+import { customerPriceLine } from "./plan-copy";
 
 /** Fast while the office is being built, slow once it is serving. The server
  * side of this is a read of rows already in the database, so the cost of the
@@ -325,6 +326,13 @@ export function OfficeView({
   return (
     <main>
       <h1 data-testid="office-hostname">{view.hostname}</h1>
+      <section className="card" data-testid="office-tier">
+        <strong>{view.tier.label}</strong>
+        {view.tier.specification && <p>{view.tier.specification}</p>}
+        {customerPriceLine(view.tier.customerPrice) && (
+          <p>{customerPriceLine(view.tier.customerPrice)}</p>
+        )}
+      </section>
       <p className="lead" data-testid="office-status">
         {view.ready
           ? "Your office is ready."
@@ -901,8 +909,8 @@ function CancelPanel({
  */
 function planLine(view: ProgressView) {
   const sub = view.subscription;
-  if (!sub) return `${view.plan} - waiting for payment to be confirmed`;
-  const head = `${view.plan} - ${sub.status}${sub.comped ? ", no charge" : ""}`;
+  if (!sub) return `${view.tier.label} - waiting for payment to be confirmed`;
+  const head = `${view.tier.label} - ${sub.status}${sub.comped ? ", no charge" : ""}`;
   // Ended: the period end is history, so it is not shown at all. The
   // cancellation panel below is where the remaining dates live.
   if (sub.endedAt !== null) return head;
