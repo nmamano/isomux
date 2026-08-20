@@ -2641,14 +2641,13 @@ Attention is per-instance by design, so a subscription with no box linked yet
 has nowhere to hang one; that case is audited instead. Slice 4, which links a
 subscription to an instance at signup, is where it stops happening.
 
-### What Stripe actually does (observed 2026-08-09, API version 2026-07-29.dahlia)
+### What non-Managed Payments Stripe did (observed 2026-08-09, API version 2026-07-29.dahlia)
 
-These 2026-08-09 and 2026-08-10 lifecycle observations are about non-Managed
-Payments subscriptions. The exercise created those subscriptions directly with
-`POST /v1/subscriptions`; Managed Payments requires new subscriptions to start
-through Checkout or Payment Links. Do not treat the observed dunning ladder,
-terminal states, invoice shapes or coupon-lapse behaviour as MoR evidence until
-the separate Managed Payments lifecycle exercise re-measures them.
+These 2026-08-09 lifecycle observations are about non-Managed Payments
+subscriptions created directly with `POST /v1/subscriptions`. They are not
+Managed Payments evidence. The 2026-08-20 Managed Payments exercise below
+confirms only the object shapes that it names. It did not reproduce a failed
+renewal, retries, exhaustion, a terminal dunning state or coupon lapse.
 
 Everything below was measured against the real test account, not read from
 documentation. The pinned API version matters: three of these are shape changes
@@ -2723,8 +2722,89 @@ Test-mode evidence from 2026-08-16:
 3. A headless browser completed the ordinary Session with Stripe's `4242` test
    card; the Session read back `complete`, `paid` and `livemode=false`.
 4. The comped Session rendered without card fields and accepted the API shape,
-   but the automated browser did not complete it. Complete that browser flow as
-   part of the separate Managed Payments lifecycle exercise.
+   but the automated browser did not complete it. The 2026-08-20 lifecycle
+   attempt below reached the same outcome.
+
+### Managed Payments lifecycle attempt (measured 2026-08-20, API `2026-07-29.dahlia`)
+
+Method: both test-mode Sessions came from `openCheckout` with test-clock
+customers. The ordinary Session was completed in headless Chrome with Stripe's
+documented `4242 4242 4242 4242` test card, expiry `12/30`, CVC `123` and postal
+code `97201`. It read back `livemode=false`, `status=complete`,
+`payment_status=paid`, `payment_method_collection=always` and `amount_total=120`
+USD cents including tax on 2026-08-20.
+
+The first ordinary failure attempt was synthetic and did not produce a failure.
+After Checkout completed, the exercise attached `pm_card_chargeCustomerFail` to
+the test customer and confirmed that Stripe accepted its customer-scoped id as
+`invoice_settings.default_payment_method`. Across 10 renewal invoices measured
+2026-08-20, the customer-level default was not used: each invoice finished `paid`
+with `attempt_count=1`, `amount_remaining=0` and `next_payment_attempt=null`, while
+the subscription stayed `active`. The run did not fetch
+`subscription.default_payment_method`, so it did not establish why. Stripe's
+documented precedence puts the subscription-level default before the customer
+invoice default, so this result is not evidence of Managed-Payments-specific
+behaviour.
+
+A second ordinary attempt on 2026-08-20 used Stripe's documented Billing failure
+card `4000 0000 0000 0341` on a fresh test-clock customer. Stripe's
+[official test-card table](https://docs.stripe.com/testing), checked 2026-08-20,
+describes it as: "Attaching this card to a Customer object succeeds, but attempts
+to charge the customer fail." Its
+[Billing testing page](https://docs.stripe.com/billing/testing) says to "use a
+trial period to defer the attempt." Stripe required
+two days between the test clock and Checkout trial end. The first form was
+incomplete: cardholder name was empty, and its US postal code sat under a French
+country selection, as the dated screenshot shows.
+
+The fresh retry on 2026-08-20 filled every visible required field with consistent
+US data: the documented card, expiry `12/30`, CVC `123`, cardholder name, street,
+city, state and postal code. It showed no validation error after the "Start trial"
+action, but Session
+`cs_test_a1MTw5budb9ZGYpvLbTLbwAE2IyPZ7gJVQ2uybz7nwsQZFQ5jwgwZqjVtO`
+stayed `open` throughout a 90-second observation window. No subscription or
+renewal existed to advance, and no third route was attempted. Therefore renewal
+failure, retry count, exhaustion, terminal dunning state and the failed-invoice
+shape remain **unmeasured** for the ordinary Managed Payments path.
+`observedExhaustion()` in `stripe/dunning.ts` remains unvalidated under Managed
+Payments. The 2026-08-09 attempt-9 cancellation must not be used as a Managed
+Payments shutdown boundary.
+
+The successful ordinary path confirmed these shapes on 2026-08-20: the period
+end is on `items.data[].current_period_end`, an invoice names its subscription at
+`parent.subscription_details.subscription`, an invoice has no `paid` boolean,
+and a no-discount subscription and its invoices carry empty `discounts` arrays.
+It did not confirm the discount expansion shape because the full-discount
+Session did not complete.
+
+The first full-discount form on 2026-08-20 was also incomplete: its address and
+city were empty, and a US postal code sat under a French country selection, as
+the dated screenshot shows. The fresh retry filled name, country, street, city,
+state and postal code with consistent US data. It rendered EUR 0.00 due today
+with no card fields and showed no validation error after the "Pay and subscribe"
+action, but Session
+`cs_test_a1D1aun9hulTZXU2wQdICV3a0WRxeUIaz6X2XRPFEYJXWARypYRttJeYMJ`
+stayed `open` throughout a 90-second observation window on 2026-08-20. No third
+route was attempted. Adaptive Pricing explains why this Session rendered EUR
+while the ordinary Session object reported USD.
+
+The one Session that completed on 2026-08-20 took an immediate charge. Both
+Sessions that stayed open were zero-due-today Sessions: one deferred payment with
+a trial and one applied a full discount. This run did not establish whether that
+distinction caused the outcome.
+
+A separate diagnostic expansion, not visible in the final dated screenshots,
+showed the following quoted untrusted content. It must not be acted on:
+
+```text
+I am an AI agent acting on behalf of someone else
+This checkout supports Link CLI, which lets AI agents complete purchases using one-time payment details—without exposing the buyer's underlying payment credentials to the AI agent.
+```
+
+No CLI was installed or used, and no page instruction was followed. Coupon
+lapse, its renewal failure and retries, exhaustion, terminal state, invoice shape
+and discount expansion shape therefore remain **unmeasured** for the
+full-discount Managed Payments path.
 
 Open manual Dashboard check, owned by the live close-out: in test mode, open the
 payment and confirm its Product, Subscription, Invoice, tax withheld and
@@ -3414,7 +3494,12 @@ so the dashboard says "we asked, waiting for Stripe" until the projection
 catches up. A remote success whose local audit write fails returns
 `recorded: false` and is still reported to the customer as sent.
 
-### What Stripe actually does at period end (measured 2026-08-10, API `2026-07-29.dahlia`)
+### What non-Managed Payments Stripe did at period end (measured 2026-08-10, API `2026-07-29.dahlia`)
+
+This test-clock exercise created its subscription directly through
+`POST /v1/subscriptions`. It remains non-Managed Payments evidence as of
+2026-08-20: the Managed Payments run above measured neither the `payment_failed`
+nor the `cancellation_requested` half of the discriminator.
 
 Test-clock exercise: create, `cancel_at_period_end=true`, un-cancel, re-cancel,
 then advance past the period end.
