@@ -28,8 +28,8 @@ const COLLECT_TIMEOUT_MS = 120_000;
  */
 const GRACE_DAYS = 7;
 
-const STATE_WORDS: Record<string, string> = {
-  waiting: "queued",
+export const STATE_WORDS: Record<string, string> = {
+  waiting: "not started",
   active: "in progress",
   checking: "checking",
   done: "done",
@@ -334,9 +334,7 @@ export function OfficeView({
         )}
       </section>
       <p className="lead" data-testid="office-status">
-        {view.ready
-          ? "Your office is ready."
-          : "Hosted Isomux Provisioning is setting up your office."}
+        {view.ready ? "Your office is ready." : "Your office is not ready yet."}
       </p>
       {view.ready && (
         <p>

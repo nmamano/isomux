@@ -49,7 +49,7 @@ export default async function Home() {
             {/* The same chip the provisioning ladder uses, so "ready" reads the
                 same here as it does inside the office. */}
             <span data-state={office.ready ? "done" : "active"}>
-              {office.ready ? "ready" : "being set up"}
+              {office.ready ? "ready" : "not ready yet"}
             </span>
           </p>
           <span className="office-card-action">View office &rarr;</span>

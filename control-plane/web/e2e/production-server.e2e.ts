@@ -441,7 +441,7 @@ async function main(): Promise<void> {
       (await page.textContent("[data-testid=office-status]")) ?? "";
     check(
       "the page reports the projection's own status",
-      status.includes("setting up your office"),
+      status.includes("not ready yet"),
       status.trim(),
     );
     const steps = await page.$$eval("[data-testid^=step-]", (nodes) =>
