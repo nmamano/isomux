@@ -468,6 +468,26 @@ describe("install.sh: the managed Caddyfile", () => {
     expect(hosted).not.toContain("on_demand");
   });
 
+  it("restores only a safe current hosted pair and otherwise continues to issuance", () => {
+    const body = SRC.slice(
+      SRC.indexOf("install_hosted_tls_renewal() {"),
+      SRC.indexOf(
+        "\n  write_file /usr/local/sbin/isomux-renew-certificate",
+        SRC.indexOf("install_hosted_tls_renewal() {"),
+      ),
+    );
+    expect(body).toContain("/root/isomux-tls-restore.tar.gz");
+    expect(body).toContain("$'cert.pem\\nkey.pem\\nmanifest.json'");
+    expect(body).toContain(".host == $domain");
+    expect(body).toContain("openssl x509 -checkend 2592000");
+    expect(body).toContain('openssl x509 -in "$restore_dir/cert.pem" -pubkey');
+    expect(body).toContain('openssl pkey -in "$restore_dir/key.pem" -pubout');
+    expect(body).toContain('rm -f "$restore"');
+    expect(body).toContain("continuing with the certificate fallback");
+    expect(body).toContain("if restore_names=$(openssl x509");
+    expect(body).not.toContain("/var/lib/caddy");
+  });
+
   it("refuses a root-only key before replacing the Caddyfile", () => {
     const body = SRC.slice(
       SRC.indexOf("install_caddyfile_transaction() {"),

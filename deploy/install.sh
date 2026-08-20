@@ -3178,6 +3178,46 @@ mint_invite() {
 install_hosted_tls_renewal() {
   [[ -f /etc/isomux/renewal/enrollment.json ]] || return 0
   install -d -m 0750 -o root -g caddy /etc/isomux/tls
+  restore=/root/isomux-tls-restore.tar.gz
+  restore_encoded=$restore.b64
+  if [[ -f $restore_encoded ]]; then
+    rm -f "$restore"
+    if base64 -d "$restore_encoded" > "$restore.tmp"; then
+      chmod 0600 "$restore.tmp"
+      mv -f "$restore.tmp" "$restore"
+    else
+      rm -f "$restore.tmp"
+      log "WARNING: the carried TLS archive was not valid base64; continuing with the certificate fallback"
+    fi
+    rm -f "$restore_encoded"
+  fi
+  if [[ -f $restore ]]; then
+    restore_dir=$(mktemp -d)
+    restore_ok=0
+    members=$(tar -tzf "$restore" 2>/dev/null | sort || true)
+    if [[ $members == $'cert.pem\nkey.pem\nmanifest.json' ]] &&
+      tar -xzf "$restore" -C "$restore_dir" --no-same-owner --no-same-permissions 2>/dev/null &&
+      [[ $(jq -er --arg domain "$DOMAIN" '.version == 1 and .host == $domain' "$restore_dir/manifest.json" 2>/dev/null) == true ]] &&
+      openssl pkey -in "$restore_dir/key.pem" -noout >/dev/null 2>&1 &&
+      openssl x509 -in "$restore_dir/cert.pem" -noout >/dev/null 2>&1 &&
+      openssl x509 -checkend 2592000 -noout -in "$restore_dir/cert.pem" >/dev/null 2>&1; then
+      if restore_names=$(openssl x509 -in "$restore_dir/cert.pem" -noout -ext subjectAltName 2>/dev/null |
+        grep -oE 'DNS:[^,[:space:]]+' | sed 's/^DNS://' | sort -u) &&
+        [[ $restore_names == "$DOMAIN"$'\n'"*.$DOMAIN" || $restore_names == "*.$DOMAIN"$'\n'"$DOMAIN" ]] &&
+        [[ $(openssl x509 -in "$restore_dir/cert.pem" -pubkey -noout | sha256sum) == \
+          $(openssl pkey -in "$restore_dir/key.pem" -pubout | sha256sum) ]]; then
+        install -m 0640 -o root -g caddy "$restore_dir/key.pem" /etc/isomux/tls/.key.restore
+        install -m 0640 -o root -g caddy "$restore_dir/cert.pem" /etc/isomux/tls/.cert.restore
+        mv -f /etc/isomux/tls/.key.restore /etc/isomux/tls/key.pem
+        mv -f /etc/isomux/tls/.cert.restore /etc/isomux/tls/cert.pem
+        sync -f /etc/isomux/tls
+        restore_ok=1
+      fi
+    fi
+    rm -rf "$restore_dir"
+    rm -f "$restore"
+    [[ $restore_ok == 1 ]] || log "WARNING: the carried TLS certificate was not usable; continuing with the certificate fallback"
+  fi
   write_file /usr/local/sbin/isomux-renew-certificate 700 <<'RENEW_HELPER'
 #!/usr/bin/env bash
 set -euo pipefail

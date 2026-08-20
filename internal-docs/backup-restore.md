@@ -79,6 +79,16 @@ scratch rather than rolled back: the repo checkout the service runs from,
 and on updater-managed boxes `/etc/isomux/update.conf` plus
 `/var/lib/isomux-update/`.
 
+Hosted TLS keys are also outside this ordinary backup. The hosted control
+plane's operator-only `recycle --from-run <priorRunId>` path can carry the key
+and chain across its own provider rebuild. It uses the prior run's pinned SSH
+identity and keeps the root-only transit archive beside the operator's per-run
+SSH keys. It is not a general backup: no prior run or no working old-box route
+means the rebuilt office has to use the certificate fallback. The fallback
+forces one renewal when lego's stored chain belongs to the wiped box key. It
+spends one duplicate-certificate slot and accepts only a chain matching the new
+key.
+
 ### Checking backup health
 
 `GET /api/backup/status` (any authenticated caller with `office:read`) returns

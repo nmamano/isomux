@@ -22,6 +22,33 @@ no new customer-email system. Ordinary office backups do not include the
 root-owned renewal identity or TLS key. A restored hosted office therefore
 cannot renew until the separate re-enrollment work in task 77cb46ff ships.
 
+An operator recycle is separate from an ordinary office restore. With an
+explicit prior run, it best-effort reads only the hosted TLS key and chain over
+that run's pinned SSH identity, carries a root-only archive beside the operator's
+per-run SSH keys, and stages it on the rebuilt instance. The archive is bound to
+the same provider instance and hostname before export, and the box accepts it
+only when the names, key pair and remaining validity pass again. Any missing or
+invalid material continues into the normal certificate request. The archive
+never contains the renewal enrollment; provisioning installs a fresh credential
+as usual.
+
+The fallback checks the returned chain's complete normalized SPKI against the
+CSR key. As verified from lego v5.3.1 source on 2026-08-20, lego can otherwise
+return the wiped box's old name-keyed chain until the renewal window opens: near
+zero delay late in the certificate's life, or about 60 days after a new 90-day
+certificate. A mismatch forces exactly one renewal. That spends one duplicate-
+certificate slot, which is the expected cost of restoring HTTPS without the old
+key. A second mismatch fails and raises operator attention; it never loops or
+returns the stale chain. A valid carried pair takes lego's ordinary not-due
+path, verifies against the carried key, reports contact, and keeps the files.
+
+During a recycle, the operator machine temporarily handles the box TLS private
+key. It already holds the per-run private key that grants root on that box, so
+this opens no new trust domain. Today the only recycle target is Isomux's own
+test box. A customer-facing rebuild requires a separate custody ruling. The
+control plane will not upload, retain, decrypt, or proxy this private-key
+archive: it is absent from the database, run record, evidence and audit log.
+
 > Status: design, not implemented. Drafted 2026-07-30, amended 2026-07-31 with
 > Nil's rulings. Author: Isomuxer2, reviewed by Reviewer2. Task: 95b62b35,
 > slice B of c91af4a4.

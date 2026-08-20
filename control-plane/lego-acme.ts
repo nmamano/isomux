@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { X509Certificate, createHash } from "node:crypto";
+import { X509Certificate, createHash, createPublicKey } from "node:crypto";
 import {
   assertCertificateTarget,
   type CertificateTarget,
@@ -180,6 +180,25 @@ function namesInCertificate(pem: string): string[] {
   return [...names.matchAll(/DNS:([^,\s]+)/g)].map((match) => match[1]);
 }
 
+/** Normalize either a certificate or a public-key PEM to complete SPKI DER. */
+function publicKeyHash(pem: string): string {
+  return createHash("sha256")
+    .update(createPublicKey(pem).export({ type: "spki", format: "der" }))
+    .digest("hex");
+}
+
+async function csrPublicKeyHash(
+  run: CommandRunner,
+  csrPath: string,
+): Promise<string> {
+  const result = await run(
+    ["openssl", "req", "-in", csrPath, "-pubkey", "-noout"],
+    {},
+  );
+  if (result.code !== 0) throw new Error("the CSR public key is not readable");
+  return publicKeyHash(result.stdout);
+}
+
 /**
  * The only ACME adapter. It accepts a public CSR and returns a public chain.
  * lego owns ARI scheduling. Its default fallback uses the certificate's actual
@@ -188,7 +207,7 @@ function namesInCertificate(pem: string): string[] {
 export async function obtainCertificateWithLego(
   opts: LegoAdapterOptions,
   request: LegoRequest,
-): Promise<{ certificatePem: string; csrHash: string }> {
+): Promise<{ certificatePem: string }> {
   assertCertificateTarget(opts.target);
   const dir = join(opts.root, "requests", safeId(request.instanceId));
   mkdirSync(opts.root, { recursive: true, mode: 0o700 });
@@ -205,52 +224,68 @@ export async function obtainCertificateWithLego(
   ) {
     throw new Error("the CSR names do not match this office");
   }
+  const csrKeyHash = await csrPublicKeyHash(opts.run, csrPath);
 
-  const result = await opts.run(
-    [
-      opts.legoPath ?? "/usr/local/bin/lego",
-      "run",
-      "--path",
-      opts.root,
-      "--server",
-      opts.target.caDirectory,
-      "--email",
-      opts.email,
-      "--accept-tos",
-      "--dns",
-      "exec",
-      "--csr",
-      csrPath,
-    ],
-    {
-      EXEC_PATH: opts.dnsHookPath,
-      ISOMUX_CF_API: opts.target.cloudflareBaseUrl,
-      ISOMUX_CF_ZONE_ID: opts.target.zoneId,
-      ISOMUX_CF_PRODUCTION_ZONE_ID: opts.target.productionZoneId,
-      ISOMUX_CF_TOKEN: opts.cloudflareToken,
-      ISOMUX_DNS_ALLOWED_FQDN: `_acme-challenge.${request.names[0]}`,
-      LEGO_DISABLE_CNAME_SUPPORT: "true",
-      ISOMUX_CERT_TARGET: opts.target.kind,
-      ISOMUX_ACME_DIRECTORY: opts.target.caDirectory,
-      ...(opts.target.kind === "production"
-        ? { ISOMUX_CERTIFICATE_LIVE: "1" }
-        : {}),
-    },
-  );
-  if (result.code !== 0)
-    throw new Error(`lego failed: ${result.stderr.split("\n", 1)[0]}`);
-  const certificateDir = join(opts.root, "certificates");
-  const candidates = readdirSync(certificateDir).filter(
-    (name) => name.endsWith(".crt") && !name.endsWith(".issuer.crt"),
-  );
-  const matching = candidates
-    .map((name) => readFileSync(join(certificateDir, name), "utf8"))
-    .filter((pem) => exactNames(namesInCertificate(pem), request.names));
-  if (matching.length !== 1)
-    throw new Error("lego did not produce one matching certificate chain");
-  const certificatePem = matching[0];
-  return {
-    certificatePem,
-    csrHash: createHash("sha256").update(request.csrPem).digest("hex"),
+  const legoArgv = [
+    opts.legoPath ?? "/usr/local/bin/lego",
+    "run",
+    "--path",
+    opts.root,
+    "--server",
+    opts.target.caDirectory,
+    "--email",
+    opts.email,
+    "--accept-tos",
+    "--dns",
+    "exec",
+    "--csr",
+    csrPath,
+  ];
+  const legoEnv = {
+    EXEC_PATH: opts.dnsHookPath,
+    ISOMUX_CF_API: opts.target.cloudflareBaseUrl,
+    ISOMUX_CF_ZONE_ID: opts.target.zoneId,
+    ISOMUX_CF_PRODUCTION_ZONE_ID: opts.target.productionZoneId,
+    ISOMUX_CF_TOKEN: opts.cloudflareToken,
+    ISOMUX_DNS_ALLOWED_FQDN: `_acme-challenge.${request.names[0]}`,
+    LEGO_DISABLE_CNAME_SUPPORT: "true",
+    ISOMUX_CERT_TARGET: opts.target.kind,
+    ISOMUX_ACME_DIRECTORY: opts.target.caDirectory,
+    ...(opts.target.kind === "production"
+      ? { ISOMUX_CERTIFICATE_LIVE: "1" }
+      : {}),
   };
+  const runLego = async (force: boolean) => {
+    const argv = force
+      ? [...legoArgv.slice(0, 2), "--renew-force", ...legoArgv.slice(2)]
+      : legoArgv;
+    const result = await opts.run(argv, legoEnv);
+    if (result.code !== 0)
+      throw new Error(`lego failed: ${result.stderr.split("\n", 1)[0]}`);
+  };
+  await runLego(false);
+  const certificateDir = join(opts.root, "certificates");
+  const matchingCertificate = () => {
+    const candidates = readdirSync(certificateDir).filter(
+      (name) => name.endsWith(".crt") && !name.endsWith(".issuer.crt"),
+    );
+    const matching = candidates
+      .map((name) => readFileSync(join(certificateDir, name), "utf8"))
+      .filter((pem) => exactNames(namesInCertificate(pem), request.names));
+    if (matching.length !== 1)
+      throw new Error("lego did not produce one matching certificate chain");
+    return matching[0];
+  };
+
+  let certificatePem = matchingCertificate();
+  if (publicKeyHash(certificatePem) !== csrKeyHash) {
+    await runLego(true);
+    certificatePem = matchingCertificate();
+    if (publicKeyHash(certificatePem) !== csrKeyHash) {
+      throw new Error(
+        "lego returned a certificate for a different private key",
+      );
+    }
+  }
+  return { certificatePem };
 }

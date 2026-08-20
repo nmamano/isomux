@@ -53,7 +53,7 @@ it holds no standing access to anything it builds.
 
 ```
 bun control-plane/cli.ts list
-bun control-plane/cli.ts recycle --instance <id> --host <name> [--run-id <id>]
+bun control-plane/cli.ts recycle --instance <id> --host <name> [--run-id <id>] [--from-run <priorRunId>]
 bun control-plane/cli.ts connect --run <runId>
 bun control-plane/cli.ts resume  --run <runId>
 bun control-plane/cli.ts provision --run <runId> --access-window 2h [--stop-after first-contact|install] [--handoff-now] [--owner-name X]
@@ -68,6 +68,17 @@ bun control-plane/cli.ts status  --run <runId>
 bun control-plane/cli.ts expiry-test --run <runId> --variant boundary|powered-off [--seconds N]
 bun control-plane/cli.ts bootstrap                # an empty database -> schema-ready
 ```
+
+`recycle --from-run` best-effort carries the hosted TLS key and chain through a
+provider wipe using the prior run's pinned SSH identity. The root-only archive
+lives beside the operator's per-run SSH keys and never enters the database, run
+record, evidence or audit log. A valid restored pair lets lego return its
+not-yet-due chain, which matches the carried key; the box reports successful
+contact and keeps the files. Missing or invalid material continues into the
+normal request. The adapter compares complete normalized SPKI keys and forces
+one renewal if lego returns the wiped box's stale chain. That costs one
+duplicate-certificate slot. A second mismatch fails with operator attention
+instead of returning stale material or looping.
 
 Credentials come from the environment (`CONTABO_CLIENT_ID`,
 `CONTABO_CLIENT_SECRET`, `CONTABO_API_USER`, `CONTABO_API_PASSWORD`); sourcing
