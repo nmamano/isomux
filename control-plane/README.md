@@ -1253,9 +1253,10 @@ merely tolerated.
 
 Preview carries exactly `CONTROL_PLANE_DB` (the Neon **suites** branch) and its
 own `AUTH_SECRET`. Production carries the production DSN, its own `AUTH_SECRET`,
-`AUTH_URL`, the two Google credentials and the mint URL and bearer. The two
-names that appear in both scopes hold different values under disjoint targets,
-which is the point of scoping rather than duplication.
+`AUTH_URL`, the two Google credentials, the mint URL and bearer, the live Stripe
+secret, the Stripe mode, and the two live Price ids. The two names that appear
+in both scopes hold different values under disjoint targets, which is the point
+of scoping rather than duplication.
 
 That shape is also why the inventory is judged PER TARGET rather than by name.
 Vercel's environment list is a flat set of entries, and a check that maps them
@@ -1263,17 +1264,16 @@ by key lets the Production `CONTROL_PLANE_DB` stand in for the Preview one - so
 a missing Preview entry reads as a complete inventory. `deploy/`'s production
 phase partitions by target first, requires every entry to name exactly one known
 target, refuses a repeated key on the same target, and requires thirteen entries
-in total: two on Preview and eleven on Production. The Production count grew from
-seven on 2026-08-20, when the tier lane added the two Stripe price ids and the
-live-mode lane added the Stripe mode and the live key.
+in total: two on Preview and eleven on Production. The original nine-entry
+shape was verified exact on the live run, 2026-08-11.
 
 Every credential is stored `sensitive`, which on Vercel means **non-readable
-once created** - not by the dashboard, and not by the token that wrote it. Three
-values are deliberately `encrypted` instead, because all six are public by
-construction: the site's own address, the provisioner's hostname, Google's client
-id which is sent to the browser on every sign-in, the Stripe mode, and the two
-Stripe price ids a customer sees in Checkout. Making those write-only would cost
-the ability to verify them and buy nothing.
+once created** - not by the dashboard, and not by the token that wrote it. Six
+values are deliberately `encrypted` instead: the site's own address, the
+provisioner's hostname, Google's client id, the Stripe mode, and the two Price
+ids. They are non-secret configuration whose exact values must remain readable
+for verification. Making them write-only would cost that ability and buy
+nothing.
 
 The price of write-only is worth stating plainly, because it shapes the
 procedure. A deployment never needs to know its own secrets - Vercel injects

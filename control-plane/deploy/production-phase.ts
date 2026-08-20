@@ -242,10 +242,8 @@ export interface EnvShape {
 }
 
 /** The eleven, and the absences are as much of the contract as the entries.
- * `encrypted` is used only for values that are public by construction: the
- * site's own address, the provisioner's hostname, the OAuth client id which is
- * sent to every browser on every sign-in, the Stripe mode, and the two Stripe
- * price ids, which a customer sees in Checkout. */
+ * `encrypted` is used for non-secret configuration whose exact value must be
+ * readable for verification; credentials use `sensitive`. */
 export const PRODUCTION_SHAPES: readonly EnvShape[] = [
   { key: "CONTROL_PLANE_DB", type: "sensitive", target: "production" },
   { key: "AUTH_SECRET", type: "sensitive", target: "production" },
