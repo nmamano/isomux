@@ -21,7 +21,8 @@ export const ENTRY_PLAN: Plan = {
   providerProduct: "V153",
   region: "EU",
   specification: "4 vCPU, 8 GB memory, 100 GB SSD",
-  customerPrice: null,
+  // Nil, 2026-08-20: supplier cost times 1.4, rounded up to the next euro.
+  customerPrice: { amount: 8, currency: "EUR", billingPeriod: "month" },
 };
 
 // V155 source: Contabo account read, 2026-08-20.
@@ -31,7 +32,8 @@ export const POWERUSER_PLAN: Plan = {
   providerProduct: "V155",
   region: "EU",
   specification: "8 vCPU, 24 GB memory, 300 GB SSD",
-  customerPrice: null,
+  // Same formula; EUR 11.5 and 11.90 supplier readings both round up to 17.
+  customerPrice: { amount: 17, currency: "EUR", billingPeriod: "month" },
 };
 
 export const PLANS: Plan[] = [ENTRY_PLAN, POWERUSER_PLAN];

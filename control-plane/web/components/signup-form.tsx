@@ -117,6 +117,9 @@ export function SignupForm({
             )}
           </label>
         ))}
+        <span className="note">
+          Changing plans after signup is not available yet.
+        </span>
       </fieldset>
       <p>
         <label>Save your server administrator key</label>

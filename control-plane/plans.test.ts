@@ -13,12 +13,12 @@ describe("hosted plans", () => {
     expect(planById("office")).toMatchObject({
       label: "Entry",
       providerProduct: "V153",
-      customerPrice: null,
+      customerPrice: { amount: 8, currency: "EUR", billingPeriod: "month" },
     });
     expect(planById("poweruser")).toMatchObject({
       label: "Poweruser",
       providerProduct: "V155",
-      customerPrice: null,
+      customerPrice: { amount: 17, currency: "EUR", billingPeriod: "month" },
     });
     expect(planByProviderProduct("V155")?.id).toBe("poweruser");
   });
