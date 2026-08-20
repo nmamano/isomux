@@ -4,6 +4,35 @@ Design for task f057617f (memory capacity, OOM isolation, per-office resource
 defaults). Companion to `hosted-isomux-design.md` (single-tenant-per-VPS) and
 the Contabo supplier pilot (task b223ebc3).
 
+## STATUS 2026-08-19: the launch gate (read this first)
+
+The converged story (Nil + Isomux PM + Personal Site Agent, 2026-08-18/19) is
+four measures in a causal chain, each answering one question:
+
+1. **The cap** (how far a problem spreads): the office-unit
+   `MemoryMax`/`MemoryHigh`/`MemorySwapMax` drop-in. The box stays reachable.
+2. **The swapfile** (turns a kill into slowness): only does work *inside* the
+   cap. Measured 2026-08: at the moment earlyoom fired in the unconstrained
+   arm, swap was 100% free - "in the global regime the swapfile is largely
+   bypassed" (benchmark note). The cap creates the regime in which swap helps.
+3. **Kill order + `OOMPolicy=continue`** (who dies, without a cascade): flat
+   stamp on all descendants, size breaks the tie, one kill costs one tool call.
+4. **earlyoom** (when anyone dies at all): the backstop for memory the cap
+   cannot see - the OS reserve and anything else the customer runs.
+
+Gap as of 2026-08-19: measures 2-4 ship; measure 1 (sequencing item 2 below)
+does not. **Task fa00291e (P1) tracks it and blocks paid launch** (Nil,
+2026-08-19). Acceptance is a measured run of the shipped config at N=24 plus a
+build on a release-shaped box (task 5a8e4b08, launch-gated with it), which
+also settles the provisional 1 GiB reserve. Until fa00291e lands, the
+benchmark headline numbers are cap-conditional and not quotable for a shipped
+box, and the hosted blog post's memory section must not be published.
+
+The per-agent scopes ruling (task 8859f52b) is NOT part of the launch gate:
+the office-level cap is split out of it as fa00291e. PM's 2026-08-18 proposal
+to re-scope the remainder as an isolation-and-visibility feature (off the
+memory-safety path) is pending Nil's ruling.
+
 ## Already shipped: reference, do not re-design
 
 `deploy/install.sh` (`configure_oom_protection`, installed as the re-runnable
@@ -11,21 +40,26 @@ the Contabo supplier pilot (task b223ebc3).
 new box:
 
 - **earlyoom** at `-m 10,5 -s 100,100`, `--avoid`
-  `systemd*|sshd|tailscaled|caddy|earlyoom|bun`, `--prefer`
-  `claude|codex|node|chrome`. Something is killed while there is still memory to
-  act with, instead of the box thrashing into the kernel's last-resort killer,
-  and the regexes are what express the intent that the victim be an agent.
+  `^(systemd|systemd-.+|sshd|tailscaled|caddy|earlyoom|isomux)$`, `--prefer`
+  `^(claude|codex|node|chrome)$`. Something is killed while there is still
+  memory to act with, instead of the box thrashing into the kernel's
+  last-resort killer. The `--avoid` list originally shielded `bun`, which
+  protected the builds themselves; fixed 2026-07-31 (a51393e7): the server
+  renames itself `isomux` and that name is shielded instead. Whether
+  `--prefer` still earns its place is open (task 416a473f).
 - **`OOMScoreAdjust` tiers** written to unit drop-ins and to the running PIDs,
-  so applying them restarts nothing but earlyoom: ssh + tailscaled `-900`,
-  caddy + isomux `-500`.
-- **`vm.swappiness = 10`**, and a **2 GiB swapfile** created only when the box
-  reports zero total swap, `/` has the space, and `/swapfile` does not already
-  exist. Existing swap of any size is left untouched.
+  so applying them restarts nothing but earlyoom: ssh + tailscaled `-900`;
+  systemd-resolved, systemd-networkd and systemd-logind `-900` plus
+  `StartLimitIntervalSec=0` so a killed critical daemon always restarts (the
+  fixes from the 2026-08-02 DNS cascade); caddy + isomux `-500`.
+- **`vm.swappiness = 10`**, and an **8 GiB swapfile** (decision 4, ruled
+  2026-08-02, shipped as task 99d7f273) created only when the box reports zero
+  total swap and the disk has room. Existing swap of any size is reported and
+  left untouched.
 
-The 2 GiB figure is a deliberate reversal of the 8 GB swapfile added by hand
-during the incident: large swap lets a box keep allocating long past the point
-it can still respond. Tier work builds on the small-swap stance, it does not
-undo it (but see decision 4).
+The 8 GiB figure reverses this doc's original 2 GiB small-swap stance, by
+measurement: what hurts is running *out* of swap mid-spike, not swap existing.
+See decision 4 for the numbers and for the withdrawn auto-replacement.
 
 **Two mechanisms, doing different jobs.** These are easy to conflate, and
 `isomux-oom-protect`'s own comments do conflate them (see the follow-up at the
@@ -559,7 +593,9 @@ reachability), per f057617f. Order:
    interaction is no longer assumed (it was measured, seven ways), and the
    policy is worth nothing without the stamp the box already had. The cgroup
    drop-in itself is what remains here, and `MemorySwapMax` now has a measured
-   value to use (decision 4).
+   value to use (decision 4). **Tracked as task fa00291e (P1), a paid-launch
+   blocker (Nil, 2026-08-19)**; acceptance is a measured N=24-plus-build run
+   on a release-shaped box (task 5a8e4b08). See the STATUS section at the top.
 3. PSI and `memory.events.local` telemetry, and the "stopped under memory
    pressure" attribution in the agent's chat.
 4. Graceful degradation, once decision 2 is settled.
