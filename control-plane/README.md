@@ -1184,9 +1184,10 @@ reads zero. That is why it cannot be re-run against a live deployment, and why
 running it "just to see" is the wrong instinct - it is the mode that creates
 credentials.
 
-**Redeploy mode** is the one proved live on 2026-08-11 and the one to reach for
-when only the application changed. It requires the environment to be ALREADY
-exact at 2+7, reads no credential file, generates nothing, and performs no
+**Redeploy mode** was proved live on 2026-08-11 against the then-current 2+7
+environment and remains the one to reach for when only the application changed.
+It requires the environment to be ALREADY exact at 2+11, reads no credential
+file, generates nothing, and performs no
 environment create, update or delete - the list of writes it iterates is empty,
 so no mutating call is reachable. It deploys the committed `HEAD` artifact once,
 waits for the certificate on the same bounded schedule, and runs the ANONYMOUS
