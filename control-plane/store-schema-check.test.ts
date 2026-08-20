@@ -4,10 +4,10 @@
 // shape. It used to ask `information_schema.columns`, which shows a role only
 // the objects it holds a privilege on - so on the deployment it matters for, a
 // least-privileged runtime role, it inspected the tables it was granted and
-// SILENTLY SKIPPED every other one. `stripe_events` is granted to neither
-// runtime role, so the column it checks there was never checked in production
-// at all. The same clause skipped a table that was not there, because "zero
-// columns" and "no such table" are the same answer from that view.
+// SILENTLY SKIPPED every other one. `stripe_events` was granted to neither
+// runtime role at the time, so the column it checks there was never checked in
+// production at all. The same clause skipped a table that was not there, because
+// "zero columns" and "no such table" are the same answer from that view.
 //
 // Every case below is therefore run AS A LEAST-PRIVILEGED ROLE, because that is
 // the session whose answer was wrong. The owner sees everything and would pass
@@ -17,7 +17,7 @@
 
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import pg from "pg";
-import { PROVISIONER_GRANTS } from "./roles.ts";
+import { PROVISIONER_GRANTS, type TableGrant } from "./roles.ts";
 import {
   migrateCustomerSshKeyColumns,
   migrateHostedCancellationPolicy,
@@ -57,7 +57,9 @@ afterAll(async () => {
 /** A bootstrapped schema, and a DSN for a role holding exactly the
  * provisioner's matrix on it. Both come back: the tests mutilate the schema
  * through the owner and then open as the role. */
-async function bootstrappedAndRole(): Promise<{
+async function bootstrappedAndRole(
+  grants: readonly TableGrant[] = PROVISIONER_GRANTS,
+): Promise<{
   ownerDsn: string;
   roleDsn: string;
   schema: string;
@@ -67,12 +69,25 @@ async function bootstrappedAndRole(): Promise<{
   // took it next.
   const ownerDsn = await freshDsn();
   await (await Store.open(ownerDsn)).close();
-  const roleDsn = await leastPrivilegedDsn({
-    dsn: ownerDsn,
-    grants: PROVISIONER_GRANTS,
-  });
+  const roleDsn = await leastPrivilegedDsn({ dsn: ownerDsn, grants });
   return { ownerDsn, roleDsn, schema: schemaOf(ownerDsn) };
 }
+
+/**
+ * The provisioner's matrix MINUS `stripe_events`, so the no-privilege case has
+ * a table to stand on.
+ *
+ * It used to use the production matrix directly, because `stripe_events` was
+ * granted to neither runtime role. That stopped being true on 2026-08-20, when
+ * the provisioner began serving the Stripe webhook and was granted the event
+ * journal - and the case silently changed meaning, because its "role cannot
+ * read this" premise now failed. Deriving the grant set here keeps the property
+ * under test (the catalog answers for a table the session cannot read) from
+ * depending on which tables a production role happens to hold this month.
+ */
+const GRANTS_WITHOUT_STRIPE_EVENTS = PROVISIONER_GRANTS.filter(
+  (grant) => grant.table !== "stripe_events",
+);
 
 suite("the schema check reads the catalog, not the privilege view", () => {
   test("a least-privileged role opens a database that is actually current", async () => {
@@ -81,13 +96,15 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     await store.close();
   });
 
-  // THE ONE THAT WAS VOID. `stripe_events` is granted to neither runtime role,
-  // so under the privilege view the deployed provisioner saw zero columns for
-  // it and skipped the check. The catalog answers for a table the session
-  // cannot read a single row of, which is what makes the check mean something
-  // in production.
+  // THE ONE THAT WAS VOID. Under the privilege view, a role holding nothing on
+  // `stripe_events` saw zero columns for it and skipped the check - which was
+  // the deployed provisioner's own situation until it began serving the Stripe
+  // webhook. The catalog answers for a table the session cannot read a single
+  // row of, which is what makes the check mean something in production.
   test("a table the role holds NO privilege on is still inspected", async () => {
-    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
+    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole(
+      GRANTS_WITHOUT_STRIPE_EVENTS,
+    );
     // Proof of the premise, not an assumption: this role cannot select from it.
     const asRole = new pg.Pool({ connectionString: roleDsn, max: 1 });
     asRole.on("error", () => {});
