@@ -138,7 +138,10 @@ describe("listing every page", () => {
       i++;
       return { ok: true, status: 200, json: async () => page };
     };
-    return { client: new StripeClient({ key: TEST_KEY, fetchImpl }), urls };
+    return {
+      client: new StripeClient({ key: TEST_KEY, mode: "test", fetchImpl }),
+      urls,
+    };
   }
 
   test("walks the cursor until Stripe says there is no more", async () => {
@@ -171,6 +174,7 @@ describe("listing every page", () => {
     });
     const client = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl,
       attempts: 1,
       sleep: async () => {},
@@ -196,6 +200,7 @@ describe("checking what a delete actually did", () => {
     };
     return new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl,
       attempts: 1,
       sleep: async () => {},

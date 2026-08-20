@@ -22,6 +22,7 @@ import {
 import { createOwnedCustomer, ownedCustomerParams } from "./test-clock.ts";
 
 const TEST_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
+const LIVE_SHAPE = "rk_live_NOT_A_REAL_KEY_ONLY_A_SHAPE";
 const temps: string[] = [];
 
 async function tempStore(): Promise<Store> {
@@ -46,7 +47,10 @@ function clientReturning(body: unknown): {
     if (typeof init?.body === "string") bodies.push(init.body);
     return { ok: true, status: 200, json: async () => body };
   };
-  return { client: new StripeClient({ key: TEST_KEY, fetchImpl }), bodies };
+  return {
+    client: new StripeClient({ key: TEST_KEY, mode: "test", fetchImpl }),
+    bodies,
+  };
 }
 
 /**
@@ -173,6 +177,7 @@ describe("verifying a coupon before trusting it", () => {
     });
     return new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl,
       attempts: 1,
       sleep: async () => {},
@@ -246,7 +251,27 @@ describe("verifying a coupon before trusting it", () => {
       "co_live",
     );
     expect(verdict).toMatchObject({ ok: false, retryable: false });
-    if (!verdict.ok) expect(verdict.reason).toContain("not test mode");
+    if (!verdict.ok)
+      expect(verdict.reason).toContain("does not match configured test mode");
+  });
+
+  test("a synthetic live coupon verifies for an explicit live client", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: "co_live_shape",
+        percent_off: 100,
+        valid: true,
+        livemode: true,
+      }),
+    });
+    const client = new StripeClient({
+      key: LIVE_SHAPE,
+      mode: "live",
+      fetchImpl,
+    });
+    expect((await verifyFullDiscount(client, "co_live_shape")).ok).toBe(true);
   });
 
   test("a malformed coupon is refused rather than read optimistically", async () => {
@@ -349,13 +374,37 @@ describe("what comes back", () => {
       livemode: true,
     });
     expect(createCheckoutSession(client, base, "k")).rejects.toThrow(
-      /not test mode/,
+      /does not match configured test mode/,
     );
+  });
+
+  test("an explicit live client accepts a synthetic live session", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: "cs_live_shape",
+        url: "https://checkout.stripe.com/c/pay/live-shape",
+        livemode: true,
+      }),
+    });
+    const client = new StripeClient({
+      key: LIVE_SHAPE,
+      mode: "live",
+      fetchImpl,
+    });
+    expect(
+      await createCheckoutSession(client, base, "live-shape-key"),
+    ).toMatchObject({
+      id: "cs_live_shape",
+      livemode: true,
+    });
   });
 
   test("session creation preserves ambiguous versus definite failure", async () => {
     const ambiguous = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       attempts: 1,
       fetchImpl: async () => {
         throw new Error("injected network loss");
@@ -368,6 +417,7 @@ describe("what comes back", () => {
     } satisfies Partial<CheckoutCreationError>);
     const rejected = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       attempts: 1,
       fetchImpl: async () =>
         new Response(JSON.stringify({ error: { message: "bad price" } }), {
@@ -419,6 +469,7 @@ describe("creating the customer we own", () => {
     return {
       client: new StripeClient({
         key: TEST_KEY,
+        mode: "test",
         fetchImpl,
         attempts: 1,
         sleep: async () => {},
@@ -452,7 +503,28 @@ describe("creating the customer we own", () => {
       "k",
     );
     expect(out).toMatchObject({ ok: false, retryable: false });
-    if (!out.ok) expect(out.reason).toContain("LIVE MODE");
+    if (!out.ok)
+      expect(out.reason).toContain("does not match configured test mode");
+  });
+
+  test("an explicit live client accepts a synthetic live customer", async () => {
+    const fetchImpl: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "cus_live_shape", livemode: true }),
+    });
+    const client = new StripeClient({
+      key: LIVE_SHAPE,
+      mode: "live",
+      fetchImpl,
+    });
+    expect(
+      await createOwnedCustomer(
+        client,
+        { email: "shape@example.invalid", label: "shape" },
+        "live-customer-shape",
+      ),
+    ).toEqual({ ok: true, id: "cus_live_shape" });
   });
 
   test("a missing or non-boolean livemode is refused", async () => {
@@ -493,6 +565,7 @@ describe("creating the customer we own", () => {
     };
     const client = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl,
       attempts: 1,
       sleep: async () => {},
@@ -525,6 +598,7 @@ describe("the order a checkout is opened in", () => {
     return {
       client: new StripeClient({
         key: TEST_KEY,
+        mode: "test",
         fetchImpl,
         attempts: 1,
         sleep: async () => {},

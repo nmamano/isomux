@@ -14,6 +14,7 @@
 // read).
 
 import type { StripeClient } from "./client.ts";
+import type { StripeMode } from "./mode.ts";
 import {
   MalformedStripeObject,
   normalizeInvoice,
@@ -24,10 +25,9 @@ import {
   type SubscriptionSnapshot,
 } from "./shapes.ts";
 
-/** A live-mode object reached test-mode-only code. Defence in depth behind the
- * key check and the event check: a wrong endpoint, a wrong fixture or a wrong
- * client seam all end here. Never retried, never downgraded to "unavailable". */
-export class LiveModeObjectRefused extends Error {}
+/** A fetched object disagreed with configured mode. Defence in depth behind the
+ * key and event checks; never retried or downgraded to "unavailable". */
+export class StripeModeObjectRefused extends Error {}
 
 export type ReadResult<T> =
   | { kind: "ok"; object: T }
@@ -44,7 +44,10 @@ export interface StripeObjectReader {
 }
 
 export class LiveStripeReader implements StripeObjectReader {
-  constructor(private readonly client: StripeClient) {}
+  constructor(
+    private readonly client: StripeClient,
+    private readonly mode: StripeMode,
+  ) {}
 
   async getSubscription(id: string): Promise<ReadResult<SubscriptionSnapshot>> {
     // `discounts.source.coupon`, not `discounts`.
@@ -93,26 +96,26 @@ export class LiveStripeReader implements StripeObjectReader {
     // identical fetch returns the same object, so retrying it forever would be a
     // silent loop instead of a visible stop.
     const object = normalize(res.body);
-    assertTestMode(object, collection);
+    assertStripeMode(object, collection, this.mode);
     return { kind: "ok", object };
   }
 }
 
 /**
- * Refuse a live-mode object.
+ * Refuse an object from the other Stripe mode.
  *
  * Exported so a non-live reader implementation (a recorded-fixture reader, a
  * test double meant to be realistic) applies exactly the same rule as the live
  * one, instead of each seam inventing its own.
  */
-export function assertTestMode(
+export function assertStripeMode(
   object: { livemode: boolean; id: string },
   what: string,
+  mode: StripeMode,
 ): void {
-  if (object.livemode) {
-    throw new LiveModeObjectRefused(
-      `a LIVE-mode Stripe ${what} object reached test-mode-only code; stopping ` +
-        `rather than reading or writing anything about real customer data`,
+  if (object.livemode !== (mode === "live")) {
+    throw new StripeModeObjectRefused(
+      `the Stripe ${what} object does not match configured ${mode} mode; refusing to read or write it`,
     );
   }
 }

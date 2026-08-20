@@ -95,6 +95,16 @@ function openedStore(): Promise<import("../../store").Store> {
   return opening;
 }
 
+async function stripeRuntime(): Promise<{
+  mode: import("../../stripe/mode").StripeMode;
+  key: string;
+}> {
+  const { resolveStripeMode, stripeKeyFromEnv } =
+    await import("../../stripe/mode");
+  const mode = resolveStripeMode(process.env);
+  return { mode, key: stripeKeyFromEnv(mode, process.env) };
+}
+
 async function withStore<T>(
   fn: (store: import("../../store").Store) => Promise<T> | T,
 ): Promise<T> {
@@ -232,17 +242,12 @@ async function openReservedCheckout(args: {
     };
   const resolved = resolveStripePrice(plan, stripePriceConfiguration());
   if (!resolved.ok) return resolved;
-  const key = process.env.STRIPE_TEST_SECRET_KEY;
-  if (!key)
-    return {
-      ok: false,
-      reason: "This deployment has no Stripe key configured",
-    };
+  const { key, mode } = await stripeRuntime();
   const origin = deploymentOrigin();
   if (!origin)
     return { ok: false, reason: "this deployment has no origin configured" };
 
-  const client = new StripeClient({ key });
+  const client = new StripeClient({ key, mode });
   const inputs = checkoutInputsFor({
     reservation: args.reservation,
     account: args.account,
@@ -320,7 +325,7 @@ export async function reinstateOffice(
     import("../../stripe/reader"),
     import("../../stripe/checkout"),
   ]);
-  const key = process.env.STRIPE_TEST_SECRET_KEY;
+  const { key, mode } = await stripeRuntime();
   const origin = deploymentOrigin();
   if (!key || !origin)
     return { ok: false, reason: "reinstatement payment is not configured" };
@@ -344,9 +349,9 @@ export async function reinstateOffice(
     prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
   );
   if (!prepared.ok) return prepared;
-  const client = new StripeClient({ key });
+  const client = new StripeClient({ key, mode });
   if (prepared.existingSessionId) {
-    const fetched = await new LiveStripeReader(client).getCheckoutSession(
+    const fetched = await new LiveStripeReader(client, mode).getCheckoutSession(
       prepared.existingSessionId,
     );
     if (fetched.kind !== "ok")
@@ -467,14 +472,14 @@ export async function signUpOffice(args: {
 
   const resolved = resolveStripePrice(valid.plan, stripePriceConfiguration());
   if (!resolved.ok) return resolved;
-  const key = process.env.STRIPE_TEST_SECRET_KEY;
-  if (!key) {
+  try {
+    await stripeRuntime();
+  } catch {
     return {
       ok: false,
       reason: "This deployment has no Stripe key configured",
     };
   }
-
   // Redirect targets come from the deployment's own origin, never from the
   // request: a Host header is not configuration.
   const origin = deploymentOrigin();
@@ -617,13 +622,7 @@ async function billingVerb(
   accountId: string,
   instanceId: string,
 ): Promise<CancelResult> {
-  const key = process.env.STRIPE_TEST_SECRET_KEY;
-  if (!key) {
-    return {
-      ok: false,
-      reason: "this deployment has no Stripe key configured",
-    };
-  }
+  const { key, mode } = await stripeRuntime();
   const [cancel, { StripeClient }] = await Promise.all([
     import("../../cancel"),
     import("../../stripe/client"),
@@ -632,7 +631,7 @@ async function billingVerb(
   // because it holds no transaction across the Stripe call and could afford to;
   // "could afford to" is not a reason to pay the schema check twice.
   return withStore(async (store) => {
-    const outcome = await cancel[verb](store, new StripeClient({ key }), {
+    const outcome = await cancel[verb](store, new StripeClient({ key, mode }), {
       accountId,
       instanceId,
     });

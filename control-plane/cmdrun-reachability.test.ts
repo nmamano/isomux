@@ -101,7 +101,10 @@ describe("the audited roster is the roster the loop is built from", () => {
       "utf8",
     );
     expect(source).toContain(
-      'if (!stripeKey) {\n    throw new Error(\n      "STRIPE_TEST_SECRET_KEY is required by the provisioner because retained-office deletion must expire Checkout first"',
+      "const stripeKey = stripeKeyFromEnv(stripeMode, process.env);",
+    );
+    expect(source).toContain(
+      "const stripeClient = new StripeClient({ key: stripeKey, mode: stripeMode });",
     );
   });
 

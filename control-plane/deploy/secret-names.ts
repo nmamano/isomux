@@ -4,9 +4,15 @@ export const CERTIFICATE_SECRET_NAMES = [
   "ISOMUX_ACME_EMAIL",
 ] as const;
 
-export const STRIPE_SECRET_NAME = "STRIPE_TEST_SECRET_KEY";
-export const STRIPE_WEBHOOK_SECRET_NAME = "STRIPE_WEBHOOK_SECRET";
-export const STRIPE_SECRET_NAMES = [
-  STRIPE_SECRET_NAME,
-  STRIPE_WEBHOOK_SECRET_NAME,
-] as const;
+export {
+  STRIPE_LIVE_SECRET_NAME,
+  STRIPE_LIVE_WEBHOOK_SECRET_NAME,
+  STRIPE_MODE_NAME,
+  STRIPE_SECRET_NAMES,
+  STRIPE_TEST_SECRET_NAME,
+  STRIPE_TEST_WEBHOOK_SECRET_NAME,
+} from "../stripe/mode.ts";
+
+// Backward-compatible aliases for callers that are explicitly test-only.
+export { STRIPE_TEST_SECRET_NAME as STRIPE_SECRET_NAME } from "../stripe/mode.ts";
+export { STRIPE_TEST_WEBHOOK_SECRET_NAME as STRIPE_WEBHOOK_SECRET_NAME } from "../stripe/mode.ts";

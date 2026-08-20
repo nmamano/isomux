@@ -35,7 +35,7 @@ const RUN = `s5cancel-${Math.floor(Date.now() / 1000)}`;
 
 const key = process.env.STRIPE_TEST_SECRET_KEY;
 if (!key) throw new Error("STRIPE_TEST_SECRET_KEY is not set");
-const client = new StripeClient({ key, timeoutMs: 30_000 });
+const client = new StripeClient({ key, mode: "test", timeoutMs: 30_000 });
 
 function ok(
   r: Awaited<ReturnType<StripeClient["get"]>>,

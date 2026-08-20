@@ -146,14 +146,10 @@ describe("what may be set on the deployment", () => {
     }
   });
 
-  test("no Stripe value, no dev-auth flag, no provider credential is allowed", () => {
-    // The posture stated in the plan gate, asserted rather than described: with
-    // no price configured, signUpOffice refuses before it reserves a name.
+  test("test Stripe, dev-auth and provider credentials stay forbidden", () => {
     for (const name of [
       "STRIPE_TEST_SECRET_KEY",
       "CONTROL_PLANE_PRICE_ID",
-      "CONTROL_PLANE_ENTRY_PRICE_ID",
-      "CONTROL_PLANE_POWERUSER_PRICE_ID",
       "CONTROL_PLANE_COUPON_ID",
       "CONTROL_PLANE_DEV_AUTH",
       "NEXT_PUBLIC_CONTROL_PLANE_DEV_AUTH",
@@ -165,6 +161,16 @@ describe("what may be set on the deployment", () => {
         allowed: (DEPLOYMENT_ENV_NAMES as readonly string[]).includes(name),
         forbidden: (FORBIDDEN_ENV_NAMES as readonly string[]).includes(name),
       }).toEqual({ name, allowed: false, forbidden: true });
+    }
+    for (const name of [
+      "CONTROL_PLANE_STRIPE_MODE",
+      "STRIPE_LIVE_SECRET_KEY",
+      "CONTROL_PLANE_ENTRY_PRICE_ID",
+      "CONTROL_PLANE_POWERUSER_PRICE_ID",
+    ]) {
+      expect((DEPLOYMENT_ENV_NAMES as readonly string[]).includes(name)).toBe(
+        true,
+      );
     }
   });
 

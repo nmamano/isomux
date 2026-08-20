@@ -452,7 +452,7 @@ async function main(): Promise<void> {
       // would make this transcript fail whenever they restyle a button.
       const sessionId = /cs_test_[A-Za-z0-9]+/.exec(location)?.[0] ?? "";
       if (sessionId && stripeKey) {
-        const client = new StripeClient({ key: stripeKey });
+        const client = new StripeClient({ key: stripeKey, mode: "test" });
         const fetched = await client.get(`/v1/checkout/sessions/${sessionId}`, {
           "expand[0]": "total_details",
         });

@@ -5,10 +5,8 @@
 //   1. SIGNATURE, over the raw bytes. Nothing else is looked at first, because
 //      an unverified body is attacker-controlled.
 //   2. JSON parse.
-//   3. TEST MODE. `livemode` must be present and false BEFORE any dedupe lookup,
-//      any object fetch, any transaction, any audit row - before any effect at
-//      all. A live-mode event means something is pointed at the real company
-//      account, and the only safe response is to touch nothing.
+//   3. MODE. `livemode` must match explicit configuration BEFORE any dedupe
+//      lookup, object fetch, transaction or audit row.
 //   4. FETCH the object the event is about, with no transaction open.
 //   5. APPLY, in one transaction that re-checks the event id first.
 //
@@ -19,11 +17,12 @@
 
 import type { Store } from "../store.ts";
 import {
-  LiveModeObjectRefused,
+  StripeModeObjectRefused,
   MalformedStripeObject,
   type ReadResult,
   type StripeObjectReader,
 } from "./reader.ts";
+import type { StripeMode } from "./mode.ts";
 import {
   applyEvent,
   recordIgnoredEvent,
@@ -36,8 +35,8 @@ import type {
 } from "./shapes.ts";
 import { verifySignature } from "./signature.ts";
 
-/** A live-mode event reached test-mode-only code. Nothing is read or written. */
-export class LiveModeEventRefused extends Error {}
+/** An event disagreed with configured mode. Nothing is read or written. */
+export class StripeModeEventRefused extends Error {}
 
 /** The events the design names as the writers of subscription state. */
 export const HANDLED_EVENT_TYPES = [
@@ -69,6 +68,7 @@ export interface WebhookDeps {
   /** The `stripe listen` (or dashboard endpoint) signing secret. Runtime-only
    * state: it arrives in the environment and is never written down. */
   secret: string;
+  mode: StripeMode;
   now?: () => number;
   report?: (line: string) => void;
 }
@@ -131,9 +131,9 @@ export class WebhookProcessor {
 
     // THE MODE GATE. Before dedupe, before any fetch, before any write.
     try {
-      assertTestModeEvent(event);
+      assertStripeModeEvent(event, this.deps.mode);
     } catch (err) {
-      if (!(err instanceof LiveModeEventRefused)) throw err;
+      if (!(err instanceof StripeModeEventRefused)) throw err;
       this.report(`webhook refused: ${err.message}`);
       return {
         status: 400,
@@ -307,7 +307,7 @@ export class WebhookProcessor {
       return fromReconcile(outcome);
     } catch (err) {
       // A refusal is never retried: the same fetch produces the same object.
-      if (err instanceof LiveModeObjectRefused) {
+      if (err instanceof StripeModeObjectRefused) {
         this.report(`webhook refused: ${err.message}`);
         return {
           status: 400,
@@ -368,7 +368,7 @@ export class WebhookProcessor {
       discount: null,
       latestInvoiceId: null,
       metadata: {},
-      livemode: false,
+      livemode: this.deps.mode === "live",
     };
   }
 
@@ -401,13 +401,20 @@ export class WebhookProcessor {
  * absence as "probably test mode" is precisely how live data would get through.
  * Exported so a test can hold the rule on its own, without a signature or a store.
  */
-export function assertTestModeEvent(event: Record<string, unknown>): void {
-  if (event.livemode === false) return;
-  throw new LiveModeEventRefused(
-    event.livemode === true
-      ? "the event is LIVE MODE; test-mode-only code will not read or write anything about it"
-      : "the event has no boolean livemode field; refusing to guess which mode it belongs to",
-  );
+export function assertStripeModeEvent(
+  event: Record<string, unknown>,
+  mode: StripeMode,
+): void {
+  if (typeof event.livemode !== "boolean") {
+    throw new StripeModeEventRefused(
+      "the event has no boolean livemode field; refusing to guess which mode it belongs to",
+    );
+  }
+  if (event.livemode !== (mode === "live")) {
+    throw new StripeModeEventRefused(
+      `the event does not match configured ${mode} mode; refusing it before any effect`,
+    );
+  }
 }
 
 function fromReconcile(outcome: ReconcileOutcome): WebhookOutcome {

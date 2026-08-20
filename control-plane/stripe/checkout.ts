@@ -161,13 +161,11 @@ export async function verifyFullDiscount(
       : { ok: false, retryable: true, reason: res.reason };
   }
   const coupon = res.body;
-  if (coupon.livemode !== false) {
+  if (coupon.livemode !== (client.mode === "live")) {
     return {
       ok: false,
       retryable: false,
-      reason:
-        "the coupon is not test mode; refusing to build a session around a live " +
-        "coupon",
+      reason: `the coupon does not match configured ${client.mode} mode`,
     };
   }
   if (coupon.valid !== true) {
@@ -304,12 +302,11 @@ export async function createCheckoutSession(
   }
   const body = res.body;
   const livemode = body.livemode;
-  if (livemode !== false) {
-    // Defence in depth behind the key check: a session that reports live mode
-    // means this code is talking to the real account.
+  if (livemode !== (client.mode === "live")) {
+    // Defence in depth behind the key check.
     throw new Error(
-      "the Checkout session Stripe returned is not test mode; stopping before " +
-        "any URL is handed to anyone",
+      `the Checkout session does not match configured ${client.mode} mode; ` +
+        "stopping before any URL is handed to anyone",
     );
   }
   return {
@@ -319,7 +316,7 @@ export async function createCheckoutSession(
       typeof body.payment_method_collection === "string"
         ? body.payment_method_collection
         : null,
-    livemode: false,
+    livemode,
   };
 }
 

@@ -139,6 +139,7 @@ describe("only one file reaches the store", () => {
       "../../cancel",
       "../../ops",
       "../../reinstatement",
+      "../../stripe/mode",
     ]);
     for (const specifier of specifiers) {
       expect([specifier, allowed.has(specifier)]).toEqual([specifier, true]);

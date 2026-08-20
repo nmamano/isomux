@@ -5,16 +5,17 @@
 
 import { describe, expect, test } from "bun:test";
 import {
-  LiveKeyRefused,
   STRIPE_API_VERSION,
   StripeClient,
-  assertTestKey,
+  StripeKeyRefused,
+  assertStripeKey,
   formEncode,
   type FetchLike,
 } from "./client.ts";
 
 const TEST_KEY = "sk_test_NOT_A_REAL_KEY_ONLY_A_SHAPE";
-const LIVE_SHAPE = "sk_live_NOT_A_REAL_KEY_ONLY_A_SHAPE";
+const LIVE_SHAPE = "rk_live_NOT_A_REAL_KEY_ONLY_A_SHAPE";
+const LIVE_ACCOUNT_SHAPE = "sk_live_NOT_A_REAL_KEY_ONLY_A_SHAPE";
 
 interface Call {
   url: string;
@@ -52,32 +53,51 @@ const noSleep = async () => {};
 describe("the live-key refusal", () => {
   test("a live secret key is refused by name, before any request", async () => {
     const { fetchImpl, calls } = recorder([{ status: 200, body: {} }]);
-    expect(() => new StripeClient({ key: LIVE_SHAPE, fetchImpl })).toThrow(
-      LiveKeyRefused,
-    );
+    expect(
+      () => new StripeClient({ key: LIVE_SHAPE, mode: "test", fetchImpl }),
+    ).toThrow(StripeKeyRefused);
     expect(calls).toHaveLength(0);
   });
 
   test("a live restricted key is refused too", async () => {
-    expect(() => assertTestKey("rk_live_ANOTHER_SHAPE")).toThrow(
-      LiveKeyRefused,
+    expect(() => assertStripeKey("rk_live_ANOTHER_SHAPE", "test")).toThrow(
+      StripeKeyRefused,
     );
   });
 
   test("an unrecognisable key is refused rather than guessed at", async () => {
     for (const key of ["", "sk_", "pk_test_something", "hunter2"]) {
-      expect(() => assertTestKey(key)).toThrow(LiveKeyRefused);
+      expect(() => assertStripeKey(key, "test")).toThrow(StripeKeyRefused);
     }
   });
 
   test("test keys are accepted", async () => {
-    expect(() => assertTestKey(TEST_KEY)).not.toThrow();
-    expect(() => assertTestKey("rk_test_A_SHAPE")).not.toThrow();
+    expect(() => assertStripeKey(TEST_KEY, "test")).not.toThrow();
+    expect(() => assertStripeKey("rk_test_A_SHAPE", "test")).not.toThrow();
+    expect(() => assertStripeKey(LIVE_SHAPE, "live")).not.toThrow();
+    expect(() => assertStripeKey(TEST_KEY, "live")).toThrow(StripeKeyRefused);
+  });
+
+  test("live mode refuses an unrestricted account key", () => {
+    expect(() => assertStripeKey(LIVE_ACCOUNT_SHAPE, "live")).toThrow(
+      "require a restricted rk_live_ key",
+    );
+  });
+
+  test("live mode accepts a synthetic restricted key with an injected fetch", async () => {
+    const { fetchImpl, calls } = recorder([{ status: 200, body: {} }]);
+    const client = new StripeClient({
+      key: LIVE_SHAPE,
+      mode: "live",
+      fetchImpl,
+    });
+    expect((await client.get("/v1/customers/cus_shape")).kind).toBe("ok");
+    expect(calls).toHaveLength(1);
   });
 
   test("the refusal message does not echo the key", async () => {
     try {
-      assertTestKey(LIVE_SHAPE);
+      assertStripeKey(LIVE_SHAPE, "test");
       throw new Error("expected a refusal");
     } catch (err) {
       expect((err as Error).message).not.toContain("NOT_A_REAL_KEY");
@@ -117,7 +137,7 @@ describe("form encoding", () => {
 describe("headers", () => {
   test("every request pins the API version", async () => {
     const { fetchImpl, calls } = recorder([{ status: 200, body: { id: "x" } }]);
-    const client = new StripeClient({ key: TEST_KEY, fetchImpl });
+    const client = new StripeClient({ key: TEST_KEY, mode: "test", fetchImpl });
     await client.get("/v1/customers", { limit: 1 });
     expect(calls[0].headers["Stripe-Version"]).toBe(STRIPE_API_VERSION);
     expect(calls[0].url).toBe("https://api.stripe.com/v1/customers?limit=1");
@@ -125,7 +145,7 @@ describe("headers", () => {
 
   test("a write carries its idempotency key, and an unkeyed write is refused", async () => {
     const { fetchImpl, calls } = recorder([{ status: 200, body: { id: "x" } }]);
-    const client = new StripeClient({ key: TEST_KEY, fetchImpl });
+    const client = new StripeClient({ key: TEST_KEY, mode: "test", fetchImpl });
     await client.post("/v1/coupons", { percent_off: 100 }, "key-1");
     expect(calls[0].headers["Idempotency-Key"]).toBe("key-1");
     expect(
@@ -139,6 +159,7 @@ describe("classification", () => {
     const { fetchImpl } = recorder([{ throws: "socket hang up" }]);
     const client = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl,
       attempts: 1,
       sleep: noSleep,
@@ -149,7 +170,7 @@ describe("classification", () => {
 
   test("a 5xx is ambiguous", async () => {
     const { fetchImpl } = recorder([{ status: 503, body: {} }]);
-    const client = new StripeClient({ key: TEST_KEY, fetchImpl });
+    const client = new StripeClient({ key: TEST_KEY, mode: "test", fetchImpl });
     expect((await client.get("/v1/customers/cus_1")).kind).toBe("ambiguous");
   });
 
@@ -166,7 +187,7 @@ describe("classification", () => {
         },
       },
     ]);
-    const client = new StripeClient({ key: TEST_KEY, fetchImpl });
+    const client = new StripeClient({ key: TEST_KEY, mode: "test", fetchImpl });
     const res = await client.get("/v1/coupons/nope");
     expect(res).toMatchObject({
       kind: "rejected",
@@ -187,6 +208,7 @@ describe("retrying a write", () => {
     ]);
     const client = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl,
       sleep: noSleep,
     });
@@ -207,6 +229,7 @@ describe("retrying a write", () => {
     ]);
     const client = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl: limited.fetchImpl,
       sleep: noSleep,
     });
@@ -218,6 +241,7 @@ describe("retrying a write", () => {
     ]);
     const client2 = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl: bad.fetchImpl,
       sleep: noSleep,
     });
@@ -229,6 +253,7 @@ describe("retrying a write", () => {
     const { fetchImpl, calls } = recorder([{ throws: "timeout" }]);
     const client = new StripeClient({
       key: TEST_KEY,
+      mode: "test",
       fetchImpl,
       attempts: 3,
       sleep: noSleep,

@@ -80,14 +80,13 @@ export async function createOwnedCustomer(
   if (res.kind === "rejected") {
     return { ok: false, retryable: false, reason: res.reason };
   }
-  if (res.body.livemode !== false) {
+  if (res.body.livemode !== (client.mode === "live")) {
     return {
       ok: false,
       retryable: false,
       reason:
-        res.body.livemode === true
-          ? "the customer Stripe returned is LIVE MODE; stopping before anything " +
-            "is built on it"
+        typeof res.body.livemode === "boolean"
+          ? `the customer does not match configured ${client.mode} mode`
           : "the customer Stripe returned has no boolean livemode field; refusing " +
             "to guess which mode it belongs to",
     };

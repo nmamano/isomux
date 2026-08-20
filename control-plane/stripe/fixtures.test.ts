@@ -149,6 +149,7 @@ describe("the synthetic live-mode delivery", () => {
       store,
       reader,
       secret: SECRET,
+      mode: "test",
       now: () => 1_770_000_000_000,
     });
 

@@ -35,6 +35,11 @@ import { billingTick } from "./stripe/billing-tick.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 import { StripeClient, type StripeResult } from "./stripe/client.ts";
 import {
+  resolveStripeMode,
+  stripeKeyFromEnv,
+  stripeWebhookSecretFromEnv,
+} from "./stripe/mode.ts";
+import {
   DEFAULT_TEST_CURRENCY,
   testPriceParams,
   testProductParams,
@@ -98,16 +103,9 @@ function die(message: string): never {
  * prints, logs or echoes the value.
  */
 function makeClient(): StripeClient {
-  const key = process.env.STRIPE_TEST_SECRET_KEY;
-  if (!key) {
-    die(
-      "STRIPE_TEST_SECRET_KEY is not set. Source the test-mode env file in your " +
-        "shell first (set -a; . ~/nil/secrets/stripe-test.env; set +a). This " +
-        "command refuses live-mode keys.",
-    );
-  }
-  // StripeClient's constructor refuses anything that is not a test key.
-  return new StripeClient({ key });
+  const mode = resolveStripeMode(process.env);
+  const key = stripeKeyFromEnv(mode, process.env);
+  return new StripeClient({ key, mode });
 }
 
 /**
@@ -243,20 +241,15 @@ async function cmdCheckout(args: Map<string, string>): Promise<void> {
 }
 
 async function cmdServe(args: Map<string, string>): Promise<void> {
-  const secret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!secret) {
-    die(
-      "STRIPE_WEBHOOK_SECRET is not set. Start `stripe listen --forward-to " +
-        `http://localhost:${DEFAULT_WEBHOOK_PORT}/stripe/webhook\` and export the ` +
-        "signing secret it prints, without echoing it.",
-    );
-  }
+  const mode = resolveStripeMode(process.env);
+  const secret = stripeWebhookSecretFromEnv(mode, process.env);
   const store = await openStore(args);
   const client = makeClient();
   const processor = new WebhookProcessor({
     store,
-    reader: new LiveStripeReader(client),
+    reader: new LiveStripeReader(client, mode),
     secret,
+    mode,
     report: (line) => reporter.line(line),
   });
   const running = serveWebhooks({

@@ -91,6 +91,11 @@ import { Store } from "./store.ts";
 import { PROVISIONER_POOL } from "./roles.ts";
 import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
 import { StripeClient } from "./stripe/client.ts";
+import {
+  resolveStripeMode,
+  stripeKeyFromEnv,
+  stripeWebhookSecretFromEnv,
+} from "./stripe/mode.ts";
 import { LiveStripeReader } from "./stripe/reader.ts";
 import { WebhookProcessor } from "./stripe/webhook.ts";
 import { driveTicks } from "./drive-loop.ts";
@@ -368,16 +373,12 @@ function makeTicker(
 ): Ticker {
   const provider = adapterOrNothing();
   const line = (l: string) => reporter.line(l);
-  const stripeKey = process.env.STRIPE_TEST_SECRET_KEY;
-  if (!stripeKey) {
-    throw new Error(
-      "STRIPE_TEST_SECRET_KEY is required by the provisioner because retained-office deletion must expire Checkout first",
-    );
-  }
-  const stripeClient = new StripeClient({ key: stripeKey });
+  const stripeMode = resolveStripeMode(process.env);
+  const stripeKey = stripeKeyFromEnv(stripeMode, process.env);
+  const stripeClient = new StripeClient({ key: stripeKey, mode: stripeMode });
   const stripe = {
     client: stripeClient,
-    reader: new LiveStripeReader(stripeClient),
+    reader: new LiveStripeReader(stripeClient, stripeMode),
   };
   return new Ticker({
     store,
@@ -693,23 +694,18 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   let providerConfigured = false;
   let seam: RunningMintSeam | null = null;
   if (token) {
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ?? "";
-    if (!webhookSecret) {
-      throw new Error(
-        "STRIPE_WEBHOOK_SECRET is required when the deployed provisioner seam is enabled",
-      );
-    }
-    const stripeKey = process.env.STRIPE_TEST_SECRET_KEY ?? "";
-    if (!stripeKey) {
-      throw new Error(
-        "STRIPE_TEST_SECRET_KEY is required when the deployed provisioner seam is enabled",
-      );
-    }
-    const webhookClient = new StripeClient({ key: stripeKey });
+    const stripeMode = resolveStripeMode(process.env);
+    const webhookSecret = stripeWebhookSecretFromEnv(stripeMode, process.env);
+    const stripeKey = stripeKeyFromEnv(stripeMode, process.env);
+    const webhookClient = new StripeClient({
+      key: stripeKey,
+      mode: stripeMode,
+    });
     const webhook = new WebhookProcessor({
       store,
-      reader: new LiveStripeReader(webhookClient),
+      reader: new LiveStripeReader(webhookClient, stripeMode),
       secret: webhookSecret,
+      mode: stripeMode,
       report: (line) => reporter.line(`stripe webhook: ${line}`),
     });
     const certificateTarget = certificateTargetFromEnv(process.env);

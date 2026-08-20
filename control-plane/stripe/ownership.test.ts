@@ -22,12 +22,20 @@ function sourceFiles(dir: string): string[] {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
+      if (entry.name === ".next" || entry.name === "node_modules") continue;
       out.push(...sourceFiles(full));
       continue;
     }
     if (entry.name.endsWith(".ts")) out.push(full);
   }
   return out;
+}
+
+function testSurfaceFiles(): string[] {
+  return sourceFiles(CONTROL_PLANE).filter((file) => {
+    const relative = path.relative(CONTROL_PLANE, file);
+    return relative.endsWith(".test.ts") || relative.includes("/e2e/");
+  });
 }
 
 function callersOf(symbol: string): string[] {
@@ -156,5 +164,72 @@ describe("live-mode credentials", () => {
         matched: credential.test(bytes),
       }).toEqual({ file: path.relative(CONTROL_PLANE, file), matched: false });
     }
+  });
+});
+
+describe("live-mode test isolation", () => {
+  test("test and e2e surfaces cannot acquire a live runtime or credential", () => {
+    const liveNames = [
+      "STRIPE_" + "LIVE_SECRET_KEY",
+      "STRIPE_" + "LIVE_WEBHOOK_SECRET",
+    ].join("|");
+    const environmentRead = new RegExp(
+      `process\\.env(?:\\.(?:${liveNames})|\\[[^\\]]*(?:${liveNames})[^\\]]*\\])`,
+    );
+    const resolvedAmbientMode = /resolveStripeMode\s*\(\s*process\.env/;
+    const liveEnvironmentHelper =
+      /^[^"'`\n]*stripe(?:Key|WebhookSecret)FromEnv\s*\([^,]+,\s*process\.env/m;
+    const productionRuntime =
+      /(?:VERCEL_ENV\s*:\s*["']production|FLY_APP_NAME\s*:\s*["']isomux-provisioner)/;
+    for (const file of testSurfaceFiles()) {
+      const bytes = fs.readFileSync(file, "utf8");
+      expect({
+        file: path.relative(CONTROL_PLANE, file),
+        environmentRead: environmentRead.test(bytes),
+        resolvedAmbientMode: resolvedAmbientMode.test(bytes),
+        liveEnvironmentHelper: liveEnvironmentHelper.test(bytes),
+        productionRuntime: productionRuntime.test(bytes),
+      }).toEqual({
+        file: path.relative(CONTROL_PLANE, file),
+        environmentRead: false,
+        resolvedAmbientMode: false,
+        liveEnvironmentHelper: false,
+        productionRuntime: false,
+      });
+    }
+  });
+
+  test("the narrow synthetic live client allowance always injects fetch", () => {
+    const allowed = new Set([
+      "stripe/checkout.test.ts",
+      "stripe/client.test.ts",
+    ]);
+    for (const file of testSurfaceFiles()) {
+      const relative = path.relative(CONTROL_PLANE, file);
+      const bytes = fs.readFileSync(file, "utf8");
+      const constructions = bytes.match(
+        /new StripeClient\(\{[\s\S]{0,300}?mode:\s*["']live["'][\s\S]{0,300}?\}\)/g,
+      );
+      if (!constructions) continue;
+      expect(allowed.has(relative)).toBe(true);
+      for (const construction of constructions) {
+        expect(construction).toContain("fetchImpl");
+      }
+    }
+  });
+
+  test("the narrow synthetic live webhook allowance uses the fake reader", () => {
+    const matches: string[] = [];
+    for (const file of testSurfaceFiles()) {
+      const relative = path.relative(CONTROL_PLANE, file);
+      const bytes = fs.readFileSync(file, "utf8");
+      if (
+        /new WebhookProcessor\(\{[\s\S]{0,400}?mode:\s*["']live["']/.test(bytes)
+      ) {
+        matches.push(relative);
+        expect(bytes).toContain('new FakeReader("live")');
+      }
+    }
+    expect(matches).toEqual(["stripe/webhook.test.ts"]);
   });
 });

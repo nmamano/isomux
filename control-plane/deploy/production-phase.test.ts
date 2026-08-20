@@ -48,8 +48,8 @@ const fact = (key: string, type: string, target: string[]): EnvFact => ({
   target,
 });
 
-/** The nine entries the project carries when the phase has done its job. */
-const NINE: EnvFact[] = [
+/** The thirteen entries the project carries when the phase has done its job. */
+const THIRTEEN: EnvFact[] = [
   fact("CONTROL_PLANE_DB", "sensitive", ["preview"]),
   fact("AUTH_SECRET", "sensitive", ["preview"]),
   fact("CONTROL_PLANE_DB", "sensitive", ["production"]),
@@ -59,6 +59,10 @@ const NINE: EnvFact[] = [
   fact("AUTH_URL", "encrypted", ["production"]),
   fact("CONTROL_PLANE_MINT_URL", "encrypted", ["production"]),
   fact("AUTH_GOOGLE_ID", "encrypted", ["production"]),
+  fact("STRIPE_LIVE_SECRET_KEY", "sensitive", ["production"]),
+  fact("CONTROL_PLANE_STRIPE_MODE", "encrypted", ["production"]),
+  fact("CONTROL_PLANE_ENTRY_PRICE_ID", "encrypted", ["production"]),
+  fact("CONTROL_PLANE_POWERUSER_PRICE_ID", "encrypted", ["production"]),
 ];
 
 const judge = (facts: EnvFact[]) =>
@@ -118,9 +122,9 @@ describe("the environment, judged PER TARGET", () => {
     // The whole reason this helper exists instead of judgeInventory: two names
     // live on BOTH targets with different values, and a key map would let one
     // stand in for the other.
-    const verdict = judge(NINE);
+    const verdict = judge(THIRTEEN);
     expect(verdict.exact).toBe(true);
-    expect(verdict.totalFacts).toBe(9);
+    expect(verdict.totalFacts).toBe(13);
     expect(verdict.duplicates).toEqual([]);
     expect(verdict.previewProblems).toEqual([]);
     expect(verdict.productionProblems).toEqual([]);
@@ -129,7 +133,7 @@ describe("the environment, judged PER TARGET", () => {
   test("A MISSING TARGET-SPECIFIC DUPLICATE FAILS, though the key still exists", () => {
     // Preview's CONTROL_PLANE_DB is gone; Production's remains. A key map would
     // find the name and report exact. This must not.
-    const missingPreview = NINE.filter(
+    const missingPreview = THIRTEEN.filter(
       (f) => !(f.key === "CONTROL_PLANE_DB" && f.target[0] === "preview"),
     );
     const verdict = judge(missingPreview);
@@ -142,7 +146,7 @@ describe("the environment, judged PER TARGET", () => {
   });
 
   test("the wrong target fails", () => {
-    const wrong = NINE.map((f) =>
+    const wrong = THIRTEEN.map((f) =>
       f.key === "AUTH_URL" ? fact(f.key, f.type, ["preview"]) : f,
     );
     const verdict = judge(wrong);
@@ -153,7 +157,7 @@ describe("the environment, judged PER TARGET", () => {
 
   test("the same key twice on the SAME target fails", () => {
     const verdict = judge([
-      ...NINE,
+      ...THIRTEEN,
       fact("AUTH_URL", "encrypted", ["production"]),
     ]);
     expect(verdict.exact).toBe(false);
@@ -162,7 +166,7 @@ describe("the environment, judged PER TARGET", () => {
 
   test("A MULTI-TARGET ENTRY REFUSES, because per-target judging would count it twice", () => {
     const verdict = judge(
-      NINE.map((f) =>
+      THIRTEEN.map((f) =>
         f.key === "AUTH_URL"
           ? fact(f.key, f.type, ["preview", "production"])
           : f,
@@ -175,21 +179,23 @@ describe("the environment, judged PER TARGET", () => {
   test("an unknown or empty target refuses", () => {
     expect(
       judge(
-        NINE.map((f) => (f.key === "AUTH_URL" ? fact(f.key, f.type, []) : f)),
+        THIRTEEN.map((f) =>
+          f.key === "AUTH_URL" ? fact(f.key, f.type, []) : f,
+        ),
       ).exact,
     ).toBe(false);
     expect(
       judge(
-        NINE.map((f) =>
+        THIRTEEN.map((f) =>
           f.key === "AUTH_URL" ? fact(f.key, f.type, ["development"]) : f,
         ),
       ).exact,
     ).toBe(false);
   });
 
-  test("A TENTH ENTRY FAILS, whatever it is", () => {
+  test("A FOURTEENTH ENTRY FAILS, whatever it is", () => {
     const verdict = judge([
-      ...NINE,
+      ...THIRTEEN,
       fact("SOMETHING_ELSE", "encrypted", ["production"]),
     ]);
     expect(verdict.exact).toBe(false);
@@ -201,7 +207,7 @@ describe("the environment, judged PER TARGET", () => {
 
   test("A FORBIDDEN NAME IS CAUGHT BY NAME, not merely by being unexpected", () => {
     const verdict = judge([
-      ...NINE,
+      ...THIRTEEN,
       fact("CONTROL_PLANE_DEV_AUTH", "encrypted", ["production"]),
     ]);
     expect(verdict.forbiddenPresent).toEqual(["CONTROL_PLANE_DEV_AUTH"]);
@@ -210,7 +216,7 @@ describe("the environment, judged PER TARGET", () => {
 
   test("the wrong type fails: a sensitive value stored readable is not the same value", () => {
     const verdict = judge(
-      NINE.map((f) =>
+      THIRTEEN.map((f) =>
         f.key === "AUTH_SECRET" && f.target[0] === "production"
           ? fact(f.key, "encrypted", f.target)
           : f,
@@ -222,7 +228,7 @@ describe("the environment, judged PER TARGET", () => {
 
   test("the starting state is preview-only", () => {
     const start = judgeByTarget(
-      NINE.filter((f) => f.target[0] === "preview"),
+      THIRTEEN.filter((f) => f.target[0] === "preview"),
       PREVIEW_SHAPES,
       [],
       FORBIDDEN_ENV_NAMES,
@@ -230,22 +236,51 @@ describe("the environment, judged PER TARGET", () => {
     expect(start.exact).toBe(true);
   });
 
-  test("the seven production names, and the absences that matter", () => {
+  test("a live Stripe key passes on Production and refuses on Preview", () => {
+    expect(
+      PRODUCTION_SHAPES.find((shape) => shape.key === "STRIPE_LIVE_SECRET_KEY"),
+    ).toEqual({
+      key: "STRIPE_LIVE_SECRET_KEY",
+      type: "sensitive",
+      target: "production",
+    });
+    expect(judge(THIRTEEN).exact).toBe(true);
+    const leakedToPreview = [
+      ...THIRTEEN,
+      fact("STRIPE_LIVE_SECRET_KEY", "sensitive", ["preview"]),
+    ];
+    const verdict = judge(leakedToPreview);
+    expect(verdict.exact).toBe(false);
+    expect(verdict.previewExact).toBe(false);
+  });
+
+  test("the eleven production names, and the absences that matter", () => {
     expect(PRODUCTION_SHAPES.map((s) => s.key).sort()).toEqual([
       "AUTH_GOOGLE_ID",
       "AUTH_GOOGLE_SECRET",
       "AUTH_SECRET",
       "AUTH_URL",
       "CONTROL_PLANE_DB",
+      "CONTROL_PLANE_ENTRY_PRICE_ID",
       "CONTROL_PLANE_MINT_TOKEN",
       "CONTROL_PLANE_MINT_URL",
+      "CONTROL_PLANE_POWERUSER_PRICE_ID",
+      "CONTROL_PLANE_STRIPE_MODE",
+      "STRIPE_LIVE_SECRET_KEY",
     ]);
     // Only values that are public by construction may be readable back.
     expect(
       PRODUCTION_SHAPES.filter((s) => s.type === "encrypted")
         .map((s) => s.key)
         .sort(),
-    ).toEqual(["AUTH_GOOGLE_ID", "AUTH_URL", "CONTROL_PLANE_MINT_URL"]);
+    ).toEqual([
+      "AUTH_GOOGLE_ID",
+      "AUTH_URL",
+      "CONTROL_PLANE_ENTRY_PRICE_ID",
+      "CONTROL_PLANE_MINT_URL",
+      "CONTROL_PLANE_POWERUSER_PRICE_ID",
+      "CONTROL_PLANE_STRIPE_MODE",
+    ]);
     for (const shape of PRODUCTION_SHAPES) {
       expect(
         (FORBIDDEN_ENV_NAMES as readonly string[]).includes(shape.key),
@@ -794,6 +829,18 @@ describe("the secret files", () => {
     expect(
       SECRET_SHAPES.GOOGLE_CLIENT_ID.test("1-a.apps.googleusercontent.com"),
     ).toBe(true);
+    expect(
+      SECRET_SHAPES.STRIPE_LIVE_SECRET_KEY.test("rk_live_public_shape"),
+    ).toBe(true);
+    expect(
+      SECRET_SHAPES.STRIPE_LIVE_SECRET_KEY.test("sk_live_public_shape"),
+    ).toBe(false);
+    expect(
+      SECRET_SHAPES.CONTROL_PLANE_ENTRY_PRICE_ID.test("price_public_shape"),
+    ).toBe(true);
+    expect(
+      SECRET_SHAPES.CONTROL_PLANE_POWERUSER_PRICE_ID.test("price_public_shape"),
+    ).toBe(true);
   });
 });
 
@@ -1207,7 +1254,7 @@ describe("CONDITION 3(b) ACROSS EVERY POST-INVOCATION FAILURE PATH", () => {
 describe("REDEPLOY MODE writes nothing and claims less", () => {
   test("ARGUMENT PARSING IS CLOSED: an unrecognised argument refuses", () => {
     // Failing open here chose the ENVIRONMENT-WRITING path, so a typo was one
-    // keystroke away from rewriting seven production values.
+    // keystroke away from rewriting ten production values.
     expect(modeFrom(["bun", "production-phase.ts"])).toBe("first");
     expect(modeFrom(["bun", "production-phase.ts", "--redeploy"])).toBe(
       "redeploy",
@@ -1233,14 +1280,14 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
     // createEnv iterates this list, and in redeploy mode it is empty, so no
     // create/PATCH/delete call is reached at all.
     expect(envWritesFor("redeploy")).toEqual([]);
-    expect(envWritesFor("first").length).toBe(7);
+    expect(envWritesFor("first").length).toBe(11);
   });
 
   test("a redeploy requires the environment ALREADY complete, not empty", () => {
-    // The first deploy demanded preview-only; a redeploy demands the full 2+7,
+    // The first deploy demanded preview-only; a redeploy demands the full 2+11,
     // which is why the unchanged coordinator refuses to run twice.
     expect(expectedProductionBefore("first")).toEqual([]);
-    expect(expectedProductionBefore("redeploy").length).toBe(7);
+    expect(expectedProductionBefore("redeploy").length).toBe(11);
   });
 
   test("a first deploy demands an empty database, exactly", () => {
@@ -1457,6 +1504,14 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
           called.push("readMint");
           return new Map([["CONTROL_PLANE_MINT_TOKEN", "a".repeat(40)]]);
         },
+        readStripe: () => {
+          called.push("readStripe");
+          return new Map([
+            ["STRIPE_LIVE_SECRET_KEY", "rk_live_public_shape"],
+            ["CONTROL_PLANE_ENTRY_PRICE_ID", "price_entry_shape"],
+            ["CONTROL_PLANE_POWERUSER_PRICE_ID", "price_poweruser_shape"],
+          ]);
+        },
         generate: () => {
           called.push("generate");
           return "generated-secret";
@@ -1472,11 +1527,16 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
     expect(s.called).toEqual([]);
   });
 
-  test("the first deploy reads both files, generates once, and builds the seven", () => {
+  test("the first deploy reads all files, generates once, and builds the eleven", () => {
     const s = spies();
     const holders = buildHolders("first", s.deps);
-    expect(s.called.sort()).toEqual(["generate", "readMint", "readOauth"]);
-    expect(holders?.values.size).toBe(7);
+    expect(s.called.sort()).toEqual([
+      "generate",
+      "readMint",
+      "readOauth",
+      "readStripe",
+    ]);
+    expect(holders?.values.size).toBe(11);
     expect(holders?.values.get("AUTH_SECRET")).toBe("generated-secret");
   });
 
@@ -1500,7 +1560,7 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
     expect(probeInputFor("redeploy", holders, ids).secrets).toEqual([]);
   });
 
-  test("the first deploy sends the secret and all four classes to scan", () => {
+  test("the first deploy sends the secret and all five classes to scan", () => {
     const s = spies();
     const holders = buildHolders("first", s.deps);
     const input = probeInputFor("first", holders, {
@@ -1510,7 +1570,7 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
       operationId: "o",
     });
     expect(input.secret).toBe("generated-secret");
-    expect(input.secrets.length).toBe(4);
+    expect(input.secrets.length).toBe(5);
     // The OAuth CLIENT ID is public and deliberately absent from the scan set.
     expect(input.secrets).not.toContain("id.apps.googleusercontent.com");
   });
@@ -1571,24 +1631,24 @@ describe("post-deploy row checks compare against the run's own before reading", 
 });
 
 describe("the environment is re-proved AFTER the deployment", () => {
-  test("exact 2+7 passes", () => {
-    expect(judge(NINE).exact).toBe(true);
+  test("exact 2+11 passes", () => {
+    expect(judge(THIRTEEN).exact).toBe(true);
   });
 
   test("a missing Preview twin, a tenth entry, a wrong target and a wrong type all fail", () => {
     expect(
       judge(
-        NINE.filter(
+        THIRTEEN.filter(
           (f) => !(f.key === "AUTH_SECRET" && f.target[0] === "preview"),
         ),
       ).exact,
     ).toBe(false);
     expect(
-      judge([...NINE, fact("EXTRA", "encrypted", ["production"])]).exact,
+      judge([...THIRTEEN, fact("EXTRA", "encrypted", ["production"])]).exact,
     ).toBe(false);
     expect(
       judge(
-        NINE.map((f) =>
+        THIRTEEN.map((f) =>
           f.key === "CONTROL_PLANE_MINT_URL"
             ? fact(f.key, f.type, ["preview"])
             : f,
@@ -1597,7 +1657,7 @@ describe("the environment is re-proved AFTER the deployment", () => {
     ).toBe(false);
     expect(
       judge(
-        NINE.map((f) =>
+        THIRTEEN.map((f) =>
           f.key === "AUTH_GOOGLE_SECRET"
             ? fact(f.key, "encrypted", f.target)
             : f,

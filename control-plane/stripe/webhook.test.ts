@@ -28,10 +28,11 @@ import {
   listSubscriptions,
 } from "./billing-store.ts";
 import {
-  assertTestMode,
+  assertStripeMode,
   type ReadResult,
   type StripeObjectReader,
 } from "./reader.ts";
+import type { StripeMode } from "./mode.ts";
 import type {
   InvoiceSnapshot,
   SessionSnapshot,
@@ -40,8 +41,8 @@ import type {
 import { suspensionOperationId } from "./dunning.ts";
 import {
   WebhookProcessor,
-  assertTestModeEvent,
-  LiveModeEventRefused,
+  assertStripeModeEvent,
+  StripeModeEventRefused,
 } from "./webhook.ts";
 import { WEBHOOK_PATH } from "./server.ts";
 
@@ -80,7 +81,10 @@ class FakeReader implements StripeObjectReader {
   unavailable = false;
   gate: Promise<void> | null = null;
 
-  constructor(private readonly opts: FakeReaderOptions = {}) {
+  constructor(
+    private readonly mode: StripeMode,
+    private readonly opts: FakeReaderOptions = {},
+  ) {
     this.unavailable = opts.unavailable ?? false;
     this.gate = opts.gate ?? null;
   }
@@ -100,7 +104,7 @@ class FakeReader implements StripeObjectReader {
     if (!object) return { kind: "absent" };
     // The SAME refusal the live reader applies. A fake that skipped it would test
     // a rule nothing enforces.
-    assertTestMode(object, what);
+    assertStripeMode(object, what, this.mode);
     return { kind: "ok", object };
   }
 
@@ -185,6 +189,7 @@ function processorFor(
     store,
     reader,
     secret: SECRET,
+    mode: "test",
     now: () => NOW,
     report: (l) => lines.push(l),
   });
@@ -230,9 +235,36 @@ async function seedInstance(store: Store, id = "inst-1"): Promise<string> {
 // --------------------------------------------------------------------- tests
 
 describe("the mode gate", () => {
+  test("live mode accepts a live event and live fetched object", async () => {
+    const store = await tempStore();
+    const reader = new FakeReader("live");
+    reader.subscriptions.set(
+      "sub_live_shape",
+      subscription({ livemode: true }),
+    );
+    const payload = body({
+      id: "evt_live_shape",
+      type: "customer.subscription.updated",
+      object: { id: "sub_live_shape" },
+      livemode: true,
+    });
+    const processor = new WebhookProcessor({
+      store,
+      reader,
+      secret: SECRET,
+      mode: "live",
+      now: () => NOW,
+    });
+    expect(await deliver(processor, payload)).toMatchObject({
+      status: 200,
+      kind: "applied",
+    });
+    expect(reader.calls).toEqual(["subscription:sub_live_shape"]);
+  });
+
   test("a live-mode event is refused before any lookup, fetch or write", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription());
     const outcome = await deliver(
       processorFor(store, reader),
@@ -251,7 +283,7 @@ describe("the mode gate", () => {
 
   test("a MISSING livemode field is refused just as hard", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription());
     const payload = JSON.stringify({
       id: "evt_nomode",
@@ -266,18 +298,57 @@ describe("the mode gate", () => {
   });
 
   test("the gate is a rule on its own, with a typed failure", async () => {
-    expect(() => assertTestModeEvent({ livemode: false })).not.toThrow();
+    expect(() =>
+      assertStripeModeEvent({ livemode: false }, "test"),
+    ).not.toThrow();
+    expect(() =>
+      assertStripeModeEvent({ livemode: true }, "live"),
+    ).not.toThrow();
+    expect(() => assertStripeModeEvent({ livemode: false }, "live")).toThrow(
+      StripeModeEventRefused,
+    );
     for (const value of [true, undefined, null, "false", 0]) {
-      expect(() => assertTestModeEvent({ livemode: value })).toThrow(
-        LiveModeEventRefused,
+      expect(() => assertStripeModeEvent({ livemode: value }, "test")).toThrow(
+        StripeModeEventRefused,
       );
     }
+  });
+
+  test("the fetched-object gate accepts and refuses both configured directions", () => {
+    expect(() =>
+      assertStripeMode(
+        { id: "sub_test_shape", livemode: false },
+        "subscription",
+        "test",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertStripeMode(
+        { id: "sub_live_shape", livemode: true },
+        "subscription",
+        "live",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertStripeMode(
+        { id: "sub_live_shape", livemode: true },
+        "subscription",
+        "test",
+      ),
+    ).toThrow();
+    expect(() =>
+      assertStripeMode(
+        { id: "sub_test_shape", livemode: false },
+        "subscription",
+        "live",
+      ),
+    ).toThrow();
   });
 
   test("the refusal says nothing about the body or any identifier", async () => {
     const store = await tempStore();
     const outcome = await deliver(
-      processorFor(store, new FakeReader()),
+      processorFor(store, new FakeReader("test")),
       body({
         id: "evt_secretish",
         type: "customer.subscription.updated",
@@ -291,7 +362,7 @@ describe("the mode gate", () => {
 
   test("a live-mode OBJECT behind a test-mode event stops with nothing written", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription({ livemode: true }));
     const outcome = await deliver(
       processorFor(store, reader),
@@ -313,7 +384,7 @@ describe("the mode gate", () => {
 describe("the signature", () => {
   test("a bad signature writes nothing and never fetches", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription());
     const payload = body({
       id: "evt_1",
@@ -335,7 +406,7 @@ describe("the signature", () => {
     const payload = "not json";
     expect(
       await deliver(
-        processorFor(store, new FakeReader()),
+        processorFor(store, new FakeReader("test")),
         payload,
         sign(payload),
       ),
@@ -346,7 +417,7 @@ describe("the signature", () => {
 describe("the deployed provisioner route", () => {
   test("only a signed POST reaches the processor without the seam bearer", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     const processor = processorFor(store, reader);
     const seam = startMintSeam({
       store,
@@ -394,7 +465,7 @@ describe("the deployed provisioner route", () => {
 describe("applying an event", () => {
   test("checkout.session.completed establishes the row from the FETCHED subscription", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.sessions.set("cs_1", {
       id: "cs_1",
       subscriptionId: "sub_1",
@@ -436,7 +507,7 @@ describe("applying an event", () => {
 
   test("a completed session naming no subscription is ignored, not retried", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.sessions.set("cs_1", {
       id: "cs_1",
       subscriptionId: null,
@@ -461,7 +532,7 @@ describe("applying an event", () => {
 
   test("a delivery for a subscription Stripe does not know is ignored", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     const outcome = await deliver(
       processorFor(store, reader),
       body({
@@ -479,7 +550,7 @@ describe("applying an event", () => {
   test("an unhandled type is recorded and answered 200", async () => {
     const store = await tempStore();
     const outcome = await deliver(
-      processorFor(store, new FakeReader()),
+      processorFor(store, new FakeReader("test")),
       body({ id: "evt_x", type: "customer.created", object: { id: "cus_1" } }),
     );
     // A 4xx here would make Stripe retry an event we will never handle.
@@ -489,7 +560,7 @@ describe("applying an event", () => {
 
   test("a subscription with no isomux metadata is cached under an unattributed account", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription({ metadata: {} }));
     const lines: string[] = [];
     const outcome = await deliver(
@@ -510,7 +581,7 @@ describe("applying an event", () => {
   test("the instance's subscription state is mirrored when one is linked", async () => {
     const store = await tempStore();
     await seedInstance(store);
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set(
       "sub_1",
       subscription({
@@ -539,7 +610,7 @@ describe("applying an event", () => {
 describe("dedupe and replay", () => {
   test("the same event id twice applies once", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription({ status: "past_due" }));
     const processor = processorFor(store, reader);
     const payload = body({
@@ -559,7 +630,7 @@ describe("dedupe and replay", () => {
 
   test("a throw mid-apply leaves the event UNCLAIMED, so the replay works", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription({ status: "past_due" }));
     const processor = processorFor(store, reader);
     const payload = body({
@@ -591,7 +662,7 @@ describe("dedupe and replay", () => {
 
   test("a fetch we cannot complete commits nothing and asks for redelivery", async () => {
     const store = await tempStore();
-    const reader = new FakeReader({ unavailable: true });
+    const reader = new FakeReader("test", { unavailable: true });
     const processor = processorFor(store, reader);
     const payload = body({
       id: "evt_1",
@@ -615,7 +686,7 @@ describe("ordering", () => {
     // This is why `created` is not the arbiter: Stripe timestamps have one-second
     // resolution, so the older payload could otherwise land last.
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription({ status: "past_due" }));
     const processor = processorFor(store, reader);
     const sameSecond = Math.floor(NOW / 1000);
@@ -648,7 +719,7 @@ describe("ordering", () => {
       release = r;
     });
     const eventsSeenAtFetch: number[] = [];
-    const reader = new FakeReader({
+    const reader = new FakeReader("test", {
       onFetch: async () => {
         eventsSeenAtFetch.push((await listEvents(store)).length);
       },
@@ -683,7 +754,7 @@ describe("ordering", () => {
 
 describe("suspension: exactly once per episode", () => {
   function exhaustedReader(): FakeReader {
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set(
       "sub_1",
       subscription({
@@ -886,7 +957,7 @@ describe("suspension: exactly once per episode", () => {
 
   test("with no instance linked, the suspension is recorded rather than enqueued", async () => {
     const store = await tempStore();
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set("sub_1", subscription({ status: "past_due" }));
     reader.invoices.set("in_1", invoiceSnap({ nextPaymentAttempt: null }));
     const outcome = await deliver(
@@ -921,7 +992,7 @@ describe("attention", () => {
       isomux_email: "buyer@example.com",
       isomux_instance: "inst-1",
     };
-    const reader = new FakeReader();
+    const reader = new FakeReader("test");
     reader.subscriptions.set(
       "sub_1",
       subscription({

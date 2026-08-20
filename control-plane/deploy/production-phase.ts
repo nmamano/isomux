@@ -250,9 +250,21 @@ export const PRODUCTION_SHAPES: readonly EnvShape[] = [
   { key: "AUTH_SECRET", type: "sensitive", target: "production" },
   { key: "CONTROL_PLANE_MINT_TOKEN", type: "sensitive", target: "production" },
   { key: "AUTH_GOOGLE_SECRET", type: "sensitive", target: "production" },
+  { key: "STRIPE_LIVE_SECRET_KEY", type: "sensitive", target: "production" },
   { key: "AUTH_URL", type: "encrypted", target: "production" },
   { key: "CONTROL_PLANE_MINT_URL", type: "encrypted", target: "production" },
   { key: "AUTH_GOOGLE_ID", type: "encrypted", target: "production" },
+  { key: "CONTROL_PLANE_STRIPE_MODE", type: "encrypted", target: "production" },
+  {
+    key: "CONTROL_PLANE_ENTRY_PRICE_ID",
+    type: "encrypted",
+    target: "production",
+  },
+  {
+    key: "CONTROL_PLANE_POWERUSER_PRICE_ID",
+    type: "encrypted",
+    target: "production",
+  },
 ] as const;
 
 /** What Preview already carries, and must still carry untouched. */
@@ -375,6 +387,9 @@ export const SECRET_SHAPES: Readonly<Record<string, RegExp>> = {
   CONTROL_PLANE_MINT_TOKEN: /^[0-9a-f]{40}$/,
   GOOGLE_CLIENT_ID: /^[0-9]+-[a-z0-9]+\.apps\.googleusercontent\.com$/,
   GOOGLE_CLIENT_SECRET: /^GOCSPX-[A-Za-z0-9_-]{10,}$/,
+  STRIPE_LIVE_SECRET_KEY: /^rk_live_.+$/,
+  CONTROL_PLANE_ENTRY_PRICE_ID: /^price_[A-Za-z0-9_]+$/,
+  CONTROL_PLANE_POWERUSER_PRICE_ID: /^price_[A-Za-z0-9_]+$/,
 };
 
 /**
@@ -687,6 +702,7 @@ export interface SecretHolders {
   values: Map<string, string>;
   oauth: Map<string, string>;
   mint: Map<string, string>;
+  stripe: Map<string, string>;
 }
 
 /**
@@ -704,6 +720,7 @@ export function buildHolders(
   deps: {
     readOauth: () => Map<string, string>;
     readMint: () => Map<string, string>;
+    readStripe: () => Map<string, string>;
     generate: () => string;
     dsn: string;
   },
@@ -711,11 +728,13 @@ export function buildHolders(
   if (mode === "redeploy") return null;
   const oauth = deps.readOauth();
   const mint = deps.readMint();
+  const stripe = deps.readStripe();
   const authSecret = deps.generate();
   return {
     authSecret,
     oauth,
     mint,
+    stripe,
     values: new Map<string, string>([
       ["CONTROL_PLANE_DB", deps.dsn],
       ["AUTH_SECRET", authSecret],
@@ -724,6 +743,16 @@ export function buildHolders(
       ["AUTH_URL", PUBLIC_ORIGIN],
       ["CONTROL_PLANE_MINT_URL", PROVISIONER_ORIGIN],
       ["AUTH_GOOGLE_ID", oauth.get("GOOGLE_CLIENT_ID") ?? ""],
+      ["CONTROL_PLANE_STRIPE_MODE", "live"],
+      ["STRIPE_LIVE_SECRET_KEY", stripe.get("STRIPE_LIVE_SECRET_KEY") ?? ""],
+      [
+        "CONTROL_PLANE_ENTRY_PRICE_ID",
+        stripe.get("CONTROL_PLANE_ENTRY_PRICE_ID") ?? "",
+      ],
+      [
+        "CONTROL_PLANE_POWERUSER_PRICE_ID",
+        stripe.get("CONTROL_PLANE_POWERUSER_PRICE_ID") ?? "",
+      ],
     ]),
   };
 }
@@ -763,6 +792,7 @@ export function probeInputFor(
           holders.values.get("CONTROL_PLANE_DB") ?? "",
           holders.mint.get("CONTROL_PLANE_MINT_TOKEN") ?? "",
           holders.oauth.get("GOOGLE_CLIENT_SECRET") ?? "",
+          holders.stripe.get("STRIPE_LIVE_SECRET_KEY") ?? "",
         ]
       : [],
     ...ids,
@@ -1121,7 +1151,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ------------------------------------------------ 4. the seven writes
+  // -------------------------------------------------- 4. the ten writes
   //
   // A REDEPLOY READS NO CREDENTIAL AND GENERATES NONE. It writes nothing, so
   // opening the secret files or minting an AUTH_SECRET would be handling
@@ -1140,6 +1170,20 @@ async function main(): Promise<void> {
         path.join(os.homedir(), "nil", "secrets", "control-plane-mint.env"),
         ["CONTROL_PLANE_MINT_TOKEN"],
       ),
+    readStripe: () =>
+      readEnvFileStrict(
+        path.join(
+          os.homedir(),
+          ".config",
+          "isomux",
+          "control-plane-stripe-web.env",
+        ),
+        [
+          "STRIPE_LIVE_SECRET_KEY",
+          "CONTROL_PLANE_ENTRY_PRICE_ID",
+          "CONTROL_PLANE_POWERUSER_PRICE_ID",
+        ],
+      ),
     generate: () => crypto.randomBytes(32).toString("base64"),
     dsn: target.dsn,
   });
@@ -1148,7 +1192,10 @@ async function main(): Promise<void> {
     console.log(`secret_files_strict: true`);
     console.log(`auth_secret_bytes: 32`);
     CLEANUP.push(() =>
-      dropHolders([holders.oauth, holders.mint, holders.values], [holders]),
+      dropHolders(
+        [holders.oauth, holders.mint, holders.stripe, holders.values],
+        [holders],
+      ),
     );
   }
 

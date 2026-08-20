@@ -75,10 +75,10 @@ export function readToken(file: string = VERCEL_TOKEN_FILE): string {
  * mistake away from setting `CONTROL_PLANE_DEV_AUTH` on a production build.
  *
  * What is deliberately ABSENT is as much of the contract as what is present.
- * No provider credential, no Neon API key, no fly token, no key material, no
- * dev-auth flag, and no Stripe value: with no price configured, `signUpOffice`
- * refuses before it reserves a name, so the deployment cannot write a
- * reservation row or reach Stripe at all.
+ * No provider credential, Neon API key, Fly token, key material, dev-auth flag
+ * or test Stripe value may reach this deployment. Live billing is the one
+ * ruled Stripe exception and its exact Production-only inventory is checked by
+ * production-phase.ts.
  */
 export const DEPLOYMENT_ENV_NAMES = [
   "CONTROL_PLANE_DB",
@@ -88,14 +88,18 @@ export const DEPLOYMENT_ENV_NAMES = [
   "CONTROL_PLANE_MINT_TOKEN",
   "AUTH_GOOGLE_ID",
   "AUTH_GOOGLE_SECRET",
+  "CONTROL_PLANE_STRIPE_MODE",
+  "STRIPE_LIVE_SECRET_KEY",
+  "CONTROL_PLANE_ENTRY_PRICE_ID",
+  "CONTROL_PLANE_POWERUSER_PRICE_ID",
 ] as const;
 
 /**
  * Names that must never be set on this deployment, checked by name.
  *
  * Two classes, and both are stated rather than left to the allowlist: the
- * credentials that belong to the PROVISIONER and never to a public web app,
- * and the flags that would put a test surface on a production build.
+ * credentials that belong only to the provisioner, and the flags or test
+ * credentials that would put a test surface on a production build.
  */
 export const FORBIDDEN_ENV_NAMES = [
   "CONTABO_CLIENT_ID",
@@ -109,8 +113,6 @@ export const FORBIDDEN_ENV_NAMES = [
   "NEXT_PUBLIC_CONTROL_PLANE_DEV_AUTH",
   "STRIPE_TEST_SECRET_KEY",
   "CONTROL_PLANE_PRICE_ID",
-  "CONTROL_PLANE_ENTRY_PRICE_ID",
-  "CONTROL_PLANE_POWERUSER_PRICE_ID",
   "CONTROL_PLANE_COUPON_ID",
 ] as const;
 

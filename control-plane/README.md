@@ -715,15 +715,22 @@ boot instead of quietly building itself.
 ### What the web deployment may carry
 
 An allowlist in `deploy/vercel-api.ts`, and the absences are as much of the
-contract as the entries. Present: `CONTROL_PLANE_DB`, `AUTH_SECRET`, `AUTH_URL`,
-`CONTROL_PLANE_MINT_URL`, `CONTROL_PLANE_MINT_TOKEN`, and Google's two.
+contract as the entries. Preview carries only `CONTROL_PLANE_DB` and
+`AUTH_SECRET`. Production also carries `AUTH_URL`, `CONTROL_PLANE_MINT_URL`,
+`CONTROL_PLANE_MINT_TOKEN`, Google's two values, `CONTROL_PLANE_STRIPE_MODE`,
+the restricted `STRIPE_LIVE_SECRET_KEY`, and the Entry and Poweruser Price ids.
+The target-specific inventory refuses any live Stripe value on Preview.
 
 Refused by name, not merely absent: every Contabo credential, the Neon API key,
-the fly token, the branch pin, both dev-auth flags, and all three Stripe values.
-The last group is a posture rather than an omission - `signUpOffice` judges the
-customer's input first and the price id second, and reserves a name only after
-both, so a deployment with no price configured cannot write a reservation row or
-reach Stripe at all.
+the fly token, the branch pin, both dev-auth flags, the test Stripe key, and the
+legacy single Price and Coupon names. A read of the Vercel inventory on
+2026-08-20 found the original seven Production values and two Preview values,
+with no Stripe value on either target. Stripe names had been swept into an
+absence check built for infrastructure credentials while the web app had no
+live signup path; no commit, comment or design note recorded a Stripe-specific
+provisioner boundary. The inventory now matches the tier that creates Checkout
+Sessions. `signUpOffice` still judges the customer's input and the selected
+plan's Price before it reserves a name.
 
 The boundary is worth stating precisely, because the web app plainly DOES hold
 credentials: a Production database DSN, its own `AUTH_SECRET`, Google's client
@@ -3829,3 +3836,39 @@ and `git restore <path>` as destructive, so the standard moves are:
 edit the two import lines back by hand, or run `bun run ci:web`, whose
 `next build` restores the build-flavored content as a side effect.
 (Recorded 2026-08-10 after every web slice hit it.)
+
+## Stripe mode boundary
+
+`CONTROL_PLANE_STRIPE_MODE` is the only mode decision. An absent value means
+`test`; the other accepted value is `live`. Live mode is valid only on the
+production Vercel deployment or the pinned `isomux-provisioner` Fly app. An
+unknown value or an unidentified runtime stops before a Stripe client or
+webhook processor is constructed. A key prefix confirms the configured mode;
+it never selects it.
+
+Test mode reads `STRIPE_TEST_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`. Live mode
+reads `STRIPE_LIVE_SECRET_KEY` and `STRIPE_LIVE_WEBHOOK_SECRET`. The live API
+key must be a restricted `rk_live_` key; an `sk_live_` account key is refused
+before any request. Events and fetched objects must also match the configured
+mode before dedupe, fetch, or database work.
+
+Issue one restricted key per deployment; never share one value between the web
+tier and the provisioner. The web call graph needs exactly three grants:
+Coupons read, Checkout Sessions write, and Subscriptions write. Stripe's write
+permission includes read, as documented on 2026-08-20, so Checkout Sessions
+read is not a fourth grant. The provisioner has a broader call graph: it also
+expires Checkout Sessions, reads subscriptions and invoices during
+reconciliation, and runs dunning and suspension. Separate values keep a public
+web deployment from inheriting that broader reach. Code cannot detect a shared
+value, so this separation is an activation rule.
+
+These boundaries have two deliberate costs. No local run can reach live Stripe,
+including an operator run. The production web deployment can hold only the live
+key, so it cannot be exercised against Stripe test mode. Preview holds neither
+live Stripe value. Tests use explicit test mode except for named synthetic
+live-mode unit cases with injected transports; fixture scrubbing remains
+unconditionally test-only.
+
+Opening the code gate does not activate billing. The operator must still create
+the restricted live key, live webhook endpoint and signing secret, and live
+Prices covered by the activation tasks before selecting live mode.

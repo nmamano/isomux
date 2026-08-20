@@ -508,6 +508,7 @@ describe("retained-office reinstatement", () => {
       const asset = (await f.store.assetForInstance(f.instanceId))!;
       const client = new StripeClient({
         key: "sk_test_abcdefghijklmnopqrstuvwxyz",
+        mode: "test",
         attempts: 1,
         fetchImpl: async () =>
           new Response(JSON.stringify({ error: { message: "not open" } }), {
@@ -589,6 +590,7 @@ describe("retained-office reinstatement", () => {
       });
       const client = new StripeClient({
         key: "sk_test_abcdefghijklmnopqrstuvwxyz",
+        mode: "test",
         attempts: 1,
         fetchImpl: async () =>
           expireAccepted
@@ -670,6 +672,7 @@ describe("retained-office reinstatement", () => {
     });
     const client = new StripeClient({
       key: "sk_test_abcdefghijklmnopqrstuvwxyz",
+      mode: "test",
       fetchImpl: async () => {
         throw new Error("Stripe must not be called without a session id");
       },

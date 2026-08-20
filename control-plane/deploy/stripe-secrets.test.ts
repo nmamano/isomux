@@ -34,7 +34,7 @@ describe("the Stripe source file", () => {
       "STRIPE_TEST_SECRET_KEY='sk_test_public fixture value'\n" +
         "STRIPE_WEBHOOK_SECRET='whsec_public'\n",
     );
-    expect(readStripeFile(file).get(STRIPE_SECRET_NAME)).toBe(
+    expect(readStripeFile(file, "test").get(STRIPE_SECRET_NAME)).toBe(
       "sk_test_public fixture value",
     );
   });
@@ -44,7 +44,9 @@ describe("the Stripe source file", () => {
       "STRIPE_TEST_SECRET_KEY='sk_live_public'\n" +
         "STRIPE_WEBHOOK_SECRET='whsec_public'\n",
     );
-    expect(() => readStripeFile(file)).toThrow("not a test-mode key");
+    expect(() => readStripeFile(file, "test")).toThrow(
+      "does not match test mode",
+    );
   });
 
   test("refuses a value that is not a webhook signing secret", () => {
@@ -52,7 +54,25 @@ describe("the Stripe source file", () => {
       "STRIPE_TEST_SECRET_KEY='rk_test_public'\n" +
         "STRIPE_WEBHOOK_SECRET='not-a-webhook-secret'\n",
     );
-    expect(() => readStripeFile(file)).toThrow("not a signing secret");
+    expect(() => readStripeFile(file, "test")).toThrow("not a signing secret");
+  });
+
+  test("live mode accepts only a restricted live key and its live signing name", () => {
+    const restricted = credentialFile(
+      "STRIPE_LIVE_SECRET_KEY='rk_live_public_shape'\n" +
+        "STRIPE_LIVE_WEBHOOK_SECRET='whsec_public'\n",
+    );
+    expect(
+      readStripeFile(restricted, "live").get("STRIPE_LIVE_SECRET_KEY"),
+    ).toBe("rk_live_public_shape");
+
+    const account = credentialFile(
+      "STRIPE_LIVE_SECRET_KEY='sk_live_public_shape'\n" +
+        "STRIPE_LIVE_WEBHOOK_SECRET='whsec_public'\n",
+    );
+    expect(() => readStripeFile(account, "live")).toThrow(
+      "does not match live mode",
+    );
   });
 
   test("refuses a malformed, unknown, repeated, missing, or loose-mode file", () => {
@@ -76,15 +96,19 @@ describe("the Stripe source file", () => {
         0o640,
       ),
     ];
-    for (const file of cases) expect(() => readStripeFile(file)).toThrow();
+    for (const file of cases)
+      expect(() => readStripeFile(file, "test")).toThrow();
   });
 });
 
 describe("the Stripe importer allowlist", () => {
   test("contains only the runtime Stripe credentials", () => {
     expect([...STRIPE_SECRET_NAMES]).toEqual([
+      "CONTROL_PLANE_STRIPE_MODE",
       "STRIPE_TEST_SECRET_KEY",
+      "STRIPE_LIVE_SECRET_KEY",
       "STRIPE_WEBHOOK_SECRET",
+      "STRIPE_LIVE_WEBHOOK_SECRET",
     ]);
   });
 

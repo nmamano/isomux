@@ -21,10 +21,7 @@ import {
   validatePairs,
 } from "./secrets.ts";
 import { CONTABO_SECRET_NAMES } from "./fly-cli.ts";
-import {
-  CERTIFICATE_SECRET_NAMES,
-  STRIPE_SECRET_NAMES,
-} from "./secret-names.ts";
+import { CERTIFICATE_SECRET_NAMES } from "./secret-names.ts";
 import type { Spawn, SpawnResult } from "./fly-cli.ts";
 
 const DSN =
@@ -315,11 +312,10 @@ describe("what the allowlist may carry (D4, 2026-08-12)", () => {
 });
 
 describe("the name check", () => {
-  test("the boot verifier requires every provisioner secret family", () => {
+  test("the boot verifier requires families owned by this importer", () => {
     expect([...BOOT_REQUIRED_NAMES]).toEqual([
       ...SECRET_NAMES,
       ...CONTABO_SECRET_NAMES,
-      ...STRIPE_SECRET_NAMES,
       ...CERTIFICATE_SECRET_NAMES,
     ]);
   });

@@ -111,6 +111,7 @@ function clientRecording(
   };
   return new StripeClient({
     key: TEST_KEY,
+    mode: "test",
     fetchImpl,
     sleep: async () => {},
   });

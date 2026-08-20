@@ -1,4 +1,5 @@
-// Stripe REST transport. TEST MODE ONLY, enforced here rather than by convention.
+// Stripe REST transport. The configured mode is enforced here rather than
+// inferred from whichever credential happens to be present.
 //
 // Two things this file exists to do, and it does nothing else:
 //
@@ -18,6 +19,8 @@
 // install it, so it does not grow a billing SDK for a control-plane-only need.
 // The cost is this file plus signature.ts, both small and both mutation-checked.
 
+import type { StripeMode } from "./mode.ts";
+
 export const STRIPE_API_BASE = "https://api.stripe.com";
 
 /**
@@ -36,8 +39,8 @@ export const STRIPE_API_VERSION = "2026-07-29.dahlia";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_ATTEMPTS = 3;
 
-/** A live-mode credential reached test-mode-only code. Never continue. */
-export class LiveKeyRefused extends Error {}
+/** A credential disagrees with the explicit mode. Never continue. */
+export class StripeKeyRefused extends Error {}
 
 export type FetchLike = (
   url: string,
@@ -64,25 +67,19 @@ export type StripeResult =
   | { kind: "ambiguous"; reason: string };
 
 /**
- * Accept only a test-mode secret or restricted key.
- *
- * The live prefix gets its own error because the two failures are not the same
- * incident: an unrecognised key is a configuration mistake, and a live key is a
- * near miss with real customer money that a human needs to hear about.
+ * Cross-check a credential against configured mode. Live accepts restricted
+ * keys only, so a public-web compromise cannot inherit account-wide authority.
  */
-export function assertTestKey(key: string): void {
-  if (/^(sk|rk)_live_/.test(key)) {
-    throw new LiveKeyRefused(
-      "a LIVE-mode Stripe key was handed to test-mode-only code; refusing to " +
-        "issue a single request. The control plane's Stripe work is test mode " +
-        "only, and the live key belongs to the real company account.",
+export function assertStripeKey(key: string, mode: StripeMode): void {
+  if (mode === "live" && /^sk_live_/.test(key)) {
+    throw new StripeKeyRefused(
+      "the public web tier and provisioner require a restricted rk_live_ key; refusing an sk_live_ account key",
     );
   }
-  if (!/^(sk|rk)_test_/.test(key)) {
-    throw new LiveKeyRefused(
-      "the Stripe key is not a recognisable test key (expected an sk_test_ or " +
-        "rk_test_ prefix); refusing to issue a request rather than guess what " +
-        "account it belongs to.",
+  const expected = mode === "live" ? /^rk_live_/ : /^(?:sk|rk)_test_/;
+  if (!expected.test(key)) {
+    throw new StripeKeyRefused(
+      `the Stripe key does not match configured ${mode} mode; refusing to issue a request`,
     );
   }
 }
@@ -130,6 +127,7 @@ export function formEncode(params: Record<string, FormValue>): string {
 
 export interface StripeClientOptions {
   key: string;
+  mode: StripeMode;
   fetchImpl?: FetchLike;
   timeoutMs?: number;
   /** Retries of an AMBIGUOUS or rate-limited write, always with the same
@@ -140,6 +138,7 @@ export interface StripeClientOptions {
 }
 
 export class StripeClient {
+  readonly mode: StripeMode;
   private readonly key: string;
   private readonly fetchImpl: FetchLike;
   private readonly timeoutMs: number;
@@ -148,7 +147,8 @@ export class StripeClient {
 
   constructor(opts: StripeClientOptions) {
     // Before anything else. A constructed client is a client that can spend.
-    assertTestKey(opts.key);
+    assertStripeKey(opts.key, opts.mode);
+    this.mode = opts.mode;
     this.key = opts.key;
     this.fetchImpl = opts.fetchImpl ?? globalThis.fetch;
     this.timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
