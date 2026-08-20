@@ -30,6 +30,25 @@ function makeCsr(root: string, commonName: string, sans: string): string {
   return readFileSync(csr, "utf8");
 }
 
+function replaceLastBytes(
+  haystack: Buffer,
+  needle: Buffer,
+  replacement: Buffer,
+) {
+  const offset = haystack.lastIndexOf(needle);
+  if (offset < 0) throw new Error("DER test seam not found");
+  replacement.copy(haystack, offset);
+}
+
+function pemFromDer(der: Buffer): string {
+  const body =
+    der
+      .toString("base64")
+      .match(/.{1,64}/g)
+      ?.join("\n") ?? "";
+  return `-----BEGIN CERTIFICATE REQUEST-----\n${body}\n-----END CERTIFICATE REQUEST-----\n`;
+}
+
 function realCommand(argv: string[], env: Record<string, string>) {
   const child = Bun.spawnSync(argv, { env: { ...process.env, ...env } });
   return {
@@ -83,6 +102,51 @@ describe("the narrow lego adapter", () => {
     expect(legoEnv.ISOMUX_DNS_ALLOWED_FQDN).toBe(
       "_acme-challenge.office.example",
     );
+    expect(legoEnv.LEGO_DISABLE_CNAME_SUPPORT).toBe("true");
+  });
+
+  test("does not erase a SAN byte's high bit before name binding", async () => {
+    dir = mkdtempSync(join(tmpdir(), "isomux-lego-"));
+    const pem = makeCsr(
+      dir,
+      "office.example",
+      "DNS:office.example,DNS:*.office.example",
+    );
+    const der = Buffer.from(pem.replace(/-----[^-]+-----|\s/g, ""), "base64");
+    const authorized = Buffer.from("*.office.example", "ascii");
+    const forged = Buffer.from(authorized);
+    forged[2] |= 0x80;
+    replaceLastBytes(der, authorized, forged);
+
+    let legoCalls = 0;
+    const failed = await obtainCertificateWithLego(
+      {
+        root: join(dir, "state"),
+        target: {
+          kind: "test",
+          caDirectory: "http://127.0.0.1",
+          cloudflareBaseUrl: "http://127.0.0.1",
+          zoneId: "fake",
+          productionZoneId: "prod",
+        },
+        email: "test@example.invalid",
+        dnsHookPath: "/fake/hook",
+        run: async (argv) => {
+          if (argv[0] === "openssl") return { code: 0, stdout: "", stderr: "" };
+          legoCalls++;
+          return { code: 1, stdout: "", stderr: "must not run" };
+        },
+        cloudflareToken: "fake",
+      },
+      {
+        instanceId: "office-1",
+        names: ["office.example", "*.office.example"],
+        csrPem: pemFromDer(der),
+      },
+    ).catch((reason: unknown) => reason);
+
+    expect((failed as Error).message).toContain("do not match");
+    expect(legoCalls).toBe(0);
   });
 
   test("refuses a CSR that asks for any other name before lego runs", async () => {

@@ -153,7 +153,7 @@ function csrNamesFromDer(pem: string): {
     sequence.tag === 0x30
       ? derNodes(sequence.bytes)
           .filter((name) => name.tag === 0x82)
-          .map((name) => Buffer.from(name.bytes).toString("ascii"))
+          .map((name) => Buffer.from(name.bytes).toString("latin1"))
       : [],
   );
   return { commonName, sans };
@@ -229,6 +229,7 @@ export async function obtainCertificateWithLego(
       ISOMUX_CF_PRODUCTION_ZONE_ID: opts.target.productionZoneId,
       ISOMUX_CF_TOKEN: opts.cloudflareToken,
       ISOMUX_DNS_ALLOWED_FQDN: `_acme-challenge.${request.names[0]}`,
+      LEGO_DISABLE_CNAME_SUPPORT: "true",
       ISOMUX_CERT_TARGET: opts.target.kind,
       ISOMUX_ACME_DIRECTORY: opts.target.caDirectory,
       ...(opts.target.kind === "production"

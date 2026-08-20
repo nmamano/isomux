@@ -72,6 +72,7 @@ function buildFixture(opts: {
   readyAfterStarts?: number;
   failStarts?: number;
   mutateStateOnStart?: boolean;
+  stopStaysActive?: boolean;
 }): Fixture {
   const base = mkdtempSync(join(tmpdir(), "isomux-update-test-"));
   const repo = join(base, "repo");
@@ -125,7 +126,7 @@ echo "systemctl $*" >> "$STUB_LOG"
 [[ $1 == --user ]] && shift
 case $1 in
   stop)
-    echo inactive > "$STUB_STATE"
+    [[ -n \${STOP_STAYS_ACTIVE:-} ]] || echo inactive > "$STUB_STATE"
     stops=$(grep -c "systemctl.* stop " "$STUB_LOG")
     if [[ -n \${FAIL_RECOVERY_STOP:-} ]] && ((stops >= 2)); then
       exit 1
@@ -211,6 +212,7 @@ READY_TIMEOUT_S=3
     FAIL_STARTS: String(opts.failStarts ?? 0),
   };
   if (opts.mutateStateOnStart) env.MUTATE_STATE_ON_START = "1";
+  if (opts.stopStaysActive) env.STOP_STAYS_ACTIVE = "1";
 
   return {
     base,
@@ -383,6 +385,41 @@ describe("update.sh happy path", () => {
     expect(retry.code).not.toBe(0);
     expect(retry.out).toContain("--- deps");
     expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+  });
+
+  it("a stop timeout restores the absent tag so retries cannot report a no-op", async () => {
+    fx = buildFixture({ stopStaysActive: true });
+    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+
+    // Keep the production timeout fixed while making this sandbox failure
+    // quick. The full source line is unique, so this cannot also shorten the
+    // separate rollback stop-wait deadline.
+    const timeoutLine = "  local deadline=$((SECONDS + 60)) state";
+    const source = readFileSync(UPDATE_SH, "utf8");
+    expect(source.split(timeoutLine)).toHaveLength(2);
+    const timedUpdater = join(fx.base, "timed-updater");
+    writeFileSync(
+      timedUpdater,
+      source.replace(timeoutLine, "  local deadline=$((SECONDS + 1)) state"),
+      { mode: 0o700 },
+    );
+
+    const first = await runUpdate(["v2026.7.20"], timedUpdater);
+    expect(first.code).not.toBe(0);
+    expect(first.out).toContain(
+      "service did not stop within 60s (state: active)",
+    );
+    expect(first.out).not.toContain("already on v2026.7.20; nothing to do");
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(status().result).toBe("failed");
+
+    const retry = await runUpdate(["v2026.7.20"], timedUpdater);
+    expect(retry.code).not.toBe(0);
+    expect(retry.out).toContain("--- deps");
+    expect(retry.out).not.toContain("already on v2026.7.20; nothing to do");
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    expect(status().result).toBe("failed");
   });
 
   it("a failed first start restores the tag and recovers the office", async () => {

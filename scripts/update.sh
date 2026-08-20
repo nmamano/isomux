@@ -181,7 +181,10 @@ wait_inactive() {
   while :; do
     state=$(svc is-active "$SERVICE_NAME" 2>/dev/null) || true
     [[ $state != active && $state != deactivating ]] && return 0
-    ((SECONDS < deadline)) || die "service did not stop within 60s (state: $state)"
+    if ((SECONDS >= deadline)); then
+      log "ERROR: service did not stop within 60s (state: $state)"
+      return 1
+    fi
     sleep 1
   done
 }
