@@ -48,6 +48,16 @@ free · open source · no account needed · works with your subscriptions
 
 See the [full feature list](docs/features.md).
 
+## Self-hosted and hosted
+
+The open-source app in this repo is the complete office: run it on your own
+computer or server, with your own Claude and ChatGPT subscriptions.
+
+The repo also contains the website and the provisioning and billing system for
+[Hosted Isomux](https://isomux.com/hosted), our managed option for people who do
+not want to run a server. The same one-command server installer is available to
+self-hosters.
+
 ## Get Started
 
 > Isomux is in alpha. [Bug reports welcome](https://github.com/nmamano/isomux/issues).
