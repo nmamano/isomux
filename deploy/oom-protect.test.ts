@@ -22,6 +22,7 @@ import {
   mkdirSync,
   rmSync,
   chmodSync,
+  existsSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -559,6 +560,108 @@ describe("the kill-order tiers", () => {
   });
 });
 
+describe("office memory cap", () => {
+  async function runCap(opts: {
+    memMib: number;
+    dryRun?: boolean;
+    running?: boolean;
+    mismatch?: boolean;
+  }) {
+    const root = mkdtempSync(join(dir, "memory-cap-"));
+    const meminfo = join(root, "meminfo");
+    const dropin = join(root, "20-memory.conf");
+    const cgroupRoot = join(root, "cgroup");
+    const cgroup = "/system.slice/isomux.service";
+    const cgroupDir = join(cgroupRoot, cgroup);
+    writeFileSync(meminfo, `MemTotal:       ${opts.memMib * 1024} kB\n`);
+    if (opts.running) {
+      mkdirSync(cgroupDir, { recursive: true });
+      const maxMib = opts.memMib - 1024;
+      const highMib = Math.floor((maxMib * 85) / 100);
+      writeFileSync(
+        join(cgroupDir, "memory.max"),
+        `${opts.mismatch ? 1 : maxMib * 1024 * 1024}\n`,
+      );
+      writeFileSync(
+        join(cgroupDir, "memory.high"),
+        `${highMib * 1024 * 1024}\n`,
+      );
+      writeFileSync(
+        join(cgroupDir, "memory.swap.max"),
+        `${6144 * 1024 * 1024}\n`,
+      );
+    }
+    const script = `
+source ${testable}
+MEMINFO_PATH=${meminfo}
+OFFICE_MEMORY_DROPIN=${dropin}
+CGROUP_ROOT=${cgroupRoot}
+DRY_RUN=${opts.dryRun ? "1" : '""'}
+systemctl() {
+  if [[ $1 == daemon-reload ]]; then echo daemon-reload; return 0; fi
+  if [[ $1 == show ]]; then ${opts.running ? `echo ${cgroup}` : "return 1"}; return 0; fi
+  return 1
+}
+configure_office_memory_cap
+`;
+    const proc = Bun.spawn(["bash", "-c", script], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, stderr] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const out = stdout + stderr;
+    const exit = await proc.exited;
+    return {
+      out,
+      exit,
+      dropin: existsSync(dropin) ? readFileSync(dropin, "utf8") : null,
+    };
+  }
+
+  it("writes the measured entry-box values and a fixed 6 GiB swap cap", async () => {
+    const r = await runCap({ memMib: 7941 });
+    expect(r.exit).toBe(0);
+    expect(r.dropin).toContain("MemoryMax=6917M");
+    expect(r.dropin).toContain("MemoryHigh=5879M");
+    expect(r.dropin).toContain("MemorySwapMax=6144M");
+    expect(r.out).toContain("daemon-reload");
+  });
+
+  it("does not make a previously usable box below 4 GiB smaller", async () => {
+    const r = await runCap({ memMib: 2048 });
+    expect(r.exit).toBe(0);
+    expect(r.dropin).toBeNull();
+    expect(r.out).toContain("leaving the office uncapped");
+    expect(r.out).toContain("below 4096 MiB");
+  });
+
+  it("keeps dry-run non-mutating and prints the generated unit file", async () => {
+    const r = await runCap({ memMib: 7941, dryRun: true });
+    expect(r.exit).toBe(0);
+    expect(r.dropin).toBeNull();
+    expect(r.out).toContain("would write");
+    expect(r.out).toContain("MemoryMax=6917M");
+    expect(r.out).toContain("MemorySwapMax=6144M");
+  });
+
+  it("reads all three effective cgroup values back", async () => {
+    const ok = await runCap({ memMib: 7941, running: true });
+    expect(ok.out).toContain(
+      "office memory cap confirmed in the running cgroup",
+    );
+    const bad = await runCap({
+      memMib: 7941,
+      running: true,
+      mismatch: true,
+    });
+    expect(bad.out).toContain("office memory cap NOT confirmed");
+    expect(bad.out).toContain("kernel reports 1/");
+  });
+});
+
 describe("swap sizing", () => {
   /**
    * A box with a given swap situation, as /proc reports it. `devices` is what
@@ -784,7 +887,7 @@ describe("the shipped script", () => {
     for (const line of SRC.split("\n")) {
       if (line.trim().startsWith("#")) continue;
       if (!line.includes("systemctl show")) continue;
-      expect(line).toContain("MainPID");
+      expect(line).toMatch(/MainPID|ControlGroup/);
       expect(line).not.toContain("OOMScoreAdjust");
     }
   });

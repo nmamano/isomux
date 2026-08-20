@@ -41,6 +41,7 @@ When the output isn't going to a terminal - cloud-init, a piped log, an agent ru
 - Checks that the `isomux` account cannot log in as root, and stops the install if it can. See [root access](#root-access).
 - Sets up out-of-memory protection so a busy office can't lock the box up. See [running out of memory](#running-out-of-memory).
 - Makes the sandbox that Codex agents run their tools in actually work. On Ubuntu 24.04 that takes one small AppArmor policy file which the sandbox's own package doesn't ship. The installer tries the sandbox first and only acts if it is broken, so a box where it already works is left alone. If it still can't get it working, the install carries on and says so in the output.
+- Keeps the office inside a memory limit derived from the box's RAM, with room left for SSH and the operating system. Boxes with less than 4 GB RAM are left uncapped.
 - Claims the office owner over loopback before the box is exposed, then mints your invite link.
 
 ## Root access

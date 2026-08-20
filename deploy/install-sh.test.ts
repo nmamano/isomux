@@ -595,6 +595,20 @@ describe("install.sh: out-of-memory protection", () => {
     expect(serviceUnit()).toContain("OOMScoreAdjust=-500");
   });
 
+  it("installs a RAM-derived office cap before the memory-hungry build", () => {
+    expect(SRC).toContain(
+      "OFFICE_MEMORY_DROPIN=/etc/systemd/system/isomux.service.d/20-memory.conf",
+    );
+    expect(SRC).toContain("configure_office_memory_cap");
+    expect(SRC).toContain("MemoryMax=${memory_max_mib}M");
+    expect(SRC).toContain("MemoryHigh=${memory_high_mib}M");
+    expect(SRC).toContain("MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M");
+    expect(SRC).toContain("OFFICE_MEMORY_MIN_MIB=4096");
+    expect(stepIndex("configure_oom_protection")).toBeLessThan(
+      stepIndex("build_isomux"),
+    );
+  });
+
   // Task e05a5cd4. Seven variants of a sacrificial unit shaped like the office
   // were measured (internal-docs/sizing-tiers-benchmark-results.md, "The blast
   // radius, measured"); exactly one contained an OOM kill to a single agent,

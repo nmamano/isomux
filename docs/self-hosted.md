@@ -45,7 +45,7 @@ sudo bash deploy/oom-protect.sh --dry-run   # print what would change
 sudo bash deploy/oom-protect.sh
 ```
 
-That installs [earlyoom](https://github.com/rfjakob/earlyoom) (kills one process while there is still memory left to act with), puts SSH, Tailscale and the daemons the box needs to stay usable (DNS, networking) last in the kill order and makes them keep retrying if they are killed anyway, adds a swap file of up to 8 GB if the box has none, and installs itself at `/usr/local/sbin/isomux-oom-protect`. It also sets up a small root timer that re-applies the office's own kill-order stamp within a minute of any office restart - a user-level service cannot hold that setting itself. Safe to run on a live office; nothing but earlyoom is restarted, and swap the box already has is left alone.
+That installs [earlyoom](https://github.com/rfjakob/earlyoom) (kills one process while there is still memory left to act with), puts SSH, Tailscale and the daemons the box needs to stay usable (DNS, networking) last in the kill order and makes them keep retrying if they are killed anyway, adds a swap file of up to 8 GB if the box has none, and installs itself at `/usr/local/sbin/isomux-oom-protect`. For a system-level `isomux.service` on a box with at least 4 GB RAM, it also sets a memory limit derived from the box's RAM. Run it again after changing the box's RAM. User-level services do not get that limit. It sets up a small root timer that re-applies the office's own kill-order stamp within a minute of any office restart - a user-level service cannot hold that setting itself. Safe to run on a live office; nothing but earlyoom is restarted, and swap the box already has is left alone.
 
 macOS and Windows get neither half - both mechanisms are Linux-specific.
 

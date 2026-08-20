@@ -46,6 +46,12 @@ RESTAMP=""
 SWAPFILE=/swapfile
 SWAP_SIZE_MIB=8192
 SYSCTL_CONF=/etc/sysctl.d/60-isomux-memory.conf
+OFFICE_MEMORY_DROPIN=/etc/systemd/system/isomux.service.d/20-memory.conf
+MEMINFO_PATH=/proc/meminfo
+CGROUP_ROOT=/sys/fs/cgroup
+OFFICE_MEMORY_MIN_MIB=4096
+OFFICE_MEMORY_RESERVE_MIB=1024
+OFFICE_SWAP_MAX_MIB=6144
 # Where deploy/install.sh puts this tool, and what the re-stamp timer runs.
 OOM_TOOL_PATH=/usr/local/sbin/isomux-oom-protect
 RESTAMP_UNIT=isomux-oom-restamp
@@ -163,6 +169,66 @@ EOF
   run systemctl daemon-reload
   run systemctl enable earlyoom
   run systemctl restart earlyoom
+}
+
+# --- office memory bounds --------------------------------------------------
+
+# Keep a hosted office inside the box instead of letting its build and agent
+# processes consume the operator's last login shell. The 1 GiB reserve is a
+# provisional entry-tier value, pending the release-shaped acceptance run. It
+# is not sensible on a small self-hosted box: below 4 GiB it would remove too
+# much of the RAM that made the office usable before this tool ran, so those
+# boxes keep their existing uncapped behavior.
+#
+# MemorySwapMax stays at 6 GiB even when the box has less swap. In that case the
+# global swap supply binds first, so scaling this cgroup value down would only
+# make the measured exhaustion cliff arrive sooner.
+#
+# This is the system-unit shape installed by deploy/install.sh. A user-level
+# office needs its own user-manager drop-in and reload; writing one here without
+# reloading that manager would be a silent no-op until restart.
+configure_office_memory_cap() {
+  local mem_total_kib mem_total_mib memory_max_mib memory_high_mib
+  mem_total_kib=$(awk '$1 == "MemTotal:" { print $2; exit }' "$MEMINFO_PATH" 2>/dev/null || true)
+  if [[ ! $mem_total_kib =~ ^[0-9]+$ ]]; then
+    warn "could not read MemTotal from $MEMINFO_PATH, so the office memory cap was not written"
+    return 0
+  fi
+  mem_total_mib=$((mem_total_kib / 1024))
+  if ((mem_total_mib < OFFICE_MEMORY_MIN_MIB)); then
+    warn "this box has ${mem_total_mib} MiB RAM; leaving the office uncapped because the measured 1 GiB reserve is not suitable below ${OFFICE_MEMORY_MIN_MIB} MiB"
+    return 0
+  fi
+  memory_max_mib=$((mem_total_mib - OFFICE_MEMORY_RESERVE_MIB))
+  memory_high_mib=$((memory_max_mib * 85 / 100))
+
+  write_file "$OFFICE_MEMORY_DROPIN" 644 <<EOF
+# Written by isomux-oom-protect from this box's RAM at the time the tool ran.
+[Service]
+MemoryMax=${memory_max_mib}M
+MemoryHigh=${memory_high_mib}M
+MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M
+EOF
+  run systemctl daemon-reload
+  [[ -n $DRY_RUN ]] && return 0
+
+  local cgroup expected_max expected_high expected_swap actual_max actual_high actual_swap
+  cgroup=$(systemctl show isomux.service --property=ControlGroup --value 2>/dev/null || true)
+  if [[ -z $cgroup || ! -d $CGROUP_ROOT$cgroup ]]; then
+    log "office memory cap written; it will take effect when isomux.service starts"
+    return 0
+  fi
+  expected_max=$((memory_max_mib * 1024 * 1024))
+  expected_high=$((memory_high_mib * 1024 * 1024))
+  expected_swap=$((OFFICE_SWAP_MAX_MIB * 1024 * 1024))
+  actual_max=$(cat "$CGROUP_ROOT$cgroup/memory.max" 2>/dev/null || true)
+  actual_high=$(cat "$CGROUP_ROOT$cgroup/memory.high" 2>/dev/null || true)
+  actual_swap=$(cat "$CGROUP_ROOT$cgroup/memory.swap.max" 2>/dev/null || true)
+  if [[ $actual_max == "$expected_max" && $actual_high == "$expected_high" && $actual_swap == "$expected_swap" ]]; then
+    log "office memory cap confirmed in the running cgroup: MemoryMax=${memory_max_mib}M, MemoryHigh=${memory_high_mib}M, MemorySwapMax=${OFFICE_SWAP_MAX_MIB}M"
+  else
+    warn "office memory cap NOT confirmed in the running cgroup: asked for $expected_max/$expected_high/$expected_swap bytes, kernel reports ${actual_max:-unreadable}/${actual_high:-unreadable}/${actual_swap:-unreadable}"
+  fi
 }
 
 # --- kill order -------------------------------------------------------------
@@ -666,6 +732,7 @@ main() {
   local have_earlyoom=1
   install_earlyoom || have_earlyoom=""
   [[ -z $have_earlyoom ]] || configure_earlyoom
+  configure_office_memory_cap
   configure_kill_order
   configure_swappiness
   configure_swap

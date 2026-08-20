@@ -4,13 +4,14 @@ Design for task f057617f (memory capacity, OOM isolation, per-office resource
 defaults). Companion to `hosted-isomux-design.md` (single-tenant-per-VPS) and
 the Contabo supplier pilot (task b223ebc3).
 
-## STATUS 2026-08-19: the launch gate (read this first)
+## STATUS 2026-08-20: the launch gate (read this first)
 
 The converged story (Nil + Isomux PM + Personal Site Agent, 2026-08-18/19) is
 four measures in a causal chain, each answering one question:
 
 1. **The cap** (how far a problem spreads): the office-unit
-   `MemoryMax`/`MemoryHigh`/`MemorySwapMax` drop-in. The box stays reachable.
+   `MemoryMax`/`MemoryHigh`/`MemorySwapMax` drop-in. `MemoryHigh` contains
+   gradual pressure; on Poweruser, earlyoom can act before the hard fence.
 2. **The swapfile** (turns a kill into slowness): only does work *inside* the
    cap. Measured 2026-08: at the moment earlyoom fired in the unconstrained
    arm, swap was 100% free - "in the global regime the swapfile is largely
@@ -20,13 +21,13 @@ four measures in a causal chain, each answering one question:
 4. **earlyoom** (when anyone dies at all): the backstop for memory the cap
    cannot see - the OS reserve and anything else the customer runs.
 
-Gap as of 2026-08-19: measures 2-4 ship; measure 1 (sequencing item 2 below)
-does not. **Task fa00291e (P1) tracks it and blocks paid launch** (Nil,
-2026-08-19). Acceptance is a measured run of the shipped config at N=24 plus a
-build on a release-shaped box (task 5a8e4b08, launch-gated with it), which
-also settles the provisional 1 GiB reserve. Until fa00291e lands, the
-benchmark headline numbers are cap-conditional and not quotable for a shipped
-box, and the hosted blog post's memory section must not be published.
+All four measures ship in code as of 2026-08-20. Measure 1 is the system-unit
+drop-in installed by `isomux-oom-protect` (task fa00291e). Paid launch still
+waits on the measured run of that shipped config at N=24 plus a build on a
+release-shaped Entry box (task 5a8e4b08). That run also settles the provisional
+1 GiB reserve. Until it passes, the benchmark headline numbers remain
+cap-conditional and not quotable for a shipped box, and the hosted blog post's
+memory section must not be published.
 
 The per-agent scopes ruling (task 8859f52b) is NOT part of the launch gate:
 the office-level cap is split out of it as fa00291e. PM's 2026-08-18 proposal
@@ -56,6 +57,12 @@ new box:
   2026-08-02, shipped as task 99d7f273) created only when the box reports zero
   total swap and the disk has room. Existing swap of any size is reported and
   left untouched.
+- **The office-unit memory cap** on installer-managed system services:
+  `MemoryMax` is box RAM minus a provisional 1 GiB reserve, `MemoryHigh` is 85%
+  of that result, and `MemorySwapMax` is a fixed 6 GiB. Boxes below 4 GiB RAM
+  are left uncapped rather than made unusable by an Entry-tier reserve. The
+  tool reads all three cgroup values back when the service is already running.
+  User-level self-hosted services do not receive this system-unit drop-in.
 
 The 8 GiB figure reverses this doc's original 2 GiB small-swap stance, by
 measurement: what hurts is running *out* of swap mid-spike, not swap existing.
@@ -262,7 +269,7 @@ Applied as a drop-in on `isomux.service`, computed from box RAM at install time:
 RESERVE       = 1024 MB          # measured daemons + box-wide slab + a login shell
 MemoryMax     = RAM - RESERVE    # hard fence, so the box stays reachable
 MemoryHigh    = MemoryMax - 15%  # soft: reclaim + throttle before anything dies
-MemorySwapMax = <set explicitly> # see below; unlimited by default
+MemorySwapMax = 6144 MB          # fixed; measured on Entry, see below
 ```
 
 Both figures are **provisional validation parameters**, not measured constants.
@@ -277,15 +284,21 @@ the cgroup rather than killing, which converts a spike into slowness plus a
 signal. `MemoryMax` is the last defense.
 
 `MemorySwapMax` needs setting explicitly: `MemoryMax` does not cap a cgroup's
-swap, so without it an office can push into swap up to whatever the box has.
-Today that is bounded only by the shipped 2 GiB swapfile, which makes the
-reachability argument depend on a global default rather than on the unit's own
-limits. Decide it with decision 4, since the two interact.
+swap. The fixed 6 GiB value is about 1.4x the observed uncapped peak of the
+2026-08-03 Entry load. It stays 6 GiB on a box with less total swap because the
+global supply binds first; scaling the cgroup cap down would recreate the
+measured exhaustion cliff sooner. **Known open item:** the 6 GiB cap has not
+been measured at the Poweruser tier's estimated agent population, so the Entry
+finding that it does not bind must not be generalized to Poweruser.
 
 earlyoom stays as the box-wide layer, unchanged, and the two layers cover
-different failures. earlyoom does not observe cgroup-local pressure; when host
-`MemAvailable` remains above its threshold, it will not intervene before a
-cgroup reaches `MemoryMax`. Under genuinely global pressure both can fire.
+different failures. earlyoom does not observe cgroup-local pressure. On Entry,
+its 10% trigger sits just inside the provisional 1 GiB reserve; on Poweruser,
+10% is about 2.4 GiB, so earlyoom can act about 1.4 GiB before the fixed-reserve
+`MemoryMax` fence. `MemoryHigh` is still reached first on both tiers and starts
+reclaim and throttling. Under gradual overload the measured capped arms killed
+nothing: the customer sees increasing latency while the office degrades inside
+its bounds. A sudden runaway can still reach the hard fence and lose a process.
 
 What a `MemoryMax` breach does needs stating as a semantic rather than a
 guarantee. With `memory.oom.group = 0` (the default, confirmed on the office
@@ -474,8 +487,12 @@ What an upgrade means for a running office:
   it gains none of the added RAM as office capacity, silently. The host and the
   other daemons do get the headroom; the office does not.
 
-  The requirement is therefore that the limits be recomputed on activation, not
-  written once at install. How to implement that needs care rather than a
+  The shipped code does not yet meet the activation-time requirement: it
+  computes the limits when the installer or `isomux-oom-protect` runs, and an
+  ordinary `isomux-update` does not refresh them. After a resize the operator
+  must run `sudo isomux-oom-protect`. Self-serve resize is not shipped.
+
+  Recomputing the limits on activation still needs care rather than a
   one-liner: systemd establishes a unit's resource properties around activation,
   and a process inside the unit cannot casually rewrite its own parent cgroup
   policy. The clearest candidate is a **oneshot unit ordered before
@@ -492,7 +509,7 @@ What an upgrade means for a running office:
   under-reserves on small ones. Whichever shape is chosen, read the value back
   from the kernel afterwards rather than trusting that it applied.
 - **Swap is a separate question and is not fixed by the above.** The shipped
-  swapfile is a fixed 2 GiB, not derived from box RAM, and existing swap is
+  swapfile is a fixed 8 GiB, not derived from box RAM, and existing swap is
   deliberately left untouched. So recomputing the memory limits does nothing for
   swap. Whether swap should scale with RAM or tier at all is decision 4. If Nil
   chooses scaled swap, resize it during the upgrade's provisioning workflow, not
@@ -592,10 +609,10 @@ reachability), per f057617f. Order:
    on 2026-08-02 (task e05a5cd4) for the same reason and the opposite one: the
    interaction is no longer assumed (it was measured, seven ways), and the
    policy is worth nothing without the stamp the box already had. The cgroup
-   drop-in itself is what remains here, and `MemorySwapMax` now has a measured
-   value to use (decision 4). **Tracked as task fa00291e (P1), a paid-launch
-   blocker (Nil, 2026-08-19)**; acceptance is a measured N=24-plus-build run
-   on a release-shaped box (task 5a8e4b08). See the STATUS section at the top.
+   drop-in shipped in code on 2026-08-20 with the measured `MemorySwapMax`
+   value (task fa00291e). Paid-launch acceptance remains the N=24-plus-build
+   run on a release-shaped box (task 5a8e4b08). See the STATUS section at the
+   top.
 3. PSI and `memory.events.local` telemetry, and the "stopped under memory
    pressure" attribution in the agent's chat.
 4. Graceful degradation, once decision 2 is settled.
