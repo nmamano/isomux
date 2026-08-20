@@ -478,6 +478,13 @@ describe("the health gate before the listing", () => {
     tick_recent: true,
     state_persisted: true,
     provider_configured: true,
+    release_source: {
+      known: true,
+      commit: "a".repeat(40),
+      deploy_started_at: "2026-08-20T12:34:56.789Z",
+    },
+    release_payload: { known: true, sha256: "b".repeat(64) },
+    release_deployment: { known: true, id: "01K34DEPLOY" },
   };
 
   test("a healthy machine reporting provider credentials answers true", () => {
@@ -485,6 +492,13 @@ describe("the health gate before the listing", () => {
     expect(
       providerConfiguredFrom({ ...HEALTHY, provider_configured: false }),
     ).toBe(false);
+    expect(
+      providerConfiguredFrom({
+        ...HEALTHY,
+        release_source: { known: false },
+        release_deployment: { known: false },
+      }),
+    ).toBe(true);
   });
 
   test("A DEGRADED MACHINE LICENSES NOTHING, whatever provider_configured says", () => {

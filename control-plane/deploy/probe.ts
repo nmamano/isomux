@@ -18,8 +18,8 @@
 //      verb's own "no such request". It proves the route works without any real
 //      invite existing.
 //   4. health without a credential -> 401.
-//   5. health with one -> 200, the EXACT expected key set, every value a
-//      boolean, and the five that gate acceptance all true.
+//   5. health with one -> 200, the EXACT expected nested shape, all seven
+//      readiness values boolean, and the five that gate acceptance all true.
 //
 // A 200 IS NOT ACCEPTANCE. An earlier version of this file checked the status
 // and printed whatever fields came back, which would have passed a machine
@@ -51,6 +51,11 @@ export const HEALTH_KEYS = [
   "state_persisted",
   "provider_configured",
 ] as const;
+export const RELEASE_KEYS = [
+  "release_source",
+  "release_payload",
+  "release_deployment",
+] as const;
 
 /**
  * The five that must be true for a deployment to be accepted.
@@ -76,7 +81,7 @@ export const GATING_KEYS = [
 ] as const;
 
 export interface HealthVerdict {
-  /** Exactly the expected keys, no more and no fewer, all boolean. */
+  /** Exactly the expected top-level and nested keys, with exact value types. */
   shapeOk: boolean;
   /** How many fields we did not expect. A COUNT: naming them would print
    * whatever a compromised or mistaken surface decided to send. */
@@ -85,6 +90,12 @@ export interface HealthVerdict {
   nonBooleanFields: number;
   /** All five gating booleans true. */
   gatingTrue: boolean;
+  /** Valid known identity or the explicit no-claim value. Not a readiness gate:
+   * identity does not change whether the process can provision an office. */
+  releaseShapeOk: boolean;
+  sourceKnown: boolean;
+  payloadKnown: boolean;
+  deploymentKnown: boolean;
   /** Fixed keys, fixed order, for printing. */
   lines: string[];
 }
@@ -95,9 +106,10 @@ export function judgeHealth(body: unknown): HealthVerdict {
       ? (body as Record<string, unknown>)
       : {};
   const present = new Set(Object.keys(map));
-  const missingFields = HEALTH_KEYS.filter((k) => !present.has(k)).length;
+  const expected = [...HEALTH_KEYS, ...RELEASE_KEYS];
+  const missingFields = expected.filter((k) => !present.has(k)).length;
   const unexpectedFields = [...present].filter(
-    (k) => !(HEALTH_KEYS as readonly string[]).includes(k),
+    (k) => !(expected as readonly string[]).includes(k),
   ).length;
   const nonBooleanFields = HEALTH_KEYS.filter(
     (k) => present.has(k) && typeof map[k] !== "boolean",
@@ -109,13 +121,76 @@ export function judgeHealth(body: unknown): HealthVerdict {
       ? `  ${key}: ${value}`
       : `  ${key}: NOT A BOOLEAN`;
   });
+  const record = (value: unknown): Record<string, unknown> | null =>
+    typeof value === "object" && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  const exactKeys = (value: Record<string, unknown>, keys: string[]): boolean =>
+    Object.keys(value).length === keys.length &&
+    keys.every((key) => Object.hasOwn(value, key));
+  const source = record(map.release_source);
+  const sourceCommit =
+    source?.known === true &&
+    exactKeys(source, ["known", "commit", "deploy_started_at"]) &&
+    typeof source.commit === "string" &&
+    /^[0-9a-f]{40}$/.test(source.commit)
+      ? source.commit
+      : null;
+  const sourceStartedAt =
+    sourceCommit !== null &&
+    typeof source?.deploy_started_at === "string" &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+      source.deploy_started_at,
+    )
+      ? source.deploy_started_at
+      : null;
+  const sourceKnown = sourceCommit !== null && sourceStartedAt !== null;
+  const sourceShapeOk =
+    (source?.known === false && exactKeys(source, ["known"])) || sourceKnown;
+  const payload = record(map.release_payload);
+  const payloadSha256 =
+    payload?.known === true &&
+    exactKeys(payload, ["known", "sha256"]) &&
+    typeof payload.sha256 === "string" &&
+    /^[0-9a-f]{64}$/.test(payload.sha256)
+      ? payload.sha256
+      : null;
+  const payloadKnown = payloadSha256 !== null;
+  const payloadShapeOk =
+    (payload?.known === false && exactKeys(payload, ["known"])) || payloadKnown;
+  const deployment = record(map.release_deployment);
+  const deploymentId =
+    deployment?.known === true &&
+    exactKeys(deployment, ["known", "id"]) &&
+    typeof deployment.id === "string" &&
+    /^[A-Za-z0-9._:-]{1,200}$/.test(deployment.id)
+      ? deployment.id
+      : null;
+  const deploymentKnown = deploymentId !== null;
+  const deploymentShapeOk =
+    (deployment?.known === false && exactKeys(deployment, ["known"])) ||
+    deploymentKnown;
+  const releaseShapeOk = sourceShapeOk && payloadShapeOk && deploymentShapeOk;
+  lines.push(
+    `  release_source_commit: ${sourceCommit ?? "NOT KNOWN"}`,
+    `  release_deploy_started_at: ${sourceStartedAt ?? "NOT KNOWN"}`,
+    `  release_payload_sha256: ${payloadSha256 ?? "NOT KNOWN"}`,
+    `  release_deployment_id: ${deploymentId ?? "NOT KNOWN"}`,
+  );
   return {
     shapeOk:
-      missingFields === 0 && unexpectedFields === 0 && nonBooleanFields === 0,
+      missingFields === 0 &&
+      unexpectedFields === 0 &&
+      nonBooleanFields === 0 &&
+      releaseShapeOk,
     unexpectedFields,
     missingFields,
     nonBooleanFields,
     gatingTrue: GATING_KEYS.every((k) => map[k] === true),
+    releaseShapeOk,
+    sourceKnown: sourceShapeOk && sourceKnown,
+    payloadKnown: payloadShapeOk && payloadKnown,
+    deploymentKnown: deploymentShapeOk && deploymentKnown,
     lines,
   };
 }
@@ -178,6 +253,10 @@ async function main(): Promise<void> {
   console.log(`health_missing_fields: ${verdict.missingFields}`);
   console.log(`health_unexpected_fields: ${verdict.unexpectedFields}`);
   console.log(`health_non_boolean_fields: ${verdict.nonBooleanFields}`);
+  console.log(`health_release_shape_ok: ${verdict.releaseShapeOk}`);
+  console.log(`health_release_source_known: ${verdict.sourceKnown}`);
+  console.log(`health_release_payload_known: ${verdict.payloadKnown}`);
+  console.log(`health_release_deployment_known: ${verdict.deploymentKnown}`);
   console.log(`health_gating_all_true: ${verdict.gatingTrue}`);
 
   const bearerEnforced =

@@ -6,7 +6,7 @@
 // read as more than it is.
 
 import { describe, expect, test } from "bun:test";
-import { DEPLOY_ARGV } from "./provisioner-role.ts";
+import { DEPLOY_ARGV, RELEASE_BUILD_ARGS } from "./provisioner-role.ts";
 import { APP, FLYCTL, type BoundedResult } from "./fly-cli.ts";
 import {
   DEPLOY_DEADLINE_MS,
@@ -17,6 +17,8 @@ import { PROVIDER_ONLY_NAMES } from "./provider-secrets.ts";
 
 /** What `git ls-tree` names: the rules file, and a runtime path that ships. */
 const HEAD_FILES = ".dockerignore\ncontrol-plane/tick.ts";
+const HEAD_COMMIT = "a".repeat(40);
+const DEPLOY_STARTED_AT = "2026-08-20T12:34:56.789Z";
 
 const CLEAN_RUN: BoundedResult = {
   code: 0,
@@ -53,8 +55,14 @@ function seams(
       // HEAD carries the rules file and one shipped path; the tree is clean.
       git: async (argv: string[]) => ({
         code: 0,
-        stdout: argv[0] === "ls-tree" ? HEAD_FILES : "",
+        stdout:
+          argv[0] === "ls-tree"
+            ? HEAD_FILES
+            : argv[0] === "rev-parse"
+              ? `${HEAD_COMMIT}\n`
+              : "",
       }),
+      now: () => new Date(DEPLOY_STARTED_AT),
       machines: async () => ({
         readable: true,
         count: 1,
@@ -108,7 +116,14 @@ describe("nothing deploys without FRESH observations", () => {
     const out = await activate(s.seams);
     expect(out).toEqual({ ran: true, outcome: "completed" });
     expect(s.calls.length).toBe(1);
-    expect(s.calls[0].argv).toEqual([FLYCTL, ...DEPLOY_ARGV]);
+    expect(s.calls[0].argv).toEqual([
+      FLYCTL,
+      ...DEPLOY_ARGV,
+      RELEASE_BUILD_ARGS.flag,
+      `${RELEASE_BUILD_ARGS.commit}=${HEAD_COMMIT}`,
+      RELEASE_BUILD_ARGS.flag,
+      `${RELEASE_BUILD_ARGS.deployStartedAt}=${DEPLOY_STARTED_AT}`,
+    ]);
     // No app, config, dockerfile or flag from outside the repository.
     expect(s.calls[0].argv).toContain(APP);
     expect(s.calls[0].argv).toContain("--ha=false");
@@ -225,7 +240,12 @@ describe("the source and the topology, re-read before the spawn", () => {
       ...s.seams,
       git: async (argv: string[]) => ({
         code: 0,
-        stdout: argv[0] === "ls-tree" ? HEAD_FILES : " M control-plane/tick.ts",
+        stdout:
+          argv[0] === "ls-tree"
+            ? HEAD_FILES
+            : argv[0] === "rev-parse"
+              ? `${HEAD_COMMIT}\n`
+              : " M control-plane/tick.ts",
       }),
       machines: async () => ONE_STARTED,
     });
@@ -240,6 +260,37 @@ describe("the source and the topology, re-read before the spawn", () => {
       ...s.seams,
       git: async () => ({ code: 1, stdout: "" }),
       machines: async () => ONE_STARTED,
+    });
+    expect(out).toEqual({ ran: false, outcome: null });
+    expect(s.calls).toEqual([]);
+  });
+
+  test("A MALFORMED OR MOVING HEAD STOPS BEFORE DEPLOY", async () => {
+    for (const commits of [["not-a-commit"], [HEAD_COMMIT, "b".repeat(40)]]) {
+      const s = seams();
+      let read = 0;
+      const out = await activate({
+        ...s.seams,
+        git: async (argv: string[]) => {
+          if (argv[0] === "rev-parse") {
+            return {
+              code: 0,
+              stdout: `${commits[read++] ?? commits.at(-1)}\n`,
+            };
+          }
+          return { code: 0, stdout: argv[0] === "ls-tree" ? HEAD_FILES : "" };
+        },
+      });
+      expect(out).toEqual({ ran: false, outcome: null });
+      expect(s.calls).toEqual([]);
+    }
+  });
+
+  test("A MALFORMED DEPLOY-START TIME STOPS BEFORE DEPLOY", async () => {
+    const s = seams();
+    const out = await activate({
+      ...s.seams,
+      now: () => ({ toISOString: () => "not-a-time" }) as Date,
     });
     expect(out).toEqual({ ran: false, outcome: null });
     expect(s.calls).toEqual([]);
@@ -276,7 +327,12 @@ describe("a throw is an outcome, never an escape", () => {
   const clean = {
     git: async (argv: string[]) => ({
       code: 0,
-      stdout: argv[0] === "ls-tree" ? HEAD_FILES : "",
+      stdout:
+        argv[0] === "ls-tree"
+          ? HEAD_FILES
+          : argv[0] === "rev-parse"
+            ? `${HEAD_COMMIT}\n`
+            : "",
     }),
     machines: async () => ONE_STARTED,
   };

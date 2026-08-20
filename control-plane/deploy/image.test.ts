@@ -173,6 +173,82 @@ describe("the build context", () => {
     }
   });
 
+  test("bakes an actual payload digest and only accepts a well-formed source claim", () => {
+    const dockerfile = fs.readFileSync(
+      path.join(import.meta.dir, "Dockerfile"),
+      "utf8",
+    );
+    const start = dockerfile.indexOf("RUN payload_sha256=");
+    const end = dockerfile.indexOf("\n\n", start);
+    expect(start).toBeGreaterThan(0);
+    expect(end).toBeGreaterThan(start);
+
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "release-bake-"));
+    const output = path.join(
+      root,
+      "control-plane",
+      "deploy",
+      "release-identity.json",
+    );
+    fs.mkdirSync(path.dirname(output), { recursive: true });
+    const payload = path.join(root, "control-plane", "payload.ts");
+    fs.writeFileSync(payload, "first\n");
+    const script = dockerfile
+      .slice(start, end)
+      .replace(/^RUN /, "")
+      .replaceAll("\\\n", " ")
+      .replaceAll("/app", root);
+    const run = (commit = "", started = "") => {
+      fs.rmSync(output, { force: true });
+      return Bun.spawnSync(["sh", "-c", script], {
+        env: {
+          PATH: process.env.PATH ?? "",
+          ISOMUX_RELEASE_COMMIT: commit,
+          ISOMUX_DEPLOY_STARTED_AT: started,
+        },
+      });
+    };
+    try {
+      const absent = run();
+      expect(absent.exitCode).toBe(0);
+      const first = JSON.parse(fs.readFileSync(output, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      expect(first).toEqual({
+        payload_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+      });
+
+      fs.writeFileSync(payload, "second\n");
+      expect(run().exitCode).toBe(0);
+      const second = JSON.parse(fs.readFileSync(output, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      expect(second.payload_sha256).not.toBe(first.payload_sha256);
+
+      const commit = "a".repeat(40);
+      const started = "2026-08-20T12:34:56.789Z";
+      expect(run(commit, started).exitCode).toBe(0);
+      expect(JSON.parse(fs.readFileSync(output, "utf8"))).toEqual({
+        payload_sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        commit,
+        deploy_started_at: started,
+      });
+
+      for (const [badCommit, badStarted] of [
+        ["abc", started],
+        [commit, "not-a-timestamp"],
+        [commit, ""],
+        ["", started],
+      ]) {
+        expect(run(badCommit, badStarted).exitCode).not.toBe(0);
+      }
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("runtime payload paths cannot bypass the inventory", () => {
     const bypasses: string[] = [];
     for (const file of sourceFiles(path.join(REPO, "control-plane"))) {

@@ -10,8 +10,9 @@
 // A DEPLOYED provisioner also answers one read verb, and only when a caller
 // passes the reporter for it: GET /internal/health, behind the SAME bearer, is
 // how an operator asks a machine they cannot log into whether it is working.
-// Its answers are booleans - never an id, a host, a count or a duration - and a
-// process started without a health reporter has no such route at all.
+// Its readiness answers are booleans, and its release identity is a strict
+// known/not-known union. A process started without a health reporter has no
+// such route at all.
 //
 // TRANSPORT. HTTP request-response, bound to loopback in this loop because both
 // processes are on one box. Deliberately NOT a unix socket: a socket path is
@@ -23,6 +24,72 @@
 // tested without a port.
 
 import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
+
+export const RELEASE_IDENTITY_FILE = path.join(
+  import.meta.dir,
+  "deploy",
+  "release-identity.json",
+);
+export type ReleaseIdentity = {
+  release_source:
+    | { known: true; commit: string; deploy_started_at: string }
+    | { known: false };
+  release_payload: { known: true; sha256: string } | { known: false };
+  release_deployment: { known: true; id: string } | { known: false };
+};
+
+/** Read the identity baked into the image. A bad build never creates an image;
+ * a file damaged or removed at runtime makes no claim instead of inventing one. */
+export function readReleaseIdentity(
+  file = RELEASE_IDENTITY_FILE,
+  deploymentId?: string,
+): ReleaseIdentity {
+  const release_deployment =
+    typeof deploymentId === "string" &&
+    /^[A-Za-z0-9._:-]{1,200}$/.test(deploymentId)
+      ? ({ known: true, id: deploymentId } as const)
+      : ({ known: false } as const);
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8")) as {
+      commit?: unknown;
+      deploy_started_at?: unknown;
+      payload_sha256?: unknown;
+    };
+    const payloadKnown =
+      typeof value.payload_sha256 === "string" &&
+      /^[0-9a-f]{64}$/.test(value.payload_sha256);
+    const sourceKnown =
+      typeof value.commit === "string" &&
+      /^[0-9a-f]{40}$/.test(value.commit) &&
+      typeof value.deploy_started_at === "string" &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+        value.deploy_started_at,
+      );
+    if (payloadKnown) {
+      return {
+        release_source: sourceKnown
+          ? {
+              known: true,
+              commit: value.commit as string,
+              deploy_started_at: value.deploy_started_at as string,
+            }
+          : { known: false },
+        release_payload: {
+          known: true,
+          sha256: value.payload_sha256 as string,
+        },
+        release_deployment,
+      };
+    }
+  } catch {}
+  return {
+    release_source: { known: false },
+    release_payload: { known: false },
+    release_deployment,
+  };
+}
 import {
   CERTIFICATE_RENEW_PATH,
   CERTIFICATE_STATUS_PATH,
@@ -149,7 +216,7 @@ export interface MintSeamOptions {
    * everywhere. Supplying it is what creates GET /internal/health, and the
    * bearer applies to it exactly as it does to the invite verb.
    */
-  health?: () => Promise<Record<string, boolean>>;
+  health?: () => Promise<Record<string, unknown>>;
   report?: (line: string) => void;
   certificates?: CertificateService;
   /** Present on the deployed provisioner. Stripe authenticates this public

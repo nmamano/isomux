@@ -28,6 +28,13 @@ const HEALTHY = {
   tick_recent: true,
   state_persisted: false,
   provider_configured: false,
+  release_source: {
+    known: true,
+    commit: "a".repeat(40),
+    deploy_started_at: "2026-08-20T12:34:56.789Z",
+  },
+  release_payload: { known: true, sha256: "b".repeat(64) },
+  release_deployment: { known: true, id: "01K34DEPLOY" },
 };
 
 describe("where the credential may be sent", () => {
@@ -126,7 +133,57 @@ describe("the health verdict", () => {
     const verdict = judgeHealth(HEALTHY);
     expect(verdict.lines.map((l) => l.trim().split(":")[0])).toEqual([
       ...HEALTH_KEYS,
+      "release_source_commit",
+      "release_deploy_started_at",
+      "release_payload_sha256",
+      "release_deployment_id",
     ]);
+  });
+
+  test("release identity is known or explicitly unknown, never echoed malformed", () => {
+    expect(judgeHealth(HEALTHY).sourceKnown).toBe(true);
+    const notKnown = judgeHealth({
+      ...HEALTHY,
+      release_source: { known: false },
+    });
+    expect(notKnown.shapeOk).toBe(true);
+    expect(notKnown.sourceKnown).toBe(false);
+    const malformed = judgeHealth({
+      ...HEALTHY,
+      release_source: { known: true, commit: "secret-looking-value" },
+    });
+    expect(malformed.shapeOk).toBe(false);
+    expect(malformed.lines.join("\n")).not.toContain("secret-looking-value");
+  });
+
+  test("the three identity arms are independent and exact", () => {
+    const noSource = judgeHealth({
+      ...HEALTHY,
+      release_source: { known: false },
+    });
+    expect(noSource.shapeOk).toBe(true);
+    expect(noSource.sourceKnown).toBe(false);
+    expect(noSource.payloadKnown).toBe(true);
+    expect(noSource.deploymentKnown).toBe(true);
+
+    const noDeployment = judgeHealth({
+      ...HEALTHY,
+      release_deployment: { known: false },
+    });
+    expect(noDeployment.shapeOk).toBe(true);
+    expect(noDeployment.sourceKnown).toBe(true);
+    expect(noDeployment.deploymentKnown).toBe(false);
+
+    const extraNested = judgeHealth({
+      ...HEALTHY,
+      release_payload: {
+        known: true,
+        sha256: "b".repeat(64),
+        secret: "must-not-cross",
+      },
+    });
+    expect(extraNested.shapeOk).toBe(false);
+    expect(extraNested.lines.join("\n")).not.toContain("must-not-cross");
   });
 });
 

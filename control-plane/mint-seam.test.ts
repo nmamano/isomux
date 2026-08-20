@@ -15,6 +15,7 @@ import {
   tokenMatches,
   HEALTH_PATH,
   MIN_SEAM_TOKEN_LENGTH,
+  readReleaseIdentity,
 } from "./mint-seam.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import { Store, type OperationStatus } from "./store.ts";
@@ -280,6 +281,67 @@ describe("over HTTP", () => {
     }
   });
 
+  test("the baked release identity is exact or explicitly unknown", () => {
+    const cliSource = fs.readFileSync(
+      path.join(import.meta.dir, "cli.ts"),
+      "utf8",
+    );
+    expect(cliSource).toContain("...deps.releaseIdentity");
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-identity-"));
+    temps.push(dir);
+    const file = path.join(dir, "release-identity.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        payload_sha256: "b".repeat(64),
+        commit: "a".repeat(40),
+        deploy_started_at: "2026-08-20T12:34:56.789Z",
+      }),
+    );
+    expect(readReleaseIdentity(file, "01K34DEPLOY")).toEqual({
+      release_source: {
+        known: true,
+        commit: "a".repeat(40),
+        deploy_started_at: "2026-08-20T12:34:56.789Z",
+      },
+      release_payload: { known: true, sha256: "b".repeat(64) },
+      release_deployment: { known: true, id: "01K34DEPLOY" },
+    });
+    for (const bad of [
+      "not json",
+      JSON.stringify({ commit: "", deploy_started_at: "" }),
+      JSON.stringify({
+        commit: "a".repeat(40),
+        deploy_started_at: "not-a-time",
+      }),
+    ]) {
+      fs.writeFileSync(file, bad);
+      expect(readReleaseIdentity(file)).toEqual({
+        release_source: { known: false },
+        release_payload: { known: false },
+        release_deployment: { known: false },
+      });
+    }
+    fs.rmSync(file);
+    expect(readReleaseIdentity(file)).toEqual({
+      release_source: { known: false },
+      release_payload: { known: false },
+      release_deployment: { known: false },
+    });
+  });
+
+  test("a raw first-deploy image knows its payload without claiming a commit", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-identity-"));
+    temps.push(dir);
+    const file = path.join(dir, "release-identity.json");
+    fs.writeFileSync(file, JSON.stringify({ payload_sha256: "b".repeat(64) }));
+    expect(readReleaseIdentity(file)).toEqual({
+      release_source: { known: false },
+      release_payload: { known: true, sha256: "b".repeat(64) },
+      release_deployment: { known: false },
+    });
+  });
+
   test("health does not exist unless a deployment asked for it", async () => {
     const b = await bed();
     const token = "t".repeat(40);
@@ -300,7 +362,7 @@ describe("over HTTP", () => {
     }
   });
 
-  test("health is behind the same bearer, and answers booleans", async () => {
+  test("health is behind the same bearer, and returns the supplied strict report", async () => {
     const b = await bed();
     const token = "t".repeat(40);
     const seam = startMintSeam({
@@ -308,14 +370,20 @@ describe("over HTTP", () => {
       hold: b.hold,
       token,
       port: 0,
-      health: async () => ({ ok: true, tick_recent: false }),
+      health: async () => ({
+        ok: true,
+        tick_recent: false,
+        release_source: { known: false },
+      }),
     });
     try {
       const url = `http://127.0.0.1:${seam.port}${HEALTH_PATH}`;
 
       const anonymous = await fetch(url);
       expect(anonymous.status).toBe(401);
-      expect(await anonymous.text()).not.toContain("tick_recent");
+      const anonymousBody = await anonymous.text();
+      expect(anonymousBody).not.toContain("tick_recent");
+      expect(anonymousBody).not.toContain("release_source");
 
       // Same length as the real one: a length check would have let this pass.
       const wrong = await fetch(url, {
@@ -334,12 +402,11 @@ describe("over HTTP", () => {
       });
       expect(ok.status).toBe(200);
       const body = (await ok.json()) as Record<string, unknown>;
-      expect(body).toEqual({ ok: true, tick_recent: false });
-      // Every value is a boolean: nothing derived from a credential, an id or a
-      // measurement can reach this surface by being added to the map.
-      expect(Object.values(body).every((v) => typeof v === "boolean")).toBe(
-        true,
-      );
+      expect(body).toEqual({
+        ok: true,
+        tick_recent: false,
+        release_source: { known: false },
+      });
     } finally {
       await seam.stop();
     }

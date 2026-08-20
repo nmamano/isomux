@@ -44,7 +44,7 @@
 // WHAT IT PRINTS: fixed labels, booleans, small integers and exit codes. Not
 // the child's bytes, not the token, not a DSN, not an error object.
 
-import { DEPLOY_ARGV } from "./provisioner-role.ts";
+import { DEPLOY_ARGV, RELEASE_BUILD_ARGS } from "./provisioner-role.ts";
 import {
   APP,
   CONTABO_ENV_FILE,
@@ -115,6 +115,7 @@ export interface ActivationSeams {
   git: (argv: string[]) => Promise<{ code: number; stdout: string }>;
   machines: () => Promise<MachineReading>;
   report: (line: string) => void;
+  now?: () => Date;
 }
 
 /** Anything a seam throws becomes a fixed fallback, and the error is dropped. */
@@ -138,7 +139,7 @@ async function attempt<T>(
 /** The source reading, through the shared decision. */
 export async function readSource(
   git: ActivationSeams["git"],
-): Promise<SourceVerdict> {
+): Promise<SourceVerdict & { commit: string | null }> {
   const status = await git([
     "status",
     "--porcelain",
@@ -147,23 +148,31 @@ export async function readSource(
     IMAGE_PATHSPEC,
     CONTEXT_RULES_PATH,
   ]);
+  const head = await git(["rev-parse", "--verify", "HEAD"]);
+  const commit = head.stdout.trim();
+  const commitValid = head.code === 0 && /^[0-9a-f]{40}$/.test(commit);
   const tree = await git([
     "ls-tree",
     "-r",
     "--name-only",
-    "HEAD",
+    commitValid ? commit : "--invalid-commit--",
     "--",
     IMAGE_PATHSPEC,
     CONTEXT_RULES_PATH,
   ]);
   const rules = contextRules();
-  return judgeSource({
-    readable: status.code === 0 && tree.code === 0,
-    statusOut: status.stdout,
-    treeOut: tree.stdout,
-    rulesPath: CONTEXT_RULES_PATH,
-    ships: (file) => shipsToImage(rules, file),
-  });
+  const headAfter = await git(["rev-parse", "--verify", "HEAD"]);
+  const stable = headAfter.code === 0 && headAfter.stdout.trim() === commit;
+  return {
+    ...judgeSource({
+      readable: status.code === 0 && tree.code === 0 && commitValid && stable,
+      statusOut: status.stdout,
+      treeOut: tree.stdout,
+      rulesPath: CONTEXT_RULES_PATH,
+      ships: (file) => shipsToImage(rules, file),
+    }),
+    commit: commitValid && stable ? commit : null,
+  };
 }
 
 /**
@@ -208,6 +217,7 @@ export async function activate(seams: ActivationSeams): Promise<{
       rulesCommitted: false,
       shippedUncommitted: -1,
       reconstructible: false,
+      commit: null,
     },
     report,
     "source",
@@ -237,7 +247,13 @@ export async function activate(seams: ActivationSeams): Promise<{
   // The source and the topology are activation's own preconditions rather than
   // the order's: they say whether THIS deploy can be reconstructed and whether
   // its one-machine assumption holds, which is not a question about sequence.
-  const allowed = permission.ok && source.reconstructible && topology;
+  const deployStartedAt = (seams.now ?? (() => new Date()))().toISOString();
+  const identityValid =
+    source.commit !== null &&
+    /^[0-9a-f]{40}$/.test(source.commit) &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(deployStartedAt);
+  const allowed =
+    permission.ok && source.reconstructible && topology && identityValid;
   report(`may_activate: ${allowed}`);
   report(
     `because: ${
@@ -247,7 +263,9 @@ export async function activate(seams: ActivationSeams): Promise<{
           ? "the source fly would ship is not reconstructible from HEAD"
           : !topology
             ? "the app is not exactly one started machine"
-            : "every precondition was observed true in this process"
+            : !identityValid
+              ? "the release identity could not be determined"
+              : "every precondition was observed true in this process"
     }`,
   );
   if (!allowed) return { ran: false, outcome: null };
@@ -256,7 +274,14 @@ export async function activate(seams: ActivationSeams): Promise<{
   let result: BoundedResult | null = null;
   try {
     result = await seams.spawn(
-      [FLYCTL, ...DEPLOY_ARGV],
+      [
+        FLYCTL,
+        ...DEPLOY_ARGV,
+        RELEASE_BUILD_ARGS.flag,
+        `${RELEASE_BUILD_ARGS.commit}=${source.commit}`,
+        RELEASE_BUILD_ARGS.flag,
+        `${RELEASE_BUILD_ARGS.deployStartedAt}=${deployStartedAt}`,
+      ],
       { FLY_API_TOKEN: seams.flyToken },
       "",
       DEPLOY_DEADLINE_MS,

@@ -51,6 +51,26 @@ RUN chmod 0755 /app/control-plane/cloudflare-dns-hook.ts
 # running provisioner reads. This runs against the final deployed paths.
 RUN bun control-plane/deploy/assert-runtime-files.ts
 
+# The image contains no git metadata. Every build hashes its ACTUAL payload.
+# The guarded activation path also passes the exact HEAD that describes its
+# clean build context and its deploy-start time. A raw first deploy passes no
+# source claim: absence is valid, while a malformed or half-present claim fails.
+ARG ISOMUX_RELEASE_COMMIT
+ARG ISOMUX_DEPLOY_STARTED_AT
+RUN payload_sha256="$(find /app -type f -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)" \
+    && case "$payload_sha256" in (*[!0-9a-f]*|'') exit 1;; esac \
+    && [ "${#payload_sha256}" -eq 64 ] \
+    && if [ -z "$ISOMUX_RELEASE_COMMIT" ] && [ -z "$ISOMUX_DEPLOY_STARTED_AT" ]; then \
+      printf '{"payload_sha256":"%s"}\n' "$payload_sha256"; \
+    else \
+      case "$ISOMUX_RELEASE_COMMIT" in (*[!0-9a-f]*|'') exit 1;; esac \
+      && [ "${#ISOMUX_RELEASE_COMMIT}" -eq 40 ] \
+      && echo "$ISOMUX_DEPLOY_STARTED_AT" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\.[0-9]{3}Z$' \
+      && \
+      printf '{"payload_sha256":"%s","commit":"%s","deploy_started_at":"%s"}\n' \
+        "$payload_sha256" "$ISOMUX_RELEASE_COMMIT" "$ISOMUX_DEPLOY_STARTED_AT"; \
+    fi > /app/control-plane/deploy/release-identity.json
+
 # The state root is derived from the home directory (config.ts), so this is what
 # puts the keys, run records, intent journal and audit log on the mounted
 # volume. Private key material that a deploy destroyed would take the ability to

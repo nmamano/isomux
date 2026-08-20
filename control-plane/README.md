@@ -1551,14 +1551,37 @@ At boot, before it serves or ticks:
 
 Neither branch id is ever printed. The boot line is booleans.
 
-`GET /internal/health` answers the same booleans, behind the SAME bearer as the
-invite verb, and is the reason `deploy/probe.ts` exists:
+`GET /internal/health` answers the same booleans and the running release's
+identity, behind the SAME bearer as the invite verb, and is the reason
+`deploy/probe.ts` exists:
 
 ```
 ok  bounds_governed  branch_pinned  database_reachable  tick_recent  state_persisted  provider_configured
 ```
 
-`ok` is the conjunction of the first four properties - not of all six, because
+The release identity has three independent arms. `release_source` names the
+40-hex commit and the deploy-start time when the guarded activation program
+built the image. `release_payload` names a SHA-256 that every image computes
+inside the Dockerfile from the files actually installed in `/app`.
+`release_deployment` names the Fly machine version carried by the existing
+`--deployment` path. Measured 2026-08-20 at 11:09 UTC against the deployed
+provisioner, then running a build older than `1a3613e`: `state_persisted` was
+true, which `state-marker.ts` can report only when it received a non-empty
+deployment id. The Dockerfile CMD has passed `--deployment` since `dcef44f`,
+unchanged, so that reading carries to this build. Each arm is
+either `{ known: true, ... }` with a strictly validated value or
+`{ known: false }` with no placeholder value. A missing or damaged identity
+file therefore makes no claim rather than returning an empty or default-looking
+string.
+
+None of the three identity arms enters `ok` or the probe's gating booleans. An
+unknown identity does not stop the process from provisioning an office; it
+stops an operator from claiming which build is running. The probe reports that
+distinction separately and validates the exact nested shape before it prints
+any value.
+
+`ok` is the conjunction of the four readiness properties - not of every
+reported field, because
 `state_persisted` is correctly false on a first deploy and a healthy machine
 must not be reported sick for having been deployed once, and
 `provider_configured` is a state the design deliberately supports: a provisioner
@@ -2172,6 +2195,16 @@ FLY_API_TOKEN="$(cat ~/nil/secrets/fly.token)" ~/.fly/bin/flyctl deploy . \
 bun control-plane/deploy/secrets.ts --verify
 bun control-plane/deploy/probe.ts
 ```
+
+That raw first deploy correctly reports `release_source: { known: false }`:
+there is no guarded activation observation from which to claim a commit. It
+still reports the Dockerfile-computed payload digest and Fly deployment id.
+Later guarded activations add the comparable commit without weakening what the
+first image can prove.
+
+Deploy the new image before running `provider-account.ts` or the recycle
+ladder against it. Those gates require the new exact health shape and therefore
+refuse, by design, while the old image still serves the seven-field response.
 
 A lifecycle-cadence redeploy adds one required step before those lines:
 

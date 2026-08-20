@@ -73,7 +73,12 @@ import {
 } from "./instance.ts";
 import { InviteHold } from "./invite-hold.ts";
 import { watchLiveness } from "./liveness-watch.ts";
-import { startMintSeam, type RunningMintSeam } from "./mint-seam.ts";
+import {
+  readReleaseIdentity,
+  startMintSeam,
+  type ReleaseIdentity,
+  type RunningMintSeam,
+} from "./mint-seam.ts";
 import { CertificateService } from "./certificate-service.ts";
 import { certificateTargetFromEnv } from "./certificate-target.ts";
 import { obtainCertificateWithLego } from "./lego-acme.ts";
@@ -424,13 +429,15 @@ function deploymentIdOf(args: Map<string, string>): string | undefined {
 }
 
 /**
- * What a deployed provisioner says about itself. BOOLEANS ONLY - no id, host,
- * count, duration or version, on any path.
+ * What a deployed provisioner says about itself: readiness booleans plus the
+ * strictly shaped release identity baked at build time and carried by the
+ * existing deployment argument.
  *
  * `ok` is the conjunction of the four properties that make this process able to
  * do its job. `state_persisted` is deliberately NOT one of them: on a first
  * deploy it is correctly false, and a healthy machine must not be reported sick
- * for having been deployed once.
+ * for having been deployed once. Release identity is deliberately not part of
+ * `ok`: it tells an operator what is running, not whether the process can work.
  */
 async function healthReport(deps: {
   store: Store;
@@ -442,7 +449,8 @@ async function healthReport(deps: {
    * provisioner with no provider credentials idles correctly by design, and a
    * deployment that has not been given them yet is not a failed one. */
   providerConfigured: () => boolean;
-}): Promise<Record<string, boolean>> {
+  releaseIdentity: ReleaseIdentity;
+}): Promise<Record<string, unknown>> {
   let databaseReachable = false;
   try {
     await deps.store.sqlGet("select 1 as ok");
@@ -466,6 +474,7 @@ async function healthReport(deps: {
     tick_recent: tickRecent,
     state_persisted: deps.persisted,
     provider_configured: deps.providerConfigured(),
+    ...deps.releaseIdentity,
   };
 }
 
@@ -666,6 +675,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
     process.env[BRANCH_PIN_ENV],
   );
   const marker = readAndRefreshMarker(STATE_ROOT, deploymentIdOf(args));
+  const releaseIdentity = readReleaseIdentity(undefined, deploymentIdOf(args));
   reporter.line(
     `boot: bounds-governed true, branch-pinned ${branchPinned}, ` +
       `state-persisted ${marker.persisted}, ` +
@@ -747,6 +757,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           persisted: marker.persisted,
           lastTickAt: () => lastTickAt,
           providerConfigured: () => providerConfigured,
+          releaseIdentity,
         }),
       report: (line) => reporter.line(line),
       certificates: certificateService,

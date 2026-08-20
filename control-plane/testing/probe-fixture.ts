@@ -30,6 +30,12 @@ export const GREEN_HEALTH: Record<HealthKey, boolean> = {
   state_persisted: true,
   provider_configured: true,
 };
+export const GREEN_RELEASE = {
+  sourceCommit: "a".repeat(40),
+  deployStartedAt: "2026-08-20T12:34:56.789Z",
+  payloadSha256: "b".repeat(64),
+  deploymentId: "01K34DEPLOY",
+} as const;
 
 /** The transcript's lines, in the order the probe prints them. */
 export function probeTranscriptLines(
@@ -49,10 +55,18 @@ export function probeTranscriptLines(
     "health_without_credential: 401",
     "health_with_credential: 200",
     ...HEALTH_KEYS.map((k) => `  ${k}: ${h[k]}`),
+    `  release_source_commit: ${GREEN_RELEASE.sourceCommit}`,
+    `  release_deploy_started_at: ${GREEN_RELEASE.deployStartedAt}`,
+    `  release_payload_sha256: ${GREEN_RELEASE.payloadSha256}`,
+    `  release_deployment_id: ${GREEN_RELEASE.deploymentId}`,
     "health_shape_ok: true",
     "health_missing_fields: 0",
     "health_unexpected_fields: 0",
     "health_non_boolean_fields: 0",
+    "health_release_shape_ok: true",
+    "health_release_source_known: true",
+    "health_release_payload_known: true",
+    "health_release_deployment_known: true",
     `health_gating_all_true: ${gating}`,
     "bearer_enforced: true",
     "surface_answering: true",

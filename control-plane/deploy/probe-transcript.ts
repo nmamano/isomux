@@ -41,6 +41,10 @@ export const PROBE_BOOLEAN_FIELDS = [
   "invite_answer_forbidden",
   "health_shape_ok",
   "health_gating_all_true",
+  "health_release_shape_ok",
+  "health_release_source_known",
+  "health_release_payload_known",
+  "health_release_deployment_known",
   "bearer_enforced",
   "surface_answering",
   "accepted",
@@ -70,17 +74,25 @@ export const PROBE_COUNT_FIELDS = [
  * unknown name.
  */
 export const PROBE_HEALTH_FIELDS = HEALTH_KEYS;
+export const PROBE_RELEASE_FIELDS = [
+  "release_source_commit",
+  "release_deploy_started_at",
+  "release_payload_sha256",
+  "release_deployment_id",
+] as const;
 
 export type ProbeBooleanField = (typeof PROBE_BOOLEAN_FIELDS)[number];
 export type ProbeStatusField = (typeof PROBE_STATUS_FIELDS)[number];
 export type ProbeCountField = (typeof PROBE_COUNT_FIELDS)[number];
 export type ProbeHealthField = (typeof PROBE_HEALTH_FIELDS)[number];
+export type ProbeReleaseField = (typeof PROBE_RELEASE_FIELDS)[number];
 
 export interface ProbeFields {
   booleans: Record<ProbeBooleanField, boolean>;
   statuses: Record<ProbeStatusField, number>;
   counts: Record<ProbeCountField, number>;
   health: Record<ProbeHealthField, boolean>;
+  release: Record<ProbeReleaseField, string>;
 }
 
 /**
@@ -102,6 +114,7 @@ export const PROBE_DEFECTS = {
   notABoolean: "value_not_a_boolean",
   notAStatus: "value_not_an_http_status",
   notACount: "value_not_a_count",
+  invalidRelease: "release_identity_invalid",
   mintFile: "mint_file_claims_inconsistent",
   counts: "health_counts_inconsistent",
   shape: "health_shape_inconsistent",
@@ -126,6 +139,7 @@ const BOOLEANS = new Set<string>(PROBE_BOOLEAN_FIELDS);
 const STATUSES = new Set<string>(PROBE_STATUS_FIELDS);
 const COUNTS = new Set<string>(PROBE_COUNT_FIELDS);
 const HEALTH = new Set<string>(PROBE_HEALTH_FIELDS);
+const RELEASE = new Set<string>(PROBE_RELEASE_FIELDS);
 
 /**
  * The whole transcript, typed - or a list of reasons it is not one.
@@ -142,6 +156,7 @@ export function parseProbeTranscript(stdout: string): ParsedTranscript {
   const statuses = new Map<string, number>();
   const counts = new Map<string, number>();
   const health = new Map<string, boolean>();
+  const release = new Map<string, string>();
   let unparseable = 0;
   let unknown = 0;
 
@@ -191,6 +206,24 @@ export function parseProbeTranscript(stdout: string): ParsedTranscript {
       counts.set(name, n);
       continue;
     }
+    if (RELEASE.has(name)) {
+      const valid =
+        (name === "release_source_commit" &&
+          (value === "NOT KNOWN" || /^[0-9a-f]{40}$/.test(value))) ||
+        (name === "release_deploy_started_at" &&
+          (value === "NOT KNOWN" ||
+            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value))) ||
+        (name === "release_payload_sha256" &&
+          (value === "NOT KNOWN" || /^[0-9a-f]{64}$/.test(value))) ||
+        (name === "release_deployment_id" &&
+          (value === "NOT KNOWN" || /^[A-Za-z0-9._:-]{1,200}$/.test(value)));
+      if (!valid) {
+        defects.push(`${PROBE_DEFECTS.invalidRelease}:${name}`);
+        continue;
+      }
+      release.set(name, value);
+      continue;
+    }
     // NAMED, NEVER QUOTED. The name came from the child, so it is counted and
     // the count is what a transcript carries.
     unknown++;
@@ -210,6 +243,9 @@ export function parseProbeTranscript(stdout: string): ParsedTranscript {
   for (const name of PROBE_HEALTH_FIELDS) {
     if (!health.has(name)) defects.push(`missing_field:${name}`);
   }
+  for (const name of PROBE_RELEASE_FIELDS) {
+    if (!release.has(name)) defects.push(`missing_field:${name}`);
+  }
   if (defects.length > 0) return { ok: false, defects, fields: null };
 
   const fields: ProbeFields = {
@@ -217,6 +253,7 @@ export function parseProbeTranscript(stdout: string): ParsedTranscript {
     statuses: Object.fromEntries(statuses) as ProbeFields["statuses"],
     counts: Object.fromEntries(counts) as ProbeFields["counts"],
     health: Object.fromEntries(health) as ProbeFields["health"],
+    release: Object.fromEntries(release) as ProbeFields["release"],
   };
   defects.push(...inconsistencies(fields));
   return defects.length > 0
@@ -245,17 +282,37 @@ function inconsistencies(f: ProbeFields): string[] {
     f.booleans.mint_file_shape_ok;
   if (!mintFileOk) out.push(PROBE_DEFECTS.mintFile);
 
-  // Six health keys parsed as booleans means the child cannot have found any
+  // Seven health keys parsed as booleans means the child cannot have found any
   // missing or non-boolean. Unexpected fields are the one count that may be
   // non-zero without a key line changing.
   if (f.counts.health_missing_fields !== 0) out.push(PROBE_DEFECTS.counts);
   if (f.counts.health_non_boolean_fields !== 0) out.push(PROBE_DEFECTS.counts);
 
+  const sourceKnown =
+    f.release.release_source_commit !== "NOT KNOWN" &&
+    f.release.release_deploy_started_at !== "NOT KNOWN";
+  const sourceNotKnown =
+    f.release.release_source_commit === "NOT KNOWN" &&
+    f.release.release_deploy_started_at === "NOT KNOWN";
+  const payloadKnown = f.release.release_payload_sha256 !== "NOT KNOWN";
+  const deploymentKnown = f.release.release_deployment_id !== "NOT KNOWN";
+  const releaseShape = sourceKnown || sourceNotKnown;
+  if (f.booleans.health_release_shape_ok !== releaseShape) {
+    out.push(PROBE_DEFECTS.invalidRelease);
+  }
   const shape =
     f.counts.health_missing_fields === 0 &&
     f.counts.health_unexpected_fields === 0 &&
-    f.counts.health_non_boolean_fields === 0;
+    f.counts.health_non_boolean_fields === 0 &&
+    releaseShape;
   if (f.booleans.health_shape_ok !== shape) out.push(PROBE_DEFECTS.shape);
+  if (
+    f.booleans.health_release_source_known !== sourceKnown ||
+    f.booleans.health_release_payload_known !== payloadKnown ||
+    f.booleans.health_release_deployment_known !== deploymentKnown
+  ) {
+    out.push(PROBE_DEFECTS.invalidRelease);
+  }
 
   const gating = GATING_KEYS.every((k) => f.health[k] === true);
   if (f.booleans.health_gating_all_true !== gating) {

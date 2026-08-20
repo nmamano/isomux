@@ -259,6 +259,14 @@ export const DEPLOY_ARGV = [
   "--now",
 ] as const;
 
+/** Fixed deploy flag and build-argument names. Only their validated values are
+ * computed by activate.ts; a caller cannot choose a flag or argument name. */
+export const RELEASE_BUILD_ARGS = {
+  flag: "--build-arg",
+  commit: "ISOMUX_RELEASE_COMMIT",
+  deployStartedAt: "ISOMUX_DEPLOY_STARTED_AT",
+} as const;
+
 /**
  * What a deploy's exit code is allowed to mean.
  *

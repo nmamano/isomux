@@ -611,6 +611,9 @@ export const AUDITED_CMDRUN_SURFACES = [
   "openStoreForRuntime",
   "provePinnedBranch",
   "readAndRefreshMarker",
+  // Reads only the release identity baked into the image. It cannot reach the
+  // database, but it is still part of cmdRun's audited non-handler surface.
+  "readReleaseIdentity",
   "deploymentIdOf",
   "InviteHold",
   "certificateTargetFromEnv",
