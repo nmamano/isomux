@@ -477,7 +477,9 @@ export function OfficeView({
                 <p className="note">
                   This opens in a new tab. Click this button now. It works once
                   and expires in 24 hours. If you lose access to it, ask for a
-                  new one.
+                  new one. If that browser is signed in as a different office
+                  user, open this link in a private window or a different
+                  browser profile.
                 </p>
               </div>
             ) : view.handoff.canMint ? (

@@ -19,9 +19,10 @@ import {
   setCookieHeader,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
+  type InvitePeek,
   type SessionLookup,
 } from "./auth.ts";
-import { hasOwner } from "./users.ts";
+import { getUserByName, hasOwner } from "./users.ts";
 import {
   readBearerToken,
   identityFromSession,
@@ -298,6 +299,8 @@ export function handleInvitePeek(
     }
     return renderInviteError(peek.error, officeName);
   }
+  const conflict = inviteIdentityConflict(req, peek, null);
+  if (conflict) return renderInviteIdentityConflict(conflict, officeName);
   return new Response(
     renderAcceptPage(token, peek.needsName, null, officeName),
     {
@@ -326,6 +329,15 @@ export async function handleAccept(
   const token = typeof tokenField === "string" ? tokenField : "";
   const name = typeof nameField === "string" ? nameField : "";
   if (!token) return renderInviteError("not_found", officeName);
+  const peek = peekInvite(token);
+  // This is an allow-list: a live browser session may accept only for the
+  // same stable user. A missing target record therefore refuses rather than
+  // making two unresolved values look equal. Peek errors stay on the existing
+  // acceptInvite path below, which preserves the consumed-invite redirect.
+  if (!("error" in peek)) {
+    const conflict = inviteIdentityConflict(req, peek, name);
+    if (conflict) return renderInviteIdentityConflict(conflict, officeName);
+  }
   const ua = req.headers.get("user-agent");
   const result = await acceptInvite(token, { userAgent: ua, chosenName: name });
   if (!result.ok) {
@@ -371,6 +383,67 @@ export async function handleAccept(
       ...securityHeaders(),
     },
   });
+}
+
+const INVITE_IDENTITY_CONFLICT_COPY = {
+  heading: "This invite is for a different user",
+  body: (current: string, invitee: string) =>
+    `You are signed in as ${current}. To accept it as ${invitee}, open the invite in a private window or a different browser profile.`,
+  link: "Return to office",
+};
+
+function inviteIdentityConflict(
+  req: Request,
+  invite: InvitePeek,
+  chosenName: string | null,
+): { current: string; invitee: string } | null {
+  const session = validateSession(readSessionCookie(req));
+  if (!session) return null;
+
+  let invitee: string;
+  if (invite.username !== null) {
+    invitee = invite.username;
+  } else {
+    invitee = (chosenName ?? "").trim();
+    // Match acceptInvite's bootstrap-name validation. Invalid input continues
+    // to that existing error path instead of becoming an identity refusal.
+    if (
+      !invitee ||
+      invitee.length > 64 ||
+      !/^[\p{L}\p{N} ._'-]+$/u.test(invitee)
+    ) {
+      return null;
+    }
+  }
+
+  const invitedUser = getUserByName(invitee);
+  if (invitedUser?.id === session.userId) return null;
+  console.log(
+    `[auth] invite acceptance refused: live browser session ${session.sessionPrefix}… differs from invite target`,
+  );
+  return { current: session.username, invitee };
+}
+
+function renderInviteIdentityConflict(
+  conflict: { current: string; invitee: string },
+  officeName: string | null,
+): Response {
+  const copy = INVITE_IDENTITY_CONFLICT_COPY;
+  return new Response(
+    baseHtml(
+      authPageTitle(officeName, "invite"),
+      `<h1>${copy.heading}</h1>
+      <p>${escapeHtml(copy.body(conflict.current, conflict.invitee))}</p>
+      <p><a href="/">${copy.link}</a></p>`,
+    ),
+    {
+      status: 409,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        ...securityHeaders(),
+      },
+    },
+  );
 }
 
 // POST /auth/logout - clear the cookie and revoke the session server-side.
