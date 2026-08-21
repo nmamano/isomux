@@ -459,6 +459,15 @@
         font-size: 1.1rem;
         font-weight: 600;
         margin-bottom: 4px;
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .plan h3 .price {
+        font-size: 0.95rem;
+        color: var(--accent);
+        white-space: nowrap;
       }
       .plan p {
         color: var(--text-dim);
@@ -673,18 +682,14 @@
       </p>
       <div class="plans">
         <div class="plan">
-          <h3>Entry</h3>
+          <h3>Entry <span class="price">8 EUR/month</span></h3>
           <p>
-            4 vCPU, 8 GB RAM, 100 GB SSD; for a personal office or small team. 8
-            EUR/month.
+            4 vCPU, 8 GB RAM, 100 GB SSD; for a personal office or small team.
           </p>
         </div>
         <div class="plan">
-          <h3>Poweruser</h3>
-          <p>
-            8 vCPU, 24 GB RAM, 300 GB SSD; for memory-hungry workloads. 17
-            EUR/month.
-          </p>
+          <h3>Poweruser <span class="price">17 EUR/month</span></h3>
+          <p>8 vCPU, 24 GB RAM, 300 GB SSD; for memory-hungry workloads.</p>
         </div>
       </div>
     </section>
