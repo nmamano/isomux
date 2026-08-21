@@ -22,9 +22,9 @@ admission cap.
 Self-hosted offices keep on-demand TLS. Existing hosted offices are not
 migrated. Office backups exclude the root-owned TLS key and renewal identity;
 restoring a hosted office cannot renew until the separate re-enrollment flow in
-task 77cb46ff exists. The control plane's operator-only recycle is narrower than
-an office restore: it can carry only the hosted TLS key and chain from an
-explicit prior run, while provisioning still installs a fresh renewal identity.
+task 77cb46ff exists. A provider rebuild never carries the hosted TLS key and
+always takes fresh issuance, while provisioning installs a fresh renewal
+identity.
 
 > Status: registered-app transport shipped; hosted readiness implemented
 > 2026-08-13. Scratch shares remain design. Author: Isomuxer3, reviewed by

@@ -4,15 +4,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import {
-  cancelAssetHandler,
-  dnsReasonFor,
-  removeDnsHandler,
-  type DnsAnswers,
-} from "./deprovision.ts";
+import { cancelAssetHandler, removeDnsHandler } from "./deprovision.ts";
 import { LIFECYCLE_REASON } from "./lifecycle.ts";
 import type { AssetState } from "./provider.ts";
-import { Store, type AssetRow, type OperationRow } from "./store.ts";
+import { Store, type AssetRow } from "./store.ts";
 import { openTestStore, releaseTestStores } from "./testing/pg.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 
@@ -253,97 +248,87 @@ describe("cancel_asset", () => {
   });
 });
 
-describe("remove_dns removes nothing and proves everything", () => {
-  const answers = (a: string[], aaaa: string[] = []): DnsAnswers => ({
-    a,
-    aaaa,
-    absent: a.length === 0 && aaaa.length === 0,
-  });
-
-  test("while the record still points at the box it stays open and raises a person", async () => {
+describe("remove_dns removes exactly the A records it owns", () => {
+  test("a missing Cloudflare writer raises attention and retries", async () => {
     const b = await bed({ kind: "remove_dns" });
-    const result = await removeDnsHandler({
-      resolve: async () => answers(["169.58.97.2"]),
-    }).run(b.ctx);
-    expect(result.kind).not.toBe("done");
-    const open = await b.store.openReasons("inst-1");
-    expect(open).toHaveLength(1);
-    expect(open[0].reason).toBe(
-      dnsReasonFor("cp2.test.isomux.app", "169.58.97.2"),
+    const result = await removeDnsHandler().run(b.ctx);
+    expect(result.kind).toBe("retry");
+    expect((await b.store.openReasons("inst-1"))[0]?.reason).toBe(
+      "the Cloudflare office DNS writer is not configured",
     );
     await b.store.close();
   });
 
-  test("it succeeds when the name resolves somewhere else, and clears its own reason", async () => {
+  test("success clears the missing-writer attention and audits the resolution", async () => {
     const b = await bed({ kind: "remove_dns" });
-    const handler = removeDnsHandler({
-      resolve: async () => answers(["169.58.97.2"]),
-    });
-    await handler.run(b.ctx);
+    await removeDnsHandler().run(b.ctx);
     expect(await b.store.openReasons("inst-1")).toHaveLength(1);
-
-    // The wildcard under this domain answers 116.203.73.126, so a removed
-    // specific record does not become NXDOMAIN - measured 2026-08-10, and the
-    // reason the condition is "not OUR address" rather than "does not resolve".
-    const after = await removeDnsHandler({
-      resolve: async () => answers(["116.203.73.126"]),
+    const result = await removeDnsHandler({
+      officeDns: {
+        officeARecords: async () => [],
+        replaceOfficeARecords: async () => {},
+        removeOfficeARecords: async () => true,
+      },
     }).run(b.ctx);
-    expect(after.kind).toBe("done");
+    expect(result.kind).toBe("done");
     expect(await b.store.openReasons("inst-1")).toHaveLength(0);
-    // Cleared, with its audit row - a resolved incident that stayed open would
-    // train an operator to ignore the floor.
     expect(
-      (await b.store.auditEvents()).some((e) => e.action === "clear_attention"),
+      (await b.store.auditEvents()).some(
+        (event) => event.action === "clear_attention",
+      ),
     ).toBe(true);
     await b.store.close();
   });
 
-  test("NXDOMAIN is success", async () => {
+  test("it deletes and authoritatively proves both exact A record sets absent", async () => {
     const b = await bed({ kind: "remove_dns" });
+    const removed: string[] = [];
     const result = await removeDnsHandler({
-      resolve: async () => answers([]),
+      officeDns: {
+        officeARecords: async () => [],
+        replaceOfficeARecords: async () => {},
+        removeOfficeARecords: async (host) => {
+          removed.push(host, `*.${host}`);
+          return true;
+        },
+      },
     }).run(b.ctx);
     expect(result.kind).toBe("done");
-    expect(evidenceOf(result).absent).toBe(true);
+    expect(removed).toEqual(["cp2.test.isomux.app", "*.cp2.test.isomux.app"]);
+    expect(evidenceOf(result)).toMatchObject({
+      removed: true,
+      host: "cp2.test.isomux.app",
+      wildcard: "*.cp2.test.isomux.app",
+    });
     await b.store.close();
   });
 
-  test("an AAAA answer BLOCKS, because we hold no v6 address to compare", async () => {
+  test("an unrelated AAAA survives in the writer and cannot block A removal", async () => {
     const b = await bed({ kind: "remove_dns" });
     const result = await removeDnsHandler({
-      resolve: async () => answers(["116.203.73.126"], ["2a01:4f8::1"]),
+      officeDns: {
+        officeARecords: async () => [],
+        replaceOfficeARecords: async () => {},
+        // The writer's exact A query does not expose or delete AAAA records.
+        removeOfficeARecords: async () => true,
+      },
     }).run(b.ctx);
-    // "We cannot check" is not "it is gone".
-    expect(result.kind).not.toBe("done");
-    expect((await b.store.openReasons("inst-1"))[0].reason).toContain("(AAAA)");
+    expect(result.kind).toBe("done");
     await b.store.close();
   });
 
-  test("a resolver failure is a retry, never a success", async () => {
+  test("a Cloudflare failure is a retry, never a success", async () => {
     const b = await bed({ kind: "remove_dns" });
     const result = await removeDnsHandler({
-      resolve: async () => {
-        throw new Error("SERVFAIL");
+      officeDns: {
+        officeARecords: async () => [],
+        replaceOfficeARecords: async () => {},
+        removeOfficeARecords: async () => {
+          throw new Error("SERVFAIL");
+        },
       },
     }).run(b.ctx);
     expect(result.kind).toBe("retry");
-    await b.store.close();
-  });
-
-  test("an unchanged answer waits; a changed one is progress", async () => {
-    const b = await bed({ kind: "remove_dns" });
-    const handler = removeDnsHandler({
-      resolve: async () => answers(["169.58.97.2"]),
-    });
-    const first = await handler.run(b.ctx);
-    expect(first.kind).toBe("progress");
-    // Feed the recorded evidence back in, as the ticker would.
-    const carried: OperationRow = {
-      ...b.ctx.op,
-      evidence: JSON.stringify(evidenceOf(first)),
-    };
-    const second = await handler.run({ ...b.ctx, op: carried });
-    expect(second.kind).toBe("waiting");
     await b.store.close();
   });
 });

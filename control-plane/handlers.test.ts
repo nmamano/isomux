@@ -16,6 +16,7 @@ import {
   installCustomerKeyHandler,
   revokeAccessHandler,
   runInstallerHandler,
+  setDnsHandler,
   verifyHttpsHandler,
   waitForPackageManagerHandler,
   waitForSshHandler,
@@ -474,6 +475,75 @@ describe("revoke_access", () => {
     expect(
       audits.some((row) => row.action === "observe_customer_ssh_key"),
     ).toBe(true);
+  });
+});
+
+describe("set_dns owns the office and wildcard A records", () => {
+  test("retries without an address because reconcile is its only source", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    await b.store.sqlRun(
+      "update provider_assets set ipv4 = null where instance_id = 'inst-1'",
+    );
+    const result = await setDnsHandler(b.deps).run(await b.ctx({}));
+    expect(result).toEqual({
+      kind: "retry",
+      reason: "the instance has no IPv4 address to set office DNS against",
+    });
+  });
+
+  test("a missing writer raises attention and retries instead of doing nothing", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    const result = await setDnsHandler(b.deps).run(await b.ctx({}));
+    expect(result.kind).toBe("retry");
+    expect((await b.store.openReasons("inst-1"))[0]?.reason).toBe(
+      "the Cloudflare office DNS writer is not configured",
+    );
+  });
+
+  test("success clears the missing-writer attention and audits the resolution", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    const ctx = await b.ctx({});
+    await setDnsHandler(b.deps).run(ctx);
+    expect(await b.store.openReasons("inst-1")).toHaveLength(1);
+    const result = await setDnsHandler({
+      ...b.deps,
+      officeDns: {
+        officeARecords: async () => [],
+        removeOfficeARecords: async () => true,
+        replaceOfficeARecords: async () => {},
+      },
+    }).run(ctx);
+    expect(result.kind).toBe("done");
+    expect(await b.store.openReasons("inst-1")).toHaveLength(0);
+    expect(
+      (await b.store.auditEvents()).some(
+        (event) => event.action === "clear_attention",
+      ),
+    ).toBe(true);
+  });
+
+  test("replaces both exact names with the reconciled asset address", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    const calls: unknown[] = [];
+    const result = await setDnsHandler({
+      ...b.deps,
+      officeDns: {
+        officeARecords: async () => [],
+        removeOfficeARecords: async () => true,
+        replaceOfficeARecords: async (...args) => {
+          calls.push(args);
+        },
+      },
+    }).run(await b.ctx({}));
+    expect(result).toMatchObject({
+      kind: "done",
+      evidence: {
+        host: "cp1.test.isomux.app",
+        wildcard: "*.cp1.test.isomux.app",
+        ipv4: "169.58.97.2",
+      },
+    });
+    expect(calls).toEqual([["cp1.test.isomux.app", "169.58.97.2"]]);
   });
 });
 

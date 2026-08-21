@@ -130,6 +130,8 @@ describe("the chain", () => {
   test("the goal decides where the chain stops", async () => {
     expect(nextKind("arm_revocation", "first_contact")).toBeNull();
     expect(nextKind("arm_revocation", "live")).toBe("wait_for_package_manager");
+    expect(nextKind("wait_for_package_manager", "live")).toBe("set_dns");
+    expect(nextKind("set_dns", "live")).toBe("run_installer");
     expect(nextKind("run_installer", "installed")).toBeNull();
     expect(nextKind("mint_invite", "live")).toBeNull();
     expect(nextKind("mint_invite", "handed_off")).toBe("revoke_access");
@@ -396,16 +398,13 @@ describe("reconcile", () => {
 });
 
 describe("enqueue", () => {
-  test("a kind this slice does not drive cannot be enqueued", async () => {
+  test("an unknown kind cannot be enqueued", async () => {
     const c = clock();
     const store = await tempStore(c.now);
     const inst = await seed(store);
     const ticker = new Ticker({ store, handlers: [], holder: "a" });
-    // `set_dns` is the last kind the design names that nothing drives: slice 3
-    // gave power_off its deadlines, slice 5 gave power_on, cancel_asset and
-    // remove_dns theirs, and no deployment here creates a DNS record.
     expect(
-      ticker.enqueue(inst, "set_dns" as unknown as Handler["kind"]),
+      ticker.enqueue(inst, "unknown_kind" as unknown as Handler["kind"]),
     ).rejects.toThrow(/does not drive it/);
   });
 });

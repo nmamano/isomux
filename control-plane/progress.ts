@@ -219,6 +219,7 @@ const LABELS: Record<OperationKind, string> = {
   install_customer_key: "Installing your SSH key",
   arm_revocation: "Setting a timer for our access to expire",
   wait_for_package_manager: "Waiting for the server's package manager",
+  set_dns: "Setting your office's address",
   run_installer: "Installing isomux",
   verify_https: "Checking your office over HTTPS",
   mint_invite: "Preparing your owner invite",
@@ -689,6 +690,6 @@ export async function projectionFor(
   };
 }
 
-/** Kinds the design names but nothing drives. Exported so a test can assert no
- * ladder contains one. */
+/** Kinds the design names but nothing drives. Empty now; kept as the direct
+ * alarm if a future declared operation is not placed in a ladder. */
 export const NEVER_IN_LADDER: readonly string[] = DECLARED_UNIMPLEMENTED_KINDS;

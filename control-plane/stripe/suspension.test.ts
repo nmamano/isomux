@@ -106,15 +106,23 @@ describe("the operation model", () => {
     });
   });
 
-  test("power_on is driven now, and set_dns is the one left undeclared", async () => {
+  test("every declared operation is driven, and unknown kinds stay refused", async () => {
     // Slice 5 built the resume: suspension without it leaves a PAYING
     // customer's box switched off, which is worse than the unruled automation
-    // slice 3 declined to invent. set_dns stays undriven because no deployment
-    // here creates a record, and a silent no-op arm would look like work.
     expect(DECLARED_UNIMPLEMENTED_KINDS).not.toContain("power_on");
     expect(deadlinesFor("power_on").absoluteMs).toBe(1_800_000);
-    expect(DECLARED_UNIMPLEMENTED_KINDS).toContain("set_dns");
-    expect(() => deadlinesFor("set_dns")).toThrow(/does not drive it/);
+    expect(DECLARED_UNIMPLEMENTED_KINDS).toEqual([]);
+    expect(deadlinesFor("set_dns")).toEqual({
+      inactivityMs: 300_000,
+      absoluteMs: 1_800_000,
+      maxRemoteMs: 60_000,
+    });
+    expect(deadlinesFor("remove_dns")).toEqual({
+      inactivityMs: 300_000,
+      absoluteMs: 3_600_000,
+      maxRemoteMs: 60_000,
+    });
+    expect(() => deadlinesFor("unknown_kind")).toThrow(/does not drive it/);
   });
 
   test("a proven power-off moves the coarse service state to suspended", async () => {

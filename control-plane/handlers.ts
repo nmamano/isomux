@@ -69,6 +69,7 @@ import {
   issueCertificateCredential,
   revokeCertificateCredentials,
 } from "./certificate-credentials.ts";
+import type { OfficeDnsWriter } from "./cloudflare-dns.ts";
 
 export interface HandlerDeps {
   exec: Exec;
@@ -85,6 +86,8 @@ export interface HandlerDeps {
   certificateEndpoint?: string;
   /** DNS record reads are injected for the provisioning predicate's tests. */
   resolveDns?: (host: string) => Promise<DnsAnswers>;
+  /** The configured target zone writer. Absent means DNS work retries loudly. */
+  officeDns?: OfficeDnsWriter;
   probeHttps?: (
     host: string,
     expectedIpv4: string | undefined,
@@ -100,6 +103,70 @@ export interface HandlerDeps {
    */
   deliver?: {
     hold(operationId: string, instanceId: string, url: string): void;
+  };
+}
+
+// ------------------------------------------------------------------- set_dns
+
+export function setDnsHandler(deps: HandlerDeps): Handler {
+  return {
+    kind: "set_dns",
+    timeoutIsRetryable: false,
+    async run(ctx): Promise<HandlerResult> {
+      const ipv4 = ctx.asset?.ipv4;
+      // The provider asset starts with ipv4: null. The reconcile pass is the
+      // one authority that fills it, and verify_https reads the same field.
+      if (!ipv4) {
+        return {
+          kind: "retry",
+          reason: "the instance has no IPv4 address to set office DNS against",
+        };
+      }
+      if (!deps.officeDns) {
+        const reason = "the Cloudflare office DNS writer is not configured";
+        await ctx.store.tx(() =>
+          raiseAttentionIn(ctx.store, {
+            instanceId: ctx.instance.id,
+            reasonClass: "operation_condition",
+            sourceOpId: ctx.op.id,
+            reason,
+            severity: "warning",
+            actor: "lifecycle",
+          }),
+        );
+        return { kind: "retry", reason };
+      }
+      try {
+        await remote(ctx, "set_office_dns", () =>
+          deps.officeDns!.replaceOfficeARecords(ctx.instance.name, ipv4),
+        );
+      } catch (err) {
+        return {
+          kind: "retry",
+          reason: `could not set office DNS: ${messageOf(err)}`,
+        };
+      }
+      await ctx.store.tx(async () => {
+        for (const open of await ctx.store.openReasons(ctx.instance.id)) {
+          if (open.source_op_id === ctx.op.id) {
+            await clearAttentionIn(
+              ctx.store,
+              ctx.instance.id,
+              open.id,
+              "lifecycle",
+            );
+          }
+        }
+      });
+      return {
+        kind: "done",
+        evidence: {
+          host: ctx.instance.name,
+          wildcard: `*.${ctx.instance.name}`,
+          ipv4,
+        },
+      };
+    },
   };
 }
 
@@ -1338,6 +1405,7 @@ export function boxHandlers(deps: HandlerDeps): Handler[] {
     firstContactHandler(deps),
     installCustomerKeyHandler(deps),
     armRevocationHandler(deps),
+    setDnsHandler(deps),
     runInstallerHandler(deps),
     verifyHttpsHandler(deps),
     mintInviteHandler(deps),

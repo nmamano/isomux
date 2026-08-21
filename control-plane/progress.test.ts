@@ -109,6 +109,7 @@ describe("the ladder is walked, not written down", () => {
       "install_customer_key",
       "arm_revocation",
       "wait_for_package_manager",
+      "set_dns",
       "run_installer",
     ]);
     // A HOSTED OFFICE STOPS AT verify_https. Slice 4b: minting before the
@@ -122,6 +123,7 @@ describe("the ladder is walked, not written down", () => {
       "install_customer_key",
       "arm_revocation",
       "wait_for_package_manager",
+      "set_dns",
       "run_installer",
       "verify_https",
     ]);

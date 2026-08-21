@@ -566,6 +566,14 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
  * (`casAsset` -> provider_assets UPDATE, `openReasons` and `raiseAttentionIn`
  * -> attention_reasons SELECT/INSERT), so no term of the matrix depends on
  * whether they are registered.
+ *
+ * `set_dns` added 2026-08-21. It reads the instance and asset rows and raises
+ * and clears attention, which is a SUBSET of what `verify_https` and
+ * `remove_dns` already reach: attention_reasons SELECT/INSERT/UPDATE -
+ * clearing is an UPDATE, not a delete - instances SELECT/UPDATE through the
+ * attention summary, `sequences` UPDATE through the audit sequence, and
+ * audit_events INSERT. The matrix already carries every one, so no term of it
+ * depends on this handler. Its Cloudflare writes are not database verbs.
  */
 export const AUDITED_HANDLER_KINDS = [
   "wait_for_ssh",
@@ -573,6 +581,7 @@ export const AUDITED_HANDLER_KINDS = [
   "first_contact",
   "install_customer_key",
   "arm_revocation",
+  "set_dns",
   "run_installer",
   "verify_https",
   "mint_invite",

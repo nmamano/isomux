@@ -80,7 +80,7 @@ describe("hosted app wildcard DNS", () => {
 
   test("the operator reason names the wildcard and exact target", () => {
     expect(wildcardDnsReasonFor("acme.test.isomux.app", "203.0.113.7")).toBe(
-      "the wildcard DNS record *.acme.test.isomux.app must point only at 203.0.113.7 before app links can open; create the office A record and wildcard A record together",
+      "the wildcard DNS record *.acme.test.isomux.app must point only at 203.0.113.7 before app links can open; automatic DNS setup did not converge the office and wildcard A records",
     );
   });
 });

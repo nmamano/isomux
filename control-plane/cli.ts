@@ -82,6 +82,7 @@ import {
 import { CertificateService } from "./certificate-service.ts";
 import { certificateTargetFromEnv } from "./certificate-target.ts";
 import { obtainCertificateWithLego } from "./lego-acme.ts";
+import { CloudflareDns } from "./cloudflare-dns.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
 import { PROVIDER_DEPENDENT_KINDS, tickerHandlerRoster } from "./run-roster.ts";
 import { setOperator } from "./operator-admin.ts";
@@ -182,11 +183,6 @@ import {
   resumeRun,
   saveRun as saveRunTo,
 } from "./run-record.ts";
-import {
-  exportHostedTls,
-  removeTlsArchive,
-  stageHostedTlsRestore,
-} from "./tls-preservation.ts";
 
 function saveRun(rec: RunRecord): void {
   saveRunTo(RUNS_DIR, rec);
@@ -372,6 +368,24 @@ function makeTicker(
   deliver?: HandlerDeps["deliver"],
 ): Ticker {
   const provider = adapterOrNothing();
+  const officeDns =
+    process.env.ISOMUX_CERT_TARGET &&
+    process.env.ISOMUX_ACME_DIRECTORY &&
+    process.env.ISOMUX_CF_API &&
+    process.env.ISOMUX_CF_ZONE_ID &&
+    process.env.ISOMUX_CF_TOKEN
+      ? (() => {
+          const target = certificateTargetFromEnv(process.env);
+          return new CloudflareDns({
+            baseUrl: target.cloudflareBaseUrl,
+            // Office A records use the configured target zone, like ACME TXT.
+            // productionZoneId only pins whether that target is classified live.
+            zoneId: target.zoneId,
+            apiToken: process.env.ISOMUX_CF_TOKEN ?? "",
+            intentsDir: path.join(STATE_ROOT, "certificate-dns-intents"),
+          });
+        })()
+      : undefined;
   const line = (l: string) => reporter.line(l);
   const stripeMode = resolveStripeMode(process.env);
   const stripeKey = stripeKeyFromEnv(stripeMode, process.env);
@@ -394,6 +408,7 @@ function makeTicker(
         keysDir: KEYS_DIR,
         ownerName,
         deliver,
+        officeDns,
         certificateEndpoint: process.env.ISOMUX_CERTIFICATE_ENDPOINT,
       },
       provider,
@@ -550,18 +565,6 @@ async function cmdRecycle(args: Map<string, string>): Promise<void> {
     `adopting instance ${instanceId} (${before.assetState}, ${before.powerState}, ${before.ipv4 ?? "no ip"})`,
   );
 
-  const fromRunId = args.get("from-run");
-  const source = fromRunId ? loadRunFrom(RUNS_DIR, fromRunId) : null;
-  const preserved = await exportHostedTls({
-    source,
-    instanceId,
-    host,
-    runId,
-    keysDir: KEYS_DIR,
-    exec,
-  });
-  if (preserved.warning) reporter.line(`warning: ${preserved.warning}`);
-
   const pair = await generateKeyPair(KEYS_DIR, runId, exec);
   const secretId = await adapter.createSshSecret(
     `isomux-cp-${runId}`,
@@ -604,8 +607,6 @@ async function cmdRecycle(args: Map<string, string>): Promise<void> {
   audit.record("reinstall", instanceId, "succeeded");
 
   const waitedMs = await waitForSsh(rec);
-  const staged = await stageHostedTlsRestore({ rec, keysDir: KEYS_DIR, exec });
-  if (staged.warning) reporter.line(`warning: ${staged.warning}`);
   rec.state = "reachable";
   saveRun(rec);
   reporter.line(
@@ -840,7 +841,6 @@ async function cmdFinish(args: Map<string, string>): Promise<void> {
   await driveTicks(store, ticker, { forever: false, reporter });
   await printOperations(store, instanceId);
   process.exitCode = await exitCodeFor(store);
-  if (process.exitCode === 0) removeTlsArchive(KEYS_DIR, rec.runId);
 }
 
 async function cmdMint(args: Map<string, string>): Promise<void> {
@@ -1007,8 +1007,6 @@ function privilegeArgvFor(loginUser: string): string[] {
 async function cmdConnect(args: Map<string, string>): Promise<void> {
   const rec = loadRun(required(args, "run"));
   const waited = await waitForSsh(rec);
-  const staged = await stageHostedTlsRestore({ rec, keysDir: KEYS_DIR, exec });
-  if (staged.warning) reporter.line(`warning: ${staged.warning}`);
   // Advance the state, so a run that was interrupted after its rebuild does not
   // sit at reinstall_requested forever and invite someone to rebuild it again.
   if (rec.state === "reinstall_requested") {
@@ -1035,12 +1033,6 @@ async function cmdResume(args: Map<string, string>): Promise<void> {
   const action = await resumeRun(RUNS_DIR, rec, {
     waitForSsh: async (r) => {
       const waited = await waitForSsh(r);
-      const staged = await stageHostedTlsRestore({
-        rec: r,
-        keysDir: KEYS_DIR,
-        exec,
-      });
-      if (staged.warning) reporter.line(`warning: ${staged.warning}`);
       reporter.line(`reachable after ${Math.round(waited / 1000)}s`);
     },
     firstContact: (r) => {

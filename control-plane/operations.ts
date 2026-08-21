@@ -14,6 +14,7 @@ export type OperationKind =
   | "first_contact"
   | "install_customer_key"
   | "arm_revocation"
+  | "set_dns"
   | "run_installer"
   | "verify_https"
   | "mint_invite"
@@ -48,12 +49,9 @@ export type OperationKind =
  * them and nothing can enqueue one by accident. A silent no-op arm would be
  * worse than an error: it would look like the operation ran.
  */
-export const DECLARED_UNIMPLEMENTED_KINDS = [
-  // The only one left. Slice 5 drove power_on, cancel_asset and remove_dns;
-  // `set_dns` stays undriven because no deployment here creates a record, and a
-  // silent no-op arm would look like work that ran.
-  "set_dns",
-] as const;
+// Every operation kind declared by the design is now driven. Keep this guard
+// explicit so a future declaration cannot silently disappear from the ladders.
+export const DECLARED_UNIMPLEMENTED_KINDS = [] as const;
 
 export type Goal = "first_contact" | "installed" | "live" | "handed_off";
 
@@ -119,6 +117,13 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     inactivityMs: 3 * MINUTE,
     absoluteMs: 3 * MINUTE,
     maxRemoteMs: 150_000,
+  },
+  // One Cloudflare mutation, reconciled from authoritative record state on a
+  // retry. It has the same retry shape as other remote mutations.
+  set_dns: {
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 30 * MINUTE,
+    maxRemoteMs: 60_000,
   },
   // Measured: install 236s to exit 0, largest gap between consecutive step
   // markers 67s (the Chrome download). 8 minutes is about a 7x margin on that.
@@ -189,14 +194,13 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     absoluteMs: 60 * MINUTE,
     maxRemoteMs: 60_000,
   },
-  // NOT a remote mutation: nothing here writes DNS. It re-reads the record until
-  // the record is gone, so its ceiling is measured in the time a HUMAN takes to
-  // reap a record after being told to. A day, and then it flags - which is the
-  // point, because a flagged one is what puts it on the ops floor a second time.
+  // Like cancel_asset, this carries a promise that must not be abandoned. An A
+  // record left pointing at a released address is the DNS equivalent of an
+  // asset left billing forever, so the wide ceiling flags and keeps retrying.
   remove_dns: {
-    inactivityMs: 6 * 60 * MINUTE,
-    absoluteMs: 24 * 60 * MINUTE,
-    maxRemoteMs: 30_000,
+    inactivityMs: 5 * MINUTE,
+    absoluteMs: 60 * MINUTE,
+    maxRemoteMs: 60_000,
   },
 };
 
@@ -234,6 +238,8 @@ export function nextKind(
     case "arm_revocation":
       return goal === "first_contact" ? null : "wait_for_package_manager";
     case "wait_for_package_manager":
+      return "set_dns";
+    case "set_dns":
       return "run_installer";
     case "run_installer":
       return goal === "installed" ? null : "verify_https";

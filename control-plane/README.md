@@ -7,7 +7,8 @@ Fly supplies the pinned production CA, Cloudflare API, and renewal endpoint from
 `deploy/fly.toml`. The deployment must also supply these secrets:
 
 - `ISOMUX_CF_ZONE_ID`: the one production zone that the token can edit
-- `ISOMUX_CF_TOKEN`: a token limited to DNS records in that zone
+- `ISOMUX_CF_TOKEN`: a token limited to DNS records in that zone; it writes
+  ephemeral ACME TXT records and permanent office A records
 - `ISOMUX_ACME_EMAIL`: the ACME account contact
 
 Stage and verify only these values with
@@ -53,7 +54,7 @@ it holds no standing access to anything it builds.
 
 ```
 bun control-plane/cli.ts list
-bun control-plane/cli.ts recycle --instance <id> --host <name> [--run-id <id>] [--from-run <priorRunId>]
+bun control-plane/cli.ts recycle --instance <id> --host <name> [--run-id <id>]
 bun control-plane/cli.ts connect --run <runId>
 bun control-plane/cli.ts resume  --run <runId>
 bun control-plane/cli.ts provision --run <runId> --access-window 2h [--stop-after first-contact|install] [--handoff-now] [--owner-name X]
@@ -69,16 +70,12 @@ bun control-plane/cli.ts expiry-test --run <runId> --variant boundary|powered-of
 bun control-plane/cli.ts bootstrap                # an empty database -> schema-ready
 ```
 
-`recycle --from-run` best-effort carries the hosted TLS key and chain through a
-provider wipe using the prior run's pinned SSH identity. The root-only archive
-lives beside the operator's per-run SSH keys and never enters the database, run
-record, evidence or audit log. A valid restored pair lets lego return its
-not-yet-due chain, which matches the carried key; the box reports successful
-contact and keeps the files. Missing or invalid material continues into the
-normal request. The adapter compares complete normalized SPKI keys and forces
-one renewal if lego returns the wiped box's stale chain. That costs one
-duplicate-certificate slot. A second mismatch fails with operator attention
-instead of returning stale material or looping.
+A rebuild always issues a fresh hosted TLS key and certificate. The TLS-key
+carry shipped in commit `dd21dd5` and was later deleted per Nil's ruling. The
+adapter compares complete normalized SPKI keys and forces one renewal if lego
+returns the wiped box's stale chain. That costs one duplicate-certificate slot.
+A second mismatch fails with operator attention instead of returning stale
+material or looping.
 
 Credentials come from the environment (`CONTABO_CLIENT_ID`,
 `CONTABO_CLIENT_SECRET`, `CONTABO_API_USER`, `CONTABO_API_PASSWORD`); sourcing
@@ -3327,19 +3324,11 @@ had even cancelled.
 waits for the other, per the design. Chaining them would let a DNS record nobody
 has reaped hold open an asset we are still paying for.
 
-`remove_dns` **removes nothing**: this deployment automates no DNS. It raises an
-operator attention row naming the record, and then VERIFIES - it succeeds only
-once the hostname no longer resolves to the instance's recorded `ipv4`, read
-with `dns.resolve4`/`resolve6` (the record queries; `dns.lookup` consults
-/etc/hosts and collapses the answer set). On success it CLEARS the reason it
-raised, with its audit row. Two deliberate details:
-
-- the condition is "not OUR address", not "does not resolve". **Measured
-  2026-08-10**: `*.test.isomux.app` has a wildcard A record answering
-  116.203.73.126, so a removed specific record never becomes NXDOMAIN here.
-- an AAAA answer BLOCKS. We record no ipv6 for an instance, so an AAAA record is
-  unprovable, and unprovable is not removed. (No AAAA exists under this domain
-  today; that instances carry no ipv6 at all is a real gap.)
+`remove_dns` deletes every A record at the exact office and wildcard names
+through the configured Cloudflare target zone. It then re-lists authoritative
+Cloudflare state and concludes only when both A record sets are empty. It does
+not delete AAAA, TXT, CNAME, or records at any other name. An unrelated AAAA
+record therefore survives and does not block deprovisioning.
 
 ### Contabo refuses a second cancel (measured 2026-08-10)
 

@@ -58,7 +58,7 @@ export function wildcardDnsReasonFor(
 ): string {
   return (
     `the wildcard DNS record *.${officeHost} must point only at ` +
-    `${instanceIpv4} before app links can open; ` +
-    `create the office A record and wildcard A record together`
+    `${instanceIpv4} before app links can open; automatic DNS setup did not ` +
+    `converge the office and wildcard A records`
   );
 }

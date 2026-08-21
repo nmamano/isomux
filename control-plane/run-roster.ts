@@ -63,8 +63,13 @@ export const CANCEL_ALLOWED_ASSET_STATES = [
  *
  * Named here, beside the branch that registers them, so the deployed process
  * can report whether it has provider means by asking the roster it actually
- * built. `remove_dns` is deliberately absent: it reads DNS and removes nothing,
- * so it is registered either way.
+ * built. `set_dns` and `remove_dns` are deliberately absent. They DO mutate,
+ * but through the Cloudflare writer injected into the handler deps rather than
+ * through provider credentials, so provider means do not gate them and they
+ * are registered either way. Note the cost of registering them either way: a
+ * deployment with no Cloudflare writer registers them anyway, so a missing
+ * credential surfaces as a retrying operation with attention raised, not as
+ * slice 2's no-handler condition.
  */
 export const PROVIDER_DEPENDENT_KINDS = [
   "reboot",
@@ -112,8 +117,8 @@ export function tickerHandlerRoster(args: {
           }),
         ]
       : []),
-    // No credentials needed: it removes nothing and only READS DNS.
-    removeDnsHandler({ report }),
+    // No provider credential needed: remove_dns uses the injected Cloudflare writer.
+    removeDnsHandler({ report, officeDns: box.officeDns }),
     ...(args.stripe ? [checkoutExpiryHandler(args.stripe)] : []),
   ];
 }

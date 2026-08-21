@@ -18,6 +18,21 @@ export interface TxtRecord {
   content: string;
 }
 
+export interface ARecord {
+  id: string;
+  name: string;
+  content: string;
+  proxied: boolean;
+  type?: "A";
+  ttl?: number;
+}
+
+export interface OfficeDnsWriter {
+  officeARecords(host: string): Promise<ARecord[]>;
+  replaceOfficeARecords(host: string, ipv4: string): Promise<void>;
+  removeOfficeARecords(host: string): Promise<boolean>;
+}
+
 interface CloudflareAnswer<T> {
   success: boolean;
   result: T;
@@ -133,6 +148,91 @@ export class CloudflareDns {
     return records.filter(
       (record) => record.name === clean && record.content === content,
     );
+  }
+
+  private officeNames(host: string): [string, string] {
+    const clean = normalName(host).toLowerCase();
+    if (!clean || clean.startsWith("*.") || clean.includes("/")) {
+      throw new Error(
+        `refusing unsafe office DNS name ${JSON.stringify(host)}`,
+      );
+    }
+    return [clean, `*.${clean}`];
+  }
+
+  private async listA(name: string): Promise<ARecord[]> {
+    const records = await this.api<ARecord[]>(
+      `/dns_records?type=A&name=${encodeURIComponent(name)}&per_page=100`,
+    );
+    return records.filter(
+      (record) => record.name === name && record.content.length > 0,
+    );
+  }
+
+  async officeARecords(host: string): Promise<ARecord[]> {
+    const names = this.officeNames(host);
+    return (await Promise.all(names.map((name) => this.listA(name)))).flat();
+  }
+
+  private officeARecordsMatch(
+    names: readonly string[],
+    records: readonly ARecord[],
+    ipv4: string,
+  ): boolean {
+    return (
+      records.length === 2 &&
+      names.every((name) =>
+        records.some(
+          (record) =>
+            record.name === name &&
+            record.content === ipv4 &&
+            record.proxied === false,
+        ),
+      )
+    );
+  }
+
+  async replaceOfficeARecords(host: string, ipv4: string): Promise<void> {
+    const names = this.officeNames(host);
+    const existing = await this.officeARecords(host);
+    if (this.officeARecordsMatch(names, existing, ipv4)) {
+      return;
+    }
+    await this.api("/dns_records/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        ...(existing.length > 0
+          ? { deletes: existing.map((record) => ({ id: record.id })) }
+          : {}),
+        posts: names.map((name) => ({
+          type: "A",
+          name,
+          content: ipv4,
+          ttl: 120,
+          proxied: false,
+        })),
+      }),
+    });
+    if (
+      !this.officeARecordsMatch(names, await this.officeARecords(host), ipv4)
+    ) {
+      throw new Error(
+        `Cloudflare did not converge office A records for ${host}`,
+      );
+    }
+  }
+
+  async removeOfficeARecords(host: string): Promise<boolean> {
+    const existing = await this.officeARecords(host);
+    if (existing.length > 0) {
+      await this.api("/dns_records/batch", {
+        method: "POST",
+        body: JSON.stringify({
+          deletes: existing.map((record) => ({ id: record.id })),
+        }),
+      });
+    }
+    return (await this.officeARecords(host)).length === 0;
   }
 
   /**

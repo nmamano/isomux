@@ -7,17 +7,13 @@
 // reconcile against get adopts the truth." Chaining them would also let a DNS
 // record nobody has reaped hold open an asset we are still paying for.
 //
-// Neither of these deletes anything at the instant it succeeds:
-//
 //   cancel_asset SCHEDULES. Contabo cancels at its paid-term end and returns
 //     that date; the box keeps serving until then. So this operation's success
 //     means "the provider has accepted the cancellation", and `service_state`
 //     becomes `deprovisioned` somewhere else entirely - when reconciliation
 //     reports the asset actually cancelled or absent.
-//   remove_dns REMOVES NOTHING. This deployment automates no DNS, and an
-//     operation that reported a record removed while the record still resolved
-//     would be a lie the ops floor could not see. So it raises a person and then
-//     VERIFIES: it succeeds only once the name stops resolving to this box.
+//   remove_dns deletes the office and wildcard A records, and then re-lists
+//     authoritative Cloudflare state before it concludes.
 
 import * as dnsPromises from "node:dns/promises";
 import { clearAttentionIn, raiseAttentionIn } from "./attention.ts";
@@ -25,6 +21,7 @@ import type { AssetState } from "./provider.ts";
 import { openerStamp } from "./stripe/suspension.ts";
 import type { Handler, HandlerContext, HandlerResult } from "./tick.ts";
 import { revokeCertificateCredentials } from "./certificate-credentials.ts";
+import type { OfficeDnsWriter } from "./cloudflare-dns.ts";
 
 // ------------------------------------------------------------ cancel_asset
 
@@ -209,8 +206,8 @@ export interface DnsAnswers {
 }
 
 export interface RemoveDnsDeps {
-  /** Injected so the stub tier needs no resolver and no record to delete. */
-  resolve?: (host: string) => Promise<DnsAnswers>;
+  /** Injected so the stub tier never reaches Cloudflare. */
+  officeDns?: OfficeDnsWriter;
   report?: (line: string) => void;
 }
 
@@ -244,22 +241,13 @@ export async function resolveRecords(host: string): Promise<DnsAnswers> {
   return answers;
 }
 
-/** The attention this operation raises, and later clears. One constant, because
- * clearing has to name the same string the raise used. */
-export function dnsReasonFor(host: string, ipv4: string | null): string {
-  return (
-    `the DNS record for ${host} still points at ${ipv4 ?? "this office's box"} ` +
-    `and has to be removed by hand: this deployment automates no DNS, so the ` +
-    `deprovision cannot finish until the record is gone`
-  );
-}
-
 export function removeDnsHandler(deps: RemoveDnsDeps = {}): Handler {
-  const resolve = deps.resolve ?? resolveRecords;
+  const officeDns = deps.officeDns;
   return {
     kind: "remove_dns",
-    // Read-only. A probe that timed out changed nothing anywhere.
-    timeoutIsRetryable: true,
+    // A killed Cloudflare call is ambiguous; the next attempt re-lists before
+    // it converges, but this attempt must not be reported as a clean timeout.
+    timeoutIsRetryable: false,
     async run(ctx: HandlerContext): Promise<HandlerResult> {
       // Revocation comes before DNS removal. A cancelled office must lose its
       // renewal authority even while an operator is still removing records.
@@ -267,51 +255,36 @@ export function removeDnsHandler(deps: RemoveDnsDeps = {}): Handler {
         revokeCertificateCredentials(ctx.store, ctx.instance.id),
       );
       const host = ctx.instance.name;
-      const ipv4 = ctx.asset?.ipv4 ?? null;
-      const reason = dnsReasonFor(host, ipv4);
-
-      ctx.budget.claim("dns_probe");
-      let answers: DnsAnswers;
-      try {
-        answers = await resolve(host);
-      } catch (err) {
-        // A resolver failure establishes NOTHING about the record. It is not
-        // evidence that the name is gone, so it is a retry, never a success.
-        return {
-          kind: "retry",
-          reason: `could not read DNS for ${host}: ${messageOf(err)}`,
-        };
-      }
-
-      const stillOurs = ipv4 !== null && answers.a.includes(ipv4);
-      // An AAAA answer is UNPROVABLE, not harmless. We record no ipv6 for an
-      // instance, so there is nothing to compare against, and "we cannot check"
-      // is not "it is gone". It blocks, and the operator sees why.
-      const unprovableV6 = answers.aaaa.length > 0;
-
-      if (stillOurs || unprovableV6) {
+      if (!officeDns) {
+        const reason = "the Cloudflare office DNS writer is not configured";
         await ctx.store.tx(() =>
           raiseAttentionIn(ctx.store, {
             instanceId: ctx.instance.id,
             reasonClass: "operation_condition",
             sourceOpId: ctx.op.id,
-            reason: unprovableV6 && !stillOurs ? `${reason} (AAAA)` : reason,
+            reason,
             severity: "warning",
             actor: "lifecycle",
           }),
         );
-        const evidence = {
-          ...openerStamp(ctx.op.evidence),
-          a: answers.a,
-          aaaa: answers.aaaa,
-          stillOurs,
+        return { kind: "retry", reason };
+      }
+
+      ctx.budget.claim("remove_office_dns");
+      let removed: boolean;
+      try {
+        removed = await officeDns.removeOfficeARecords(host);
+      } catch (err) {
+        return {
+          kind: "retry",
+          reason: `could not remove office DNS: ${messageOf(err)}`,
         };
-        // `waiting` while the answer is unchanged, `progress` when it moved:
-        // the inactivity deadline should reset on a record that is being worked
-        // on and keep running on one nobody has touched.
-        return sameAnswers(ctx.op.evidence, answers)
-          ? { kind: "waiting", evidence }
-          : { kind: "progress", evidence };
+      }
+      if (!removed) {
+        return {
+          kind: "retry",
+          reason: `Cloudflare still lists A records for ${host}`,
+        };
       }
 
       // Verified. The record no longer points here, so the condition this
@@ -330,30 +303,18 @@ export function removeDnsHandler(deps: RemoveDnsDeps = {}): Handler {
           }
         }
       });
-      deps.report?.(`${host} no longer resolves to this office's box`);
+      deps.report?.(`${host} and its wildcard A record were removed`);
       return {
         kind: "done",
         evidence: {
           ...openerStamp(ctx.op.evidence),
           removed: true,
-          absent: answers.absent,
-          a: answers.a,
+          host,
+          wildcard: `*.${host}`,
         },
       };
     },
   };
-}
-
-function sameAnswers(raw: string, answers: DnsAnswers): boolean {
-  try {
-    const ev = JSON.parse(raw) as Record<string, unknown>;
-    return (
-      JSON.stringify(ev.a ?? null) === JSON.stringify(answers.a) &&
-      JSON.stringify(ev.aaaa ?? null) === JSON.stringify(answers.aaaa)
-    );
-  } catch {
-    return false;
-  }
 }
 
 function messageOf(err: unknown): string {
