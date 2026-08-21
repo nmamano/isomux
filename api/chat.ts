@@ -61,7 +61,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 - Docs: isomux.com/docs (full feature list, self-hosted setup, unattended VPS install, access and invites, backup/restore, security audit)
 - Created by Nil Mamano (nilmamano.com)
 - Blog post with architecture deep dive: nilmamano.com/blog/isomux
-- Community and support: Discord: https://discord.gg/FrjEYyNvYs (questions, setup help, bug reports, and Hosted Isomux launch updates)
+- Community and support: Discord: https://discord.gg/FrjEYyNvYs (questions, setup help, bug reports, and Hosted Isomux support)
 
 ## Getting Started
 1. Install Bun (v1.2+) and Node.js 20+ (the embedded terminal runs on Node.js; Bun can't replace it). For Claude agents, also install the Claude Code CLI (\`npm install -g @anthropic-ai/claude-code\`, then \`claude\` and \`/login\`). The Codex CLI ships bundled with isomux - no separate install - and prompts for sign-in via a one-click terminal card the first time you message a Codex agent. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step.
@@ -83,8 +83,8 @@ Setup:
 7. For voice input over Tailscale, enable HTTPS certificates in the Tailscale admin console and run \`tailscale serve --bg http://localhost:4000\`.
 8. To let people use the office from outside your Tailscale network - friends, collaborators on a different VPN, anyone - expose it via Tailscale Funnel. Free, no domain needed, no router work. The docs at isomux.com/docs/access-and-invites have an agent prompt that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives on the same page.
 
-## Hosted Isomux (not live yet)
-A managed version is in the works: you pick a name, we set up a server, and your office is served at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for 8 EUR/month. Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for 17 EUR/month. Details are at isomux.com/hosted. Paid signup is not open yet. Anyone interested should ask in the Discord. Do not quote prices, provisioning times, launch dates, or promises beyond what that page says, and do not imply the service is live.
+## Hosted Isomux
+Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for 8 EUR/month. Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for 17 EUR/month. Sign up at cloud.isomux.com. Details are at isomux.com/hosted. Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.
 
 ## Full Feature List
 
