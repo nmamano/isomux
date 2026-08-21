@@ -107,7 +107,7 @@ const ticker = new Ticker({
         new CreateLatch(store),
         store,
       ),
-      createRequest: () => ({
+      createRequest: async () => ({
         intentId: INTENT,
         plan: "V153",
         region: "EU",

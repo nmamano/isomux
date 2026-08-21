@@ -19,6 +19,7 @@ import {
   setDnsHandler,
   verifyHttpsHandler,
   waitForPackageManagerHandler,
+  waitForAddressHandler,
   waitForSshHandler,
   type HandlerDeps,
 } from "./handlers.ts";
@@ -37,6 +38,40 @@ function tempDir(): string {
   temps.push(dir);
   return dir;
 }
+
+describe("wait_for_address", () => {
+  test("writes provider truth to the asset and its prepared run mirror", async () => {
+    const b = await bed(new FakeExec(() => OK));
+    await b.store.sqlRun(
+      "update provider_assets set ipv4=null where id='asset-1'",
+    );
+    saveRun(b.dir, {
+      ...b.rec,
+      state: "prepared",
+      instanceId: "203474835",
+      ipv4: null,
+    });
+    const result = await waitForAddressHandler({
+      ...b.deps,
+      getCreatedAsset: async () => ({
+        assetState: "active",
+        powerState: "running",
+        ipv4: "169.58.97.9",
+        raw: null,
+      }),
+    }).run(await b.ctx({}));
+    expect(result.kind).toBe("done");
+    expect((await b.store.assetForInstance("inst-1"))?.ipv4).toBe(
+      "169.58.97.9",
+    );
+    expect(
+      JSON.parse(fs.readFileSync(path.join(b.dir, "run-1.json"), "utf8")),
+    ).toMatchObject({
+      state: "reachable",
+      ipv4: "169.58.97.9",
+    });
+  });
+});
 
 afterEach(async () => {
   await releaseTestStores();

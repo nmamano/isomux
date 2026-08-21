@@ -125,6 +125,7 @@ describe("the subscription insert", () => {
       "cancel.test.ts",
       "exercises/cancel-live.ts",
       "lifecycle-tick.test.ts",
+      "provisioning-start.test.ts",
       "reboot.test.ts",
       "reinstatement.test.ts",
       "requests.test.ts",

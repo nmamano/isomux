@@ -15,11 +15,17 @@
 // in it to be audited. A handler added to this function fails that test.
 //
 // IT DECIDES NOTHING. Every choice - which handlers exist, what
-// `allowedAssetStates` means, why `create_instance` is absent - was already
-// made and is stated where it was made; moving the list did not move any of it.
+// `allowedAssetStates` means, and which provider means each handler receives -
+// is stated where it was made; moving the list did not move any of it.
 
 import { cancelAssetHandler, removeDnsHandler } from "./deprovision.ts";
-import { type HandlerDeps, boxHandlers } from "./handlers.ts";
+import {
+  type HandlerDeps,
+  boxHandlers,
+  createInstanceHandler,
+  waitForAddressHandler,
+} from "./handlers.ts";
+import type { CreateCoordinator } from "./create-coordinator.ts";
 import { rebootHandler } from "./reboot.ts";
 import { powerOnHandler } from "./resume.ts";
 import { powerOffHandler } from "./stripe/suspension.ts";
@@ -27,14 +33,16 @@ import { checkoutExpiryHandler } from "./reinstatement-operations.ts";
 import type { StripeClient } from "./stripe/client.ts";
 import type { StripeObjectReader } from "./stripe/reader.ts";
 import type { Handler } from "./tick.ts";
+import type { InstanceView } from "./provider.ts";
 
 /**
  * The provider verbs the credential-dependent handlers need, or nothing.
  *
  * Bound verb by verb rather than as an adapter, and that is a rule rather than
- * a style: a handler holding the adapter holds `create` too, and no command in
- * this build may reach a paid create. The types are taken FROM the handlers, so
- * a handler that changes its parameter cannot leave this interface behind.
+ * a style: a handler holding the adapter also holds paid create. The create
+ * handler receives a ready-made narrow coordinator instead. Types come FROM
+ * the handlers, so a changed handler parameter cannot leave this interface
+ * behind.
  */
 export interface ProviderVerbs {
   reboot: Parameters<typeof rebootHandler>[0]["reboot"];
@@ -42,6 +50,7 @@ export interface ProviderVerbs {
   powerOn: Parameters<typeof powerOnHandler>[0]["powerOn"];
   cancel: Parameters<typeof cancelAssetHandler>[0]["cancel"];
   getAsset: Parameters<typeof cancelAssetHandler>[0]["get"];
+  getAddress: (providerId: string) => Promise<InstanceView>;
 }
 
 /**
@@ -72,6 +81,8 @@ export const CANCEL_ALLOWED_ASSET_STATES = [
  * slice 2's no-handler condition.
  */
 export const PROVIDER_DEPENDENT_KINDS = [
+  "create_instance",
+  "wait_for_address",
   "reboot",
   "power_off",
   "power_on",
@@ -81,10 +92,9 @@ export const PROVIDER_DEPENDENT_KINDS = [
 /**
  * Every handler the tick loop registers.
  *
- * `create_instance` is deliberately absent: no flag in this build can reach a
- * paid create, exactly as in slice 1. Its absence is also what makes four verbs
- * unreachable in the grant matrix (`roles.ts`), so the slice that registers it
- * has to widen both.
+ * Paid create and provider-address discovery are registered only when both the
+ * provider verbs and the narrow create coordinator are present. Without them,
+ * an enqueued provider operation fails visibly through the no-handler path.
  *
  * WITHOUT PROVIDER CREDENTIALS the provider handlers stay UNREGISTERED rather
  * than stubbed, the same choice slice 3 made for power_off: an enqueued
@@ -95,12 +105,28 @@ export const PROVIDER_DEPENDENT_KINDS = [
 export function tickerHandlerRoster(args: {
   box: HandlerDeps;
   provider: ProviderVerbs | null;
+  create?: {
+    coordinator: CreateCoordinator;
+    createRequest: NonNullable<HandlerDeps["createRequest"]>;
+  } | null;
   report: (line: string) => void;
   stripe?: { client: StripeClient; reader: StripeObjectReader } | null;
 }): Handler[] {
   const { box, provider, report } = args;
+  const provision =
+    provider && args.create
+      ? {
+          ...box,
+          coordinator: args.create.coordinator,
+          createRequest: args.create.createRequest,
+          getCreatedAsset: provider.getAddress,
+        }
+      : box;
   return [
-    ...boxHandlers(box),
+    ...(provider && args.create
+      ? [createInstanceHandler(provision), waitForAddressHandler(provision)]
+      : []),
+    ...boxHandlers(provision),
     ...(provider
       ? [
           rebootHandler({ reboot: provider.reboot, report }),

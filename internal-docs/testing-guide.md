@@ -35,6 +35,11 @@ T3 is gated behind the `ISOMUX_TEST_LIVE` env flag plus the separate `test:live`
 and lifecycle passes stay sequential, failures are visible and retried, and a
 failed lifecycle pass does not refresh health.
 
+Automatic provisioning recovery is pinned by
+`control-plane/provisioning-start.test.ts` (one run and one paid create per
+eligible signup) and `control-plane/run-preparation.test.ts` (a persisted
+prepared key strictly wins during recovery).
+
 `FakeBackend` (implements the `Backend` interface, scripts `NormalizedEvent`s) is the main deterministic engine for T1: the Backend seam is clean and metaphor-free, and the projection/stable-id work sits above it. It is injected through constructor DI (`ManagerDeps` into `AgentManager`, `CronjobManagerDeps` into `CronjobManager`). Tests: `fake-backend.test.ts`, `agent-manager.di.test.ts`, `cronjob-manager.di.test.ts`.
 
 Surfaces that are not below the Backend seam have their own harnesses. Tests under `server/test-support/` are named bare; tests elsewhere carry their path.

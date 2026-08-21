@@ -55,7 +55,7 @@ import {
   sameWildcardAnswers,
 } from "./wildcard-dns.ts";
 import type { Reporter } from "./report.ts";
-import { loadRun, saveRun, type RunRecord } from "./run-record.ts";
+import { loadAnyRun, loadRun, saveRun, type RunRecord } from "./run-record.ts";
 import {
   ObserverWriteFailed,
   SshClient,
@@ -64,7 +64,8 @@ import {
 } from "./ssh.ts";
 import { auditOutcomeOf } from "./tick.ts";
 import type { HandlerContext, Handler, HandlerResult } from "./tick.ts";
-import type { CreateRequest } from "./provider.ts";
+import type { CreateRequest, InstanceView } from "./provider.ts";
+import type { InstanceRow } from "./store.ts";
 import {
   issueCertificateCredential,
   revokeCertificateCredentials,
@@ -76,9 +77,10 @@ export interface HandlerDeps {
   reporter: Reporter;
   runsDir: string;
   keysDir: string;
-  /** Present only where a create is possible at all. The CLI never supplies it. */
+  /** Present only in the deployed provisioner that may reach a paid create. */
   coordinator?: CreateCoordinator;
-  createRequest?: (instanceId: string) => CreateRequest;
+  createRequest?: (instance: InstanceRow) => Promise<CreateRequest>;
+  getCreatedAsset?: (providerId: string) => Promise<InstanceView>;
   /** Where the installer comes from. Injected so a test needs no 100KB fixture. */
   installerPath?: string;
   ownerName?: string;
@@ -1158,7 +1160,7 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
         };
       }
       const ev = evidenceOf(ctx);
-      const req = build(ctx.instance.id);
+      const req = await build(ctx.instance);
       const intentId = str(ev.intentId) || req.intentId;
       const intent = await ctx.store.getIntent(intentId);
 
@@ -1169,7 +1171,7 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
         (intent &&
           (intent.state === "intended" || intent.state === "ambiguous"))
       ) {
-        return quarantineFind(ctx, coordinator, intentId);
+        return quarantineFind(ctx, coordinator, intentId, deps);
       }
       if (intent?.state === "created" || ev.phase === "created") {
         const providerId = intent?.provider_id ?? str(ev.providerId);
@@ -1186,6 +1188,7 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
         }
         try {
           await adoptAsset(ctx, providerId, intentId);
+          persistRunProvider(ctx, deps, providerId);
         } catch (err) {
           return { kind: "ambiguous", reason: messageOf(err) };
         }
@@ -1214,6 +1217,9 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
                 settled.providerId,
                 intentId,
               );
+              if (!adoption.refusal) {
+                persistRunProvider(ctx, deps, settled.providerId);
+              }
             }
           },
         );
@@ -1233,8 +1239,9 @@ export function createInstanceHandler(deps: HandlerDeps): Handler {
           reason: `create ambiguous: ${outcome.reason}`,
         };
       } catch (err) {
-        // The coordinator already wrote the ambiguous outcome; returning
-        // ambiguous here keeps the tick from overwriting it with a plain retry.
+        // The paid call may have started, or the latch may have refused before
+        // it started. Ambiguous preserves the safe backoff. With no armed
+        // evidence or intent, a later attempt can re-arm after access heals.
         return {
           kind: "ambiguous",
           reason: `create may have happened: ${messageOf(err)}`,
@@ -1250,6 +1257,7 @@ async function quarantineFind(
   ctx: HandlerContext,
   coordinator: CreateCoordinator,
   intentId: string,
+  deps: HandlerDeps,
 ): Promise<HandlerResult> {
   let found;
   try {
@@ -1269,6 +1277,7 @@ async function quarantineFind(
     }
     try {
       await adoptAsset(ctx, found.providerId, intentId);
+      persistRunProvider(ctx, deps, found.providerId);
     } catch (err) {
       return { kind: "ambiguous", reason: messageOf(err) };
     }
@@ -1289,6 +1298,72 @@ async function quarantineFind(
   // Nothing yet. Keep polling; the quarantine's absolute deadline is what
   // eventually raises a human, and it never opens a second intent.
   return { kind: "waiting", evidence: { phase: "quarantine", intentId } };
+}
+
+function persistRunProvider(
+  ctx: HandlerContext,
+  deps: HandlerDeps,
+  providerId: string,
+): void {
+  const runId = ctx.instance.run_id;
+  if (!runId) throw new Error(`instance ${ctx.instance.id} has no run id`);
+  const rec = loadAnyRun(deps.runsDir, runId);
+  if (!rec) throw new Error(`no prepared run ${runId}`);
+  if (rec.instanceId && rec.instanceId !== providerId) {
+    throw new Error(
+      `prepared run ${runId} already names provider ${rec.instanceId}`,
+    );
+  }
+  rec.instanceId = providerId;
+  saveRun(deps.runsDir, rec);
+}
+
+// --------------------------------------------------------- wait_for_address
+
+export function waitForAddressHandler(deps: HandlerDeps): Handler {
+  return {
+    kind: "wait_for_address",
+    async run(ctx): Promise<HandlerResult> {
+      if (!deps.getCreatedAsset) {
+        return { kind: "fatal", reason: "no provider address reader is wired" };
+      }
+      const asset = await ctx.store.assetForInstance(ctx.instance.id);
+      if (!asset?.provider_id) {
+        return { kind: "waiting", evidence: { phase: "provider_id" } };
+      }
+      const view = await deps.getCreatedAsset(asset.provider_id);
+      if (!view.ipv4) {
+        return { kind: "waiting", evidence: { phase: "address" } };
+      }
+      await ctx.store.tx(async () => {
+        const current = await ctx.store.assetForInstance(ctx.instance.id);
+        if (!current || current.provider_id !== asset.provider_id) {
+          throw new Error(`provider asset moved while its address was read`);
+        }
+        if (
+          current.ipv4 !== view.ipv4 &&
+          !(await ctx.store.casAsset(current.id, current.version, {
+            ipv4: view.ipv4,
+          }))
+        ) {
+          throw new Error(
+            `provider asset moved while its address was recorded`,
+          );
+        }
+        const runId = ctx.instance.run_id;
+        const rec = runId ? loadAnyRun(deps.runsDir, runId) : null;
+        if (!rec)
+          throw new Error(`no prepared run record for ${ctx.instance.id}`);
+        saveRun(deps.runsDir, {
+          ...rec,
+          instanceId: asset.provider_id as string,
+          ipv4: view.ipv4 as string,
+          state: "reachable",
+        });
+      });
+      return { kind: "done", evidence: { ipv4: view.ipv4 } };
+    },
+  };
 }
 
 async function adoptAsset(
@@ -1396,8 +1471,8 @@ async function adoptAssetIn(
   return null;
 }
 
-/** Everything the CLI drives. create_instance is deliberately NOT here: the CLI
- * exposes no path that can spend money. */
+/** The SSH provisioning chain. Provider operations are composed beside it in
+ * run-roster.ts, where their credential boundary is visible. */
 export function boxHandlers(deps: HandlerDeps): Handler[] {
   return [
     waitForSshHandler(deps),

@@ -65,7 +65,10 @@ import { destroyPrivateKey, generateKeyPair } from "./keys.ts";
 import { Reporter } from "./report.ts";
 import { SpawnExec, SshClient, type SshTarget } from "./ssh.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
-import { migrateLegacyIntents } from "./create-latch.ts";
+import { CreateLatch, migrateLegacyIntents } from "./create-latch.ts";
+import { CreateCoordinator } from "./create-coordinator.ts";
+import { IntentJournal } from "./intents.ts";
+import { prepareCreateRun } from "./run-preparation.ts";
 import { type HandlerDeps } from "./handlers.ts";
 import {
   CeilingIsImmutable,
@@ -85,8 +88,8 @@ import { obtainCertificateWithLego } from "./lego-acme.ts";
 import { CloudflareDns } from "./cloudflare-dns.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
 import { PROVIDER_DEPENDENT_KINDS, tickerHandlerRoster } from "./run-roster.ts";
+import { sweepProvisioningStarts } from "./provisioning-start.ts";
 import { setOperator } from "./operator-admin.ts";
-import type { AssetState } from "./provider.ts";
 import { readAndRefreshMarker } from "./state-marker.ts";
 import { Store } from "./store.ts";
 import { PROVISIONER_POOL } from "./roles.ts";
@@ -309,56 +312,6 @@ function reconcileFn():
   };
 }
 
-/**
- * Provider reboot for the customer's restart button, when this box has
- * credentials.
- *
- * Absent credentials leave the handler UNREGISTERED rather than stubbed, which
- * is the same choice slice 3 made for power_off: an enqueued reboot then
- * surfaces as slice 2's no-handler condition - a failed operation with
- * attention raised - instead of looking like a restart that quietly did
- * nothing.
- */
-/**
- * The provider verbs this process may drive, or nothing at all.
- *
- * Bound one by one rather than handing the adapter around: a handler that holds
- * the adapter holds `create` too, and the one rule this CLI has never bent is
- * that no command in it can reach a paid create.
- */
-function adapterOrNothing(): {
-  reboot: (id: string) => Promise<void>;
-  powerOff: (id: string) => Promise<void>;
-  powerOn: (id: string) => Promise<void>;
-  cancel: (
-    id: string,
-  ) => Promise<{ assetState: AssetState; serviceEndsAt?: string }>;
-  getAsset: (
-    id: string,
-  ) => Promise<{ assetState: AssetState; serviceEndsAt?: string }>;
-} | null {
-  let adapter: ContaboAdapter;
-  try {
-    adapter = makeAdapter();
-  } catch {
-    return null;
-  }
-  return {
-    reboot: (id) => adapter.reboot(id),
-    powerOff: (id) => adapter.powerOff(id),
-    powerOn: (id) => adapter.powerOn(id),
-    cancel: (id) => adapter.cancel(id),
-    getAsset: async (id) => {
-      const view = await adapter.get(id);
-      const raw = view.raw as { cancelDate?: string | null } | null;
-      return {
-        assetState: view.assetState,
-        ...(raw?.cancelDate ? { serviceEndsAt: raw.cancelDate } : {}),
-      };
-    },
-  };
-}
-
 function makeTicker(
   store: Store,
   ownerName?: string,
@@ -367,7 +320,6 @@ function makeTicker(
    * credential into a process that cannot hand it over. */
   deliver?: HandlerDeps["deliver"],
 ): Ticker {
-  const provider = adapterOrNothing();
   const officeDns =
     process.env.ISOMUX_CERT_TARGET &&
     process.env.ISOMUX_ACME_DIRECTORY &&
@@ -386,6 +338,30 @@ function makeTicker(
           });
         })()
       : undefined;
+  const adapter = (() => {
+    try {
+      return makeAdapter();
+    } catch {
+      return null;
+    }
+  })();
+  const provider = adapter
+    ? {
+        reboot: (id: string) => adapter.reboot(id),
+        powerOff: (id: string) => adapter.powerOff(id),
+        powerOn: (id: string) => adapter.powerOn(id),
+        cancel: (id: string) => adapter.cancel(id),
+        getAsset: async (id: string) => {
+          const view = await adapter.get(id);
+          const raw = view.raw as { cancelDate?: string | null } | null;
+          return {
+            assetState: view.assetState,
+            ...(raw?.cancelDate ? { serviceEndsAt: raw.cancelDate } : {}),
+          };
+        },
+        getAddress: (id: string) => adapter.get(id),
+      }
+    : null;
   const line = (l: string) => reporter.line(l);
   const stripeMode = resolveStripeMode(process.env);
   const stripeKey = stripeKeyFromEnv(stripeMode, process.env);
@@ -412,6 +388,26 @@ function makeTicker(
         certificateEndpoint: process.env.ISOMUX_CERTIFICATE_ENDPOINT,
       },
       provider,
+      create: adapter
+        ? {
+            coordinator: new CreateCoordinator(
+              adapter,
+              new CreateLatch(store, new IntentJournal(INTENTS_DIR)),
+              store,
+            ),
+            createRequest: (instance) =>
+              prepareCreateRun(
+                {
+                  runsDir: RUNS_DIR,
+                  keysDir: KEYS_DIR,
+                  exec,
+                  secrets: adapter,
+                  loginUser: adapter.loginUser,
+                },
+                instance,
+              ),
+          }
+        : null,
       report: line,
       stripe,
     }),
@@ -645,7 +641,11 @@ async function cmdProvision(args: Map<string, string>): Promise<void> {
   process.exitCode = await exitCodeFor(store);
 }
 
-async function runLifecycleCadence(store: Store): Promise<void> {
+async function runLifecycleCadence(
+  store: Store,
+  running: Ticker,
+): Promise<void> {
+  await sweepProvisioningStarts(store, (kind) => running.handles(kind));
   const summary = await lifecycleTick(store, store.now(), (line) =>
     reporter.line(line),
   );
@@ -790,7 +790,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       reporter,
       cadence: {
         failureLabel: "lifecycle pass failed",
-        run: () => runLifecycleCadence(store),
+        run: () => runLifecycleCadence(store, running),
       },
       onTick: () => {
         lastTickAt = Date.now();

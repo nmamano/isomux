@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  loadAnyRun,
   loadRun,
   resumeAction,
   resumeRun,
@@ -47,6 +48,21 @@ afterEach(async () => {
 });
 
 describe("durability", () => {
+  test("prepared records carry null provider facts and stay off operator paths", () => {
+    saveRun(dir, {
+      ...REC,
+      state: "prepared",
+      instanceId: null,
+      ipv4: null,
+    });
+    expect(loadAnyRun(dir, REC.runId)).toMatchObject({
+      state: "prepared",
+      instanceId: null,
+      ipv4: null,
+    });
+    expect(() => loadRun(dir, REC.runId)).toThrow(/no provider address/);
+  });
+
   test("everything needed to reconnect is on disk, not just in memory", async () => {
     saveRun(dir, REC);
     const raw = JSON.parse(

@@ -9,6 +9,7 @@
 /** Kinds with a handler in this slice. */
 export type OperationKind =
   | "create_instance"
+  | "wait_for_address"
   | "wait_for_ssh"
   | "wait_for_package_manager"
   | "first_contact"
@@ -85,6 +86,11 @@ export const DEADLINES: Record<OperationKind, Deadlines> = {
     inactivityMs: 15 * MINUTE,
     absoluteMs: 15 * MINUTE,
     maxRemoteMs: 60_000,
+  },
+  wait_for_address: {
+    inactivityMs: 15 * MINUTE,
+    absoluteMs: 30 * MINUTE,
+    maxRemoteMs: 30_000,
   },
   // Measured: reinstall-to-SSH 88s; the pilot's create-to-SSH was 110s.
   wait_for_ssh: {
@@ -228,6 +234,8 @@ export function nextKind(
 ): OperationKind | null {
   switch (completed) {
     case "create_instance":
+      return "wait_for_address";
+    case "wait_for_address":
       return "wait_for_ssh";
     case "wait_for_ssh":
       return "first_contact";

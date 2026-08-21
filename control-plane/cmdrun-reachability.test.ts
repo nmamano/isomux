@@ -36,6 +36,7 @@ import {
   tickerHandlerRoster,
 } from "./run-roster.ts";
 import type { HandlerDeps } from "./handlers.ts";
+import type { CreateCoordinator } from "./create-coordinator.ts";
 import type { StripeClient } from "./stripe/client.ts";
 import type { StripeObjectReader } from "./stripe/reader.ts";
 
@@ -60,12 +61,27 @@ const provider: ProviderVerbs = {
   powerOn: async () => {},
   cancel: async () => ({ assetState: "active" }),
   getAsset: async () => ({ assetState: "active" }),
+  getAddress: async () => ({
+    assetState: "active",
+    powerState: "running",
+    raw: null,
+  }),
+};
+
+const create = {
+  coordinator: {} as CreateCoordinator,
+  createRequest: (async () => {
+    throw new Error("no handler runs in this test");
+  }) as NonNullable<HandlerDeps["createRequest"]>,
 };
 
 const kindsOf = (p: ProviderVerbs | null): string[] =>
-  tickerHandlerRoster({ box, provider: p, report: () => {} }).map(
-    (h) => h.kind,
-  );
+  tickerHandlerRoster({
+    box,
+    provider: p,
+    create: p ? create : null,
+    report: () => {},
+  }).map((h) => h.kind);
 
 const stripe = {
   client: {} as StripeClient,
@@ -128,9 +144,9 @@ describe("the audited roster is the roster the loop is built from", () => {
   // THE ABSENCE THE MATRIX RESTS ON. Four verbs came off the provisioner's
   // matrix because the create path is unreachable, and this is that premise as
   // a test rather than as a comment.
-  test("create_instance is not registered, with or without credentials", () => {
+  test("create_instance is registered only with provider credentials and its coordinator", () => {
     expect(kindsOf(null)).not.toContain("create_instance");
-    expect(kindsOf(provider)).not.toContain("create_instance");
+    expect(kindsOf(provider)).toContain("create_instance");
   });
 });
 

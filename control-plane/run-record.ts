@@ -46,13 +46,32 @@ export interface RunRecord {
   timerArmed?: TimerEvidenceRecord;
 }
 
+/** The durable identity that exists before a paid create is armed. Key material
+ * is complete; provider facts stay null until their own remote steps prove them. */
+export interface PreparedRunRecord {
+  runId: string;
+  state: "prepared";
+  host: string;
+  instanceId: string | null;
+  ipv4: null;
+  loginUser: string;
+  privateKeyPath: string;
+  publicKeyPath: string;
+  algorithm: string;
+  blob: string;
+  knownHostsFile: string;
+  secretId?: number;
+}
+
+export type AnyRunRecord = RunRecord | PreparedRunRecord;
+
 export function runFile(dir: string, runId: string): string {
   return path.join(dir, `${runId}.json`);
 }
 
 /** Atomic and fsynced: a half-written recovery record is the same problem as no
  * record at all. */
-export function saveRun(dir: string, rec: RunRecord): void {
+export function saveRun(dir: string, rec: AnyRunRecord): void {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const target = runFile(dir, rec.runId);
   const tmp = `${target}.${process.pid}.tmp`;
@@ -73,10 +92,18 @@ export function saveRun(dir: string, rec: RunRecord): void {
 }
 
 export function loadRun(dir: string, runId: string): RunRecord | null {
+  const rec = loadAnyRun(dir, runId);
+  if (rec?.state === "prepared") {
+    throw new Error(`run ${runId} is prepared but has no provider address yet`);
+  }
+  return rec;
+}
+
+export function loadAnyRun(dir: string, runId: string): AnyRunRecord | null {
   try {
     return JSON.parse(
       fs.readFileSync(runFile(dir, runId), "utf8"),
-    ) as RunRecord;
+    ) as AnyRunRecord;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw err;

@@ -326,3 +326,49 @@ describe("exactness requires positive evidence of a complete response", () => {
     expect(adapter.find(INTENT)).rejects.toThrow(IndeterminateFindError);
   });
 });
+
+describe("SSH secret recovery", () => {
+  test("reuses exactly one secret from a complete filtered response", async () => {
+    const { adapter } = adapterOver([
+      {
+        status: 200,
+        body: {
+          data: [{ secretId: 42, name: "isomux-cp-run-one" }],
+          _pagination: { totalElements: 1 },
+        },
+      },
+    ]);
+    expect(await adapter.findSshSecret("isomux-cp-run-one")).toBe(42);
+  });
+
+  test("only a complete filtered zero establishes absence", async () => {
+    const sound = adapterOver([
+      { status: 200, body: { data: [], _pagination: { totalElements: 0 } } },
+    ]).adapter;
+    expect(await sound.findSshSecret("isomux-cp-run-one")).toBeNull();
+
+    const incomplete = adapterOver([
+      { status: 200, body: { data: [] } },
+    ]).adapter;
+    expect(incomplete.findSshSecret("isomux-cp-run-one")).rejects.toThrow(
+      /unfiltered or incomplete/,
+    );
+  });
+
+  test("multiple exact matches refuse instead of choosing one", async () => {
+    const name = "isomux-cp-run-one";
+    const { adapter } = adapterOver([
+      {
+        status: 200,
+        body: {
+          data: [
+            { secretId: 1, name },
+            { secretId: 2, name },
+          ],
+          _pagination: { totalElements: 2 },
+        },
+      },
+    ]);
+    expect(adapter.findSshSecret(name)).rejects.toThrow(/exactly one/);
+  });
+});

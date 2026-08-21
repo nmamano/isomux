@@ -156,6 +156,59 @@ describe("the latch", () => {
     await new CreateLatch(b.store).armOnce(REQ, b.fence);
   });
 
+  test("a refused latch insert leaves no quarantine state and a later tick re-arms", async () => {
+    const b = await bed();
+    const adapter = fakeAdapter();
+    const originalSqlRun = b.store.sqlRun.bind(b.store);
+    let insertAllowed = false;
+    b.store.sqlRun = async (sql, args = []) => {
+      if (!insertAllowed && sql.startsWith("insert into create_intents")) {
+        throw Object.assign(new Error("permission denied for create_intents"), {
+          code: "42501",
+        });
+      }
+      await originalSqlRun(sql, args);
+    };
+    const ticker = new Ticker({
+      store: b.store,
+      handlers: [
+        createInstanceHandler({
+          exec: { run: () => Promise.reject(new Error("no ssh here")) },
+          reporter: new Reporter({ out: () => {}, err: () => {} }),
+          runsDir: b.dir,
+          keysDir: b.dir,
+          coordinator: new CreateCoordinator(
+            adapter,
+            new CreateLatch(b.store),
+            b.store,
+          ),
+          createRequest: async () => REQ,
+        }),
+      ],
+      holder: "permission-recovery",
+    });
+    await b.store.casOperation(b.fence, {
+      lease_until: null,
+      lease_holder: null,
+    });
+
+    await ticker.once();
+    const refused = (await b.store.getOperation(b.opId))!;
+    expect(refused.status).toBe("ambiguous");
+    expect(await b.store.getIntent(REQ.intentId)).toBeNull();
+    expect(JSON.parse(refused.evidence).phase).toBeUndefined();
+    expect(adapter.calls).toEqual([]);
+
+    insertAllowed = true;
+    await b.store.sqlRun(
+      "update operations set next_attempt_at=0, lease_until=null, lease_holder=null where id=$1",
+      [b.opId],
+    );
+    await ticker.once();
+    expect(adapter.calls).toContain("create");
+    expect(adapter.calls).not.toContain("find");
+  });
+
   test("two contenders on one pre-read: one winner row, one call, no partial loser", async () => {
     const b = await bed();
     const adapter = fakeAdapter();
@@ -413,7 +466,7 @@ describe("restart after a real crash", () => {
           runsDir: b.dir,
           keysDir: b.dir,
           coordinator,
-          createRequest: () => REQ,
+          createRequest: async () => REQ,
         }),
       ],
       holder: "restarted",
@@ -463,7 +516,7 @@ describe("the armed phase is defence in depth, and it is pinned", () => {
             new CreateLatch(b.store),
             b.store,
           ),
-          createRequest: () => REQ,
+          createRequest: async () => REQ,
         }),
       ],
       holder: "restarted",
@@ -507,7 +560,7 @@ describe("adoption never certifies a box it cannot name", () => {
             new CreateLatch(b.store),
             b.store,
           ),
-          createRequest: () => REQ,
+          createRequest: async () => REQ,
         }),
       ],
       holder: "adopter",
@@ -594,7 +647,7 @@ describe("adoption never certifies a box it cannot name", () => {
             new CreateLatch(b.store),
             b.store,
           ),
-          createRequest: () => REQ,
+          createRequest: async () => REQ,
         }),
       ],
       holder: "creator",

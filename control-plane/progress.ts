@@ -214,6 +214,7 @@ export interface ProgressView {
  * Provisioning" wherever an actor is named. */
 const LABELS: Record<OperationKind, string> = {
   create_instance: "Ordering your server",
+  wait_for_address: "Waiting for the server address",
   wait_for_ssh: "Waiting for the server to answer",
   first_contact: "Securing our temporary access",
   install_customer_key: "Installing your SSH key",

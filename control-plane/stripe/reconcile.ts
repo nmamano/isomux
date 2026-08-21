@@ -57,6 +57,7 @@ import {
   raiseRefundRequired,
 } from "../reinstatement-operations.ts";
 import { reservationForInstance } from "../signup.ts";
+import { startProvisioningIn } from "../provisioning-start.ts";
 
 export const WEBHOOK_ACTOR = "stripe-webhook";
 
@@ -235,6 +236,18 @@ export async function applyEvent(
     decision.attention,
     WEBHOOK_ACTOR,
   );
+
+  // Checkout is the latency edge. The cadence is the guarantee: it calls the
+  // same gate from reconciled subscription state, including delayed settlement.
+  // A fully discounted Checkout session was observed on 2026-08-09 to report
+  // payment_status=paid too.
+  if (
+    input.eventType === "checkout.session.completed" &&
+    input.session?.status === "complete" &&
+    input.session.paymentStatus === "paid"
+  ) {
+    await startProvisioningIn(store, current);
+  }
 
   await claimEvent(store, {
     id: input.eventId,

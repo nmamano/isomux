@@ -315,8 +315,9 @@ export const PROVISIONER_GRANTS: readonly TableGrant[] = [
   },
   {
     table: "create_intents",
-    verbs: ["select", "insert"],
-    because: "the latch that stops a second box being bought for one intent",
+    verbs: ["select", "insert", "update"],
+    because:
+      "the latch opens one intent and the create coordinator records its provider outcome",
   },
   {
     table: "instance_liveness",
@@ -371,14 +372,10 @@ export interface ReachableVerb {
  * citations are where each verb is issued; they are load-bearing, because the
  * next person to widen the matrix has to show a line like these.
  *
- * THIS LIST IS TRUE OF A PROVISIONER THAT DOES NOT PROVISION YET. `cli.ts`
- * (around the handler roster, "create_instance is deliberately absent") does
- * not register the create_instance handler, so the create path - the asset
- * INSERT in `handlers.ts` `createAsset` and the intent UPDATE in
- * `create-coordinator.ts` `casIntent` - is unreachable on the deployed command
- * and is not granted. THE SLICE THAT REGISTERS create_instance (D4/G4, real
- * provisioning) MUST RE-WIDEN THIS LIST AND THE MATRIX WITH IT, and it will be
- * a failing comparison rather than a surprise 42501 in production.
+ * Automatic provisioning reaches the paid-create latch and its outcome write.
+ * It updates the placeholder provider asset written by signup; it cannot INSERT
+ * one under the deployed role, so an unexpected missing-asset branch fails
+ * closed with a database privilege error.
  */
 export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
@@ -489,7 +486,12 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
   {
     table: "create_intents",
     verb: "insert",
-    via: "migrateLegacyIntents (cli.ts:236) -> create-latch.ts:230",
+    via: "create-latch.ts migrateLegacyIntents imports old latches; armOnce inserts the paid-create latch",
+  },
+  {
+    table: "create_intents",
+    verb: "update",
+    via: "create-coordinator.ts settleOutcome records the provider result",
   },
   {
     table: "instance_liveness",
@@ -560,12 +562,8 @@ export const PROVISIONER_REACHABLE: readonly ReachableVerb[] = [
  * than a 42501 in production - which is what the previous version, a `via`
  * string nobody could check, could not offer (reviewer finding, 2026-08-12).
  *
- * Audited 2026-08-13. The four PROVIDER handlers register only when the process
- * holds provider credentials, which the deployment does not yet; they were
- * audited anyway, and they reach only verbs the matrix already carries
- * (`casAsset` -> provider_assets UPDATE, `openReasons` and `raiseAttentionIn`
- * -> attention_reasons SELECT/INSERT), so no term of the matrix depends on
- * whether they are registered.
+ * Audited again for automatic provisioning on 2026-08-21. Provider handlers
+ * register only when the process holds the required provider means.
  *
  * `set_dns` added 2026-08-21. It reads the instance and asset rows and raises
  * and clears attention, which is a SUBSET of what `verify_https` and
@@ -589,9 +587,11 @@ export const AUDITED_HANDLER_KINDS = [
   "remove_dns",
 ] as const;
 
-/** Registered ONLY when provider credentials exist. Audited, and adding no
- * verb the matrix does not already carry. */
+/** Registered ONLY when provider credentials exist. Every handler is audited
+ * against the matrix; adding one must update its grants and citations. */
 export const AUDITED_PROVIDER_HANDLER_KINDS = [
+  "create_instance",
+  "wait_for_address",
   "reboot",
   "power_off",
   "power_on",

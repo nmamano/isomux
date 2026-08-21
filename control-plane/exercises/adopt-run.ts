@@ -3,13 +3,11 @@
 // access to be removed again.
 //
 // Slice 4a's acceptance run needs the instance the customer can see to be the
-// instance whose operations drive the real box. Every command in cli.ts except
-// `run` and `tick` addresses `inst-<runId>` through ensureInstance, so pointing
-// one of them at a signed-up instance would create a SECOND instance the
-// account cannot see, driving the same box. THIS FILE IS THE PATH, AND
-// `cli.ts run` IS WHAT DRIVES IT AFTERWARDS: handlers resolve the run record
-// from `instances.run_id` (handlers.ts), so a tick needs nothing else to work
-// on a row it did not create.
+// instance whose operations drive the real box. Automatic signup deliberately
+// uses run-<uuid>, so ensureInstance cannot silently change its inst-<uuid> row.
+// THIS FILE REMAINS THE SAFE JOIN PATH, AND `cli.ts run` DRIVES IT AFTERWARDS:
+// handlers resolve the run record from `instances.run_id` (handlers.ts), so a
+// tick needs nothing else to work on a row it did not create.
 //
 //   bun control-plane/exercises/adopt-run.ts [--db <dsn>] --instance inst-<id> \
 //       --run <runId> --start
@@ -26,8 +24,7 @@
 // the final arbiter underneath both modes.
 //
 // The kinds this file may open are exactly wait_for_ssh and revoke_access.
-// create_instance has no handler anywhere in the CLI, and nothing here can
-// reach a paid create.
+// This exercise cannot reach the automatic create coordinator or a paid call.
 
 import { RUNS_DIR, databaseUrl } from "../config.ts";
 import {

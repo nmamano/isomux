@@ -604,18 +604,19 @@ wrong in both directions at once:
 | `name_reservations` SELECT | ADDED - the invite seam proves tenant ownership from it |
 | `accounts` SELECT          | removed - only signup and the operator check read it    |
 | `subscriptions` SELECT     | removed - the lifecycle tick is not on this command     |
-| `provider_assets` INSERT   | removed - the asset is created on the create path       |
-| `create_intents` UPDATE    | removed - `casIntent` is on the create path             |
+| `provider_assets` INSERT   | removed - signup always creates the placeholder asset   |
+| `create_intents` UPDATE    | restored 2026-08-21 - automatic create records outcomes |
 
 **Reversed 2026-08-16:** `subscriptions` SELECT is required again because the
 deployed command now runs the lifecycle cadence.
 
-**The four removals are correct only while the provisioner does not provision.**
-`cli.ts`'s `cmdRun` deliberately does not register the `create_instance`
-handler, so the create path is unreachable on the deployed command. THE SLICE
-THAT REGISTERS IT (D4/G4) MUST RE-WIDEN both `PROVISIONER_REACHABLE` and the
-matrix, and the comparison test is what turns that into a failing check rather
-than a 42501 in production.
+**Automatic provisioning is wired as of 2026-08-21.** A reconciled paid
+Checkout opens `create_instance` on the existing signup instance. The deployed
+cadence also scans linked active subscriptions and opens missing creates from
+the same gate. That scan repairs ignored or out-of-order local reconciliation;
+it cannot repair a subscription for which no Stripe event ever created a local
+row. Stripe event identity and the permanent create-row check prevent replay
+from buying a second box.
 
 **And the audit's PREMISE is pinned too, not just its conclusion.** A verb list
 is a claim about a particular set of registered handlers and a particular set of
@@ -3143,9 +3144,12 @@ has already ended is not a reason to tell somebody they are not being billed.
 `exercises/adopt-run.ts` links a signed-up instance to an existing run record,
 and `cli.ts run` drives it from there: handlers resolve the run record from
 `instances.run_id`, so a tick needs nothing else to work on a row it did not
-create. Every other command in `cli.ts` addresses `inst-<runId>` through
-`ensureInstance`, so pointing one of them at a signed-up instance would create a
-SECOND instance driving the same box, which the account cannot see.
+create. Automatic signup runs use `run-<uuid>` as `runId`, deliberately keeping
+operator commands in a separate namespace. A mistaken command that derives
+`inst-<runId>` can create a visible, cleanable phantom row; it cannot silently
+change the goal of the paying customer’s `inst-<uuid>` row. The general
+missing-asset fallback uses `asset-<instanceId>`; automatic signup never reaches
+it because signup already created `asset-<uuid>`.
 
 Both modes decide every mutable precondition INSIDE the transaction that writes,
 so two callers cannot turn a pre-check into duplicate work:
@@ -3631,10 +3635,15 @@ stays `needs_operator` until the condition itself goes away.
 
 ## Deployed operator runbook (D4 close, measured 2026-08-13)
 
-The full deployed customer path completed on 2026-08-13: Google sign-in,
-test-mode Stripe Checkout, webhook consumption, adoption of the prepared
-Contabo run, provisioning, owner-invite claim, verified removal of the
-provisioner's SSH key, and cancellation. Both `cp2` and `test-nil` are scheduled
+The deployed acceptance pass completed on 2026-08-13 through adoption of a
+prepared Contabo run. That pass did not test automatic ordering. As of
+2026-08-21, confirmed payment opens the paid create automatically, prepares the
+run key before the provider call, waits for the provider address in its own
+operation, and then continues the SSH chain.
+
+The 2026-08-13 pass also covered Google sign-in, test-mode Stripe Checkout,
+owner-invite claim, verified removal of the provisioner's SSH key, and
+cancellation. Both `cp2` and `test-nil` are scheduled
 to cancel. The temporary `STRIPE_TEST_SECRET_KEY` and
 `CONTROL_PLANE_PRICE_ID` entries were deleted from Vercel Production and proved
 absent; a clean redeploy of commit `e4f6313` then passed the environment, TLS,

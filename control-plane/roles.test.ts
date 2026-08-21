@@ -98,11 +98,12 @@ describe("the grants are bounded by what the call graph needs", () => {
 
   test("the provisioner drives operations and holds the latch it can reach", () => {
     expect(verbsFor(PROVISIONER_GRANTS, "operations")).toContain("update");
-    // SELECT and INSERT only: the intent UPDATE lives on the create path, and
-    // the deployed command does not register the create_instance handler.
+    // The deployed create path owns the whole latch lifecycle: insertion before
+    // the paid call and the provider outcome written afterwards.
     expect(verbsFor(PROVISIONER_GRANTS, "create_intents")).toEqual([
       "select",
       "insert",
+      "update",
     ]);
   });
 

@@ -414,8 +414,8 @@ Four state axes that must not be collapsed into one, because they diverge:
   into service state would throw that away.
 
 Fine-grained progress does **not** live in the service state. It lives in typed
-**operation** rows - `create_instance`, `set_dns`, `run_installer`,
-`arm_revocation`, `verify_https`, `mint_invite`, `revoke_access`, `reboot`,
+**operation** rows - `create_instance`, `wait_for_address`, `set_dns`,
+`run_installer`, `arm_revocation`, `verify_https`, `mint_invite`, `revoke_access`, `reboot`,
 `power_off`, `power_on`, `remove_dns`, `cancel_asset` - each with: its own
 durable id, status
 (`pending`, `running`, `succeeded`, `failed`, `ambiguous`), attempt count,
@@ -452,6 +452,13 @@ pure function of state alone:
   a second legitimate reboot.
 - `create_instance` additionally has the permanent uniqueness of its
   `create_intent`, and a second intent is never opened automatically.
+- A paid Checkout calls the automatic-start gate for latency. The long-lived
+  provisioner also scans linked active or trialing subscriptions and calls the
+  same gate, so ignored and out-of-order local events converge. This scan cannot
+  recover a subscription when no Stripe event ever created its local row.
+- `wait_for_address` follows a successful create and owns provider-address
+  polling. The database asset address is authoritative; the prepared run file
+  is its recoverable SSH mirror.
 - Backoff is a persisted `next_attempt_at`. Nothing sleeps inside a tick.
 
 ### Deadlines flag; they do not conclude

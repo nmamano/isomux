@@ -91,6 +91,11 @@ interface ContaboListBody {
   _pagination?: { totalElements?: number };
 }
 
+interface ContaboSecretRow {
+  secretId?: number;
+  name?: string;
+}
+
 export interface ContaboAdapterOptions {
   http: ContaboHttp;
   /** Image to build from. Ubuntu 24.04 for this product. */
@@ -286,6 +291,37 @@ export class ContaboAdapter implements ProviderAdapter, RecyclableProvider {
       );
     }
     return id;
+  }
+
+  /** Find-first recovery for the free SSH-key upload. Absence is returned only
+   * when the provider proves the filtered response is complete. */
+  async findSshSecret(name: string): Promise<number | null> {
+    const result = await this.http.request(
+      "GET",
+      `/v1/secrets?size=100&name=${encodeURIComponent(name)}`,
+    );
+    if (result.kind !== "ok") {
+      throw new Error(`findSshSecret(${name}) failed: ${result.reason}`);
+    }
+    const body = result.body as {
+      data?: ContaboSecretRow[];
+      _pagination?: { totalElements?: number };
+    } | null;
+    const rows = body?.data ?? [];
+    const matches = rows.filter((row) => row.name === name);
+    const filterHonoured = matches.length === rows.length;
+    const total = body?._pagination?.totalElements;
+    const complete = typeof total === "number" && total <= rows.length;
+    if (!filterHonoured || !complete) {
+      throw new Error(`secret search for ${name} was unfiltered or incomplete`);
+    }
+    if (matches.length === 0) return null;
+    if (matches.length !== 1 || matches[0]?.secretId === undefined) {
+      throw new Error(
+        `secret search for ${name} did not identify exactly one secret`,
+      );
+    }
+    return matches[0].secretId;
   }
 
   async deleteSecret(secretId: number): Promise<void> {

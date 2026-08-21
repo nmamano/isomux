@@ -97,6 +97,7 @@ describe("the ladder is walked, not written down", () => {
   test("each goal yields exactly its chain", async () => {
     expect(ladderFor("first_contact")).toEqual([
       "create_instance",
+      "wait_for_address",
       "wait_for_ssh",
       "first_contact",
       "install_customer_key",
@@ -104,6 +105,7 @@ describe("the ladder is walked, not written down", () => {
     ]);
     expect(ladderFor("installed")).toEqual([
       "create_instance",
+      "wait_for_address",
       "wait_for_ssh",
       "first_contact",
       "install_customer_key",
@@ -118,6 +120,7 @@ describe("the ladder is walked, not written down", () => {
     // is what opens the mint.
     expect(ladderFor("live")).toEqual([
       "create_instance",
+      "wait_for_address",
       "wait_for_ssh",
       "first_contact",
       "install_customer_key",
