@@ -3713,7 +3713,13 @@ must keep it in this runbook rather than reconstruct it from task history:
 1. From the exact committed release tree, run
    `bun control-plane/cli.ts migrate-customer-ssh-key` once against production.
    Prove the new columns are present before starting either runtime.
-2. Deploy the provisioner image. Its build must prove every runtime payload is
+2. Deploy the provisioner image with
+   `bun control-plane/deploy/activate.ts --redeploy --plan` and then
+   `--execute`. Plain `--execute` is the first-arming gate and refuses on a
+   production that already carries a provider-linked asset, which is
+   production's normal state since 2026-08-13; `--redeploy` requires the four
+   provider names already on the app instead (added 2026-08-21). Its build
+   must prove every runtime payload is
    present, including `/app/deploy/install.sh` and the customer-key installer.
 3. Deploy the control-plane web app with
    `bun control-plane/deploy/production-phase.ts --redeploy`. The local probe
