@@ -36,9 +36,23 @@ const {
   clearLegacySlideMode,
   getSlideView,
   setSlideView,
+  getAppPreviews,
+  setAppPreviews,
   getUsagePin,
   setUsagePin,
 } = await import("./device-settings.ts");
+
+describe("app previews", () => {
+  beforeEach(() => store.clear());
+
+  it("defaults on and round-trips this device's choice", () => {
+    expect(getAppPreviews()).toBe(true);
+    setAppPreviews(false);
+    expect(getAppPreviews()).toBe(false);
+    setAppPreviews(true);
+    expect(getAppPreviews()).toBe(true);
+  });
+});
 
 describe("legacy slide mode migration read", () => {
   beforeEach(() => store.clear());

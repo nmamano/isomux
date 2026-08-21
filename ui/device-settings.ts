@@ -11,6 +11,7 @@ import type { NotifRoomsSetting } from "../shared/types.ts";
 
 const KEY_USERNAME = "isomux-username";
 const KEY_DEVICE = "isomux-device";
+const KEY_APP_PREVIEWS = "isomux-app-previews";
 const LEGACY_KEY_DEFAULT_ROOM = "isomux-default-room";
 const LEGACY_KEY_NOTIF_ROOMS = "isomux-notif-rooms";
 
@@ -34,6 +35,18 @@ export function setDevice(label: string | null): void {
   if (typeof localStorage === "undefined") return;
   if (label && label.trim()) localStorage.setItem(KEY_DEVICE, label.trim());
   else localStorage.removeItem(KEY_DEVICE);
+}
+
+// App previews are on unless this device opted out. They can run several app
+// front ends, so a phone and a laptop keep independent choices.
+export function getAppPreviews(): boolean {
+  if (typeof localStorage === "undefined") return true;
+  return localStorage.getItem(KEY_APP_PREVIEWS) !== "off";
+}
+
+export function setAppPreviews(enabled: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(KEY_APP_PREVIEWS, enabled ? "on" : "off");
 }
 
 // Read legacy localStorage prefs used during the one-shot claim_user

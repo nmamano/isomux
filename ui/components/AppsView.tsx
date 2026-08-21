@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
+import { getAppPreviews, setAppPreviews } from "../device-settings.ts";
 import type { AppState, AppWire } from "../../shared/types.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
@@ -107,6 +108,15 @@ export function appLinkLabel(app: Pick<AppWire, "url">): string {
     : "Open on this network";
 }
 
+export function appCanPreview(app: Pick<AppWire, "url" | "state">): boolean {
+  // A port fallback can be plain HTTP while the office is HTTPS. Browsers
+  // refuse that mixed-content frame, so only an origin issued by the office is
+  // safe to offer as an automatic preview.
+  return (
+    app.state === "running" && typeof app.url === "string" && app.url !== ""
+  );
+}
+
 const STATE_COLOR: Record<AppState, string> = {
   running: "var(--green)",
   starting: "var(--orange, #d29922)",
@@ -133,6 +143,131 @@ function StateDot({ state }: { state: AppState }) {
         border: hollow ? "1.5px solid var(--text-muted)" : "none",
       }}
     />
+  );
+}
+
+// Drawn paths stay monochrome on iOS. The text character this replaces can be
+// promoted to a colorful emoji even when CSS asks for an ordinary glyph.
+function OpenIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ flexShrink: 0 }}
+    >
+      <path d="M6 3H3.75A1.75 1.75 0 0 0 2 4.75v7.5C2 13.22 2.78 14 3.75 14h7.5A1.75 1.75 0 0 0 13 12.25V10" />
+      <path d="M9 2h5v5M14 2 7.5 8.5" />
+    </svg>
+  );
+}
+
+function AppPreview({
+  app,
+  href,
+  isMobile,
+}: {
+  app: Pick<AppWire, "name">;
+  href: string;
+  isMobile: boolean;
+}) {
+  const hostRef = useRef<HTMLAnchorElement>(null);
+  const [visible, setVisible] = useState(
+    () => !("IntersectionObserver" in window),
+  );
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (host === null) return;
+    if (!("IntersectionObserver" in window)) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setVisible(true);
+        observer.disconnect();
+      },
+      { rootMargin: "120px" },
+    );
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, []);
+
+  return (
+    <a
+      ref={hostRef}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title={`Open ${app.name}`}
+      tabIndex={-1}
+      style={{
+        position: "relative",
+        display: "block",
+        height: isMobile ? 150 : 210,
+        marginTop: 10,
+        overflow: "hidden",
+        border: "1px solid var(--border-subtle)",
+        borderRadius: 6,
+        background: "var(--bg-code, var(--bg-base))",
+        color: "var(--text-muted)",
+        textDecoration: "none",
+      }}
+    >
+      {!visible ? (
+        <span
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            fontSize: 12,
+          }}
+        >
+          Loading preview…
+        </span>
+      ) : (
+        <iframe
+          src={href}
+          title={`${app.name} preview`}
+          // Scripts and same-origin access are what let a real app render. The
+          // sandbox still blocks forms, popups, downloads and top navigation;
+          // it is not a security boundary around the app's own front end.
+          sandbox="allow-scripts allow-same-origin"
+          tabIndex={-1}
+          // The two tabindex values remove the wrapper and iframe elements
+          // from the office's tab order. Focus inside a cross-origin framed
+          // document cannot be controlled from here.
+          style={{
+            display: "block",
+            width: "100%",
+            height: "100%",
+            border: 0,
+            pointerEvents: "none",
+          }}
+        />
+      )}
+      <span
+        style={{
+          position: "absolute",
+          right: 6,
+          bottom: 6,
+          padding: "2px 6px",
+          borderRadius: 4,
+          background: "var(--bg-overlay)",
+          color: "var(--text-secondary)",
+          fontSize: 10,
+          boxShadow: "0 1px 4px var(--shadow-heavy)",
+        }}
+      >
+        live preview
+      </span>
+    </a>
   );
 }
 
@@ -201,6 +336,7 @@ export function AppsView({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppWire | null>(null);
+  const [previewsEnabled, setPreviewsEnabled] = useState(getAppPreviews);
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   // Moves when the USER changes what the log pane is showing - opening a row,
   // closing one, deleting the open one - so a request in flight can tell that it
@@ -413,9 +549,29 @@ export function AppsView({
           ←
         </button>
         <div style={{ fontSize: 13, fontWeight: 600 }}>Apps</div>
-        <div
+        <button
+          type="button"
+          onClick={() => {
+            const next = !previewsEnabled;
+            setPreviewsEnabled(next);
+            setAppPreviews(next);
+          }}
+          title={previewsEnabled ? "Hide app previews" : "Show app previews"}
           style={{
             marginLeft: "auto",
+            padding: "3px 7px",
+            border: "1px solid var(--border)",
+            borderRadius: 5,
+            background: "var(--btn-surface)",
+            color: "var(--text-dim)",
+            fontSize: 10,
+            cursor: "pointer",
+          }}
+        >
+          previews {previewsEnabled ? "on" : "off"}
+        </button>
+        <div
+          style={{
             fontSize: 11,
             color: "var(--text-muted)",
           }}
@@ -454,6 +610,7 @@ export function AppsView({
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {sorted.map((app) => {
               const isBusy = busy?.startsWith(`${app.name}:`) ?? false;
+              const href = appHref(app, window.location.hostname);
               const creatorAgentId = onFocusAgent
                 ? resolveCreatorAgentId(app, agents)
                 : null;
@@ -476,15 +633,20 @@ export function AppsView({
                     }}
                   >
                     <StateDot state={app.state} />
-                    <span
+                    <a
+                      href={href}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={appLinkLabel(app)}
                       style={{
                         fontSize: 14,
                         fontWeight: 600,
-                        color: "var(--text-primary)",
+                        color: "var(--accent)",
+                        textDecoration: "none",
                       }}
                     >
                       {app.name}
-                    </span>
+                    </a>
                     <span
                       style={{
                         fontSize: 11,
@@ -495,7 +657,7 @@ export function AppsView({
                       {app.state}
                     </span>
                     <a
-                      href={appHref(app, window.location.hostname)}
+                      href={href}
                       target="_blank"
                       rel="noreferrer"
                       title={appLinkLabel(app)}
@@ -504,11 +666,19 @@ export function AppsView({
                         fontSize: 12,
                         fontWeight: 600,
                         color: "var(--accent)",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
                       }}
                     >
-                      {appLinkLabel(app)} ↗
+                      <span>{appLinkLabel(app)}</span>
+                      <OpenIcon />
                     </a>
                   </div>
+
+                  {previewsEnabled && appCanPreview(app) && (
+                    <AppPreview app={app} href={href} isMobile={isMobile} />
+                  )}
 
                   {app.description && (
                     <div

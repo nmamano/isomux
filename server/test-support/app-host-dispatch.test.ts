@@ -319,6 +319,27 @@ describe("app hosts: the office is untouched", () => {
 });
 
 describe("app hosts: the arm", () => {
+  it("serves a distinct app favicon without requiring a session", async () => {
+    const srv = await startFlatOffice();
+    const token = await anAgentToken(srv);
+    const hello = await registerApp(srv, token, "hello");
+    const habits = await registerApp(srv, token, "habits");
+
+    const first = await raw(srv.port, {
+      host: `${hello}.${OFFICE_HOST}`,
+      path: "/favicon.ico",
+    });
+    const second = await raw(srv.port, {
+      host: `${habits}.${OFFICE_HOST}`,
+      path: "/favicon.ico",
+    });
+    expect(first.status).toBe(200);
+    expect(first.headers["content-type"]).toBe("image/svg+xml");
+    expect(first.body).toContain("&gt;_");
+    expect(second.status).toBe(200);
+    expect(second.body).not.toBe(first.body);
+  });
+
   it("sends an anonymous caller on a live label into the handshake", async () => {
     const srv = await startFlatOffice();
     const token = await anAgentToken(srv);

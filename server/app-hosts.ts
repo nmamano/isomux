@@ -51,6 +51,7 @@ import { neutralNotFound } from "./app-host-responses.ts";
 // its unit, and this module imports the supervisor.
 import { appHostDomain, isHostname } from "./app-domain.ts";
 import type { AppRecord } from "../shared/types.ts";
+import { APP_FAVICON_PATH, appFavicon } from "./app-favicon.ts";
 
 // --- hostname grammar (pure) ------------------------------------------------
 
@@ -181,21 +182,24 @@ export interface AppHostDeps {
 //      never issued or was retired. Those two must be indistinguishable: a
 //      retired label is a name somebody used to have, and the difference is
 //      not the internet's business.
-//   3. the handshake's own path       -> redeem a sign-in code. Everything
+//   3. /favicon.ico                   -> the app's Isomux-family tab icon. It
+//      sits here, after the live-label check, so unknown and retired labels
+//      still get the same neutral 404.
+//   4. the handshake's own path       -> redeem a sign-in code. Everything
 //      else under the reserved prefix, including any other method or protocol
 //      on this path, is the 404: an app never sees a reserved path, and both
 //      relays plug in below this branch.
-//   4. a WebSocket upgrade            -> its own auth answer (an upgrade cannot
+//   5. a WebSocket upgrade            -> its own auth answer (an upgrade cannot
 //      follow a redirect) and then the WebSocket relay (slice 6b). It is
 //      handled HERE rather than by falling through, because falling through
 //      would hand a diverted host to the office's own /ws handler, which is the
 //      one thing that must be impossible.
-//   5. no live app session            -> a request that could complete the
+//   6. no live app session            -> a request that could complete the
 //      handshake is sent through the office to get one; anything else is
 //      refused (mayInitiateHandshake). Runs AFTER the label
 //      and reserved checks so an anonymous caller cannot learn anything about
 //      a label from the shape of the auth response.
-//   6. authenticated                  -> the relay (slice 5): the app's own
+//   7. authenticated                  -> the relay (slice 5): the app's own
 //      bytes, or one of its three refusals.
 //
 // DELIBERATELY NOT `async`. Only the diverted path returns a promise; the
@@ -240,6 +244,19 @@ export function handleAppHostRequest(
 
   const { pathname } = new URL(req.url);
   const upgrade = isWebSocketUpgrade(req);
+
+  // Browsers ask for a favicon outside the page's own request flow. Give every
+  // registered app a recognizable Isomux icon before auth and proxying, with a
+  // stable per-app color so several app tabs remain easy to tell apart. This
+  // shadows a bare app-owned /favicon.ico; an explicit <link rel="icon"> in
+  // the app page remains the app's escape hatch because the browser uses it.
+  if (
+    !upgrade &&
+    pathname === APP_FAVICON_PATH &&
+    (req.method === "GET" || req.method === "HEAD")
+  ) {
+    return appFavicon(app);
+  }
   if (
     pathname === APP_RESERVED_PATH ||
     pathname.startsWith(`${APP_RESERVED_PATH}/`)

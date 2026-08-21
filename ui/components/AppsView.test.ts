@@ -10,12 +10,37 @@
 
 import { describe, it, expect } from "bun:test";
 import {
+  appCanPreview,
   appHref,
   appLinkLabel,
   nextPollDelay,
   resolveCreatorAgentId,
   shouldCommit,
 } from "./AppsView.tsx";
+
+describe("appCanPreview", () => {
+  it("previews a running app at an office-issued origin", () => {
+    expect(
+      appCanPreview({
+        state: "running",
+        url: "https://habits.office.example",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not frame plain-port fallbacks from a potentially HTTPS office", () => {
+    expect(appCanPreview({ state: "running" })).toBe(false);
+    expect(appCanPreview({ state: "running", url: "" })).toBe(false);
+  });
+
+  it("does not wake or contact an app that is not running", () => {
+    for (const state of ["starting", "stopped", "failed", "unknown"] as const) {
+      expect(
+        appCanPreview({ state, url: "https://habits.office.example" }),
+      ).toBe(false);
+    }
+  });
+});
 
 describe("shouldCommit", () => {
   it("lets a response land under the row that asked for it", () => {
