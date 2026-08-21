@@ -11,6 +11,12 @@
 - [Access and invites](https://isomux.com/docs/access-and-invites): Browser authentication and access control
 - [Security audit](https://isomux.com/docs/security-audit): Security model and findings
 
+## Hosted Isomux policies
+
+- [Terms of Service](https://isomux.com/hosted-terms): Terms for Hosted Isomux
+- [Privacy Policy](https://isomux.com/hosted-privacy): Data collection, access, and retention for Hosted Isomux
+- [Refund Policy](https://isomux.com/hosted-refund): Refund eligibility and requests for Hosted Isomux
+
 ## Machine-readable resources
 
 - [Isomux OpenAPI specification](https://isomux.com/openapi.json): Website API contract

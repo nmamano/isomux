@@ -34,6 +34,7 @@ const STATIC_PATHS = [
   "/hosted",
   "/hosted-terms",
   "/hosted-privacy",
+  "/hosted-refund",
 ];
 
 type TocItem = { depth: number; id: string; text: string };

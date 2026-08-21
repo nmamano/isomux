@@ -294,22 +294,25 @@
 
       <h2>What we collect</h2>
       <p>
-        <strong>At signup:</strong> your name and email address, from the Google
-        account you sign in with. The office name you pick - it becomes your web
-        address, and addresses with HTTPS certificates land in public
-        certificate logs, so pick a name you don't mind strangers seeing. Your
-        browser creates a server administrator key. We receive its public half
-        and install it on your server so you can access it with the private
-        half. The private key is not sent to us. After setup, we keep a record
-        that lets us confirm which public key was installed, but not the public
-        key itself. For safety reasons, Isomux agents and the built-in terminal
-        cannot act as a privileged user. Only you can do so with the
-        administrator key.
+        <strong>At signup:</strong> your email address and the identifier Google
+        assigns to your account. The office name you pick becomes your web
+        address. Addresses with HTTPS certificates land in public certificate
+        logs, so pick a name you don't mind strangers seeing. Your browser
+        creates a server administrator key. We receive its public half and
+        install it on your server so you can access it with the private half.
+        The private key is not sent to us. We keep the public key until our
+        provisioning access is removed and we have confirmed that removal. After
+        that, we keep its fingerprint, which lets us confirm which key was
+        installed, but not the public key itself. If removal is not confirmed,
+        we retain the public key with no scheduled deletion. For safety reasons,
+        Isomux agents and the built-in terminal cannot act as a privileged user.
+        Only you can do so with the administrator key.
       </p>
       <p>
         <strong>Payment:</strong> Stripe handles the card. We never see or store
-        card numbers. From Stripe we keep your subscription status, your plan,
-        and your invoice history.
+        card numbers. Stripe keeps your invoices. We keep billing details such
+        as your Stripe customer and subscription identifiers, subscription
+        status, plan, and latest invoice identifier.
       </p>
       <p>
         <strong>Setup records:</strong> a structured record of setup steps, with
@@ -358,7 +361,10 @@
         <tbody>
           <tr>
             <td>Google</td>
-            <td>Sign-in. We get your name and email, nothing else.</td>
+            <td>
+              Google returns your name, email, and account identifier at
+              sign-in. We keep only the email and identifier.
+            </td>
           </tr>
           <tr>
             <td>Stripe</td>
@@ -416,7 +422,7 @@
         on a fixed schedule. Service resumes if payment succeeds.
       </p>
       <p>
-        <strong>Your account:</strong> deleted when you ask.
+        <strong>Your account:</strong> retained with no scheduled deletion.
         <strong>The setup log:</strong> retained with no scheduled deletion.
         <strong
           >The record of any rescue incident you asked us to handle:</strong
@@ -424,8 +430,7 @@
         kept, as evidence that we did what we said.
       </p>
       <p>
-        <strong>Support messages:</strong> kept indefinitely, deleted when you
-        ask.
+        <strong>Support messages:</strong> retained with no scheduled deletion.
       </p>
       <p>
         <strong>Billing records:</strong> kept as long as tax and accounting law
@@ -453,19 +458,20 @@
         answer, and also relays the conversation, your IP address, your browser
         string, and the page you were on to a private channel we read, so we can
         see what people are asking. Do not type anything private into it.
-        Transcripts are kept indefinitely, deleted when you ask.
+        Transcripts are retained with no scheduled deletion.
       </p>
 
       <h2>Your data</h2>
       <p>
         Write to <a href="mailto:llc@isomux.com">llc@isomux.com</a> to ask what
-        we hold about you, to correct it, or to have it deleted.
+        we hold about you or to correct it. You may also ask us to delete data;
+        we will tell you what we can delete and what we must retain.
       </p>
 
       <h2>Changes</h2>
       <p>
-        If we change this policy we will say so on this page and email you
-        before the change takes effect.
+        If we change this policy we will say so on this page before the change
+        takes effect.
       </p>
     </main>
 
@@ -475,6 +481,7 @@
       <div class="footer-links">
         <a href="/hosted">Hosted</a>
         <a href="/hosted-terms">Terms</a>
+        <a href="/hosted-refund">Refunds</a>
       </div>
     </footer>
 

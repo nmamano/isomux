@@ -44,14 +44,14 @@ Keep these consistent across all surfaces below.
 - **Related:** `api/chat.ts` carries a short "Hosted Isomux" section so the site chatbot doesn't invent details or imply it has launched.
 - **Deploy note:** static, served by Vercel with `cleanUrls`, so the file is served at `/hosted`. Moves to `cloud.isomux.com` if and when the control plane ships.
 
-## 2c. Legal pages (isomux.com/hosted-terms, isomux.com/hosted-privacy)
+## 2c. Legal pages (isomux.com/hosted-terms, isomux.com/hosted-privacy, isomux.com/hosted-refund)
 
-- **Files:** `site/hosted-terms.html`, `site/hosted-privacy.html`.
+- **Files:** `site/hosted-terms.html`, `site/hosted-privacy.html`, `site/hosted-refund.html`.
 - **Audience:** Hosted customers before they pay, and anyone checking what the access guarantee means in writing.
-- **Status:** published when this change merges. Both pages have canonical URLs and appear in the sitemap. The pages no longer state an effective date - choose one at launch.
-- **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, liability limits, governing law.
+- **Status:** published when this change merges. All three pages have canonical URLs and appear in the sitemap. The pages do not state an effective date - choose one at launch.
+- **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, liability limits, governing law. Refunds - the first-week refund, failure-to-deliver refund, exclusions, and the request path.
 - **Update when:** any hosted promise changes. These must agree with `site/hosted.html` sentence by sentence - it is the marketing statement of the same promises. Both trace back to the rulings in `internal-docs/control-plane-design.md`.
-- **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms` and `/hosted-privacy` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not isomux the open-source project.
+- **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms`, `/hosted-privacy`, and `/hosted-refund` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not isomux the open-source project. The landing and hosted-page footers, `site/llms.txt`, and the generated sitemap link all three.
 
 ## 3. Site chatbot system prompt
 
