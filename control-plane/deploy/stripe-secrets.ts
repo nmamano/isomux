@@ -46,6 +46,21 @@ export function readStripeFile(
   return values;
 }
 
+/** Names the importer stages. `STRIPE_MODE` is staged in both modes so the
+ * deployment's mode is explicit on the app. */
+export function stagedStripeNames(mode: StripeMode): string[] {
+  return [STRIPE_MODE_NAME, stripeKeyName(mode), stripeWebhookSecretName(mode)];
+}
+
+/** Names `--verify` demands. `STRIPE_MODE` only for live: an absent setting is
+ * the supported test-mode default, so test-mode verify must pass on a
+ * deployment that never staged it. */
+export function requiredStripeNames(mode: StripeMode): string[] {
+  return mode === "live"
+    ? stagedStripeNames(mode)
+    : [stripeKeyName(mode), stripeWebhookSecretName(mode)];
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const verify = args.includes("--verify");
@@ -58,11 +73,7 @@ async function main(): Promise<void> {
   ) {
     throw new Error("usage: stripe-secrets.ts [--verify] [--live]");
   }
-  const required = [
-    ...(mode === "live" ? [STRIPE_MODE_NAME] : []),
-    stripeKeyName(mode),
-    stripeWebhookSecretName(mode),
-  ];
+  const required = requiredStripeNames(mode);
   const flyToken = readSecretFile(FLY_TOKEN_FILE);
   if (verify) {
     const answer = await namesPresent({
@@ -88,7 +99,7 @@ async function main(): Promise<void> {
         value: values.get(stripeWebhookSecretName(mode))!,
       },
     ],
-    allowed: required,
+    allowed: stagedStripeNames(mode),
     flyToken,
     spawn: realSpawn,
     app: APP,

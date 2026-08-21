@@ -3,12 +3,15 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Spawn } from "./fly-cli.ts";
-import { BOOT_REQUIRED_NAMES, pushSecrets } from "./secrets.ts";
+import { BOOT_REQUIRED_NAMES, pushSecrets, validatePairs } from "./secrets.ts";
 import {
+  STRIPE_MODE_NAME,
   STRIPE_SECRET_NAME,
   STRIPE_SECRET_NAMES,
   STRIPE_WEBHOOK_SECRET_NAME,
   readStripeFile,
+  requiredStripeNames,
+  stagedStripeNames,
 } from "./stripe-secrets.ts";
 
 const dirs: string[] = [];
@@ -110,6 +113,22 @@ describe("the Stripe importer allowlist", () => {
       "STRIPE_WEBHOOK_SECRET",
       "STRIPE_LIVE_WEBHOOK_SECRET",
     ]);
+  });
+
+  test("staging admits the explicit mode name in both modes; verify demands it only for live", () => {
+    // The importer always stages the mode pair, so the allowed list it hands
+    // pushSecrets must admit it - in test mode too. Broken on 2026-08-21: the
+    // verify list stood in for the staging list, and every test-mode staging
+    // was refused as "not an allowed secret name: CONTROL_PLANE_STRIPE_MODE".
+    const pairs = [
+      { name: STRIPE_MODE_NAME, value: "test" },
+      { name: "STRIPE_TEST_SECRET_KEY", value: "rk_test_public_fixture" },
+      { name: "STRIPE_WEBHOOK_SECRET", value: "whsec_public_fixture" },
+    ];
+    expect(validatePairs(pairs, stagedStripeNames("test"))).toEqual([]);
+    expect(stagedStripeNames("live")).toContain(STRIPE_MODE_NAME);
+    expect(requiredStripeNames("test")).not.toContain(STRIPE_MODE_NAME);
+    expect(requiredStripeNames("live")).toContain(STRIPE_MODE_NAME);
   });
 
   test("refuses every other boot secret before a child starts", async () => {
