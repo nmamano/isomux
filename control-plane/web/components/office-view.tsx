@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ProgressView } from "../lib/services.server";
 import { customerPriceLine } from "./plan-copy";
+import { PolicyNotice } from "./policy-notice";
 
 /** Fast while the office is being built, slow once it is serving. The server
  * side of this is a read of rows already in the database, so the cost of the
@@ -626,16 +627,19 @@ export function OfficeView({
           onAct={(path, label) => void billingAct(path, label)}
         />
         {view.lifecycle?.reinstate.allowed && (
-          <p className="action">
-            <button
-              data-testid="reinstate-button"
-              onClick={() => void reinstate()}
-            >
-              {view.lifecycle.phase === "reinstatement_pending"
-                ? "Return to payment"
-                : "Reinstate this office"}
-            </button>
-          </p>
+          <>
+            <PolicyNotice />
+            <p className="action">
+              <button
+                data-testid="reinstate-button"
+                onClick={() => void reinstate()}
+              >
+                {view.lifecycle.phase === "reinstatement_pending"
+                  ? "Return to payment"
+                  : "Reinstate this office"}
+              </button>
+            </p>
+          </>
         )}
         {billingProblem && (
           <p className="callout callout-danger" data-testid="billing-problem">

@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import { auth } from "../../auth";
 import { plans, signupPageState } from "../../lib/services.server";
 import { OFFICE_DOMAIN } from "../../../signup";
-import { SignupForm, SignupPolicyNotice } from "../../components/signup-form";
+import { SignupForm } from "../../components/signup-form";
+import { PolicyNotice } from "../../components/policy-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export default async function Signup({
       {state.kind === "continue" ? (
         <form className="form card" method="post" action="/api/signup">
           <input type="hidden" name="officeName" value={state.officeName} />
-          <SignupPolicyNotice />
+          <PolicyNotice />
           <button
             className="btn-primary"
             type="submit"

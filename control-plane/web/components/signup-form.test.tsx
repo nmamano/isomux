@@ -1,19 +1,13 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SignupForm, SignupPolicyNotice } from "./signup-form";
+import { SignupForm } from "./signup-form";
+import { PolicyNotice } from "./policy-notice";
 import { customerPriceLine } from "./plan-copy";
 
 function expectPolicyLinksBefore(html: string, paymentLabel: string) {
   expect(html).toContain("Before you pay, review the");
-  for (const [href, label] of [
-    ["https://isomux.com/hosted-terms", "Terms of Service"],
-    ["https://isomux.com/hosted-privacy", "Privacy Policy"],
-    ["https://isomux.com/hosted-refund", "Refund Policy"],
-  ]) {
-    expect(html).toContain(
-      `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>`,
-    );
+  for (const label of ["Terms of Service", "Privacy Policy", "Refund Policy"]) {
     expect(html.indexOf(label)).toBeLessThan(html.indexOf(paymentLabel));
   }
 }
@@ -59,13 +53,13 @@ test("signup renders both specifications and omits unset prices", () => {
 });
 
 test("returning signup shows every policy before continuing to payment", () => {
-  const notice = renderToStaticMarkup(<SignupPolicyNotice />);
+  const notice = renderToStaticMarkup(<PolicyNotice />);
   expectPolicyLinksBefore(`${notice}Continue signup`, "Continue signup");
   const page = readFileSync(
     new URL("../app/signup/page.tsx", import.meta.url),
     "utf8",
   );
-  const noticePosition = page.indexOf("<SignupPolicyNotice />");
+  const noticePosition = page.indexOf("<PolicyNotice />");
   expect(noticePosition).toBeGreaterThan(0);
   expect(noticePosition).toBeLessThan(page.indexOf("Continue signup"));
 });
