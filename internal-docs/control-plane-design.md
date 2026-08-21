@@ -45,9 +45,12 @@ path, verifies against the carried key, reports contact, and keeps the files.
 During a recycle, the operator machine temporarily handles the box TLS private
 key. It already holds the per-run private key that grants root on that box, so
 this opens no new trust domain. Today the only recycle target is Isomux's own
-test box. A customer-facing rebuild requires a separate custody ruling. The
-control plane will not upload, retain, decrypt, or proxy this private-key
-archive: it is absent from the database, run record, evidence and audit log.
+test box. RULED (Nil, 2026-08-20): a customer-facing rebuild never uses the key
+carry. Customer boxes always take the forced re-issuance path, which handles no
+key material and costs one duplicate-certificate slot. The carry remains a
+convenience for Isomux's own test box only. The control plane will not upload,
+retain, decrypt, or proxy this private-key archive: it is absent from the
+database, run record, evidence and audit log.
 
 > Status: design, not implemented. Drafted 2026-07-30, amended 2026-07-31 with
 > Nil's rulings. Author: Isomuxer2, reviewed by Reviewer2. Task: 95b62b35,
