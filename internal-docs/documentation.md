@@ -52,6 +52,7 @@ Keep these consistent across all surfaces below.
 - **Structure:** privacy - what we collect, what we cannot see, what renting the box still gives us, subprocessor table, retention, the isomux.com website itself. Terms - the service, your box, our access, what we keep as the renter (with the evidence footnote of comparable providers), payment, failed payment, cancellation, uptime, support, suspension, warranty, liability limits, governing law. Refunds - the first-week refund, failure-to-deliver refund, exclusions, and the request path.
 - **Update when:** any hosted promise changes. These must agree with `site/hosted.html` sentence by sentence - it is the marketing statement of the same promises. Both trace back to the rulings in `internal-docs/control-plane-design.md`.
 - **Deploy note:** static, `cleanUrls`, so they serve at `/hosted-terms`, `/hosted-privacy`, and `/hosted-refund` as soon as they land on main. The `hosted-` prefix is deliberate: they govern the hosted product, not isomux the open-source project. The landing and hosted-page footers, `site/llms.txt`, and the generated sitemap link all three.
+- **Operator runbook:** `internal-docs/support-runbook.md`; update it when the refund terms, billing records, Stripe operator path, or customer portal status changes.
 
 ## 3. Site chatbot system prompt
 
