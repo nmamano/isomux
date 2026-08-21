@@ -47,7 +47,7 @@ Once you're the owner, open `User Settings` → `Invites` section:
 
 Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords.
 
-An invite never changes a browser that is already signed in as a different user. The server refuses the acceptance without consuming the link or changing the cookie. Open the same link in a private window or a different browser profile instead. A stale or revoked cookie does not block acceptance; it is replaced by the new session.
+A browser that is already signed in as a user cannot accept an invite for a different user (the invite is not consumed).
 
 Owner-issued invite links expire 24h after issuing if unused; self-device links (generated from the My devices pane) expire after 1h. Neither TTL is configurable: invite URLs are bearer tokens, and the shorter their acceptance window, the smaller the exposure if the URL ends up in the recipient's browser history, sync, or messaging archive. The self-invite path uses the tighter 1h window because the legitimate flow is "both my devices are right here, click it now"; the 24h window on owner-issued invites covers a realistic send-and-wait delivery. If the first link expires before the recipient can act, mint a fresh one. The session that's created on acceptance is governed by a separate, much longer lifetime (see Cookie semantics below).
 
@@ -59,8 +59,6 @@ Invites create new users only. Typing a name that already exists shows a pointer
 
 Every user adds more of their own devices without involving anyone else. In `User Settings`, the `My devices` pane (the only account section for members; owners have it alongside `Access` / `Invites` / `Sessions`) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
 
-Opening your own device or recovery link in a browser where you are already signed in is safe: the new session cookie has the same stable identity. Existing tabs and WebSocket connections remain that user, and a reload or reconnect uses the new same-user session.
-
 Self-device links are tighter than owner-issued invites by design: **1h TTL** and **at most one outstanding at a time** (generating a new one replaces the previous). The 1h window matches the legitimate flow ("both my devices are right here, click it now"). The role, target user, and TTL are all fixed server-side from the caller's session, so a tampered client can't extend the window, change the role, or mint for a different identity. The wire-level check rejects any such attempt.
 
 The `My devices` pane also lists your own outstanding device links and active sessions - same tables as the owner's `Invites` and `Sessions` sections, filtered to one identity.
@@ -68,8 +66,6 @@ The `My devices` pane also lists your own outstanding device links and active se
 ### 5. Sign out
 
 `User Settings` → `Sign out` revokes the current device's session and reloads. Other devices for the same user stay signed in.
-
-Do not sign out to accept an invite for a different user. A sole owner's last active session cannot sign out, and replacing it would lose the browser's reachable owner credential. Use a private window or a different browser profile for the invite.
 
 ## Reachability
 

@@ -20,13 +20,13 @@ test("signup renders both specifications and omits unset prices", () => {
         {
           id: "office",
           label: "Entry",
-          specification: "4 vCPU, 8 GB memory, 100 GB SSD",
+          specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
           customerPrice: null,
         },
         {
           id: "poweruser",
           label: "Poweruser",
-          specification: "8 vCPU, 24 GB memory, 300 GB SSD",
+          specification: "8 vCPU, 24 GB RAM, 300 GB SSD",
           customerPrice: null,
         },
       ]}
@@ -37,7 +37,7 @@ test("signup renders both specifications and omits unset prices", () => {
   expect(entryInput).toContain('checked=""');
   expect(entryInput).toContain('value="office"');
   expect(html).toContain('value="poweruser"');
-  expect(html).toContain("4 vCPU, 8 GB memory, 100 GB SSD");
-  expect(html).toContain("8 vCPU, 24 GB memory, 300 GB SSD");
+  expect(html).toContain("4 vCPU, 8 GB RAM, 100 GB SSD");
+  expect(html).toContain("8 vCPU, 24 GB RAM, 300 GB SSD");
   expect(html).not.toContain("per month");
 });

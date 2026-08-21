@@ -79,7 +79,7 @@ describe("invite identity allow-list", () => {
     const body = await refused.text();
     expect(body).toContain("This invite is for a different user");
     expect(body).toContain("You are signed in as Boss.");
-    expect(body).toContain("To accept it as Newbie");
+    expect(body).toContain("This invite is for Newbie");
 
     // The refused recipient still has a usable one-time link.
     const accepted = await postAccept(server, token);

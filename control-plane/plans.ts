@@ -20,7 +20,7 @@ export const ENTRY_PLAN: Plan = {
   label: "Entry",
   providerProduct: "V153",
   region: "EU",
-  specification: "4 vCPU, 8 GB memory, 100 GB SSD",
+  specification: "4 vCPU, 8 GB RAM, 100 GB SSD",
   // Nil, 2026-08-20: supplier cost times 1.4, rounded up to the next euro.
   customerPrice: { amount: 8, currency: "EUR", billingPeriod: "month" },
 };
@@ -31,7 +31,7 @@ export const POWERUSER_PLAN: Plan = {
   label: "Poweruser",
   providerProduct: "V155",
   region: "EU",
-  specification: "8 vCPU, 24 GB memory, 300 GB SSD",
+  specification: "8 vCPU, 24 GB RAM, 300 GB SSD",
   // Same formula; EUR 11.5 and 11.90 supplier readings both round up to 17.
   customerPrice: { amount: 17, currency: "EUR", billingPeriod: "month" },
 };

@@ -72,7 +72,7 @@ Setup:
 8. To let people use the office from outside your Tailscale network - friends, collaborators on a different VPN, anyone - expose it via Tailscale Funnel. Free, no domain needed, no router work. The docs at isomux.com/docs/access-and-invites have an agent prompt that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives on the same page.
 
 ## Hosted Isomux (not live yet)
-A managed version is in the works: you pick a name, we set up a server, and your office is served at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB memory, and a 100 GB SSD. Poweruser has 8 vCPU, 24 GB memory, and a 300 GB SSD. Details are at isomux.com/hosted. Paid signup is disabled, and prices have not been published. Anyone interested should ask in the Discord. Do not quote prices, provisioning times, launch dates, or promises beyond what that page says, and do not imply the service is live.
+A managed version is in the works: you pick a name, we set up a server, and your office is served at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for 8 EUR/month. Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for 17 EUR/month. Details are at isomux.com/hosted. Paid signup is not open yet. Anyone interested should ask in the Discord. Do not quote prices, provisioning times, launch dates, or promises beyond what that page says, and do not imply the service is live.
 
 ## Full Feature List
 

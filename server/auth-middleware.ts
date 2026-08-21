@@ -388,7 +388,7 @@ export async function handleAccept(
 const INVITE_IDENTITY_CONFLICT_COPY = {
   heading: "This invite is for a different user",
   body: (current: string, invitee: string) =>
-    `You are signed in as ${current}. To accept it as ${invitee}, open the invite in a private window or a different browser profile.`,
+    `You are signed in as ${current}. This invite is for ${invitee}: open it on their device or in a separate browser profile.`,
   link: "Return to office",
 };
 

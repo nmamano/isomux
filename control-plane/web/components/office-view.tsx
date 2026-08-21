@@ -481,11 +481,10 @@ export function OfficeView({
                   </a>
                 </p>
                 <p className="note">
-                  This opens in a new tab. Click this button now. It works once
-                  and expires in 24 hours. If you lose access to it, ask for a
-                  new one. If that browser is signed in as a different office
-                  user, open this link in a private window or a different
-                  browser profile.
+                  Open this from the browser profile where you&apos;ll use the
+                  office (not incognito). It works once and is gone after five
+                  minutes; if you miss it, ask for a new one. You can add your
+                  other devices later from inside the office.
                 </p>
               </div>
             ) : view.handoff.canMint ? (
