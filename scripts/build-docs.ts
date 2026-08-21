@@ -17,6 +17,7 @@ import { marked } from "marked";
 const SRC_DIR = "docs";
 const SITE_DIR = "site";
 const OUT_DIR = "site/docs";
+const MARKDOWN_OUT_DIR = "site/_agent/docs";
 // The page whose content becomes the docs landing (`/docs`). Its sidebar link
 // points to `/docs` instead of `/docs/<slug>`.
 const LANDING_SLUG = "features";
@@ -132,6 +133,14 @@ function rewriteMdLink(href: string): string {
     return slug === LANDING_SLUG ? `/docs${anchor}` : `/docs/${slug}${anchor}`;
   }
   return href;
+}
+
+export function rewriteMarkdownLinks(markdown: string): string {
+  return markdown.replace(
+    /(\[[^\]]*\]\()([^\s)]+)([^)]*\))/g,
+    (_match, opening: string, href: string, closing: string) =>
+      `${opening}${rewriteMdLink(href)}${closing}`,
+  );
 }
 
 function deriveTitle(body: string, slug: string): string {
@@ -814,7 +823,10 @@ function main() {
     throw new Error(`Source directory "${SRC_DIR}" not found.`);
   }
   if (existsSync(OUT_DIR)) rmSync(OUT_DIR, { recursive: true, force: true });
+  if (existsSync(MARKDOWN_OUT_DIR))
+    rmSync(MARKDOWN_OUT_DIR, { recursive: true, force: true });
   mkdirSync(OUT_DIR, { recursive: true });
+  mkdirSync(MARKDOWN_OUT_DIR, { recursive: true });
 
   const files = readdirSync(SRC_DIR).filter((f) => f.endsWith(".md"));
   const pages = files.map(loadPage).sort((a, b) => {
@@ -836,6 +848,10 @@ function main() {
     if (pages[i].slug === LANDING_SLUG) {
       // The landing page lives at `/docs/` (not `/docs/<slug>/`).
       writeFileSync(join(OUT_DIR, "index.html"), html);
+      writeFileSync(
+        join(MARKDOWN_OUT_DIR, "index.md"),
+        rewriteMarkdownLinks(pages[i].raw),
+      );
     } else {
       // Directory-style output (`<slug>/index.html`) so any static server
       // resolves the clean `/docs/<slug>` URL without relying on Vercel's
@@ -843,6 +859,12 @@ function main() {
       const pageDir = join(OUT_DIR, pages[i].slug);
       mkdirSync(pageDir, { recursive: true });
       writeFileSync(join(pageDir, "index.html"), html);
+      const markdownDir = join(MARKDOWN_OUT_DIR, pages[i].slug);
+      mkdirSync(markdownDir, { recursive: true });
+      writeFileSync(
+        join(markdownDir, "index.md"),
+        rewriteMarkdownLinks(pages[i].raw),
+      );
     }
   }
 
@@ -856,4 +878,4 @@ function main() {
   );
 }
 
-main();
+if (import.meta.main) main();

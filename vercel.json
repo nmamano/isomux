@@ -1,4 +1,5 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "bun install && mkdir -p site/demo && bun build ui/demo-entry.tsx --outdir site/demo --production && cp ui/demo.html site/demo/index.html && cp node_modules/@xterm/xterm/css/xterm.css site/demo/xterm.css && bun run build:docs",
   "outputDirectory": "site",
   "cleanUrls": true,
@@ -8,6 +9,22 @@
       "has": [{ "type": "host", "value": "www.isomux.com" }],
       "destination": "https://isomux.com/:path*",
       "permanent": true
+    }
+  ],
+  "headers": [
+    {
+      "source": "/",
+      "headers": [{ "key": "Vary", "value": "Accept, Accept-Encoding" }]
+    },
+    {
+      "source": "/docs/:path*",
+      "headers": [{ "key": "Vary", "value": "Accept, Accept-Encoding" }]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/:path*",
+      "destination": "/api/not-found?path=:path*"
     }
   ]
 }

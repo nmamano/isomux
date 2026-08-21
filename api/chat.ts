@@ -1,5 +1,17 @@
 export const config = { runtime: "edge" };
 
+function jsonError(
+  status: number,
+  code: string,
+  message: string,
+  resolution: string,
+): Response {
+  return Response.json(
+    { error: { code, message, resolution } },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
 // --- Rate limiting (in-memory, resets on cold start) ---
 const hits = new Map<string, number[]>();
 
@@ -265,25 +277,81 @@ async function* parseAnthropicStream(
 // --- Handler ---
 export default async function handler(req: Request) {
   if (req.method !== "POST") {
-    return new Response("Method not allowed", { status: 405 });
+    return jsonError(
+      405,
+      "method_not_allowed",
+      "This endpoint accepts POST requests only.",
+      "Send a POST request with a JSON body containing a messages array.",
+    );
   }
 
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const { allowed, retryAfterSeconds } = rateLimit(ip);
   if (!allowed) {
-    return new Response(
-      JSON.stringify({
-        error: `Rate limit exceeded. Try again in ${retryAfterSeconds} seconds.`,
-      }),
-      { status: 429, headers: { "Content-Type": "application/json" } },
+    return jsonError(
+      429,
+      "rate_limit_exceeded",
+      `The request limit was reached. Try again in ${retryAfterSeconds} seconds.`,
+      `Wait ${retryAfterSeconds} seconds before the next request.`,
     );
   }
 
-  const { messages, pageContext } = (await req.json()) as {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return jsonError(
+      400,
+      "invalid_json",
+      "The request body is not valid JSON.",
+      "Send application/json with a messages array.",
+    );
+  }
+  if (body === null || typeof body !== "object") {
+    return jsonError(
+      400,
+      "invalid_request",
+      "The JSON body must be an object.",
+      "Send a JSON object with a messages array.",
+    );
+  }
+  const { messages, pageContext } = body as {
     messages: { role: string; content: string }[];
     pageContext?: string;
   };
+  if (!Array.isArray(messages)) {
+    return jsonError(
+      400,
+      "invalid_request",
+      "The messages field must be an array.",
+      'Send {"messages":[{"role":"user","content":"..."}]}.',
+    );
+  }
+  if (messages.length === 0) {
+    return jsonError(
+      400,
+      "invalid_request",
+      "The messages array must not be empty.",
+      "Add at least one user message.",
+    );
+  }
+  if (
+    messages.some(
+      (message) =>
+        message === null ||
+        typeof message !== "object" ||
+        (message.role !== "user" && message.role !== "assistant") ||
+        typeof message.content !== "string",
+    )
+  ) {
+    return jsonError(
+      400,
+      "invalid_request",
+      "Each message needs a user or assistant role and string content.",
+      "Check each item in the messages array against the OpenAPI specification.",
+    );
+  }
 
   // Per-page context: docs pages embed their markdown and pass it through.
   // Cap at 20k chars so a runaway page can't blow the system-prompt budget.
@@ -316,32 +384,42 @@ export default async function handler(req: Request) {
     }).catch(() => {});
   }
 
-  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 1000,
-      system,
-      stream: true,
-      messages: messages.map((m: { role: string; content: string }) => ({
-        role: m.role,
-        content: m.content,
-      })),
-    }),
-  });
+  let upstream: Response;
+  try {
+    upstream = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-6",
+        max_tokens: 1000,
+        system,
+        stream: true,
+        messages: messages.map((m: { role: string; content: string }) => ({
+          role: m.role,
+          content: m.content,
+        })),
+      }),
+    });
+  } catch {
+    return jsonError(
+      502,
+      "upstream_unavailable",
+      "The chat service could not be reached.",
+      "Retry later or use the documentation links on the page.",
+    );
+  }
 
   if (!upstream.ok || !upstream.body) {
     const errText = await upstream.text().catch(() => "");
-    return new Response(
-      JSON.stringify({
-        error: `Upstream error ${upstream.status}: ${errText.slice(0, 300)}`,
-      }),
-      { status: 502, headers: { "Content-Type": "application/json" } },
+    return jsonError(
+      502,
+      "upstream_unavailable",
+      `The chat service returned ${upstream.status}: ${errText.slice(0, 300)}`,
+      "Retry later or use the documentation links on the page.",
     );
   }
 

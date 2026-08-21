@@ -5,6 +5,7 @@ site/demo/index.html
 site/demo/xterm.css
 site/docs/
 site/sitemap.xml
+site/_agent/docs/
 *.log
 .vercel
 .claude/

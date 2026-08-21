@@ -13,7 +13,14 @@
       "@shared/*": ["./shared/*"]
     }
   },
-  "include": ["server", "shared", "ui", "api", "control-plane"],
+  "include": [
+    "server",
+    "shared",
+    "ui",
+    "api",
+    "control-plane",
+    "middleware.ts"
+  ],
   // The hosted control plane's web app is its own package with its own
   // dependencies, tsconfig and build. It is type-checked by `bun run ci:web`
   // against Next's types, which exist only after that package is installed - so

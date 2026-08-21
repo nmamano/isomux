@@ -72,11 +72,19 @@ Keep these consistent across all surfaces below.
   - `access-and-invites.md` - canonical reachability/auth deep dive: invite-link flow, Tailscale Funnel agent prompt, Caddy, `ISOMUX_PUBLIC_ORIGIN`, cookie semantics. The Funnel prompt lives here, nowhere else.
   - `how-it-works.md` - short multi-provider technical overview (Bun process, Claude SDK + Codex app-server, WebSocket sync, persistence).
   - `security-audit.md` - authorization-system threat model and findings.
+  - `developer-api.md` - Isomux developer resource index: website OpenAPI contract, self-hosted API authentication, route-table source, and structured error shape.
 - **Frontmatter:** `title`, `description`, `navTitle` (override the sidebar label when the H1 is too long), and `order` (override nav position).
 - **Sidebar nav:** every doc page renders a sidebar listing all pages, with the current one highlighted (sticky on desktop, stacked above content on mobile).
-- **Build:** `bun run build:docs`. The renderer rewrites local `.md` links to clean `/docs/<slug>` URLs (links to `features.md` → `/docs`) and auto-generates an "On this page" TOC from H2/H3 headings. Trusted-source-only - no HTML sanitization (see the comment at the top of the script if outside contributions to `docs/` are ever accepted).
+- **Build:** `bun run build:docs`. The renderer rewrites local `.md` links to clean `/docs/<slug>` URLs (links to `features.md` → `/docs`), auto-generates an "On this page" TOC from H2/H3 headings, and writes Markdown variants under `site/_agent/docs/` for content negotiation. Trusted-source-only - no HTML sanitization (see the comment at the top of the script if outside contributions to `docs/` are ever accepted).
 - **Update when:** any feature is added, removed, or changed that's covered by a page above. `features.md` is the canonical inventory and must be updated alongside any user-visible change.
 - **Deploy note:** built and served by Vercel via `vercel.json`'s `buildCommand` (which calls `bun run build:docs`) and `cleanUrls: true`.
+
+## 4b. Machine-readable site resources
+
+- **Files:** `site/llms.txt`, `site/openapi.json`, `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants.
+- **Audience:** Agents, API clients, and search indexes.
+- **Update when:** public site routes, the website API, docs paths, or the product's developer-resource links change.
+- **Deploy note:** Vercel Routing Middleware negotiates HTML and Markdown for the landing and docs URLs. The response must keep `Vary: Accept, Accept-Encoding`; unsupported media types return 406.
 
 ## 5. `/help` slash command
 

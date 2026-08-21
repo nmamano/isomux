@@ -1,0 +1,93 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Isomux Website API",
+    "version": "1.0.0",
+    "description": "Public API served by isomux.com. Self-hosted office APIs are documented by each office and in the Isomux source route table."
+  },
+  "servers": [{ "url": "https://isomux.com" }],
+  "paths": {
+    "/api/chat": {
+      "post": {
+        "operationId": "chatAboutIsomux",
+        "summary": "Stream an answer about Isomux",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChatRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Server-sent event stream. Each data frame contains a text delta; the final frame is [DONE].",
+            "content": {
+              "text/event-stream": { "schema": { "type": "string" } }
+            }
+          },
+          "400": { "$ref": "#/components/responses/JsonError" },
+          "405": { "$ref": "#/components/responses/JsonError" },
+          "429": { "$ref": "#/components/responses/JsonError" },
+          "502": { "$ref": "#/components/responses/JsonError" }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ChatMessage": {
+        "type": "object",
+        "required": ["role", "content"],
+        "properties": {
+          "role": { "type": "string", "enum": ["user", "assistant"] },
+          "content": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": ["messages"],
+        "properties": {
+          "messages": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/components/schemas/ChatMessage" }
+          },
+          "pageContext": {
+            "type": "string",
+            "description": "Optional documentation context. The server uses at most the first 20,000 characters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "resolution"],
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "resolution": { "type": "string" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "responses": {
+      "JsonError": {
+        "description": "Structured error with a stable code and recovery hint.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Error" }
+          }
+        }
+      }
+    }
+  }
+}
