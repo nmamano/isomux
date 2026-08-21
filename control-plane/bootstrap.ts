@@ -147,6 +147,62 @@ export async function migrateCustomerSshKeyColumns(dsn: string): Promise<void> {
   }
 }
 
+/** Lift the legacy one-office constraint without changing any reservation row. */
+export async function migrateMultiOfficeReservations(
+  dsn: string,
+): Promise<void> {
+  const pool = await openPool(dsn);
+  const client = await pool.connect().catch((err: unknown) => {
+    throw redactConnectionDetails(err, dsn);
+  });
+  try {
+    await client.query("begin");
+    const table = await client.query<{ present: number }>(
+      "select 1 as present from pg_class rel " +
+        "join pg_namespace ns on ns.oid = rel.relnamespace " +
+        "where ns.nspname = current_schema() " +
+        "and rel.relname = 'name_reservations' and rel.relkind in ('r', 'p')",
+    );
+    if (!table.rows[0]?.present) {
+      await client.query("commit");
+      return;
+    }
+    const constraints = await client.query<{ name: string }>(
+      "select con.conname as name from pg_constraint con " +
+        "join pg_class rel on rel.oid = con.conrelid " +
+        "join pg_namespace ns on ns.oid = rel.relnamespace " +
+        "join pg_attribute attr on attr.attrelid = rel.oid " +
+        "  and attr.attnum = con.conkey[1] " +
+        "where ns.nspname = current_schema() " +
+        "and rel.relname = 'name_reservations' and con.contype = 'u' " +
+        "and cardinality(con.conkey) = 1 and attr.attname = 'account_id'",
+    );
+    if (constraints.rows.length > 1) {
+      throw new Error(
+        "more than one account-only name reservation constraint prevents migration",
+      );
+    }
+    const constraint = constraints.rows[0]?.name;
+    if (constraint) {
+      const quoted = `"${constraint.replaceAll('"', '""')}"`;
+      await client.query(
+        `alter table name_reservations drop constraint ${quoted}`,
+      );
+    }
+    await client.query(
+      "create index if not exists name_reservations_account_id " +
+        "on name_reservations (account_id)",
+    );
+    await client.query("commit");
+  } catch (err) {
+    await client.query("rollback").catch(() => {});
+    throw redactConnectionDetails(err, dsn);
+  } finally {
+    client.release();
+    await pool.end().catch(() => {});
+  }
+}
+
 export const CANCELLATION_POLICY_CUTOVER_KEY =
   "hosted_cancellation_policy_cutover_ms";
 
@@ -846,11 +902,13 @@ export async function bootstrapDatabase(
   // This also lets the migration name duplicate provider IDs before SCHEMA
   // attempts to create the unique index.
   await migrateHostedCancellationPolicy(dsn);
+  await migrateMultiOfficeReservations(dsn);
   const store = await Store.open(dsn);
   try {
     // A fresh database had no tables for the pre-open migration to alter.
     // Store.open has created them now; this rerun records the immutable cutover.
     await migrateHostedCancellationPolicy(dsn);
+    await migrateMultiOfficeReservations(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

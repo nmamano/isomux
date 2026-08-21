@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { auth, signOut } from "../auth";
-import { officeForAccount } from "../lib/services.server";
+import { officesForAccount } from "../lib/services.server";
 
 export const dynamic = "force-dynamic";
 
@@ -19,11 +19,10 @@ export default async function Home() {
     );
   }
 
-  // One office per account, so this is one link and not a list.
-  const office = await officeForAccount(accountId);
+  const offices = await officesForAccount(accountId);
   return (
     <main>
-      <h1>Your office</h1>
+      <h1>{offices.length > 1 ? "Your offices" : "Your office"}</h1>
       <div className="account-line">
         <p className="note" data-testid="signed-in-as">
           Signed in as {email}
@@ -39,21 +38,29 @@ export default async function Home() {
           </button>
         </form>
       </div>
-      {office ? (
-        <Link
-          className="card office-card-link"
-          href={`/office/${office.officeName}`}
-        >
-          <p className="lead">
-            <span className="address">{office.hostname}</span> -{" "}
-            {/* The same chip the provisioning ladder uses, so "ready" reads the
-                same here as it does inside the office. */}
-            <span data-state={office.ready ? "done" : "active"}>
-              {office.ready ? "ready" : "not ready yet"}
-            </span>
+      {offices.length > 0 ? (
+        <>
+          {offices.map((office) => (
+            <Link
+              className="card office-card-link"
+              href={`/office/${office.officeName}`}
+              key={office.instanceId}
+            >
+              <p className="lead">
+                <span className="address">{office.hostname}</span> -{" "}
+                {/* The same chip the provisioning ladder uses, so "ready" reads
+                    the same here as it does inside the office. */}
+                <span data-state={office.ready ? "done" : "active"}>
+                  {office.ready ? "ready" : "not ready yet"}
+                </span>
+              </p>
+              <span className="office-card-action">View office &rarr;</span>
+            </Link>
+          ))}
+          <p>
+            <Link href="/signup">Set up another office</Link>.
           </p>
-          <span className="office-card-action">View office &rarr;</span>
-        </Link>
+        </>
       ) : (
         <div className="card">
           <p>

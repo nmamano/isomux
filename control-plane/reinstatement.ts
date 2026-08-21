@@ -12,7 +12,7 @@ import type { ReservationRow } from "./signup.ts";
 import type { OperationRow, Store } from "./store.ts";
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
 import { getAccount, type AccountRow } from "./stripe/billing-store.ts";
-import { planById, reservationForAccount } from "./signup.ts";
+import { instanceOwnedBy, planById } from "./signup.ts";
 
 export const REINSTATEMENT_CHECKOUT_MS = 30 * 60_000;
 export const REINSTATEMENT_REASON = "reinstatement";
@@ -213,8 +213,8 @@ export async function prepareReinstatementCheckout(
   stripeCallPreparedAt: number,
 ): Promise<PreparedReinstatement> {
   return store.tx(async () => {
-    const reservation = await reservationForAccount(store, accountId);
-    if (!reservation || reservation.instance_id !== instanceId)
+    const reservation = await instanceOwnedBy(store, accountId, instanceId);
+    if (!reservation)
       return { ok: false, reason: "we could not find that office" };
     if (!planById(reservation.plan))
       return {

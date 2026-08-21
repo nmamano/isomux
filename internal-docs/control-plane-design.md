@@ -64,9 +64,9 @@ fail-closed backstop, classified liveness, reboot, cancel and deprovision, an
 internal audit log.
 
 **Out:** metrics graphs, a customer-facing event log, restore-from-backup UI,
-operator-pushed fleet updates, more than one box per account, region or plan
-changes after provisioning, team seats in the control plane (isomux's own
-invites already cover that), any free trial.
+operator-pushed fleet updates, region or plan changes after provisioning, team
+seats in the control plane (isomux's own invites already cover that), any free
+trial.
 
 ## Nil's rulings (2026-07-31)
 

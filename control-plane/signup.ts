@@ -114,14 +114,14 @@ export async function reservationForInstance(
   );
 }
 
-/** At most one, because account_id is unique: one office per account is the
- * MVP's shape, and the constraint is what makes it true. */
-export async function reservationForAccount(
+/** Every office reserved by an account, in creation order. The name tie-breaker
+ * makes the order total when two reservations share a millisecond. */
+export async function reservationsForAccount(
   store: Store,
   accountId: string,
-): Promise<ReservationRow | null> {
-  return store.sqlGet<ReservationRow>(
-    "select * from name_reservations where account_id = $1",
+): Promise<ReservationRow[]> {
+  return store.sqlAll<ReservationRow>(
+    "select * from name_reservations where account_id = $1 order by created_at, name",
     [accountId],
   );
 }
@@ -362,18 +362,20 @@ export async function reserveOffice(
       );
     } catch (err) {
       if (!isUniqueViolation(err)) throw err;
-      // TWO unique constraints can refuse this insert, and they mean different
-      // things: the name is somebody else's, or this account already has an
-      // office. Read both back rather than guessing from the error text.
+      // The name constraint decides collisions. Read it back rather than
+      // guessing from the engine's error text.
       const held = await reservationByName(store, req.officeName);
       if (!held) {
-        const mine = await reservationForAccount(store, account.id);
-        if (mine) {
+        // A database that has not received the multi-office owner migration can
+        // still refuse a second name on its legacy account_id constraint. The
+        // runtime schema check normally prevents that database from opening;
+        // this arm keeps a direct caller from turning the same condition into
+        // an unexplained 500.
+        const mine = await reservationsForAccount(store, account.id);
+        if (mine.length > 0) {
           return {
             ok: false,
-            reason:
-              `you already have an office at "${mine.name}", and an account ` +
-              `can have one office`,
+            reason: "this deployment needs its multi-office database migration",
           };
         }
         throw err;

@@ -44,6 +44,16 @@ database, run the owner-role migration once:
 bun control-plane/cli.ts migrate-customer-ssh-key
 ```
 
+Before deploying a build that lets an account hold several offices, run the
+owner-role migration once:
+
+```bash
+bun control-plane/cli.ts migrate-multi-office
+```
+
+It preserves every reservation row, removes the account-only unique constraint,
+and replaces its lookup index. Runtime processes refuse the old schema.
+
 Runtime roles cannot apply this DDL. Until the migration lands, both the web
 and provisioner processes refuse to open the old schema.
 
@@ -3051,11 +3061,12 @@ connections can both observe "absent" in the same instant. A conflict is read
 back: another account's row is a refusal, the same account's row is that
 account's own retry.
 
-`account_id` is unique too, so **one office per account** is a constraint rather
-than a rule somebody could forget - the design puts more than one box per
-account outside the MVP. Two connections racing different names for one account
-are separated by the database, and the loser is told which office it already
-has.
+`account_id` is indexed but not unique. One account can reserve several globally
+named offices, and the dashboard reads them in `created_at, name` order. Every
+office still goes through `reserveOffice`; there is no second creation path.
+The launch admission bound counts reservations globally, so one account can
+consume the whole 40-office-per-seven-days certificate budget. There is no
+separate per-account quota.
 
 THE TENANT KEY IS THE ACCOUNT ID, NOT THE EMAIL. Both providers resolve to a
 durable account before a session exists, and the session carries that id;
@@ -3066,12 +3077,13 @@ durably bound to, while the binding kept saying the right thing. The email is
 contact and display data, and Checkout takes it from the ACCOUNT row rather than
 from whatever the session carries today.
 
-The customer dashboard's canonical route is `/office/<office-name>`, using the
-same globally unique, immutable name held in `name_reservations`. Checkout and
+Each customer dashboard route is `/office/<office-name>`, using the same globally
+unique, immutable name held in `name_reservations`. The account dashboard lists
+every office owned by the signed-in account. Checkout and
 dashboard links always use that form. Internal instance ids are not accepted as
-customer-facing route keys. The resolver starts from the account's own
-reservation rather than looking up the supplied name globally, so a foreign
-name and one that does not exist both remain the same 404.
+customer-facing route keys. The resolver looks up the globally unique name and
+compares its account before projection, so a foreign name and one that does not
+exist both remain the same 404.
 
 The signup POST also refuses a request that did not come from this deployment's
 own origin, before it reads the form: it writes durably and spends at Stripe on

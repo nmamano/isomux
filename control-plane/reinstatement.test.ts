@@ -126,6 +126,25 @@ async function fixture(at = ENDED + 1): Promise<{
 }
 
 describe("retained-office reinstatement", () => {
+  test("reinstatement selects the requested office when the account has two", async () => {
+    const f = await fixture();
+    const second = await reserveOffice(f.store, {
+      accountId: f.reservation.account.id,
+      officeName: `second-${crypto.randomUUID().slice(0, 6)}`,
+      plan: "office",
+    });
+    if (!second.ok) throw new Error(second.reason);
+
+    expect(
+      await prepareReinstatementCheckout(
+        f.store,
+        f.reservation.account.id,
+        second.reservation.instance_id,
+        f.c.now(),
+      ),
+    ).toEqual({ ok: false, reason: "we could not find that subscription" });
+  });
+
   test("the customer boundary and Stripe technical expiry are distinct", () => {
     expect(
       phaseAt(

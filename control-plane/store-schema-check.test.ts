@@ -21,6 +21,7 @@ import { PROVISIONER_GRANTS, type TableGrant } from "./roles.ts";
 import {
   migrateCustomerSshKeyColumns,
   migrateHostedCancellationPolicy,
+  migrateMultiOfficeReservations,
 } from "./bootstrap.ts";
 import { PRODUCT_TABLES, Store } from "./store.ts";
 import {
@@ -94,6 +95,63 @@ suite("the schema check reads the catalog, not the privilege view", () => {
     const { roleDsn } = await bootstrappedAndRole();
     const store = await Store.openRuntime(roleDsn);
     await store.close();
+  });
+
+  test("a least-privileged role refuses the legacy account uniqueness constraint", async () => {
+    const { ownerDsn, roleDsn } = await bootstrappedAndRole();
+    const owner = new pg.Pool({ connectionString: ownerDsn, max: 1 });
+    owner.on("error", () => {});
+    try {
+      await owner.query(
+        "alter table name_reservations add constraint legacy_one_office unique (account_id)",
+      );
+      expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+        /multi-office owner migration/,
+      );
+    } finally {
+      await owner.end().catch(() => {});
+    }
+  });
+
+  test("the multi-office migration preserves rows and is idempotent", async () => {
+    const ownerDsn = await freshDsn();
+    const store = await Store.open(ownerDsn);
+    await store.sqlRun(
+      "insert into accounts (id, email, version, created_at, updated_at) " +
+        "values ('acct-existing', 'existing@example.com', 1, 1, 1)",
+    );
+    await store.sqlRun(
+      "insert into name_reservations " +
+        "(name, id, account_id, instance_id, plan, version, created_at, updated_at) " +
+        "values ('test-nil', 'res-existing', 'acct-existing', 'inst-existing', 'office', 1, 1, 1)",
+    );
+    await store.sqlRun(
+      "alter table name_reservations add constraint legacy_one_office unique (account_id)",
+    );
+    await store.close();
+
+    await migrateMultiOfficeReservations(ownerDsn);
+    await migrateMultiOfficeReservations(ownerDsn);
+
+    const migrated = await Store.open(ownerDsn);
+    expect(
+      await migrated.sqlAll<{ name: string }>(
+        "select name from name_reservations order by name",
+      ),
+    ).toEqual([{ name: "test-nil" }]);
+    await migrated.sqlRun(
+      "insert into name_reservations " +
+        "(name, id, account_id, instance_id, plan, version, created_at, updated_at) " +
+        "values ('test-nil-two', 'res-second', 'acct-existing', 'inst-second', 'office', 1, 2, 2)",
+    );
+    expect(
+      migrated.sqlRun(
+        "insert into name_reservations " +
+          "(name, id, account_id, instance_id, plan, version, created_at, updated_at) " +
+          "values ('test-nil', 'res-collision', 'acct-existing', 'inst-third', 'office', 1, 3, 3)",
+      ),
+    ).rejects.toMatchObject({ code: "23505" });
+    await migrated.close();
   });
 
   // THE ONE THAT WAS VOID. Under the privilege view, a role holding nothing on

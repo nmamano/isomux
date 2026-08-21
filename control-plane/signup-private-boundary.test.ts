@@ -44,7 +44,9 @@ describe("the signup private-key boundary", () => {
       route.indexOf('const plan = field("plan")'),
     );
     expect(continuation).toContain('state.kind !== "continue"');
-    expect(continuation).toContain("await continueSignup(accountId)");
+    expect(continuation).toContain(
+      "await continueSignup(accountId, officeName)",
+    );
     expect(route).not.toContain('field("intent")');
   });
 });

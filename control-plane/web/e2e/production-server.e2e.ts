@@ -223,6 +223,15 @@ async function main(): Promise<void> {
   });
   if (!reserved.ok) throw new Error(`could not seed: ${reserved.reason}`);
   const instanceId = reserved.reservation.instance_id;
+  const secondOfficeName = `${officeName}b`;
+  const secondReserved = await reserveOffice(store, {
+    accountId: owner.id,
+    officeName: secondOfficeName,
+    plan: "office",
+    couponId: null,
+  });
+  if (!secondReserved.ok)
+    throw new Error(`could not seed second office: ${secondReserved.reason}`);
   // What the page must show: the office name is what the customer typed, and
   // the hostname is what signup derived from it.
   const hostname = hostnameFor(officeName);
@@ -404,6 +413,23 @@ async function main(): Promise<void> {
     // The owner's own office, rendered from the rows seeded above.
     const ownerContext = await contextFor(ownerCookie);
     const page = await ownerContext.newPage();
+    await page.goto(BASE, { waitUntil: "domcontentloaded" });
+    const dashboardText = (await page.textContent("body")) ?? "";
+    const dashboardLinks = await page.$$eval("a", (links) =>
+      links.map((link) => link.getAttribute("href")),
+    );
+    check(
+      "the account dashboard lists both owned offices",
+      dashboardText.includes("Your offices") &&
+        dashboardLinks.includes(`/office/${officeName}`) &&
+        dashboardLinks.includes(`/office/${secondOfficeName}`),
+      dashboardLinks.join(","),
+    );
+    check(
+      "the multi-office dashboard offers another signup",
+      dashboardText.includes("Set up another office") &&
+        dashboardLinks.includes("/signup"),
+    );
     const response = await page.goto(`${BASE}/office/${officeName}`, {
       waitUntil: "domcontentloaded",
     });

@@ -78,8 +78,8 @@ describe("only one file reaches the store", () => {
       "confirmHandoff",
       "continueSignup",
       "identityForSignIn",
-      "officeForAccount",
       "officeRouteForAccount",
+      "officesForAccount",
       "opsFloor",
       "opsInstance",
       "plans",
@@ -95,6 +95,20 @@ describe("only one file reaches the store", () => {
     ]);
     // And nothing exports a store, a database or a transaction.
     expect(source).not.toMatch(/export .*\bStore\b/);
+  });
+
+  test("a named office is account-checked before projection", () => {
+    const source = read(FACADE);
+    const route = source.slice(
+      source.indexOf("export async function officeRouteForAccount"),
+      source.indexOf(
+        "// ------------------------------------------------------- customer requests",
+      ),
+    );
+    const accountCheck = route.indexOf("reservation.account_id !== accountId");
+    const projection = route.indexOf("return projectionFor");
+    expect(accountCheck).toBeGreaterThan(0);
+    expect(projection).toBeGreaterThan(accountCheck);
   });
 
   test("every control-plane import in the facade is request-time", async () => {

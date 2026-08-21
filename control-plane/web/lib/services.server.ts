@@ -195,27 +195,27 @@ export type SignupResult =
 
 export type SignupPageState =
   | { kind: "new" }
-  | { kind: "continue"; officeName: string }
-  | { kind: "office"; officeName: string };
+  | { kind: "continue"; officeName: string };
 
 export async function signupPageState(
   accountId: string,
 ): Promise<SignupPageState> {
-  const [{ reservationForAccount }, { subscriptionForInstance }] =
+  const [{ reservationsForAccount }, { subscriptionForInstance }] =
     await Promise.all([
       import("../../signup"),
       import("../../stripe/billing-store"),
     ]);
   return withStore(async (store) => {
-    const reservation = await reservationForAccount(store, accountId);
-    if (!reservation) return { kind: "new" };
-    const subscription = await subscriptionForInstance(
-      store,
-      reservation.instance_id,
-    );
-    return subscription
-      ? { kind: "office", officeName: reservation.name }
-      : { kind: "continue", officeName: reservation.name };
+    const reservations = await reservationsForAccount(store, accountId);
+    for (const reservation of reservations) {
+      const subscription = await subscriptionForInstance(
+        store,
+        reservation.instance_id,
+      );
+      if (!subscription)
+        return { kind: "continue", officeName: reservation.name };
+    }
+    return { kind: "new" };
   });
 }
 
@@ -283,13 +283,14 @@ async function openReservedCheckout(args: {
 
 export async function continueSignup(
   accountId: string,
+  officeName: string,
 ): Promise<SignupResult | { ok: false; officeName: string }> {
-  const { reservationForAccount } = await import("../../signup");
+  const { reservationByName } = await import("../../signup");
   const { getAccount, subscriptionForInstance } =
     await import("../../stripe/billing-store");
   const owned = await withStore(async (store) => {
-    const reservation = await reservationForAccount(store, accountId);
-    if (!reservation) return null;
+    const reservation = await reservationByName(store, officeName);
+    if (!reservation || reservation.account_id !== accountId) return null;
     const subscription = await subscriptionForInstance(
       store,
       reservation.instance_id,
@@ -500,22 +501,24 @@ export async function signUpOffice(args: {
   return openReservedCheckout(reserved);
 }
 
-/** The account's office, or null. One per account: the reservation table's
- * unique account_id is what makes that true. */
-export async function officeForAccount(
+/** The account's offices, in reservation order. */
+export async function officesForAccount(
   accountId: string,
-): Promise<ProgressView | null> {
-  const [{ reservationForAccount }, { projectionFor }] = await Promise.all([
+): Promise<ProgressView[]> {
+  const [{ reservationsForAccount }, { projectionFor }] = await Promise.all([
     import("../../signup"),
     import("../../progress"),
   ]);
   return withStore(async (store) => {
-    const reservation = await reservationForAccount(store, accountId);
-    if (!reservation) return null;
-    return projectionFor(store, {
-      accountId,
-      instanceId: reservation.instance_id,
-    });
+    const reservations = await reservationsForAccount(store, accountId);
+    return Promise.all(
+      reservations.map((reservation) =>
+        projectionFor(store, {
+          accountId,
+          instanceId: reservation.instance_id,
+        }),
+      ),
+    ).then((offices) => offices.filter((office) => office !== null));
   });
 }
 
@@ -543,13 +546,13 @@ export async function officeRouteForAccount(
   accountId: string,
   routeKey: string,
 ): Promise<ProgressView | null> {
-  const [{ reservationForAccount }, { projectionFor }] = await Promise.all([
+  const [{ reservationByName }, { projectionFor }] = await Promise.all([
     import("../../signup"),
     import("../../progress"),
   ]);
   return withStore(async (store) => {
-    const reservation = await reservationForAccount(store, accountId);
-    if (!reservation || routeKey !== reservation.name) return null;
+    const reservation = await reservationByName(store, routeKey);
+    if (!reservation || reservation.account_id !== accountId) return null;
     return projectionFor(store, {
       accountId,
       instanceId: reservation.instance_id,

@@ -26,14 +26,17 @@ import { TEST_DATABASE_URL, releaseTestStores, testDsn } from "./testing/pg.ts";
 import { Store } from "./store.ts";
 import {
   continueSignup,
-  officeForAccount,
+  officesForAccount,
   officeRouteForAccount,
   progressForAccount,
   signUpOffice,
   signupPageState,
 } from "./web/lib/services.server.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
-import { insertSubscription } from "./stripe/billing-store.ts";
+import {
+  insertSubscription,
+  subscriptionForInstance,
+} from "./stripe/billing-store.ts";
 import { generateServerAdministratorKey } from "./web/components/server-administrator-key.ts";
 
 /** The same symbol the facade caches on. Reached here, and nowhere else, so the
@@ -129,9 +132,9 @@ describe("the web app's store outlives the request", () => {
     // either has finished opening.
     const [a, b] = await Promise.all([
       progressForAccount("acct-nobody", "inst-nobody"),
-      officeForAccount("acct-nobody"),
+      officesForAccount("acct-nobody"),
     ]);
-    expect([a, b]).toEqual([null, null]);
+    expect([a, b]).toEqual([null, []]);
 
     // The count while they run says nothing: one pool serving two concurrent
     // reads holds two connections, and so does a pool each. What tells them
@@ -205,7 +208,7 @@ describe("hosted signup page state", () => {
     await inspect.close();
   });
 
-  test("an unpaid reservation continues, while a subscription sends it to the office", async () => {
+  test("an unpaid reservation continues, while a paid office permits another signup", async () => {
     const dsn = await appDsn();
     process.env.CONTROL_PLANE_DB = dsn;
     const seed = await Store.open(dsn);
@@ -250,14 +253,28 @@ describe("hosted signup page state", () => {
         last_event_created: null,
       }),
     );
-    expect(await signupPageState(account.id)).toEqual({
-      kind: "office",
-      officeName: "continue-me",
-    });
-    expect(await continueSignup(account.id)).toEqual({
+    expect(await signupPageState(account.id)).toEqual({ kind: "new" });
+    expect(await continueSignup(account.id, "continue-me")).toEqual({
       ok: false,
       officeName: "continue-me",
     });
+    const second = await reserveOffice(seed, {
+      accountId: account.id,
+      officeName: "continue-second",
+      plan: "office",
+      customerSshKey: customerKey,
+    });
+    if (!second.ok) throw new Error(second.reason);
+    expect(await signupPageState(account.id)).toEqual({
+      kind: "continue",
+      officeName: "continue-second",
+    });
+    expect(
+      await subscriptionForInstance(seed, reserved.reservation.instance_id),
+    ).not.toBeNull();
+    expect(
+      await subscriptionForInstance(seed, second.reservation.instance_id),
+    ).toBeNull();
     expect(
       (await seed.getInstance(reserved.reservation.instance_id))
         ?.customer_ssh_key,
@@ -280,12 +297,18 @@ describe("office route authorization", () => {
       officeName: "route-owner",
       plan: "office",
     });
+    const ownedSecond = await reserveOffice(seed, {
+      accountId: owner.id,
+      officeName: "route-owner-two",
+      plan: "office",
+    });
     const foreign = await reserveOffice(seed, {
       accountId: stranger.id,
       officeName: "route-stranger",
       plan: "office",
     });
-    if (!owned.ok || !foreign.ok) throw new Error("could not seed routes");
+    if (!owned.ok || !ownedSecond.ok || !foreign.ok)
+      throw new Error("could not seed routes");
     await seed.close();
     process.env.CONTROL_PLANE_DB = dsn;
 
@@ -296,6 +319,9 @@ describe("office route authorization", () => {
         officeName: "route-owner",
       }),
     );
+    expect(
+      (await officesForAccount(owner.id)).map((item) => item.officeName),
+    ).toEqual(["route-owner", "route-owner-two"]);
 
     // Foreign names, internal ids and unknown values take the same null path.
     expect(

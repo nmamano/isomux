@@ -19,7 +19,7 @@ import {
   reservationByName,
   customerReason,
   originIsTrusted,
-  reservationForAccount,
+  reservationsForAccount,
   reserveOffice,
   SubjectBindingConflict,
   validateSignup,
@@ -457,21 +457,55 @@ describe("refusal copy", () => {
   });
 });
 
-describe("one office per account", () => {
-  test("a second name for the same account is refused, and names its office", async () => {
+describe("several offices per account", () => {
+  test("a second name for the same account creates an independent office", async () => {
     const store = await tempStore();
     const first = await signup(store);
     if (!first.ok) throw new Error("signup failed");
     const second = await signup(store, { officeName: "acme-two" });
-    expect(second.ok).toBe(false);
-    if (!second.ok) {
-      expect(second.reason).toContain('you already have an office at "acme"');
-    }
-    expect(await reservationByName(store, "acme-two")).toBeNull();
-    expect(await store.listInstances()).toHaveLength(1);
+    expect(second.ok).toBe(true);
+    expect((await reservationByName(store, "acme-two"))?.account_id).toBe(
+      first.account.id,
+    );
+    expect(await store.listInstances()).toHaveLength(2);
   });
 
-  test("two connections racing DIFFERENT names for one account: one wins", async () => {
+  test("reservation order uses the unique name when creation times tie", async () => {
+    const store = await tempStore();
+    const account = await accountForDevSignIn(store, "ordered@example.com");
+    for (const officeName of ["beta", "alpha"]) {
+      const result = await reserveOffice(
+        store,
+        { accountId: account.id, officeName, plan: "office" },
+        { now: () => 123 },
+      );
+      if (!result.ok) throw new Error(result.reason);
+    }
+    expect(
+      (await reservationsForAccount(store, account.id)).map((r) => r.name),
+    ).toEqual(["alpha", "beta"]);
+  });
+
+  test("a legacy account constraint returns a migration refusal, not a 500", async () => {
+    const store = await tempStore();
+    const first = await signup(store);
+    if (!first.ok) throw new Error("signup failed");
+    await store.sqlRun(
+      "alter table name_reservations add constraint legacy_one_office unique (account_id)",
+    );
+    try {
+      expect(await signup(store, { officeName: "acme-two" })).toEqual({
+        ok: false,
+        reason: "this deployment needs its multi-office database migration",
+      });
+    } finally {
+      await store.sqlRun(
+        "alter table name_reservations drop constraint legacy_one_office",
+      );
+    }
+  });
+
+  test("two connections can reserve different names for one account", async () => {
     const dsn = await testDsn();
     const a = await openTestStoreOn(dsn);
     const b = await openTestStoreOn(dsn);
@@ -486,18 +520,16 @@ describe("one office per account", () => {
       officeName: "beta",
       plan: "office",
     });
-    // The database arbitrates: exactly one reservation exists afterwards, and
-    // the loser is told what it already has.
-    expect([first.ok, second.ok].filter(Boolean)).toHaveLength(1);
+    expect([first.ok, second.ok]).toEqual([true, true]);
     expect(
       await a.sqlGet<{ n: number }>(
         "select count(*) as n from name_reservations",
       ),
-    ).toEqual({ n: 1 });
-    expect(await a.listInstances()).toHaveLength(1);
-    const loser = first.ok ? second : first;
-    if (!loser.ok) expect(loser.reason).toContain("one office");
-    expect(await reservationForAccount(a, account.id)).not.toBeNull();
+    ).toEqual({ n: 2 });
+    expect(await a.listInstances()).toHaveLength(2);
+    expect(
+      (await reservationsForAccount(a, account.id)).map((r) => r.name),
+    ).toEqual(["alpha", "beta"]);
     await a.close();
     await b.close();
   });
@@ -525,7 +557,9 @@ describe("the tenant key survives a changed email", () => {
     expect(later.id).toBe(first.id);
     // The office is still reachable, and no second account was made for the
     // new address.
-    expect((await reservationForAccount(store, later.id))?.name).toBe("acme");
+    expect((await reservationsForAccount(store, later.id))[0]?.name).toBe(
+      "acme",
+    );
     expect(await accountByEmail(store, "after@example.com")).toBeNull();
     expect(
       await instanceOwnedBy(store, later.id, out.reservation.instance_id),

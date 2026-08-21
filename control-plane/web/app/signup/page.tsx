@@ -22,8 +22,6 @@ export default async function Signup({
     plans(),
     signupPageState(session.accountId),
   ]);
-  if (state.kind === "office") redirect(`/office/${state.officeName}`);
-
   return (
     <main>
       <h1>Set up your office</h1>

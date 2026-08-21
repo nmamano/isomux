@@ -40,14 +40,12 @@ export async function POST(request: Request): Promise<Response> {
   const officeName = field("officeName");
   const customerSshKey = field("customerSshKey");
   const state = await signupPageState(accountId);
-  if (state.kind === "office")
-    return Response.redirect(`${here}/office/${state.officeName}`, 303);
   if (!customerSshKey) {
     if (state.kind !== "continue") return new Response(null, { status: 400 });
     if (officeName !== state.officeName) {
       return new Response(null, { status: 409 });
     }
-    const result = await continueSignup(accountId);
+    const result = await continueSignup(accountId, officeName);
     if (!result.ok) {
       if ("officeName" in result)
         return Response.redirect(`${here}/office/${result.officeName}`, 303);

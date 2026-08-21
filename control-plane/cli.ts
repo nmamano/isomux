@@ -33,6 +33,7 @@ import {
   bootstrapDatabase,
   migrateCustomerSshKeyColumns,
   migrateHostedCancellationPolicy,
+  migrateMultiOfficeReservations,
   reportBootstrap,
 } from "./bootstrap.ts";
 import {
@@ -930,6 +931,11 @@ async function cmdMigrateHostedCancellation(): Promise<void> {
   reporter.line("hosted cancellation policy schema: ready");
 }
 
+async function cmdMigrateMultiOffice(): Promise<void> {
+  await migrateMultiOfficeReservations(databaseUrl());
+  reporter.line("multi-office reservation schema: ready");
+}
+
 async function cmdOps(args: Map<string, string>): Promise<void> {
   const store = await openStore();
   const run = args.get("run");
@@ -1242,6 +1248,8 @@ async function main(): Promise<void> {
       return cmdMigrateCustomerSshKey();
     case "migrate-hosted-cancellation":
       return cmdMigrateHostedCancellation();
+    case "migrate-multi-office":
+      return cmdMigrateMultiOffice();
     case "operator":
       return cmdOperator(args);
     case "attention":
@@ -1251,7 +1259,7 @@ async function main(): Promise<void> {
     default:
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key|migrate-hosted-cancellation> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key|migrate-hosted-cancellation|migrate-multi-office> [--flags]",
       );
       process.exit(2);
   }

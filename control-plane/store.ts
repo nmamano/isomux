@@ -509,10 +509,8 @@ create table if not exists stripe_events (
 --
 -- (No backticks anywhere in this string: SCHEMA is a template literal, and one
 -- would end it. Same mechanism as the install.sh heredoc defect.)
--- account_id is UNIQUE: the design puts more than one box per account outside
--- the MVP, so "one office per account" is a database constraint rather than a
--- check somebody could forget. Two connections reserving different names for
--- one account are separated here, not by a SELECT in front of the insert.
+-- account_id has a non-unique late index: one account can own several offices,
+-- while the name primary key remains the global collision boundary.
 -- Liveness (slice 4b). A NEW TABLE, which is why it needs no migration and no
 -- entry in the column check below: an older database gains an empty one, and an
 -- office with no row has simply never been probed - which is not ambiguous
@@ -532,7 +530,7 @@ create table if not exists instance_liveness (
 create table if not exists name_reservations (
   name text primary key,
   id text not null unique,
-  account_id text not null unique,
+  account_id text not null,
   instance_id text not null,
   plan text not null,
   coupon_id text,
@@ -559,6 +557,8 @@ const LATE_INDEXES = `
 -- would permit exactly one of them.
 create unique index if not exists accounts_google_subject
   on accounts (google_subject) where google_subject is not null;
+create index if not exists name_reservations_account_id
+  on name_reservations (account_id);
 `;
 
 /**
@@ -1218,13 +1218,9 @@ export class Store {
    * Failing at open, by name, is the difference between "move this database
    * aside" and a debugging session.
    *
-   * It guards COLUMNS, and only columns. A table this build adds outright -
-   * `name_reservations` - cannot be listed here and would be pointless if it
-   * were: SCHEMA runs `create table if not exists` first, so by the time this
-   * check reads the catalog, the table exists with every column. Nor does it
-   * need guarding. An older database simply gains an empty reservations table,
-   * and an empty one is not ambiguous state - nothing was signed up before this
-   * build existed.
+   * It guards the required columns and the constraints whose presence changes
+   * product behavior. SCHEMA runs `create table if not exists` first, but that
+   * does not alter an existing table or remove its legacy account uniqueness.
    */
   /**
    * Refuse to hand back a Store whose stated bounds are not actually in effect.
@@ -1454,6 +1450,23 @@ export class Store {
             `build's owner-role migration before starting a runtime process.`,
         );
       }
+    }
+    const accountConstraint = await this.sqlGet<{ name: string }>(
+      "select con.conname as name from pg_constraint con " +
+        "join pg_class rel on rel.oid = con.conrelid " +
+        "join pg_namespace ns on ns.oid = rel.relnamespace " +
+        "join pg_attribute attr on attr.attrelid = rel.oid " +
+        "  and attr.attnum = con.conkey[1] " +
+        "where ns.nspname = current_schema() " +
+        "and rel.relname = 'name_reservations' and con.contype = 'u' " +
+        "and cardinality(con.conkey) = 1 and attr.attname = 'account_id'",
+    );
+    if (accountConstraint) {
+      throw new Error(
+        `the database at ${this.describe()} still limits each account to one ` +
+          `office. Apply this build's multi-office owner migration before ` +
+          `starting a runtime process.`,
+      );
     }
     const providerIdIndex = await this.sqlGet<{
       unique: boolean;
