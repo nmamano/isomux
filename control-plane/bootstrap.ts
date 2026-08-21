@@ -44,7 +44,6 @@ import {
   judgeMatrix,
   matrixSql,
   ownerConfigIsAcceptable,
-  roleFactsSql,
   schemaPrivilegeSql,
   sequencePrivilegeSql,
   priorRuntimeRoles,
@@ -444,6 +443,8 @@ export interface ReapplyResult {
   /** Per role, after the transaction. A membership hands somebody everything
    * the matrix just granted, so acceptance says it rather than assuming it. */
   noMemberships: [string, boolean][];
+  /** Per role, the login state is identical before and after the transaction. */
+  loginUnchanged: [string, boolean][];
   exact: boolean;
 }
 
@@ -464,13 +465,93 @@ export function reapplyIsExact(facts: {
   schemaUsageOnly: readonly [string, boolean][];
   sequencePrivilegesHeld: number;
   noMemberships: readonly [string, boolean][];
+  loginUnchanged: readonly [string, boolean][];
 }): boolean {
   return (
     [...facts.direct, ...facts.effective].every(([, v]) => v.exact) &&
     facts.schemaUsageOnly.every(([, ok]) => ok) &&
     facts.sequencePrivilegesHeld === 0 &&
-    facts.noMemberships.every(([, ok]) => ok)
+    facts.noMemberships.every(([, ok]) => ok) &&
+    facts.loginUnchanged.every(([, ok]) => ok)
   );
+}
+
+/**
+ * Refuse an incremental grant move unless the runtime identities are still the
+ * identities this build governs.
+ *
+ * This differs from the fresh-govern preflight in exactly two facts. A deployed
+ * role can log in, and it can have live backends. Neither makes a grant change
+ * unsafe: PostgreSQL applies the committed ACL to an existing session's next
+ * statement. Every other identity fact stays strict, because a membership or
+ * ownership edge would let this transaction change a boundary outside the
+ * matrix it reads.
+ */
+async function reapplyPreflight(
+  pool: pg.Pool,
+  dsn: string,
+  roster: readonly RolePosture[],
+): Promise<void> {
+  let identities: RoleIdentity[];
+  try {
+    identities = (
+      await pool.query<RoleIdentity>(roleIdentitySql(), [
+        roster.map((entry) => entry.role),
+      ])
+    ).rows;
+  } catch (err) {
+    throw redactConnectionDetails(err, dsn);
+  }
+  if (identities.length !== roster.length) {
+    throw new Error(
+      "refusing to re-apply the matrix: a runtime role is missing from the " +
+        "deployed posture",
+    );
+  }
+  for (const identity of identities) {
+    const zeroCounts = [
+      identity.belongs_to,
+      identity.members_other_than_owner,
+      identity.owns_anything,
+      identity.owns_databases,
+      identity.owns_schemas,
+      identity.owns_relations,
+      identity.owns_routines,
+      identity.owns_types,
+    ];
+    if (
+      zeroCounts.some((count) => !Number.isInteger(count) || count !== 0) ||
+      !Number.isInteger(identity.backends) ||
+      identity.backends < 0
+    ) {
+      throw new Error(
+        "refusing to re-apply the matrix: a runtime role is not exactly the " +
+          "deployed identity this posture was approved for - it belongs to " +
+          "another role, has a member other than its owner, owns an object, " +
+          "or its live backend count is unreadable",
+      );
+    }
+  }
+
+  let held: number;
+  try {
+    const rows = await pool.query<EffectiveRow>(effectivePrivilegeSql(), [
+      ["public"],
+      [...EXPECTED_TABLES],
+      [...ALL_VERBS],
+    ]);
+    held = rows.rows.filter((row) => row.allowed).length;
+  } catch (err) {
+    throw redactConnectionDetails(err, dsn);
+  }
+  if (held > 0) {
+    throw new Error(
+      "refusing to re-apply the matrix: PUBLIC holds privileges on this " +
+        "build's tables, so every role would have them whatever the matrix " +
+        "grants. This build does not edit the public ACL - resolve it by hand " +
+        "first.",
+    );
+  }
 }
 
 /**
@@ -527,8 +608,10 @@ export async function reapplyMatrix(
     }
   };
   try {
-    // The roles are inert and PUBLIC holds nothing on this build's tables.
-    await preflight(pool, dsn, true);
+    // The deployed identities retain every governed membership and ownership
+    // boundary, and PUBLIC holds nothing on this build's tables. LOGIN and live
+    // backends are expected here; this step preserves rather than owns them.
+    await reapplyPreflight(pool, dsn, to);
     const { owner, config } = await ownerState(pool, dsn);
     if (!boundsAreExact(config, GOVERNED_SETTINGS)) {
       throw new Error(
@@ -549,13 +632,12 @@ export async function reapplyMatrix(
         !facts?.present ||
         facts.connectionLimit !== budget ||
         !facts.boundsExact ||
-        facts.canLogin ||
         facts.memberships !== 0
       ) {
         throw new Error(
           "refusing to re-apply the matrix: a runtime role is not exactly the " +
             "role this posture was approved for - its budget, its bounds, its " +
-            "login state or its memberships have moved. Changing what it may " +
+            "memberships have moved. Changing what it may " +
             "touch while what it IS has drifted is not an incremental step.",
         );
       }
@@ -628,14 +710,18 @@ export async function reapplyMatrix(
     // Acceptance that only re-reads what was written cannot see a transaction
     // that did more than it intended.
     const nonTableAfter = await readNonTablePosture(ask, roleNames);
-    const membershipRows = await ask<{ role: string; memberships: string }>(
-      roleFactsSql(),
-      [roleNames],
+    const afterPosture = await readRolePosture(
+      (sql, args) => ask(sql, args),
+      GOVERNED_SETTINGS,
+      owner,
     );
     const noMemberships: [string, boolean][] = roleNames.map((role) => [
       role,
-      Number(membershipRows.find((r) => r.role === role)?.memberships ?? -1) ===
-        0,
+      afterPosture.get(role)?.memberships === 0,
+    ]);
+    const loginUnchanged: [string, boolean][] = roleNames.map((role) => [
+      role,
+      afterPosture.get(role)?.canLogin === posture.get(role)?.canLogin,
     ]);
     const facts = {
       direct,
@@ -643,6 +729,7 @@ export async function reapplyMatrix(
       schemaUsageOnly: nonTableAfter.schemaUsageOnly,
       sequencePrivilegesHeld: nonTableAfter.sequencePrivilegesHeld,
       noMemberships,
+      loginUnchanged,
     };
     return { statements, ...facts, exact: reapplyIsExact(facts) };
   } finally {

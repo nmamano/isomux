@@ -14,8 +14,8 @@
 //   - reverse restores EXACTLY the old matrix, in one transaction;
 //   - a round trip leaves the catalog byte for byte where it started;
 //   - every precondition refuses BEFORE anything is written - the before-matrix
-//     inexact, the owner's configuration not already ours, a role that can log
-//     in, a budget that has drifted.
+//     inexact, the owner's configuration not already ours, a runtime identity
+//     with a membership or ownership edge, a budget that has drifted.
 //
 // LOCAL ENGINE ONLY, like the other role suites: these create and drop
 // cluster-wide roles.
@@ -55,6 +55,11 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 const admin = new pg.Pool({ connectionString: LOCAL_DATABASE_URL, max: 2 });
 admin.on("error", () => {});
 const databases: string[] = [];
+const liveProvisioners = new Map<string, pg.Client>();
+const auxiliaryRoles = new Map<
+  string,
+  { parents: string[]; members: string[] }
+>();
 
 async function scratchDatabase(): Promise<string> {
   const name = `cp_re_${Math.random().toString(36).slice(2, 10)}`;
@@ -84,6 +89,27 @@ async function run(dsn: string, statements: readonly string[]): Promise<void> {
 }
 
 async function dropRoles(dsn: string): Promise<void> {
+  const live = liveProvisioners.get(dsn);
+  if (live) {
+    liveProvisioners.delete(dsn);
+    await live.end().catch(() => {});
+  }
+  const auxiliaries = auxiliaryRoles.get(dsn) ?? { parents: [], members: [] };
+  auxiliaryRoles.delete(dsn);
+  for (const member of auxiliaries.members) {
+    await ask(dsn, `revoke ${PROVISIONER_ROLE} from ${member}`).catch(() => []);
+    await ask(dsn, `drop role if exists ${member}`).catch(() => []);
+  }
+  for (const parent of auxiliaries.parents) {
+    await ask(dsn, `revoke ${parent} from ${PROVISIONER_ROLE}`).catch(() => []);
+    await ask(dsn, `drop role if exists ${parent}`).catch(() => []);
+  }
+  const rolesPresent = await ask<{ count: string }>(
+    dsn,
+    "select count(*)::text as count from pg_roles where rolname = any($1)",
+    [[WEB_ROLE, PROVISIONER_ROLE]],
+  );
+  if (Number(rolesPresent[0]?.count ?? -1) === 0) return;
   for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
     await ask(
       dsn,
@@ -92,6 +118,7 @@ async function dropRoles(dsn: string): Promise<void> {
     await ask(dsn, `revoke all privileges on schema public from ${role}`).catch(
       () => [],
     );
+    await ask(dsn, `drop owned by ${role}`).catch(() => []);
     await ask(dsn, `alter role ${role} connection limit -1`).catch(() => []);
     await ask(dsn, `alter role ${role} nologin`).catch(() => []);
     await ask(dsn, `drop role if exists ${role}`).catch(() => []);
@@ -129,7 +156,33 @@ async function asProductionIsToday(): Promise<string> {
   await (await Store.open(dsn)).close();
   await applyGovernance(dsn);
   await run(dsn, grantMatrixStatements(priorRuntimeRoles()));
+  const password = crypto.randomUUID().replace(/-/g, "");
+  for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
+    await ask(dsn, `alter role ${role} login password '${password}'`);
+  }
+  const provisionerDsn = new URL(dsn);
+  provisionerDsn.username = PROVISIONER_ROLE;
+  provisionerDsn.password = password;
+  const live = new pg.Client({ connectionString: provisionerDsn.toString() });
+  live.on("error", () => {});
+  await live.connect();
+  await live.query("select 1");
+  liveProvisioners.set(dsn, live);
   return dsn;
+}
+
+async function provisionerSelectsSubscriptions(
+  dsn: string,
+  allowed: boolean,
+): Promise<void> {
+  const live = liveProvisioners.get(dsn);
+  if (!live) throw new Error("the production fixture has no live provisioner");
+  const result = await live.query("select 1 from subscriptions limit 1").then(
+    () => ({ allowed: true, code: "" }),
+    (error: { code?: string }) => ({ allowed: false, code: error.code ?? "" }),
+  );
+  expect(result.allowed).toBe(allowed);
+  if (!allowed) expect(result.code).toBe("42501");
 }
 
 /** Every direct grant both runtime roles hold, as a sorted set of strings, so
@@ -156,6 +209,7 @@ suite("the incremental matrix change", () => {
         expect(before).not.toContain(
           `${PROVISIONER_ROLE}:subscriptions:SELECT`,
         );
+        await provisionerSelectsSubscriptions(dsn, false);
 
         const applied = await reapplyMatrix(dsn, "forward");
         expect(applied.exact).toBe(true);
@@ -176,6 +230,7 @@ suite("the incremental matrix change", () => {
         const after = await matrixOf(dsn);
         // The lifecycle read production refused is now granted.
         expect(after).toContain(`${PROVISIONER_ROLE}:subscriptions:SELECT`);
+        await provisionerSelectsSubscriptions(dsn, true);
         await dropRoles(dsn);
       }),
     60_000,
@@ -187,7 +242,9 @@ suite("the incremental matrix change", () => {
       serial(async () => {
         const dsn = await asProductionIsToday();
         await reapplyMatrix(dsn, "forward");
+        await provisionerSelectsSubscriptions(dsn, true);
         const applied = await reapplyMatrix(dsn, "reverse");
+        await provisionerSelectsSubscriptions(dsn, false);
         expect(applied.exact).toBe(true);
         expect(applied.schemaUsageOnly.map(([, ok]) => ok)).toEqual([
           true,
@@ -231,9 +288,15 @@ suite("the incremental matrix change", () => {
       serial(async () => {
         const dsn = await asProductionIsToday();
         const roleState = async () =>
-          ask<{ role: string; limit: number; config: string[] | null }>(
+          ask<{
+            role: string;
+            limit: number;
+            config: string[] | null;
+            canLogin: boolean;
+          }>(
             dsn,
-            "select rolname as role, rolconnlimit as limit, rolconfig as config " +
+            "select rolname as role, rolconnlimit as limit, rolconfig as config, " +
+              'rolcanlogin as "canLogin" ' +
               "from pg_roles where rolname = any($1) order by rolname",
             [[WEB_ROLE, PROVISIONER_ROLE]],
           );
@@ -264,6 +327,7 @@ describe("the acceptance verdict counts every fact it reports", () => {
     schemaUsageOnly: [[WEB_ROLE, true] as [string, boolean]],
     sequencePrivilegesHeld: 0,
     noMemberships: [[WEB_ROLE, true] as [string, boolean]],
+    loginUnchanged: [[WEB_ROLE, true] as [string, boolean]],
   };
 
   test("all green is exact", () => {
@@ -282,6 +346,7 @@ describe("the acceptance verdict counts every fact it reports", () => {
     ["CREATE on the schema", { schemaUsageOnly: [[WEB_ROLE, false]] }],
     ["a sequence privilege", { sequencePrivilegesHeld: 1 }],
     ["a membership", { noMemberships: [[WEB_ROLE, false]] }],
+    ["a changed login state", { loginUnchanged: [[WEB_ROLE, false]] }],
     ["an unreadable sequence count", { sequencePrivilegesHeld: -1 }],
   ];
   for (const [name, patch] of spoiled) {
@@ -421,12 +486,50 @@ suite("it refuses before writing anything", () => {
   );
 
   test(
-    "when a runtime role can log in",
+    "when a runtime role belongs to another role",
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(dsn, `alter role ${PROVISIONER_ROLE} login`);
-        }, /not an inert residue/),
+          const parent = `cp_parent_${Math.random().toString(36).slice(2, 8)}`;
+          await ask(dsn, `create role ${parent}`);
+          const auxiliaries = auxiliaryRoles.get(dsn) ?? {
+            parents: [],
+            members: [],
+          };
+          auxiliaries.parents.push(parent);
+          auxiliaryRoles.set(dsn, auxiliaries);
+          await ask(dsn, `grant ${parent} to ${PROVISIONER_ROLE}`);
+        }, /not exactly the deployed identity/),
+      ),
+    60_000,
+  );
+
+  test(
+    "when a runtime role has a member other than its owner",
+    () =>
+      serial(() =>
+        refuses(async (dsn) => {
+          const member = `cp_member_${Math.random().toString(36).slice(2, 8)}`;
+          await ask(dsn, `create role ${member}`);
+          const auxiliaries = auxiliaryRoles.get(dsn) ?? {
+            parents: [],
+            members: [],
+          };
+          auxiliaries.members.push(member);
+          auxiliaryRoles.set(dsn, auxiliaries);
+          await ask(dsn, `grant ${PROVISIONER_ROLE} to ${member}`);
+        }, /not exactly the deployed identity/),
+      ),
+    60_000,
+  );
+
+  test(
+    "when a runtime role owns an object",
+    () =>
+      serial(() =>
+        refuses(async (dsn) => {
+          await ask(dsn, `create schema authorization ${WEB_ROLE}`);
+        }, /not exactly the deployed identity/),
       ),
     60_000,
   );
@@ -447,10 +550,11 @@ suite("it refuses before writing anything", () => {
   // while that is true would be a boundary stated about the wrong thing.
   // A BEFORE-STATE THAT CAN ALREADY DO MORE THAN THE OLD MATRIX. The direct
   // grants are untouched here - the privilege is PUBLIC's - so this is the case
-  // the effective read exists for. In practice the PUBLIC sweep in `preflight`
-  // reaches it first, which is why the message is that one: the two guards
+  // the effective read exists for. In practice the PUBLIC sweep in
+  // `reapplyPreflight` reaches it first, which is why the message is that one:
+  // the two guards
   // overlap on purpose, and the property (refused, nothing written) is what is
-  // being asserted rather than which line caught it.
+  // being asserted rather than which read caught it.
   test(
     "when PUBLIC can do something the matrix does not carry",
     () =>

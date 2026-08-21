@@ -586,6 +586,9 @@ async function cmdRegovern(
     for (const [role, ok] of applied.noMemberships) {
       claim(`${labelFor(role, owner)}_no_memberships`, ok);
     }
+    for (const [role, ok] of applied.loginUnchanged) {
+      claim(`${labelFor(role, owner)}_login_state_unchanged`, ok);
+    }
 
     // The roles themselves must be exactly what they were: this step changes
     // what they may touch and nothing else.
@@ -601,7 +604,6 @@ async function cmdRegovern(
         `${label}_connection_limit_exact`,
         facts?.connectionLimit === budgetFor(role, owner),
       );
-      claim(`${label}_is_nologin`, facts?.canLogin === false);
       claim(`${label}_bounds_exact`, facts?.boundsExact === true);
     }
     console.log(postureLine());
