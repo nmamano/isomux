@@ -25,8 +25,12 @@ import pg from "pg";
 import { applyGovernance, reapplyIsExact, reapplyMatrix } from "./bootstrap.ts";
 import {
   PROVISIONER_GRANTS,
+  PROVISIONER_BUDGET,
   PROVISIONER_ROLE,
   PRIOR_PROVISIONER_GRANTS,
+  PRIOR_WEB_GRANTS,
+  WEB_GRANTS,
+  WEB_BUDGET,
   WEB_ROLE,
   grantMatrixStatements,
   judgeMatrix,
@@ -34,12 +38,21 @@ import {
   priorRuntimeRoles,
   residueIsInert,
   roleIdentitySql,
+  runtimeRoles,
   type RoleIdentity,
 } from "./roles.ts";
 import { Store } from "./store.ts";
 import { LOCAL_DATABASE_URL, TARGET_IS_LOCAL } from "./testing/pg.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
+const measuredProductionRoles = [
+  { role: WEB_ROLE, budget: WEB_BUDGET, grants: PRIOR_WEB_GRANTS },
+  {
+    role: PROVISIONER_ROLE,
+    budget: PROVISIONER_BUDGET,
+    grants: PRIOR_PROVISIONER_GRANTS,
+  },
+];
 
 /** Roles are cluster-wide, so every case that touches one runs alone. */
 let queue: Promise<unknown> = Promise.resolve();
@@ -55,7 +68,7 @@ function serial<T>(fn: () => Promise<T>): Promise<T> {
 const admin = new pg.Pool({ connectionString: LOCAL_DATABASE_URL, max: 2 });
 admin.on("error", () => {});
 const databases: string[] = [];
-const liveProvisioners = new Map<string, pg.Client>();
+const liveRuntimes = new Map<string, Map<string, pg.Client>>();
 const auxiliaryRoles = new Map<
   string,
   { parents: string[]; members: string[] }
@@ -89,10 +102,10 @@ async function run(dsn: string, statements: readonly string[]): Promise<void> {
 }
 
 async function dropRoles(dsn: string): Promise<void> {
-  const live = liveProvisioners.get(dsn);
+  const live = liveRuntimes.get(dsn);
   if (live) {
-    liveProvisioners.delete(dsn);
-    await live.end().catch(() => {});
+    liveRuntimes.delete(dsn);
+    for (const client of live.values()) await client.end().catch(() => {});
   }
   const auxiliaries = auxiliaryRoles.get(dsn) ?? { parents: [], members: [] };
   auxiliaryRoles.delete(dsn);
@@ -155,32 +168,61 @@ async function asProductionIsToday(): Promise<string> {
   const dsn = await scratchDatabase();
   await (await Store.open(dsn)).close();
   await applyGovernance(dsn);
-  await run(dsn, grantMatrixStatements(priorRuntimeRoles()));
+  await run(dsn, grantMatrixStatements(measuredProductionRoles));
   const password = crypto.randomUUID().replace(/-/g, "");
   for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
     await ask(dsn, `alter role ${role} login password '${password}'`);
   }
-  const provisionerDsn = new URL(dsn);
-  provisionerDsn.username = PROVISIONER_ROLE;
-  provisionerDsn.password = password;
-  const live = new pg.Client({ connectionString: provisionerDsn.toString() });
-  live.on("error", () => {});
-  await live.connect();
-  await live.query("select 1");
-  liveProvisioners.set(dsn, live);
+  const live = new Map<string, pg.Client>();
+  for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
+    const runtimeDsn = new URL(dsn);
+    runtimeDsn.username = role;
+    runtimeDsn.password = password;
+    const client = new pg.Client({ connectionString: runtimeDsn.toString() });
+    client.on("error", () => {});
+    await client.connect();
+    await client.query("select 1");
+    live.set(role, client);
+  }
+  liveRuntimes.set(dsn, live);
   return dsn;
 }
 
-async function provisionerSelectsSubscriptions(
+async function runtimeSelects(
   dsn: string,
+  role: string,
+  table: "stripe_events" | "reinstatement_attempts",
   allowed: boolean,
 ): Promise<void> {
-  const live = liveProvisioners.get(dsn);
-  if (!live) throw new Error("the production fixture has no live provisioner");
-  const result = await live.query("select 1 from subscriptions limit 1").then(
+  const live = liveRuntimes.get(dsn)?.get(role);
+  if (!live) throw new Error(`the production fixture has no live ${role}`);
+  const result = await live.query(`select 1 from ${table} limit 1`).then(
     () => ({ allowed: true, code: "" }),
     (error: { code?: string }) => ({ allowed: false, code: error.code ?? "" }),
   );
+  expect(result.allowed).toBe(allowed);
+  if (!allowed) expect(result.code).toBe("42501");
+}
+
+async function provisionerInsertsStripeEvent(
+  dsn: string,
+  allowed: boolean,
+): Promise<void> {
+  const live = liveRuntimes.get(dsn)?.get(PROVISIONER_ROLE);
+  if (!live) throw new Error("the production fixture has no live provisioner");
+  const result = await live
+    .query(
+      "insert into stripe_events " +
+        "(id, type, created, received_at, outcome) values ($1, $2, $3, $4, $5)",
+      [crypto.randomUUID(), "test.event", 1, 1, "accepted"],
+    )
+    .then(
+      () => ({ allowed: true, code: "" }),
+      (error: { code?: string }) => ({
+        allowed: false,
+        code: error.code ?? "",
+      }),
+    );
   expect(result.allowed).toBe(allowed);
   if (!allowed) expect(result.code).toBe("42501");
 }
@@ -196,6 +238,16 @@ async function matrixOf(dsn: string): Promise<string[]> {
   return rows.map((r) => `${r.role}:${r.table}:${r.verb}`).sort();
 }
 
+function matrixFor(roster: ReturnType<typeof runtimeRoles>): string[] {
+  return roster
+    .flatMap(({ role, grants }) =>
+      grants.flatMap(({ table, verbs }) =>
+        verbs.map((verb) => `${role}:${table}:${verb.toUpperCase()}`),
+      ),
+    )
+    .sort();
+}
+
 suite("the incremental matrix change", () => {
   test(
     "forward lands exactly the current matrix from production's observed baseline",
@@ -203,13 +255,25 @@ suite("the incremental matrix change", () => {
       serial(async () => {
         const dsn = await asProductionIsToday();
         const before = await matrixOf(dsn);
-        expect(before).toContain(
-          `${PROVISIONER_ROLE}:name_reservations:SELECT`,
+        expect(before).toEqual(matrixFor(measuredProductionRoles));
+        const rows = await ask<{ role: string; table: string; verb: string }>(
+          dsn,
+          matrixSql(),
+          [[WEB_ROLE, PROVISIONER_ROLE]],
+        );
+        expect(judgeMatrix(rows, WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
+        expect(
+          judgeMatrix(rows, PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
+        ).toBe(true);
+        expect(before).not.toContain(
+          `${PROVISIONER_ROLE}:stripe_events:SELECT`,
         );
         expect(before).not.toContain(
-          `${PROVISIONER_ROLE}:subscriptions:SELECT`,
+          `${WEB_ROLE}:reinstatement_attempts:SELECT`,
         );
-        await provisionerSelectsSubscriptions(dsn, false);
+        await runtimeSelects(dsn, PROVISIONER_ROLE, "stripe_events", false);
+        await provisionerInsertsStripeEvent(dsn, false);
+        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", false);
 
         const applied = await reapplyMatrix(dsn, "forward");
         expect(applied.exact).toBe(true);
@@ -228,9 +292,15 @@ suite("the incremental matrix change", () => {
         expect(applied.noMemberships.map(([, ok]) => ok)).toEqual([true, true]);
 
         const after = await matrixOf(dsn);
-        // The lifecycle read production refused is now granted.
-        expect(after).toContain(`${PROVISIONER_ROLE}:subscriptions:SELECT`);
-        await provisionerSelectsSubscriptions(dsn, true);
+        expect(after).toEqual(matrixFor(runtimeRoles()));
+        for (const verb of ["SELECT", "INSERT", "UPDATE"]) {
+          expect(after).toContain(`${WEB_ROLE}:reinstatement_attempts:${verb}`);
+        }
+        expect(after).toContain(`${PROVISIONER_ROLE}:stripe_events:SELECT`);
+        expect(after).toContain(`${PROVISIONER_ROLE}:stripe_events:INSERT`);
+        await runtimeSelects(dsn, PROVISIONER_ROLE, "stripe_events", true);
+        await provisionerInsertsStripeEvent(dsn, true);
+        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", true);
         await dropRoles(dsn);
       }),
     60_000,
@@ -242,9 +312,13 @@ suite("the incremental matrix change", () => {
       serial(async () => {
         const dsn = await asProductionIsToday();
         await reapplyMatrix(dsn, "forward");
-        await provisionerSelectsSubscriptions(dsn, true);
+        await runtimeSelects(dsn, PROVISIONER_ROLE, "stripe_events", true);
+        await provisionerInsertsStripeEvent(dsn, true);
+        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", true);
         const applied = await reapplyMatrix(dsn, "reverse");
-        await provisionerSelectsSubscriptions(dsn, false);
+        await runtimeSelects(dsn, PROVISIONER_ROLE, "stripe_events", false);
+        await provisionerInsertsStripeEvent(dsn, false);
+        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", false);
         expect(applied.exact).toBe(true);
         expect(applied.schemaUsageOnly.map(([, ok]) => ok)).toEqual([
           true,
@@ -260,9 +334,12 @@ suite("the incremental matrix change", () => {
         expect(
           judgeMatrix(rows, PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
         ).toBe(true);
+        expect(judgeMatrix(rows, WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
         expect(
           judgeMatrix(rows, PROVISIONER_ROLE, PROVISIONER_GRANTS).exact,
         ).toBe(false);
+        expect(judgeMatrix(rows, WEB_ROLE, WEB_GRANTS).exact).toBe(false);
+        expect(await matrixOf(dsn)).toEqual(matrixFor(priorRuntimeRoles()));
         await dropRoles(dsn);
       }),
     60_000,
@@ -455,6 +532,20 @@ suite("it refuses before writing anything", () => {
       serial(() =>
         refuses(async (dsn) => {
           await ask(dsn, `grant delete on accounts to ${PROVISIONER_ROLE}`);
+        }, /does not carry exactly the matrix/),
+      ),
+    60_000,
+  );
+
+  test(
+    "when the web role already holds the prepared reinstatement grants",
+    () =>
+      serial(() =>
+        refuses(async (dsn) => {
+          await ask(
+            dsn,
+            `grant select, insert, update on reinstatement_attempts to ${WEB_ROLE}`,
+          );
         }, /does not carry exactly the matrix/),
       ),
     60_000,

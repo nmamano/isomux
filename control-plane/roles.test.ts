@@ -12,6 +12,7 @@ import { describe, expect, test } from "bun:test";
 import {
   ALL_VERBS,
   PRIOR_PROVISIONER_GRANTS,
+  PRIOR_WEB_GRANTS,
   PROVISIONER_BUDGET,
   PROVISIONER_GRANTS,
   PROVISIONER_POOL,
@@ -35,6 +36,13 @@ import {
 import { GOVERNED_SETTINGS } from "./store.ts";
 
 const BOUNDS = GOVERNED_SETTINGS;
+
+const grantKeys = (
+  grants: readonly { table: string; verbs: readonly string[] }[],
+): string[] =>
+  grants
+    .flatMap(({ table, verbs }) => verbs.map((verb) => `${table}:${verb}`))
+    .sort();
 
 describe("the aggregate is a number, and it fits", () => {
   test("the worst case is the sum of the two DEPLOYED budgets and nothing else", () => {
@@ -169,25 +177,48 @@ describe("the matrix is exactly what the deployed command reaches", () => {
     }
   });
 
-  // The re-apply's before-state has to be the matrix production actually holds,
-  // and the only difference between the two is the provisioner's half.
-  test("the prior matrix differs from the current one only where the audit moved it", () => {
-    const prior = provisionerMatrixAgainstReachable(PRIOR_PROVISIONER_GRANTS);
-    expect(prior.missing).toEqual([
-      "accounts:insert",
-      "accounts:select",
+  test("the prior web matrix lacks only the prepared reinstatement verbs", () => {
+    const prior = new Set(grantKeys(PRIOR_WEB_GRANTS));
+    expect(grantKeys(WEB_GRANTS).filter((key) => !prior.has(key))).toEqual([
+      "reinstatement_attempts:insert",
+      "reinstatement_attempts:select",
+      "reinstatement_attempts:update",
+    ]);
+    const current = new Set(grantKeys(WEB_GRANTS));
+    expect(
+      grantKeys(PRIOR_WEB_GRANTS).filter((key) => !current.has(key)),
+    ).toEqual([]);
+  });
+
+  test("the prior provisioner matrix carries all six newly measured verbs", () => {
+    const newlyMeasuredTables = new Set([
+      "certificate_credentials",
+      "reinstatement_attempts",
+      "subscriptions",
+    ]);
+    expect(
+      grantKeys(PRIOR_PROVISIONER_GRANTS).filter((key) =>
+        newlyMeasuredTables.has(key.split(":")[0] ?? ""),
+      ),
+    ).toEqual([
       "certificate_credentials:insert",
       "certificate_credentials:select",
       "certificate_credentials:update",
       "reinstatement_attempts:select",
       "reinstatement_attempts:update",
-      "schema_meta:select",
-      "stripe_events:insert",
-      "stripe_events:select",
-      "subscriptions:insert",
       "subscriptions:select",
-      "subscriptions:update",
     ]);
+  });
+
+  // This derived set follows the destination on purpose, so Lane A can extend
+  // it. It proves the relationship, not the production measurement; the
+  // literal guard above and the production preflight protect that transcription.
+  test("the prior provisioner matrix lacks exactly the destination additions", () => {
+    const prior = provisionerMatrixAgainstReachable(PRIOR_PROVISIONER_GRANTS);
+    const measured = new Set(grantKeys(PRIOR_PROVISIONER_GRANTS));
+    expect(prior.missing).toEqual(
+      grantKeys(PROVISIONER_GRANTS).filter((key) => !measured.has(key)),
+    );
     expect(prior.excess).toEqual([]);
   });
 });

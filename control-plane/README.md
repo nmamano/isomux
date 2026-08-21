@@ -1366,14 +1366,21 @@ test-mode operation.
    back by reverting the source change before any deploy.
 3. From that merged tree, run
    `bun control-plane/exercises/neon.ts regovern --branch production`.
-   Production carried `PRIOR_PROVISIONER_GRANTS` as observed 2026-08-16. The
-   success report must say both runtime-role matrices and effective privileges
-   are exact and user tables are unchanged. This command also lands the pending
-   subscriptions, reinstatement-attempts, and certificate-credentials grants
-   from the earlier matrix change; it is not webhook-only. If the catalog, role
-   budget, bounds, login state, or membership differs from the expected prior
-   posture, it refuses before its transaction opens and writes nothing. Roll
-   back with the same command plus `--reverse`, before deployment.
+   A catalog read on 2026-08-21 found `PRIOR_WEB_GRANTS` and
+   `PRIOR_PROVISIONER_GRANTS` exactly. The success report must say both
+   runtime-role matrices and effective privileges are exact and user tables are
+   unchanged. This command prepares the web role with three
+   `reinstatement_attempts` verbs and lands seven pending provisioner verbs for
+   subscriptions, Stripe events, accounts, and schema metadata. The deployed
+   web build was created 2026-08-13T07:06:12Z. Commit `c8e543c` added the web
+   reinstatement grants on 2026-08-16, so production was never re-governed for
+   them and the running build predates the code that needs them. They are
+   preparation for a later deploy, not a live failure. If the catalog, role budget, bounds,
+   login state, or membership differs from the expected prior posture, the
+   command refuses before its transaction opens and writes nothing. Roll back
+   before deployment with the same command plus `--reverse`; reverse revokes
+   the web role's three prepared reinstatement verbs and restores both rosters
+   measured on 2026-08-21.
 4. Register `https://isomux-provisioner.fly.dev/stripe/webhook` for
    `checkout.session.completed`, `customer.subscription.created`,
    `customer.subscription.updated`, `customer.subscription.deleted`, and
