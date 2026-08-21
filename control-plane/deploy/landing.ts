@@ -25,6 +25,7 @@ export const LANDING_STEPS = [
   "stage",
   "verify",
   "activate",
+  "redeploy",
   "probe",
   "list",
 ] as const;
@@ -92,6 +93,27 @@ export function mayRun(step: LandingStep, evidence: LiveEvidence): Permission {
         "the app's secret names have not been read",
         "the four provider names are not all set on the app",
       ) ?? { ok: true, because: "the preflight is green and the names are set" }
+    );
+  }
+
+  if (step === "redeploy") {
+    // An UPGRADE of an already-armed deployment. The first-arming question -
+    // "is production empty enough to be GIVEN provider credentials" - is
+    // answered by history, and the staged names are that history, re-read: a
+    // production that already holds all four provider names was armed by the
+    // gated first activation. A production that does not is not upgradable,
+    // it is unarmed, and must take the "activate" gate instead.
+    return (
+      need(
+        evidence.providerNamesStaged,
+        "the app's secret-name listing has not been read",
+        "the four provider names are not all set on the app - this deployment " +
+          "was never armed, so it must take the first-arming gate",
+      ) ?? {
+        ok: true,
+        because:
+          "the provider names are already on the app; this is an upgrade, not an arming",
+      }
     );
   }
 

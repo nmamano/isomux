@@ -40,9 +40,11 @@ function seams(
 ) {
   const calls: { argv: string[]; env: Record<string, string> }[] = [];
   const lines: string[] = [];
+  const preflightCalls = { count: 0 };
   return {
     calls,
     lines,
+    preflightCalls,
     seams: {
       spawn: async (
         argv: string[],
@@ -70,10 +72,13 @@ function seams(
         allStarted: true,
       }),
       flyToken: "fly-token-value",
-      preflight: async () => ({
-        verdict: { safe: over.safe ?? true },
-        targetProved: over.targetProved ?? true,
-      }),
+      preflight: async () => {
+        preflightCalls.count++;
+        return {
+          verdict: { safe: over.safe ?? true },
+          targetProved: over.targetProved ?? true,
+        };
+      },
       names: async () => ({
         present: over.present ?? true,
         readable: over.readable ?? true,
@@ -109,6 +114,27 @@ describe("nothing deploys without FRESH observations", () => {
     expect(await activate(s.seams)).toEqual({ ran: false, outcome: null });
     expect(s.calls).toEqual([]);
     expect(s.lines.join("\n")).toContain("have not been read");
+  });
+
+  test("a REDEPLOY deploys on an occupied production, and never runs the first-arming preflight", async () => {
+    // The production that refused the arming above is exactly the production
+    // a redeploy must accept: a provider-linked asset is its normal state.
+    const s = seams({ safe: false });
+    const out = await activate(s.seams, { redeploy: true });
+    expect(out).toEqual({ ran: true, outcome: "completed" });
+    expect(s.calls.length).toBe(1);
+    expect(s.preflightCalls.count).toBe(0);
+    expect(s.lines.join("\n")).toContain("first_arming_preflight: skipped");
+  });
+
+  test("a REDEPLOY without the staged provider names refuses - an unarmed app is not upgradable", async () => {
+    const s = seams({ present: false });
+    expect(await activate(s.seams, { redeploy: true })).toEqual({
+      ran: false,
+      outcome: null,
+    });
+    expect(s.calls).toEqual([]);
+    expect(s.lines.join("\n")).toContain("never armed");
   });
 
   test("both green: it deploys, once, with the COMMITTED argv", async () => {

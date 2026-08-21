@@ -21,7 +21,12 @@ describe("the gated steps refuse on unobserved evidence", () => {
   // program that treats "nobody looked" as "nothing wrong" is the shape of
   // every incident where the check was skipped rather than failed.
   test("NOTHING OBSERVED refuses every step that can change something", () => {
-    for (const step of ["stage", "activate", "list"] as LandingStep[]) {
+    for (const step of [
+      "stage",
+      "activate",
+      "redeploy",
+      "list",
+    ] as LandingStep[]) {
       const verdict = mayRun(step, NOTHING_OBSERVED);
       expect({ step, ok: verdict.ok }).toEqual({ step, ok: false });
       expect(verdict.because).toContain("has not been");
@@ -60,6 +65,23 @@ describe("no deploy before a green preflight and a staged import", () => {
       providerConfigured: null,
     });
     expect(neither.because).toContain("production");
+  });
+
+  test("A REDEPLOY is licensed by the staged names, never by the first-arming preflight", () => {
+    // Broken until 2026-08-21: only "activate" could deploy, and its gate
+    // refuses whenever production carries a provider-linked asset - which it
+    // legitimately does since the first customer pass, closing every upgrade.
+    expect(mayRun("redeploy", { ...SAFE, preflightSafe: null }).ok).toBe(true);
+    expect(mayRun("redeploy", { ...SAFE, preflightSafe: false }).ok).toBe(true);
+    const unarmed = mayRun("redeploy", {
+      ...SAFE,
+      providerNamesStaged: false,
+    });
+    expect(unarmed.ok).toBe(false);
+    expect(unarmed.because).toContain("never armed");
+    expect(mayRun("redeploy", { ...SAFE, providerNamesStaged: null }).ok).toBe(
+      false,
+    );
   });
 
   test("STAGING a credential also needs the preflight", () => {
@@ -126,6 +148,7 @@ describe("the steps that only look are never blocked", () => {
       stage: "gated",
       verify: "observes-only",
       activate: "gated",
+      redeploy: "gated",
       probe: "observes-only",
       list: "gated",
     };

@@ -3,6 +3,14 @@
 //   bun control-plane/deploy/activate.ts --plan      what it would do, and why
 //   bun control-plane/deploy/activate.ts --execute   the deploy
 //
+// `--redeploy` upgrades an ALREADY-ARMED deployment: it skips only the
+// first-arming production check (whose question - may production be GIVEN
+// provider credentials - history has answered) and instead requires the four
+// provider names to already be on the app. Every other precondition holds
+// unchanged. Added 2026-08-21, when the first activation's gate correctly
+// refused to run twice: production carries cp2's provider-linked asset by
+// design, so the arming path is permanently closed to upgrades.
+//
 // THIS IS THE ARMING STEP, and it is a program rather than a flyctl line for
 // two reasons that are not style. A shell `flyctl deploy` either uses whatever
 // ambient identity `~/.fly` holds - which on this box belongs to another
@@ -182,18 +190,32 @@ export async function readSource(
  * refusal from another except by the fixed lines - which is correct, because
  * the action is the same for all of them: fix the thing that is not true yet.
  */
-export async function activate(seams: ActivationSeams): Promise<{
+export async function activate(
+  seams: ActivationSeams,
+  opts: { redeploy?: boolean } = {},
+): Promise<{
   ran: boolean;
   outcome: ActivationOutcome | null;
 }> {
   const { report } = seams;
 
-  const preflight = await attempt(
-    () => seams.preflight(report),
-    { verdict: { safe: false }, targetProved: false },
-    report,
-    "preflight",
-  );
+  // A redeploy never asks the first-arming question, so it must not run the
+  // preflight whose answer would be misread as one. Its licence is the staged
+  // names below - the re-read proof that a gated first activation happened.
+  const preflight = opts.redeploy
+    ? null
+    : await attempt(
+        () => seams.preflight(report),
+        { verdict: { safe: false }, targetProved: false },
+        report,
+        "preflight",
+      );
+  if (opts.redeploy) {
+    report(
+      "first_arming_preflight: skipped - a redeploy upgrades an armed " +
+        "deployment; the arming is proved by the staged provider names below",
+    );
+  }
   const names = await attempt(
     () =>
       seams.names({
@@ -240,10 +262,14 @@ export async function activate(seams: ActivationSeams): Promise<{
 
   const evidence = {
     ...NOTHING_OBSERVED,
-    preflightSafe: preflight.targetProved ? preflight.verdict.safe : false,
+    preflightSafe: preflight
+      ? preflight.targetProved
+        ? preflight.verdict.safe
+        : false
+      : null,
     providerNamesStaged: names.readable ? names.present : null,
   };
-  const permission = mayRun("activate", evidence);
+  const permission = mayRun(opts.redeploy ? "redeploy" : "activate", evidence);
   // The source and the topology are activation's own preconditions rather than
   // the order's: they say whether THIS deploy can be reconstructed and whether
   // its one-machine assumption holds, which is not a question about sequence.
@@ -344,15 +370,27 @@ function realMachines(
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  const mode = args.length === 1 ? args[0] : "";
-  if (mode !== "--plan" && mode !== "--execute") {
-    console.log("usage: activate.ts --plan | --execute");
+  const redeploy = args.includes("--redeploy");
+  const rest = args.filter((arg) => arg !== "--redeploy");
+  const mode = rest.length === 1 ? rest[0] : "";
+  if (
+    (mode !== "--plan" && mode !== "--execute") ||
+    new Set(args).size !== args.length
+  ) {
+    console.log("usage: activate.ts [--redeploy] --plan | --execute");
     process.exitCode = 2;
     return;
   }
 
   if (mode === "--plan") {
     console.log(`app: ${APP}`);
+    console.log(`mode: ${redeploy ? "redeploy" : "first-arming"}`);
+    if (redeploy) {
+      console.log(
+        "note: the first-arming production check is skipped; the staged " +
+          "provider names must already be on the app",
+      );
+    }
     console.log(`argv_from_repository: true`);
     for (const arg of DEPLOY_ARGV) console.log(`  arg: ${arg}`);
     console.log(`deadline_ms: ${DEPLOY_DEADLINE_MS}`);
@@ -373,16 +411,19 @@ async function main(): Promise<void> {
     process.exitCode = 2;
     return;
   }
-  const { ran, outcome } = await activate({
-    spawn: realBoundedSpawn,
-    listSpawn: boundedAdapter(realBoundedSpawn, READ_DEADLINE_MS).spawn,
-    flyToken,
-    preflight: runPreflight,
-    names: namesPresent,
-    git: realGit(realBoundedSpawn),
-    machines: realMachines(realBoundedSpawn, flyToken),
-    report: (line) => console.log(line),
-  });
+  const { ran, outcome } = await activate(
+    {
+      spawn: realBoundedSpawn,
+      listSpawn: boundedAdapter(realBoundedSpawn, READ_DEADLINE_MS).spawn,
+      flyToken,
+      preflight: runPreflight,
+      names: namesPresent,
+      git: realGit(realBoundedSpawn),
+      machines: realMachines(realBoundedSpawn, flyToken),
+      report: (line) => console.log(line),
+    },
+    { redeploy },
+  );
   process.exitCode = !ran ? 1 : outcome === "completed" ? 0 : 3;
 }
 
