@@ -12,6 +12,8 @@ import * as path from "node:path";
 import {
   PREVIEW_SHAPES,
   PRODUCTION_SHAPES,
+  LEGACY_PRODUCTION_SHAPES,
+  LIVE_STRIPE_SHAPES,
   PROBE_EXPECTATIONS,
   SECRET_SHAPES,
   TLS_OFFSETS_MS,
@@ -33,6 +35,7 @@ import {
   probeKeysFor,
   probeRuntimeReady,
   rowsMatch,
+  shouldContinueToDeploy,
   judgeByTarget,
   judgeProbe,
   parseSecretText,
@@ -118,6 +121,43 @@ describe("the local probe runtime boundary", () => {
 });
 
 describe("the environment, judged PER TARGET", () => {
+  test("the live Stripe shapes partition Production exactly", () => {
+    const live = new Set(LIVE_STRIPE_SHAPES.map((shape) => shape.key));
+    const legacy = new Set(LEGACY_PRODUCTION_SHAPES.map((shape) => shape.key));
+    expect(LIVE_STRIPE_SHAPES.length).toBe(4);
+    expect(LEGACY_PRODUCTION_SHAPES.length).toBe(7);
+    expect([...live].filter((key) => legacy.has(key))).toEqual([]);
+    expect([...live, ...legacy].sort()).toEqual(
+      PRODUCTION_SHAPES.map((shape) => shape.key).sort(),
+    );
+  });
+
+  test("stage-live accepts exactly total 9 and produces exactly total 13", () => {
+    const liveKeys = new Set(LIVE_STRIPE_SHAPES.map((shape) => shape.key));
+    const before = THIRTEEN.filter(
+      (entry) => entry.target[0] === "preview" || !liveKeys.has(entry.key),
+    );
+    expect(before.length).toBe(9);
+    expect(
+      judgeByTarget(
+        before,
+        PREVIEW_SHAPES,
+        LEGACY_PRODUCTION_SHAPES,
+        FORBIDDEN_ENV_NAMES,
+      ).exact,
+    ).toBe(true);
+    expect(
+      judgeByTarget(
+        THIRTEEN,
+        PREVIEW_SHAPES,
+        LEGACY_PRODUCTION_SHAPES,
+        FORBIDDEN_ENV_NAMES,
+      ).exact,
+    ).toBe(false);
+    expect(judge(THIRTEEN).totalFacts).toBe(13);
+    expect(judge(THIRTEEN).exact).toBe(true);
+  });
+
   test("DUPLICATE KEYS ON DISJOINT TARGETS ARE CORRECT, not a collision", () => {
     // The whole reason this helper exists instead of judgeInventory: two names
     // live on BOTH targets with different values, and a key map would let one
@@ -1259,6 +1299,9 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
     expect(modeFrom(["bun", "production-phase.ts", "--redeploy"])).toBe(
       "redeploy",
     );
+    expect(modeFrom(["bun", "production-phase.ts", "--stage-live-env"])).toBe(
+      "stage-live",
+    );
     for (const args of [
       ["--redeply"],
       ["--redeploy-later"],
@@ -1266,6 +1309,8 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
       ["--redeploy", "extra"],
       ["extra"],
       ["--redeploy=true"],
+      ["--stage-live"],
+      ["--stage-live-env", "extra"],
       ["-r"],
     ]) {
       expect({ args, mode: modeFrom(["bun", "phase.ts", ...args]) }).toEqual({
@@ -1281,6 +1326,7 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
     // create/PATCH/delete call is reached at all.
     expect(envWritesFor("redeploy")).toEqual([]);
     expect(envWritesFor("first").length).toBe(11);
+    expect(envWritesFor("stage-live")).toEqual(LIVE_STRIPE_SHAPES);
   });
 
   test("a redeploy requires the environment ALREADY complete, not empty", () => {
@@ -1288,6 +1334,15 @@ describe("REDEPLOY MODE writes nothing and claims less", () => {
     // which is why the unchanged coordinator refuses to run twice.
     expect(expectedProductionBefore("first")).toEqual([]);
     expect(expectedProductionBefore("redeploy").length).toBe(11);
+    expect(expectedProductionBefore("stage-live")).toEqual(
+      LEGACY_PRODUCTION_SHAPES,
+    );
+  });
+
+  test("stage-live is the hard stop before every deployment seam", () => {
+    expect(shouldContinueToDeploy("stage-live")).toBe(false);
+    expect(shouldContinueToDeploy("first")).toBe(true);
+    expect(shouldContinueToDeploy("redeploy")).toBe(true);
   });
 
   test("a first deploy demands an empty database, exactly", () => {
@@ -1527,6 +1582,20 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
     expect(s.called).toEqual([]);
   });
 
+  test("STAGE-LIVE READS ONLY THREE STRIPE CREDENTIALS AND CARRIES FOUR VALUES", () => {
+    const s = spies();
+    const holders = buildHolders("stage-live", s.deps);
+    expect(s.called).toEqual(["readStripe"]);
+    expect([...holders!.values.keys()].sort()).toEqual(
+      LIVE_STRIPE_SHAPES.map((shape) => shape.key).sort(),
+    );
+    expect(holders!.values.get("CONTROL_PLANE_STRIPE_MODE")).toBe("live");
+    expect(holders!.authSecret).toBe("");
+    expect(holders!.oauth.size).toBe(0);
+    expect(holders!.mint.size).toBe(0);
+    expect(holders!.stripe.size).toBe(3);
+  });
+
   test("the first deploy reads all files, generates once, and builds the eleven", () => {
     const s = spies();
     const holders = buildHolders("first", s.deps);
@@ -1558,6 +1627,19 @@ describe("A REDEPLOY TOUCHES NO CREDENTIAL", () => {
     const holders = buildHolders("first", s.deps);
     expect(probeInputFor("redeploy", holders, ids).secret).toBe("");
     expect(probeInputFor("redeploy", holders, ids).secrets).toEqual([]);
+  });
+
+  test("THE PROBE CHILD IS SENT NO SECRET IN STAGE-LIVE MODE", () => {
+    const s = spies();
+    const holders = buildHolders("stage-live", s.deps);
+    const input = probeInputFor("stage-live", holders, {
+      accountId: "a",
+      email: "e@example.invalid",
+      instanceId: "i",
+      operationId: "o",
+    });
+    expect(input.secret).toBe("");
+    expect(input.secrets).toEqual([]);
   });
 
   test("the first deploy sends the secret and all five classes to scan", () => {

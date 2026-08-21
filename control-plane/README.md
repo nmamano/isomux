@@ -1165,16 +1165,32 @@ bun install
 (cd control-plane/web && bun install)
 ```
 
-Then use one of two commands. The difference matters more than the flag
+Then use one of three commands. The difference matters more than the flag
 suggests: the default one WRITES the environment.
 
 ```
 bun control-plane/deploy/production-phase.ts             # FIRST deploy: creates the eleven Production entries
 bun control-plane/deploy/production-phase.ts --redeploy  # ships new code, writes nothing
+bun control-plane/deploy/production-phase.ts --stage-live-env # creates only the four live Stripe entries, then stops
 ```
 
 Anything else - a typo, an extra argument, `--redeploy=true` - refuses before
 the token file is opened rather than falling through to the writing mode.
+
+**Live-environment staging is a separate operator action.** It starts only
+when Preview carries its exact two entries and Production carries its exact
+seven-entry legacy shape, for nine entries total. It creates only the four
+Production Stripe entries, reads back the inventory, and requires eleven
+Production entries plus the unchanged two Preview entries, for thirteen total.
+It cannot update, delete, deploy, probe, wait for TLS or detach the domain. A
+partial write is reported and left for manual recovery. A re-run after success
+refuses with a distinct already-staged message. The next action is a separate
+`--redeploy` during task `9f69ed8e`.
+
+The real staging run comes only after that activation task has registered the
+live webhook endpoint and staged its signing secret, created the restricted
+live web key, and created the live-mode Prices. Staging sets the fixed Stripe
+mode to `live`; the following deploy makes that mode active on the storefront.
 
 **First-deploy mode** expects Preview-only environment and an empty database: it
 refuses unless Production carries no entries of its own and every user table
@@ -1182,8 +1198,9 @@ reads zero. That is why it cannot be re-run against a live deployment, and why
 running it "just to see" is the wrong instinct - it is the mode that creates
 credentials.
 
-**Redeploy mode** was proved live on 2026-08-11 against the then-current 2+7
-environment and remains the one to reach for when only the application changed.
+**Redeploy mode** was proved live on 2026-08-11 against the then-current two
+Preview plus seven Production entries and remains the one to reach for when
+only the application changed.
 It requires the environment to be ALREADY exact at 2+11, reads no credential
 file, generates nothing, and performs no
 environment create, update or delete - the list of writes it iterates is empty,

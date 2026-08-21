@@ -122,16 +122,20 @@ export const EXPECTED_CNAME_TARGET = "7f093b64d7196cf5.vercel-dns-017.com";
 // ------------------------------------------------------------- the mode
 
 /**
- * FIRST DEPLOY or REDEPLOY, and the difference is what may be written.
+ * FIRST DEPLOY, REDEPLOY or LIVE STAGING, distinguished by what may be written.
  *
- * A redeploy exists because the application changed, not the environment. The
- * eleven Production values are already there, `AUTH_SECRET` among them is
+ * A redeploy exists because the application changed, not the environment.
+ * Production already carries the complete approved shape. `AUTH_SECRET` is
  * write-only by design, and the process that generated it is gone - so a
  * redeploy cannot read it, cannot mint a session cookie, and must not try to
  * rewrite the environment to get one back. It therefore writes NOTHING and
  * proves less, and says so rather than implying it proved the same.
  */
-export type PhaseMode = "first" | "redeploy";
+export type PhaseMode = "first" | "redeploy" | "stage-live";
+
+function impossibleMode(mode: never): never {
+  throw new Error(`unhandled phase mode: ${String(mode)}`);
+}
 
 /**
  * The mode, or NOTHING.
@@ -146,6 +150,9 @@ export function modeFrom(argv: readonly string[]): PhaseMode | null {
   const args = argv.slice(2);
   if (args.length === 0) return "first";
   if (args.length === 1 && args[0] === "--redeploy") return "redeploy";
+  if (args.length === 1 && args[0] === "--stage-live-env") {
+    return "stage-live";
+  }
   return null;
 }
 
@@ -155,12 +162,49 @@ export function modeFrom(argv: readonly string[]): PhaseMode | null {
  * nothing to iterate, so no mutating call is reachable at all.
  */
 export function envWritesFor(mode: PhaseMode): readonly EnvShape[] {
-  return mode === "redeploy" ? [] : PRODUCTION_SHAPES;
+  switch (mode) {
+    case "first":
+      return PRODUCTION_SHAPES;
+    case "redeploy":
+      return [];
+    case "stage-live":
+      return LIVE_STRIPE_SHAPES;
+    default: {
+      const impossible: never = mode;
+      return impossibleMode(impossible);
+    }
+  }
 }
 
 /** What Production must ALREADY carry when the phase starts. */
 export function expectedProductionBefore(mode: PhaseMode): readonly EnvShape[] {
-  return mode === "redeploy" ? PRODUCTION_SHAPES : [];
+  switch (mode) {
+    case "first":
+      return [];
+    case "redeploy":
+      return PRODUCTION_SHAPES;
+    case "stage-live":
+      return LEGACY_PRODUCTION_SHAPES;
+    default: {
+      const impossible: never = mode;
+      return impossibleMode(impossible);
+    }
+  }
+}
+
+/** The single boundary between environment work and every deploy-side seam. */
+export function shouldContinueToDeploy(mode: PhaseMode): boolean {
+  switch (mode) {
+    case "first":
+    case "redeploy":
+      return true;
+    case "stage-live":
+      return false;
+    default: {
+      const impossible: never = mode;
+      return impossibleMode(impossible);
+    }
+  }
 }
 
 /** What a FIRST deploy demands of the database it is pointed at. */
@@ -191,7 +235,17 @@ export function beforeRowsAcceptable(
   mode: PhaseMode,
   counts: Record<string, number>,
 ): boolean {
-  if (mode !== "redeploy") return rowsMatch(counts, EMPTY_ROWS);
+  switch (mode) {
+    case "first":
+      return rowsMatch(counts, EMPTY_ROWS);
+    case "redeploy":
+    case "stage-live":
+      break;
+    default: {
+      const impossible: never = mode;
+      return impossibleMode(impossible);
+    }
+  }
   // EVERY NAMED TABLE, not every key the reading happens to carry. Iterating
   // the value set accepted a PARTIAL reading - `{accounts: 1}` alone satisfied
   // it - which would have let a live redeploy proceed on evidence that never
@@ -241,7 +295,8 @@ export interface EnvShape {
   target: EnvTarget;
 }
 
-/** The eleven, and the absences are as much of the contract as the entries.
+/** The complete Production shape; absences are as much of the contract as the
+ * entries.
  * `encrypted` is used for non-secret configuration whose exact value must be
  * readable for verification; credentials use `sensitive`. */
 export const PRODUCTION_SHAPES: readonly EnvShape[] = [
@@ -265,6 +320,20 @@ export const PRODUCTION_SHAPES: readonly EnvShape[] = [
     target: "production",
   },
 ] as const;
+
+const LIVE_STRIPE_KEYS = new Set([
+  "CONTROL_PLANE_STRIPE_MODE",
+  "STRIPE_LIVE_SECRET_KEY",
+  "CONTROL_PLANE_ENTRY_PRICE_ID",
+  "CONTROL_PLANE_POWERUSER_PRICE_ID",
+]);
+
+export const LIVE_STRIPE_SHAPES: readonly EnvShape[] = PRODUCTION_SHAPES.filter(
+  (shape) => LIVE_STRIPE_KEYS.has(shape.key),
+);
+
+export const LEGACY_PRODUCTION_SHAPES: readonly EnvShape[] =
+  PRODUCTION_SHAPES.filter((shape) => !LIVE_STRIPE_KEYS.has(shape.key));
 
 /** What Preview already carries, and must still carry untouched. */
 export const PREVIEW_SHAPES: readonly EnvShape[] = [
@@ -577,7 +646,17 @@ export const UNAUTH_PROBE_EXPECTATIONS: Readonly<
 export function probeExpectationsFor(
   mode: PhaseMode,
 ): Readonly<Record<string, boolean | number>> {
-  return mode === "redeploy" ? UNAUTH_PROBE_EXPECTATIONS : PROBE_EXPECTATIONS;
+  switch (mode) {
+    case "first":
+      return PROBE_EXPECTATIONS;
+    case "redeploy":
+    case "stage-live":
+      return UNAUTH_PROBE_EXPECTATIONS;
+    default: {
+      const impossible: never = mode;
+      return impossibleMode(impossible);
+    }
+  }
 }
 
 /** The one key judged as a CLASS rather than against a constant, and so the
@@ -708,11 +787,10 @@ export interface SecretHolders {
  * Every credential this phase will hold, or NOTHING.
  *
  * Null for a redeploy, and the readers are CALLBACKS so that "it did not read
- * the files" is a testable fact rather than a claim about control flow. A
- * redeploy writes no environment, so opening a credential file or generating an
- * AUTH_SECRET would be handling secrets it has no use for - and a non-empty
- * secret would send the probe child into its authenticated branch, whose lines
- * the parent would then refuse as unexpected and detach on.
+ * the files" is a testable fact rather than a claim about control flow. Live
+ * staging reads only its Stripe file and generates nothing. A redeploy writes
+ * no environment, so opening any credential file or generating an AUTH_SECRET
+ * would handle secrets it has no use for.
  */
 export function buildHolders(
   mode: PhaseMode,
@@ -724,36 +802,75 @@ export function buildHolders(
     dsn: string;
   },
 ): SecretHolders | null {
-  if (mode === "redeploy") return null;
-  const oauth = deps.readOauth();
-  const mint = deps.readMint();
-  const stripe = deps.readStripe();
-  const authSecret = deps.generate();
-  return {
-    authSecret,
-    oauth,
-    mint,
-    stripe,
-    values: new Map<string, string>([
-      ["CONTROL_PLANE_DB", deps.dsn],
-      ["AUTH_SECRET", authSecret],
-      ["CONTROL_PLANE_MINT_TOKEN", mint.get("CONTROL_PLANE_MINT_TOKEN") ?? ""],
-      ["AUTH_GOOGLE_SECRET", oauth.get("GOOGLE_CLIENT_SECRET") ?? ""],
-      ["AUTH_URL", PUBLIC_ORIGIN],
-      ["CONTROL_PLANE_MINT_URL", PROVISIONER_ORIGIN],
-      ["AUTH_GOOGLE_ID", oauth.get("GOOGLE_CLIENT_ID") ?? ""],
-      ["CONTROL_PLANE_STRIPE_MODE", "live"],
-      ["STRIPE_LIVE_SECRET_KEY", stripe.get("STRIPE_LIVE_SECRET_KEY") ?? ""],
-      [
-        "CONTROL_PLANE_ENTRY_PRICE_ID",
-        stripe.get("CONTROL_PLANE_ENTRY_PRICE_ID") ?? "",
-      ],
-      [
-        "CONTROL_PLANE_POWERUSER_PRICE_ID",
-        stripe.get("CONTROL_PLANE_POWERUSER_PRICE_ID") ?? "",
-      ],
-    ]),
-  };
+  switch (mode) {
+    case "redeploy":
+      return null;
+    case "stage-live": {
+      const stripe = deps.readStripe();
+      return {
+        authSecret: "",
+        oauth: new Map(),
+        mint: new Map(),
+        stripe,
+        values: new Map<string, string>([
+          ["CONTROL_PLANE_STRIPE_MODE", "live"],
+          [
+            "STRIPE_LIVE_SECRET_KEY",
+            stripe.get("STRIPE_LIVE_SECRET_KEY") ?? "",
+          ],
+          [
+            "CONTROL_PLANE_ENTRY_PRICE_ID",
+            stripe.get("CONTROL_PLANE_ENTRY_PRICE_ID") ?? "",
+          ],
+          [
+            "CONTROL_PLANE_POWERUSER_PRICE_ID",
+            stripe.get("CONTROL_PLANE_POWERUSER_PRICE_ID") ?? "",
+          ],
+        ]),
+      };
+    }
+    case "first": {
+      const oauth = deps.readOauth();
+      const mint = deps.readMint();
+      const stripe = deps.readStripe();
+      const authSecret = deps.generate();
+      return {
+        authSecret,
+        oauth,
+        mint,
+        stripe,
+        values: new Map<string, string>([
+          ["CONTROL_PLANE_DB", deps.dsn],
+          ["AUTH_SECRET", authSecret],
+          [
+            "CONTROL_PLANE_MINT_TOKEN",
+            mint.get("CONTROL_PLANE_MINT_TOKEN") ?? "",
+          ],
+          ["AUTH_GOOGLE_SECRET", oauth.get("GOOGLE_CLIENT_SECRET") ?? ""],
+          ["AUTH_URL", PUBLIC_ORIGIN],
+          ["CONTROL_PLANE_MINT_URL", PROVISIONER_ORIGIN],
+          ["AUTH_GOOGLE_ID", oauth.get("GOOGLE_CLIENT_ID") ?? ""],
+          ["CONTROL_PLANE_STRIPE_MODE", "live"],
+          [
+            "STRIPE_LIVE_SECRET_KEY",
+            stripe.get("STRIPE_LIVE_SECRET_KEY") ?? "",
+          ],
+          [
+            "CONTROL_PLANE_ENTRY_PRICE_ID",
+            stripe.get("CONTROL_PLANE_ENTRY_PRICE_ID") ?? "",
+          ],
+          [
+            "CONTROL_PLANE_POWERUSER_PRICE_ID",
+            stripe.get("CONTROL_PLANE_POWERUSER_PRICE_ID") ?? "",
+          ],
+        ]),
+      };
+    }
+    default: {
+      const impossible: never = mode;
+      return impossibleMode(impossible);
+    }
+  }
 }
 
 export interface ProbeInput {
@@ -781,19 +898,33 @@ export function probeInputFor(
     operationId: string;
   },
 ): ProbeInput {
-  const authenticated = mode === "first" && holders !== null;
+  let secret = "";
+  let secrets: string[] = [];
+  switch (mode) {
+    case "first": {
+      if (holders === null) break;
+      secret = holders.authSecret;
+      secrets = [
+        holders.authSecret,
+        holders.values.get("CONTROL_PLANE_DB") ?? "",
+        holders.mint.get("CONTROL_PLANE_MINT_TOKEN") ?? "",
+        holders.oauth.get("GOOGLE_CLIENT_SECRET") ?? "",
+        holders.stripe.get("STRIPE_LIVE_SECRET_KEY") ?? "",
+      ];
+      break;
+    }
+    case "redeploy":
+    case "stage-live":
+      break;
+    default: {
+      const impossible: never = mode;
+      return impossibleMode(impossible);
+    }
+  }
   return {
     baseUrl: PUBLIC_ORIGIN,
-    secret: authenticated ? holders.authSecret : "",
-    secrets: authenticated
-      ? [
-          holders.authSecret,
-          holders.values.get("CONTROL_PLANE_DB") ?? "",
-          holders.mint.get("CONTROL_PLANE_MINT_TOKEN") ?? "",
-          holders.oauth.get("GOOGLE_CLIENT_SECRET") ?? "",
-          holders.stripe.get("STRIPE_LIVE_SECRET_KEY") ?? "",
-        ]
-      : [],
+    secret,
+    secrets,
     ...ids,
   };
 }
@@ -934,29 +1065,37 @@ async function main(): Promise<void> {
     // BEFORE the token file is opened, before any API call, before Neon: an
     // argument we do not recognise must not fall through to the mode that
     // writes the environment.
-    console.log("refusing: use no arguments, or exactly --redeploy");
-    process.exitCode = 2;
-    return;
-  }
-  let probeReady = false;
-  try {
-    const preflight = await spawnIn(
-      path.join(workspace, "control-plane", "web"),
-      ["bun", "e2e/production-probe.ts", "--preflight"],
-      {},
-    );
-    probeReady = probeRuntimeReady(preflight.stdout, preflight.code);
-  } catch {
-    probeReady = false;
-  }
-  console.log(`probe_runtime_ready: ${probeReady}`);
-  if (!probeReady) {
-    console.log("refusing: local production probe runtime is not ready");
     console.log(
-      "hint: run (cd control-plane/web && bun install) and run from the repository root",
+      "refusing: use no arguments, exactly --redeploy, or exactly --stage-live-env",
     );
     process.exitCode = 2;
     return;
+  }
+  // Staging cannot reach a probe or deployment seam, so an unused local web
+  // runtime must not block the one-shot environment operation.
+  if (mode !== "stage-live") {
+    let probeReady = false;
+    try {
+      const preflight = await spawnIn(
+        path.join(workspace, "control-plane", "web"),
+        ["bun", "e2e/production-probe.ts", "--preflight"],
+        {},
+      );
+      probeReady = probeRuntimeReady(preflight.stdout, preflight.code);
+    } catch {
+      probeReady = false;
+    }
+    console.log(`probe_runtime_ready: ${probeReady}`);
+    if (!probeReady) {
+      console.log("refusing: local production probe runtime is not ready");
+      console.log(
+        "hint: run (cd control-plane/web && bun install) and run from the repository root",
+      );
+      process.exitCode = 2;
+      return;
+    }
+  } else {
+    console.log("probe_runtime_required: false");
   }
   const { checks, token } = inspectTokenFile();
   if (!tokenFileUsable(checks)) {
@@ -1089,6 +1228,9 @@ async function main(): Promise<void> {
   }
 
   // ------------------------------------------ 3. production, before writes
+  // Stage-live keeps this before-only branch and row proof deliberately: all
+  // three live modes must resolve the same governed production branch. It
+  // makes no after-row claim because its hard stop precedes those readings.
   const { id: neonProjectId } = await neonProject();
   const productionBranch = await branchNamed(neonProjectId, PRODUCTION_BRANCH);
   // A branch NAMED production is not the same claim as THE production branch.
@@ -1145,12 +1287,34 @@ async function main(): Promise<void> {
   );
   console.log(`env_before_exact: ${beforeVerdict.exact}`);
   if (!beforeVerdict.exact) {
-    console.log("stopping: the environment is not the approved starting state");
+    for (const problem of beforeVerdict.previewProblems) {
+      console.log(`  env_before_problem: ${problem}`);
+    }
+    for (const problem of beforeVerdict.productionProblems) {
+      console.log(`  env_before_problem: ${problem}`);
+    }
+    const alreadyStaged =
+      mode === "stage-live" &&
+      judgeByTarget(
+        inventoryBefore,
+        PREVIEW_SHAPES,
+        PRODUCTION_SHAPES,
+        FORBIDDEN_ENV_NAMES,
+      ).exact;
+    if (alreadyStaged) {
+      console.log(
+        "refusing: production already matches the staged live environment target",
+      );
+    } else {
+      console.log(
+        "stopping: the environment is not the approved starting state",
+      );
+    }
     process.exitCode = 1;
     return;
   }
 
-  // ----------------------------------------------- 4. the eleven writes
+  // ------------------------------------------------- 4. environment writes
   //
   // A REDEPLOY READS NO CREDENTIAL AND GENERATES NONE. It writes nothing, so
   // opening the secret files or minting an AUTH_SECRET would be handling
@@ -1189,7 +1353,7 @@ async function main(): Promise<void> {
   console.log(`credentials_read: ${holders !== null}`);
   if (holders) {
     console.log(`secret_files_strict: true`);
-    console.log(`auth_secret_bytes: 32`);
+    if (mode === "first") console.log(`auth_secret_bytes: 32`);
     CLEANUP.push(() =>
       dropHolders(
         [holders.oauth, holders.mint, holders.stripe, holders.values],
@@ -1234,6 +1398,11 @@ async function main(): Promise<void> {
     if (!exact) {
       console.log(`stopping: ${shape.key} did not come back as asked`);
       console.log(`env_written_count: ${written + 1}`);
+      if (mode === "stage-live") {
+        console.log(
+          "PARTIAL PRODUCTION ENVIRONMENT - no reconciliation attempted",
+        );
+      }
       process.exitCode = 1;
       return;
     }
@@ -1257,7 +1426,21 @@ async function main(): Promise<void> {
   console.log(`env_exact: ${envVerdict.exact}`);
   if (!envVerdict.exact) {
     console.log("stopping: the environment is not exactly what was approved");
+    if (mode === "stage-live") {
+      console.log(
+        "PARTIAL PRODUCTION ENVIRONMENT - no reconciliation attempted",
+      );
+    }
     process.exitCode = 1;
+    return;
+  }
+
+  // This is the ONLY continuation guard after environment work. A stage run
+  // ends before the artifact is made and before deploy, TLS, probe or detach is
+  // reachable. Activation is a separate operator action by PM ruling.
+  if (!shouldContinueToDeploy(mode)) {
+    console.log("stage_live_environment_held: true");
+    console.log("next operator action: run --redeploy during task 9f69ed8e");
     return;
   }
 
