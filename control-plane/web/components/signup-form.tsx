@@ -16,6 +16,38 @@ const CLIPBOARD_ERROR =
 const CHECKOUT_ERROR =
   "we could not open a payment page just now - your name is reserved, so try again in a moment";
 
+export function SignupPolicyNotice() {
+  return (
+    <p className="note">
+      Before you pay, review the{" "}
+      <a
+        href="https://isomux.com/hosted-terms"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Terms of Service
+      </a>
+      ,{" "}
+      <a
+        href="https://isomux.com/hosted-privacy"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Privacy Policy
+      </a>
+      , and{" "}
+      <a
+        href="https://isomux.com/hosted-refund"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Refund Policy
+      </a>
+      .
+    </p>
+  );
+}
+
 export function SignupForm({
   domain,
   initialName,
@@ -175,6 +207,7 @@ export function SignupForm({
           If you received a promotional code, enter it here.
         </span>
       </p>
+      <SignupPolicyNotice />
       <button
         className="btn-primary"
         type="submit"

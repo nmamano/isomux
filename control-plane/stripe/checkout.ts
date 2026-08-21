@@ -260,6 +260,7 @@ export function checkoutParams(args: CheckoutArgs): Record<string, FormValue> {
     "line_items[0][quantity]": 1,
     success_url: args.successUrl,
     cancel_url: args.cancelUrl,
+    consent_collection: { terms_of_service: "required" },
     ...(args.expiresAt ? { expires_at: args.expiresAt } : {}),
     // NO TRIAL (ruling 1): the card is charged at checkout. The only reason a
     // card is not collected is that a 100% discount leaves nothing to charge.

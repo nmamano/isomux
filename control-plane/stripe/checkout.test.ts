@@ -87,6 +87,13 @@ describe("the comped path", () => {
     expect(encoded).toContain("managed_payments%5Benabled%5D=true");
   });
 
+  test("every session requires recorded terms acceptance", () => {
+    const encoded = formEncode(checkoutParams(base));
+    expect(encoded).toContain(
+      "consent_collection%5Bterms_of_service%5D=required",
+    );
+  });
+
   test("merchant-of-record parameters stay under Stripe's control", () => {
     const encoded = formEncode(checkoutParams(base));
     // Stripe's update-checkout removal list, checked 2026-08-16. These are the
