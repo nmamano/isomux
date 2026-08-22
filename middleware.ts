@@ -1,6 +1,6 @@
-import { negotiate } from "./api/_content-negotiation.ts";
+import { negotiate } from "./api/_content-negotiation";
 
-export { negotiate } from "./api/_content-negotiation.ts";
+export { negotiate } from "./api/_content-negotiation";
 
 function next(headers?: HeadersInit): Response {
   return new Response(null, {

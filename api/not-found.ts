@@ -1,4 +1,4 @@
-import { negotiate } from "./_content-negotiation.ts";
+import { negotiate } from "./_content-negotiation";
 
 export const config = { runtime: "edge" };
 
