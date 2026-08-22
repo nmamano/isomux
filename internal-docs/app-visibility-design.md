@@ -93,22 +93,11 @@ affected users rather than wait for the Apps-tab poll. Today app events run only
 when an app record changes, so dependency-triggered events are a material new
 implementation surface.
 
-Move, kill, and revive need a narrower guard when the target agent created any
-live registered app. Today, room co-members may perform all three operations on
-another user's agent. Under this model that would let them retarget, remove, or
-create an app audience without app authority, possibly for several apps at
-once. For an agent with registered apps, allow these operations only to its
-manager or an office owner; keep the current room-access guards for agents with
-none. Revive resolves the killed agent's manager from its durable history, not
-from its former room. The UI must explain the restriction before attempting the
-operation.
-
-These route guards now depend on the app registry: registering the agent's first
-app narrows its lifecycle authority, and deleting its last app restores the
-room-based guards. The dependency check and move, kill, or revive mutation run
-synchronously without an await between them, so registration cannot race the
-decision in the single Bun process. An unreadable registry fails closed to the
-manager-or-office-owner rule.
+Move, kill, and revive keep today's guards unchanged, including for agents
+that created apps. A room co-member moving or killing such an agent retargets
+or drops its apps' audience as a side effect; that is accepted (Nil,
+2026-08-22: "isomux is based on a foundation of trust between office members.
+don't add restrictions").
 
 ### Hostname enforcement and revoke
 
@@ -130,8 +119,8 @@ at the next request and on sockets immediately.
 
 No grant API is needed because there is no app-specific access state. The
 existing agent move, kill, and revive APIs are the complete write surface for
-room-derived sharing, with the creator-app guard on all three routes, so agents
-can perform the same actions as humans. The Apps tab shows only rows allowed by
+room-derived sharing, under their unchanged guards, so agents can perform the
+same actions as humans. The Apps tab shows only rows allowed by
 the shared predicate and needs no app access editor.
 
 Viewer rows expose only launch data: name, description, owner display name,
@@ -161,3 +150,5 @@ separate migration.
   access; revival restores room-derived access.
 - Existing and human-registered apps without a creator agent are
   owner-plus-office-owner only.
+- Agent move, kill, and revive keep their existing guards; no app-derived
+  restriction is added (Nil, 2026-08-22, office-trust ruling).
