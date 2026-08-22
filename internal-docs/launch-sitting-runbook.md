@@ -41,6 +41,21 @@ Nothing below runs without Nil present - the first third is his logins.
 - test-nil: attention card stays (truthful); box 203525282 cancel-scheduled,
   service ends ~2026-09-20. Signup is closed ("no price configured").
 
+## Progress 2026-08-22 (evening sitting, first leg)
+
+Steps 0-3 are COMPLETE. Step 0 pre-checks re-run (DNS/NS match the recorded
+state; live instance-record DB read still unproven). Step 1 all items done:
+public details live-mode (test mode cannot set them - classic test mode
+hollowed, task 71075e7d), Managed Payments Ready with all products eligible,
+tax txcd_10103000 + exclusive, Products prod_V7a8efG8IaOI81 (Entry) /
+prod_V7a8an3gsAIoTv (Poweruser), Prices price_1U7L7tAU22RWBcwcuwYAsQ1I (EUR
+800 monthly) / price_1U7L7uAU22RWBcwcezI9QY3W (EUR 1700 monthly), portal
+config bpc_1U7LiaAU22RWBcwcbIWEqFdY (card-change + invoice history, cancel
+off), provisioner key isomux-provisioner-live minted. Step 2 secrets file
+verified (3 lines, 0600). Step 3 staging ran and held: 9 before, 4 written,
+13 exact. Next: step 4 (test-mode checkout proof - may fail on the test-mode
+consent-URL gap, see step 1.0 note and task 71075e7d).
+
 ## The sitting, in order
 
 Step 0, PM pre-checks (no Nil needed): re-run the domain checklist
@@ -50,8 +65,9 @@ site deploy is READY and the 65e0ceeb validation verdict is green.
 
 Step 1, Nil in the Stripe Dashboard (live mode; the terms URL also in test
 mode):
-0. Public details MUST carry the Terms of service URL (https://isomux.com/terms)
-   and Privacy policy URL (https://isomux.com/privacy) before any customer
+0. Public details MUST carry the Terms of service URL
+   (https://isomux.com/hosted-terms) and Privacy policy URL
+   (https://isomux.com/hosted-privacy) before any customer
    checkout: our sessions require ToS consent (checkout.ts:263, Managed
    Payments compliance), and Stripe refuses to render the consent box
    without the URL - proven the hard way in test mode 2026-08-22. Nil
@@ -63,8 +79,9 @@ mode):
    the Managed-Payments-eligible list for a code closer to SaaS/hosted
    offices than the tentative `txcd_10701410`. Assign it to every Product
    that can appear in Checkout; re-open each and verify the stored value.
-3. Create live USD recurring Prices (Entry, Poweruser) with
-   `tax_behavior=exclusive`.
+3. Create live EUR recurring Prices (Entry, Poweruser) with
+   `tax_behavior=exclusive` (EUR per plans.ts and the live site; an earlier
+   draft said USD).
 4. Mint the restricted `rk_live_` key: Subscriptions read, Invoices read,
    Checkout Sessions read and write (the documented minimum; the code
    refuses an `sk_live_` account key at client construction).
