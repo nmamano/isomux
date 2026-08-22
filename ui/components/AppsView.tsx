@@ -16,13 +16,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
-import { getAppPreviews, setAppPreviews } from "../device-settings.ts";
+import {
+  APP_PREVIEW_OPEN_TTL_MS,
+  getAppPreviewOpenedAt,
+  getAppPreviews,
+  markAppPreviewOpened,
+  pruneAppPreviewOpens,
+  setAppPreviews,
+} from "../device-settings.ts";
 import type { AppState, AppWire } from "../../shared/types.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
 // systemd read per cache window rather than one per tab per tick.
 const POLL_MS = 5000;
+const BACKGROUND_OPEN_FALLBACK_MS = 1500;
 
 /**
  * Should a response that has just come back be allowed to write to the shared
@@ -117,6 +125,21 @@ export function appCanPreview(app: Pick<AppWire, "url" | "state">): boolean {
   );
 }
 
+export type AppPreviewPhase = "open-prompt" | "loading" | "frame";
+
+export function appPreviewPhase(
+  openedAt: number | null,
+  now: number,
+  visible: boolean,
+  waitingForReturn: boolean,
+): AppPreviewPhase {
+  if (openedAt === null || now - openedAt >= APP_PREVIEW_OPEN_TTL_MS) {
+    return "open-prompt";
+  }
+  if (!visible || waitingForReturn) return "loading";
+  return "frame";
+}
+
 const STATE_COLOR: Record<AppState, string> = {
   running: "var(--green)",
   starting: "var(--orange, #d29922)",
@@ -181,6 +204,10 @@ function AppPreview({
   const [visible, setVisible] = useState(
     () => !("IntersectionObserver" in window),
   );
+  const [openedAt, setOpenedAt] = useState(() => getAppPreviewOpenedAt(href));
+  const [now, setNow] = useState(Date.now);
+  const [waitingForReturn, setWaitingForReturn] = useState(false);
+  const phase = appPreviewPhase(openedAt, now, visible, waitingForReturn);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -198,6 +225,40 @@ function AppPreview({
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    if (!waitingForReturn) return;
+    const returned = () => {
+      setNow(Date.now());
+      setWaitingForReturn(false);
+    };
+    const fallback = setTimeout(returned, BACKGROUND_OPEN_FALLBACK_MS);
+    window.addEventListener("focus", returned);
+    return () => {
+      clearTimeout(fallback);
+      window.removeEventListener("focus", returned);
+    };
+  }, [waitingForReturn]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOpenedAt(getAppPreviewOpenedAt(href));
+  }, [href]);
+
+  useEffect(() => {
+    if (openedAt === null) return;
+    const remaining = openedAt + APP_PREVIEW_OPEN_TTL_MS - Date.now();
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, remaining));
+    return () => clearTimeout(timer);
+  }, [openedAt]);
+
+  const recordOpen = () => {
+    const opened = Date.now();
+    markAppPreviewOpened(href, opened);
+    setOpenedAt(opened);
+    setNow(opened);
+    setWaitingForReturn(true);
+  };
+
   return (
     <a
       ref={hostRef}
@@ -206,6 +267,10 @@ function AppPreview({
       rel="noreferrer"
       title={`Open ${app.name}`}
       tabIndex={-1}
+      onClick={recordOpen}
+      onAuxClick={(event) => {
+        if (event.button === 1) recordOpen();
+      }}
       style={{
         position: "relative",
         display: "block",
@@ -219,7 +284,19 @@ function AppPreview({
         textDecoration: "none",
       }}
     >
-      {!visible ? (
+      {phase === "open-prompt" ? (
+        <span
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "grid",
+            placeItems: "center",
+            fontSize: 12,
+          }}
+        >
+          Open app to enable preview
+        </span>
+      ) : phase === "loading" ? (
         <span
           style={{
             position: "absolute",
@@ -252,21 +329,23 @@ function AppPreview({
           }}
         />
       )}
-      <span
-        style={{
-          position: "absolute",
-          right: 6,
-          bottom: 6,
-          padding: "2px 6px",
-          borderRadius: 4,
-          background: "var(--bg-overlay)",
-          color: "var(--text-secondary)",
-          fontSize: 10,
-          boxShadow: "0 1px 4px var(--shadow-heavy)",
-        }}
-      >
-        live preview
-      </span>
+      {phase !== "open-prompt" && (
+        <span
+          style={{
+            position: "absolute",
+            right: 6,
+            bottom: 6,
+            padding: "2px 6px",
+            borderRadius: 4,
+            background: "var(--bg-overlay)",
+            color: "var(--text-secondary)",
+            fontSize: 10,
+            boxShadow: "0 1px 4px var(--shadow-heavy)",
+          }}
+        >
+          live preview
+        </span>
+      )}
     </a>
   );
 }
@@ -506,6 +585,15 @@ export function AppsView({
   }, [confirmDelete]);
 
   const sorted = [...apps].sort((a, b) => a.name.localeCompare(b.name));
+
+  useEffect(() => {
+    if (!appsLoaded) return;
+    pruneAppPreviewOpens(
+      apps.flatMap((app) =>
+        typeof app.url === "string" && app.url !== "" ? [app.url] : [],
+      ),
+    );
+  }, [apps, appsLoaded]);
 
   return (
     <div

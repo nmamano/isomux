@@ -12,6 +12,10 @@ import type { NotifRoomsSetting } from "../shared/types.ts";
 const KEY_USERNAME = "isomux-username";
 const KEY_DEVICE = "isomux-device";
 const KEY_APP_PREVIEWS = "isomux-app-previews";
+const KEY_APP_PREVIEW_OPENS = "isomux-app-preview-opens";
+// Keep aligned with APP_SESSION_TTL_MS in server/app-auth.ts. A preview cannot
+// renew that app-host session, so an older open fact must show the prompt again.
+export const APP_PREVIEW_OPEN_TTL_MS = 12 * 60 * 60 * 1000;
 const LEGACY_KEY_DEFAULT_ROOM = "isomux-default-room";
 const LEGACY_KEY_NOTIF_ROOMS = "isomux-notif-rooms";
 
@@ -47,6 +51,65 @@ export function getAppPreviews(): boolean {
 export function setAppPreviews(enabled: boolean): void {
   if (typeof localStorage === "undefined") return;
   localStorage.setItem(KEY_APP_PREVIEWS, enabled ? "on" : "off");
+}
+
+function readAppPreviewOpens(): Record<string, number> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(KEY_APP_PREVIEW_OPENS) ?? "{}",
+    );
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed).filter(
+        (entry): entry is [string, number] =>
+          typeof entry[1] === "number" && Number.isFinite(entry[1]),
+      ),
+    );
+  } catch {
+    return {};
+  }
+}
+
+export function getAppPreviewOpenedAt(
+  url: string,
+  now = Date.now(),
+): number | null {
+  const openedAt = readAppPreviewOpens()[url];
+  if (openedAt === undefined || now - openedAt >= APP_PREVIEW_OPEN_TTL_MS) {
+    return null;
+  }
+  return openedAt;
+}
+
+export function markAppPreviewOpened(url: string, openedAt = Date.now()): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.setItem(
+    KEY_APP_PREVIEW_OPENS,
+    JSON.stringify({ ...readAppPreviewOpens(), [url]: openedAt }),
+  );
+}
+
+export function pruneAppPreviewOpens(urls: readonly string[]): void {
+  if (typeof localStorage === "undefined") return;
+  const keep = new Set(urls);
+  const opens = readAppPreviewOpens();
+  const entries = Object.entries(opens).filter(([url]) => keep.has(url));
+  if (entries.length === Object.keys(opens).length) return;
+  if (entries.length === 0) {
+    localStorage.removeItem(KEY_APP_PREVIEW_OPENS);
+  } else {
+    localStorage.setItem(
+      KEY_APP_PREVIEW_OPENS,
+      JSON.stringify(Object.fromEntries(entries)),
+    );
+  }
 }
 
 // Read legacy localStorage prefs used during the one-shot claim_user

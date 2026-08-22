@@ -38,6 +38,10 @@ const {
   setSlideView,
   getAppPreviews,
   setAppPreviews,
+  APP_PREVIEW_OPEN_TTL_MS,
+  getAppPreviewOpenedAt,
+  markAppPreviewOpened,
+  pruneAppPreviewOpens,
   getUsagePin,
   setUsagePin,
 } = await import("./device-settings.ts");
@@ -51,6 +55,41 @@ describe("app previews", () => {
     expect(getAppPreviews()).toBe(false);
     setAppPreviews(true);
     expect(getAppPreviews()).toBe(true);
+  });
+
+  it("remembers an exact app URL only for the app-session lifetime", () => {
+    markAppPreviewOpened("https://habits.office.example", 1000);
+    expect(getAppPreviewOpenedAt("https://habits.office.example", 1001)).toBe(
+      1000,
+    );
+    expect(getAppPreviewOpenedAt("https://other.office.example", 1001)).toBe(
+      null,
+    );
+    expect(
+      getAppPreviewOpenedAt(
+        "https://habits.office.example",
+        1000 + APP_PREVIEW_OPEN_TTL_MS,
+      ),
+    ).toBe(null);
+  });
+
+  it("prunes open facts for apps that are no longer listed", () => {
+    markAppPreviewOpened("https://keep.office.example", 1000);
+    markAppPreviewOpened("https://gone.office.example", 1000);
+    pruneAppPreviewOpens(["https://keep.office.example"]);
+    expect(getAppPreviewOpenedAt("https://keep.office.example", 1001)).toBe(
+      1000,
+    );
+    expect(getAppPreviewOpenedAt("https://gone.office.example", 1001)).toBe(
+      null,
+    );
+  });
+
+  it("does not rewrite the open facts when every listed app remains", () => {
+    const raw = '{ "https://keep.office.example": 1000 }';
+    store.set("isomux-app-preview-opens", raw);
+    pruneAppPreviewOpens(["https://keep.office.example"]);
+    expect(store.get("isomux-app-preview-opens")).toBe(raw);
   });
 });
 

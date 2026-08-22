@@ -208,7 +208,7 @@ describe("app-supervisor: unit generation", () => {
       path: "/p:/q",
       unitName: "isomux-app-hello.service",
       tokenEnvPath: "/launchers/hello.env",
-      appUrl: null,
+      appUrl: "https://hello.office.example",
     });
     expect(directives(unit)).toEqual([
       "[Unit]",
@@ -227,6 +227,8 @@ describe("app-supervisor: unit generation", () => {
       'Environment="ISOMUX_APP_NAME=hello"',
       'Environment="ISOMUX_APP_DATA_DIR=/state/apps/data/hello"',
       'Environment="PATH=/p:/q"',
+      'Environment="ISOMUX_APP_URL=https://hello.office.example"',
+      'Environment="__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=hello.office.example"',
       // NOT quoted, for the same reason as WorkingDirectory - and the failure
       // mode is worse: a quoted path here is tolerated by the leading "-" and
       // the app silently runs with no token (measured on systemd 255).
@@ -241,6 +243,34 @@ describe("app-supervisor: unit generation", () => {
       "[Install]",
       "WantedBy=default.target",
     ]);
+  });
+
+  it("gives Vite only the hostname from the app's public URL", () => {
+    const unit = renderUnit(record(), {
+      launcherPath: "/launchers/hello.sh",
+      path: "/p:/q",
+      unitName: "isomux-app-hello.service",
+      tokenEnvPath: "/launchers/hello.env",
+      appUrl: "https://Hello.Office.Example:8443/dashboard",
+    });
+    expect(unit).toContain(
+      'Environment="__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=hello.office.example"',
+    );
+    const viteLine = directives(unit).find((line) =>
+      line.includes("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"),
+    );
+    expect(viteLine).not.toContain("8443/dashboard");
+  });
+
+  it("omits Vite's allowed-host variable without a public URL", () => {
+    const unit = renderUnit(record(), {
+      launcherPath: "/launchers/hello.sh",
+      path: "/p:/q",
+      unitName: "isomux-app-hello.service",
+      tokenEnvPath: "/launchers/hello.env",
+      appUrl: null,
+    });
+    expect(unit).not.toContain("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS");
   });
 
   it("never puts the start command in the unit - only in the launcher", () => {
@@ -348,7 +378,13 @@ describe("app-supervisor: ISOMUX_APP_URL in the unit", () => {
     // is started, only what it knows about itself.
     const without = directives(renderWith(null));
     const with_ = directives(renderWith("https://hello.office.example"));
-    expect(with_.filter((d) => !d.includes("ISOMUX_APP_URL"))).toEqual(without);
+    expect(
+      with_.filter(
+        (d) =>
+          !d.includes("ISOMUX_APP_URL") &&
+          !d.includes("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"),
+      ),
+    ).toEqual(without);
   });
 
   it("is the app's LABEL, so a re-registered name never inherits the old URL", () => {
