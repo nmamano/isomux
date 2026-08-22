@@ -34,6 +34,7 @@ import type { ServerMessage } from "../../shared/types.ts";
 import {
   getEditorState,
   setEditorState,
+  setEditorViewState,
   type PersistedTab,
 } from "./editor-state.ts";
 
@@ -226,6 +227,9 @@ export function EditorPanel({
   // Tracks whether the empty-editor read-only lock is installed, so we only
   // reconfigure the compartment on transitions (not every render).
   const readonlyInstalledRef = useRef<boolean>(false);
+  const restoredPathRef = useRef<string | null>(null);
+  const restoreFrameRef = useRef<number | null>(null);
+  const restoringScrollRef = useRef(false);
 
   const setTabsAndPersist = useCallback(
     (updater: (prev: Tab[]) => Tab[]) => {
@@ -612,17 +616,32 @@ export function EditorPanel({
     if (!containerRef.current) return;
 
     const updateListener = EditorView.updateListener.of((update) => {
-      if (!update.docChanged) return;
       const path = activePathRef.current;
       if (!path) return;
-      const text = update.state.doc.toString();
-      setTabsAndPersist((prev) =>
-        prev.map((t) => {
-          if (t.path !== path) return t;
-          if (t.content === text) return t;
-          return { ...t, content: text, dirty: true };
-        }),
-      );
+      if (
+        update.selectionSet &&
+        update.transactions.some(
+          (transaction) =>
+            transaction.isUserEvent("select") ||
+            transaction.isUserEvent("input"),
+        )
+      ) {
+        const range = update.state.selection.main;
+        setEditorViewState(agentId, path, update.view.scrollDOM.scrollTop, {
+          anchor: range.anchor,
+          head: range.head,
+        });
+      }
+      if (update.docChanged) {
+        const text = update.state.doc.toString();
+        setTabsAndPersist((prev) =>
+          prev.map((t) => {
+            if (t.path !== path) return t;
+            if (t.content === text) return t;
+            return { ...t, content: text, dirty: true };
+          }),
+        );
+      }
     });
 
     // Mobile gets a leaner extension set: no gutter (eats ~40px on a 390px
@@ -647,6 +666,10 @@ export function EditorPanel({
             indentWithTab,
           ]),
           EditorView.lineWrapping,
+          EditorView.theme({
+            "&": { height: "100%" },
+            ".cm-scroller": { overflow: "auto" },
+          }),
           ...(mobile
             ? [
                 EditorView.contentAttributes.of({
@@ -668,8 +691,36 @@ export function EditorPanel({
       }),
     });
     viewRef.current = view;
+    const rememberScroll = (event?: Event) => {
+      const path = activePathRef.current;
+      if (!path) return;
+      if (event && restoringScrollRef.current) return;
+      if (
+        event &&
+        (!view.dom.isConnected || view.scrollDOM.clientHeight === 0)
+      ) {
+        return;
+      }
+      const range = view.state.selection.main;
+      const storedScrollTop = getEditorState(agentId)?.tabs.find(
+        (tab) => tab.path === path,
+      )?.scrollTop;
+      setEditorViewState(
+        agentId,
+        path,
+        !event && storedScrollTop !== undefined
+          ? storedScrollTop
+          : view.scrollDOM.scrollTop,
+        { anchor: range.anchor, head: range.head },
+      );
+    };
+    view.scrollDOM.addEventListener("scroll", rememberScroll, {
+      passive: true,
+    });
 
     return () => {
+      rememberScroll();
+      view.scrollDOM.removeEventListener("scroll", rememberScroll);
       view.destroy();
       viewRef.current = null;
     };
@@ -696,6 +747,7 @@ export function EditorPanel({
     const view = viewRef.current;
     if (!view) return;
     if (!activePath) {
+      restoredPathRef.current = null;
       if (view.state.doc.length > 0) {
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: "" },
@@ -741,7 +793,51 @@ export function EditorPanel({
       });
       installedLangRef.current = tab.language;
     }
-  }, [tabs, activePath]);
+    if (restoredPathRef.current !== activePath) {
+      const persistedTab = getEditorState(agentId)?.tabs.find(
+        (candidate) => candidate.path === activePath,
+      );
+      const selection = persistedTab?.selection;
+      if (selection) {
+        const max = view.state.doc.length;
+        view.dispatch({
+          selection: {
+            anchor: Math.min(selection.anchor, max),
+            head: Math.min(selection.head, max),
+          },
+        });
+      }
+      const restorePath = activePath;
+      const scrollTop = persistedTab?.scrollTop ?? 0;
+      if (restoreFrameRef.current !== null) {
+        cancelAnimationFrame(restoreFrameRef.current);
+      }
+      restoringScrollRef.current = true;
+      // Frame 1 lets the doc transaction render, frame 2 lets CodeMirror
+      // measure its virtual viewport, and frame 3 reapplies the exact offset
+      // after CodeMirror's own scroll alignment.
+      restoreFrameRef.current = requestAnimationFrame(() => {
+        restoreFrameRef.current = requestAnimationFrame(() => {
+          if (activePathRef.current !== restorePath) return;
+          view.scrollDOM.scrollTop = scrollTop;
+          restoreFrameRef.current = requestAnimationFrame(() => {
+            if (activePathRef.current !== restorePath) return;
+            view.scrollDOM.scrollTop = scrollTop;
+            restoredPathRef.current = restorePath;
+            restoringScrollRef.current = false;
+            restoreFrameRef.current = null;
+          });
+        });
+      });
+    }
+    return () => {
+      if (restoreFrameRef.current !== null) {
+        cancelAnimationFrame(restoreFrameRef.current);
+        restoreFrameRef.current = null;
+      }
+      restoringScrollRef.current = false;
+    };
+  }, [agentId, tabs, activePath]);
 
   const saveActiveTab = useCallback(() => {
     const path = activePathRef.current;
@@ -1400,7 +1496,8 @@ export function EditorPanel({
         ref={containerRef}
         style={{
           flex: 1,
-          overflow: "auto",
+          minHeight: 0,
+          overflow: "hidden",
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: 13,
           display: tabs.length === 0 ? "none" : undefined,

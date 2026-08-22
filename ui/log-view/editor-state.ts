@@ -27,9 +27,25 @@ export interface PersistedEditorState {
 }
 
 const stateByAgent = new Map<string, PersistedEditorState>();
+const viewStateByAgent = new Map<
+  string,
+  Map<
+    string,
+    {
+      scrollTop: number;
+      selection: { anchor: number; head: number };
+    }
+  >
+>();
 
 export function getEditorState(agentId: string): PersistedEditorState | null {
-  return stateByAgent.get(agentId) ?? null;
+  const state = stateByAgent.get(agentId);
+  if (!state) return null;
+  const views = viewStateByAgent.get(agentId);
+  return {
+    ...state,
+    tabs: state.tabs.map((tab) => ({ ...tab, ...views?.get(tab.path) })),
+  };
 }
 
 export function setEditorState(
@@ -41,7 +57,31 @@ export function setEditorState(
     (state.tabs.length === 0 && state.activePath === null)
   ) {
     stateByAgent.delete(agentId);
+    viewStateByAgent.delete(agentId);
   } else {
     stateByAgent.set(agentId, state);
+    const paths = new Set(state.tabs.map((tab) => tab.path));
+    const views = viewStateByAgent.get(agentId);
+    if (views) {
+      for (const path of views.keys()) {
+        if (!paths.has(path)) views.delete(path);
+      }
+      if (views.size === 0) viewStateByAgent.delete(agentId);
+    }
   }
+}
+
+export function setEditorViewState(
+  agentId: string,
+  path: string,
+  scrollTop: number,
+  selection: { anchor: number; head: number },
+): void {
+  if (!stateByAgent.get(agentId)?.tabs.some((tab) => tab.path === path)) return;
+  let views = viewStateByAgent.get(agentId);
+  if (!views) {
+    views = new Map();
+    viewStateByAgent.set(agentId, views);
+  }
+  views.set(path, { scrollTop, selection });
 }

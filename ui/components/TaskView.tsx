@@ -92,7 +92,6 @@ function TaskDetailPanel({
   fullScreen = false,
   rooms = [],
   createRoomId = "",
-  onCreateRoomChange,
   initialTitle = "",
   onCancelClose,
 }: {
@@ -114,11 +113,10 @@ function TaskDetailPanel({
   // edit-mode "Room" selector that re-files a task. Empty when no rooms are
   // visible.
   rooms?: RoomWire[];
-  // Create-mode target room ("" === office-global), lifted to TaskView so the
-  // quick-add row and this panel share ONE create target. Ignored in edit mode,
-  // which re-files through its own Room selector (the `roomId` state below).
+  // Create-mode target room ("" === office-global), derived in TaskView from
+  // the shared list/create scope. Ignored in edit mode, which re-files through
+  // its own Room selector (the `roomId` state below).
   createRoomId?: string;
-  onCreateRoomChange?: (roomId: string) => void;
 }) {
   const roomLabel = (roomId: string | undefined) =>
     roomId ? (rooms.find((r) => r.id === roomId)?.name ?? "Unknown room") : "";
@@ -417,18 +415,9 @@ function TaskDetailPanel({
         {mode === "create" ? (
           <div>
             <label style={labelStyle}>Create in</label>
-            <select
-              value={createRoomId}
-              onChange={(e) => onCreateRoomChange?.(e.target.value)}
-              style={inputStyle}
-            >
-              <option value="">Global (office-wide)</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            <div style={{ ...inputStyle, background: "var(--bg-subtle)" }}>
+              {createRoomId ? roomLabel(createRoomId) : "Global (office-wide)"}
+            </div>
           </div>
         ) : (
           task && (
@@ -706,22 +695,27 @@ export function TaskView({
   const [filterStatus, setFilterStatus] = useState<
     TaskStatus | "all" | "active"
   >("active");
-  // Room controls captured ONCE from the office's current room and held stable
-  // while the Tasks view is open - they do NOT silently follow the office room
-  // tab. viewRoom filters the (already server-scoped) list; createRoomId is the
-  // shared create target for the quick-add row and the create panel.
-  //   viewRoom:     "all" | "global" | <roomId>
-  //   createRoomId: "" (office-global) | <roomId>
-  const [viewRoom, setViewRoom] = useState<string>(() =>
+  // Room scope is captured ONCE from the office's current room and held stable
+  // while the Tasks view is open - it does NOT silently follow the office room
+  // tab. It filters the list and, whenever it names a filing target, also drives
+  // creation. "All rooms" needs one explicit target because it cannot own a task.
+  const [roomScope, setRoomScope] = useState<string>(() =>
     currentRoomId && rooms.some((r) => r.id === currentRoomId)
       ? currentRoomId
       : "all",
   );
-  const [createRoomId, setCreateRoomId] = useState<string>(() =>
-    currentRoomId && rooms.some((r) => r.id === currentRoomId)
-      ? currentRoomId
-      : "",
+  const [allRoomsCreateRoomId, setAllRoomsCreateRoomId] = useState<string>(
+    () =>
+      currentRoomId && rooms.some((r) => r.id === currentRoomId)
+        ? currentRoomId
+        : "",
   );
+  const createRoomId =
+    roomScope === "all"
+      ? allRoomsCreateRoomId
+      : roomScope === "global"
+        ? ""
+        : roomScope;
   const roomNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of rooms) m.set(r.id, r.name);
@@ -858,10 +852,10 @@ export function TaskView({
     // Room view filter (client-side, on top of the server's access scoping):
     // "all" shows everything visible, "global" only office-global tasks, a room
     // id only that room's tasks.
-    if (viewRoom === "global") {
+    if (roomScope === "global") {
       list = list.filter((t) => !t.roomId);
-    } else if (viewRoom !== "all") {
-      list = list.filter((t) => t.roomId === viewRoom);
+    } else if (roomScope !== "all") {
+      list = list.filter((t) => t.roomId === roomScope);
     }
     if (filterStatus === "active") {
       list = list.filter((t) => t.status !== "done" && t.status !== "backlog");
@@ -911,7 +905,7 @@ export function TaskView({
     return sorted;
   }, [
     tasks,
-    viewRoom,
+    roomScope,
     filterStatus,
     search,
     filterAssignee,
@@ -1117,32 +1111,36 @@ export function TaskView({
                 outline: "none",
               }}
             />
-            <span
-              style={{
-                fontSize: 12,
-                color: "var(--text-muted)",
-                flexShrink: 0,
-              }}
-            >
-              for
-            </span>
-            <select
-              value={createRoomId}
-              onChange={(e) => setCreateRoomId(e.target.value)}
-              title="New tasks are filed in this room"
-              style={{
-                ...selectStyle,
-                flexShrink: 0,
-                maxWidth: isMobile ? 120 : 160,
-              }}
-            >
-              <option value="">Global</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            {roomScope === "all" && (
+              <>
+                <span
+                  style={{
+                    fontSize: 12,
+                    color: "var(--text-muted)",
+                    flexShrink: 0,
+                  }}
+                >
+                  file in
+                </span>
+                <select
+                  value={allRoomsCreateRoomId}
+                  onChange={(e) => setAllRoomsCreateRoomId(e.target.value)}
+                  title="New tasks are filed in this room"
+                  style={{
+                    ...selectStyle,
+                    flexShrink: 0,
+                    maxWidth: isMobile ? 120 : 160,
+                  }}
+                >
+                  <option value="">Global</option>
+                  {rooms.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
           </div>
 
           {/* Hint - Enter opens the detail panel (not an immediate create). */}
@@ -1172,9 +1170,9 @@ export function TaskView({
           >
             <div style={{ display: "flex", gap: 8 }}>
               <select
-                value={viewRoom}
-                onChange={(e) => setViewRoom(e.target.value)}
-                title="Filter tasks by room"
+                value={roomScope}
+                onChange={(e) => setRoomScope(e.target.value)}
+                title="Filter tasks and set where new tasks are filed"
                 style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
               >
                 <option value="all">All rooms</option>
@@ -1415,7 +1413,7 @@ export function TaskView({
                           whiteSpace: "nowrap",
                         }}
                       >
-                        {viewRoom === "all" && (
+                        {roomScope === "all" && (
                           <span
                             style={{
                               fontSize: 10,
@@ -1517,7 +1515,6 @@ export function TaskView({
               agents={agents}
               rooms={rooms}
               createRoomId={createRoomId}
-              onCreateRoomChange={setCreateRoomId}
               initialTitle={createInitialTitle}
               onCancelClose={cancelPendingNav}
             />
@@ -1544,7 +1541,6 @@ export function TaskView({
             agents={agents}
             rooms={rooms}
             createRoomId={createRoomId}
-            onCreateRoomChange={setCreateRoomId}
             initialTitle={createInitialTitle}
             onCancelClose={cancelPendingNav}
             fullScreen

@@ -26,6 +26,8 @@ ${emitThemesCss()}
   [data-theme-mode="light"] .window-night { display: none; }
   :root .window-day, [data-theme-mode="dark"] .window-day { display: none; }
   [data-theme-mode="light"] .window-day { display: block; }
+  .sunrays { display: none; }
+  [data-theme-mode="light"] .sunrays { display: block; }
   .neon-sign-on { display: none; }
   .neon-sign-off { display: block; }
   [data-theme-mode="dark"] .neon-sign-on { display: block; }

@@ -55,7 +55,27 @@ export function Floor() {
       viewBox={VB}
       overflow="visible"
     >
+      <defs>
+        <linearGradient id="sunray-wide" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#fff4b8" stopOpacity="0.3" />
+          <stop offset="1" stopColor="#fff4b8" stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="sunray-narrow" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#fff9d8" stopOpacity="0.22" />
+          <stop offset="1" stopColor="#fff9d8" stopOpacity="0" />
+        </linearGradient>
+      </defs>
       {tiles}
+      <g className="sunrays" aria-hidden="true">
+        <path
+          d="M-276 78 L-232 56 L172 292 L72 322 Z"
+          fill="url(#sunray-wide)"
+        />
+        <path
+          d="M-210 43 L-184 30 L256 248 L205 268 Z"
+          fill="url(#sunray-narrow)"
+        />
+      </g>
     </svg>
   );
 }
