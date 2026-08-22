@@ -55,7 +55,7 @@ computer or server, with your own Claude and ChatGPT subscriptions.
 
 The repo also contains the website and the provisioning and billing system for
 [Hosted Isomux](https://isomux.com/hosted), our managed option for people who do
-not want to run a server. The same one-command server installer is available to
+not want to run a server. The same unattended server installer is available to
 self-hosters.
 
 ## Get Started
@@ -90,7 +90,7 @@ Visit **http://localhost:4000** in your browser.
 - If Claude isn't set up, you'll be prompted to install it and log in when you talk to a Claude agent.
 - Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
 
-Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md), or the [one-command install](docs/vps-install.md) for a fresh server.
+Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md), or the [unattended VPS install](docs/vps-install.md) for a fresh server.
 
 Rather not run a server at all? [We can host it for you](https://isomux.com/hosted).
 

@@ -2,9 +2,9 @@
 navTitle: VPS install
 ---
 
-# VPS install (one command)
+# VPS install
 
-Set up isomux on a fresh Ubuntu 24.04 server with one unattended command. It installs everything, hardens the box, serves the office over HTTPS at your domain, and hands you a sign-in link.
+Set up isomux on a fresh Ubuntu 24.04 server with the unattended installer. It installs everything, hardens the box, serves the office over HTTPS at your domain, and hands you a sign-in link.
 
 You need:
 
@@ -16,15 +16,23 @@ You need:
 As root on the server:
 
 ```bash
-DOMAIN=office.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh)"
+(
+  installer=$(mktemp) || exit
+  trap 'rm -f "$installer"' EXIT
+  curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh -o "$installer" &&
+    DOMAIN=office.example.com bash "$installer"
+)
 ```
 
 Or as cloud-init user data when creating the server:
 
 ```bash
 #!/bin/bash
-export DOMAIN=office.example.com
-curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh | bash
+set -e
+installer=$(mktemp)
+trap 'rm -f "$installer"' EXIT
+curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh -o "$installer"
+DOMAIN=office.example.com bash "$installer"
 ```
 
 After a few minutes it prints a single-use owner invite link, also saved on the server at `/var/lib/isomux-install/invite-url`. Open it on any device within 24 hours to sign in as the owner at `https://office.example.com`.

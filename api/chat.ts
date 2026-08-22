@@ -58,7 +58,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 - Works with your existing Claude or ChatGPT subscription - if \`claude\` works in your terminal, Claude agents work in your browser; Codex ships bundled and authenticates on first use. No API key needed - it piggybacks on the underlying CLI's auth.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. No bundler, no database, minimal deps.
 - GitHub: github.com/nmamano/isomux
-- Docs: isomux.com/docs (full feature list, self-hosted setup, one-command VPS install, access and invites, backup/restore, security audit)
+- Docs: isomux.com/docs (full feature list, self-hosted setup, unattended VPS install, access and invites, backup/restore, security audit)
 - Created by Nil Mamano (nilmamano.com)
 - Blog post with architecture deep dive: nilmamano.com/blog/isomux
 - Community and support: Discord: https://discord.gg/FrjEYyNvYs (questions, setup help, bug reports, and Hosted Isomux launch updates)

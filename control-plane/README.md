@@ -3665,10 +3665,12 @@ stays `needs_operator` until the condition itself goes away.
 ## Deployed operator runbook (D4 close, measured 2026-08-13)
 
 The deployed acceptance pass completed on 2026-08-13 through adoption of a
-prepared Contabo run. That pass did not test automatic ordering. As of
-2026-08-21, confirmed payment opens the paid create automatically, prepares the
-run key before the provider call, waits for the provider address in its own
-operation, and then continues the SSH chain.
+prepared Contabo run. The hosted handler staged `/tmp/isomux-install.sh` from
+the repository and ran it as a file. As of 2026-08-22, no recorded pass covers
+the documented raw-GitHub transport. That pass did not test automatic ordering.
+As of 2026-08-21, confirmed payment opens the paid create automatically,
+prepares the run key before the provider call, waits for the provider address
+in its own operation, and then continues the SSH chain.
 
 The 2026-08-13 pass also covered Google sign-in, test-mode Stripe Checkout,
 owner-invite claim, verified removal of the provisioner's SSH key, and

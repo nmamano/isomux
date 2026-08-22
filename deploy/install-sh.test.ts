@@ -225,14 +225,13 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(fetch).toBeGreaterThan(sandbox);
   });
 
-  it("the service unit names an entry point every release has", () => {
-    // This installer is fetched from main but installs a RELEASE, so the unit
-    // may only name a path that exists in older releases too. server/index.ts
-    // is the back-compat shim kept for exactly this; naming the newer
-    // server/isomux-office.ts made a fresh install of v2026.7.23 crash-loop
-    // with "Module not found".
-    expect(SRC).toContain("ExecStart=/usr/local/bin/bun run server/index.ts");
-    expect(SRC).not.toContain("bun run server/isomux-office.ts");
+  it("the service unit names the distinctive release entry point", () => {
+    // Fresh installs resolve to v2026.8.22 or newer, which contains this path.
+    // Dependency-only updates do not rewrite older units, so those units keep
+    // using the server/index.ts back-compat shim.
+    expect(SRC).toContain(
+      "ExecStart=/usr/local/bin/bun run server/isomux-office.ts",
+    );
   });
 
   it("deps-only mode installs dependencies and nothing else", () => {

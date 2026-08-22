@@ -236,15 +236,19 @@ normally.**
 
 They have to resolve to the new box before you install, or Caddy cannot
 get a certificate - including an AAAA record if the domain has one. Then
-the one-liner from `docs/vps-install.md`:
+the installer steps from `docs/vps-install.md`:
 
 ```
-DOMAIN=office.example.com bash -c "$(curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh)"
+(
+  installer=$(mktemp) || exit
+  trap 'rm -f "$installer"' EXIT
+  curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh -o "$installer" &&
+    DOMAIN=office.example.com bash "$installer"
+)
 ```
 
-Install the release the backup came from if you know it
-(`ISOMUX_REF=v2026.7.23`); newer code reading older state is supported,
-the other direction is not.
+Use v2026.8.22 or newer when restoring a versioned backup. Newer code reading
+older state is supported; the other direction is not.
 
 What you get is an empty office with its own owner and its own invite
 link. The restore replaces both, so ignore the invite link the installer

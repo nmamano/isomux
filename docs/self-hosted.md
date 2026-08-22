@@ -4,7 +4,7 @@ Isomux is at its best when you run it on an always-on box - a Mac mini, a spare 
 
 There are three pieces to set up: keep the server **running** when nobody is logged in, make it **reachable** from the devices and people who need it, and **authorize** who can use it.
 
-Renting a cloud VPS instead of using your own hardware? The [VPS install](vps-install.md) page has a one-command unattended setup that covers all three.
+Renting a cloud VPS instead of using your own hardware? The [VPS install](vps-install.md) page has an unattended installer that covers all three.
 
 ## 1. Keep it running
 

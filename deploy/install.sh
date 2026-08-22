@@ -25,8 +25,11 @@
 # or as cloud-init user-data:
 #
 #   #!/bin/bash
-#   export DOMAIN=office.example.com
-#   curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh | bash
+#   set -e
+#   installer=$(mktemp)
+#   trap 'rm -f "$installer"' EXIT
+#   curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.sh -o "$installer"
+#   DOMAIN=office.example.com bash "$installer"
 #
 # Parameters (environment variables):
 #   DOMAIN        (required) public domain for the office; its A record must
@@ -2934,11 +2937,10 @@ EOF
   systemctl daemon-reload
 }
 
-# ExecStart runs server/index.ts, NOT server/isomux-office.ts: this installer
-# is fetched from main but installs a RELEASE, so the entry point it names must
-# exist in every release. index.ts is the back-compat shim kept for exactly
-# that (see the DO-NOT-DELETE note at its top); pointing the unit at the newer
-# name made a fresh install of v2026.7.23 crash-loop.
+# Fresh installs resolve to v2026.8.22 or newer, where the distinctive
+# server/isomux-office.ts entry point exists. Older units keep using the
+# server/index.ts back-compat shim because dependency-only updates do not
+# rewrite the service unit.
 install_service() {
   step install-service
   # NO BACKTICKS AND NO $( ) BELOW, not even inside a comment. The delimiter is
@@ -2966,7 +2968,7 @@ StartLimitIntervalSec=0
 User=$SERVICE_USER
 Environment=HOME=$SERVICE_HOME
 WorkingDirectory=$INSTALL_DIR
-ExecStart=/usr/local/bin/bun run server/index.ts
+ExecStart=/usr/local/bin/bun run server/isomux-office.ts
 Restart=always
 # Matches what isomux-oom-protect writes for the daemons it protects. Only
 # automatic restarts wait: "systemctl restart isomux" is not delayed by it.
