@@ -1,7 +1,7 @@
 // Keeps deploy/install.sh's embedded copies of the helper files identical to
 // the files themselves.
 //
-// install.sh is fetched on its own (curl | bash), so it cannot read repo files:
+// install.sh is downloaded and run on its own, so it cannot read repo files:
 // anything it installs on the box has to be inside it. The helper files are
 // still real files in the repo so they can be read, linted, and run straight
 // from a checkout. This script is what keeps the two in step - edit the helper,

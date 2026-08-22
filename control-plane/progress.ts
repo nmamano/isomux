@@ -346,10 +346,12 @@ function detailFor(
       if (trueField(evidence, "installed")) return "Your SSH key is installed";
       return null;
     case "wait_for_ssh": {
+      if (op.status === "succeeded") return null;
       const probes = countField(evidence, "probes");
       return probes && probes > 0 ? `${probes} attempts so far` : null;
     }
     case "run_installer": {
+      if (op.status === "succeeded") return null;
       const marker = stringField(evidence, "step", MARKER);
       if (marker) return `step: ${marker}`;
       const phase = stringField(evidence, "phase", INSTALLER_PHASES);

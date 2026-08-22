@@ -28,7 +28,7 @@
 # the VPN, or the office.
 #
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
-# which is fetched on its own by curl | bash and so cannot read repo files. The
+# which is downloaded and run on its own and so cannot read repo files. The
 # two copies are pinned equal by deploy/install-sh.test.ts - edit here, then
 # run `bun run scripts/embed-deploy-scripts.ts` to update the copy there.
 #

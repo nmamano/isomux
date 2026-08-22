@@ -451,6 +451,41 @@ describe("evidence never reaches the browser raw", () => {
       "waiting for the certificate",
     );
   });
+
+  test("finished progress details disappear, but failed details remain", async () => {
+    const store = await tempStore();
+    const { reservation, account } = await signedUp(store);
+    const id = reservation.instance_id;
+    await addOp(store, id, "run_installer", "succeeded", {
+      step: "install-services",
+    });
+    await addOp(store, id, "wait_for_ssh", "succeeded", { probes: 4 });
+    const finished = (await projectionFor(store, {
+      accountId: account.id,
+      instanceId: id,
+    }))!;
+    expect(
+      finished.steps.find((s) => s.kind === "run_installer")?.detail,
+    ).toBeNull();
+    expect(
+      finished.steps.find((s) => s.kind === "wait_for_ssh")?.detail,
+    ).toBeNull();
+
+    await store.sqlRun(
+      "update operations set status = 'failed' where instance_id = $1 and kind in ('run_installer', 'wait_for_ssh')",
+      [id],
+    );
+    const failed = (await projectionFor(store, {
+      accountId: account.id,
+      instanceId: id,
+    }))!;
+    expect(failed.steps.find((s) => s.kind === "run_installer")?.detail).toBe(
+      "step: install-services",
+    );
+    expect(failed.steps.find((s) => s.kind === "wait_for_ssh")?.detail).toBe(
+      "4 attempts so far",
+    );
+  });
 });
 
 describe("attention", () => {

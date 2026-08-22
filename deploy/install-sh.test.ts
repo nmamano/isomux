@@ -295,7 +295,7 @@ describe("install.sh escalation: template unit + placement", () => {
   });
 
   it("ships the helper scripts byte-for-byte, not a drifted copy", () => {
-    // install.sh is fetched on its own by curl | bash, so what it installs on
+    // install.sh is downloaded and run on its own, so what it installs on
     // the box has to be inside it. A copy that drifts from the repo file is
     // worse than no copy: reviewers read the file, boxes run the copy.
     expect(embed(SRC, repoFile)).toBe(SRC);
@@ -368,6 +368,10 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
 
   it("installs the ssh client the check needs", () => {
     expect(SRC).toMatch(/apt_install[^\n]*\bopenssh-client\b/);
+  });
+
+  it("installs ffmpeg for agent workloads", () => {
+    expect(SRC).toMatch(/apt_install[^\n]*\bffmpeg\b/);
   });
 
   it("leaves the operator a command to re-run, and points at it", () => {

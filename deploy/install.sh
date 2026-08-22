@@ -475,7 +475,9 @@ install_packages() {
   # during bun install; fresh server images ship without a toolchain.
   # openssh-client: the root-reachability check logs in to this box to find out
   # whether the service account can; server images ship sshd without the client.
-  apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3 openssh-client
+  # ffmpeg: a broadly useful utility for agent workloads, not an isomux runtime
+  # dependency.
+  apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3 openssh-client ffmpeg
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would add the Caddy and NodeSource apt repositories and install caddy + nodejs"
   else
@@ -542,8 +544,8 @@ configure_firewall() {
 # box with no SSH key yet (see the script), and the person who then adds a key
 # is not going to remember to re-run a whole installer.
 #
-# Embedded rather than fetched: this script is downloaded on its own by
-# curl | bash, so it cannot read repo files, and SSH hardening must not wait
+# Embedded rather than fetched: this script is downloaded and run on its own,
+# so it cannot read repo files, and SSH hardening must not wait
 # on a network round trip. deploy/install-sh.test.ts pins the copy equal to
 # deploy/harden-ssh.sh.
 harden_ssh() {
@@ -567,9 +569,9 @@ harden_ssh() {
 #   sudo bash deploy/harden-ssh.sh
 #
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
-# which is fetched on its own by curl | bash and so cannot read repo files. The
-# two copies are pinned equal by deploy/install-sh.test.ts - edit here, then
-# paste into the heredoc there.
+# which is downloaded and run on its own and so cannot read repo files. The two
+# copies are pinned equal by deploy/install-sh.test.ts - edit here, then run
+# `bun run scripts/embed-deploy-scripts.ts` to update the copy there.
 #
 # Usage (as root):
 #   isomux-harden-ssh            apply, then check
@@ -1565,7 +1567,7 @@ configure_oom_protection() {
 # the VPN, or the office.
 #
 # NOTE FOR MAINTAINERS: this file is embedded verbatim in deploy/install.sh,
-# which is fetched on its own by curl | bash and so cannot read repo files. The
+# which is downloaded and run on its own and so cannot read repo files. The
 # two copies are pinned equal by deploy/install-sh.test.ts - edit here, then
 # run `bun run scripts/embed-deploy-scripts.ts` to update the copy there.
 #
