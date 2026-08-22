@@ -24,7 +24,7 @@
 // (_testSetConsumerDrainTimeout, _testWedgeFlush, sweepStuckFlushes).
 // Zero LLM calls.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, spyOn } from "bun:test";
 import {
   existsSync,
   mkdirSync,
@@ -45,10 +45,13 @@ import { formatAgentSenderPrefix } from "../../shared/identity.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
+const realClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
 
 afterEach(async () => {
   await server?.stop();
   server = null;
+  if (realClaudeConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+  else process.env.CLAUDE_CONFIG_DIR = realClaudeConfigDir;
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -191,6 +194,18 @@ function queueFile(
   const path = join(srv.stateRoot, "message-queues.json");
   if (!existsSync(path)) return {};
   return JSON.parse(readFileSync(path, "utf-8"));
+}
+
+function stubClaudeSession(srv: TestServer, sessionId: string): void {
+  const configDir = join(srv.stateRoot, "claude-config");
+  process.env.CLAUDE_CONFIG_DIR = configDir;
+  const projectDir = join(
+    configDir,
+    "projects",
+    srv.stateRoot.replace(/[^a-zA-Z0-9-]/g, "-"),
+  );
+  mkdirSync(projectDir, { recursive: true });
+  writeFileSync(join(projectDir, `${sessionId}.jsonl`), "");
 }
 
 // A backend that parks each turn in "thinking" on send (no turn_completed).
@@ -531,11 +546,265 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await postAgentMessage(server, recv.id, sender.id, "waiting");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
 
-    // Even with a zero deadline the sweep must not act on a busy agent.
-    expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const previousDeadline =
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(0);
+    try {
+      // Thinking is observed once per turn, but it is never acted on.
+      expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
+      expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
+      expect(
+        warn.mock.calls.filter(([line]) =>
+          String(line).includes("[queue-watchdog] would-act"),
+        ),
+      ).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
+    }
     await sleep(100);
     expect(queueOf(server, recv.id).length).toBe(1);
     expect(s1.sent.length).toBe(1);
+  });
+
+  it("does not recover a tool call that is genuinely still running past the deadline", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "claude");
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    const session = server.fakeBackend.sessionForAgent(recv.id)!;
+    await waitUntil(() => session.sent.length === 1, 3000, "kickoff sent");
+    session.push({
+      kind: "tool_call",
+      toolUseId: "still-running",
+      name: "Bash",
+      input: {},
+    });
+    await waitUntil(
+      () =>
+        server!.agentManager.inFlightTurnForLogs(recv.id)?.activeTool?.name ===
+        "Bash",
+      3000,
+      "active tool visible",
+    );
+    await postAgentMessage(server, recv.id, sender.id, "stay queued");
+    await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
+    const sessionsBefore = sessionsFor(server, recv.id).length;
+    const previousDeadline =
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(5);
+    try {
+      await sleep(20);
+      expect(await server.agentManager.sweepStuckFlushes()).toBe(0);
+    } finally {
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
+    }
+    expect(sessionsFor(server, recv.id).length).toBe(sessionsBefore);
+    expect(queueOf(server, recv.id).length).toBe(1);
+  });
+
+  it("waits for the non-zero quiescence deadline and skips an abort already in progress", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "claude");
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    const session = server.fakeBackend.sessionForAgent(recv.id)!;
+    await waitUntil(() => session.sent.length === 1, 3000, "kickoff sent");
+    session.push({
+      kind: "tool_call",
+      toolUseId: "completed",
+      name: "Read",
+      input: {},
+    });
+    session.push({
+      kind: "tool_result",
+      toolUseId: "completed",
+      content: "done",
+    });
+    await waitUntil(
+      () =>
+        stateOf(server!, recv.id) === "tool_executing" &&
+        server!.agentManager.inFlightTurnForLogs(recv.id)?.activeTool === null,
+      3000,
+      "quiescent tool turn",
+    );
+    await postAgentMessage(server, recv.id, sender.id, "release me");
+    await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
+    stubClaudeSession(server, session.sessionId);
+    const sessionsBefore = sessionsFor(server, recv.id).length;
+    const previousDeadline =
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(500);
+    try {
+      expect(await server.agentManager.sweepStuckFlushes()).toBe(0);
+      server.agentManager._testSetAbortInProgress(recv.id, true);
+      await sleep(510);
+      expect(await server.agentManager.sweepStuckFlushes()).toBe(0);
+      expect(sessionsFor(server, recv.id).length).toBe(sessionsBefore);
+      server.agentManager._testSetAbortInProgress(recv.id, false);
+      expect(await server.agentManager.sweepStuckFlushes()).toBe(1);
+    } finally {
+      server.agentManager._testSetAbortInProgress(recv.id, false);
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
+    }
+  });
+
+  it("recovers a quiescent Claude tool turn, clears leaked prior-turn tools, normalizes state, and delivers the queue", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "claude");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    // First turn leaks a tool call, then settles. Per-turn cleanup must remove
+    // it so it neither appears in observability nor disables later recovery.
+    await sendHuman(server, owner.rawSessionId, recv.id, "first turn");
+    const first = server.fakeBackend.sessionForAgent(recv.id)!;
+    await waitUntil(() => first.sent.length === 1, 3000, "first sent");
+    first.push({
+      kind: "tool_call",
+      toolUseId: "leaked",
+      name: "Bash",
+      input: {},
+    });
+    await waitUntil(
+      () =>
+        server!.agentManager.inFlightTurnForLogs(recv.id)?.activeTool?.name ===
+        "Bash",
+      3000,
+      "leaked tool visible during its turn",
+    );
+    first.completeTurn();
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "waiting_for_response",
+      3000,
+      "first settled",
+    );
+    expect(server.agentManager.inFlightTurnForLogs(recv.id)).toBe(null);
+    expect(server.agentManager._testActiveToolCount(recv.id)).toBe(0);
+
+    // Second turn reaches the measured wedge shape: formal turn owner, sticky
+    // tool_executing state, but the matching result leaves no tool running.
+    await sendHuman(server, owner.rawSessionId, recv.id, "second turn");
+    await waitUntil(() => first.sent.length === 2, 3000, "second sent");
+    first.push({
+      kind: "tool_call",
+      toolUseId: "completed",
+      name: "Read",
+      input: {},
+    });
+    first.push({
+      kind: "tool_result",
+      toolUseId: "completed",
+      content: "done",
+    });
+    await waitUntil(
+      () =>
+        stateOf(server!, recv.id) === "tool_executing" &&
+        server!.agentManager.inFlightTurnForLogs(recv.id)?.activeTool === null,
+      3000,
+      "quiescent tool turn",
+    );
+    await postAgentMessage(server, recv.id, sender.id, "release me");
+    await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
+    stubClaudeSession(server, first.sessionId);
+
+    const previousDeadline =
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(0);
+    const beforeSweep = sock.messages.length;
+    try {
+      expect(await server.agentManager.sweepStuckFlushes()).toBe(1);
+    } finally {
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
+    }
+    await waitUntil(
+      () => deliveryCount(server!, recv.id, "release me") === 1,
+      3000,
+      "busy watchdog delivered",
+    );
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
+    await waitUntil(
+      () =>
+        sock.messages.slice(beforeSweep).some((message) => {
+          const event = message as {
+            type?: string;
+            agentId?: string;
+            changes?: { state?: string };
+          };
+          return (
+            event.type === "agent_updated" &&
+            event.agentId === recv.id &&
+            event.changes?.state === "waiting_for_response"
+          );
+        }),
+      3000,
+      "queue-idle state emitted",
+    );
+    expect(
+      sock.messages.slice(beforeSweep).some((message) => {
+        const event = message as {
+          type?: string;
+          agentId?: string;
+          changes?: { state?: string };
+        };
+        return (
+          event.type === "agent_updated" &&
+          event.agentId === recv.id &&
+          event.changes?.state === "waiting_for_response"
+        );
+      }),
+    ).toBe(true);
+    expect(
+      logEntriesFor(sock, recv.id).some(
+        (entry) => entry.content === "Message delivery stalled; recovering.",
+      ),
+    ).toBe(true);
+  });
+
+  it("observes the same quiescent signature on Codex without recovering it", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    const session = server.fakeBackend.sessionForAgent(recv.id)!;
+    await waitUntil(() => session.sent.length === 1, 3000, "kickoff sent");
+    session.push({
+      kind: "tool_call",
+      toolUseId: "done",
+      name: "Bash",
+      input: {},
+    });
+    session.push({ kind: "tool_result", toolUseId: "done", content: "ok" });
+    await waitUntil(
+      () =>
+        stateOf(server!, recv.id) === "tool_executing" &&
+        server!.agentManager.inFlightTurnForLogs(recv.id)?.activeTool === null,
+      3000,
+      "Codex signature",
+    );
+    await postAgentMessage(server, recv.id, sender.id, "stay queued");
+    await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
+    const sessionsBefore = sessionsFor(server, recv.id).length;
+    const previousDeadline =
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(0);
+    try {
+      expect(await server.agentManager.sweepStuckFlushes()).toBe(0);
+    } finally {
+      server.agentManager._testSetBusyTurnWatchdogStuckMs(previousDeadline);
+    }
+    expect(sessionsFor(server, recv.id).length).toBe(sessionsBefore);
+    expect(queueOf(server, recv.id).length).toBe(1);
+    // An observation must not spend the cooldown shared by real recovery.
+    expect(server.agentManager._testLastForcedRecoveryAt(recv.id)).toBe(0);
   });
 
   it("forced path: attempts a session-replacement recovery once, then respects the cooldown (never force-clears flushInProgress)", async () => {

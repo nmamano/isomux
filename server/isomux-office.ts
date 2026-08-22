@@ -1819,6 +1819,7 @@ function buildExecutorDeps(
       search: (callerKey, agentId, query) =>
         runSearchInChild(callerKey, agentId, query),
       pendingPrompt: (agentId) => agentManager.pendingPrompt(agentId),
+      inFlightTurn: (agentId) => agentManager.inFlightTurnForLogs(agentId),
     }),
   );
 

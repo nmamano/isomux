@@ -164,7 +164,11 @@ import type {
   SubscriptionUsage,
   SubscriptionUsageResult,
 } from "./backends/types.ts";
-import type { AgentContextUsageResp } from "../shared/contract-shapes.ts";
+import type {
+  AgentContextUsageResp,
+  LogInFlightTurn,
+  ManifestInFlightTurn,
+} from "../shared/contract-shapes.ts";
 import { OfficeState } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import { buildEnvForUserId, setOfficeEnvFileProvider } from "./env-loader.ts";
@@ -1097,6 +1101,43 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return managed ? pendingPromptOf(managed) : null;
   }
 
+  function oldestActiveTool(managed: ManagedAgent) {
+    let oldest: { name: string; startedAt: number } | null = null;
+    for (const tool of managed.toolCallTimestamps.values()) {
+      if (!oldest || tool.startedAt < oldest.startedAt) oldest = tool;
+    }
+    return oldest;
+  }
+
+  function turnIsLive(managed: ManagedAgent): boolean {
+    return (
+      managed.turnStartedAt > 0 &&
+      (managed.info.state === "thinking" ||
+        managed.info.state === "tool_executing")
+    );
+  }
+
+  function inFlightTurnForLogs(agentId: string): LogInFlightTurn | null {
+    const managed = agents.get(agentId);
+    if (!managed || !turnIsLive(managed)) return null;
+    const activeTool = oldestActiveTool(managed);
+    return {
+      startedAt: managed.turnStartedAt,
+      activeTool: activeTool ? { ...activeTool } : null,
+    };
+  }
+
+  function inFlightTurnForManifest(
+    managed: ManagedAgent,
+  ): ManifestInFlightTurn | null {
+    if (!turnIsLive(managed)) return null;
+    const activeTool = oldestActiveTool(managed);
+    return {
+      startedAt: managed.turnStartedAt,
+      activeTool: activeTool ? { startedAt: activeTool.startedAt } : null,
+    };
+  }
+
   // Live manifest for GET /agents - same JSON shape as the file writeManifest
   // persists to ~/.isomux/agents-summary.json, plus pendingPrompt.
   //
@@ -1111,6 +1152,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return {
         ...entry,
         pendingPrompt: managed ? pendingPromptOf(managed) : null,
+        // Live state belongs only on the HTTP projection. Keeping it out of
+        // manifestEntries prevents agents-summary.json from freezing a turn
+        // snapshot that becomes false as soon as the turn ends.
+        inFlightTurn: managed ? inFlightTurnForManifest(managed) : null,
       };
     });
   }
@@ -1440,6 +1485,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ]),
       sdkReportedCommands: [],
       thinkingStartedAt: 0,
+      turnStartedAt: 0,
+      lastNormalizedEventAt: 0,
+      busyTurnWatchdogObserved: false,
       toolCallTimestamps: new Map(),
       topicGenerating: false,
       topicMessageCount: persistedTopicCount,
@@ -1995,7 +2043,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // unchanged value; this early-return keeps the second call free of side
     // effects.
     if (managed.info.state === "thinking") return;
+    // Queue delivery enters through the same plugin-hook path, so it also
+    // claims this live-turn clock before the backend send starts.
+    managed.turnStartedAt = Date.now();
+    managed.lastNormalizedEventAt = 0;
+    managed.busyTurnWatchdogObserved = false;
+    managed.toolCallTimestamps.clear();
     updateState(agentId, "thinking");
+  }
+
+  function clearLiveTurn(managed: ManagedAgent) {
+    managed.turnStartedAt = 0;
+    managed.lastNormalizedEventAt = 0;
+    managed.busyTurnWatchdogObserved = false;
+    managed.toolCallTimestamps.clear();
   }
 
   // Push AgentInfo.pendingPrompt to match the four pending-* flags, emitting
@@ -2930,6 +2991,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
+    const eventManaged = agents.get(agentId);
+    if (eventManaged) eventManaged.lastNormalizedEventAt = Date.now();
     const newState = deriveStateFromEvent(ev);
     if (newState) {
       // Don't downgrade tool_executing → thinking within the same turn. The
@@ -3144,7 +3207,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       case "tool_call": {
         const managed = agents.get(agentId);
         if (managed) {
-          managed.toolCallTimestamps.set(ev.toolUseId, Date.now());
+          managed.toolCallTimestamps.set(ev.toolUseId, {
+            name: ev.name,
+            startedAt: Date.now(),
+          });
         }
         // metadata.subagent marks a call the agent's SUBAGENT made rather than
         // the agent itself - set by both backends (Claude: Agent/Task tool;
@@ -3161,7 +3227,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         const managed = agents.get(agentId);
         const callStart = managed?.toolCallTimestamps.get(ev.toolUseId);
         const duration_ms =
-          ev.durationMs ?? (callStart ? Date.now() - callStart : undefined);
+          ev.durationMs ??
+          (callStart ? Date.now() - callStart.startedAt : undefined);
         if (managed && callStart) {
           managed.toolCallTimestamps.delete(ev.toolUseId);
         }
@@ -3278,6 +3345,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // the turn_completed normalized event instead - same semantic, just at
         // the orchestrator layer.
         const turn = managed?.pendingTurn;
+        if (managed) clearLiveTurn(managed);
         if (turn) {
           managed.pendingTurn = null;
           turn.resolve();
@@ -3362,6 +3430,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
         // Reject any in-flight turn so sendMessage / executeSkill don't hang.
         const turn = managed?.pendingTurn;
+        if (managed) clearLiveTurn(managed);
         if (turn) {
           managed.pendingTurn = null;
           try {
@@ -3553,10 +3622,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         //     failed: …") are dropped here, so the user only sees the
         //     orchestrator-level fallback message if the timeout path fires.
         //     Acceptable for debug UX.
-        //   - tool_call events dropped here mean the matching tool_result
-        //     (if it arrives before turn_completed) has no entry in
-        //     toolCallTimestamps to clear - pre-existing leak pattern,
-        //     slightly wider here.
+        //   - tool_call events dropped here can make the matching tool_result
+        //     miss its timestamp. Active-tool state is per turn and cleared at
+        //     every terminal boundary, so the miss cannot leak into later
+        //     observability or watchdog decisions.
         if (
           managed.aborting &&
           ev.kind !== "turn_completed" &&
@@ -3589,6 +3658,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         !managed.aborting
       ) {
         const turn = managed.pendingTurn;
+        clearLiveTurn(managed);
         managed.pendingTurn = null;
         managed.session = null;
         managed.consumerPromise = null;
@@ -3652,6 +3722,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
 
       const turn = managed.pendingTurn;
+      clearLiveTurn(managed);
       managed.pendingTurn = null;
       if (turn) turn.reject(err);
 
@@ -3716,6 +3787,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed: ManagedAgent,
     session: BackendSession,
   ) {
+    // A lazy first-message wake installs the session after beginTurn has
+    // already claimed the pre-send window; preserve that live turn. Every
+    // replacement closes first (and closeAndDrainSession clears), while an
+    // idle install may safely discard residue.
+    if (!turnIsLive(managed)) clearLiveTurn(managed);
     managed.session = session;
     managed.consumerPromise = runConsumer(agentId, managed, session);
     // Stamp activity + clear dormant in lockstep with the session going live, so
@@ -3845,6 +3921,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // swaps without racing any external state (task 8ba27b27).
     swapReason?: "settings",
   ) {
+    clearLiveTurn(managed);
     managed.turnCancelToken++;
     const oldConsumer = managed.consumerPromise;
     const turn = managed.pendingTurn;
@@ -4108,6 +4185,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   //     deliberate and documented; the 60s guarantee does not cover an
   //     adapter that violates close/send teardown.
   const QUEUE_WATCHDOG_STUCK_MS = 60_000;
+  // Busy-turn recovery, added 2026-08-22 against Agent SDK 0.3.219. Anthropic
+  // issues #333 and #403 document silent async-iterator hangs. This arm covers
+  // only the measured #333-like tool_executing shape; a silent thinking-state
+  // recurrence is observed but never acted on. Remove this arm when the SDK
+  // supplies a reliable terminal event or transport liveness signal. Its
+  // action shares the older forced-recovery cooldown because both replace the
+  // session; warn-only observations never consume that recovery budget.
+  const BUSY_TURN_WATCHDOG_STUCK_MS = 10 * 60_000;
+  let busyTurnWatchdogStuckMs = BUSY_TURN_WATCHDOG_STUCK_MS;
   const FORCED_RECOVERY_COOLDOWN_MS = 5 * 60_000;
 
   async function sweepStuckFlushes(
@@ -4118,6 +4204,66 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     for (const [agentId, managed] of [...agents.entries()]) {
       if (agents.get(agentId) !== managed) continue; // killed mid-sweep
       if (managed.messageQueue.length === 0) continue;
+      const inFlightTurn = inFlightTurnForLogs(agentId);
+      const quiescenceStartedAt =
+        managed.lastNormalizedEventAt || managed.turnStartedAt;
+      const busySignature =
+        managed.pendingTurn !== null &&
+        (managed.info.state === "thinking" ||
+          managed.info.state === "tool_executing") &&
+        inFlightTurn !== null &&
+        inFlightTurn.activeTool === null &&
+        !inMultiStepFlow(managed) &&
+        !managed.info.sessionSwapping &&
+        !managed.aborting &&
+        managed.abortPromise === null &&
+        quiescenceStartedAt > 0 &&
+        now - quiescenceStartedAt >= busyTurnWatchdogStuckMs;
+      if (busySignature) {
+        const tailKind = (logCache.get(agentId) ?? []).at(-1)?.kind ?? "none";
+        if (
+          managed.info.state === "thinking" ||
+          managed.info.agentType !== "claude"
+        ) {
+          if (!managed.busyTurnWatchdogObserved) {
+            managed.busyTurnWatchdogObserved = true;
+            const reason =
+              managed.info.state === "thinking"
+                ? "thinking state"
+                : "non-Claude backend";
+            console.warn(
+              `[queue-watchdog] would-act ${managed.info.name} (${agentId}): ${reason} quiescent for ${now - quiescenceStartedAt}ms with ${managed.messageQueue.length} queued message(s), no active tool, tail=${tailKind}; observing without recovery`,
+            );
+          }
+          continue;
+        }
+        if (now - managed.lastForcedRecoveryAt < FORCED_RECOVERY_COOLDOWN_MS)
+          continue;
+        managed.lastForcedRecoveryAt = now;
+        console.error(
+          `[queue-watchdog] ${managed.info.name} (${agentId}): Claude turn quiescent for ${now - quiescenceStartedAt}ms with ${managed.messageQueue.length} queued message(s), no active tool, tail=${tailKind}; forcing recovery via session replacement`,
+        );
+        addLogEntry(agentId, "system", "Message delivery stalled; recovering.");
+        try {
+          const sessionId = pickAutoResumeSessionId(managed);
+          if (managed.sessionId && !sessionId)
+            clearStaleAutoResumeState(agentId, managed);
+          await replaceSession(
+            agentId,
+            managed,
+            sessionId
+              ? createSession(managed, sessionId)
+              : createSession(managed),
+          );
+          acted++;
+        } catch (err) {
+          console.error(
+            `[queue-watchdog] busy-turn recovery failed for ${agentId}:`,
+            errMessage(err),
+          );
+        }
+        continue;
+      }
       if (!isQueueIdleState(managed.info.state)) continue;
       if (inMultiStepFlow(managed)) continue;
       // A swap owns its own retry via the post-swap kick.
@@ -4514,6 +4660,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ]),
       sdkReportedCommands: [],
       thinkingStartedAt: 0,
+      turnStartedAt: 0,
+      lastNormalizedEventAt: 0,
+      busyTurnWatchdogObserved: false,
       toolCallTimestamps: new Map(),
       topicGenerating: false,
       topicMessageCount: 0,
@@ -7769,6 +7918,29 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return prev;
   }
 
+  // Test-only: override the busy-turn quiescence deadline without sleeping.
+  function _testSetBusyTurnWatchdogStuckMs(ms: number): number {
+    const prev = busyTurnWatchdogStuckMs;
+    busyTurnWatchdogStuckMs = ms;
+    return prev;
+  }
+
+  // Test-only: hold both abort guards without starting a real replacement.
+  function _testSetAbortInProgress(agentId: string, blocked: boolean) {
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    managed.aborting = blocked;
+    managed.abortPromise = blocked ? Promise.resolve() : null;
+  }
+
+  function _testLastForcedRecoveryAt(agentId: string): number | undefined {
+    return agents.get(agentId)?.lastForcedRecoveryAt;
+  }
+
+  function _testActiveToolCount(agentId: string): number | undefined {
+    return agents.get(agentId)?.toolCallTimestamps.size;
+  }
+
   // Test-only: simulate an unknown-bug wedged flush (flushInProgress held with
   // an aged flushStartedAt) so sweepStuckFlushes' forced-recovery contract can
   // be exercised. Once layers 1–2 of task da065287 exist, every wire-
@@ -7859,6 +8031,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getUsageReportData,
     getManifest,
     pendingPrompt,
+    inFlightTurnForLogs,
     getKilledAgentSummaries,
     getKilledAgentSummariesForManager,
     killedAgentManagerUserId,
@@ -7897,6 +8070,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     closeTerminal,
     _testSeedTerminalBuffer,
     _testSetConsumerDrainTimeout,
+    _testSetBusyTurnWatchdogStuckMs,
+    _testSetAbortInProgress,
+    _testLastForcedRecoveryAt,
+    _testActiveToolCount,
     _testWedgeFlush,
     openEditorFile,
     saveEditorFile,

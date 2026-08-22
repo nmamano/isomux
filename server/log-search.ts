@@ -507,8 +507,14 @@ export type RetrievedEntry = LogRetrievedEntry;
 // no view of a running agent. Declaring the producer as "the response minus
 // that field" keeps the wire type honest (a handler that forgot to add it does
 // not compile) without pretending this module could supply it.
-export type RetrieveResult = Omit<LogRetrieveResp, "pendingPrompt">;
-export type SessionIndexResult = Omit<LogSessionIndexResp, "pendingPrompt">;
+export type RetrieveResult = Omit<
+  LogRetrieveResp,
+  "pendingPrompt" | "inFlightTurn"
+>;
+export type SessionIndexResult = Omit<
+  LogSessionIndexResp,
+  "pendingPrompt" | "inFlightTurn"
+>;
 
 // --- Index mode -------------------------------------------------------------
 

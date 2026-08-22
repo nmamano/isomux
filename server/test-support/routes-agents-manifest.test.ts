@@ -30,6 +30,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw, mintRunToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import { DEFAULT_EFFORT, type EffortLevel } from "../../shared/types.ts";
@@ -118,6 +119,16 @@ function bearerFor(agentId: string): string {
   return token;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitUntil(pred: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error("waitUntil timed out");
+    await sleep(5);
+  }
+}
+
 async function manifestNames(res: Response): Promise<string[]> {
   const body = (await res.json()) as Array<{ name: string }>;
   return body.map((e) => e.name).sort();
@@ -130,17 +141,69 @@ function manifestOnDisk(srv: TestServer): unknown {
 }
 
 // The endpoint's documented difference from the file: it carries the agent's
-// LIVE pendingPrompt, the file does not (task 29daebe2). These tests have no
-// parked agents, so the live value is null everywhere - the point of the
-// helper is that the divergence is stated, not incidental.
-function withLivePromptField(onDisk: unknown): unknown {
+// LIVE pendingPrompt and inFlightTurn, while the file has neither. These tests
+// have no parked/running agents, so both live values are null everywhere.
+function withLiveFields(onDisk: unknown): unknown {
   return (onDisk as Record<string, unknown>[]).map((e) => ({
     ...e,
     pendingPrompt: null,
+    inFlightTurn: null,
   }));
 }
 
 describe("GET /agents (discovery manifest)", () => {
+  it("reports the live turn and oldest active-tool time without disclosing its name or persisting it", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { onSend() {} } }),
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0].id;
+    const agent = await spawnOwnedBy(srv, "Alpha", room, 0, owner.username);
+    const send = await srv.http(`/api/agents/${agent.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "start" }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(send.status).toBe(200);
+    const session = srv.fakeBackend.sessionForAgent(agent.id)!;
+    await waitUntil(() => session.sent.length === 1);
+    session.push({
+      kind: "tool_call",
+      toolUseId: "old",
+      name: "Bash",
+      input: {},
+    });
+    await sleep(5);
+    session.push({
+      kind: "tool_call",
+      toolUseId: "new",
+      name: "Read",
+      input: {},
+    });
+    await waitUntil(
+      () =>
+        srv.agentManager.inFlightTurnForLogs(agent.id)?.activeTool?.name ===
+        "Bash",
+    );
+
+    const res = await fetch(`${srv.baseUrl}/agents`, {
+      headers: { Authorization: `Bearer ${bearerFor(agent.id)}` },
+    });
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    const live = body.find((entry) => entry.id === agent.id)?.inFlightTurn as {
+      startedAt: number;
+      activeTool: { startedAt: number };
+    };
+    expect(live.startedAt).toBeGreaterThan(0);
+    expect(live.activeTool.startedAt).toBeGreaterThanOrEqual(live.startedAt);
+    expect(live.activeTool).not.toHaveProperty("name");
+    expect(
+      (manifestOnDisk(srv) as Array<Record<string, unknown>>)[0],
+    ).not.toHaveProperty("inFlightTurn");
+  });
+
   it("owner-agent bearer gets the full manifest, matching the file on disk", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -186,6 +249,7 @@ describe("GET /agents (discovery manifest)", () => {
       // Live parked-prompt state (task 29daebe2). Null for an agent that is
       // not waiting on a prompt.
       pendingPrompt: null,
+      inFlightTurn: null,
     });
     expect(beta.room).toBe(2);
     expect(beta.roomName).toBe("Second Room");
@@ -198,9 +262,7 @@ describe("GET /agents (discovery manifest)", () => {
     // It is live state, and a snapshot written when an agent parked would keep
     // claiming a prompt long after it was answered, which is the exact
     // confusion task 29daebe2 exists to remove.
-    expect(body).toEqual(
-      withLivePromptField(manifestOnDisk(srv)) as typeof body,
-    );
+    expect(body).toEqual(withLiveFields(manifestOnDisk(srv)) as typeof body);
   });
 
   // Task cf666d6d: effort is settable over PATCH /api/agents/<id> but used to
@@ -221,9 +283,7 @@ describe("GET /agents (discovery manifest)", () => {
     const body = (await res.json()) as Array<Record<string, unknown>>;
     expect(body.find((e) => e.id === a.id)?.effort).toBe("low");
     expect(body.find((e) => e.id === b.id)?.effort).toBe(DEFAULT_EFFORT);
-    expect(body).toEqual(
-      withLivePromptField(manifestOnDisk(srv)) as typeof body,
-    );
+    expect(body).toEqual(withLiveFields(manifestOnDisk(srv)) as typeof body);
   });
 
   it("reflects live changes (kill) without waiting on file readers", async () => {
@@ -241,9 +301,7 @@ describe("GET /agents (discovery manifest)", () => {
     });
     const body = (await res.json()) as Array<Record<string, unknown>>;
     expect(body.map((e) => e.name)).toEqual(["Beta"]);
-    expect(body).toEqual(
-      withLivePromptField(manifestOnDisk(srv)) as typeof body,
-    );
+    expect(body).toEqual(withLiveFields(manifestOnDisk(srv)) as typeof body);
   });
 
   it("anonymous request -> 401, even from loopback", async () => {

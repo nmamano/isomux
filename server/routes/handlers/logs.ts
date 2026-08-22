@@ -40,6 +40,7 @@ import {
   type SessionIndexEntry,
 } from "../../log-search.ts";
 import type { PendingPromptKind } from "../../../shared/types.ts";
+import type { LogInFlightTurn } from "../../../shared/contract-shapes.ts";
 
 export type SearchOutcome =
   | { ok: true; result: SearchResult }
@@ -67,6 +68,8 @@ export interface LogsDeps {
   // not parked (task 29daebe2). Null for a killed agent, which cannot be
   // waiting for anything.
   pendingPrompt(agentId: string): PendingPromptKind | null;
+  // Live turn state for this agent. Null for killed/idle agents.
+  inFlightTurn(agentId: string): LogInFlightTurn | null;
 }
 
 export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
@@ -112,10 +115,15 @@ export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
       // reaches the handler, so the field discloses nothing the response body
       // did not already.
       const pendingPrompt = deps.pendingPrompt(agentId);
+      const inFlightTurn = deps.inFlightTurn(agentId);
 
       switch (query.mode) {
         case "index":
-          return ok({ ...(await deps.sessionIndex(agentId)), pendingPrompt });
+          return ok({
+            ...(await deps.sessionIndex(agentId)),
+            pendingPrompt,
+            inFlightTurn,
+          });
         case "retrieve":
           // `session` is non-undefined here by construction: parseLogQuery only
           // returns "retrieve" when it is present.
@@ -126,6 +134,7 @@ export function logsHandlers(deps: LogsDeps): Record<string, RouteHandler> {
               query,
             )),
             pendingPrompt,
+            inFlightTurn,
           });
         case "search": {
           // The concurrency admission inside deps.search runs HERE, which is

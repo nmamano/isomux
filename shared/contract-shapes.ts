@@ -264,6 +264,18 @@ export interface LogSessionIndexEntry {
   branched?: true;
 }
 
+/** Live turn state disclosed by transcript reads. Epoch values are ms. */
+export interface LogInFlightTurn {
+  startedAt: number;
+  activeTool: { name: string; startedAt: number } | null;
+}
+
+/** Live turn state disclosed by GET /agents. Tool names stay log-scoped. */
+export interface ManifestInFlightTurn {
+  startedAt: number;
+  activeTool: { startedAt: number } | null;
+}
+
 export interface LogSessionIndexResp {
   agentId: string;
   sessions: LogSessionIndexEntry[];
@@ -280,6 +292,12 @@ export interface LogSessionIndexResp {
    * only - never the prompt text, the tool name, or the command.
    */
   pendingPrompt: PendingPromptKind | null;
+  /**
+   * The agent's turn RIGHT NOW, not history for any listed session. Tool names
+   * are safe here because this response has the same authorization as reading
+   * the transcript that already contains them.
+   */
+  inFlightTurn: LogInFlightTurn | null;
 }
 
 /**
@@ -376,6 +394,8 @@ export interface LogRetrieveResp {
    * only - never the prompt text, the tool name, or the command.
    */
   pendingPrompt: PendingPromptKind | null;
+  /** Live state for the agent RIGHT NOW; it may describe another session. */
+  inFlightTurn: LogInFlightTurn | null;
 }
 
 export type LogsResp = LogSessionIndexResp | LogSearchResp | LogRetrieveResp;

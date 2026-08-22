@@ -141,7 +141,17 @@ export interface ManagedAgent {
   sdkReportedCommands: string[]; // commands reported by SDK in system:init
   // Timing: track when phases start for duration_ms computation
   thinkingStartedAt: number;
-  toolCallTimestamps: Map<string, number>; // toolUseId → start timestamp
+  // Live turn timing. These are in-memory only and reset on every terminal
+  // boundary/session install. `lastNormalizedEventAt` is the watchdog's
+  // quiescence clock; before the first event it falls back to turnStartedAt.
+  turnStartedAt: number;
+  lastNormalizedEventAt: number;
+  // Prevent a warn-only watchdog signature from writing every sweep. Reset
+  // with the rest of the live turn state.
+  busyTurnWatchdogObserved: boolean;
+  // Per-turn active tools. The value includes the display name so the logs API
+  // can describe the oldest active call without re-reading the transcript.
+  toolCallTimestamps: Map<string, { name: string; startedAt: number }>;
   // Topic generation
   topicGenerating: boolean;
   topicMessageCount: number; // text entry count when topic was last generated

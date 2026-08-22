@@ -19,6 +19,7 @@ import { describe, it, expect, afterEach, beforeEach } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { FakeBackend } from "./fake-backend.ts";
 import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { _testResetSearchAdmission } from "../log-search-runner.ts";
 import { getUserByName, updateUserById } from "../users.ts";
@@ -70,6 +71,16 @@ async function api(
 
 const errCode = (r: Res): unknown =>
   (r.body as { error?: { code?: string } }).error?.code;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitUntil(pred: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error("waitUntil timed out");
+    await sleep(5);
+  }
+}
 
 async function spawnOwnedBy(
   srv: TestServer,
@@ -174,7 +185,7 @@ describe("routes/logs REST: the three modes", () => {
   // the search response, which must NOT have it) fails the build rather than
   // drifting silently away from what the server returns and system-prompt.ts
   // documents.
-  it("index and retrieve carry pendingPrompt; search does not", async () => {
+  it("index and retrieve carry live state; search does not", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -188,6 +199,7 @@ describe("routes/logs REST: the three modes", () => {
     // Not parked, and the key is PRESENT rather than omitted - a reader has to
     // be able to tell "not waiting" from "this server does not report it".
     expect(indexBody.pendingPrompt).toBe(null);
+    expect(indexBody.inFlightTurn).toBe(null);
     expect("pendingPrompt" in (index.body as object)).toBe(true);
 
     const retrieve = await api(
@@ -197,12 +209,79 @@ describe("routes/logs REST: the three modes", () => {
     );
     const retrieveBody = retrieve.body as unknown as LogRetrieveResp;
     expect(retrieveBody.pendingPrompt).toBe(null);
+    expect(retrieveBody.inFlightTurn).toBe(null);
 
     // Search is a hit list, not a reading of the agent's present state.
     const search = await api(srv, `/api/agents/${agent.id}/logs?q=marmalade`, {
       bearer,
     });
     expect("pendingPrompt" in (search.body as object)).toBe(false);
+    expect("inFlightTurn" in (search.body as object)).toBe(false);
+  });
+
+  it("reports the current turn and oldest active tool even when an old session is read", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { onSend() {} } }),
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0].id;
+    const agent = await spawnOwnedBy(srv, "Alpha", room, 0, owner.username);
+    seedLog(srv, agent.id, "old-session");
+    const bearer = mintAgentToken(agent.id, getUserByName(owner.username)!.id);
+
+    const sent = await srv.http(`/api/agents/${agent.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "current turn" }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(sent.status).toBe(200);
+    const session = srv.fakeBackend.sessionForAgent(agent.id)!;
+    await waitUntil(() => session.sent.length === 1);
+    session.push({
+      kind: "tool_call",
+      toolUseId: "old-tool",
+      name: "Bash",
+      input: {},
+    });
+    await sleep(5);
+    session.push({
+      kind: "tool_call",
+      toolUseId: "new-tool",
+      name: "Read",
+      input: {},
+    });
+    await waitUntil(
+      () =>
+        srv.agentManager.inFlightTurnForLogs(agent.id)?.activeTool?.name ===
+        "Bash",
+    );
+
+    const index = await api(srv, `/api/agents/${agent.id}/logs`, { bearer });
+    const retrieve = await api(
+      srv,
+      `/api/agents/${agent.id}/logs?session=old-session`,
+      { bearer },
+    );
+    const indexLive = (index.body as unknown as LogSessionIndexResp)
+      .inFlightTurn;
+    const retrieveLive = (retrieve.body as unknown as LogRetrieveResp)
+      .inFlightTurn;
+    expect(indexLive?.activeTool?.name).toBe("Bash");
+    expect(retrieveLive).toEqual(indexLive);
+    expect(indexLive!.activeTool!.startedAt).toBeGreaterThanOrEqual(
+      indexLive!.startedAt,
+    );
+
+    session.completeTurn();
+    await waitUntil(
+      () => srv.agentManager.inFlightTurnForLogs(agent.id) === null,
+    );
+    const settled = await api(srv, `/api/agents/${agent.id}/logs`, { bearer });
+    expect((settled.body as unknown as LogSessionIndexResp).inFlightTurn).toBe(
+      null,
+    );
   });
 
   it("?q= searches and returns a context handle for each hit", async () => {
