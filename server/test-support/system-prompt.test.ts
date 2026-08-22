@@ -308,6 +308,12 @@ describe("buildSystemPrompt - inter-agent messaging copy", () => {
     );
   });
 
+  it("states the error-only automatic recovery fence", () => {
+    expect(build()).toContain(
+      "A message to an errored agent resumes its current session automatically; a deliberately stopped agent stays stopped.",
+    );
+  });
+
   // Task 9389d4e5: an agent that asks a peer a blocking question and keeps
   // working can never receive the answer - the queue only flushes between turns.
   it("tells the sender to end the turn after a blocking question", () => {

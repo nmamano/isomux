@@ -616,7 +616,10 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
   it("rejects malformed / self / unknown-receiver / error-state sends with today's status codes", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id);
+    // Codex without a durable rollout makes the later error state deliberately
+    // unresumable, so this contract test keeps pinning the 409 fallback while
+    // resumable error states are covered by agent-death-recovery.test.ts.
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
     const sender = await spawnAgent(server, "Sender", room.id);
 
     // Missing text (valid AGENT bearer) -> 400. The old "missing / unknown
@@ -638,7 +641,8 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
     );
     expect(unknown.status).toBe(404);
 
-    // Error-state receiver -> 409. Drive a failed turn to reach state "error".
+    // Unresumable error-state receiver -> 409. Drive a failed turn to reach
+    // state "error"; pickAutoResumeSessionId rejects its missing rollout.
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     await waitUntil(
       () => stateOf(server!, recv.id) === "thinking",

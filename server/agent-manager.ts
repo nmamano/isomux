@@ -1467,6 +1467,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ptyBuffer: "",
       lastWrittenEntryId: null,
       messageQueue: [],
+      autoResumeInProgress: false,
       flushInProgress: false,
       flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
@@ -4540,6 +4541,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       ptyBuffer: "",
       lastWrittenEntryId: null,
       messageQueue: [],
+      autoResumeInProgress: false,
       flushInProgress: false,
       flushStartedAt: 0,
       lastForcedRecoveryAt: 0,
@@ -4938,15 +4940,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   // Single entry point for human (via sendMessage) and agent (via HTTP) senders.
   // Decides whether to queue, send-immediately, or reject based on agent state.
-  // `state === "error" | "stopped"` is rejected with 409.
-  //
-  // The WS textarea path (sendMessage) is intentionally more permissive: in
-  // `error`/`stopped`/null-session it falls into a session-recovery branch that
-  // resumes the prior transcript and continues. The asymmetry is by design.
-  // A human at a textarea can read the recovery system message and react, while
-  // a programmatic HTTP caller benefits from an explicit failure so it can
-  // retry, escalate, or fall back. Hiding a state-recovering side effect behind
-  // an "ok, queued" response would mislead the sender.
+  // `state === "stopped"` is rejected with 409. An inbound message to an
+  // errored agent is accepted into the durable queue and resumes the current
+  // session once; the error -> waiting transition flushes every queued item.
   function enqueueMessage(
     agentId: string,
     msg: {
@@ -4980,8 +4976,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.lastActiveAt = Date.now();
 
     const state = managed.info.state;
-    if (state === "stopped" || state === "error") {
+    if (state === "stopped") {
       return { ok: false, error: `agent_${state}`, status: 409 };
+    }
+    const autoResumeSessionId =
+      state === "error" ? pickAutoResumeSessionId(managed) : null;
+    if (state === "error" && autoResumeSessionId === null) {
+      return { ok: false, error: "agent_error", status: 409 };
     }
 
     // Idempotency check first; record only after a successful accept below so
@@ -4995,7 +4996,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     const id = generateQueuedId(managed.messageQueue);
-    const queuedDuringBusyTurn = !isQueueIdleState(state);
+    const queuedDuringBusyTurn = state !== "error" && !isQueueIdleState(state);
     managed.messageQueue.push({
       id,
       sender: msg.sender,
@@ -5031,6 +5032,25 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitQueueUpdate(agentId, managed);
 
     const steerRequested = opts?.steer === true;
+
+    // Claim the recovery synchronously with acceptance. The state remains
+    // `error` until replaceSession completes, so without this flag a second
+    // send in the same tick could start an overlapping resume of the same
+    // transcript. Later sends only join the queue.
+    if (state === "error") {
+      if (!managed.autoResumeInProgress) {
+        managed.autoResumeInProgress = true;
+        void resume(agentId, autoResumeSessionId!).finally(() => {
+          managed.autoResumeInProgress = false;
+        });
+      }
+      return {
+        ok: true,
+        queued: true,
+        messageId: id,
+        ...(steerRequested ? { steered: false } : {}),
+      };
+    }
 
     // Idle/waiting_for_response with no multi-step in flight: kick off a flush
     // immediately. flushQueue is gated by flushInProgress and re-checks state
@@ -5447,9 +5467,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       };
     const state = managed.info.state;
     // States flushQueue refuses to run in. Reported rather than absorbed; the
-    // remedy differs per case and only the caller can pick it. NOT auto-
-    // recovered here - whether a delivery attempt may revive an errored agent
-    // is task 64b36bee and stays unsettled.
+    // remedy differs per case and only the caller can pick it. Incoming
+    // messages auto-resume an errored agent, but send-now only operates on an
+    // existing queue and remains a manual flush rather than a recovery event.
     if (state === "error" || state === "stopped") {
       return {
         ok: false,

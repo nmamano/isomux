@@ -288,6 +288,10 @@ export interface ManagedAgent {
   // through enqueueMessage's transactional write; every post-accept mutation
   // must call persistQueueState (best-effort) alongside its emitQueueUpdate.
   messageQueue: QueuedMessage[];
+  // Set synchronously when an inbound message claims recovery of an errored
+  // backend. Later messages join the same durable queue instead of starting a
+  // second resume against the same transcript.
+  autoResumeInProgress: boolean;
   // Set while flushQueue is mid-flight to prevent re-entry from the
   // updateState trigger inside the same flush's await chain. Never cleared by
   // anything other than that flush's own finally - the queue watchdog recovers

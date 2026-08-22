@@ -155,6 +155,7 @@ async function postAgentMessage(
   receiverId: string,
   senderId: string,
   text: string,
+  extra: Record<string, unknown> = {},
 ) {
   const res = await srv.http(`/api/agents/${receiverId}/messages`, {
     method: "POST",
@@ -162,7 +163,7 @@ async function postAgentMessage(
       "Content-Type": "application/json",
       Authorization: `Bearer ${getAgentTokenRaw(senderId)}`,
     },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...extra }),
   });
   return {
     status: res.status,
@@ -587,11 +588,174 @@ describe("dead-backend recovery delivers the queue (5dcb0a02)", () => {
       "The agent's backend is not running, so queued messages cannot be delivered. Resume the agent's current session first; the queue is kept and delivers on resume.",
     );
 
-    // A refusal is not a recovery: nothing was delivered, and the agent was
-    // NOT quietly revived (that policy is task 64b36bee and stays unsettled).
+    // Send-now is not an inbound message, so it remains a manual flush and does
+    // not quietly revive an errored agent.
     await sleep(200);
     expect(agentOf(server, target.id).queue).toHaveLength(1);
     expect(agentOf(server, target.id).state).toBe("error");
+  });
+});
+
+describe("inbound messages auto-resume an errored agent (64b36bee)", () => {
+  it("coalesces concurrent sends behind exactly one resume and preserves order", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const roomId = firstRoomId(server);
+    const target = await spawnAgent(server, "Recovering", roomId);
+    const sender = await spawnAgent(server, "Sender", roomId);
+
+    await sendHuman(server, owner.rawSessionId, target.id, "start");
+    await waitUntil(() => agentOf(server!, target.id).state === "thinking");
+    await postAgentMessage(server, target.id, sender.id, "queued before death");
+    const sessionId = (
+      await sessionIdsOf(server, owner.rawSessionId, target.id)
+    )[0];
+    stubClaudeSession(server, target.cwd, sessionId);
+    server.fakeBackend.sessionForAgent(target.id)!.endStream();
+    await waitUntil(() => agentOf(server!, target.id).state === "error");
+
+    const resumesBefore = server.fakeBackend.resumeSessionCount;
+    const senderMeta = {
+      kind: "agent" as const,
+      agentId: sender.id,
+      agentName: sender.name,
+      roomName: "Room 1",
+    };
+    // Two synchronous accepts model two requests reaching enqueueMessage in
+    // the same event-loop turn, before replaceSession can settle.
+    const first = server.agentManager.enqueueMessage(target.id, {
+      sender: senderMeta,
+      text: "first after death",
+    });
+    const second = server.agentManager.enqueueMessage(target.id, {
+      sender: senderMeta,
+      text: "second after death",
+    });
+    expect(first).toMatchObject({ ok: true, queued: true });
+    expect(second).toMatchObject({ ok: true, queued: true });
+
+    await waitUntil(
+      () => server!.fakeBackend.resumeSessionCount === resumesBefore + 1,
+      2000,
+      "one automatic resume",
+    );
+    await waitUntil(
+      () => agentOf(server!, target.id).queue.length === 0,
+      3000,
+      "recovered queue flushed",
+    );
+    expect(server.fakeBackend.resumeSessionCount).toBe(resumesBefore + 1);
+    const prompt = server.fakeBackend
+      .sessionForAgent(target.id)!
+      .sent.at(-1)!.text;
+    expect(prompt.indexOf("queued before death")).toBeLessThan(
+      prompt.indexOf("first after death"),
+    );
+    expect(prompt.indexOf("first after death")).toBeLessThan(
+      prompt.indexOf("second after death"),
+    );
+  });
+
+  it("reports an error-state steer as not steered and still delivers it", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const roomId = firstRoomId(server);
+    const target = await spawnAgent(server, "SteerRecovery", roomId);
+    const sender = await spawnAgent(server, "Sender", roomId);
+    await killBackendMidTurn(server, owner.rawSessionId, target.id);
+    const sessionId = (
+      await sessionIdsOf(server, owner.rawSessionId, target.id)
+    )[0];
+    stubClaudeSession(server, target.cwd, sessionId);
+
+    const sent = await postAgentMessage(
+      server,
+      target.id,
+      sender.id,
+      "recover, do not steer",
+      { steer: true },
+    );
+    expect(sent.status).toBe(200);
+    expect(sent.body).toMatchObject({ queued: true, steered: false });
+    await waitUntil(
+      () => agentOf(server!, target.id).queue.length === 0,
+      3000,
+      "steer message delivered after recovery",
+    );
+    expect(
+      server.fakeBackend
+        .sessionForAgent(target.id)!
+        .sent.some((m) => m.text.includes("recover, do not steer")),
+    ).toBe(true);
+  });
+
+  it("keeps an accepted message queued when automatic resume fails", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const roomId = firstRoomId(server);
+    const target = await spawnAgent(server, "FailedRecovery", roomId);
+    const sender = await spawnAgent(server, "Sender", roomId);
+    await killBackendMidTurn(server, owner.rawSessionId, target.id);
+
+    const sent = await postAgentMessage(
+      server,
+      target.id,
+      sender.id,
+      "keep me durable",
+    );
+    expect(sent.status).toBe(200);
+    expect(sent.body.queued).toBe(true);
+    await waitUntil(
+      () =>
+        logContents(server!, target.id).some((x) =>
+          x.startsWith("Failed to resume:"),
+        ),
+      2000,
+      "automatic resume failure surfaced",
+    );
+    expect(agentOf(server, target.id).state).toBe("error");
+    expect(agentOf(server, target.id).queue.map((m) => m.text)).toEqual([
+      "keep me durable",
+    ]);
+  });
+
+  it("auto-resumes for the scheduler enqueue shape and keeps its marker", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const roomId = firstRoomId(server);
+    const target = await spawnAgent(server, "ScheduledRecovery", roomId);
+    const sender = await spawnAgent(server, "Sender", roomId);
+    await killBackendMidTurn(server, owner.rawSessionId, target.id);
+    const sessionId = (
+      await sessionIdsOf(server, owner.rawSessionId, target.id)
+    )[0];
+    stubClaudeSession(server, target.cwd, sessionId);
+    const scheduledFor = Date.now() - 1000;
+
+    const result = server.agentManager.enqueueMessage(target.id, {
+      sender: {
+        kind: "agent",
+        agentId: sender.id,
+        agentName: sender.name,
+        roomName: "Room 1",
+      },
+      text: "scheduled recovery",
+      scheduledFor,
+    });
+    expect(result.ok).toBe(true);
+    await waitUntil(
+      () => agentOf(server!, target.id).queue.length === 0,
+      3000,
+      "scheduled message delivered after recovery",
+    );
+    const prompt = server.fakeBackend
+      .sessionForAgent(target.id)!
+      .sent.at(-1)!.text;
+    expect(prompt).toContain("scheduled recovery");
+    expect(prompt).toContain(new Date(scheduledFor).toISOString());
+    expect(prompt).not.toContain(
+      "queued while you were processing your previous turn",
+    );
   });
 });
 
