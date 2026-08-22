@@ -592,8 +592,8 @@ const cronjobs: Cronjob[] = [];
 let cronjobsPrompt: string | null = null;
 
 // Agent-built apps. The demo has no systemd, so `state` is whatever the last
-// verb set it to - enough to exercise the Apps tab's list, verbs, log view and
-// the failed-app rendering.
+// verb set it to - enough to exercise the Apps tab's list, verbs and log view.
+// Both seeds start healthy so the customer-facing demo opens on working apps.
 //
 // The creators are deliberately one of each: `standup-board` names an agent the
 // demo office still has, so its row links to that conversation, while
@@ -629,25 +629,19 @@ const demoApps: AppWire[] = [
     username: "Ricky",
     createdBy: "Ledger",
     createdAt: Date.now() - 3_600_000,
-    state: "failed",
-    restartCount: 4,
-    startError: "bun: command not found",
+    state: "running",
+    restartCount: 0,
     url: "https://cost-tracker.office.example",
   },
 ];
 
-const DEMO_APP_LOG = [
-  "Listening on http://0.0.0.0:21000",
-  "GET / 200 3ms",
-  "GET /api/cards 200 11ms",
-];
-
-const DEMO_APP_FAILED_LOG = [
-  "Starting cost-tracker...",
-  "bun: command not found",
-  "Main process exited, code=exited, status=127/n/a",
-  "Scheduled restart job, restart counter is at 4.",
-];
+function demoAppLog(app: Pick<AppWire, "port">): string[] {
+  return [
+    `Listening on http://0.0.0.0:${app.port}`,
+    "GET / 200 3ms",
+    "GET /health 200 2ms",
+  ];
+}
 
 // Mutate one app and push the same delta the real server would.
 function demoAppSet(name: string, patch: Partial<AppWire>): AppWire {
@@ -1277,7 +1271,7 @@ export async function demoApi(
     if (!app) throw new ApiError(404, "not_found", "No such app.");
     return {
       name,
-      lines: app.state === "failed" ? DEMO_APP_FAILED_LOG : DEMO_APP_LOG,
+      lines: demoAppLog(app),
     };
   }
   const appVerbMatch = pathname.match(

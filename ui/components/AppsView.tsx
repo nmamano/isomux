@@ -14,7 +14,7 @@
 // replaces the slice; the deltas patch it; both converge.
 
 import { useEffect, useRef, useState } from "react";
-import { useAppState, useDispatch } from "../store.tsx";
+import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import {
   APP_PREVIEW_OPEN_TTL_MS,
@@ -132,7 +132,9 @@ export function appPreviewPhase(
   now: number,
   visible: boolean,
   waitingForReturn: boolean,
+  framesAllowed: boolean,
 ): AppPreviewPhase {
+  if (!framesAllowed) return "open-prompt";
   if (openedAt === null || now - openedAt >= APP_PREVIEW_OPEN_TTL_MS) {
     return "open-prompt";
   }
@@ -195,10 +197,12 @@ function AppPreview({
   app,
   href,
   isMobile,
+  framesAllowed,
 }: {
   app: Pick<AppWire, "name">;
   href: string;
   isMobile: boolean;
+  framesAllowed: boolean;
 }) {
   const hostRef = useRef<HTMLAnchorElement>(null);
   const [visible, setVisible] = useState(
@@ -207,7 +211,13 @@ function AppPreview({
   const [openedAt, setOpenedAt] = useState(() => getAppPreviewOpenedAt(href));
   const [now, setNow] = useState(Date.now);
   const [waitingForReturn, setWaitingForReturn] = useState(false);
-  const phase = appPreviewPhase(openedAt, now, visible, waitingForReturn);
+  const phase = appPreviewPhase(
+    openedAt,
+    now,
+    visible,
+    waitingForReturn,
+    framesAllowed,
+  );
 
   useEffect(() => {
     const host = hostRef.current;
@@ -412,6 +422,7 @@ export function AppsView({
   const { apps, appsLoaded, appsRevision, isMobile, hydrationEpoch, agents } =
     useAppState();
   const dispatch = useDispatch();
+  const features = useFeatures();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppWire | null>(null);
@@ -765,7 +776,12 @@ export function AppsView({
                   </div>
 
                   {previewsEnabled && appCanPreview(app) && (
-                    <AppPreview app={app} href={href} isMobile={isMobile} />
+                    <AppPreview
+                      app={app}
+                      href={href}
+                      isMobile={isMobile}
+                      framesAllowed={features.liveAppPreviews}
+                    />
                   )}
 
                   {app.description && (
