@@ -25,10 +25,19 @@ Nothing below runs without Nil present - the first third is his logins.
   OFFICE_DOMAIN flip to isomux.app, the 40-per-7-days signup bound, and the
   four launch-status copy flips (hero "Sign up" -> cloud.isomux.com, Plans
   paragraph, two chatbot passages). All its customer copy is Nil-approved.
-- Real-channel validation (task `65e0ceeb` second half) was in flight at
-  parking time: Hetzner test box, install v2026.7.23, update to v2026.8.22
-  through the real updater. Check the task for its outcome before the
-  sitting; a red result is a launch blocker.
+- Real-channel validation (task `65e0ceeb` second half): GREEN, task done.
+  Reviewer 3 verified PASS 2026-08-22 ~02:25Z against logs and git: hosted
+  file-staging install of real v2026.7.23 on the Hetzner box, then the
+  two-invocation bridge to v2026.8.22 - both arms in the right order,
+  polkit-authorized owner trigger (service uid, not root), dependencies
+  converged by effect (bubblewrap installed on invocation 2), final office
+  at v2026.8.22 @ `2d568f3` with the Apps tab live. The follow-up
+  uncorrected (tag-present) run confirmed a real but non-blocking gap:
+  dependency convergence gates on tag state instead of recording whether
+  deps synced - filed as task `032743c0`, R3-ruled not a launch item
+  (normal installs and the real customer bridge both converge). Evidence
+  archived at ~/nil/evidence-archives/65e0ceeb/; the Hetzner test box
+  holds the live reproducer state until next needed.
 - test-nil: attention card stays (truthful); box 203525282 cancel-scheduled,
   service ends ~2026-09-20. Signup is closed ("no price configured").
 
@@ -41,6 +50,13 @@ site deploy is READY and the 65e0ceeb validation verdict is green.
 
 Step 1, Nil in the Stripe Dashboard (live mode; the terms URL also in test
 mode):
+0. Public details MUST carry the Terms of service URL (https://isomux.com/terms)
+   and Privacy policy URL (https://isomux.com/privacy) before any customer
+   checkout: our sessions require ToS consent (checkout.ts:263, Managed
+   Payments compliance), and Stripe refuses to render the consent box
+   without the URL - proven the hard way in test mode 2026-08-22. Nil
+   started filling live-side values that night (plus support email
+   llc@isomux.com, URL https://isomux.com); verify saved.
 1. Accept Managed Payments terms; confirm account + each sold Product
    passes eligibility review.
 2. Tax: sign off `tax_behavior=exclusive` and the final tax code - review
@@ -110,6 +126,12 @@ Step 9, copy decisions (batched at the sitting):
 - Legal pages date treatment: "Last updated" vs an effective date.
 - Active-sessions docs sentence: default is Nil's shipping version (the
   reviewer alternative is recorded in task `65e0ceeb`).
+- Upgrade-path UX (from the 65e0ceeb rerun, proven working): a
+  v2026.7.23-era box reaches v2026.8.22 only after TWO owner update
+  clicks, and between them the office reports a bare commit sha with no
+  release name. Only pre-v2026.8.22 boxes hit this; fresh installs get the
+  latest release in one pass. Decide whether that interim state is
+  acceptable to leave as-is for launch.
 
 Step 10, after every gate is green: announce. Launch is open.
 

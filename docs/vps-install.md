@@ -6,6 +6,8 @@ navTitle: VPS install
 
 Set up isomux on a fresh Ubuntu 24.04 server with the unattended installer. It installs everything, hardens the box, serves the office over HTTPS at your domain, and hands you a sign-in link.
 
+For more details, see [this blog post](https://nilmamano.com/blog/hosted-isomux).
+
 You need:
 
 - A fresh Ubuntu 24.04 server with root access (a cheap cloud VPS works).
