@@ -3143,6 +3143,10 @@ ruling, and a state column nobody transitions is a claim the code cannot keep.
 chain the machine will run, and a goal of `live` promises no revocation step.
 A step with no row is `waiting`, never `done`; `ambiguous` is "checking";
 "ready" rests on a SUCCEEDED `verify_https` rather than on ladder position.
+Each row also supplies the duration for that run of the step. While it is live,
+the browser advances from the projection's control-plane clock anchor rather
+than trusting the customer's wall clock. Once the row is terminal, the ladder
+keeps the final duration from its creation time to the terminal write.
 
 Raw evidence never crosses. The extractor is an allowlist of typed, bounded
 fields mapped to our own words - the installer's step marker (only if it still

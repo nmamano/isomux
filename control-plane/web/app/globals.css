@@ -452,6 +452,22 @@ p.callout-danger {
 .ladder > li:has([data-state="failed"])::before {
   background: var(--danger);
 }
+.step-duration {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  margin-left: 0.45em;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 /* ---------- Buttons ---------- */
 

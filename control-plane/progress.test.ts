@@ -207,6 +207,62 @@ describe("it does not invent progress", () => {
     expect(byKind.get("run_installer")).toBe("waiting");
   });
 
+  test("step timings use one operation run and only settle at a terminal status", async () => {
+    const store = await tempStore(() => 10_000);
+    const { reservation, account } = await signedUp(store);
+    const id = reservation.instance_id;
+    await addOp(store, id, "wait_for_ssh", "succeeded");
+    await addOp(store, id, "arm_revocation", "ambiguous");
+    await store.sqlRun(
+      "update operations set created_at = $1, updated_at = $2 where instance_id = $3 and kind = $4",
+      [8_000, 9_500, id, "wait_for_ssh"],
+    );
+    await store.sqlRun(
+      "update operations set created_at = $1, updated_at = $2 where instance_id = $3 and kind = $4",
+      [8_000, 9_500, id, "arm_revocation"],
+    );
+
+    const view = (await projectionFor(store, {
+      accountId: account.id,
+      instanceId: id,
+    }))!;
+    const byKind = new Map(view.steps.map((step) => [step.kind, step]));
+    expect(byKind.get("create_instance")).toMatchObject({
+      startedAt: null,
+      finishedAt: null,
+      elapsedMs: null,
+    });
+    expect(byKind.get("arm_revocation")).toMatchObject({
+      startedAt: 8_000,
+      finishedAt: null,
+      elapsedMs: null,
+    });
+    expect(byKind.get("wait_for_ssh")).toMatchObject({
+      startedAt: 8_000,
+      finishedAt: 9_500,
+      elapsedMs: 1_500,
+    });
+    expect(view.asOf).toBe(10_000);
+  });
+
+  test("a backwards terminal clock jump cannot produce a negative duration", async () => {
+    const store = await tempStore(() => 10_000);
+    const { reservation, account } = await signedUp(store);
+    const id = reservation.instance_id;
+    await addOp(store, id, "wait_for_ssh", "succeeded");
+    await store.sqlRun(
+      "update operations set created_at = $1, updated_at = $2 where instance_id = $3 and kind = $4",
+      [9_000, 8_000, id, "wait_for_ssh"],
+    );
+    const view = (await projectionFor(store, {
+      accountId: account.id,
+      instanceId: id,
+    }))!;
+    expect(
+      view.steps.find((step) => step.kind === "wait_for_ssh")?.elapsedMs,
+    ).toBe(0);
+  });
+
   test("ready rests on a succeeded verify_https, not on how far the ladder got", async () => {
     const store = await tempStore();
     const { reservation, account } = await signedUp(store);

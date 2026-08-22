@@ -37,12 +37,14 @@ export const STATE_WORDS: Record<string, string> = {
   failed: "failed",
 };
 
-function Steps({
+export function Steps({
   steps,
   testid,
+  now,
 }: {
   steps: ProgressView["steps"];
   testid: string;
+  now: number | null;
 }) {
   return (
     <ol className="card ladder" data-testid={testid}>
@@ -50,11 +52,99 @@ function Steps({
         <li key={step.kind} data-testid={`step-${step.kind}`}>
           {step.label} -{" "}
           <span data-state={step.state}>{STATE_WORDS[step.state]}</span>
+          {step.startedAt !== null &&
+            (step.elapsedMs !== null || now !== null) && (
+              <StepDuration step={step} now={now} />
+            )}
           {step.detail ? ` (${step.detail})` : ""}
         </li>
       ))}
     </ol>
   );
+}
+
+export function formatDuration(elapsedMs: number): string {
+  const seconds = Math.floor(Math.max(elapsedMs, 0) / 1_000);
+  const hours = Math.floor(seconds / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const remainder = seconds % 60;
+  if (hours > 0) return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  if (minutes > 0) return `${minutes}m ${remainder}s`;
+  return `${remainder}s`;
+}
+
+function spokenDuration(elapsedMs: number): string {
+  const seconds = Math.floor(Math.max(elapsedMs, 0) / 1_000);
+  const hours = Math.floor(seconds / 3_600);
+  const minutes = Math.floor((seconds % 3_600) / 60);
+  const remainder = seconds % 60;
+  return (
+    [
+      hours ? `${hours} ${hours === 1 ? "hour" : "hours"}` : "",
+      minutes ? `${minutes} ${minutes === 1 ? "minute" : "minutes"}` : "",
+      !hours && remainder
+        ? `${remainder} ${remainder === 1 ? "second" : "seconds"}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" ") || "0 seconds"
+  );
+}
+
+function StepDuration({
+  step,
+  now,
+}: {
+  step: ProgressView["steps"][number];
+  now: number | null;
+}) {
+  const elapsed =
+    step.elapsedMs === null
+      ? Math.max((now ?? step.startedAt ?? 0) - (step.startedAt ?? 0), 0)
+      : step.elapsedMs;
+  const running = step.elapsedMs === null;
+  const compact = formatDuration(elapsed);
+  const spoken = spokenDuration(elapsed);
+  return running ? (
+    <span
+      className="step-duration"
+      role="timer"
+      aria-label={`running for ${spoken}`}
+    >
+      {compact}
+    </span>
+  ) : (
+    <>
+      <span className="step-duration" aria-hidden="true">
+        {compact}
+      </span>
+      <span className="visually-hidden">, took {spoken}</span>
+    </>
+  );
+}
+
+export interface Clock {
+  serverAt: number;
+  clientAt: number;
+  clientNow: number;
+}
+
+export function anchoredNow(clock: Clock): number {
+  return clock.serverAt + (clock.clientNow - clock.clientAt);
+}
+
+// Re-anchoring must never move the displayed time backwards. The anchor lags
+// true control-plane time by the latency of the poll that set it, so a poll
+// that is slower than the one before would step the timer back.
+export function nextClock(
+  previous: Clock | null,
+  serverAt: number,
+  clientAt: number,
+): Clock {
+  const candidate = { serverAt, clientAt, clientNow: clientAt };
+  if (!previous) return candidate;
+  const held = { ...previous, clientNow: clientAt };
+  return anchoredNow(candidate) < anchoredNow(held) ? held : candidate;
 }
 
 /**
@@ -131,6 +221,7 @@ export function OfficeView({
   instanceId: string;
 }) {
   const [view, setView] = useState(initial);
+  const [clock, setClock] = useState<Clock | null>(null);
   const [invite, setInvite] = useState<InviteState>({ phase: "idle" });
   const [action, setAction] = useState<string | null>(null);
   const [handoffPending, setHandoffPending] = useState(false);
@@ -156,6 +247,30 @@ export function OfficeView({
     view.restart.active ||
     view.handoff.invite.state === "active" ||
     view.handoff.revocation.state === "active";
+
+  const hasRunningStep = [...view.steps, ...view.otherOperations].some(
+    (step) => step.state === "active" || step.state === "checking",
+  );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const clientAt = Date.now();
+      setClock((previous) => nextClock(previous, view.asOf, clientAt));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [view.asOf]);
+
+  useEffect(() => {
+    if (!hasRunningStep) return;
+    const timer = setInterval(() => {
+      setClock((current) =>
+        current ? { ...current, clientNow: Date.now() } : current,
+      );
+    }, 1_000);
+    return () => clearInterval(timer);
+  }, [hasRunningStep]);
+
+  const timerNow = clock ? anchoredNow(clock) : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -377,12 +492,16 @@ export function OfficeView({
       )}
 
       <h2>Progress</h2>
-      <Steps steps={view.steps} testid="steps" />
+      <Steps steps={view.steps} testid="steps" now={timerNow} />
 
       {view.otherOperations.length > 0 && (
         <>
           <h2>Other work on this office</h2>
-          <Steps steps={view.otherOperations} testid="other-operations" />
+          <Steps
+            steps={view.otherOperations}
+            testid="other-operations"
+            now={timerNow}
+          />
         </>
       )}
 

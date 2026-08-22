@@ -67,6 +67,9 @@ export interface ProgressStep {
   state: StepState;
   /** Our words, derived from allowlisted evidence fields. Never raw evidence. */
   detail: string | null;
+  startedAt: number | null;
+  finishedAt: number | null;
+  elapsedMs: number | null;
 }
 
 export interface AttentionView {
@@ -179,6 +182,9 @@ export interface RestartView {
 }
 
 export interface ProgressView {
+  /** Control-plane time when this view was projected. The browser advances
+   * live timers from this anchor instead of trusting its own wall clock. */
+  asOf: number;
   instanceId: string;
   officeName: string;
   hostname: string;
@@ -595,11 +601,32 @@ function stepFor(
   byKind: Map<string, OperationRow>,
 ): ProgressStep {
   const op = byKind.get(kind);
+  const timing = timingFor(op);
   return {
     kind,
     label: LABELS[kind],
     state: stateOf(op),
     detail: detailFor(kind, op),
+    ...timing,
+  };
+}
+
+function timingFor(
+  op: OperationRow | undefined,
+): Pick<ProgressStep, "startedAt" | "finishedAt" | "elapsedMs"> {
+  if (!op) return { startedAt: null, finishedAt: null, elapsedMs: null };
+
+  // `updated_at` means last write, not finished. Today finish() writes the
+  // terminal status, lease release and evidence in one casOperation, and no
+  // writer touches a terminal row afterwards. Keep that invariant here rather
+  // than making the component infer it from a general-purpose timestamp.
+  const finished = op.status === "succeeded" || op.status === "failed";
+  const finishedAt = finished ? op.updated_at : null;
+  return {
+    startedAt: op.created_at,
+    finishedAt,
+    elapsedMs:
+      finishedAt === null ? null : Math.max(finishedAt - op.created_at, 0),
   };
 }
 
@@ -625,6 +652,7 @@ export async function projectionFor(
   if (!reservation || reservation.account_id !== args.accountId) return null;
   const instance: InstanceRow | null = await store.getInstance(args.instanceId);
   if (!instance) return null;
+  const asOf = store.now();
 
   const operations = await store.operationsFor(instance.id);
   // Latest row per kind: a retried step opens a new row, and the newest is the
@@ -646,7 +674,7 @@ export async function projectionFor(
     .sort();
 
   const verifyHttps = byKind.get("verify_https");
-  const access = await accessFor(store, instance, operations, store.now());
+  const access = await accessFor(store, instance, operations, asOf);
   const subscriptionRow = await subscriptionRowFor(store, instance.id);
   const attention = attentionViews(await store.openReasons(instance.id));
   const liveness = livenessFor(await store.getLiveness(instance.id));
@@ -656,10 +684,11 @@ export async function projectionFor(
     reservation,
     subscriptionRow,
     operations,
-    store.now(),
+    asOf,
   );
 
   return {
+    asOf,
     instanceId: instance.id,
     officeName: reservation.name,
     hostname: instance.name,
@@ -685,7 +714,7 @@ export async function projectionFor(
     liveness,
     restart: restartFor(byKind),
     subscription: subscriptionRow
-      ? subscriptionViewOf(subscriptionRow, store.now())
+      ? subscriptionViewOf(subscriptionRow, asOf)
       : null,
     lifecycle,
   };
