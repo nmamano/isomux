@@ -12,6 +12,7 @@
 
 import { describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 const STRIPE_DIR = import.meta.dir;
@@ -30,6 +31,30 @@ function sourceFiles(dir: string): string[] {
   }
   return out;
 }
+
+test("source scanning excludes generated trees at any depth", () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "ownership-source-files-"),
+  );
+  try {
+    const included = path.join(root, "src", "included.ts");
+    const generated = [
+      path.join(root, "web", "node_modules", "generated.ts"),
+      path.join(root, "web", "node_modules", "a", "node_modules", "deep.ts"),
+      path.join(root, "web", ".next", "generated.ts"),
+    ];
+    fs.mkdirSync(path.dirname(included), { recursive: true });
+    fs.writeFileSync(included, "export {};\n");
+    for (const file of generated) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, "export {};\n");
+    }
+
+    expect(sourceFiles(root)).toEqual([included]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function testSurfaceFiles(): string[] {
   return sourceFiles(CONTROL_PLANE).filter((file) => {
