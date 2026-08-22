@@ -1710,6 +1710,15 @@ export class Store {
     );
   }
 
+  async customerKeysPastRetention(now: number): Promise<InstanceRow[]> {
+    return this.sqlAll<InstanceRow>(
+      "select * from instances where customer_ssh_key is not null " +
+        "and access_window_expires_at is not null " +
+        "and access_window_expires_at <= $1 order by access_window_expires_at",
+      [now],
+    );
+  }
+
   /**
    * CAS on the version column. A loser re-reads; it never retries blind.
    *

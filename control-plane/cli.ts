@@ -90,6 +90,7 @@ import { CloudflareDns } from "./cloudflare-dns.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
 import { PROVIDER_DEPENDENT_KINDS, tickerHandlerRoster } from "./run-roster.ts";
 import { sweepProvisioningStarts } from "./provisioning-start.ts";
+import { sweepCustomerKeyRetention } from "./access-retention.ts";
 import { setOperator } from "./operator-admin.ts";
 import { readAndRefreshMarker } from "./state-marker.ts";
 import { Store } from "./store.ts";
@@ -647,6 +648,7 @@ async function runLifecycleCadence(
   running: Ticker,
 ): Promise<void> {
   await sweepProvisioningStarts(store, (kind) => running.handles(kind));
+  await sweepCustomerKeyRetention(store, (line) => reporter.line(line));
   const summary = await lifecycleTick(store, store.now(), (line) =>
     reporter.line(line),
   );
