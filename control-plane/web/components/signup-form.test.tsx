@@ -50,6 +50,21 @@ test("signup renders both specifications and omits unset prices", () => {
   expect(html).toContain("8 vCPU, 24 GB RAM, 300 GB SSD");
   expect(html).not.toContain("per month");
   expectPolicyLinksBefore(html, "Continue to payment");
+  expect(html.indexOf("Promotional code (optional)")).toBeLessThan(
+    html.indexOf("Save your server administrator key"),
+  );
+  expect(html.indexOf("I saved it")).toBeLessThan(
+    html.indexOf("Continue to payment"),
+  );
+  expect(html).toContain("manage or repair your server. It was generated");
+  expect(html).toContain("<strong>How to use it:</strong>");
+  expect(html).toContain('class="key-field"');
+  expect(html).toContain("Copy private key");
+  expect(html).toContain('disabled=""');
+  expect(html).not.toContain('aria-describedby="signup-save-key-reason"');
+  expect(html).not.toContain(
+    "Save your server administrator key before continuing.",
+  );
 });
 
 test("returning signup shows every policy before continuing to payment", () => {
@@ -62,4 +77,31 @@ test("returning signup shows every policy before continuing to payment", () => {
   const noticePosition = page.indexOf("<PolicyNotice />");
   expect(noticePosition).toBeGreaterThan(0);
   expect(noticePosition).toBeLessThan(page.indexOf("Continue signup"));
+  expect(page).toContain('data-testid="signup-error"');
+});
+
+test("returning signup passes a redirect refusal into the interactive form", () => {
+  const page = readFileSync(
+    new URL("../app/signup/page.tsx", import.meta.url),
+    "utf8",
+  );
+  expect(page).toContain("initialError={error}");
+  expect(page).toContain('data-testid="signup-error"');
+});
+
+test("interactive signup announces a refusal at the payment action", () => {
+  const html = renderToStaticMarkup(
+    <SignupForm
+      domain="test.isomux.app"
+      initialName=""
+      initialError="Try signup again."
+      plans={[]}
+    />,
+  );
+  expect(html).toContain(
+    'data-testid="signup-error" role="alert">Try signup again.',
+  );
+  expect(html.indexOf("Try signup again.")).toBeLessThan(
+    html.indexOf("Continue to payment"),
+  );
 });

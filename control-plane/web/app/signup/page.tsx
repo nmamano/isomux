@@ -25,8 +25,12 @@ export default async function Signup({
   return (
     <main>
       <h1>Set up your office</h1>
-      {error && (
-        <p className="callout callout-danger" data-testid="signup-error">
+      {error && state.kind === "continue" && (
+        <p
+          className="callout callout-danger"
+          data-testid="signup-error"
+          role="alert"
+        >
           {error}
         </p>
       )}
@@ -43,7 +47,12 @@ export default async function Signup({
           </button>
         </form>
       ) : (
-        <SignupForm initialName={name} domain={OFFICE_DOMAIN} plans={options} />
+        <SignupForm
+          initialName={name}
+          initialError={error}
+          domain={OFFICE_DOMAIN}
+          plans={options}
+        />
       )}
     </main>
   );

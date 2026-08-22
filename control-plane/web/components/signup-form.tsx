@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { OfficeAddressPreview } from "./office-address-preview";
 import type { CustomerPrice } from "../../plans";
 import { customerPriceLine } from "./plan-copy";
@@ -16,14 +16,25 @@ const CLIPBOARD_ERROR =
   "Your browser could not copy the server administrator key. Copy it from the field instead.";
 const CHECKOUT_ERROR =
   "we could not open a payment page just now - your name is reserved, so try again in a moment";
+const SIGNUP_REFUSED_ERROR =
+  "We could not continue signup. Reload the page and try again.";
+const SAVE_KEY_REASON = "Save your server administrator key before continuing.";
+
+type SignupResponse = {
+  ok: boolean;
+  checkoutUrl?: string;
+  reason?: string;
+};
 
 export function SignupForm({
   domain,
   initialName,
+  initialError = null,
   plans,
 }: {
   domain: string;
   initialName: string;
+  initialError?: string | null;
   plans: Array<{
     id: string;
     label: string;
@@ -33,8 +44,10 @@ export function SignupForm({
 }) {
   const [key, setKey] = useState<ServerAdministratorKey | null>(null);
   const [saved, setSaved] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(initialError);
   const [submitting, setSubmitting] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     void Promise.resolve().then(async () => {
@@ -50,11 +63,25 @@ export function SignupForm({
     });
   }, []);
 
+  useEffect(
+    () => () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    },
+    [],
+  );
+
   async function copyPrivateKey(): Promise<void> {
     if (!key) return;
     try {
       await navigator.clipboard.writeText(key.privateKey);
+      setCopied(true);
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+      copiedTimer.current = setTimeout(() => {
+        setCopied(false);
+        copiedTimer.current = null;
+      }, 2_000);
     } catch {
+      setCopied(false);
       setError(CLIPBOARD_ERROR);
     }
   }
@@ -74,13 +101,30 @@ export function SignupForm({
         body: form,
         headers: { Accept: "application/json" },
       });
-      const result = (await response.json()) as {
-        ok: boolean;
-        checkoutUrl?: string;
-        reason?: string;
-      };
-      if (!response.ok || !result.ok || !result.checkoutUrl) {
-        setError(result.reason ?? CHECKOUT_ERROR);
+      if (response.redirected && new URL(response.url).pathname === "/signin") {
+        window.location.assign(response.url);
+        return;
+      }
+      const responseText = await response.text();
+      const responseType = response.headers
+        .get("content-type")
+        ?.split(";", 1)[0]
+        .trim()
+        .toLowerCase();
+      let result: SignupResponse | null = null;
+      try {
+        result = JSON.parse(responseText) as SignupResponse;
+      } catch {
+        // A refusal can be plain text or empty, including at the trust boundary.
+      }
+      if (!response.ok || !result?.ok || !result.checkoutUrl) {
+        const refusal =
+          result?.reason ??
+          (response.status >= 400 && response.status < 500
+            ? (responseType === "text/plain" && responseText.trim()) ||
+              SIGNUP_REFUSED_ERROR
+            : CHECKOUT_ERROR);
+        setError(refusal);
         return;
       }
       window.location.assign(result.checkoutUrl);
@@ -93,11 +137,6 @@ export function SignupForm({
 
   return (
     <form className="form card" onSubmit={(event) => void submit(event)}>
-      {error && (
-        <p className="callout callout-danger" data-testid="signup-error">
-          {error}
-        </p>
-      )}
       <OfficeAddressPreview initialName={initialName} domain={domain} />
       <fieldset>
         <legend>Choose your office</legend>
@@ -123,39 +162,50 @@ export function SignupForm({
         </span>
       </fieldset>
       <p>
+        <label>
+          Promotional code (optional){" "}
+          <input name="couponId" data-testid="coupon" autoComplete="off" />
+        </label>
+        <span className="note">
+          If you received a promotional code, enter it here.
+        </span>
+      </p>
+      <p>
         <label>Save your server administrator key</label>
         <span className="note">
           This key is for accessing your entire server, not just the Isomux
           office. You need it to install software as an administrator and manage
-          or repair your server.
+          or repair your server. It was generated locally in your browser and is
+          shown only to you. Save it somewhere only you can access. We cannot
+          create a new one after the fact because we lock ourselves out of your
+          server after setup.
         </span>
         <span className="note">
-          It was generated locally in your browser and is shown only to you.
-          Save it somewhere only you can access. We cannot create a new one
-          after the fact because we lock ourselves out of your server after
-          setup.
+          <strong>How to use it:</strong> This is an SSH private key. A chatbot
+          can walk you through how to use it to access your server through a
+          terminal, or an agent running locally on your computer can use it to
+          access the server for you.
         </span>
-        <span className="note">
-          How to use it: This is an SSH private key. A chatbot can walk you
-          through how to use it to access your server through a terminal, or an
-          agent running locally on your computer can use it to access the server
-          for you.
+        <span className="key-field">
+          <textarea
+            data-testid="server-administrator-private-key"
+            rows={8}
+            readOnly
+            value={key?.privateKey ?? ""}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            onClick={() => void copyPrivateKey()}
+            disabled={!key}
+          >
+            Copy private key
+          </button>
+          <span className="copy-status" aria-live="polite">
+            {copied ? "Copied" : ""}
+          </span>
         </span>
-        <textarea
-          data-testid="server-administrator-private-key"
-          rows={8}
-          readOnly
-          value={key?.privateKey ?? ""}
-          autoComplete="off"
-          spellCheck={false}
-        />
-        <button
-          type="button"
-          onClick={() => void copyPrivateKey()}
-          disabled={!key}
-        >
-          Copy private key
-        </button>
         <label className="key-confirm">
           <input
             type="checkbox"
@@ -166,25 +216,32 @@ export function SignupForm({
           I saved it
         </label>
       </p>
-      <p>
-        <label>
-          Promotional code (optional){" "}
-          <input name="couponId" data-testid="coupon" autoComplete="off" />
-        </label>
-        <span className="note">
-          {" "}
-          If you received a promotional code, enter it here.
-        </span>
-      </p>
       <PolicyNotice />
-      <button
-        className="btn-primary"
-        type="submit"
-        data-testid="signup-submit"
-        disabled={!key || !saved || submitting}
-      >
-        Continue to payment
-      </button>
+      {error && (
+        <p
+          className="callout callout-danger"
+          data-testid="signup-error"
+          role="alert"
+        >
+          {error}
+        </p>
+      )}
+      <div className="action">
+        <button
+          className="btn-primary"
+          type="submit"
+          data-testid="signup-submit"
+          disabled={!key || !saved || submitting}
+          aria-describedby={
+            key && !saved ? "signup-save-key-reason" : undefined
+          }
+        >
+          Continue to payment
+        </button>
+        {key && !saved && (
+          <span id="signup-save-key-reason">{SAVE_KEY_REASON}</span>
+        )}
+      </div>
     </form>
   );
 }

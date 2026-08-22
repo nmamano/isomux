@@ -622,8 +622,29 @@ main .btn-primary:hover:not(:disabled) {
   padding: 0;
   accent-color: var(--accent);
 }
-.form textarea + button {
-  margin-top: 10px;
+.form p > .note {
+  display: block;
+  margin-top: 8px;
+}
+.form .key-field {
+  position: relative;
+  display: block;
+}
+.form .key-field textarea {
+  padding-top: 52px;
+}
+.form .key-field button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  min-width: 136px;
+}
+.form .copy-status {
+  position: absolute;
+  top: 18px;
+  right: 156px;
+  color: var(--text-dim);
+  font-size: 0.9rem;
 }
 .form fieldset {
   margin: 0 0 18px;

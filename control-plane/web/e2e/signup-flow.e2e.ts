@@ -89,6 +89,7 @@ async function submitSignup(
   page: Page,
   name: string,
   coupon = "",
+  options: { verifyUx?: boolean; expireSession?: boolean } = {},
 ): Promise<string> {
   await page.goto(`${BASE}/signup`);
   await page.waitForFunction(
@@ -101,8 +102,60 @@ async function submitSignup(
   );
   await page.fill('[data-testid="office-name"]', name);
   if (coupon) await page.fill('[data-testid="coupon"]', coupon);
+  if (options.verifyUx) {
+    const submit = page.locator('[data-testid="signup-submit"]');
+    check(
+      "payment stays disabled until the key is saved",
+      await submit.isDisabled(),
+    );
+    check(
+      "the disabled payment action explains its key gate",
+      (await page.textContent("#signup-save-key-reason"))?.includes(
+        "Save your server administrator key before continuing.",
+      ) === true,
+    );
+    check(
+      "the promotional code appears before the administrator key",
+      await page.evaluate(() => {
+        const promo = document.querySelector('[data-testid="coupon"]');
+        const privateKey = document.querySelector(
+          '[data-testid="server-administrator-private-key"]',
+        );
+        return !!(
+          promo &&
+          privateKey &&
+          promo.compareDocumentPosition(privateKey) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        );
+      }),
+    );
+  }
   await page.click('button:has-text("Copy private key")');
+  if (options.verifyUx) {
+    await page
+      .waitForSelector('.copy-status:has-text("Copied")', { timeout: 2_000 })
+      .catch(() => {});
+    check(
+      "copying the private key shows success feedback",
+      (await page.locator(".copy-status").textContent()) === "Copied" &&
+        (await page.locator('button:has-text("Copy private key")').isVisible()),
+    );
+    await page.screenshot({
+      path: "/tmp/signup-ux-layout.png",
+      fullPage: true,
+    });
+  }
   await page.click('label:has-text("I saved it") input');
+  if (options.verifyUx) {
+    check(
+      "saving the key enables payment",
+      await page.locator('[data-testid="signup-submit"]').isEnabled(),
+    );
+    await page
+      .locator('[data-testid="signup-submit"]')
+      .scrollIntoViewIfNeeded();
+  }
+  if (options.expireSession) await page.context().clearCookies();
   // WAIT FOR THE NAVIGATION THE CLICK CAUSES, not for the page already loaded.
   // waitForLoadState resolves immediately against the current document, so it
   // reported the form's own URL while the redirect to Stripe was still in
@@ -207,8 +260,67 @@ async function main(): Promise<void> {
       who ?? "",
     );
 
+    await submitSignup(page, "session-expired", "", {
+      expireSession: true,
+    });
+    check(
+      "an expired signup session returns the customer to sign-in",
+      new URL(page.url()).pathname === "/signin",
+      page.url(),
+    );
+    await signInAs(page, "customer@example.com");
+
+    await page.route(
+      "**/api/signup",
+      async (route) => {
+        await route.fulfill({
+          status: 403,
+          contentType: "text/plain",
+          body: "This signup request was refused.",
+        });
+      },
+      { times: 1 },
+    );
+    await submitSignup(page, "plain-text-refusal");
+    check(
+      "a plain-text refusal is shown beside the payment action",
+      (await errorCopy(page)) === "This signup request was refused.",
+    );
+    await page.route(
+      "**/api/signup",
+      async (route) => {
+        await route.fulfill({
+          status: 429,
+          contentType: "text/html",
+          body: "<h1>Edge throttle details</h1>",
+        });
+      },
+      { times: 1 },
+    );
+    await submitSignup(page, "html-refusal");
+    check(
+      "an HTML refusal uses customer-safe fallback copy",
+      (await errorCopy(page)) ===
+        "We could not continue signup. Reload the page and try again.",
+    );
+
     // ---- the three refusals, with their actual copy
-    const firstRequest = await submitSignup(page, "Not A Label");
+    const firstRequest = await submitSignup(page, "Not A Label", "", {
+      verifyUx: true,
+    });
+    const refusalBox = await page
+      .locator('[data-testid="signup-error"]')
+      .boundingBox();
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    const scrollTop = await page.evaluate(() => window.scrollY);
+    check(
+      "the signup refusal stays inside the scrolled payment viewport",
+      !!refusalBox &&
+        refusalBox.y >= 0 &&
+        refusalBox.y + refusalBox.height <= viewportHeight &&
+        scrollTop > 0,
+      `box=${refusalBox ? `${refusalBox.y}..${refusalBox.y + refusalBox.height}` : "missing"} viewport=0..${viewportHeight} scrollY=${scrollTop}`,
+    );
     check(
       "the signup request contains no private key",
       !firstRequest.includes("OPENSSH PRIVATE KEY"),
@@ -332,6 +444,16 @@ async function main(): Promise<void> {
         "a held reservation shows an explicit continuation action",
         (await page.textContent("body"))?.includes("Continue signup") === true,
       );
+      const errorPage = await context.newPage();
+      await errorPage.goto(
+        `${BASE}/signup?error=${encodeURIComponent("Try the continuation again.")}`,
+      );
+      check(
+        "a redirected continuation refusal stays visible",
+        (await errorPage.textContent('[data-testid="signup-error"]')) ===
+          "Try the continuation again.",
+      );
+      await errorPage.close();
       check(
         "continuation generates no replacement private key",
         (await page.$('[data-testid="server-administrator-private-key"]')) ===
