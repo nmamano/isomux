@@ -11,6 +11,7 @@
       "post": {
         "operationId": "chatAboutIsomux",
         "summary": "Stream an answer about Isomux",
+        "description": "Answer a question about Isomux, with optional documentation context supplied by the caller.",
         "requestBody": {
           "required": true,
           "content": {

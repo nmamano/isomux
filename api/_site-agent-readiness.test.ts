@@ -90,6 +90,7 @@ describe("isomux.com agent readiness", () => {
     const spec = JSON.parse(await Bun.file("site/openapi.json").text());
     expect(spec.openapi).toBe("3.1.0");
     expect(Object.keys(spec.paths)).toEqual(["/api/chat"]);
+    expect(spec.paths["/api/chat"].post.description).toContain("Isomux");
     expect(spec.paths["/api/chat"].post.responses["405"]).toBeDefined();
     expect(
       spec.components.schemas.ChatRequest.properties.messages.minItems,
@@ -106,6 +107,24 @@ describe("isomux.com agent readiness", () => {
     expect(vercel.rewrites.at(-1)).toEqual({
       source: "/:path*",
       destination: "/api/not-found?path=:path*",
+    });
+
+    const homepage = await Bun.file("site/index.html").text();
+    const match = homepage.match(
+      /<script type="application\/ld\+json">([\s\S]*?)<\/script>/,
+    );
+    const metaDescription = homepage.match(
+      /<meta\s+name="description"\s+content="([^"]+)"/,
+    );
+    expect(match).not.toBeNull();
+    expect(metaDescription).not.toBeNull();
+    expect(JSON.parse(match![1])).toMatchObject({
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "Isomux",
+      description: metaDescription![1],
+      url: "https://isomux.com/",
+      sameAs: ["https://github.com/nmamano/isomux"],
     });
   });
 

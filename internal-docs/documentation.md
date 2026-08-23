@@ -82,7 +82,7 @@ Keep these consistent across all surfaces below.
 
 ## 4b. Machine-readable site resources
 
-- **Files:** `site/llms.txt`, `site/openapi.json`, `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants.
+- **Files:** `site/llms.txt`, `site/openapi.json`, the `SoftwareApplication` JSON-LD in `site/index.html`, `site/_agent/index.md`, and the generated `site/_agent/docs/` Markdown variants.
 - **Audience:** Agents, API clients, and search indexes.
 - **Update when:** public site routes, the website API, docs paths, or the product's developer-resource links change.
 - **Deploy note:** Vercel Routing Middleware negotiates HTML and Markdown for the landing and docs URLs. The response must keep `Vary: Accept, Accept-Encoding`; unsupported media types return 406.
