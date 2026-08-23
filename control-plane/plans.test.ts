@@ -40,6 +40,11 @@ describe("hosted plans", () => {
       }),
     ).toEqual({ ok: true, stripePriceId: "price-entry" });
     expect(
+      resolveStripePrice(ENTRY_PLAN, {
+        legacyEntryStripePriceId: "price-legacy",
+      }),
+    ).toEqual({ ok: true, stripePriceId: "price-legacy" });
+    expect(
       resolveStripePrice(POWERUSER_PLAN, {
         legacyEntryStripePriceId: "price-legacy",
       }),
