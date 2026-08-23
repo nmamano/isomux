@@ -26,6 +26,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { type TestServer } from "./harness.ts";
 import { startTestServer } from "./harness.ts";
+import { builtShellExists } from "./built-ui.ts";
 import {
   HTTPS_ORIGIN,
   NAVIGATION_HEADERS,
@@ -261,18 +262,21 @@ describe("app hosts: the office is untouched", () => {
     expect(JSON.parse(res.body)).toEqual([]);
   });
 
-  it("still serves the SPA shell ON the office host", async () => {
-    const srv = await startFlatOffice();
-    const member = await srv.seedMember("Deputy");
-    const res = await raw(srv.port, {
-      host: OFFICE_HOST,
-      path: "/",
-      headers: { Cookie: `isomux_session=${member.rawSessionId}` },
-    });
-    expect(res.status).toBe(200);
-    expect(res.headers["content-type"]).toContain("text/html");
-    expect(res.body).toContain('<div id="root"></div>');
-  });
+  it.skipIf(!builtShellExists)(
+    "still serves the SPA shell ON the office host (needs ui/dist - run `bun run build:ui`)",
+    async () => {
+      const srv = await startFlatOffice();
+      const member = await srv.seedMember("Deputy");
+      const res = await raw(srv.port, {
+        host: OFFICE_HOST,
+        path: "/",
+        headers: { Cookie: `isomux_session=${member.rawSessionId}` },
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers["content-type"]).toContain("text/html");
+      expect(res.body).toContain('<div id="root"></div>');
+    },
+  );
 
   it("still upgrades a WebSocket ON the office host", async () => {
     const srv = await startFlatOffice();

@@ -15,8 +15,9 @@
 //   - PWA pre-auth whitelist: /manifest.json and /icons/* are served without a
 //     cookie (iOS fetches them out-of-band on "Add to Home Screen"), while the
 //     app shell and its bundles behind the same static serve stay walled. Both
-//     halves are asserted - a whitelist test that only checks the open side
-//     passes just as well if the whole wall came down.
+//     halves are asserted when the UI is built; the wall half always runs. A
+//     whitelist test that only checks the open side passes just as well if the
+//     whole wall came down.
 //   - The two-step invite flow over HTTP: GET /i/<token> renders WITHOUT
 //     consuming, POST /auth/accept consumes and sets the session cookie, and a
 //     replayed accept is 410 rather than a second session.
@@ -25,6 +26,7 @@
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { builtPwaAssetsExist } from "./built-ui.ts";
 import {
   COOKIE_NAME,
   buildPublicOrigin,
@@ -219,22 +221,30 @@ describe("auth/wall: HTTP cookie gate", () => {
 });
 
 describe("auth/wall: PWA assets are the ONLY pre-auth statics", () => {
-  it("/manifest.json and /icons/* serve anonymously; the app shell and bundles do not", async () => {
+  it.skipIf(!builtPwaAssetsExist)(
+    "/manifest.json and /icons/* serve anonymously (needs ui/dist - run `bun run build:ui`)",
+    async () => {
+      server = await startTestServer();
+      await server.seedOwner("Boss");
+
+      const manifest = await raw(server, "/manifest.json");
+      expect(manifest.status).toBe(200);
+      // Really the manifest, not a login page dressed as one.
+      expect(await manifest.json()).toHaveProperty("name");
+
+      const icon = await raw(server, "/icons/icon-192.png");
+      expect(icon.status).toBe(200);
+      expect(icon.headers.get("content-type")).toBe("image/png");
+    },
+  );
+
+  it("keeps the app shell, bundles, and other routes behind the auth wall", async () => {
     server = await startTestServer();
     // An owner must exist, or the office is pre-claim and `/` legitimately
     // serves the claim form to anyone who can reach the (loopback-bound) port.
     await server.seedOwner("Boss");
 
-    const manifest = await raw(server, "/manifest.json");
-    expect(manifest.status).toBe(200);
-    // Really the manifest, not a login page dressed as one.
-    expect(await manifest.json()).toHaveProperty("name");
-
-    const icon = await raw(server, "/icons/icon-192.png");
-    expect(icon.status).toBe(200);
-    expect(icon.headers.get("content-type")).toBe("image/png");
-
-    // The other half of the whitelist: everything else still 401s anonymously.
+    // Everything outside the whitelist still 401s anonymously.
     for (const path of ["/", "/index.html", "/app.js", "/api/files"]) {
       const res = await raw(server, path);
       expect({ path, status: res.status }).toEqual({ path, status: 401 });

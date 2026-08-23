@@ -24,6 +24,7 @@ import {
   type TestServer,
   type SeededIdentity,
 } from "./harness.ts";
+import { builtShellExists } from "./built-ui.ts";
 import {
   COOKIE_NAME,
   HOST_COOKIE_NAME,
@@ -192,25 +193,28 @@ describe("__Host- cookie: plain-HTTP arm is unchanged", () => {
     );
   });
 
-  it("no migration anywhere: shell, safe /api GET, and the WS 101 set no cookie", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    const cookie = `${COOKIE_NAME}=${owner.rawSessionId}`;
+  it.skipIf(!builtShellExists)(
+    "no migration anywhere: shell, safe /api GET, and the WS 101 set no cookie (needs ui/dist - run `bun run build:ui`)",
+    async () => {
+      server = await startTestServer();
+      const owner = await server.seedOwner("Boss");
+      const cookie = `${COOKIE_NAME}=${owner.rawSessionId}`;
 
-    const shell = await server.http("/", { headers: { Cookie: cookie } });
-    expect(shell.status).toBe(200);
-    expect(setCookieLines(shell)).toEqual([]);
+      const shell = await server.http("/", { headers: { Cookie: cookie } });
+      expect(shell.status).toBe(200);
+      expect(setCookieLines(shell)).toEqual([]);
 
-    const api = await server.http("/api/sessions", {
-      headers: { Cookie: cookie },
-    });
-    expect(api.status).toBe(200);
-    expect(setCookieLines(api)).toEqual([]);
+      const api = await server.http("/api/sessions", {
+        headers: { Cookie: cookie },
+      });
+      expect(api.status).toBe(200);
+      expect(setCookieLines(api)).toEqual([]);
 
-    const up = await rawUpgrade(server.port, cookie);
-    expect(up.status).toBe(101);
-    expect(up.setCookie).toEqual([]);
-  });
+      const up = await rawUpgrade(server.port, cookie);
+      expect(up.status).toBe(101);
+      expect(up.setCookie).toEqual([]);
+    },
+  );
 
   // The one place a plain-HTTP office does NOT behave exactly as before, and
   // deliberately: an office that was on HTTPS and then went back to loopback
@@ -526,48 +530,54 @@ describe("browser session lockout diagnostics", () => {
 });
 
 describe("__Host- cookie: the two-step migration", () => {
-  it("step 1 on the shell: a legacy-only session gets the same id under the new name, legacy untouched", async () => {
-    const { srv } = await startHttps();
-    server = srv;
-    const yu = await server.seedMember("Yu");
-    const res = await server.http("/", {
-      headers: { Cookie: `${COOKIE_NAME}=${yu.rawSessionId}` },
-    });
-    expect(res.status).toBe(200);
-    const lines = setCookieLines(res);
-    expect(lines.length).toBe(1);
-    // Same session id: a migration re-issues, it never mints.
-    expect(lines[0]).toContain(`${HOST_COOKIE_NAME}=${yu.rawSessionId}`);
-    expect(lines[0]).toContain("Secure");
-    // Nothing is cleared yet - the browser has not shown us it accepted this.
-    expect(lines[0]).not.toContain("Max-Age=0");
-    // Anchored to the session's ABSOLUTE cap (1 year), the same moment the
-    // original cookie was anchored to - not the 30-day rolling expiry, which
-    // would quietly shorten the session, and not a fresh year, which would
-    // quietly extend it.
-    const maxAge = parseInt(/Max-Age=(\d+)/.exec(lines[0])?.[1] ?? "0", 10);
-    const day = 24 * 60 * 60;
-    expect(maxAge).toBeGreaterThan(364 * day);
-    expect(maxAge).toBeLessThanOrEqual(365 * day);
-  });
+  it.skipIf(!builtShellExists)(
+    "step 1 on the shell: a legacy-only session gets the same id under the new name, legacy untouched (needs ui/dist - run `bun run build:ui`)",
+    async () => {
+      const { srv } = await startHttps();
+      server = srv;
+      const yu = await server.seedMember("Yu");
+      const res = await server.http("/", {
+        headers: { Cookie: `${COOKIE_NAME}=${yu.rawSessionId}` },
+      });
+      expect(res.status).toBe(200);
+      const lines = setCookieLines(res);
+      expect(lines.length).toBe(1);
+      // Same session id: a migration re-issues, it never mints.
+      expect(lines[0]).toContain(`${HOST_COOKIE_NAME}=${yu.rawSessionId}`);
+      expect(lines[0]).toContain("Secure");
+      // Nothing is cleared yet - the browser has not shown us it accepted this.
+      expect(lines[0]).not.toContain("Max-Age=0");
+      // Anchored to the session's ABSOLUTE cap (1 year), the same moment the
+      // original cookie was anchored to - not the 30-day rolling expiry, which
+      // would quietly shorten the session, and not a fresh year, which would
+      // quietly extend it.
+      const maxAge = parseInt(/Max-Age=(\d+)/.exec(lines[0])?.[1] ?? "0", 10);
+      const day = 24 * 60 * 60;
+      expect(maxAge).toBeGreaterThan(364 * day);
+      expect(maxAge).toBeLessThanOrEqual(365 * day);
+    },
+  );
 
-  it("step 2: once the __Host- cookie comes back, the legacy name is cleared - and only then", async () => {
-    const { srv } = await startHttps();
-    server = srv;
-    const yu = await server.seedMember("Yu");
-    const both = `${HOST_COOKIE_NAME}=${yu.rawSessionId}; ${COOKIE_NAME}=${yu.rawSessionId}`;
-    const res = await server.http("/", { headers: { Cookie: both } });
-    const lines = setCookieLines(res);
-    expect(lines.length).toBe(1);
-    expect(lines[0]).toBe(
-      "isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
-    );
-    // A session already fully on the new name is left entirely alone.
-    const done = await server.http("/", {
-      headers: { Cookie: `${HOST_COOKIE_NAME}=${yu.rawSessionId}` },
-    });
-    expect(setCookieLines(done)).toEqual([]);
-  });
+  it.skipIf(!builtShellExists)(
+    "step 2: once the __Host- cookie comes back, the legacy name is cleared - and only then (needs ui/dist - run `bun run build:ui`)",
+    async () => {
+      const { srv } = await startHttps();
+      server = srv;
+      const yu = await server.seedMember("Yu");
+      const both = `${HOST_COOKIE_NAME}=${yu.rawSessionId}; ${COOKIE_NAME}=${yu.rawSessionId}`;
+      const res = await server.http("/", { headers: { Cookie: both } });
+      const lines = setCookieLines(res);
+      expect(lines.length).toBe(1);
+      expect(lines[0]).toBe(
+        "isomux_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0; Secure",
+      );
+      // A session already fully on the new name is left entirely alone.
+      const done = await server.http("/", {
+        headers: { Cookie: `${HOST_COOKIE_NAME}=${yu.rawSessionId}` },
+      });
+      expect(setCookieLines(done)).toEqual([]);
+    },
+  );
 
   it("rides the WS 101 - the seam an already-open tab reaches without reloading", async () => {
     const { srv } = await startHttps();

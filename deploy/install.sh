@@ -475,9 +475,9 @@ install_packages() {
   # during bun install; fresh server images ship without a toolchain.
   # openssh-client: the root-reachability check logs in to this box to find out
   # whether the service account can; server images ship sshd without the client.
-  # ffmpeg: a broadly useful utility for agent workloads, not an isomux runtime
-  # dependency.
-  apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3 openssh-client ffmpeg
+  # ffmpeg, ripgrep, tmux: broadly useful utilities for agent workloads, not
+  # isomux runtime dependencies.
+  apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3 openssh-client ffmpeg ripgrep tmux
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would add the Caddy and NodeSource apt repositories and install caddy + nodejs"
   else

@@ -374,6 +374,11 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
     expect(SRC).toMatch(/apt_install[^\n]*\bffmpeg\b/);
   });
 
+  it("installs command-line utilities for agent workloads", () => {
+    expect(SRC).toMatch(/apt_install[^\n]*\bripgrep\b/);
+    expect(SRC).toMatch(/apt_install[^\n]*\btmux\b/);
+  });
+
   it("leaves the operator a command to re-run, and points at it", () => {
     // The hardening is skipped on a box with no SSH key yet, and whoever adds
     // a key later will not re-run a whole installer.

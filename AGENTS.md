@@ -10,6 +10,8 @@ Server-side code changes always require a restart. Restarting the server is mild
 
 For UI changes, run `bun run build:ui`. Outputs to `ui/dist/`, which the server reads per-request. No server restart needed, only a page refresh.
 
+On a fresh checkout or worktree, run `bun run build:ui` before `bun test`. Tests that serve the app shell or PWA assets need the built files.
+
 Proactively remind the user of what steps they need to take to do what they want: e.g., to test a front-end only change, or a server change in main, or a change in a worktree. Offer to do the steps yourself. After completing a feature or batch of fixes, offer to the user to commit.
 
 If an action runs into permission issues because it's a destructive action, let the user know and give them the command they need to run to do it themselves.
