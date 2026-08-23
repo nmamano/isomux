@@ -116,6 +116,62 @@ failed, investigate that Stripe refund; do not create a second refund without
 first proving that the first one failed and the payment again has refundable
 funds.
 
+## Close the office after the refund
+
+A refund alone changes nothing on the service side: the control plane does not
+handle Stripe refund events, so the office keeps serving, and unless the
+customer already scheduled a cancellation, Stripe bills again at the next
+period. Always complete the steps below after you issue a refund.
+
+The refund replaces the retention promise. A normal cancellation keeps the
+office data for 14 days so the customer can restore it; a refunded office is
+closed for good. There is no early-deletion command, and do not improvise one:
+the control plane powers the box off at once and deletes it on its normal
+automatic schedule. What "the retention window does not apply" changes is the
+customer's options, not the deletion mechanics: a refunded customer gets no
+restore and no temporary access.
+
+1. In the live-mode Stripe Dashboard, cancel the subscription immediately.
+   The customer's own dashboard cancellation only schedules the end of the
+   paid period, so the subscription is usually still active when the refund
+   is issued. Do not leave it scheduled: a refunded office must stop serving
+   now, not at period end.
+2. Confirm that the cancellation reached the control plane. Within a few
+   minutes, the local `subscriptions` row must show `ended_at` set and
+   `cancellation_reason = 'cancellation_requested'`. If `cancellation_reason`
+   holds another value, the automatic teardown never starts and the box stays
+   up: stop and escalate. Do not edit the database to compensate.
+3. Confirm the power-off: `instances.service_state` becomes `suspended` when
+   the control plane confirms the power-off, usually within minutes. From that
+   point the box is off, and the `cancel_asset` and `remove_dns` operations
+   open automatically 14 days after `ended_at` with no operator action.
+   For a failure-to-deliver refund the office may never have served: still
+   cancel the subscription and confirm the database record the same way; if no
+   box is live, there is nothing to power off.
+4. In the refund reply, also state: the office is closed and cannot be
+   restored, and the office name cannot be used again for a new signup (name
+   reservations are permanent). This matters because the customer's dashboard
+   keeps offering reinstatement and temporary access until the deletion
+   operations open on day 14; the reply is what tells the customer those
+   offers do not apply after a refund. Do not grant temporary access to a
+   refunded office. If the customer re-subscribes through the dashboard on
+   their own before day 14, that is a new paid subscription and it stands.
+5. Record the refund, the cancellation, and the checks above in the internal
+   support record. The control plane has no operator free-text audit path;
+   the support record is the record.
+
+Do not force an earlier deletion:
+
+- Do not edit `subscriptions` or `instances` rows. Lifecycle operation ids
+  derive from `ended_at`, so editing it orphans the operations already on
+  record, and webhooks are the only sanctioned writer of subscription rows.
+- Do not use the `recycle` CLI command or a provider reinstall to wipe the
+  box. They bypass the control-plane store, leave it believing the office is
+  still retained, and arm a fresh live SSH key.
+- Do not touch the box in the Contabo panel. Contabo cancels only at the
+  paid-term end, and the automatic `cancel_asset` operation handles the
+  provider term on its own.
+
 ## Change a card before the customer portal is enabled
 
 Isomux never receives card details. Do not ask the customer to email card data,
