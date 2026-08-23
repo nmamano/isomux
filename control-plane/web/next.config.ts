@@ -13,6 +13,25 @@ import type { NextConfig } from "next";
  */
 const repoRoot = path.join(import.meta.dirname, "..", "..");
 
+const securityHeaders = [
+  {
+    key: "Content-Security-Policy",
+    value:
+      "default-src 'self'; base-uri 'self'; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self' https://checkout.stripe.com; frame-ancestors 'none'; img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests",
+  },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+  },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+];
+
 const config: NextConfig = {
   // `next dev` otherwise writes AGENTS.md and CLAUDE.md into this directory and
   // re-creates them when they are removed. Agent instructions that appear from
@@ -21,6 +40,9 @@ const config: NextConfig = {
   agentRules: false,
   turbopack: { root: repoRoot },
   outputFileTracingRoot: repoRoot,
+  async headers() {
+    return [{ source: "/:path*", headers: securityHeaders }];
+  },
 };
 
 export default config;

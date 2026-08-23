@@ -1,0 +1,5 @@
+Contact: mailto:llc@isomux.com
+Expires: 2027-08-22T00:00:00Z
+Preferred-Languages: en
+Canonical: https://isomux.com/.well-known/security.txt
+Policy: https://github.com/nmamano/isomux/security/policy

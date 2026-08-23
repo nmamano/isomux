@@ -30,6 +30,7 @@ import {
 } from "./identity/index.ts";
 import { resolveToken } from "./identity/tokens.ts";
 import { appIdentityFromToken } from "./app-tokens.ts";
+import { deriveAppHostDomain } from "./app-domain.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -120,15 +121,46 @@ export function securityHeaders(opts?: {
   tokenInUrl?: boolean;
 }): Record<string, string> {
   const tokenInUrl = opts?.tokenInUrl ?? true;
-  const { isHttps } = buildPublicOrigin();
-  const h: Record<string, string> = {};
-  if (tokenInUrl) {
-    h["Referrer-Policy"] = "no-referrer";
-  }
+  const { origin, isHttps } = buildPublicOrigin();
+  const appDomain = deriveAppHostDomain(origin, isHttps);
+  const frameSources = ["'self'", "blob:", "data:"];
+  if (appDomain) frameSources.push(`https://*.${appDomain}`);
+  const csp = [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "connect-src 'self' ws: wss:",
+    "font-src 'self' https://fonts.gstatic.com",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    `frame-src ${frameSources.join(" ")}`,
+    "img-src 'self' data: blob: https:",
+    "object-src 'none'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    ...(isHttps ? ["upgrade-insecure-requests"] : []),
+  ].join("; ");
+  const h: Record<string, string> = {
+    "Content-Security-Policy": csp,
+    "Permissions-Policy":
+      "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+    "Referrer-Policy": tokenInUrl
+      ? "no-referrer"
+      : "strict-origin-when-cross-origin",
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+  };
   if (isHttps) {
     h["Strict-Transport-Security"] = "max-age=31536000";
   }
   return h;
+}
+
+export function withSecurityHeaders(response: Response): Response {
+  const headers = securityHeaders({ tokenInUrl: false });
+  for (const [name, value] of Object.entries(headers)) {
+    if (!response.headers.has(name)) response.headers.set(name, value);
+  }
+  return response;
 }
 
 // ---------------------------------------------------------------------------

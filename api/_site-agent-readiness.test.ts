@@ -104,6 +104,10 @@ describe("isomux.com agent readiness", () => {
     expect(chatbot).toContain("err.error?.message || err.error");
 
     const vercel = JSON.parse(await Bun.file("vercel.json").text());
+    expect(vercel.rewrites[0]).toEqual({
+      source: "/.well-known/security.txt",
+      destination: "/security.txt",
+    });
     expect(vercel.rewrites.at(-1)).toEqual({
       source: "/:path*",
       destination: "/api/not-found?path=:path*",
@@ -126,6 +130,12 @@ describe("isomux.com agent readiness", () => {
       url: "https://isomux.com/",
       sameAs: ["https://github.com/nmamano/isomux"],
     });
+
+    const security = await Bun.file("site/security.txt").text();
+    expect(security).toContain("Contact: mailto:llc@isomux.com");
+    expect(security).toContain(
+      "Canonical: https://isomux.com/.well-known/security.txt",
+    );
   });
 
   it("rewrites cross-document Markdown links to canonical docs URLs", () => {

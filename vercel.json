@@ -13,6 +13,29 @@
   ],
   "headers": [
     {
+      "source": "/:path*",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; base-uri 'self'; connect-src 'self' https://api.github.com https://www.google-analytics.com https://*.google-analytics.com; font-src 'self' https://fonts.gstatic.com; form-action 'self'; frame-ancestors 'self'; frame-src 'self'; img-src 'self' data:; object-src 'none'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; upgrade-insecure-requests"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), geolocation=(), microphone=(), payment=(), usb=()"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Strict-Transport-Security",
+          "value": "max-age=63072000; includeSubDomains; preload"
+        },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" }
+      ]
+    },
+    {
       "source": "/",
       "headers": [{ "key": "Vary", "value": "Accept, Accept-Encoding" }]
     },
@@ -22,6 +45,10 @@
     }
   ],
   "rewrites": [
+    {
+      "source": "/.well-known/security.txt",
+      "destination": "/security.txt"
+    },
     {
       "source": "/:path*",
       "destination": "/api/not-found?path=:path*"

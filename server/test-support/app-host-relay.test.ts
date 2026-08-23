@@ -98,6 +98,9 @@ describe("app-host relay: end to end", () => {
     expect(res.status).toBe(200);
     expect(res.body).toBe("<h1>the app</h1>");
     expect(res.headers["content-type"]).toBe("text/html");
+    // Office hardening does not rewrite an agent-built app's response.
+    expect(res.headers["content-security-policy"]).toBeUndefined();
+    expect(res.headers["x-content-type-options"]).toBeUndefined();
     // The app's own cookie reaches the browser untouched...
     expect(res.setCookies).toEqual(["app_pref=blue; Path=/"]);
     // ...and the credential that admits to the app never reaches the app.
@@ -254,6 +257,12 @@ describe("app-host relay: nothing reaches a socket it should not", () => {
     const res = await raw(srv.port, { host: OFFICE_HOST, path: "/readyz" });
     expect(res.status).toBe(200);
     expect(res.raw).toContain("ok");
+    expect(res.headers["content-security-policy"]).toContain(
+      `frame-src 'self' blob: data: https://*.${OFFICE_HOST}`,
+    );
+    expect(res.headers["content-security-policy"]).toContain(
+      "upgrade-insecure-requests",
+    );
     expect(seen).toEqual([]);
   });
 });

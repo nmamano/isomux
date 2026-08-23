@@ -85,6 +85,22 @@ const wsProbe = (
   init: Parameters<typeof raw>[2] = {},
 ): Promise<Response> => raw(srv, "/ws", init);
 
+function expectOfficeSecurityHeaders(response: Response): void {
+  const csp = response.headers.get("content-security-policy");
+  expect(csp).toContain("base-uri 'self'");
+  expect(csp).toContain("form-action 'self'");
+  expect(csp).toContain("frame-ancestors 'none'");
+  expect(csp).toContain("object-src 'none'");
+  expect(csp).not.toContain("default-src *");
+  // The harness is plain HTTP. Upgrading its own assets and WebSocket would
+  // make every non-localhost network office unusable.
+  expect(csp).not.toContain("upgrade-insecure-requests");
+  expect(response.headers.get("permissions-policy")).toContain("camera=()");
+  expect(response.headers.get("referrer-policy")).not.toBeNull();
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("x-frame-options")).toBe("DENY");
+}
+
 describe("auth/wall: WS upgrade gate", () => {
   it("401 without a cookie, 403 on a bad Origin, 403 on a MISSING Origin, 400 once both pass", async () => {
     server = await startTestServer();
@@ -217,6 +233,40 @@ describe("auth/wall: HTTP cookie gate", () => {
     });
     expect(expired.status).toBe(401);
     expect(await expired.text()).toBe(await anonymous.text());
+  });
+});
+
+describe("auth/wall: public disclosure and response hardening", () => {
+  it("serves security.txt without an identity", async () => {
+    server = await startTestServer();
+    await server.seedOwner("Boss");
+
+    const response = await raw(server, "/.well-known/security.txt");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toContain("text/plain");
+    expect(await response.text()).toContain("Contact: mailto:llc@isomux.com");
+    expectOfficeSecurityHeaders(response);
+
+    const head = await raw(server, "/.well-known/security.txt", {
+      method: "HEAD",
+    });
+    expect(head.status).toBe(200);
+    expectOfficeSecurityHeaders(head);
+  });
+
+  it("adds the same baseline headers to HTML, JSON errors, and public assets", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+
+    const responses = [
+      await raw(server, "/", { rawSessionId: owner.rawSessionId }),
+      await raw(server, "/api/version"),
+      await raw(server, "/manifest.json"),
+    ];
+    expect(responses.map((response) => response.status)).toEqual([
+      200, 401, 200,
+    ]);
+    for (const response of responses) expectOfficeSecurityHeaders(response);
   });
 });
 

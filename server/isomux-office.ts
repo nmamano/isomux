@@ -101,6 +101,7 @@ import {
   checkOrigin,
   requestIsLoopback,
   securityHeaders,
+  withSecurityHeaders,
   setOnOwnerCreated,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
@@ -4491,6 +4492,15 @@ function withCookieMigration(
 
 const PORT = parseInt(process.env.PORT || "4000");
 
+function securityTxt(): string {
+  return `Contact: mailto:llc@isomux.com
+Expires: 2027-08-22T00:00:00Z
+Preferred-Languages: en
+Canonical: ${buildPublicOrigin().origin}/.well-known/security.txt
+Policy: https://github.com/nmamano/isomux/security/policy
+`;
+}
+
 // buildServer: construct the HTTP+WS listener. Extracted from module top-level
 // so startServer() controls when the bind happens (production via
 // import.meta.main; tests via the in-process harness on an ephemeral port).
@@ -4537,526 +4547,548 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // wants back for an upgraded request.
       if (appHostResponse) return await appHostResponse;
 
-      const url = new URL(req.url);
+      const officeHostResponse = await (async () => {
+        const url = new URL(req.url);
 
-      // WebSocket upgrade - authenticated and origin-checked. The upgrade
-      // carries the session into ws.data so per-message handlers can attribute
-      // writes without trusting client-supplied username fields.
-      if (url.pathname === "/ws") {
-        const wsCookies = readSessionCookies(req);
-        const wsSession = validateSession(wsCookies.selected || null);
-        emitBrowserSessionDiagnostic(
-          browserSessionDiagnostic(wsCookies, wsSession, "ws"),
-          req,
-        );
-        if (!wsSession) {
-          return new Response("unauthenticated", { status: 401 });
+        // WebSocket upgrade - authenticated and origin-checked. The upgrade
+        // carries the session into ws.data so per-message handlers can attribute
+        // writes without trusting client-supplied username fields.
+        if (url.pathname === "/ws") {
+          const wsCookies = readSessionCookies(req);
+          const wsSession = validateSession(wsCookies.selected || null);
+          emitBrowserSessionDiagnostic(
+            browserSessionDiagnostic(wsCookies, wsSession, "ws"),
+            req,
+          );
+          if (!wsSession) {
+            return new Response("unauthenticated", { status: 401 });
+          }
+          if (!checkOrigin(req)) {
+            // Caller already passed cookie auth, so naming the expected origin
+            // leaks nothing and saves an on-box debugging round (task 517fe4da).
+            const { origin: expectedOrigin } = buildPublicOrigin();
+            return new Response(`bad origin (expected ${expectedOrigin})`, {
+              status: 403,
+            });
+          }
+          // The cookie migration rides the 101. This is the seam that reaches an
+          // already-open tab: a running SPA can reconnect its socket for days
+          // without ever loading a page again, so a page-load-only migration
+          // would leave exactly the population this hardening is for. Verified
+          // in real Chrome that a Set-Cookie on an upgrade response is committed
+          // and returned on the next request. Multi-value MUST go through
+          // Headers.append - an array passed in the plain object is dropped.
+          const wsMigration = sessionCookieMigrationHeaders(
+            wsCookies,
+            wsSession,
+          );
+          const wsHeaders = new Headers();
+          for (const line of wsMigration) wsHeaders.append("Set-Cookie", line);
+          const upgraded = server.upgrade(req, {
+            data: {
+              kind: "office" as const,
+              session: wsSession,
+              connectionId: nextConnectionId(),
+            },
+            ...(wsMigration.length > 0 ? { headers: wsHeaders } : {}),
+          });
+          if (upgraded) return;
+          return new Response("WebSocket upgrade failed", { status: 400 });
         }
-        if (!checkOrigin(req)) {
-          // Caller already passed cookie auth, so naming the expected origin
-          // leaks nothing and saves an on-box debugging round (task 517fe4da).
-          const { origin: expectedOrigin } = buildPublicOrigin();
-          return new Response(`bad origin (expected ${expectedOrigin})`, {
-            status: 403,
+
+        // GET /readyz - unauthenticated readiness probe (release-channel slice
+        // C1; PUBLIC_ROUTES carries the bypass metadata). Reaching this handler
+        // already proves readiness: startServer runs the startup migrations
+        // (bootPrelude, migrateOwnersToRuleBasedAccess) BEFORE buildServer
+        // binds, so a served request implies migrations completed. The body is
+        // deliberately state-free ("ok" only - no version, no office info).
+        // Non-loopback callers are rate-limited; loopback is exempt so the
+        // updater's post-restart poll can never trip the limit and manufacture
+        // a rollback.
+        if (url.pathname === "/readyz" && req.method === "GET") {
+          if (!requestIsLoopback(req, server)) {
+            const ip = server.requestIP(req)?.address ?? "unknown";
+            if (!allowReadyRequest(ip, Date.now())) {
+              return new Response("rate limited\n", { status: 429 });
+            }
+          }
+          return new Response("ok\n", {
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
           });
         }
-        // The cookie migration rides the 101. This is the seam that reaches an
-        // already-open tab: a running SPA can reconnect its socket for days
-        // without ever loading a page again, so a page-load-only migration
-        // would leave exactly the population this hardening is for. Verified
-        // in real Chrome that a Set-Cookie on an upgrade response is committed
-        // and returned on the next request. Multi-value MUST go through
-        // Headers.append - an array passed in the plain object is dropped.
-        const wsMigration = sessionCookieMigrationHeaders(wsCookies, wsSession);
-        const wsHeaders = new Headers();
-        for (const line of wsMigration) wsHeaders.append("Set-Cookie", line);
-        const upgraded = server.upgrade(req, {
-          data: {
-            kind: "office" as const,
-            session: wsSession,
-            connectionId: nextConnectionId(),
-          },
-          ...(wsMigration.length > 0 ? { headers: wsHeaders } : {}),
-        });
-        if (upgraded) return;
-        return new Response("WebSocket upgrade failed", { status: 400 });
-      }
 
-      // GET /readyz - unauthenticated readiness probe (release-channel slice
-      // C1; PUBLIC_ROUTES carries the bypass metadata). Reaching this handler
-      // already proves readiness: startServer runs the startup migrations
-      // (bootPrelude, migrateOwnersToRuleBasedAccess) BEFORE buildServer
-      // binds, so a served request implies migrations completed. The body is
-      // deliberately state-free ("ok" only - no version, no office info).
-      // Non-loopback callers are rate-limited; loopback is exempt so the
-      // updater's post-restart poll can never trip the limit and manufacture
-      // a rollback.
-      if (url.pathname === "/readyz" && req.method === "GET") {
-        if (!requestIsLoopback(req, server)) {
-          const ip = server.requestIP(req)?.address ?? "unknown";
-          if (!allowReadyRequest(ip, Date.now())) {
-            return new Response("rate limited\n", { status: 429 });
-          }
-        }
-        return new Response("ok\n", {
-          headers: { "Content-Type": "text/plain; charset=utf-8" },
-        });
-      }
-
-      // GET /__isomux/tls-ask - the certificate admission gate for app
-      // hostnames (slice 7). The terminator calls it over loopback before
-      // obtaining a certificate AND before loading one it already has in
-      // storage, so this answers on every cold load, not once per name. It
-      // approves the office's own host and live app labels, and denies
-      // everything else (server/tls-ask.ts). Unauthenticated, and here rather than behind the
-      // auth wall for the same reason /readyz is: the caller is a service on
-      // this box with no session to present. That placement is also what makes
-      // a version mismatch safe - an office that predates this route answers
-      // 401 from the wall, which is not a 2xx, so it issues nothing.
-      if (url.pathname === TLS_ASK_PATH && req.method === "GET") {
-        return handleTlsAsk(url, {
-          domain: appHostDomain(),
-          isLive: (label) => appRegistry.isLiveHostLabel(label),
-        });
-      }
-
-      // /auth/* and /i/<token> routes. These must run before the gating check
-      // because unauthenticated visitors transition to authenticated through
-      // them. Pass the office name so pre-auth pages render the same tab
-      // title format (`<name> | Isomux - ...`) the SPA shell uses.
-      const officeName = agentManager.getOfficeSettings().name;
-      const authResponse = await tryHandleAuthRoute(
-        req,
-        url,
-        officeName,
-        server,
-      );
-      if (authResponse) return authResponse;
-
-      // PWA manifest + app icons: iOS Safari fetches these out-of-band when
-      // "Add to Home Screen" runs, and the apple-touch-icon fetch in particular
-      // can happen without the page's cookies. If 401'd here the PWA tile
-      // shows a generic icon and the manifest's name/colors don't apply.
-      // Whitelisted unauthenticated; they're public marketing-grade assets
-      // baked at build time and contain no deployment state. URL.pathname is
-      // normalized by the parser so path-traversal via .. can't escape /icons/.
-      if (
-        req.method === "GET" &&
-        (url.pathname === "/manifest.json" ||
-          url.pathname.startsWith("/icons/"))
-      ) {
-        const f = Bun.file(join(UI_DIST, url.pathname));
-        if (await f.exists()) {
-          return new Response(f, {
+        if (
+          url.pathname === "/.well-known/security.txt" &&
+          (req.method === "GET" || req.method === "HEAD")
+        ) {
+          return new Response(securityTxt(), {
             headers: {
-              "Content-Type": mimeTypeForFilename(url.pathname),
-              "Cache-Control": "public, max-age=31536000, immutable",
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "public, max-age=3600",
             },
           });
         }
-        // fall through to the 404 path below if the asset isn't on disk
-      }
 
-      // Unified REST surface (Phase 3a). Routes declared in the typed table are
-      // dispatched through the executor: identity -> authorize -> preconditions
-      // -> idempotency -> handler -> emit. Identity is REQUIRED (cookie or
-      // bearer). An unmatched or not-yet-migrated /api path falls through to the
-      // legacy handlers (/api/upload, /api/files, /api/images) and the static
-      // serve below.
-      if (url.pathname.startsWith("/api/")) {
-        const apiMatch = matchRoute(API_ROUTES, req.method, url.pathname);
-        if (apiMatch && executorDeps.handlers.has(apiMatch.route.opId)) {
-          const apiAuth = authenticate(req, { officeName });
-          if (apiAuth.kind !== "ok") {
-            // Marshal the auth rejection into the /api envelope
-            // {error:{code,message}} - the new contract, NOT the legacy
-            // auth-middleware shape. Every migrated /api route inherits this
-            // entrypoint, so the envelope must be uniform here. authenticate()
-            // rejects with only two statuses: 403 (bad origin / CSRF) and 401
-            // (no / invalid identity).
-            const badOrigin =
-              apiAuth.kind === "rejected" && apiAuth.response.status === 403;
-            return badOrigin
-              ? errorResponse(403, "bad_origin", "bad origin")
-              : errorResponse(401, "unauthenticated", "unauthenticated");
+        // GET /__isomux/tls-ask - the certificate admission gate for app
+        // hostnames (slice 7). The terminator calls it over loopback before
+        // obtaining a certificate AND before loading one it already has in
+        // storage, so this answers on every cold load, not once per name. It
+        // approves the office's own host and live app labels, and denies
+        // everything else (server/tls-ask.ts). Unauthenticated, and here rather than behind the
+        // auth wall for the same reason /readyz is: the caller is a service on
+        // this box with no session to present. That placement is also what makes
+        // a version mismatch safe - an office that predates this route answers
+        // 401 from the wall, which is not a 2xx, so it issues nothing.
+        if (url.pathname === TLS_ASK_PATH && req.method === "GET") {
+          return handleTlsAsk(url, {
+            domain: appHostDomain(),
+            isLive: (label) => appRegistry.isLiveHostLabel(label),
+          });
+        }
+
+        // /auth/* and /i/<token> routes. These must run before the gating check
+        // because unauthenticated visitors transition to authenticated through
+        // them. Pass the office name so pre-auth pages render the same tab
+        // title format (`<name> | Isomux - ...`) the SPA shell uses.
+        const officeName = agentManager.getOfficeSettings().name;
+        const authResponse = await tryHandleAuthRoute(
+          req,
+          url,
+          officeName,
+          server,
+        );
+        if (authResponse) return authResponse;
+
+        // PWA manifest + app icons: iOS Safari fetches these out-of-band when
+        // "Add to Home Screen" runs, and the apple-touch-icon fetch in particular
+        // can happen without the page's cookies. If 401'd here the PWA tile
+        // shows a generic icon and the manifest's name/colors don't apply.
+        // Whitelisted unauthenticated; they're public marketing-grade assets
+        // baked at build time and contain no deployment state. URL.pathname is
+        // normalized by the parser so path-traversal via .. can't escape /icons/.
+        if (
+          req.method === "GET" &&
+          (url.pathname === "/manifest.json" ||
+            url.pathname.startsWith("/icons/"))
+        ) {
+          const f = Bun.file(join(UI_DIST, url.pathname));
+          if (await f.exists()) {
+            return new Response(f, {
+              headers: {
+                "Content-Type": mimeTypeForFilename(url.pathname),
+                "Cache-Control": "public, max-age=31536000, immutable",
+              },
+            });
           }
-          try {
-            const apiRes = await executeRoute(
-              apiMatch,
-              req,
-              apiAuth.identity,
-              executorDeps,
-              // Thread the caller's own session hash (cookie path only) so
-              // sessions.logout + the logout lockout precondition act on the
-              // caller's session WITHOUT re-validating the cookie in the seam.
-              { callerSessionIdHash: apiAuth.session?.sessionIdHash },
-            );
-            // Cookie migration rides SAFE methods only. A GET/HEAD cannot
-            // revoke the session it would re-issue; DELETE
-            // /api/sessions/current is exactly that hazard, and a
-            // self-targeted revoke is the same shape. A signed-in SPA makes
-            // plenty of GETs, so nothing is lost by the restriction.
-            const safeMethod = req.method === "GET" || req.method === "HEAD";
-            return safeMethod && apiAuth.session
-              ? withCookieMigration(apiRes, req, apiAuth.session)
-              : apiRes;
-          } catch (err) {
-            console.error("[/api] uncaught executor error:", err);
-            return errorResponse(500, "internal", "internal");
+          // fall through to the 404 path below if the asset isn't on disk
+        }
+
+        // Unified REST surface (Phase 3a). Routes declared in the typed table are
+        // dispatched through the executor: identity -> authorize -> preconditions
+        // -> idempotency -> handler -> emit. Identity is REQUIRED (cookie or
+        // bearer). An unmatched or not-yet-migrated /api path falls through to the
+        // legacy handlers (/api/upload, /api/files, /api/images) and the static
+        // serve below.
+        if (url.pathname.startsWith("/api/")) {
+          const apiMatch = matchRoute(API_ROUTES, req.method, url.pathname);
+          if (apiMatch && executorDeps.handlers.has(apiMatch.route.opId)) {
+            const apiAuth = authenticate(req, { officeName });
+            if (apiAuth.kind !== "ok") {
+              // Marshal the auth rejection into the /api envelope
+              // {error:{code,message}} - the new contract, NOT the legacy
+              // auth-middleware shape. Every migrated /api route inherits this
+              // entrypoint, so the envelope must be uniform here. authenticate()
+              // rejects with only two statuses: 403 (bad origin / CSRF) and 401
+              // (no / invalid identity).
+              const badOrigin =
+                apiAuth.kind === "rejected" && apiAuth.response.status === 403;
+              return badOrigin
+                ? errorResponse(403, "bad_origin", "bad origin")
+                : errorResponse(401, "unauthenticated", "unauthenticated");
+            }
+            try {
+              const apiRes = await executeRoute(
+                apiMatch,
+                req,
+                apiAuth.identity,
+                executorDeps,
+                // Thread the caller's own session hash (cookie path only) so
+                // sessions.logout + the logout lockout precondition act on the
+                // caller's session WITHOUT re-validating the cookie in the seam.
+                { callerSessionIdHash: apiAuth.session?.sessionIdHash },
+              );
+              // Cookie migration rides SAFE methods only. A GET/HEAD cannot
+              // revoke the session it would re-issue; DELETE
+              // /api/sessions/current is exactly that hazard, and a
+              // self-targeted revoke is the same shape. A signed-in SPA makes
+              // plenty of GETs, so nothing is lost by the restriction.
+              const safeMethod = req.method === "GET" || req.method === "HEAD";
+              return safeMethod && apiAuth.session
+                ? withCookieMigration(apiRes, req, apiAuth.session)
+                : apiRes;
+            } catch (err) {
+              console.error("[/api] uncaught executor error:", err);
+              return errorResponse(500, "internal", "internal");
+            }
           }
         }
-      }
 
-      // There is NO loopback bypass left: every caller needs an identity (a
-      // bearer token or a session cookie), on this surface and on /api alike.
-      // The last three loopback-trusted prefixes - /tasks, the /cronjobs reads
-      // and /backup/status - were retired in favour of their bearer-gated /api
-      // equivalents (see the retired-path wall below), because a loopback
-      // caller is not a trustworthy identity on a box that also runs
-      // agent-built web apps: an SSRF or open-proxy bug in any of them reaches
-      // a loopback listener in two hops, and the final socket cannot tell who
-      // the original caller was.
-      const auth = authenticate(req, { officeName });
-      if (auth.kind === "rejected") return auth.response;
+        // There is NO loopback bypass left: every caller needs an identity (a
+        // bearer token or a session cookie), on this surface and on /api alike.
+        // The last three loopback-trusted prefixes - /tasks, the /cronjobs reads
+        // and /backup/status - were retired in favour of their bearer-gated /api
+        // equivalents (see the retired-path wall below), because a loopback
+        // caller is not a trustworthy identity on a box that also runs
+        // agent-built web apps: an SSRF or open-proxy bug in any of them reaches
+        // a loopback listener in two hops, and the final socket cannot tell who
+        // the original caller was.
+        const auth = authenticate(req, { officeName });
+        if (auth.kind === "rejected") return auth.response;
 
-      // APP tokens stop here, before any of it.
-      //
-      // Everything below this line predates the capability model and gates on
-      // "is there an identity" alone: the agent manifest (live and killed), the
-      // legacy upload/file/image handlers, the static UI. A registered app -
-      // agent-authored code, often serving strangers - would otherwise inherit
-      // all of it the moment it had a token, which is the opposite of the
-      // narrow scope the token exists to express. On the /api surface above,
-      // the route table decides instead, and an app holds no capability that
-      // opens anything there.
-      //
-      // ONE check for the whole surface rather than per-handler, so a legacy
-      // route added later cannot forget it. 403, not 401: the token is real and
-      // isomux knows whose it is.
-      if (auth.identity.scope === "app") {
-        return new Response(JSON.stringify({ error: "forbidden" }), {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-
-      // GET /auth/app?app=<label>&r=<path> - mint a single-use code for one of
-      // this office's app hostnames and redirect the browser to it. The
-      // handshake itself lives in server/app-auth.ts; this is only the mount.
-      //
-      // Mounted HERE, behind the wall, rather than in tryHandleAuthRoute: the
-      // route needs a signed-in office user, and the wall has already answered
-      // an unauthenticated visitor with the login page (or a 401 for a fetch),
-      // so the handshake adds no pre-auth surface. What the wall does NOT bring
-      // is a CSRF check - authenticate() checks Origin on unsafe methods only,
-      // and this is a GET; handleAppMintRequest explains why that is accepted
-      // rather than patched here.
-      //
-      // A bearer identity gets nothing: an agent token has no office session
-      // for a code to be bound to (and an app token already stopped above).
-      if (url.pathname === APP_MINT_PATH) {
-        if (!auth.session) {
+        // APP tokens stop here, before any of it.
+        //
+        // Everything below this line predates the capability model and gates on
+        // "is there an identity" alone: the agent manifest (live and killed), the
+        // legacy upload/file/image handlers, the static UI. A registered app -
+        // agent-authored code, often serving strangers - would otherwise inherit
+        // all of it the moment it had a token, which is the opposite of the
+        // narrow scope the token exists to express. On the /api surface above,
+        // the route table decides instead, and an app holds no capability that
+        // opens anything there.
+        //
+        // ONE check for the whole surface rather than per-handler, so a legacy
+        // route added later cannot forget it. 403, not 401: the token is real and
+        // isomux knows whose it is.
+        if (auth.identity.scope === "app") {
           return new Response(JSON.stringify({ error: "forbidden" }), {
             status: 403,
             headers: { "Content-Type": "application/json" },
           });
         }
-        const mintRes = handleAppMintRequest(req, url, auth.session, {
-          appHostDomain: appHostDomain(),
-          canAccess: canUserAccessApp,
-        });
-        // The `__Host-` migration rides this response like it rides a page load
-        // or a safe /api GET. It matters MORE here than on those: this is the
-        // door into the app origins, and slice 2's whole point was to close
-        // cookie shadowing from a sibling subdomain BEFORE one exists. A user
-        // who reached an app while still holding only the legacy, shadowable
-        // office cookie would be exactly the case the prerequisite was for.
-        // Restricted to GET for the same reason the /api path restricts it to
-        // safe methods - and any other method here is a neutral 404 anyway.
-        return req.method === "GET"
-          ? withCookieMigration(mintRes, req, auth.session)
-          : mintRes;
-      }
 
-      // Agent discovery manifest - GET /agents. Serves the live manifest with
-      // the same entry shape as ~/.isomux/agents-summary.json (still written
-      // alongside for existing file-based readers). Identity REQUIRED (bearer
-      // or cookie): an anonymous request - loopback included - already 401'd at
-      // the wall above (Nil's call: the endpoint always answers with a
-      // projected view, never an unauthenticated full dump; agents send
-      // $ISOMUX_AGENT_TOKEN).
-      //
-      // Browser-read hardening: GETs skip the CSRF origin check in
-      // authenticate(), so a hostile web page whose request somehow carries a
-      // valid cookie would otherwise be served. Two walls close that: (1) a
-      // request carrying a cross-origin Origin header is rejected - agent
-      // curl sends no Origin, and browsers always attach one to cross-origin
-      // fetches; (2) no Access-Control-Allow-Origin is ever sent, so even
-      // without wall 1 a cross-origin response body would stay unreadable.
-      //
-      // Visibility (Nil-specced): the manifest is PROJECTED to the rooms the
-      // identity's user can access - owners every room by rule, members their
-      // allowedRooms grants, agents/cron-runs their manager's/creator's
-      // access. An identity with no resolvable user (an unowned cron job, a
-      // deleted user) has access to no rooms and receives [] - mirrors
-      // guard-deps hasRoomAccess.
-      if (url.pathname === "/agents" && req.method === "GET") {
-        if (req.headers.get("origin") !== null && !checkOrigin(req)) {
-          return new Response(JSON.stringify({ error: "bad origin" }), {
-            status: 403,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        // No explicit wall here: authenticate() has only two outcomes now, and
-        // the rejected one returned above, so reaching this line means an
-        // identity was resolved. (The old defensive 401 guarded against a future
-        // edit to the loopback-bypass list; that list is gone.)
-        const user = auth.identity.userId
-          ? getUserById(auth.identity.userId)
-          : null;
-        // ?killed=1 asks the other roster: agents that have left the office but
-        // whose transcripts are still on disk (task 18fded2c). It exists so the
-        // killed-agent log reach shipped in ffb90761 is usable - without it an
-        // agent can read a dead agent's logs but has no way to learn its id.
+        // GET /auth/app?app=<label>&r=<path> - mint a single-use code for one of
+        // this office's app hostnames and redirect the browser to it. The
+        // handshake itself lives in server/app-auth.ts; this is only the mount.
         //
-        // EXACTLY "1" selects it; any other value is a 400 rather than a silent
-        // fall-through to the live roster. `?killed=0` reads as "no" to a human
-        // and would otherwise be answered with the killed list, while a typo'd
-        // value would be answered with live agents - both are the quietly-wrong
-        // answer this surface is being hardened against.
-        const killedParam = url.searchParams.get("killed");
-        if (killedParam !== null) {
-          if (killedParam !== "1") {
-            return new Response(
-              JSON.stringify({
-                error: "killed must be 1 (omit it for the live roster)",
-              }),
-              { status: 400, headers: { "Content-Type": "application/json" } },
-            );
-          }
-          // SCOPED LIKE THE LOG RULE, deliberately NOT like the live manifest
-          // below: the killed agent's own boss (the user that spawned it), plus
-          // office owners, and NEVER a cron run. Room grants move after a kill
-          // and a dead agent's last room is a fact about the past, so the room
-          // projection the live arm uses would be the wrong question here - and
-          // it would hand out ids the log route then refuses.
-          //
-          // Mirrors killedAgentLogAccess in identity/guards.ts clause for
-          // clause, INCLUDING its cron-run denial: an AGENT identity carries its
-          // spawning user's userId (which is what lets an agent reach its own
-          // boss's killed agents), but a CRON-RUN identity carries its
-          // creator's - so without this branch a cron run would out-reach the
-          // very log route this discovery feeds.
-          if (auth.identity.scope === "cron-run") {
+        // Mounted HERE, behind the wall, rather than in tryHandleAuthRoute: the
+        // route needs a signed-in office user, and the wall has already answered
+        // an unauthenticated visitor with the login page (or a 401 for a fetch),
+        // so the handshake adds no pre-auth surface. What the wall does NOT bring
+        // is a CSRF check - authenticate() checks Origin on unsafe methods only,
+        // and this is a GET; handleAppMintRequest explains why that is accepted
+        // rather than patched here.
+        //
+        // A bearer identity gets nothing: an agent token has no office session
+        // for a code to be bound to (and an app token already stopped above).
+        if (url.pathname === APP_MINT_PATH) {
+          if (!auth.session) {
             return new Response(JSON.stringify({ error: "forbidden" }), {
               status: 403,
               headers: { "Content-Type": "application/json" },
             });
           }
-          const isOwner =
-            auth.identity.scope === "user" && auth.identity.role === "owner";
-          // One history load either way - the per-id killedAgentManagerUserId
-          // lookup re-reads and re-parses agent-history.json for every entry.
-          const killed = isOwner
-            ? agentManager.getKilledAgentSummaries()
-            : auth.identity.userId
-              ? agentManager.getKilledAgentSummariesForManager(
-                  auth.identity.userId,
-                )
-              : [];
-          return new Response(
-            JSON.stringify(buildKilledManifest(killed), null, 2),
-            { headers: { "Content-Type": "application/json" } },
-          );
+          const mintRes = handleAppMintRequest(req, url, auth.session, {
+            appHostDomain: appHostDomain(),
+            canAccess: canUserAccessApp,
+          });
+          // The `__Host-` migration rides this response like it rides a page load
+          // or a safe /api GET. It matters MORE here than on those: this is the
+          // door into the app origins, and slice 2's whole point was to close
+          // cookie shadowing from a sibling subdomain BEFORE one exists. A user
+          // who reached an app while still holding only the legacy, shadowable
+          // office cookie would be exactly the case the prerequisite was for.
+          // Restricted to GET for the same reason the /api path restricts it to
+          // safe methods - and any other method here is a neutral 404 anyway.
+          return req.method === "GET"
+            ? withCookieMigration(mintRes, req, auth.session)
+            : mintRes;
         }
-        const accessible = user
-          ? accessibleRoomIdsFor(user)
-          : new Set<string>();
-        const manifest = agentManager
-          .getManifest()
-          .filter((e) => accessible.has(e.roomId));
-        return new Response(JSON.stringify(manifest, null, 2), {
-          headers: { "Content-Type": "application/json" },
-        });
-      }
 
-      // Retired legacy surfaces: /tasks*, /cronjobs* and /backup/status. These
-      // were unprefixed, loopback-trusted aliases of routes that now live on the
-      // bearer-gated /api surface (/api/tasks*, /api/cronjobs*, /api/cron-runs,
-      // /api/backup/status), which is where every caller - agents included - is
-      // told to go. A no-identity request never reaches here: it 401s at the
-      // cookie wall above. An authenticated one gets a JSON 404 rather than
-      // falling through to the SPA shell, which would answer 200 text/html and
-      // mask the caller. Note the two things that went away with the handlers:
-      // the anonymous loopback trust, and the `Access-Control-Allow-Origin: *`
-      // these routes put on their responses and OPTIONS preflight.
-      //
-      // Matched on a NORMALIZED path, because `URL` leaves `%2f` encoded and a
-      // raw-pathname match would let `/tasks%2fabc` or `/backup/status/` slip
-      // through to the SPA shell - a 200 text/html answer to a caller still
-      // using a retired route, which is the thing this wall exists to prevent.
-      // One decode pass only: `%252f` decodes to the literal text `%2f`, not a
-      // separator, and no handler is behind any of these paths either way.
-      const retiredPath =
-        url.pathname.replace(/%2f/gi, "/").replace(/\/+$/, "") || "/";
-      if (
-        retiredPath === "/tasks" ||
-        retiredPath.startsWith("/tasks/") ||
-        retiredPath === "/cronjobs" ||
-        retiredPath.startsWith("/cronjobs/") ||
-        retiredPath === "/backup/status"
-      ) {
-        return new Response(JSON.stringify({ error: "not found" }), {
-          status: 404,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
+        // Agent discovery manifest - GET /agents. Serves the live manifest with
+        // the same entry shape as ~/.isomux/agents-summary.json (still written
+        // alongside for existing file-based readers). Identity REQUIRED (bearer
+        // or cookie): an anonymous request - loopback included - already 401'd at
+        // the wall above (Nil's call: the endpoint always answers with a
+        // projected view, never an unauthenticated full dump; agents send
+        // $ISOMUX_AGENT_TOKEN).
+        //
+        // Browser-read hardening: GETs skip the CSRF origin check in
+        // authenticate(), so a hostile web page whose request somehow carries a
+        // valid cookie would otherwise be served. Two walls close that: (1) a
+        // request carrying a cross-origin Origin header is rejected - agent
+        // curl sends no Origin, and browsers always attach one to cross-origin
+        // fetches; (2) no Access-Control-Allow-Origin is ever sent, so even
+        // without wall 1 a cross-origin response body would stay unreadable.
+        //
+        // Visibility (Nil-specced): the manifest is PROJECTED to the rooms the
+        // identity's user can access - owners every room by rule, members their
+        // allowedRooms grants, agents/cron-runs their manager's/creator's
+        // access. An identity with no resolvable user (an unowned cron job, a
+        // deleted user) has access to no rooms and receives [] - mirrors
+        // guard-deps hasRoomAccess.
+        if (url.pathname === "/agents" && req.method === "GET") {
+          if (req.headers.get("origin") !== null && !checkOrigin(req)) {
+            return new Response(JSON.stringify({ error: "bad origin" }), {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
+          // No explicit wall here: authenticate() has only two outcomes now, and
+          // the rejected one returned above, so reaching this line means an
+          // identity was resolved. (The old defensive 401 guarded against a future
+          // edit to the loopback-bypass list; that list is gone.)
+          const user = auth.identity.userId
+            ? getUserById(auth.identity.userId)
+            : null;
+          // ?killed=1 asks the other roster: agents that have left the office but
+          // whose transcripts are still on disk (task 18fded2c). It exists so the
+          // killed-agent log reach shipped in ffb90761 is usable - without it an
+          // agent can read a dead agent's logs but has no way to learn its id.
+          //
+          // EXACTLY "1" selects it; any other value is a 400 rather than a silent
+          // fall-through to the live roster. `?killed=0` reads as "no" to a human
+          // and would otherwise be answered with the killed list, while a typo'd
+          // value would be answered with live agents - both are the quietly-wrong
+          // answer this surface is being hardened against.
+          const killedParam = url.searchParams.get("killed");
+          if (killedParam !== null) {
+            if (killedParam !== "1") {
+              return new Response(
+                JSON.stringify({
+                  error: "killed must be 1 (omit it for the live roster)",
+                }),
+                {
+                  status: 400,
+                  headers: { "Content-Type": "application/json" },
+                },
+              );
+            }
+            // SCOPED LIKE THE LOG RULE, deliberately NOT like the live manifest
+            // below: the killed agent's own boss (the user that spawned it), plus
+            // office owners, and NEVER a cron run. Room grants move after a kill
+            // and a dead agent's last room is a fact about the past, so the room
+            // projection the live arm uses would be the wrong question here - and
+            // it would hand out ids the log route then refuses.
+            //
+            // Mirrors killedAgentLogAccess in identity/guards.ts clause for
+            // clause, INCLUDING its cron-run denial: an AGENT identity carries its
+            // spawning user's userId (which is what lets an agent reach its own
+            // boss's killed agents), but a CRON-RUN identity carries its
+            // creator's - so without this branch a cron run would out-reach the
+            // very log route this discovery feeds.
+            if (auth.identity.scope === "cron-run") {
+              return new Response(JSON.stringify({ error: "forbidden" }), {
+                status: 403,
+                headers: { "Content-Type": "application/json" },
+              });
+            }
+            const isOwner =
+              auth.identity.scope === "user" && auth.identity.role === "owner";
+            // One history load either way - the per-id killedAgentManagerUserId
+            // lookup re-reads and re-parses agent-history.json for every entry.
+            const killed = isOwner
+              ? agentManager.getKilledAgentSummaries()
+              : auth.identity.userId
+                ? agentManager.getKilledAgentSummariesForManager(
+                    auth.identity.userId,
+                  )
+                : [];
+            return new Response(
+              JSON.stringify(buildKilledManifest(killed), null, 2),
+              { headers: { "Content-Type": "application/json" } },
+            );
+          }
+          const accessible = user
+            ? accessibleRoomIdsFor(user)
+            : new Set<string>();
+          const manifest = agentManager
+            .getManifest()
+            .filter((e) => accessible.has(e.roomId));
+          return new Response(JSON.stringify(manifest, null, 2), {
+            headers: { "Content-Type": "application/json" },
+          });
+        }
 
-      // POST /agents/:id/* - the legacy non-/api agent surface is fully retired
-      // (Phase 3d slice 6a). The inter-agent message endpoint moved to POST
-      // /api/agents/:id/messages (the unified agents.sendMessage route: the AGENT
-      // bearer IS the sender, the structured sender is server-derived, and a
-      // mismatched body.senderAgentId -> 403 via the messageSend guard). The
-      // self-affordance POSTs (diff / edit-file / read-file / terminal-command)
-      // moved to /api/agents/:id/* in the loopback-bypass removal milestone. So
-      // any POST under /agents/ is now a stale/unknown path: fail closed with a
-      // JSON 404 rather than fall through to the SPA shell (which would return
-      // 200 text/html and mask the caller). No-bearer requests never reach here -
-      // they 401 at the cookie wall above.
-      if (url.pathname.startsWith("/agents/") && req.method === "POST") {
-        return new Response(JSON.stringify({ error: "not found" }), {
-          status: 404,
-          headers: {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "application/json",
-          },
-        });
-      }
-
-      // File upload endpoint: POST /api/upload/{agentId}
-      if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
-        const agentId = url.pathname.split("/")[3];
-        if (!agentId || !agentManager.getAgent(agentId)) {
-          return new Response(JSON.stringify({ error: "agent not found" }), {
+        // Retired legacy surfaces: /tasks*, /cronjobs* and /backup/status. These
+        // were unprefixed, loopback-trusted aliases of routes that now live on the
+        // bearer-gated /api surface (/api/tasks*, /api/cronjobs*, /api/cron-runs,
+        // /api/backup/status), which is where every caller - agents included - is
+        // told to go. A no-identity request never reaches here: it 401s at the
+        // cookie wall above. An authenticated one gets a JSON 404 rather than
+        // falling through to the SPA shell, which would answer 200 text/html and
+        // mask the caller. Note the two things that went away with the handlers:
+        // the anonymous loopback trust, and the `Access-Control-Allow-Origin: *`
+        // these routes put on their responses and OPTIONS preflight.
+        //
+        // Matched on a NORMALIZED path, because `URL` leaves `%2f` encoded and a
+        // raw-pathname match would let `/tasks%2fabc` or `/backup/status/` slip
+        // through to the SPA shell - a 200 text/html answer to a caller still
+        // using a retired route, which is the thing this wall exists to prevent.
+        // One decode pass only: `%252f` decodes to the literal text `%2f`, not a
+        // separator, and no handler is behind any of these paths either way.
+        const retiredPath =
+          url.pathname.replace(/%2f/gi, "/").replace(/\/+$/, "") || "/";
+        if (
+          retiredPath === "/tasks" ||
+          retiredPath.startsWith("/tasks/") ||
+          retiredPath === "/cronjobs" ||
+          retiredPath.startsWith("/cronjobs/") ||
+          retiredPath === "/backup/status"
+        ) {
+          return new Response(JSON.stringify({ error: "not found" }), {
             status: 404,
             headers: { "Content-Type": "application/json" },
           });
         }
-        try {
-          const formData = await req.formData();
-          const attachments: Attachment[] = [];
-          const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
-          const MAX_FILES = 5;
-          const MAX_TOTAL = 400 * 1024 * 1024; // 400MB
-          let totalSize = 0;
-          let fileCount = 0;
 
-          for (const [, value] of formData) {
-            if (!(value instanceof File)) continue;
-            fileCount++;
-            if (fileCount > MAX_FILES) {
-              return new Response(
-                JSON.stringify({
-                  error: `Maximum ${MAX_FILES} files per upload`,
-                }),
-                {
-                  status: 400,
-                  headers: { "Content-Type": "application/json" },
-                },
-              );
-            }
-            if (value.size > MAX_FILE_SIZE) {
-              return new Response(
-                JSON.stringify({
-                  error: `File "${value.name}" exceeds 200MB limit`,
-                }),
-                {
-                  status: 400,
-                  headers: { "Content-Type": "application/json" },
-                },
-              );
-            }
-            totalSize += value.size;
-            if (totalSize > MAX_TOTAL) {
-              return new Response(
-                JSON.stringify({ error: "Total upload exceeds 400MB limit" }),
-                {
-                  status: 400,
-                  headers: { "Content-Type": "application/json" },
-                },
-              );
-            }
-            const buffer = Buffer.from(await value.arrayBuffer());
-            const att = saveFile(
-              agentId,
-              buffer,
-              value.type || "application/octet-stream",
-              value.name,
-            );
-            if (att) attachments.push(att);
-          }
-          return new Response(JSON.stringify({ attachments }), {
-            headers: { "Content-Type": "application/json" },
-          });
-        } catch (err) {
-          return new Response(
-            JSON.stringify({ error: errMessage(err, "Upload failed") }),
-            {
-              status: 500,
-              headers: { "Content-Type": "application/json" },
+        // POST /agents/:id/* - the legacy non-/api agent surface is fully retired
+        // (Phase 3d slice 6a). The inter-agent message endpoint moved to POST
+        // /api/agents/:id/messages (the unified agents.sendMessage route: the AGENT
+        // bearer IS the sender, the structured sender is server-derived, and a
+        // mismatched body.senderAgentId -> 403 via the messageSend guard). The
+        // self-affordance POSTs (diff / edit-file / read-file / terminal-command)
+        // moved to /api/agents/:id/* in the loopback-bypass removal milestone. So
+        // any POST under /agents/ is now a stale/unknown path: fail closed with a
+        // JSON 404 rather than fall through to the SPA shell (which would return
+        // 200 text/html and mask the caller). No-bearer requests never reach here -
+        // they 401 at the cookie wall above.
+        if (url.pathname.startsWith("/agents/") && req.method === "POST") {
+          return new Response(JSON.stringify({ error: "not found" }), {
+            status: 404,
+            headers: {
+              "Access-Control-Allow-Origin": "*",
+              "Content-Type": "application/json",
             },
-          );
+          });
         }
-      }
 
-      // File serving endpoint (also handles legacy /api/images/ URLs)
-      if (
-        url.pathname.startsWith("/api/files/") ||
-        url.pathname.startsWith("/api/images/")
-      ) {
-        const parts = url.pathname.split("/").filter(Boolean); // ["api", "files"|"images", agentId, filename]
-        const agentId = parts[2];
-        // Decode the filename: the browser percent-encodes spaces and other
-        // characters, but getFilePath needs the real on-disk name. A malformed
-        // %xx must not throw the dispatch, so fall back to the raw segment.
-        let filename = parts[3];
-        if (filename) {
+        // File upload endpoint: POST /api/upload/{agentId}
+        if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
+          const agentId = url.pathname.split("/")[3];
+          if (!agentId || !agentManager.getAgent(agentId)) {
+            return new Response(JSON.stringify({ error: "agent not found" }), {
+              status: 404,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
           try {
-            filename = decodeURIComponent(filename);
-          } catch {
-            // keep the raw segment
+            const formData = await req.formData();
+            const attachments: Attachment[] = [];
+            const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
+            const MAX_FILES = 5;
+            const MAX_TOTAL = 400 * 1024 * 1024; // 400MB
+            let totalSize = 0;
+            let fileCount = 0;
+
+            for (const [, value] of formData) {
+              if (!(value instanceof File)) continue;
+              fileCount++;
+              if (fileCount > MAX_FILES) {
+                return new Response(
+                  JSON.stringify({
+                    error: `Maximum ${MAX_FILES} files per upload`,
+                  }),
+                  {
+                    status: 400,
+                    headers: { "Content-Type": "application/json" },
+                  },
+                );
+              }
+              if (value.size > MAX_FILE_SIZE) {
+                return new Response(
+                  JSON.stringify({
+                    error: `File "${value.name}" exceeds 200MB limit`,
+                  }),
+                  {
+                    status: 400,
+                    headers: { "Content-Type": "application/json" },
+                  },
+                );
+              }
+              totalSize += value.size;
+              if (totalSize > MAX_TOTAL) {
+                return new Response(
+                  JSON.stringify({ error: "Total upload exceeds 400MB limit" }),
+                  {
+                    status: 400,
+                    headers: { "Content-Type": "application/json" },
+                  },
+                );
+              }
+              const buffer = Buffer.from(await value.arrayBuffer());
+              const att = saveFile(
+                agentId,
+                buffer,
+                value.type || "application/octet-stream",
+                value.name,
+              );
+              if (att) attachments.push(att);
+            }
+            return new Response(JSON.stringify({ attachments }), {
+              headers: { "Content-Type": "application/json" },
+            });
+          } catch (err) {
+            return new Response(
+              JSON.stringify({ error: errMessage(err, "Upload failed") }),
+              {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
           }
         }
-        if (!agentId || !filename) {
-          return new Response("Not found", { status: 404 });
-        }
-        const filePath = getFilePath(agentId, filename);
-        if (!filePath) {
-          return new Response("Not found", { status: 404 });
-        }
-        return new Response(Bun.file(filePath), {
-          headers: {
-            "Content-Type": httpContentTypeForFilename(filename),
-            "Cache-Control": "public, max-age=31536000, immutable",
-          },
-        });
-      }
 
-      // Static file serving. The shell carries the cookie migration (the seam
-      // for a plain page load or reload); `auth.session` is set only on the
-      // cookie path, so a bearer-authenticated shell request migrates nothing.
-      const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
-      if (filePath === "/index.html") {
+        // File serving endpoint (also handles legacy /api/images/ URLs)
+        if (
+          url.pathname.startsWith("/api/files/") ||
+          url.pathname.startsWith("/api/images/")
+        ) {
+          const parts = url.pathname.split("/").filter(Boolean); // ["api", "files"|"images", agentId, filename]
+          const agentId = parts[2];
+          // Decode the filename: the browser percent-encodes spaces and other
+          // characters, but getFilePath needs the real on-disk name. A malformed
+          // %xx must not throw the dispatch, so fall back to the raw segment.
+          let filename = parts[3];
+          if (filename) {
+            try {
+              filename = decodeURIComponent(filename);
+            } catch {
+              // keep the raw segment
+            }
+          }
+          if (!agentId || !filename) {
+            return new Response("Not found", { status: 404 });
+          }
+          const filePath = getFilePath(agentId, filename);
+          if (!filePath) {
+            return new Response("Not found", { status: 404 });
+          }
+          return new Response(Bun.file(filePath), {
+            headers: {
+              "Content-Type": httpContentTypeForFilename(filename),
+              "Cache-Control": "public, max-age=31536000, immutable",
+            },
+          });
+        }
+
+        // Static file serving. The shell carries the cookie migration (the seam
+        // for a plain page load or reload); `auth.session` is set only on the
+        // cookie path, so a bearer-authenticated shell request migrates nothing.
+        const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
+        if (filePath === "/index.html") {
+          return serveIndexHtml(req, auth.session);
+        }
+        const file = Bun.file(join(UI_DIST, filePath));
+        if (await file.exists()) {
+          return new Response(file, {
+            headers: { "Cache-Control": "no-cache" },
+          });
+        }
+        // SPA fallback
         return serveIndexHtml(req, auth.session);
-      }
-      const file = Bun.file(join(UI_DIST, filePath));
-      if (await file.exists()) {
-        return new Response(file, {
-          headers: { "Cache-Control": "no-cache" },
-        });
-      }
-      // SPA fallback
-      return serveIndexHtml(req, auth.session);
+      })();
+      if (!officeHostResponse) return;
+      return withSecurityHeaders(officeHostResponse);
     },
     websocket: {
       // The three callbacks below serve two entirely different populations, so
