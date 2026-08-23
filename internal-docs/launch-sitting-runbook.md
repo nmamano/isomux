@@ -53,8 +53,26 @@ prod_V7a8an3gsAIoTv (Poweruser), Prices price_1U7L7tAU22RWBcwcuwYAsQ1I (EUR
 config bpc_1U7LiaAU22RWBcwcbIWEqFdY (card-change + invoice history, cancel
 off), provisioner key isomux-provisioner-live minted. Step 2 secrets file
 verified (3 lines, 0600). Step 3 staging ran and held: 9 before, 4 written,
-13 exact. Next: step 4 (test-mode checkout proof - may fail on the test-mode
-consent-URL gap, see step 1.0 note and task 71075e7d).
+13 exact.
+
+## Progress 2026-08-23 (second leg: steps 4-6, quiet variant)
+
+Step 4 done by live-mode substitute: classic test mode cannot exercise the
+chain (71075e7d), so the proof was a live Checkout session create/expire
+carrying consent_collection.terms_of_service = "required" (2026-08-22 PM
+session). Step 5 done: web redeployed at 13-entry env. Step 6 done as the
+QUIET FLIP (Nil amendment 2026-08-23 on dff1cd33): commit 03461e4 merges
+the functional changes only - OFFICE_DOMAIN = isomux.app, the 40-per-7-days
+signup bound, one e2e fixture line, one doc note. Every launch-status copy
+claim is HELD: site/hosted.html and api/chat.ts are byte-identical to the
+pre-flip state, and the Nil-approved copy stays parked on branch
+launch-domain-flip for the announce step. Deploys from local main 03461e4
+(unpushed by design): web redeploy with all probes green and env exact 13;
+provisioner activate --redeploy completed and probe.ts accepted. The site
+needed no deploy (unchanged). Next: Nil's direct signup test at
+cloud.isomux.com stands in for step 7 (real charge on his card, refund
+after per policy), then steps 8-10. The announce step later merges the
+parked copy branch and pushes.
 
 ## The sitting, in order
 
