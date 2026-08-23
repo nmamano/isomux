@@ -69,10 +69,40 @@ pre-flip state, and the Nil-approved copy stays parked on branch
 launch-domain-flip for the announce step. Deploys from local main 03461e4
 (unpushed by design): web redeploy with all probes green and env exact 13;
 provisioner activate --redeploy completed and probe.ts accepted. The site
-needed no deploy (unchanged). Next: Nil's direct signup test at
-cloud.isomux.com stands in for step 7 (real charge on his card, refund
-after per policy), then steps 8-10. The announce step later merges the
-parked copy branch and pushes.
+needed no deploy (unchanged). The batch later pushed (3eaac86) with Nil's
+word; the copy stays parked on launch-domain-flip for the announce step.
+
+## Progress 2026-08-23 (step 7 complete, live incident fixed en route)
+
+Step 7 PROVEN on launch-test.isomux.app, driven by Nil directly: signup,
+live payment (Entry EUR 8), Contabo order, DNS (169.58.222.58), Let's
+Encrypt certificate (valid to 2026-11-21), installer, liveness, owner
+invite, sign-in, self-cancel, and un-cancel - all green. Two launch
+blockers were found and fixed during the run:
+- The live account had NO webhook endpoint (payments confirmed nowhere;
+  billing has no polling fallback). Created: we_1U7UTSAU22RWBcwcnmpkLdZI
+  -> https://isomux-provisioner.fly.dev/stripe/webhook, five event types.
+  Provisioner staged with live key + signing secret and STRIPE_MODE=live;
+  note the staging tool uses flyctl secrets import --stage, so secrets go
+  live only on `flyctl secrets deploy` or the next deploy - run it.
+- The documented restricted-key minimum (step 1.4) is WRONG: the real
+  flows also need Customers: Write (checkout creates a Customer) and
+  Subscriptions: Write (cancel/un-cancel). Both granted on
+  isomux-provisioner-live during the run. Update step 1.4 if re-run.
+The Stripe env staging file (~/.config/isomux/control-plane-stripe.env)
+is strictly per-mode; test-mode lines parked in
+control-plane-stripe-test.env.
+
+Disposition (Nil's ruling): no refund (self-payment; retention story
+stays simple - refunds only on request per policy), and launch-test is
+KEPT as an experiment box until its scheduled period end 2026-09-23,
+which organically exercises the period-end poweroff, 14-day retention,
+and deletion machinery. The signup keypair is treated as burned (exposed
+in office logs); rotate before putting anything real on the box.
+
+Fifteen UX/product findings from the run are queued for a fix batch
+(PM ledger); agreed order before announce: fix batch -> one release ->
+announce sitting (steps 8-10).
 
 ## The sitting, in order
 
