@@ -41,6 +41,7 @@ import {
   expectPlaceholder,
   patchOfficeConfig,
   raw,
+  type RawResponse,
   registerApp,
   signIn,
   startFlatOffice as bootFlatOffice,
@@ -61,6 +62,55 @@ function startFlatOffice(): Promise<TestServer> {
   return bootFlatOffice((srv) => {
     server = srv;
   });
+}
+
+// Changing publicOrigin from HTTP to HTTPS intentionally changes the two
+// headers that describe that origin: HSTS appears, and CSP gains
+// upgrade-insecure-requests plus (when the origin supports app hostnames) the
+// app-preview frame source. The dispatch invariant remains byte-exact after
+// those two headers are removed: Host classification must change nothing else.
+function withoutOriginSecurityHeaders(stable: string): string {
+  return stable
+    .split("\r\n")
+    .filter(
+      (line) =>
+        !/^(content-security-policy|strict-transport-security):/i.test(line),
+    )
+    .join("\r\n");
+}
+
+function changedHeaders(
+  before: RawResponse,
+  after: RawResponse,
+): Record<string, { before: string | undefined; after: string | undefined }> {
+  const changed: Record<
+    string,
+    { before: string | undefined; after: string | undefined }
+  > = {};
+  const names = new Set([
+    ...Object.keys(before.headers),
+    ...Object.keys(after.headers),
+  ]);
+  for (const name of names) {
+    if (before.headers[name] === after.headers[name]) continue;
+    changed[name] = {
+      before: before.headers[name],
+      after: after.headers[name],
+    };
+  }
+  return changed;
+}
+
+function cspDirectiveDelta(
+  before: string,
+  after: string,
+): { added: string[]; removed: string[] } {
+  const beforeSet = new Set(before.split("; "));
+  const afterSet = new Set(after.split("; "));
+  return {
+    added: [...afterSet].filter((value) => !beforeSet.has(value)).sort(),
+    removed: [...beforeSet].filter((value) => !afterSet.has(value)).sort(),
+  };
 }
 
 describe("app hosts: the office is untouched", () => {
@@ -89,8 +139,9 @@ describe("app hosts: the office is untouched", () => {
     // The 2026-08-08 regression, reproduced against the real server: an office
     // behind Tailscale Serve has an HTTPS publicOrigin, so it derived a domain
     // and every app link pointed at a name MagicDNS cannot resolve. HTTPS is
-    // no longer enough on its own - a `.ts.net` office is byte-identical to an
-    // office with no app hostnames at all.
+    // no longer enough on its own - a `.ts.net` office still has no app-host
+    // dispatch arm. Its HTTPS security headers are expected to differ from the
+    // plain-HTTP baseline, but every other response byte stays identical.
     const TAILNET_HOST = "auntie.tail1234.ts.net";
     const before = await startTestServer();
     server = before;
@@ -102,13 +153,17 @@ describe("app hosts: the office is untouched", () => {
     expect(await registerApp(before, token, "hello")).toBe("hello");
 
     const hosts = [TAILNET_HOST, `hello.${TAILNET_HOST}`];
-    const baseline: Record<string, string> = {};
+    const baseline: Record<string, RawResponse> = {};
     for (const host of hosts) {
-      baseline[host] = (
-        await raw(before.port, { host, path: "/readyz" })
-      ).stable;
+      baseline[host] = await raw(before.port, { host, path: "/readyz" });
+      expect(
+        baseline[host].headers["strict-transport-security"],
+      ).toBeUndefined();
+      expect(baseline[host].headers["content-security-policy"]).not.toContain(
+        "upgrade-insecure-requests",
+      );
     }
-    expect(baseline[TAILNET_HOST]).toContain("ok");
+    expect(baseline[TAILNET_HOST].raw).toContain("ok");
 
     // Become that office, through the route that is the whole of what turns
     // app hostnames on, and cold-restart the same install.
@@ -125,14 +180,32 @@ describe("app hosts: the office is untouched", () => {
     const after = await before.restart();
     server = after;
 
-    // Nothing diverts: the app's own would-be hostname reaches the office and
-    // answers what it answered before the origin was ever set.
+    // Nothing diverts: the app's own would-be hostname reaches the office.
+    // HTTPS-only response policy changes, while dispatch output does not.
     for (const host of hosts) {
       const res = await raw(after.port, { host, path: "/readyz" });
-      expect({ host, stable: res.stable }).toEqual({
+      expect({
         host,
-        stable: baseline[host],
+        stable: withoutOriginSecurityHeaders(res.stable),
+      }).toEqual({
+        host,
+        stable: withoutOriginSecurityHeaders(baseline[host].stable),
       });
+      const delta = changedHeaders(baseline[host], res);
+      expect(Object.keys(delta).sort()).toEqual([
+        "content-security-policy",
+        "strict-transport-security",
+      ]);
+      expect(delta["strict-transport-security"]).toEqual({
+        before: undefined,
+        after: "max-age=31536000",
+      });
+      expect(
+        cspDirectiveDelta(
+          delta["content-security-policy"].before!,
+          delta["content-security-policy"].after!,
+        ),
+      ).toEqual({ added: ["upgrade-insecure-requests"], removed: [] });
     }
 
     // And the app is handed no address. ABSENT, not null and not empty: an
@@ -173,10 +246,11 @@ describe("app hosts: the office is untouched", () => {
     }
   });
 
-  // The regression pin, in its strongest form: measure every non-app Host on
-  // an office with NO app-host domain, turn the feature on, cold-restart the SAME
-  // office, and require every answer to be identical. Not "looks like a 200" -
-  // the same bytes, from the same install, before and after.
+  // The regression pin, in its strongest valid form: measure every non-app
+  // Host on an HTTP office with NO app-host domain, turn HTTPS + app hostnames
+  // on, and require every response byte OTHER THAN the origin-dependent CSP
+  // and HSTS headers to stay identical. The two excluded headers are asserted
+  // separately in both states, including the app-preview wildcard.
   //
   // Syntactically malformed Hosts ("has space.test") are deliberately NOT in
   // this list. They never reach an office response on any build, including the
@@ -206,14 +280,21 @@ describe("app hosts: the office is untouched", () => {
   it("answers every non-app Host identically before and after the arm turns on", async () => {
     const before = await startTestServer();
     server = before;
-    const baseline: Record<string, string> = {};
+    const baseline: Record<string, RawResponse> = {};
     for (const host of NON_APP_HOSTS) {
-      baseline[host] = (
-        await raw(before.port, { host, path: "/readyz" })
-      ).stable;
+      baseline[host] = await raw(before.port, { host, path: "/readyz" });
+      expect(
+        baseline[host].headers["strict-transport-security"],
+      ).toBeUndefined();
+      expect(baseline[host].headers["content-security-policy"]).not.toContain(
+        "upgrade-insecure-requests",
+      );
+      expect(baseline[host].headers["content-security-policy"]).not.toContain(
+        `https://*.${OFFICE_HOST}`,
+      );
     }
     // Sanity: these really did reach the office on the arm-less boot.
-    expect(baseline["localhost"]).toContain("ok");
+    expect(baseline["localhost"].raw).toContain("ok");
 
     // Turn the office into an HTTPS deployment through the real Access route,
     // which is the whole of what turns app hostnames on, and cold-restart the
@@ -239,9 +320,33 @@ describe("app hosts: the office is untouched", () => {
 
     for (const host of NON_APP_HOSTS) {
       const res = await raw(after.port, { host, path: "/readyz" });
-      expect({ host, stable: res.stable }).toEqual({
+      expect({
         host,
-        stable: baseline[host],
+        stable: withoutOriginSecurityHeaders(res.stable),
+      }).toEqual({
+        host,
+        stable: withoutOriginSecurityHeaders(baseline[host].stable),
+      });
+      const delta = changedHeaders(baseline[host], res);
+      expect(Object.keys(delta).sort()).toEqual([
+        "content-security-policy",
+        "strict-transport-security",
+      ]);
+      expect(delta["strict-transport-security"]).toEqual({
+        before: undefined,
+        after: "max-age=31536000",
+      });
+      expect(
+        cspDirectiveDelta(
+          delta["content-security-policy"].before!,
+          delta["content-security-policy"].after!,
+        ),
+      ).toEqual({
+        added: [
+          `frame-src 'self' blob: data: https://*.${OFFICE_HOST}`,
+          "upgrade-insecure-requests",
+        ],
+        removed: ["frame-src 'self' blob: data:"],
       });
     }
   });
