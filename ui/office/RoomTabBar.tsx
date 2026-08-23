@@ -4,7 +4,7 @@ import { apiFetch } from "../api.ts";
 import type { ViewOrderReq } from "../../shared/contract-shapes.ts";
 import { RoomSettingsModal } from "../components/RoomSettingsModal.tsx";
 import { MiniGhostCluster } from "./MiniGhostCluster.tsx";
-import type { PresenceInfo } from "../../shared/types.ts";
+import type { AgentInfo, PresenceInfo } from "../../shared/types.ts";
 
 // Per-tab mini-ghost cluster sizing. Kept small so the bar height
 // stays at 32px (the tabs' existing height) - mini ghosts must read as
@@ -15,6 +15,19 @@ const MAX_MINI_GHOSTS = 3;
 // width past the previous one, keeping the cluster narrow. Color is
 // enough to distinguish individual ghosts.
 const MINI_GHOST_OVERLAP = -8;
+
+export function roomActivityDotColor(
+  roomAgents: AgentInfo[],
+  hasAttention: boolean,
+  isActive: boolean,
+): "var(--green)" | "var(--purple)" | null {
+  if (isActive) return null;
+  const hasWorkingAgent = roomAgents.some(
+    (agent) => agent.state === "thinking" || agent.state === "tool_executing",
+  );
+  if (hasWorkingAgent) return "var(--green)";
+  return hasAttention ? "var(--purple)" : null;
+}
 
 // Edge affordance for an overflowing tab bar: a gradient fade signals
 // "more rooms this way" on both platforms; on desktop a chevron button
@@ -325,6 +338,11 @@ export function RoomTabBar() {
           const isActive = room.id === currentRoomId;
           const roomAgents = agents.filter((a) => a.roomId === room.id);
           const hasAttention = roomAgents.some((a) => needsAttention.has(a.id));
+          const activityDotColor = roomActivityDotColor(
+            roomAgents,
+            hasAttention,
+            isActive,
+          );
           const isEmpty = roomAgents.length === 0;
           const displayName = room.name;
           const isDragging = dragFrom === i;
@@ -418,7 +436,7 @@ export function RoomTabBar() {
                 >
                   {roomAgents.length}/8
                 </span>
-                {hasAttention && !isActive && (
+                {activityDotColor && (
                   <span
                     style={{
                       position: "absolute",
@@ -427,8 +445,8 @@ export function RoomTabBar() {
                       width: 5,
                       height: 5,
                       borderRadius: "50%",
-                      background: "var(--purple)",
-                      boxShadow: "0 0 4px var(--purple)",
+                      background: activityDotColor,
+                      boxShadow: `0 0 4px ${activityDotColor}`,
                     }}
                   />
                 )}
