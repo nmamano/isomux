@@ -50,11 +50,42 @@ export {
 } from "./plans.ts";
 
 /**
- * The domain offices are named under. A constant rather than an environment
- * variable: it is the same value for every caller of a given build, and launch
- * flips one line.
+ * The domain new customer offices are named under. It is a reviewed build
+ * constant because every caller uses the same customer namespace. Changing it
+ * does not rename offices already persisted in the store.
  */
-export const OFFICE_DOMAIN = "test.isomux.app";
+export const OFFICE_DOMAIN = "isomux.app";
+
+export const NEW_OFFICE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+export const MAX_NEW_OFFICES_PER_WINDOW = 40;
+
+/**
+ * Serializes the rolling admission check without adding a table-lock edge to
+ * the reservation DML graph. The value is a stable, process-independent key.
+ */
+const NEW_OFFICE_ADMISSION_LOCK = 0x69736f6d7578;
+
+/**
+ * Let's Encrypt allowed 50 new certificates per registered domain per seven
+ * days, as measured 2026-08-13 in internal-docs/port-proxy-design.md. Each new
+ * office needs one office+wildcard certificate. Forty admissions hold ten back
+ * for reissue, replacement, and the cp1/cp2/cp5 infrastructure names, which
+ * also spend the isomux.app budget from under test.isomux.app.
+ *
+ * This is a sanity check on ADMISSIONS, not certificate accounting. A reserved
+ * office issues its certificate when provisioning runs, so the bound holds
+ * while issuance follows reservation closely.
+ */
+const NEW_OFFICE_LIMIT_REASON =
+  "we cannot accept another office signup yet; try again later";
+const NEW_OFFICE_LIMIT = new Error("new office admission limit");
+
+function admissionOutcome(err: unknown): SignupOutcome {
+  if (err === NEW_OFFICE_LIMIT) {
+    return { ok: false, reason: NEW_OFFICE_LIMIT_REASON };
+  }
+  throw err;
+}
 
 /**
  * The access-window ceiling written with the instance row, per R-2026-08-15-1:
@@ -329,7 +360,7 @@ export async function reserveOffice(
   const uuid = newId();
   const ts = now();
 
-  return store.tx(async (): Promise<SignupOutcome> => {
+  const reserve = async (): Promise<SignupOutcome> => {
     const account = await getAccount(store, req.accountId);
     if (!account) {
       return { ok: false, reason: "we do not recognise this account" };
@@ -434,6 +465,16 @@ export async function reserveOffice(
       return { ok: true, reservation: held, account, reused: true };
     }
 
+    await store.sqlRun("select pg_advisory_xact_lock($1)", [
+      NEW_OFFICE_ADMISSION_LOCK,
+    ]);
+    const admitted = await store.sqlGet<{ n: number }>(
+      "select count(*) as n from name_reservations where created_at >= $1",
+      [ts - NEW_OFFICE_WINDOW_MS],
+    );
+    if (!admitted) throw new Error("new-office admission count is missing");
+    if (admitted.n > MAX_NEW_OFFICES_PER_WINDOW) throw NEW_OFFICE_LIMIT;
+
     await store.createInstance({
       id: instanceId,
       run_id: null,
@@ -474,7 +515,8 @@ export async function reserveOffice(
     const made = await reservationByName(store, req.officeName);
     if (!made) throw new Error("reservation insert did not land");
     return { ok: true, reservation: made, account, reused: false };
-  });
+  };
+  return store.tx(reserve).catch(admissionOutcome);
 }
 
 /**

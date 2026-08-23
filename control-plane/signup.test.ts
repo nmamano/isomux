@@ -9,6 +9,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import * as fs from "node:fs";
 import {
   ACCESS_WINDOW_MS,
+  MAX_NEW_OFFICES_PER_WINDOW,
+  NEW_OFFICE_WINDOW_MS,
   accountForDevSignIn,
   bindGoogleSubject,
   checkoutInputsFor,
@@ -71,6 +73,26 @@ async function signup(
     plan: "office",
     ...rest,
   });
+}
+
+async function seedAdmissions(
+  store: Store,
+  count: number,
+  createdAt: number,
+): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    await store.sqlRun(
+      "insert into name_reservations (name, id, account_id, instance_id, plan, coupon_id, version, created_at, updated_at) " +
+        "values ($1, $2, $3, $4, 'office', null, 1, $5, $5)",
+      [
+        `seed-${i}`,
+        `seed-res-${i}`,
+        `seed-account-${i}`,
+        `seed-instance-${i}`,
+        createdAt,
+      ],
+    );
+  }
 }
 
 describe("refusals that never reach the database", () => {
@@ -145,6 +167,7 @@ describe("the reservation", () => {
 
     expect(out.reused).toBe(false);
     const instance = await store.getInstance(out.reservation.instance_id);
+    expect(hostnameFor("acme")).toBe("acme.isomux.app");
     expect(instance?.name).toBe(hostnameFor("acme"));
     expect(instance?.service_state).toBe("provisioning");
     expect(instance?.goal).toBe("live");
@@ -157,6 +180,130 @@ describe("the reservation", () => {
     expect(asset?.provider_id).toBeNull();
     expect(asset?.asset_state).toBe("none");
     expect(asset?.ipv4).toBeNull();
+  });
+
+  test("admits 40 new offices in seven days and refuses the next without residue", async () => {
+    const now = 1_700_000_000_000;
+    const store = await tempStore(() => now);
+    await seedAdmissions(store, MAX_NEW_OFFICES_PER_WINDOW - 1, now);
+    const fortieth = await signup(store);
+    expect(fortieth.ok).toBe(true);
+
+    const refused = await signup(store, {
+      email: "next@example.com",
+      officeName: "next",
+    });
+    expect(refused).toEqual({
+      ok: false,
+      reason: "we cannot accept another office signup yet; try again later",
+    });
+    expect(await reservationByName(store, "next")).toBeNull();
+    expect(await store.listInstances()).toHaveLength(1);
+    expect(
+      await store.sqlGet<{ n: number }>(
+        "select count(*) as n from provider_assets",
+      ),
+    ).toEqual({ n: 1 });
+    expect(await store.auditEvents()).toHaveLength(1);
+
+    const caller = fs.readFileSync(
+      new URL("web/lib/services.server.ts", import.meta.url),
+      "utf8",
+    );
+    expect(caller).toContain(
+      "if (!reserved.ok) return { ok: false, reason: reserved.reason };\n" +
+        "  return openReservedCheckout(reserved);",
+    );
+  });
+
+  test("an admission older than seven days frees one place", async () => {
+    const now = 1_700_000_000_000;
+    const store = await tempStore(() => now);
+    await seedAdmissions(
+      store,
+      MAX_NEW_OFFICES_PER_WINDOW,
+      now - NEW_OFFICE_WINDOW_MS - 1,
+    );
+    expect((await signup(store)).ok).toBe(true);
+  });
+
+  test("an owner retry at the ceiling does not consume another place", async () => {
+    const now = 1_700_000_000_000;
+    const store = await tempStore(() => now);
+    await seedAdmissions(store, MAX_NEW_OFFICES_PER_WINDOW - 1, now);
+    const first = await signup(store);
+    if (!first.ok) throw new Error("signup failed");
+    const retry = await signup(store);
+    expect(retry.ok).toBe(true);
+    if (retry.ok) expect(retry.reused).toBe(true);
+  });
+
+  test("two concurrent boundary admissions produce exactly one new office", async () => {
+    const now = 1_700_000_000_000;
+    const dsn = await testDsn();
+    const a = await openTestStoreOn(dsn, () => now);
+    const b = await openTestStoreOn(dsn, () => now);
+    await seedAdmissions(a, MAX_NEW_OFFICES_PER_WINDOW - 1, now);
+    const firstAccount = await accountForDevSignIn(a, "first@example.com");
+    const secondAccount = await accountForDevSignIn(a, "second@example.com");
+    const [first, second] = await Promise.all([
+      reserveOffice(a, {
+        accountId: firstAccount.id,
+        officeName: "first",
+        plan: "office",
+      }),
+      reserveOffice(b, {
+        accountId: secondAccount.id,
+        officeName: "second",
+        plan: "office",
+      }),
+    ]);
+    expect([first.ok, second.ok].filter(Boolean)).toHaveLength(1);
+    const loser = first.ok ? second : first;
+    expect(loser).toEqual({
+      ok: false,
+      reason: "we cannot accept another office signup yet; try again later",
+    });
+    expect(
+      await a.sqlGet<{ n: number }>(
+        "select count(*) as n from name_reservations",
+      ),
+    ).toEqual({ n: MAX_NEW_OFFICES_PER_WINDOW });
+    await a.close();
+    await b.close();
+  });
+
+  test("an admission-check error fails closed before office creation", async () => {
+    const store = await tempStore();
+    const original = store.sqlRun.bind(store);
+    store.sqlRun = async (sql, args = []) => {
+      if (sql.includes("pg_advisory_xact_lock")) {
+        throw new Error("admission check unavailable");
+      }
+      return original(sql, args);
+    };
+    const error = await signup(store).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("admission check unavailable");
+    expect(await reservationByName(store, "acme")).toBeNull();
+    expect(await store.listInstances()).toHaveLength(0);
+    expect(await store.auditEvents()).toHaveLength(0);
+  });
+
+  test("a missing admission count fails closed before office creation", async () => {
+    const store = await tempStore();
+    const original = store.sqlGet.bind(store);
+    store.sqlGet = async <T>(sql: string, args = []) => {
+      if (sql.includes("count(*) as n from name_reservations")) return null;
+      return original<T>(sql, args);
+    };
+    const error = await signup(store).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain(
+      "new-office admission count is missing",
+    );
+    expect(await reservationByName(store, "acme")).toBeNull();
+    expect(await store.listInstances()).toHaveLength(0);
   });
 
   test("Poweruser is stored by tier and reaches provisioning as V155", async () => {

@@ -679,7 +679,7 @@ async function main(): Promise<void> {
             say(`office page navigation: ${err.message.split("\n")[0]}`),
           );
         const text = (await page.textContent("body")) ?? "";
-        const officeHostname = "continue-browser.test.isomux.app";
+        const officeHostname = "continue-browser.isomux.app";
         check(
           "the signed-in office page renders its stored hostname",
           text.includes(officeHostname),

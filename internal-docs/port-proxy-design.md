@@ -259,6 +259,11 @@ batch because the control plane does not automate DNS or hold DNS credentials;
 it remains the preferred no-cap production shape if no override or PSL boundary
 exists.
 
+As of 2026-08-21, new customer offices are named under `isomux.app`, the shipped
+path issues one office+wildcard certificate per new office, and signup admits at
+most 40 new offices in a rolling seven days. Both customer namespaces spend the
+same registered-domain certificate budget.
+
 ### Auth handshake
 
 The office session cookie is host-only, so it never reaches the app subdomain.
