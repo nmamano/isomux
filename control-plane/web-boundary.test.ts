@@ -258,7 +258,14 @@ describe("the privileged half of the control plane is unreachable", () => {
       if (file.endsWith("server-administrator-key.ts")) {
         expect(source.startsWith('"use client"')).toBe(true);
         expect(source).toContain("openssh-key-v1");
+      } else if (/\.test\.tsx?$/.test(file)) {
+        // A test may assert the ABSENCE of key material, which requires
+        // naming the bare phrase - but pasted REAL key material carries
+        // the armor line, which no honest fixture needs.
+        expect(source).not.toContain("-----BEGIN");
       } else {
+        // Building the literal at run time to dodge this scan is worse
+        // than the fixture exemption above.
         expect(source).not.toContain("PRIVATE KEY");
       }
     }
