@@ -498,35 +498,36 @@ export function validateAppSession(
     registrationGen?: number;
     now?: number;
   },
-): boolean {
+): { userId: string; officeSessionHash: string } | null {
   // Present-but-empty lands here as `""` and is refused like any other value
   // that is not a live token.
-  if (rawCookie === null || rawCookie.length === 0) return false;
+  if (rawCookie === null || rawCookie.length === 0) return null;
   if (rawCookie.length > MAX_TOKEN_LENGTH || !TOKEN_PATTERN.test(rawCookie)) {
-    return false;
+    return null;
   }
   const now = ctx.now ?? Date.now();
   const tokenHash = hashOf(rawCookie);
   const row = appSessions.get(tokenHash);
-  if (!row) return false;
-  if (!safeHashEq(row.tokenHash, tokenHash)) return false;
+  if (!row) return null;
+  if (!safeHashEq(row.tokenHash, tokenHash)) return null;
   if (row.expiresAt <= now) {
     appSessions.delete(tokenHash);
-    return false;
+    return null;
   }
   if (
     row.label !== ctx.label ||
     row.hostGen !== ctx.hostGen ||
     row.registrationGen !== (ctx.registrationGen ?? ctx.hostGen)
   )
-    return false;
-  if (revalidateByHash(row.officeSessionHash) === null) {
+    return null;
+  const office = revalidateByHash(row.officeSessionHash);
+  if (office === null) {
     // The office session is gone. The app session is orphaned and will never
     // be valid again, so drop the row rather than re-checking it forever.
     appSessions.delete(tokenHash);
-    return false;
+    return null;
   }
-  return true;
+  return { userId: office.userId, officeSessionHash: row.officeSessionHash };
 }
 
 // How many minted codes are still outstanding. Test-only, and it exists for one
@@ -606,6 +607,7 @@ export function handleAppMintRequest(
   opts: {
     appHostDomain: string | null;
     registry?: AppRegistry;
+    canAccess: (app: AppRecord, userId: string) => boolean;
     now?: number;
   },
 ): Response {
@@ -626,6 +628,7 @@ export function handleAppMintRequest(
   const registry = opts.registry ?? productionRegistry;
   const app = liveAppByLabel(registry, labelParam);
   if (app === null) return neutralNotFound();
+  if (!opts.canAccess(app, session.userId)) return neutralNotFound();
 
   const returnPath = validateReturnPath(rParam);
   if (returnPath === null) return handshake(400, BAD_REQUEST_BODY);
@@ -659,6 +662,7 @@ export interface AppHostContext {
   // confirmed the app is live - this module never re-derives either.
   host: string;
   app: AppRecord;
+  canAccess: (app: AppRecord, userId: string) => boolean;
   now?: number;
 }
 
@@ -703,6 +707,9 @@ export function handleAppAuthRedeem(
   // closes the window between mint and redeem.
   const office = revalidateByHash(record.officeSessionHash);
   if (office === null) return handshake(400, SIGN_IN_FAILED_BODY);
+  if (!ctx.canAccess(ctx.app, office.userId)) {
+    return handshake(400, SIGN_IN_FAILED_BODY);
+  }
 
   const started = startAppSession(
     {
@@ -748,14 +755,13 @@ export function appHostWsAuthGate(
   ctx: AppHostContext,
 ): Response | null {
   const rawCookie = readAppCookie(req);
-  if (
-    validateAppSession(rawCookie, {
-      label: ctx.app.hostLabel,
-      hostGen: ctx.app.hostGen,
-      registrationGen: appRegistrationGeneration(ctx.app),
-      now: ctx.now,
-    })
-  ) {
+  const session = validateAppSession(rawCookie, {
+    label: ctx.app.hostLabel,
+    hostGen: ctx.app.hostGen,
+    registrationGen: appRegistrationGeneration(ctx.app),
+    now: ctx.now,
+  });
+  if (session && ctx.canAccess(ctx.app, session.userId)) {
     return null;
   }
   // Presented and rejected -> clear it, exactly as the gate does; absent ->
@@ -771,14 +777,13 @@ export function appHostAuthGate(
   ctx: AppHostContext,
 ): Response | null {
   const rawCookie = readAppCookie(req);
-  if (
-    validateAppSession(rawCookie, {
-      label: ctx.app.hostLabel,
-      hostGen: ctx.app.hostGen,
-      registrationGen: appRegistrationGeneration(ctx.app),
-      now: ctx.now,
-    })
-  ) {
+  const session = validateAppSession(rawCookie, {
+    label: ctx.app.hostLabel,
+    hostGen: ctx.app.hostGen,
+    registrationGen: appRegistrationGeneration(ctx.app),
+    now: ctx.now,
+  });
+  if (session && ctx.canAccess(ctx.app, session.userId)) {
     return null;
   }
   // PRESENT and rejected -> clear it, whatever the reason it failed (expired,

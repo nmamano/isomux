@@ -478,14 +478,14 @@ describe("app sessions", () => {
         hostGen: 1,
         now: 1_000_100,
       }),
-    ).toBe(false);
+    ).toBeNull();
   });
 
   it("refuses malformed and unknown cookie values", () => {
     for (const bogus of [null, "", "not base64url!", "a".repeat(65)]) {
       expect(
         validateAppSession(bogus, { label: LABEL, hostGen: 1, now: 1_000_100 }),
-      ).toBe(false);
+      ).toBeNull();
     }
   });
 });

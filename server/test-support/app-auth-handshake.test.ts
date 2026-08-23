@@ -44,6 +44,7 @@ import {
   expectAuthRequired,
   expectBounce,
   expectPlaceholder,
+  grantMemberAppRoom,
   mint,
   raw,
   redeem,
@@ -222,6 +223,36 @@ describe("app-host handshake: the whole round trip", () => {
     ]);
   });
 
+  it("rechecks room visibility at redeem and on every later request", async () => {
+    const { srv, label, rawSessionId } = await anOfficeWithAnApp();
+    const app = appRegistry.get("hello")!;
+    const creatorId = app.createdByAgentId!;
+    const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
+    expect(minted.status).toBe(302);
+    const code = codeFromMint(minted);
+    const secondCode = codeFromMint(
+      await mint(srv, `?app=${label}&r=%2F`, { rawSessionId }),
+    );
+    const value = cookieValue(await redeem(srv, label, secondCode));
+
+    const otherRoom = srv.agentManager.createRoom("Other");
+    expect(srv.agentManager.moveAgent(creatorId, otherRoom)).toBe(true);
+
+    const refusedRedeem = await redeem(srv, label, code);
+    expect(refusedRedeem.status).toBe(400);
+    expect(refusedRedeem.body).toBe(SIGN_IN_FAILED_BODY);
+
+    const after = await raw(srv.port, {
+      host: appHost(label),
+      headers: { ...NAVIGATION_HEADERS, ...withAppCookie(value) },
+    });
+    expectBounce(after, { label, path: "/" }, "after creator move");
+    const refusedMint = await mint(srv, `?app=${label}&r=%2F`, {
+      rawSessionId,
+    });
+    expect(refusedMint.status).toBe(404);
+  });
+
   it("refuses a code minted against a session that has since signed out", async () => {
     const { srv, label, rawSessionId } = await anOfficeWithAnApp();
     const minted = await mint(srv, `?app=${label}&r=%2F`, { rawSessionId });
@@ -339,6 +370,7 @@ describe("app-host handshake: the generation binding", () => {
     const res = handleAppAuthRedeem(req, {
       host: appHost(label),
       app: { ...app, hostGen: app.hostGen + 1 },
+      canAccess: () => true,
     });
     expect(res.status).toBe(400);
     expect(await res.text()).toBe(SIGN_IN_FAILED_BODY);
@@ -363,16 +395,16 @@ describe("app-host handshake: the generation binding", () => {
         label,
         hostGen: app.hostGen,
       }),
-    ).toBe(true);
+    ).toMatchObject({ userId: expect.any(String) });
     expect(
       validateAppSession(started!.token, {
         label,
         hostGen: app.hostGen + 1,
       }),
-    ).toBe(false);
+    ).toBeNull();
     expect(
       validateAppSession(started!.token, { label: "other", hostGen: 1 }),
-    ).toBe(false);
+    ).toBeNull();
   });
 
   it("refuses a code minted just before delete when the same hostname is reused", async () => {
@@ -752,6 +784,7 @@ describe("app-host handshake: the office mint endpoint", () => {
     expect(await limited.text()).toBe(MINT_LIMITED_BODY);
     // Another user's budget is their own.
     const other = await srv.seedMember("Other");
+    grantMemberAppRoom(srv, other.username);
     const theirs = await mint(srv, `?app=${label}&r=%2F`, {
       rawSessionId: other.rawSessionId,
     });

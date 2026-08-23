@@ -20,7 +20,7 @@ import type {
   SlideFailureReason,
   SlideRecord,
   TaskItem,
-  AppWire,
+  AppListWire,
   OfficeSettings,
   OfficeWire,
   RoomWire,
@@ -123,7 +123,7 @@ export interface AppState {
   // and kept fresh by the app_upserted / app_deleted deltas. full_state does
   // NOT carry apps and must never clear this slice - AppsView re-fetches on
   // hydrationEpoch instead.
-  apps: AppWire[];
+  apps: AppListWire[];
   appsLoaded: boolean;
   // Bumped by every app delta. A list GET is a snapshot of the moment it was
   // ISSUED, so a slow one can land after a delta that supersedes it and
@@ -310,8 +310,8 @@ type Action =
   // CLIENT-LOCAL (not a ServerMessage): AppsView dispatches this after its REST
   // apps.list fetch. The fetch REPLACES the slice, which is what converges the
   // list after a missed delta or a state change systemd made on its own.
-  | { type: "apps_loaded"; apps: AppWire[]; revision: number }
-  | { type: "app_upserted"; app: AppWire }
+  | { type: "apps_loaded"; apps: AppListWire[]; revision: number }
+  | { type: "app_upserted"; app: AppListWire }
   | { type: "app_deleted"; name: string }
   | { type: "set_current_room"; roomId: string }
   | { type: "room_created"; room: RoomWire }

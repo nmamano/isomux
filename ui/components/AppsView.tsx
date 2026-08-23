@@ -24,7 +24,7 @@ import {
   pruneAppPreviewOpens,
   setAppPreviews,
 } from "../device-settings.ts";
-import type { AppState, AppWire } from "../../shared/types.ts";
+import type { AppListWire, AppState, AppWire } from "../../shared/types.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
@@ -431,7 +431,13 @@ export function demoAppMockContent(name: string): DemoAppMockContent {
   );
 }
 
-function DemoAppMock({ app, onClose }: { app: AppWire; onClose: () => void }) {
+function DemoAppMock({
+  app,
+  onClose,
+}: {
+  app: AppListWire;
+  onClose: () => void;
+}) {
   const content = demoAppMockContent(app.name);
   return (
     <div
@@ -571,15 +577,17 @@ function Meta({ label, value }: { label: string; value: React.ReactNode }) {
  * there is. That is the rule the task board resolves its own names by.
  */
 export function resolveCreatorAgentId(
-  app: Pick<AppWire, "createdBy" | "createdByAgentId">,
+  app: { createdBy?: string; createdByAgentId?: string },
   agents: readonly { id: string; name: string }[],
 ): string | null {
   if (app.createdByAgentId !== undefined) {
     const byId = agents.find((a) => a.id === app.createdByAgentId);
     return byId ? byId.id : null;
   }
+  const createdBy = app.createdBy;
+  if (createdBy === undefined) return null;
   const byName = agents.find(
-    (a) => a.name.toLowerCase() === app.createdBy.toLowerCase(),
+    (a) => a.name.toLowerCase() === createdBy.toLowerCase(),
   );
   return byName ? byName.id : null;
 }
@@ -612,7 +620,7 @@ export function AppsView({
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppWire | null>(null);
   const [previewsEnabled, setPreviewsEnabled] = useState(getAppPreviews);
-  const [mockApp, setMockApp] = useState<AppWire | null>(null);
+  const [mockApp, setMockApp] = useState<AppListWire | null>(null);
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   // Moves when the USER changes what the log pane is showing - opening a row,
   // closing one, deleting the open one - so a request in flight can tell that it
@@ -676,7 +684,7 @@ export function AppsView({
       const revision = revisionRef.current;
       let landed = true;
       try {
-        const list = await apiFetch<AppWire[]>("GET", "/api/apps");
+        const list = await apiFetch<AppListWire[]>("GET", "/api/apps");
         if (cancelled) return;
         dispatch({ type: "apps_loaded", apps: list, revision });
         setError(null);
@@ -899,9 +907,12 @@ export function AppsView({
             {sorted.map((app) => {
               const isBusy = busy?.startsWith(`${app.name}:`) ?? false;
               const href = appHref(app, window.location.hostname);
-              const creatorAgentId = onFocusAgent
-                ? resolveCreatorAgentId(app, agents)
-                : null;
+              const creatorAgentId = resolveCreatorAgentId(app, agents);
+              const creatorName = creatorAgentId
+                ? agents.find((agent) => agent.id === creatorAgentId)?.name
+                : "createdBy" in app
+                  ? app.createdBy
+                  : null;
               const openMode = appOpenMode(features.liveAppPreviews);
               const appLink = (
                 label: React.ReactNode,
@@ -1036,10 +1047,10 @@ export function AppsView({
                               (e.currentTarget.style.textDecoration = "none")
                             }
                           >
-                            {app.createdBy}
+                            {creatorName}
                           </button>
                         ) : (
-                          app.createdBy
+                          creatorName
                         )
                       }
                     />
@@ -1048,23 +1059,25 @@ export function AppsView({
                     )}
                   </div>
 
-                  <div
-                    style={{
-                      marginTop: 6,
-                      fontSize: 11,
-                      color: "var(--text-muted)",
-                      fontFamily: "var(--font-mono, monospace)",
-                      overflowWrap: "anywhere",
-                    }}
-                  >
-                    {app.command}
-                    <span style={{ opacity: 0.7 }}> in {app.cwd}</span>
-                  </div>
+                  {app.canManage === true && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        fontSize: 11,
+                        color: "var(--text-muted)",
+                        fontFamily: "var(--font-mono, monospace)",
+                        overflowWrap: "anywhere",
+                      }}
+                    >
+                      {app.command}
+                      <span style={{ opacity: 0.7 }}> in {app.cwd}</span>
+                    </div>
+                  )}
 
                   {/* Presence only. startError is in-memory on the server, so
                       its absence proves nothing and this never renders an
                       all-clear - `state` is the durable signal. */}
-                  {app.startError && (
+                  {app.canManage === true && app.startError && (
                     <div
                       style={{
                         marginTop: 8,
@@ -1081,47 +1094,49 @@ export function AppsView({
                     </div>
                   )}
 
-                  <div
-                    style={{
-                      marginTop: 10,
-                      display: "flex",
-                      gap: 6,
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    {(["start", "stop", "restart"] as const).map((verb) => {
-                      const inert = isBusy || verbInert(verb, app.state);
-                      return (
-                        <button
-                          key={verb}
-                          title={VERB_TITLES[verb]}
-                          disabled={inert}
-                          onClick={() => void act(app.name, verb)}
-                          style={btnStyle(false, inert)}
-                        >
-                          {verb}
-                        </button>
-                      );
-                    })}
-                    <button
-                      title="Show the app's recent output"
-                      disabled={isBusy}
-                      onClick={() => void toggleLogs(app.name)}
-                      style={btnStyle(false, isBusy)}
+                  {app.canManage === true && (
+                    <div
+                      style={{
+                        marginTop: 10,
+                        display: "flex",
+                        gap: 6,
+                        flexWrap: "wrap",
+                      }}
                     >
-                      {openLogs === app.name ? "hide log" : "log"}
-                    </button>
-                    <button
-                      title="Remove the app"
-                      disabled={isBusy}
-                      onClick={() => setConfirmDelete(app)}
-                      style={btnStyle(true, isBusy)}
-                    >
-                      delete
-                    </button>
-                  </div>
+                      {(["start", "stop", "restart"] as const).map((verb) => {
+                        const inert = isBusy || verbInert(verb, app.state);
+                        return (
+                          <button
+                            key={verb}
+                            title={VERB_TITLES[verb]}
+                            disabled={inert}
+                            onClick={() => void act(app.name, verb)}
+                            style={btnStyle(false, inert)}
+                          >
+                            {verb}
+                          </button>
+                        );
+                      })}
+                      <button
+                        title="Show the app's recent output"
+                        disabled={isBusy}
+                        onClick={() => void toggleLogs(app.name)}
+                        style={btnStyle(false, isBusy)}
+                      >
+                        {openLogs === app.name ? "hide log" : "log"}
+                      </button>
+                      <button
+                        title="Remove the app"
+                        disabled={isBusy}
+                        onClick={() => setConfirmDelete(app)}
+                        style={btnStyle(true, isBusy)}
+                      >
+                        delete
+                      </button>
+                    </div>
+                  )}
 
-                  {openLogs === app.name && (
+                  {app.canManage === true && openLogs === app.name && (
                     <pre
                       style={{
                         marginTop: 10,

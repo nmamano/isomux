@@ -819,6 +819,24 @@ export interface AppWire extends AppRecord {
   url?: string;
 }
 
+// The launch-only projection returned to a room-derived viewer who may open
+// an app but may not manage it. Process arguments and filesystem paths stay on
+// AppWire, which is returned only to the app owner and office owners.
+export interface AppViewerWire {
+  name: string;
+  port: number;
+  description?: string;
+  userId: string | null;
+  username: string | null;
+  createdByAgentId: string;
+  state: AppState;
+  restartCount: number;
+  url?: string;
+  canManage: false;
+}
+
+export type AppListWire = (AppWire & { canManage?: true }) | AppViewerWire;
+
 // ---------------------------------------------------------------------------
 // Cronjobs
 // ---------------------------------------------------------------------------
@@ -1419,13 +1437,13 @@ export type ServerMessage =
   // Drop this task from the board. Either it was deleted, or it was re-filed
   // into a room this recipient cannot access - from their seat both are "gone".
   | { type: "task_deleted"; taskId: string }
-  // Apps, per-recipient projected for the same reason the task deltas are: an
-  // app is visible to its owning user and to office owners, so one mutation is
-  // an upsert for some sockets and nothing at all for the rest. There is no
+  // Apps, per-recipient projected for the same reason task deltas are: owners
+  // receive management rows and creator-room viewers receive launch-only rows.
+  // A dependency change can add or remove a row without changing the app. No
   // whole-list event to match `tasks` - the Apps tab fetches GET /api/apps when
   // it opens, because reading app state costs a systemd call and almost nobody
   // opens the tab.
-  | { type: "app_upserted"; app: AppWire }
+  | { type: "app_upserted"; app: AppListWire }
   // The app is gone from this recipient's list. Only its name travels: an app
   // this recipient could not see never produced a frame in the first place.
   | { type: "app_deleted"; name: string }

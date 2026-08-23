@@ -9,6 +9,9 @@ import type {
   PresenceInfo,
   UserRecord,
   OfficeWire,
+  AppRecord,
+  AppWire,
+  AppListWire,
 } from "../shared/types.ts";
 import {
   listAllPresence,
@@ -170,9 +173,11 @@ import {
 } from "./app-auth.ts";
 import { retireAppRegistration } from "./app-lifecycle.ts";
 import { TLS_ASK_PATH, handleTlsAsk } from "./tls-ask.ts";
-import type { AppRelayWsData } from "./app-ws-relay.ts";
+import { recheckOpenAppSockets, type AppRelayWsData } from "./app-ws-relay.ts";
 import {
   appSupervisor as productionAppSupervisor,
+  UNKNOWN_RUNTIME,
+  type AppRuntime,
   type AppSupervisor,
 } from "./app-supervisor.ts";
 import { appTokens } from "./app-tokens.ts";
@@ -227,6 +232,12 @@ import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
 import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
 import { type Identity } from "./identity/index.ts";
+import {
+  appVisibleTo,
+  viewerUserId,
+  type AppViewerFacts,
+  type AppVisibilityFacts,
+} from "./app-visibility.ts";
 
 // Boot is extracted into startServer() at the end of this file. The CLI
 // fast-path (`bun run server/isomux-office.ts owner-login`) and the production
@@ -420,6 +431,7 @@ function registerBootHooks(): void {
   // "My devices" sessions table consistent on the same events.
   setOnSessionsChanged(() => {
     emitSessionsList();
+    recheckOpenAppSockets();
   });
 
   // Role changes (promote/demote) refresh the cached ws.data.session on the
@@ -449,6 +461,7 @@ function registerBootHooks(): void {
       }
       ws.data.session = fresh;
     }
+    recheckOpenAppSockets();
   });
 
   // First-install onboarding: pre-spawn one Claude and one Codex welcome agent
@@ -1534,6 +1547,143 @@ function defaultCreateRoomIdForIdentity(
 // beyond the directory path, so every log read shares it.
 const officeLogSource = fileLogSource(join(STATE_ROOT, "logs"));
 
+function appVisibilityFacts(app: AppRecord): AppVisibilityFacts {
+  if (!app.createdByAgentId) {
+    return { ownerUserId: app.userId, creatorLive: false };
+  }
+  const creator = agentManager.getAgent(app.createdByAgentId);
+  if (!creator) {
+    return {
+      ownerUserId: app.userId,
+      createdByAgentId: app.createdByAgentId,
+      creatorLive: false,
+    };
+  }
+  const room = agentManager.roomById(creator.roomId);
+  return {
+    ownerUserId: app.userId,
+    createdByAgentId: app.createdByAgentId,
+    creatorLive: room !== null,
+    ...(room !== null ? { creatorRoomId: creator.roomId } : {}),
+  };
+}
+
+function appViewerFacts(
+  identity: Identity,
+  visibility: AppVisibilityFacts,
+): AppViewerFacts {
+  const userId = viewerUserId(identity);
+  const viewerUser = userId ? getUserById(userId) : null;
+  const scopedIdentity = userId === null ? identity : { ...identity, userId };
+  return {
+    userId,
+    isOfficeOwner: viewerUser?.role === "owner",
+    hasCreatorRoomAccess:
+      userId !== null && visibility.creatorRoomId !== undefined
+        ? buildLiveGuardDeps().hasRoomAccess(
+            scopedIdentity,
+            visibility.creatorRoomId,
+          )
+        : false,
+  };
+}
+
+function canUserAccessApp(app: AppRecord, userId: string): boolean {
+  const user = getUserById(userId);
+  if (!user) return false;
+  const visibility = appVisibilityFacts(app);
+  return appVisibleTo(visibility, {
+    userId,
+    isOfficeOwner: user.role === "owner",
+    hasCreatorRoomAccess:
+      visibility.creatorRoomId !== undefined &&
+      buildLiveGuardDeps().hasRoomAccess(
+        {
+          scope: "user",
+          userId,
+          role: user.role,
+          capabilities: [],
+        },
+        visibility.creatorRoomId,
+      ),
+  });
+}
+
+function viewerAppWire(app: AppWire): AppListWire | null {
+  if (!app.createdByAgentId) return null;
+  const creator = agentManager.getAgent(app.createdByAgentId);
+  if (!creator || !agentManager.roomById(creator.roomId)) return null;
+  return {
+    name: app.name,
+    port: app.port,
+    ...(app.description !== undefined ? { description: app.description } : {}),
+    userId: app.userId,
+    username: app.username,
+    createdByAgentId: app.createdByAgentId,
+    state: app.state,
+    restartCount: app.restartCount,
+    ...(app.url !== undefined ? { url: app.url } : {}),
+    canManage: false,
+  };
+}
+
+function appWireForDependency(
+  app: AppRecord,
+  runtime: AppRuntime | undefined,
+): AppWire {
+  const current = runtime ?? UNKNOWN_RUNTIME;
+  const url = appPublicUrl(app.hostLabel, appHostDomain());
+  return {
+    ...app,
+    state: current.state,
+    restartCount: current.restartCount,
+    ...(current.startError ? { startError: current.startError } : {}),
+    ...(url !== null ? { url } : {}),
+  };
+}
+
+function snapshotAppVisibility(
+  include: (app: AppRecord) => boolean,
+): Map<string, AppVisibilityFacts> {
+  try {
+    return new Map(
+      appRegistry
+        .list()
+        .filter(include)
+        .map((app) => [app.name, appVisibilityFacts(app)]),
+    );
+  } catch (err) {
+    console.error("[apps] could not snapshot a dependency change:", err);
+    return new Map();
+  }
+}
+
+function announceAppAudienceChanges(
+  before: ReadonlyMap<string, AppVisibilityFacts>,
+): void {
+  try {
+    const records = appRegistry.list().filter((app) => before.has(app.name));
+    const runtimes = appSupervisor.states(records.map((app) => app.name));
+    for (const app of records) {
+      const prior = before.get(app.name);
+      if (!prior) continue;
+      const after = appVisibilityFacts(app);
+      const ownerWire = appWireForDependency(app, runtimes.get(app.name));
+      pushAppDeltaToEachWs({
+        kind: "audience_changed",
+        name: app.name,
+        ownerApp: { ...ownerWire, canManage: true },
+        viewerApp: viewerAppWire(ownerWire),
+        before: prior,
+        after,
+      });
+    }
+  } catch (err) {
+    console.error("[apps] could not announce a dependency change:", err);
+  }
+  recheckOpenAppSockets();
+}
+
 // Assemble the executor deps for the migrated /api surface. Called from
 // startServer once the managers exist. Each resource slice registers its
 // handlers (and any precondition enforcers) here over its own slim deps bundle;
@@ -1670,9 +1820,33 @@ function buildExecutorDeps(
       },
       isOfficeOwner: (identity) =>
         identity.scope === "user" && identity.role === "owner",
-      announce: (wire) => pushAppDeltaToEachWs({ kind: "upserted", app: wire }),
-      announceRemoved: ({ name, userId }) =>
-        pushAppDeltaToEachWs({ kind: "deleted", name, userId }),
+      projectForList: (identity, record, ownerWire) => {
+        const visibility = appVisibilityFacts(record);
+        const viewer = appViewerFacts(identity, visibility);
+        if (!appVisibleTo(visibility, viewer)) return null;
+        if (
+          viewer.isOfficeOwner ||
+          (viewer.userId !== null && viewer.userId === record.userId)
+        ) {
+          return { ...ownerWire, canManage: true };
+        }
+        return viewerAppWire(ownerWire);
+      },
+      announce: (wire) => {
+        const visibility = appVisibilityFacts(wire);
+        pushAppDeltaToEachWs({
+          kind: "upserted",
+          ownerApp: { ...wire, canManage: true },
+          viewerApp: viewerAppWire(wire),
+          visibility,
+        });
+      },
+      announceRemoved: (app) =>
+        pushAppDeltaToEachWs({
+          kind: "deleted",
+          name: app.name,
+          visibility: appVisibilityFacts(app),
+        }),
     }),
   );
 
@@ -2195,6 +2369,7 @@ function buildExecutorDeps(
         // notifRooms to fit, in ONE updateUserById write. An empty `change`
         // re-clamps the current view fields (clampViewFields reads `current`).
         const accessible = accessibleRoomIdsFor(target, allowedRooms);
+        const appAudienceBefore = snapshotAppVisibility(() => true);
         const clamped = clampViewFields(accessible, target, {});
         const changes: {
           allowedRooms: string[];
@@ -2229,10 +2404,24 @@ function buildExecutorDeps(
           accessibleRoomIdsFor(result.user),
         );
         if (presenceTouched) pushPresenceListToEachWs();
+        announceAppAudienceChanges(appAudienceBefore);
         return { ok: true, user: result.user };
       },
       delete: async ({ username }) => {
         const target = getUser(username);
+        const appAudienceBefore = target
+          ? snapshotAppVisibility(
+              (app) =>
+                app.userId === target.id ||
+                agentManager
+                  .getAllAgents()
+                  .some(
+                    (agent) =>
+                      agent.userId === target.id &&
+                      agent.id === app.createdByAgentId,
+                  ),
+            )
+          : new Map<string, AppVisibilityFacts>();
         // Re-check the lockout invariant atomically (the precondition is TOCTOU-
         // prone). owner!=self is enforced by userDeleteNotSelfOwner upstream.
         if (target && wouldDeleteLeaveNoOwner(target.id)) {
@@ -2249,6 +2438,7 @@ function buildExecutorDeps(
         deleteUser(username);
         emitUsersList();
         if (target) await evictSessionsForUserId(target.id);
+        announceAppAudienceChanges(appAudienceBefore);
         return { ok: true };
       },
       attributionFor,
@@ -2353,6 +2543,9 @@ function buildExecutorDeps(
         return { room };
       },
       close: (roomId) => {
+        const appAudienceBefore = snapshotAppVisibility(
+          (app) => appVisibilityFacts(app).creatorRoomId === roomId,
+        );
         const closed = agentManager.closeRoom(roomId);
         if (!closed) return false;
         let touched = false;
@@ -2397,6 +2590,7 @@ function buildExecutorDeps(
         // and leaks nothing (each socket re-projects against its OWN access).
         // Rare event, so the whole-board cost is irrelevant.
         pushTasksToEachWs();
+        announceAppAudienceChanges(appAudienceBefore);
         return true;
       },
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
@@ -2438,10 +2632,19 @@ function buildExecutorDeps(
   // is the reviveLastRoomAccess precondition below).
   register(
     agentsHandlers({
-      kill: (agentId) => agentManager.kill(agentId),
+      kill: async (agentId) => {
+        const before = snapshotAppVisibility(
+          (app) => app.createdByAgentId === agentId,
+        );
+        await agentManager.kill(agentId);
+        announceAppAudienceChanges(before);
+      },
       abort: (agentId) => agentManager.abort(agentId),
       getAgent: (agentId) => agentManager.getAgent(agentId),
       move: (agentId, targetRoomId) => {
+        const before = snapshotAppVisibility(
+          (app) => app.createdByAgentId === agentId,
+        );
         const current = agentManager.getAgent(agentId);
         // agentParam proved the agent existed; a miss here is a post-guard race.
         if (!current) return { ok: false, reason: "agent_not_found" };
@@ -2450,6 +2653,7 @@ function buildExecutorDeps(
         if (current.roomId === targetRoomId)
           return { ok: true, agent: current };
         if (agentManager.moveAgent(agentId, targetRoomId)) {
+          announceAppAudienceChanges(before);
           const moved = agentManager.getAgent(agentId);
           return moved
             ? { ok: true, agent: moved }
@@ -2551,8 +2755,14 @@ function buildExecutorDeps(
           };
         }
       },
-      revive: (agentId, roomId, desk) =>
-        agentManager.revive(agentId, roomId, desk),
+      revive: async (agentId, roomId, desk) => {
+        const before = snapshotAppVisibility(
+          (app) => app.createdByAgentId === agentId,
+        );
+        const result = await agentManager.revive(agentId, roomId, desk);
+        if (result.ok) announceAppAudienceChanges(before);
+        return result;
+      },
       edit: async (agentId, changes) => {
         // Version guard FIRST (task 44a2c98d), before any field validation - a
         // stale writer is told to re-read before hearing about a bad cwd. Only
@@ -3510,13 +3720,11 @@ function pushTaskDeltaToEachWs(change: TaskChange) {
   }
 }
 
-// --- Ownership-scoped apps fan-out (mirrors the task delta projection) ------
+// --- Visibility-scoped apps fan-out (mirrors the task delta projection) -----
 // Push ONE app mutation to every socket as a per-recipient delta. Apps are
-// scoped by OWNERSHIP rather than room access - an app belongs to a user, and
-// office owners see them all - so the same mutation is an upsert for some
-// sockets and nothing at all for the rest. appDeltaFor owns the rule; see
-// server/events/app-delta.ts for why a recipient who cannot see an app is sent
-// no frame rather than an empty one.
+// The owner and office owners always see an app. A live creator also grants
+// launch-only visibility through its room. appDeltaFor owns both the audience
+// transition and the per-recipient projection.
 //
 // There is no whole-list counterpart to pushTasksToEachWs: an app list costs a
 // systemd read, so the Apps tab fetches GET /api/apps when it opens (and after
@@ -3526,6 +3734,7 @@ function pushAppDeltaToEachWs(change: AppChange) {
     const delta = appDeltaFor(change, {
       userId: ws.data.session.userId,
       isOfficeOwner: ws.data.session.role === "owner",
+      hasRoomAccess: (roomId) => roomAllowedForSession(ws.data.session, roomId),
     });
     if (delta) ws.send(JSON.stringify(delta));
   }
@@ -4310,6 +4519,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // own path is not, so only the promise this can hand back is awaited.
       const appHostResponse = handleAppHostRequest(req, {
         supervisor: appSupervisor,
+        canAccess: canUserAccessApp,
         // A thunk, not a value: reading the peer is only worth doing for a
         // request that is actually being relayed, and this runs in front of
         // every request the office serves.
@@ -4553,6 +4763,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
         const mintRes = handleAppMintRequest(req, url, auth.session, {
           appHostDomain: appHostDomain(),
+          canAccess: canUserAccessApp,
         });
         // The `__Host-` migration rides this response like it rides a page load
         // or a safe /api GET. It matters MORE here than on those: this is the

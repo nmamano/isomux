@@ -62,6 +62,7 @@ import type { Identity } from "../../identity/index.ts";
 import type { AppRecord } from "../../../shared/types.ts";
 import type {
   AppErrorCode,
+  AppListWire,
   AppLogsRes,
   AppRegisterReq,
   AppWire,
@@ -99,9 +100,13 @@ export interface AppsDeps {
   validateCwd(
     cwd: string,
   ): { ok: true; resolved: string } | { ok: false; error: string };
-  // Is this caller an office owner? Owners see every app; everyone else sees
-  // the apps their user owns. Mirrors the cronjob rule.
+  // Office-owner status is also used by management projections.
   isOfficeOwner(identity: Identity): boolean;
+  projectForList(
+    identity: Identity,
+    record: AppRecord,
+    ownerWire: AppWire,
+  ): AppListWire | null;
   // The app's public address, or null when this office has no app hostnames.
   // Derived on every read from the boot-frozen domain and the app's label -
   // the same value its unit injects as ISOMUX_APP_URL.
@@ -118,10 +123,9 @@ export interface AppsDeps {
   //
   // Never called anywhere its throw could change the response: see announced().
   announce(wire: AppWire): void;
-  // Tell the same audience the app is gone. Takes the owner id because the
-  // record is already removed by the time this runs and visibility cannot be
-  // decided without it.
-  announceRemoved(app: { name: string; userId: string | null }): void;
+  // Tell the same audience the app is gone. The full record preserves the
+  // creator facts after the registry removes it.
+  announceRemoved(app: AppRecord): void;
 
   // --- the token seam (server/app-tokens.ts + the supervisor) --------------
   // Provision the app's token: mint it, persist its hash, and write the
@@ -240,13 +244,17 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     "apps.list": (ctx) => {
       try {
         const all = deps.list();
-        const visible = deps.isOfficeOwner(ctx.identity)
-          ? all
-          : all.filter((a) => a.userId && a.userId === ctx.identity.userId);
+        const visible = all;
         // ONE state lookup for the whole list. A per-app lookup would be a
         // subprocess per app per render, and the Apps tab polls.
         const runtimes = deps.states(visible.map((a) => a.name));
-        return ok(visible.map((a) => wireOf(a, runtimes.get(a.name))));
+        return ok(
+          visible.flatMap((a) => {
+            const ownerWire = wireOf(a, runtimes.get(a.name));
+            const projected = deps.projectForList(ctx.identity, a, ownerWire);
+            return projected ? [projected] : [];
+          }),
+        );
       } catch (err) {
         return renderRegistryError(err);
       }
@@ -497,9 +505,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         deps.limiter.forget(record.name);
         // AFTER the removal committed, and from the record read before teardown:
         // the registry no longer holds an owner to project the audience from.
-        announced(record.name, () =>
-          deps.announceRemoved({ name: record.name, userId: record.userId }),
-        );
+        announced(record.name, () => deps.announceRemoved(record));
         return noContent();
       } catch (err) {
         return renderRegistryError(err);

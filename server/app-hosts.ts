@@ -167,6 +167,7 @@ export interface AppHostDeps {
   // upgrade anything, and an upgrade on an app host is refused rather than
   // half-performed.
   upgrade?: (req: Request, data: AppRelayWsData, headers?: Headers) => boolean;
+  canAccess: (app: AppRecord, userId: string) => boolean;
 }
 
 // The office's request entry point calls this FIRST, before the URL is parsed
@@ -209,7 +210,7 @@ export interface AppHostDeps {
 // socket has no response, which is exactly what the runtime expects back.
 export function handleAppHostRequest(
   req: Request,
-  deps: AppHostDeps = {},
+  deps: AppHostDeps,
 ): Response | Promise<Response | undefined> | null {
   const domain = appHostDomain();
   if (domain === null) return null;
@@ -245,18 +246,6 @@ export function handleAppHostRequest(
   const { pathname } = new URL(req.url);
   const upgrade = isWebSocketUpgrade(req);
 
-  // Browsers ask for a favicon outside the page's own request flow. Give every
-  // registered app a recognizable Isomux icon before auth and proxying, with a
-  // stable per-app color so several app tabs remain easy to tell apart. This
-  // shadows a bare app-owned /favicon.ico; an explicit <link rel="icon"> in
-  // the app page remains the app's escape hatch because the browser uses it.
-  if (
-    !upgrade &&
-    pathname === APP_FAVICON_PATH &&
-    (req.method === "GET" || req.method === "HEAD")
-  ) {
-    return appFavicon(app);
-  }
   if (
     pathname === APP_RESERVED_PATH ||
     pathname.startsWith(`${APP_RESERVED_PATH}/`)
@@ -268,7 +257,7 @@ export function handleAppHostRequest(
     // code and then be relayed. The reserved namespace is not the app's, by any
     // method and by any protocol.
     if (!upgrade && pathname === APP_AUTH_PATH && req.method === "GET") {
-      return handleAppAuthRedeem(req, { host, app });
+      return handleAppAuthRedeem(req, { host, app, canAccess: deps.canAccess });
     }
     return neutralNotFound();
   }
@@ -278,7 +267,11 @@ export function handleAppHostRequest(
     // own answer, because an upgrade cannot follow the redirect the gate would
     // hand it. Then the relay, which owns everything from the Origin check to
     // the 101 (server/app-ws-relay.ts).
-    const wsGate = appHostWsAuthGate(req, { host, app });
+    const wsGate = appHostWsAuthGate(req, {
+      host,
+      app,
+      canAccess: deps.canAccess,
+    });
     if (wsGate !== null) return wsGate;
     return relayWsToApp(req, {
       app,
@@ -287,6 +280,7 @@ export function handleAppHostRequest(
       supervisor: deps.supervisor ?? productionSupervisor,
       peer: deps.peer,
       registry,
+      canAccess: deps.canAccess,
       upgrade: (request, data, headers) => {
         // No upgrade seam, no upgrade: an office that did not supply one cannot
         // hand a socket to anything, and pretending otherwise would 101 a
@@ -297,8 +291,17 @@ export function handleAppHostRequest(
     });
   }
 
-  const gate = appHostAuthGate(req, { host, app });
+  const gate = appHostAuthGate(req, { host, app, canAccess: deps.canAccess });
   if (gate !== null) return gate;
+
+  // The icon is app-host content too. Keep it behind the same per-request
+  // authorization as the relay so a live label is not an existence oracle.
+  if (
+    pathname === APP_FAVICON_PATH &&
+    (req.method === "GET" || req.method === "HEAD")
+  ) {
+    return appFavicon(app);
+  }
 
   return relayToApp(req, {
     app,

@@ -19,6 +19,7 @@ import {
   appHost,
   signIn,
   registerApp,
+  grantMemberAppRoom,
 } from "./app-host-test-kit.ts";
 import type { TestServer } from "./harness.ts";
 import { appRegistry } from "../app-registry.ts";
@@ -31,6 +32,7 @@ import {
   originAllowed,
   parseOfferedProtocols,
   relayWsToApp,
+  recheckOpenAppSockets,
   _testResetWsRelay,
   _testWsSocketsOpen,
   type AppRelayWsData,
@@ -199,6 +201,7 @@ async function open(
     host,
     apps: appRegistry.list(),
     supervisor: srv.appSupervisor,
+    canAccess: () => true,
     upgrade: (_req, data) => {
       captured = data.relay;
       return true;
@@ -230,6 +233,22 @@ async function until(cond: () => boolean, timeoutMs = 2000): Promise<void> {
 }
 
 describe("app-ws relay: the socket caps", () => {
+  it("closes an open socket as soon as its room-derived access is revoked", async () => {
+    const { srv, cookie } = await office();
+    let allowed = true;
+    const result = await open(srv, "hello", cookie, {
+      canAccess: () => allowed,
+      recheckMs: 60_000,
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    allowed = false;
+    recheckOpenAppSockets();
+    expect(result.opened.browser.closes).toEqual([
+      { code: 1008, reason: "session ended" },
+    ]);
+  });
+
   it("refuses past the per-app cap and frees the slot when a socket ends", async () => {
     const { srv, cookie } = await office();
     const seams = { maxPerApp: 2, maxTotal: 8 };
@@ -258,11 +277,9 @@ describe("app-ws relay: the socket caps", () => {
     const { srv, cookie, token } = await office();
     const otherLabel = await registerApp(srv, token, "other");
     startApp("other");
-    const otherCookie = await signIn(
-      srv,
-      otherLabel,
-      (await srv.seedMember("Two")).rawSessionId,
-    );
+    const otherMember = await srv.seedMember("Two");
+    grantMemberAppRoom(srv, otherMember.username);
+    const otherCookie = await signIn(srv, otherLabel, otherMember.rawSessionId);
     const seams = { maxPerApp: 8, maxTotal: 2 };
     expect((await open(srv, "hello", cookie, seams)).ok).toBe(true);
     expect((await open(srv, "other", otherCookie, seams)).ok).toBe(true);
@@ -426,6 +443,7 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
       host,
       apps: appRegistry.list(),
       supervisor: srv.appSupervisor,
+      canAccess: () => true,
       maxPerApp: 1,
       upgrade: (_r, data) => {
         relay = data.relay;
@@ -467,6 +485,7 @@ describe("app-ws relay: the cap counts SOCKETS, not relay objects", () => {
         host,
         apps: appRegistry.list(),
         supervisor: srv.appSupervisor,
+        canAccess: () => true,
         upgrade: () => {
           if (mode === "throw") throw new Error("runtime seam blew up");
           return false;
@@ -727,6 +746,7 @@ describe("app-ws relay: the window before the socket opens", () => {
       host,
       apps: appRegistry.list(),
       supervisor: srv.appSupervisor,
+      canAccess: () => true,
       upgrade: (_r, data) => {
         captured = data.relay;
         return true;

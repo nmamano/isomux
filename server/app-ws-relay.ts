@@ -43,6 +43,7 @@ import { buildUpstreamHeaders, proveAppRunning } from "./app-proxy.ts";
 import { readAppCookie, validateAppSession } from "./app-auth.ts";
 import {
   APP_BUSY_BODY,
+  AUTH_REQUIRED_BODY,
   APP_UNREACHABLE_BODY,
   APP_WS_BAD_ORIGIN_BODY,
   APP_WS_PROTOCOL_MISMATCH_BODY,
@@ -194,6 +195,26 @@ function permitKey(app: AppRecord): string {
 
 const perApp = new Map<string, number>();
 let totalOpen = 0;
+const openRelays = new Map<string, Set<AppWsRelay>>();
+
+export function recheckOpenAppSockets(): void {
+  for (const relays of openRelays.values()) {
+    for (const relay of relays) relay.recheck();
+  }
+}
+
+function trackRelay(key: string, relay: AppWsRelay): void {
+  const relays = openRelays.get(key) ?? new Set<AppWsRelay>();
+  relays.add(relay);
+  openRelays.set(key, relays);
+}
+
+function untrackRelay(key: string, relay: AppWsRelay): void {
+  const relays = openRelays.get(key);
+  if (!relays) return;
+  relays.delete(relay);
+  if (relays.size === 0) openRelays.delete(key);
+}
 
 interface SocketPermit {
   release(): void;
@@ -228,6 +249,7 @@ export function _testWsSocketsOpen(): { total: number; perApp: number } {
 }
 
 export function _testResetWsRelay(): void {
+  openRelays.clear();
   perApp.clear();
   totalOpen = 0;
 }
@@ -250,6 +272,7 @@ export interface AppWsRelayContext {
   // silently replaced by a guess.
   upgrade: (req: Request, data: AppRelayWsData, headers?: Headers) => boolean;
   registry?: AppRegistry;
+  canAccess: (app: AppRecord, userId: string) => boolean;
   // Test seams. Same shape as the HTTP relay's: a cap provable in three sockets
   // rather than sixty-five, a revalidation observable in milliseconds.
   maxPerApp?: number;
@@ -382,6 +405,9 @@ export class AppWsRelay {
       hostGen: number;
       registrationGen: number;
       registry: AppRegistry;
+      canAccess: (app: AppRecord, userId: string) => boolean;
+      userId: string;
+      officeSessionHash: string;
     },
     private readonly bufferMaxBytes: number,
     private readonly recheckMs: number,
@@ -628,31 +654,36 @@ export class AppWsRelay {
   // behind it is revoked, expires, or its user is deleted) and the registry
   // (which fails when the app is deleted or its name re-registered into a new
   // generation). Fail-closed on a registry that cannot be read.
-  private recheck(): void {
+  recheck(): void {
     if (this.shuttingDown) return;
-    let stillTheApp = false;
+    let liveApp: AppRecord | null = null;
     try {
-      stillTheApp = this.session.registry
-        .list()
-        .some(
-          (app) =>
-            app.hostLabel === this.session.label &&
-            app.hostGen === this.session.hostGen &&
-            appRegistrationGeneration(app) === this.session.registrationGen,
-        );
+      liveApp =
+        this.session.registry
+          .list()
+          .find(
+            (app) =>
+              app.hostLabel === this.session.label &&
+              app.hostGen === this.session.hostGen &&
+              appRegistrationGeneration(app) === this.session.registrationGen,
+          ) ?? null;
     } catch (err) {
       console.error("[app-ws-relay] registry unreadable; closing socket:", err);
-      stillTheApp = false;
+      liveApp = null;
     }
     const stillSignedIn = validateAppSession(this.session.token, {
       label: this.session.label,
       hostGen: this.session.hostGen,
       registrationGen: this.session.registrationGen,
     });
-    if (stillTheApp && stillSignedIn) return;
+    const stillAllowed =
+      liveApp !== null &&
+      stillSignedIn !== null &&
+      this.session.canAccess(liveApp, stillSignedIn.userId);
+    if (stillAllowed) return;
     this.finish(
       fault(CLOSE_REVOKED, "session ended"),
-      stillTheApp ? "app session is no longer valid" : "app is gone",
+      liveApp ? "app session is no longer valid" : "app is gone",
     );
   }
 
@@ -760,6 +791,17 @@ export async function relayWsToApp(
   // without a live app session. The cookie is read again for one reason - the
   // revalidation timer has to ask the same question every thirty seconds.
   const rawCookie = readAppCookie(req);
+  const authenticated = validateAppSession(rawCookie, {
+    label: ctx.app.hostLabel,
+    hostGen: ctx.app.hostGen,
+    registrationGen: appRegistrationGeneration(ctx.app),
+  });
+  if (authenticated === null) {
+    return neutral(401, AUTH_REQUIRED_BODY);
+  }
+  if (!ctx.canAccess(ctx.app, authenticated.userId)) {
+    return neutral(401, AUTH_REQUIRED_BODY);
+  }
 
   // 2. Origin. Cheap, and it fails a cross-origin attempt before the app hears
   // about it at all.
@@ -911,6 +953,7 @@ export async function relayWsToApp(
     return neutral(502, APP_WS_PROTOCOL_MISMATCH_BODY);
   }
 
+  const relayKey = `${appRegistrationKey(ctx.app)}:${authenticated.userId}:${authenticated.officeSessionHash}`;
   relay = new AppWsRelay(
     dial.connection,
     permit,
@@ -920,11 +963,18 @@ export async function relayWsToApp(
       hostGen: ctx.app.hostGen,
       registrationGen: appRegistrationGeneration(ctx.app),
       registry: ctx.registry ?? productionRegistry,
+      canAccess: ctx.canAccess,
+      userId: authenticated.userId,
+      officeSessionHash: authenticated.officeSessionHash,
     },
     bufferMaxBytes,
     ctx.recheckMs ?? APP_WS_SESSION_RECHECK_MS,
-    stopWatchingRetirement,
+    () => {
+      if (relay) untrackRelay(relayKey, relay);
+      stopWatchingRetirement();
+    },
   );
+  trackRelay(relayKey, relay);
 
   // Whatever arrived during the dial is handed over now, in order, before the
   // upgrade - so it lands in the relay's own pre-open buffer and reaches the

@@ -28,7 +28,7 @@ import {
 } from "../ws-frames.ts";
 import { buildPublicOrigin } from "../auth.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
-import { getUserByName } from "../users.ts";
+import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
 // The office's public host in the HTTPS-shaped tests, and therefore - the flat
@@ -403,7 +403,18 @@ export async function anOfficeWithAnApp(
   const token = await anAgentToken(srv);
   const label = await registerApp(srv, token, name);
   const member = await srv.seedMember("Member");
+  grantMemberAppRoom(srv, member.username);
   return { srv, label, rawSessionId: member.rawSessionId, token };
+}
+
+export function grantMemberAppRoom(srv: TestServer, username: string): void {
+  const creatorRoomId = srv.agentManager.getRooms()[0].id;
+  const memberRecord = getUserByName(username);
+  if (!memberRecord) throw new Error("seeded member is missing");
+  const granted = updateUserById(memberRecord.id, {
+    allowedRooms: [creatorRoomId],
+  });
+  if (!granted.ok) throw new Error(`grant member app room: ${granted.error}`);
 }
 
 // The office's mint endpoint, without following the redirect.

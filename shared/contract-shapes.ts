@@ -699,7 +699,7 @@ export interface CronPromptReq {
 // ServerMessage, which carries AppWire on app_upserted). Re-exported here so
 // every route-table / handler / registry import site keeps taking its wire
 // shapes from one module, exactly as UserPublicWire does above.
-export type { AppState, AppWire } from "./types.ts";
+export type { AppListWire, AppState, AppViewerWire, AppWire } from "./types.ts";
 
 // GET /api/apps/:name/logs. Newest last, exactly as journald renders them - the
 // caller is a human reading a tail or an agent debugging its own app, and

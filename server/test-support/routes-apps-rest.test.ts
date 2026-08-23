@@ -31,7 +31,7 @@ import { mintAgentToken, mintRunToken } from "../identity/tokens.ts";
 import { createAppTokenStore } from "../app-tokens.ts";
 import { createAppMessageLimiter } from "../app-message-limits.ts";
 import { STATE_ROOT } from "../config.ts";
-import { getUserByName } from "../users.ts";
+import { getUserByName, updateUserById } from "../users.ts";
 import {
   APP_PORT_MIN,
   APP_PORT_MAX,
@@ -39,7 +39,7 @@ import {
 } from "../app-registry.ts";
 import { APP_LOG_LINES_DEFAULT } from "../app-supervisor.ts";
 import type { AppWire } from "../../shared/contract-shapes.ts";
-import type { AgentInfo, AppRecord } from "../../shared/types.ts";
+import type { AgentInfo, AppListWire, AppRecord } from "../../shared/types.ts";
 import { appsHandlers, type AppsDeps } from "../routes/handlers/apps.ts";
 import type { RouteHandlerContext } from "../routes/executor.ts";
 
@@ -712,6 +712,7 @@ describe("routes/apps REST: ownership comes from the token", () => {
         userId: "u-somebody-else",
         username: "Boss",
         createdBy: "Boss",
+        createdByAgentId: "agent-spoofed",
       }),
     });
     expect(reg.status).toBe(201);
@@ -803,13 +804,18 @@ describe("routes/apps REST: who can see and delete an app", () => {
     ).toBe(200);
   });
 
-  it("list shows a member only their own apps, and an office owner all of them", async () => {
+  it("list gives room viewers a launch-only row while management stays owner-only", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const alice = await srv.seedMember("Alice");
+    const bob = await srv.seedMember("Bob");
     const aliceId = getUserByName("Alice")!.id;
     const bot = await spawnAgent(srv, "AppBot");
+    const bobRecord = getUserByName("Bob")!;
+    expect(
+      updateUserById(bobRecord.id, { allowedRooms: [bot.roomId] }).ok,
+    ).toBe(true);
 
     await api(srv, "/api/apps", {
       method: "POST",
@@ -828,6 +834,27 @@ describe("routes/apps REST: who can see and delete an app", () => {
     expect((aliceList.body as AppWire[]).map((a) => a.name)).toEqual([
       "alice-app",
     ]);
+    const bobList = await api(srv, "/api/apps", {
+      rawSessionId: bob.rawSessionId,
+    });
+    expect(bobList.body).toEqual([
+      expect.objectContaining({
+        name: "alice-app",
+        createdByAgentId: bot.id,
+        canManage: false,
+      }),
+    ]);
+    const bobRow = (bobList.body as Record<string, unknown>[])[0];
+    for (const privateField of ["command", "cwd", "dataDir", "createdBy"]) {
+      expect(bobRow).not.toHaveProperty(privateField);
+    }
+    expect(
+      (
+        await api(srv, "/api/apps/alice-app", {
+          rawSessionId: bob.rawSessionId,
+        })
+      ).status,
+    ).toBe(403);
     const ownerList = await api(srv, "/api/apps", {
       rawSessionId: owner.rawSessionId,
     });
@@ -835,6 +862,14 @@ describe("routes/apps REST: who can see and delete an app", () => {
       "alice-app",
       "boss-app",
     ]);
+    const ownerAgent = await spawnAgent(srv, "OwnerBot");
+    const ownerId = getUserByName("Boss")!.id;
+    const ownerAgentList = await api(srv, "/api/apps", {
+      bearer: mintAgentToken(ownerAgent.id, ownerId),
+    });
+    expect(
+      (ownerAgentList.body as AppWire[]).map((a) => a.name).sort(),
+    ).toEqual(["alice-app", "boss-app"]);
   });
 
   it("an unknown name denies exactly like somebody else's app (no existence oracle)", async () => {
@@ -1300,10 +1335,10 @@ async function waitUntil(
   }
 }
 
-const appUpsertsOf = (s: TestSocket): AppWire[] =>
+const appUpsertsOf = (s: TestSocket): AppListWire[] =>
   s.messages
     .filter((m) => (m as { type?: string }).type === "app_upserted")
-    .map((m) => (m as { app: AppWire }).app);
+    .map((m) => (m as { app: AppListWire }).app);
 
 const appDeletesOf = (s: TestSocket): string[] =>
   s.messages
@@ -1311,6 +1346,92 @@ const appDeletesOf = (s: TestSocket): string[] =>
     .map((m) => (m as { name: string }).name);
 
 describe("routes/apps REST: per-recipient WS fan-out", () => {
+  it("removes a viewer row on kill and restores it on revive", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const viewer = await srv.seedMember("Viewer");
+    const ownerId = getUserByName("Boss")!.id;
+    const viewerId = getUserByName("Viewer")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    expect(updateUserById(viewerId, { allowedRooms: [bot.roomId] }).ok).toBe(
+      true,
+    );
+    const socket = await srv.connectWs(viewer.rawSessionId);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: mintAgentToken(bot.id, ownerId),
+      body: body(srv, "reviving-app"),
+    });
+    await waitUntil(
+      () => appUpsertsOf(socket).some((app) => app.name === "reviving-app"),
+      2000,
+      "initial viewer app",
+    );
+    expect(
+      (
+        await api(srv, `/api/agents/${bot.id}`, {
+          method: "DELETE",
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(204);
+    await waitUntil(
+      () => appDeletesOf(socket).includes("reviving-app"),
+      2000,
+      "kill removal",
+    );
+    const upsertsBeforeRevive = appUpsertsOf(socket).length;
+    const revived = await api(srv, `/api/agents/${bot.id}/revive`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { roomId: bot.roomId, desk: bot.desk },
+    });
+    expect(revived.status).toBe(200);
+    await waitUntil(
+      () => appUpsertsOf(socket).length > upsertsBeforeRevive,
+      2000,
+      "revive upsert",
+    );
+  });
+
+  it("removes a viewer row immediately when its creator moves out of view", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Viewer");
+    const ownerId = getUserByName("Boss")!.id;
+    const memberId = getUserByName("Viewer")!.id;
+    const bot = await spawnAgent(srv, "AppBot");
+    expect(updateUserById(memberId, { allowedRooms: [bot.roomId] }).ok).toBe(
+      true,
+    );
+    const socket = await srv.connectWs(member.rawSessionId);
+
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: mintAgentToken(bot.id, ownerId),
+      body: body(srv, "moving-app"),
+    });
+    await waitUntil(
+      () => appUpsertsOf(socket).some((app) => app.name === "moving-app"),
+      2000,
+      "viewer app upsert",
+    );
+    const targetRoomId = srv.agentManager.createRoom("Target");
+    const moved = await api(srv, `/api/agents/${bot.id}/move`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { targetRoomId },
+    });
+    expect(moved.status).toBe(200);
+    await waitUntil(
+      () => appDeletesOf(socket).includes("moving-app"),
+      2000,
+      "viewer app removal",
+    );
+  });
+
   it("register announces to the owning user and to office owners, and to nobody else", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -1361,7 +1482,11 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
     await waitUntil(() => appUpsertsOf(sock).length > 0, 2000, "announced");
     // Response body and wire payload are built from ONE `wire` const in the
     // handler; this is what would catch a future refactor rebuilding either.
-    expect(appUpsertsOf(sock)[0]).toEqual(reg.body as AppWire);
+    const expected: AppListWire = {
+      ...(reg.body as AppWire),
+      canManage: true,
+    };
+    expect(appUpsertsOf(sock)[0]).toEqual(expected);
   });
 
   it("start, stop and restart each announce the app's fresh state", async () => {
@@ -1527,7 +1652,7 @@ describe("routes/apps REST: per-recipient WS fan-out", () => {
     const announced = appUpsertsOf(sock)[0];
     expect(announced.name).toBe("doomed");
     expect(announced.state).not.toBe("running");
-    expect(announced.startError).toBe("no systemd here");
+    expect((announced as AppWire).startError).toBe("no systemd here");
   });
 });
 
@@ -1959,6 +2084,7 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     attributionFor: () => ({ createdBy: "Agent1", username: "alice" }),
     validateCwd: (cwd) => ({ ok: true, resolved: cwd }),
     isOfficeOwner: () => true,
+    projectForList: (_identity, _record, wire) => wire,
     publicUrl: () => null,
     announce: boom,
     announceRemoved: boom,

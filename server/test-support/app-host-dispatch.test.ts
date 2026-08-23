@@ -36,12 +36,15 @@ import {
   OFFICE_HOST,
   WS_UPGRADE_HEADERS,
   anAgentToken,
+  anOfficeWithAnApp,
   deleteApp,
   expectPlaceholder,
   patchOfficeConfig,
   raw,
   registerApp,
+  signIn,
   startFlatOffice as bootFlatOffice,
+  withAppCookie,
 } from "./app-host-test-kit.ts";
 
 let server: TestServer | null = null;
@@ -323,19 +326,34 @@ describe("app hosts: the office is untouched", () => {
 });
 
 describe("app hosts: the arm", () => {
-  it("serves a distinct app favicon without requiring a session", async () => {
-    const srv = await startFlatOffice();
-    const token = await anAgentToken(srv);
-    const hello = await registerApp(srv, token, "hello");
+  it("serves distinct app favicons only after app authorization", async () => {
+    const {
+      srv,
+      token,
+      label: hello,
+      rawSessionId,
+    } = await anOfficeWithAnApp((active) => {
+      server = active;
+    });
     const habits = await registerApp(srv, token, "habits");
+
+    const anonymous = await raw(srv.port, {
+      host: `${hello}.${OFFICE_HOST}`,
+      path: "/favicon.ico",
+    });
+    expect(anonymous.status).toBe(302);
+    const helloCookie = await signIn(srv, hello, rawSessionId);
+    const habitsCookie = await signIn(srv, habits, rawSessionId);
 
     const first = await raw(srv.port, {
       host: `${hello}.${OFFICE_HOST}`,
       path: "/favicon.ico",
+      headers: withAppCookie(helloCookie),
     });
     const second = await raw(srv.port, {
       host: `${habits}.${OFFICE_HOST}`,
       path: "/favicon.ico",
+      headers: withAppCookie(habitsCookie),
     });
     expect(first.status).toBe(200);
     expect(first.headers["content-type"]).toBe("image/svg+xml");

@@ -112,6 +112,7 @@ import type {
   AppMessageReq,
   AppRegisterReq,
   AppUpdateReq,
+  AppListWire,
   AppWire,
   MemoryCreateReq,
   MemoryReplaceReq,
@@ -976,7 +977,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   // agent". apps.list has no :name to gate on and is filtered per-caller in the
   // handler. The mutating routes emit a per-recipient app delta; the reads emit
   // nothing, and the Apps tab fetches the list when it opens.
-  defineRoute<void, AppWire[]>({
+  defineRoute<void, AppListWire[]>({
     opId: "apps.list",
     method: "GET",
     path: "/api/apps",
