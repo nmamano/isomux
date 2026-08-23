@@ -529,11 +529,19 @@ export async function reserveOffice(
  * rather than a string built in a route handler, and checkout.ts keeps its own
  * wording unchanged.
  */
-export function customerReason(reason: string): string {
+export function customerReason(reason: string): string | null {
   const coupon =
     /^--coupon \S+ cannot be used as a full discount: ([\s\S]*)$/.exec(reason);
-  if (coupon) return `that code cannot be applied: ${coupon[1]}`;
-  return reason;
+  if (!coupon) return null;
+  const detail = coupon[1];
+  const safe =
+    detail === "no such coupon" ||
+    detail === "the coupon is not valid (expired, or fully redeemed)" ||
+    /^this is (?:\d+(?:\.\d+)?% off|an amount-off coupon|no percentage), not a 100% discount, so Checkout must still collect a card; pass it as an ordinary discount or use a full-discount coupon$/.test(
+      detail,
+    );
+  if (safe) return `that code cannot be applied: ${detail}`;
+  return null;
 }
 
 // ----------------------------------------------------------------- checkout

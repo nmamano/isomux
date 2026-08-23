@@ -211,10 +211,8 @@ describe("the reservation", () => {
       new URL("web/lib/services.server.ts", import.meta.url),
       "utf8",
     );
-    expect(caller).toContain(
-      "if (!reserved.ok) return { ok: false, reason: reserved.reason };\n" +
-        "  return openReservedCheckout(reserved);",
-    );
+    expect(caller).toContain("safeCustomerReason(reserved.reason)");
+    expect(caller).toContain("return openReservedCheckout(reserved);");
   });
 
   test("an admission older than seven days frees one place", async () => {
@@ -598,10 +596,22 @@ describe("refusal copy", () => {
         "--coupon SmON9aoN cannot be used as a full discount: no such coupon",
       ),
     ).toBe("that code cannot be applied: no such coupon");
+    expect(
+      customerReason(
+        "--coupon HALF cannot be used as a full discount: this is 30.5% off, not a 100% discount, so Checkout must still collect a card; pass it as an ordinary discount or use a full-discount coupon",
+      ),
+    ).toContain("this is 30.5% off");
   });
 
-  test("anything else is passed through unchanged", async () => {
-    expect(customerReason('"acme" is taken')).toBe('"acme" is taken');
+  test("anything else is refused at the opaque customer boundary", async () => {
+    expect(customerReason('"acme" is taken')).toBeNull();
+    const rawStripe =
+      "invalid_request_error (more_permissions_required): Permission denied for acct_private. Manage keys at https://dashboard.stripe.com/apikeys.";
+    expect(
+      customerReason(
+        `--coupon SECRET cannot be used as a full discount: ${rawStripe}`,
+      ),
+    ).toBeNull();
   });
 });
 

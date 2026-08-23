@@ -7,7 +7,7 @@ import { BOOT_REQUIRED_NAMES, pushSecrets, validatePairs } from "./secrets.ts";
 import {
   STRIPE_MODE_NAME,
   STRIPE_SECRET_NAME,
-  STRIPE_SECRET_NAMES,
+  STRIPE_CONFIGURATION_NAMES,
   STRIPE_WEBHOOK_SECRET_NAME,
   readStripeFile,
   requiredStripeNames,
@@ -106,7 +106,7 @@ describe("the Stripe source file", () => {
 
 describe("the Stripe importer allowlist", () => {
   test("contains only the runtime Stripe credentials", () => {
-    expect([...STRIPE_SECRET_NAMES]).toEqual([
+    expect([...STRIPE_CONFIGURATION_NAMES]).toEqual([
       "CONTROL_PLANE_STRIPE_MODE",
       "STRIPE_TEST_SECRET_KEY",
       "STRIPE_LIVE_SECRET_KEY",
@@ -133,7 +133,8 @@ describe("the Stripe importer allowlist", () => {
 
   test("refuses every other boot secret before a child starts", async () => {
     for (const name of BOOT_REQUIRED_NAMES) {
-      if ((STRIPE_SECRET_NAMES as readonly string[]).includes(name)) continue;
+      if ((STRIPE_CONFIGURATION_NAMES as readonly string[]).includes(name))
+        continue;
       let spawned = false;
       const spawn: Spawn = async () => {
         spawned = true;
@@ -141,7 +142,7 @@ describe("the Stripe importer allowlist", () => {
       };
       const outcome = await pushSecrets({
         pairs: [{ name, value: "public fixture" }],
-        allowed: STRIPE_SECRET_NAMES,
+        allowed: STRIPE_CONFIGURATION_NAMES,
         flyToken: "public-token",
         spawn,
       });
@@ -165,7 +166,7 @@ describe("the Stripe importer allowlist", () => {
         { name: STRIPE_SECRET_NAME, value },
         { name: STRIPE_WEBHOOK_SECRET_NAME, value: "whsec_public" },
       ],
-      allowed: STRIPE_SECRET_NAMES,
+      allowed: STRIPE_CONFIGURATION_NAMES,
       flyToken: "public-token",
       spawn,
     });

@@ -40,6 +40,7 @@ import type { OpsFloor, OpsInstanceView } from "../../ops";
 import type { ReservationRow } from "../../signup";
 import type { AccountRow } from "../../stripe/billing-store";
 import type { CustomerPrice, StripePriceConfiguration } from "../../plans";
+import { customerFailure, safeCustomerReason } from "./customer-error";
 
 export type { ProgressView, OpsFloor, OpsInstanceView };
 
@@ -230,7 +231,7 @@ async function openReservedCheckout(args: {
     { checkoutInputsFor, customerReason },
     { planById, resolveStripePrice },
     { StripeClient },
-    { openCheckout },
+    { CheckoutCreationError, openCheckout },
   ] = await Promise.all([
     import("../../signup"),
     import("../../plans"),
@@ -241,16 +242,43 @@ async function openReservedCheckout(args: {
   if (!plan)
     return {
       ok: false,
-      reason: `The stored plan ${args.reservation.plan} is not offered`,
+      reason: customerFailure(
+        "configuration",
+        "checkout_reserved",
+        `The stored plan ${args.reservation.plan} is not offered`,
+      ),
     };
   const resolved = resolveStripePrice(plan, stripePriceConfiguration());
-  if (!resolved.ok) return resolved;
-  const { key, mode } = await stripeRuntime();
+  if (!resolved.ok)
+    return {
+      ok: false,
+      reason: customerFailure(
+        "configuration",
+        "checkout_reserved",
+        resolved.reason,
+      ),
+    };
   const origin = deploymentOrigin();
   if (!origin)
-    return { ok: false, reason: "this deployment has no origin configured" };
+    return {
+      ok: false,
+      reason: customerFailure(
+        "configuration",
+        "checkout_reserved",
+        "This deployment has no origin configured",
+      ),
+    };
 
-  const client = new StripeClient({ key, mode });
+  let client: InstanceType<typeof StripeClient>;
+  try {
+    const { key, mode } = await stripeRuntime();
+    client = new StripeClient({ key, mode });
+  } catch (err) {
+    return {
+      ok: false,
+      reason: customerFailure("configuration", "checkout_reserved", err),
+    };
+  }
   const inputs = checkoutInputsFor({
     reservation: args.reservation,
     account: args.account,
@@ -263,20 +291,39 @@ async function openReservedCheckout(args: {
   try {
     opened = await openCheckout(client, inputs);
   } catch (err) {
-    console.error(
-      `[signup] Checkout failed for ${args.reservation.name}:`,
-      err instanceof Error ? err.message : err,
-    );
     return {
       ok: false,
-      reason:
-        "we could not open a payment page just now - your name is reserved, " +
-        "so try again in a moment",
+      reason: customerFailure(
+        err instanceof CheckoutCreationError && err.ambiguous
+          ? "transient"
+          : "configuration",
+        "checkout_reserved",
+        err,
+      ),
     };
   }
-  if (!opened.ok) return { ok: false, reason: customerReason(opened.reason) };
+  if (!opened.ok) {
+    const couponReason = customerReason(opened.reason);
+    if (couponReason)
+      return { ok: false, reason: safeCustomerReason(couponReason) };
+    return {
+      ok: false,
+      reason: customerFailure(
+        opened.retryable ? "transient" : "configuration",
+        "checkout_reserved",
+        opened.reason,
+      ),
+    };
+  }
   if (!opened.session.url)
-    return { ok: false, reason: "Stripe returned a session with no URL" };
+    return {
+      ok: false,
+      reason: customerFailure(
+        "configuration",
+        "checkout_reserved",
+        "Stripe returned a session with no URL",
+      ),
+    };
   return {
     ok: true,
     checkoutUrl: opened.session.url,
@@ -303,7 +350,11 @@ export async function continueSignup(
     if (!account) return null;
     return { paid: false as const, reservation, account };
   });
-  if (!owned) return { ok: false, reason: "we do not recognise this account" };
+  if (!owned)
+    return {
+      ok: false,
+      reason: safeCustomerReason("we do not recognise this account"),
+    };
   if (owned.paid) return { ok: false, officeName: owned.reservation.name };
   return openReservedCheckout(owned);
 }
@@ -319,20 +370,42 @@ export async function reinstateOffice(
       recordFetchedExpiredReinstatementSession,
       recordReinstatementCheckoutFailure,
       reinstatementSessionKey,
+      REINSTATEMENT_REFUSAL_WORDS,
     },
     { StripeClient },
     { LiveStripeReader },
     { CheckoutCreationError, openCheckout },
+    { customerReason },
   ] = await Promise.all([
     import("../../reinstatement"),
     import("../../stripe/client"),
     import("../../stripe/reader"),
     import("../../stripe/checkout"),
+    import("../../signup"),
   ]);
-  const { key, mode } = await stripeRuntime();
   const origin = deploymentOrigin();
-  if (!key || !origin)
-    return { ok: false, reason: "reinstatement payment is not configured" };
+  if (!origin)
+    return {
+      ok: false,
+      reason: customerFailure(
+        "configuration",
+        "reinstatement",
+        "Reinstatement payment has no deployment origin configured",
+      ),
+    };
+
+  let client: InstanceType<typeof StripeClient>;
+  let mode: import("../../stripe/mode").StripeMode;
+  try {
+    const runtime = await stripeRuntime();
+    mode = runtime.mode;
+    client = new StripeClient(runtime);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: customerFailure("configuration", "reinstatement", err),
+    };
+  }
 
   const tier = await withStore(async (store) => {
     const { instanceOwnedBy } = await import("../../signup");
@@ -344,29 +417,74 @@ export async function reinstateOffice(
     return planByProviderProduct(instance.plan);
   });
   if (!tier)
-    return { ok: false, reason: "reinstatement payment is not configured" };
+    return {
+      ok: false,
+      reason: customerFailure(
+        "configuration",
+        "reinstatement",
+        "Reinstatement has no offered plan",
+      ),
+    };
   const { resolveStripePrice } = await import("../../plans");
   const resolved = resolveStripePrice(tier, stripePriceConfiguration());
-  if (!resolved.ok) return resolved;
+  if (!resolved.ok)
+    return {
+      ok: false,
+      reason: customerFailure(
+        "configuration",
+        "reinstatement",
+        resolved.reason,
+      ),
+    };
 
   let prepared = await withStore((store) =>
     prepareReinstatementCheckout(store, accountId, instanceId, Date.now()),
   );
-  if (!prepared.ok) return prepared;
-  const client = new StripeClient({ key, mode });
+  if (!prepared.ok) {
+    const safeReasons = new Set([
+      "we could not find that office",
+      "we could not find that subscription",
+      "this office is already reinstated",
+      ...Object.values(REINSTATEMENT_REFUSAL_WORDS),
+    ]);
+    return {
+      ok: false,
+      reason: safeReasons.has(prepared.reason)
+        ? safeCustomerReason(prepared.reason)
+        : customerFailure("configuration", "reinstatement", prepared.reason),
+    };
+  }
   if (prepared.existingSessionId) {
-    const fetched = await new LiveStripeReader(client, mode).getCheckoutSession(
-      prepared.existingSessionId,
-    );
+    let fetched: Awaited<
+      ReturnType<InstanceType<typeof LiveStripeReader>["getCheckoutSession"]>
+    >;
+    try {
+      fetched = await new LiveStripeReader(client, mode).getCheckoutSession(
+        prepared.existingSessionId,
+      );
+    } catch (err) {
+      return {
+        ok: false,
+        reason: customerFailure("configuration", "reinstatement", err),
+      };
+    }
     if (fetched.kind !== "ok")
       return {
         ok: false,
-        reason: "we could not verify the prior payment session",
+        reason: customerFailure(
+          fetched.kind === "unavailable" ? "transient" : "configuration",
+          "reinstatement",
+          fetched.kind === "unavailable"
+            ? fetched.reason
+            : "The prior payment session does not exist",
+        ),
       };
     if (fetched.object.status === "complete")
       return {
         ok: false,
-        reason: "the prior payment is still being reconciled",
+        reason: safeCustomerReason(
+          "the prior payment is still being reconciled",
+        ),
       };
     if (fetched.object.status === "expired") {
       await withStore((store) =>
@@ -422,20 +540,43 @@ export async function reinstateOffice(
     }
     return {
       ok: false,
-      reason: "we could not open reinstatement payment just now",
+      reason: customerFailure(
+        err instanceof CheckoutCreationError && err.ambiguous
+          ? "transient"
+          : "configuration",
+        "reinstatement",
+        err,
+      ),
     };
   }
   if (!opened.ok) {
     await withStore((store) =>
       recordReinstatementCheckoutFailure(store, prepared, opened.reason),
     );
-    return { ok: false, reason: opened.reason };
+    const couponReason = customerReason(opened.reason);
+    return couponReason
+      ? { ok: false, reason: safeCustomerReason(couponReason) }
+      : {
+          ok: false,
+          reason: customerFailure(
+            opened.retryable ? "transient" : "configuration",
+            "reinstatement",
+            opened.reason,
+          ),
+        };
   }
   if (!opened.session.url) {
     await withStore((store) =>
       recordReinstatementSession(store, prepared, opened.session.id),
     );
-    return { ok: false, reason: "Stripe returned no payment URL" };
+    return {
+      ok: false,
+      reason: customerFailure(
+        "configuration",
+        "reinstatement",
+        "Stripe returned no payment URL",
+      ),
+    };
   }
   await withStore((store) =>
     recordReinstatementSession(store, prepared, opened.session.id),
@@ -472,23 +613,34 @@ export async function signUpOffice(args: {
     plan: args.plan,
     customerSshKey: args.customerSshKey,
   });
-  if (!valid.ok) return { ok: false, reason: valid.reason };
+  if (!valid.ok) return { ok: false, reason: safeCustomerReason(valid.reason) };
 
   const resolved = resolveStripePrice(valid.plan, stripePriceConfiguration());
-  if (!resolved.ok) return resolved;
-  try {
-    await stripeRuntime();
-  } catch {
+  if (!resolved.ok)
     return {
       ok: false,
-      reason: "This deployment has no Stripe key configured",
+      reason: customerFailure("configuration", "payments", resolved.reason),
+    };
+  try {
+    await stripeRuntime();
+  } catch (err) {
+    return {
+      ok: false,
+      reason: customerFailure("configuration", "payments", err),
     };
   }
   // Redirect targets come from the deployment's own origin, never from the
   // request: a Host header is not configuration.
   const origin = deploymentOrigin();
   if (!origin) {
-    return { ok: false, reason: "this deployment has no origin configured" };
+    return {
+      ok: false,
+      reason: customerFailure(
+        "configuration",
+        "payments",
+        "This deployment has no origin configured",
+      ),
+    };
   }
 
   const reserved = await withStore((store) =>
@@ -500,7 +652,15 @@ export async function signUpOffice(args: {
       customerSshKey: args.customerSshKey ?? null,
     }),
   );
-  if (!reserved.ok) return { ok: false, reason: reserved.reason };
+  if (!reserved.ok)
+    return {
+      ok: false,
+      reason:
+        reserved.reason ===
+        "this deployment needs its multi-office database migration"
+          ? customerFailure("configuration", "payments", reserved.reason)
+          : safeCustomerReason(reserved.reason),
+    };
   return openReservedCheckout(reserved);
 }
 
@@ -628,7 +788,6 @@ async function billingVerb(
   accountId: string,
   instanceId: string,
 ): Promise<CancelResult> {
-  const { key, mode } = await stripeRuntime();
   const [cancel, { StripeClient }] = await Promise.all([
     import("../../cancel"),
     import("../../stripe/client"),
@@ -636,12 +795,37 @@ async function billingVerb(
   // The same process-wide store as every other verb. It used to open its own
   // because it holds no transaction across the Stripe call and could afford to;
   // "could afford to" is not a reason to pay the schema check twice.
+  let client: InstanceType<typeof StripeClient>;
+  try {
+    const runtime = await stripeRuntime();
+    client = new StripeClient(runtime);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: customerFailure("configuration", "billing_change", err),
+    };
+  }
   return withStore(async (store) => {
-    const outcome = await cancel[verb](store, new StripeClient({ key, mode }), {
+    const outcome = await cancel[verb](store, client, {
       accountId,
       instanceId,
     });
-    return outcome.ok ? { ok: true } : { ok: false, reason: outcome.reason };
+    if (outcome.ok) return { ok: true };
+    if (outcome.code === "stripe_unavailable")
+      return {
+        ok: false,
+        reason: customerFailure("transient", "billing_change", outcome.reason),
+      };
+    if (outcome.code === "stripe_ambiguous")
+      return {
+        ok: false,
+        reason: customerFailure(
+          "transient",
+          "billing_change_ambiguous",
+          outcome.reason,
+        ),
+      };
+    return { ok: false, reason: safeCustomerReason(outcome.reason) };
   });
 }
 
