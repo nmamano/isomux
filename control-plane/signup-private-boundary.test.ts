@@ -21,6 +21,20 @@ describe("the signup private-key boundary", () => {
     expect(privateTextarea).toBeDefined();
     expect(privateTextarea).not.toMatch(/\bname=/);
     expect(privateTextarea).toContain("readOnly");
+    expect(privateTextarea).toContain(
+      'value={revealed ? (key?.privateKey ?? "") : ""}',
+    );
+    const appended = form.indexOf("document.body.append(link)");
+    const clicked = form.indexOf("link.click()", appended);
+    const removed = form.indexOf("link.remove()", clicked);
+    const revoked = form.indexOf(
+      "setTimeout(() => URL.revokeObjectURL(url), 0)",
+      removed,
+    );
+    expect(appended).toBeGreaterThan(0);
+    expect(clicked).toBeGreaterThan(appended);
+    expect(removed).toBeGreaterThan(clicked);
+    expect(revoked).toBeGreaterThan(removed);
     expect(form).toContain('form.set("customerSshKey", key.publicKey)');
     expect(form).not.toContain('form.set("customerSshKey", key.privateKey)');
   });

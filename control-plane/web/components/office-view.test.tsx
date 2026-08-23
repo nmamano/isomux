@@ -281,3 +281,55 @@ test("the top office link waits for a minted-or-adopted invite path", () => {
     '<a class="btn btn-primary" href="https://test-office.example.test"',
   );
 });
+
+test("refund terms stay visible before and after cancellation is scheduled", () => {
+  const refund =
+    "Request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we delete your server and its data rather than keeping them for you to restore later.";
+  const active = {
+    ...baseView,
+    subscription: {
+      ...baseView.subscription!,
+      status: "active",
+      currentPeriodEnd: Date.UTC(2027, 0, 31),
+      endedAt: null,
+      customerCancelled: false,
+    },
+  } satisfies ProgressView;
+  const offered = renderToStaticMarkup(
+    <OfficeView initial={active} instanceId={active.instanceId} />,
+  );
+  const scheduled = renderToStaticMarkup(
+    <OfficeView
+      initial={{
+        ...active,
+        subscription: { ...active.subscription, cancelAtPeriodEnd: true },
+      }}
+      instanceId={active.instanceId}
+    />,
+  );
+  expect(offered).toContain(`data-testid="refund-notice">${refund}`);
+  expect(scheduled).toContain(`data-testid="refund-notice">${refund}`);
+});
+
+test("handoff uses the customer-approved access removal label", () => {
+  const html = renderToStaticMarkup(
+    <OfficeView
+      initial={{
+        ...baseView,
+        ready: true,
+        handoff: {
+          canMint: true,
+          invite: { state: "done", operationId: null, mintedAt: 1 },
+          revocation: {
+            state: "none",
+            customerConfirmed: false,
+            confirmedAt: null,
+          },
+        },
+      }}
+      instanceId={baseView.instanceId}
+    />,
+  );
+  expect(html).toContain("Remove Hosted Isomux Provisioning access");
+  expect(html).not.toContain("Revoke isomux&#x27;s access");
+});

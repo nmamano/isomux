@@ -687,7 +687,7 @@ export function OfficeView({
                   >
                     {handoffPending
                       ? "Removing temporary access..."
-                      : "Revoke isomux's access"}
+                      : "Remove Hosted Isomux Provisioning access"}
                   </button>
                   <p
                     className="note handoff-status"
@@ -980,6 +980,7 @@ function CancelPanel({
             free temporary access to your office so you can get your data out.
             After that, your office cannot be recovered.
           </p>
+          <RefundNotice />
           <p className="action">
             <button
               className="btn-primary"
@@ -1033,6 +1034,7 @@ function CancelPanel({
         Cancelling keeps your office running until the end of the period you
         have paid for.
       </p>
+      <RefundNotice />
       <p className="action">
         <button
           data-testid="cancel-button"
@@ -1042,6 +1044,16 @@ function CancelPanel({
         </button>
       </p>
     </section>
+  );
+}
+
+function RefundNotice() {
+  return (
+    <p className="note" data-testid="refund-notice">
+      Request a full refund by emailing llc@isomux.com within 7 days of your
+      first payment. If we refund you, we delete your server and its data rather
+      than keeping them for you to restore later.
+    </p>
   );
 }
 

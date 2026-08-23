@@ -304,7 +304,7 @@ instant we display a link means a customer who opens the dashboard a day later
 is locked out of a box they just paid for.
 
 So the access window closes at **customer-confirmed handoff, or seven days,
-whichever comes first**. The confirmation is a "Revoke isomux's access" button,
+whichever comes first**. The confirmation is a "Remove Hosted Isomux Provisioning access" button,
 which is also how the customer sees the guarantee is real; the ceiling is what closes
 the window for everyone who never clicks it. Until it closes, resend works;
 after it closes, the dashboard says plainly that it cannot.
@@ -864,7 +864,7 @@ design.
 ## Dashboard
 
 Provisioning progress with human step labels, the invite link (and resend while
-the access window is open), the "Revoke isomux's access" button, liveness, a
+the access window is open), the "Remove Hosted Isomux Provisioning access" button, liveness, a
 reboot button, cancel, and the plan with its next invoice date.
 
 Liveness is a probe ladder, not one boolean: does the name resolve, does 443

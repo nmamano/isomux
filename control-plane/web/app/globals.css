@@ -194,6 +194,9 @@ main {
 main.wide {
   max-width: var(--page-max-wide);
 }
+.back-link {
+  margin-bottom: 12px;
+}
 
 /* site/docs/_styles.css .content h1/h2/h3. The rules divide a long page into
    sections without a box around each one, which is what these surfaces need:
@@ -631,18 +634,28 @@ main .btn-primary:hover:not(:disabled) {
   display: block;
 }
 .form .key-field textarea {
-  padding-top: 52px;
+  padding-top: 104px;
 }
-.form .key-field button {
+.form .key-field .key-copy {
   position: absolute;
   top: 10px;
   right: 10px;
   min-width: 136px;
 }
+.form .key-field .key-reveal {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+.form .key-field .key-download {
+  position: absolute;
+  top: 56px;
+  right: 10px;
+}
 .form .copy-status {
   position: absolute;
   top: 18px;
-  right: 156px;
+  right: 166px;
   color: var(--text-dim);
   font-size: 0.9rem;
 }
@@ -700,5 +713,22 @@ main .btn-primary:hover:not(:disabled) {
   }
   .card {
     padding: 14px 16px;
+  }
+  .form .key-field textarea {
+    padding-top: 156px;
+  }
+  .form .key-field .key-copy {
+    top: 56px;
+    left: 10px;
+    right: auto;
+  }
+  .form .key-field .key-download {
+    top: 102px;
+    left: 10px;
+    right: auto;
+  }
+  .form .copy-status {
+    top: 64px;
+    right: 10px;
   }
 }

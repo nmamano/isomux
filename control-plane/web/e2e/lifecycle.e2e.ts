@@ -231,6 +231,11 @@ async function main(): Promise<void> {
       (await textOf(page, "cancel-caveat")) ===
         "Cancelling keeps your office running until the end of the period you have paid for.",
     );
+    check(
+      "S1 shows the first-payment refund terms",
+      (await textOf(page, "refund-notice")) ===
+        "Request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we delete your server and its data rather than keeping them for you to restore later.",
+    );
     const planS1 = await textOf(page, "subscription");
     say(`S1 plan: ${planS1}`);
     check(
@@ -260,6 +265,11 @@ async function main(): Promise<void> {
     check(
       "S3 names NO exact deletion date before the power-off has happened",
       !/permanent deletion on \d{4}-\d{2}-\d{2}/.test(scheduled),
+    );
+    check(
+      "S3 keeps the first-payment refund terms visible",
+      (await textOf(page, "refund-notice")) ===
+        "Request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we delete your server and its data rather than keeping them for you to restore later.",
     );
     const planS3 = await textOf(page, "subscription");
     say(`S3 plan: ${planS3}`);

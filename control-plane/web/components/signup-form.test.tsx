@@ -59,7 +59,12 @@ test("signup renders both specifications and omits unset prices", () => {
   expect(html).toContain("manage or repair your server. It was generated");
   expect(html).toContain("<strong>How to use it:</strong>");
   expect(html).toContain('class="key-field"');
+  expect(html).toContain('placeholder="Private key hidden"');
+  expect(html).toContain("Reveal private key");
+  expect(html).toContain('aria-pressed="false"');
   expect(html).toContain("Copy private key");
+  expect(html).toContain("Download private key");
+  expect(html).not.toContain("BEGIN OPENSSH PRIVATE KEY");
   expect(html).toContain('disabled=""');
   expect(html).not.toContain('aria-describedby="signup-save-key-reason"');
   expect(html).not.toContain(

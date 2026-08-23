@@ -96,17 +96,27 @@ async function submitSignup(
   options: { verifyUx?: boolean; expireSession?: boolean } = {},
 ): Promise<string> {
   await page.goto(`${BASE}/signup?another=1`);
-  await page.waitForFunction(
-    () =>
-      document
-        .querySelector<HTMLTextAreaElement>(
-          '[data-testid="server-administrator-private-key"]',
-        )
-        ?.value.startsWith("-----BEGIN OPENSSH PRIVATE KEY-----") ?? false,
-  );
+  await page.waitForFunction(() => {
+    const reveal = [...document.querySelectorAll("button")].find(
+      (button) => button.textContent === "Reveal private key",
+    );
+    return reveal instanceof HTMLButtonElement && !reveal.disabled;
+  });
   await page.fill('[data-testid="office-name"]', name);
   if (coupon) await page.fill('[data-testid="coupon"]', coupon);
   if (options.verifyUx) {
+    check(
+      "the private key is absent from the default DOM",
+      await page.evaluate(
+        () =>
+          !document.documentElement.innerHTML.includes(
+            "-----BEGIN OPENSSH PRIVATE KEY-----",
+          ) &&
+          document.querySelector<HTMLTextAreaElement>(
+            '[data-testid="server-administrator-private-key"]',
+          )?.value === "",
+      ),
+    );
     const submit = page.locator('[data-testid="signup-submit"]');
     check(
       "payment stays disabled until the key is saved",
@@ -144,8 +154,37 @@ async function submitSignup(
       (await page.locator(".copy-status").textContent()) === "Copied" &&
         (await page.locator('button:has-text("Copy private key")').isVisible()),
     );
+    const downloadPromise = page.waitForEvent("download");
+    await page.click('button:has-text("Download private key")');
+    const download = await downloadPromise;
+    const downloadedPath = await download.path();
+    const copiedPrivate = await page.evaluate(() =>
+      navigator.clipboard.readText(),
+    );
+    check(
+      "copy and download work while the private key is hidden",
+      downloadedPath !== null &&
+        fs.readFileSync(downloadedPath, "utf8") === copiedPrivate &&
+        (await page
+          .locator('[data-testid="server-administrator-private-key"]')
+          .inputValue()) === "" &&
+        (await page.locator('a[href^="blob:"]').count()) === 0,
+    );
     await page.screenshot({
-      path: "/tmp/signup-ux-layout.png",
+      path: "/tmp/signup-key-hidden.png",
+      fullPage: true,
+    });
+    await page.click('button:has-text("Reveal private key")');
+    check(
+      "explicit reveal puts the private key in the field",
+      (
+        await page
+          .locator('[data-testid="server-administrator-private-key"]')
+          .inputValue()
+      ).startsWith("-----BEGIN OPENSSH PRIVATE KEY-----"),
+    );
+    await page.screenshot({
+      path: "/tmp/signup-key-revealed.png",
       fullPage: true,
     });
   }
@@ -286,6 +325,10 @@ async function main(): Promise<void> {
       !!who?.includes("customer@example.com"),
       who ?? "",
     );
+    await page.screenshot({
+      path: "/tmp/dashboard-account-row.png",
+      fullPage: true,
+    });
 
     await submitSignup(page, "session-expired", "", {
       expireSession: true,

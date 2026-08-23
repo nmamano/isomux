@@ -2556,7 +2556,7 @@ a provisioner started without one refuses to serve the seam at all, and says so.
   everywhere: the boundary test forbids any file under `web/` from containing an
   operation kind, so the app asks through a named verb and cannot spell
   `reboot`.
-- **Confirmation is not a column.** "Revoke isomux's access" opens a
+- **Confirmation is not a column.** "Remove Hosted Isomux Provisioning access" opens a
   `revoke_access` row stamped `via: "dashboard"`, and that stamp is what makes
   it the customer's confirmation. A row opened by an operator or the chain still
   renders, but is never described as their choice. The seven-day ceiling stays the

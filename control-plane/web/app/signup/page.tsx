@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "../../auth";
 import { plans, signupPageState } from "../../lib/services.server";
@@ -26,6 +27,9 @@ export default async function Signup({
   if (state.kind === "paid" && !settingUpAnother) redirect("/");
   return (
     <main>
+      <p className="back-link">
+        <Link href="/">&larr; Your office</Link>
+      </p>
       <h1>Set up your office</h1>
       {error && state.kind === "continue" && (
         <p

@@ -7,7 +7,7 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
- * "Revoke isomux's access" - the customer confirming they are in.
+ * "Remove Hosted Isomux Provisioning access" - the customer confirming they are in.
  *
  * This is the observable act the design's ruling 7 turns into the end of the
  * access window, so the origin check matters as much as it does on signup: it

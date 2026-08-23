@@ -22,7 +22,6 @@ export default async function Home() {
   const offices = await officesForAccount(accountId);
   return (
     <main>
-      <h1>{offices.length > 1 ? "Your offices" : "Your office"}</h1>
       <div className="account-line">
         <p className="note" data-testid="signed-in-as">
           Signed in as {email}
@@ -38,6 +37,7 @@ export default async function Home() {
           </button>
         </form>
       </div>
+      <h1>{offices.length > 1 ? "Your offices" : "Your office"}</h1>
       {offices.length > 0 ? (
         <>
           {offices.map((office) => (

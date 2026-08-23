@@ -13,7 +13,7 @@ import {
 const CRYPTO_ERROR =
   "Your browser cannot create or copy the server administrator key on this page. Open the signup page over HTTPS in a current browser and try again.";
 const CLIPBOARD_ERROR =
-  "Your browser could not copy the server administrator key. Copy it from the field instead.";
+  "Your browser could not copy the server administrator key. Reveal the key and select it from the field instead.";
 const CHECKOUT_ERROR =
   "we could not open a payment page just now - your name is reserved, so try again in a moment";
 const SIGNUP_REFUSED_ERROR =
@@ -45,9 +45,11 @@ export function SignupForm({
   const [key, setKey] = useState<ServerAdministratorKey | null>(null);
   const [saved, setSaved] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const [submitting, setSubmitting] = useState(false);
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorRef = useRef<HTMLParagraphElement | null>(null);
 
   useEffect(() => {
     void Promise.resolve().then(async () => {
@@ -70,6 +72,10 @@ export function SignupForm({
     [],
   );
 
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView({ block: "nearest" });
+  }, [error]);
+
   async function copyPrivateKey(): Promise<void> {
     if (!key) return;
     try {
@@ -84,6 +90,20 @@ export function SignupForm({
       setCopied(false);
       setError(CLIPBOARD_ERROR);
     }
+  }
+
+  function downloadPrivateKey(): void {
+    if (!key) return;
+    const url = URL.createObjectURL(
+      new Blob([key.privateKey], { type: "application/octet-stream" }),
+    );
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "isomux-server-administrator-key";
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   async function submit(
@@ -191,11 +211,22 @@ export function SignupForm({
             data-testid="server-administrator-private-key"
             rows={8}
             readOnly
-            value={key?.privateKey ?? ""}
+            value={revealed ? (key?.privateKey ?? "") : ""}
+            placeholder="Private key hidden"
             autoComplete="off"
             spellCheck={false}
           />
           <button
+            className="key-reveal"
+            type="button"
+            onClick={() => setRevealed((current) => !current)}
+            disabled={!key}
+            aria-pressed={revealed}
+          >
+            {revealed ? "Hide private key" : "Reveal private key"}
+          </button>
+          <button
+            className="key-copy"
             type="button"
             onClick={() => void copyPrivateKey()}
             disabled={!key}
@@ -205,6 +236,14 @@ export function SignupForm({
           <span className="copy-status" aria-live="polite">
             {copied ? "Copied" : ""}
           </span>
+          <button
+            className="key-download"
+            type="button"
+            onClick={downloadPrivateKey}
+            disabled={!key}
+          >
+            Download private key
+          </button>
         </span>
         <label className="key-confirm">
           <input
@@ -219,6 +258,7 @@ export function SignupForm({
       <PolicyNotice />
       {error && (
         <p
+          ref={errorRef}
           className="callout callout-danger"
           data-testid="signup-error"
           role="alert"

@@ -757,7 +757,7 @@ export async function requestInvite(
   return customerRequest("requestInvite", accountId, instanceId);
 }
 
-/** "Revoke isomux's access" - the customer confirming they are in. */
+/** "Remove Hosted Isomux Provisioning access" - the customer confirming they are in. */
 export async function confirmHandoff(
   accountId: string,
   instanceId: string,
