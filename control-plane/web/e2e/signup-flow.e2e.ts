@@ -466,11 +466,37 @@ async function main(): Promise<void> {
       if (!continuation.ok) throw new Error(continuation.reason);
       await continuationStore.close();
 
+      await page.goto(`${BASE}/office/${continuation.reservation.name}`);
+      const unpaidOfficeText = (await page.textContent("body")) ?? "";
+      check(
+        "an unpaid office explains and offers its own payment continuation",
+        unpaidOfficeText.includes(
+          "Complete payment to start ordering your server.",
+        ) && unpaidOfficeText.includes("Continue to payment"),
+      );
+      check(
+        "payment is the first active ladder step",
+        unpaidOfficeText.includes("Waiting for payment - in progress") &&
+          !unpaidOfficeText.includes("does not have a key to your server yet"),
+      );
+      check(
+        "an unpaid unprovisioned office cannot restart",
+        await page.locator('[data-testid="restart-button"]').isDisabled(),
+      );
+
       await page.goto(`${BASE}/signup`);
       check(
         "a held reservation shows an explicit continuation action",
         (await page.textContent("body"))?.includes("Continue signup") === true,
       );
+      await page.goto(`${BASE}/signup?another=1`);
+      const anotherText = (await page.textContent("body")) ?? "";
+      check(
+        "another=1 starts a fresh office instead of continuing the reservation",
+        (await page.$('[data-testid="office-name"]')) !== null &&
+          !anotherText.includes("Continue signup"),
+      );
+      await page.goto(`${BASE}/signup`);
       const errorPage = await context.newPage();
       await errorPage.goto(
         `${BASE}/signup?error=${encodeURIComponent("Try the continuation again.")}`,
@@ -729,11 +755,13 @@ async function main(): Promise<void> {
           "no step claims to be done without a row",
           text.includes("Installing isomux") && text.includes("waiting"),
         );
-        // Nothing has been ordered yet, so the page must not say we hold a key.
+        // Pre-provisioning key copy is intentionally absent: the dashboard's
+        // useful next action is payment or waiting, not a statement about a box
+        // that does not exist yet.
         check(
-          "a fresh office claims no key before a box exists",
-          text.includes("does not have a key to your server yet"),
-          text.includes("holds a temporary key") ? "it claimed a key" : "",
+          "a fresh office omits pre-provisioning key copy",
+          !text.includes("does not have a key to your server yet") &&
+            !text.includes("holds a temporary key"),
         );
 
         // An AMBIGUOUS create, rendered. The provider may have built a machine

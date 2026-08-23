@@ -39,8 +39,10 @@ export async function POST(request: Request): Promise<Response> {
   };
   const officeName = field("officeName");
   const customerSshKey = field("customerSshKey");
+  const signupIntent = field("signupIntent");
   const state = await signupPageState(accountId);
-  if (!customerSshKey) {
+  if (signupIntent === "continue") {
+    if (customerSshKey) return new Response(null, { status: 400 });
     if (state.kind !== "continue") return new Response(null, { status: 400 });
     if (officeName !== state.officeName) {
       return new Response(null, { status: 409 });
@@ -55,6 +57,7 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.redirect(result.checkoutUrl, 303);
   }
+  if (!customerSshKey) return new Response(null, { status: 400 });
   const plan = field("plan");
   const couponRaw = field("couponId");
 

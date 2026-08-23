@@ -198,3 +198,86 @@ test("office without a payment action omits the policy notice", () => {
   expect(refused).not.toContain("Before you pay");
   expect(healthy).not.toContain("Before you pay");
 });
+
+test("an unpaid reservation owns its payment continuation and guidance", () => {
+  const html = renderToStaticMarkup(
+    <OfficeView
+      initial={{
+        ...baseView,
+        access: { state: "not_started", expiresAt: null, ceilingProven: false },
+        subscription: null,
+      }}
+      instanceId={baseView.instanceId}
+    />,
+  );
+  expect(html).toContain("Complete payment to start ordering your server.");
+  expect(html).toContain('name="signupIntent" value="continue"');
+  expect(html).toContain('name="officeName" value="test-office"');
+  expectPolicyBefore(html, "Continue to payment");
+  expect(html).toContain("Waiting for payment -");
+  expect(html).toContain('data-state="active">in progress</span>');
+  expect(html).not.toContain("does not have a key to your server yet");
+  expect(html).toContain("Wait until the office is serving.");
+  expect(html).toContain('data-testid="restart-button" disabled=""');
+});
+
+test("payment completes its ladder step and restart waits for provisioning", () => {
+  const building = renderToStaticMarkup(
+    <OfficeView initial={baseView} instanceId={baseView.instanceId} />,
+  );
+  expect(building).not.toContain('data-testid="payment-guidance"');
+  expect(building).toContain("Waiting for payment -");
+  expect(building).toContain('data-state="done">done</span>');
+  expect(building).toContain('data-testid="restart-button" disabled=""');
+
+  const ready = renderToStaticMarkup(
+    <OfficeView
+      initial={{ ...baseView, ready: true }}
+      instanceId={baseView.instanceId}
+    />,
+  );
+  expect(ready).toMatch(/data-testid="restart-button"[^>]*>Restart my server/);
+  expect(ready).not.toMatch(/data-testid="restart-button"[^>]*disabled/);
+});
+
+test("the top office link waits for a minted-or-adopted invite path", () => {
+  const created = renderToStaticMarkup(
+    <OfficeView
+      initial={{ ...baseView, ready: true }}
+      instanceId={baseView.instanceId}
+    />,
+  );
+  expect(created).not.toContain(
+    '<a class="btn btn-primary" href="https://test-office.example.test"',
+  );
+
+  const minted = renderToStaticMarkup(
+    <OfficeView
+      initial={{
+        ...baseView,
+        ready: true,
+        handoff: {
+          ...baseView.handoff,
+          invite: {
+            ...baseView.handoff.invite,
+            mintedAt: 1,
+          },
+        },
+      }}
+      instanceId={baseView.instanceId}
+    />,
+  );
+  expect(minted).toContain(
+    '<a class="btn btn-primary" href="https://test-office.example.test"',
+  );
+
+  const adopted = renderToStaticMarkup(
+    <OfficeView
+      initial={{ ...baseView, ready: true, origin: "adopted" }}
+      instanceId={baseView.instanceId}
+    />,
+  );
+  expect(adopted).toContain(
+    '<a class="btn btn-primary" href="https://test-office.example.test"',
+  );
+});

@@ -234,6 +234,16 @@ export function OfficeView({
   const [billingProblem, setBillingProblem] = useState<string | null>(null);
   const invitePathOffered =
     view.origin === "adopted" || view.handoff.invite.mintedAt !== null;
+  const paymentStep: ProgressView["steps"][number] = {
+    kind: "waiting-for-payment" as ProgressView["steps"][number]["kind"],
+    label: "Waiting for payment",
+    state: view.subscription ? "done" : "active",
+    detail: null,
+    startedAt: null,
+    finishedAt: null,
+    elapsedMs: null,
+  };
+  const progressSteps = [paymentStep, ...view.steps];
 
   // FAST WHILE SOMETHING THE CUSTOMER ASKED FOR IS IN FLIGHT, not only while
   // the office is being built. An invite takes a few seconds to mint, and a
@@ -452,7 +462,20 @@ export function OfficeView({
       <p className="lead" data-testid="office-status">
         {view.ready ? "Your office is ready." : "Your office is not ready yet."}
       </p>
-      {view.ready && (
+      {!view.subscription && (
+        <section className="card" data-testid="payment-guidance">
+          <p>Complete payment to start ordering your server.</p>
+          <form className="form" method="post" action="/api/signup">
+            <input type="hidden" name="signupIntent" value="continue" />
+            <input type="hidden" name="officeName" value={view.officeName} />
+            <PolicyNotice />
+            <button className="btn-primary" type="submit">
+              Continue to payment
+            </button>
+          </form>
+        </section>
+      )}
+      {view.ready && invitePathOffered && (
         <p>
           <a
             className="btn btn-primary"
@@ -492,7 +515,7 @@ export function OfficeView({
       )}
 
       <h2>Progress</h2>
-      <Steps steps={view.steps} testid="steps" now={timerNow} />
+      <Steps steps={progressSteps} testid="steps" now={timerNow} />
 
       {view.otherOperations.length > 0 && (
         <>
@@ -512,19 +535,20 @@ export function OfficeView({
             Your SSH access: <code>{view.sshCommand}</code>
           </p>
         )}
-        {(view.access.state !== "gone" ||
-          view.handoff.revocation.state === "none") && (
-          <p className="note" data-testid="access-window">
-            {accessSentence(view.access)}
-          </p>
-        )}
+        {view.access.state !== "not_started" &&
+          (view.access.state !== "gone" ||
+            view.handoff.revocation.state === "none") && (
+            <p className="note" data-testid="access-window">
+              {accessSentence(view.access)}
+            </p>
+          )}
 
         <ol className="handoff-steps">
           <li>
             <h3>Get your owner invite</h3>
             {view.handoff.invite.state === "none" && !view.ready && (
               <p className="note" data-testid="invite-not-yet">
-                Your owner invite can be created once your office is serving.
+                Wait until the office is serving.
               </p>
             )}
 
@@ -723,6 +747,8 @@ export function OfficeView({
             data-testid="restart-button"
             onClick={() => void act("/api/restart", "restart your server")}
             disabled={
+              !view.subscription ||
+              !view.ready ||
               view.restart.active ||
               !!(view.lifecycle && view.lifecycle.phase !== "grace")
             }

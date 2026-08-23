@@ -18,11 +18,12 @@ export default async function Signup({
   const params = await searchParams;
   const error = typeof params.error === "string" ? params.error : null;
   const name = typeof params.name === "string" ? params.name : "";
+  const settingUpAnother = params.another === "1";
   const [options, state] = await Promise.all([
     plans(),
     signupPageState(session.accountId),
   ]);
-  if (state.kind === "paid" && params.another !== "1") redirect("/");
+  if (state.kind === "paid" && !settingUpAnother) redirect("/");
   return (
     <main>
       <h1>Set up your office</h1>
@@ -35,8 +36,9 @@ export default async function Signup({
           {error}
         </p>
       )}
-      {state.kind === "continue" ? (
+      {state.kind === "continue" && !settingUpAnother ? (
         <form className="form card" method="post" action="/api/signup">
+          <input type="hidden" name="signupIntent" value="continue" />
           <input type="hidden" name="officeName" value={state.officeName} />
           <PolicyNotice />
           <button
