@@ -406,7 +406,9 @@ Four state axes that must not be collapsed into one, because they diverge:
   `order_ambiguous`, `active`, `cancel_scheduled` (with `serviceEndsAt`),
   `cancelled`, `absent`. The provider is the authority; every tick reconciles
   toward what `get` says.
-- **Subscription state**: a cache of Stripe's truth, written only by webhooks.
+- **Subscription state**: a cache of fetched Stripe truth, written only by the
+  shared reconciler. Webhooks normally trigger it; the pending-Checkout poll is
+  the fallback when no event creates a local row.
 - **Attention**: `clear` or `needs_operator`, with a reason and a severity,
   raised from operation and provider evidence. Orthogonal on purpose - a live
   office can need a human (failed liveness, a reboot that did not help) and an
@@ -569,11 +571,21 @@ Public Suffix List submission is **parked** by Nil.
 ## Billing
 
 Stripe Checkout for signup, the Stripe customer portal for card changes (no
-billing UI of our own), and webhooks as the only writer of subscription state:
+billing UI of our own), and one reconciler as the only writer of subscription
+state. Webhooks are the normal signal:
 `checkout.session.completed`, `customer.subscription.created`,
 `customer.subscription.updated`, `customer.subscription.deleted`, and
 `invoice.payment_failed`. Verify signatures, dedupe by event id, and treat the
 local row as a cache.
+
+Ordinary signup records each Checkout generation, exact session ID, and Stripe
+expiry before returning the URL. The provisioner cadence polls pending sessions
+with no local subscription row. A completed session is reconciled from fetched
+session and subscription objects without a synthetic event ID and without any
+dunning decision. An open session is deferred; a fetched expired session closes
+that generation without operator attention. Continue reuses an open generation
+and advances only after a GET confirms expiry. Reinstatement Checkouts keep
+their separate acceptance, power-on, refund, and retention machine.
 
 The provisioner's `POST /stripe/webhook` is the first unauthenticated HTTP route
 on the machine that holds provider and Stripe credentials. This is acceptable

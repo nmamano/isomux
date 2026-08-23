@@ -57,6 +57,17 @@ and replaces its lookup index. Runtime processes refuse the old schema.
 Runtime roles cannot apply this DDL. Until the migration lands, both the web
 and provisioner processes refuse to open the old schema.
 
+Before deploying a build with pending Checkout recovery, run its owner-role
+migration while the current build is still serving:
+
+```bash
+bun control-plane/cli.ts migrate-pending-checkouts
+```
+
+It adds nullable reservation columns with `if not exists`, so it does not
+rewrite existing reservation rows and is safe before the code deploy. The new
+runtime refuses to start until every column is present.
+
 Nothing here runs in the isomux server. It is a CLI driven by an operator, and
 it holds no standing access to anything it builds.
 
@@ -2600,6 +2611,13 @@ hand-run `stripe listen` session. Its restricted Stripe key has Subscriptions
 read, Invoices read, and Checkout Sessions read and write. The write permission
 is used only by the existing `expire_checkout` lifecycle operation. Webhook
 processing uses only the three read resources.
+
+The same provisioner cadence polls ordinary signup Checkout sessions that have
+no local subscription row. Session IDs and expiries are recorded before a
+Checkout URL reaches the customer. The poll uses object GETs, reconciles fetched
+subscription truth through the same writer as the webhook, and never invents an
+event or enters the dunning ladder. Reinstatement Checkouts remain in their
+separate retention machine.
 
 ### Test mode is enforced three times, not once
 

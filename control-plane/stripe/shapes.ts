@@ -73,6 +73,9 @@ export interface SessionSnapshot {
   /** Recorded because it is the verify-at-implementation item: what Checkout does
    * with `if_required` on a fully discounted subscription. */
   paymentMethodCollection: string | null;
+  /** Present on Checkout reads; optional keeps recorded legacy fixtures valid. */
+  url?: string | null;
+  expiresAt?: number | null;
   metadata: Record<string, string>;
   livemode: boolean;
 }
@@ -148,6 +151,8 @@ export function normalizeSession(raw: unknown): SessionSnapshot {
       typeof o.payment_method_collection === "string"
         ? o.payment_method_collection
         : null,
+    url: typeof o.url === "string" ? o.url : null,
+    expiresAt: secondsToMs(o.expires_at),
     metadata: metadataOf(o.metadata),
     livemode: booleanField(o, "livemode", `checkout session ${id}`),
   };

@@ -224,6 +224,8 @@ export interface CheckoutSessionCreated {
    * that asking for `if_required` was honoured. */
   paymentMethodCollection: string | null;
   livemode: boolean;
+  /** Milliseconds. Persisted before the URL is returned to the customer. */
+  expiresAt: number;
 }
 
 /** Preserves whether a failed create might have reached Stripe. */
@@ -310,6 +312,9 @@ export async function createCheckoutSession(
         "stopping before any URL is handed to anyone",
     );
   }
+  if (typeof body.expires_at !== "number") {
+    throw new Error("the Checkout session has no expiry");
+  }
   return {
     id: String(body.id),
     url: typeof body.url === "string" ? body.url : null,
@@ -318,6 +323,7 @@ export async function createCheckoutSession(
         ? body.payment_method_collection
         : null,
     livemode,
+    expiresAt: body.expires_at * 1000,
   };
 }
 

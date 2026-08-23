@@ -228,16 +228,26 @@ async function openReservedCheckout(args: {
   account: AccountRow;
 }): Promise<SignupResult> {
   const [
-    { checkoutInputsFor, customerReason },
+    {
+      advanceExpiredOrdinaryCheckout,
+      checkoutInputsFor,
+      customerReason,
+      recordOrdinaryCheckoutSession,
+      recordTerminalOrdinarySession,
+      reservationByName,
+    },
     { planById, resolveStripePrice },
     { StripeClient },
+    { LiveStripeReader },
     { CheckoutCreationError, openCheckout },
   ] = await Promise.all([
     import("../../signup"),
     import("../../plans"),
     import("../../stripe/client"),
+    import("../../stripe/reader"),
     import("../../stripe/checkout"),
   ]);
+  let reservation = args.reservation;
   const plan = planById(args.reservation.plan);
   if (!plan)
     return {
@@ -269,22 +279,96 @@ async function openReservedCheckout(args: {
       ),
     };
 
-  let client: InstanceType<typeof StripeClient>;
+  let runtime: Awaited<ReturnType<typeof stripeRuntime>>;
   try {
-    const { key, mode } = await stripeRuntime();
-    client = new StripeClient({ key, mode });
+    runtime = await stripeRuntime();
   } catch (err) {
     return {
       ok: false,
       reason: customerFailure("configuration", "checkout_reserved", err),
     };
   }
+  const { key, mode } = runtime;
+  const client = new StripeClient({ key, mode });
+  const advanceTerminalGeneration = async (
+    sessionId?: string,
+  ): Promise<boolean> => {
+    const advanced = await withStore(async (store) => {
+      if (sessionId) {
+        await recordTerminalOrdinarySession(store, reservation.id, sessionId);
+      }
+      return advanceExpiredOrdinaryCheckout(store, reservation.id);
+    });
+    if (advanced) {
+      reservation = advanced;
+      return true;
+    }
+    const current = await withStore((store) =>
+      reservationByName(store, reservation.name),
+    );
+    if (current?.checkout_state !== "opening") return false;
+    reservation = current;
+    return true;
+  };
+
+  if (
+    reservation.checkout_state === "expired" &&
+    !(await advanceTerminalGeneration())
+  ) {
+    return {
+      ok: false,
+      reason:
+        "we could not check your payment page just now - try again in a moment",
+    };
+  }
+  if (
+    reservation.checkout_state === "pending" &&
+    reservation.checkout_session_id
+  ) {
+    const existing = await new LiveStripeReader(
+      client,
+      mode,
+    ).getCheckoutSession(reservation.checkout_session_id);
+    if (existing.kind === "unavailable") {
+      return {
+        ok: false,
+        reason:
+          "we could not check your payment page just now - try again in a moment",
+      };
+    }
+    if (existing.kind === "absent" || existing.object.status === "expired") {
+      if (!(await advanceTerminalGeneration(reservation.checkout_session_id))) {
+        return {
+          ok: false,
+          reason:
+            "we could not check your payment page just now - try again in a moment",
+        };
+      }
+    } else if (
+      existing.kind === "ok" &&
+      existing.object.status === "complete"
+    ) {
+      return {
+        ok: true,
+        checkoutUrl: `${origin}/office/${reservation.name}`,
+        instanceId: reservation.instance_id,
+      };
+    } else if (existing.kind === "ok" && existing.object.url) {
+      return {
+        ok: true,
+        checkoutUrl: existing.object.url,
+        instanceId: reservation.instance_id,
+      };
+    } else if (existing.kind === "ok") {
+      return { ok: false, reason: "Stripe returned a session with no URL" };
+    }
+  }
   const inputs = checkoutInputsFor({
-    reservation: args.reservation,
+    reservation,
     account: args.account,
     email: args.account.email,
     priceId: resolved.stripePriceId,
-    successUrl: `${origin}/office/${args.reservation.name}`,
+    successUrl: `${origin}/office/${reservation.name}`,
     cancelUrl: `${origin}/signup`,
   });
   let opened: Awaited<ReturnType<typeof openCheckout>>;
@@ -324,6 +408,25 @@ async function openReservedCheckout(args: {
         "Stripe returned a session with no URL",
       ),
     };
+  const recorded = await withStore(async (store) => {
+    if (
+      await recordOrdinaryCheckoutSession(store, reservation, opened.session)
+    ) {
+      return true;
+    }
+    const current = await reservationByName(store, reservation.name);
+    return (
+      current?.checkout_state === "pending" &&
+      current.checkout_session_id === opened.session.id
+    );
+  });
+  if (!recorded) {
+    return {
+      ok: false,
+      reason:
+        "we could not save your payment page just now - try again in a moment",
+    };
+  }
   return {
     ok: true,
     checkoutUrl: opened.session.url,

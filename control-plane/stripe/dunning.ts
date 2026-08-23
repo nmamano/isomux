@@ -125,11 +125,10 @@ function isLapsedComp(
 }
 
 /** What Stripe currently says, in the columns that cache it. */
-function ownedFrom(
-  inputs: LadderInputs,
+export function ownedFrom(
+  s: SubscriptionSnapshot,
   row: SubscriptionRow | null,
 ): StripeOwnedPatch {
-  const s = inputs.subscription;
   return {
     status: s.status,
     current_period_end: s.currentPeriodEnd,
@@ -146,14 +145,16 @@ function ownedFrom(
     discount_ends_at: s.discount?.endsAt ?? null,
     ever_full_discount: everFull(row, s),
     latest_invoice_id: s.latestInvoiceId,
-    last_event_id: inputs.eventId,
-    last_event_created: inputs.eventCreated,
   };
 }
 
 export function decide(inputs: LadderInputs): LadderDecision {
   const { row, subscription, invoice, now } = inputs;
-  const stripeOwned = ownedFrom(inputs, row);
+  const stripeOwned = {
+    ...ownedFrom(subscription, row),
+    last_event_id: inputs.eventId,
+    last_event_created: inputs.eventCreated,
+  };
   const state = row?.episode_state ?? "none";
 
   // ------------------------------------------------------------- recovery

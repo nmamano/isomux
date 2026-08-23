@@ -34,6 +34,7 @@ import {
   migrateCustomerSshKeyColumns,
   migrateHostedCancellationPolicy,
   migrateMultiOfficeReservations,
+  migratePendingCheckoutColumns,
   reportBootstrap,
 } from "./bootstrap.ts";
 import {
@@ -102,8 +103,9 @@ import {
   stripeKeyFromEnv,
   stripeWebhookSecretFromEnv,
 } from "./stripe/mode.ts";
-import { LiveStripeReader } from "./stripe/reader.ts";
+import { LiveStripeReader, type StripeObjectReader } from "./stripe/reader.ts";
 import { WebhookProcessor } from "./stripe/webhook.ts";
+import { pollPendingCheckouts } from "./stripe/checkout-poll.ts";
 import { driveTicks } from "./drive-loop.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 
@@ -646,7 +648,21 @@ async function cmdProvision(args: Map<string, string>): Promise<void> {
 async function runLifecycleCadence(
   store: Store,
   running: Ticker,
+  checkoutReader?: StripeObjectReader,
 ): Promise<void> {
+  if (checkoutReader) {
+    const checkouts = await pollPendingCheckouts(
+      store,
+      checkoutReader,
+      store.now(),
+      (line) => reporter.line(`Checkout poll: ${line}`),
+    );
+    if (checkouts.failed > 0) {
+      reporter.problem(
+        `Checkout poll had ${checkouts.failed} failed candidate(s)`,
+      );
+    }
+  }
   await sweepProvisioningStarts(store, (kind) => running.handles(kind));
   await sweepCustomerKeyRetention(store, (line) => reporter.line(line));
   const summary = await lifecycleTick(store, store.now(), (line) =>
@@ -697,6 +713,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   // answer at that instant.
   let providerConfigured = false;
   let seam: RunningMintSeam | null = null;
+  let checkoutReader: StripeObjectReader | undefined;
   if (token) {
     const stripeMode = resolveStripeMode(process.env);
     const webhookSecret = stripeWebhookSecretFromEnv(stripeMode, process.env);
@@ -705,9 +722,10 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       key: stripeKey,
       mode: stripeMode,
     });
+    checkoutReader = new LiveStripeReader(webhookClient, stripeMode);
     const webhook = new WebhookProcessor({
       store,
-      reader: new LiveStripeReader(webhookClient, stripeMode),
+      reader: checkoutReader,
       secret: webhookSecret,
       mode: stripeMode,
       report: (line) => reporter.line(`stripe webhook: ${line}`),
@@ -793,7 +811,7 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       reporter,
       cadence: {
         failureLabel: "lifecycle pass failed",
-        run: () => runLifecycleCadence(store, running),
+        run: () => runLifecycleCadence(store, running, checkoutReader),
       },
       onTick: () => {
         lastTickAt = Date.now();
@@ -936,6 +954,11 @@ async function cmdMigrateHostedCancellation(): Promise<void> {
 async function cmdMigrateMultiOffice(): Promise<void> {
   await migrateMultiOfficeReservations(databaseUrl());
   reporter.line("multi-office reservation schema: ready");
+}
+
+async function cmdMigratePendingCheckouts(): Promise<void> {
+  await migratePendingCheckoutColumns(databaseUrl());
+  reporter.line("pending Checkout recovery schema: ready");
 }
 
 async function cmdOps(args: Map<string, string>): Promise<void> {
@@ -1252,6 +1275,8 @@ async function main(): Promise<void> {
       return cmdMigrateHostedCancellation();
     case "migrate-multi-office":
       return cmdMigrateMultiOffice();
+    case "migrate-pending-checkouts":
+      return cmdMigratePendingCheckouts();
     case "operator":
       return cmdOperator(args);
     case "attention":
@@ -1261,7 +1286,7 @@ async function main(): Promise<void> {
     default:
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key|migrate-hosted-cancellation|migrate-multi-office> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key|migrate-hosted-cancellation|migrate-multi-office|migrate-pending-checkouts> [--flags]",
       );
       process.exit(2);
   }

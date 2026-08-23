@@ -534,6 +534,13 @@ create table if not exists name_reservations (
   instance_id text not null,
   plan text not null,
   coupon_id text,
+  checkout_session_id text,
+  checkout_generation integer,
+  checkout_expires_at bigint,
+  checkout_state text check (
+    checkout_state in ('opening', 'pending', 'reconciled', 'expired')
+  ),
+  checkout_next_check_at bigint,
   version integer not null,
   created_at bigint not null,
   updated_at bigint not null
@@ -1371,6 +1378,11 @@ export class Store {
       ["instances", "customer_ssh_key"],
       ["instances", "customer_ssh_key_fingerprint"],
       ["instances", "ssh_login_user"],
+      ["name_reservations", "checkout_session_id"],
+      ["name_reservations", "checkout_generation"],
+      ["name_reservations", "checkout_expires_at"],
+      ["name_reservations", "checkout_state"],
+      ["name_reservations", "checkout_next_check_at"],
     ];
     // THE WHOLE ROSTER, not the tables the column list happens to name.
     const tables: readonly string[] = PRODUCT_TABLES;

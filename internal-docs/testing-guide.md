@@ -178,3 +178,8 @@ all test and e2e sources: none may read the live secret from the environment,
 satisfy the production-runtime gate, or construct a live client without the
 narrow injected-fetch allowance. The fixture scrubber is separate from the
 runtime mode and continues to reject every live recording.
+
+Pending ordinary Checkout recovery is pinned in `checkout-poll.test.ts`: open
+deferral, fetched expiry, paid linkage and provisioning, no synthetic event
+evidence, no poll-created dunning episode, complete-but-unpaid gating, and
+per-candidate failure isolation.

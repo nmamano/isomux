@@ -116,6 +116,11 @@ export interface ReservationRow {
   instance_id: string;
   plan: string;
   coupon_id: string | null;
+  checkout_session_id: string | null;
+  checkout_generation: number | null;
+  checkout_expires_at: number | null;
+  checkout_state: "opening" | "pending" | "reconciled" | "expired" | null;
+  checkout_next_check_at: number | null;
   version: number;
   created_at: number;
   updated_at: number;
@@ -378,7 +383,8 @@ export async function reserveOffice(
       await store.recoverable(() =>
         store.sqlRun(
           "insert into name_reservations (name, id, account_id, instance_id, plan, " +
-            "coupon_id, version, created_at, updated_at) values ($1, $2, $3, $4, $5, $6, 1, $7, $8)",
+            "coupon_id, checkout_generation, checkout_state, version, created_at, updated_at) " +
+            "values ($1, $2, $3, $4, $5, $6, 1, 'opening', 1, $7, $8)",
           [
             req.officeName,
             `res-${uuid}`,
@@ -553,7 +559,95 @@ export function checkoutKeysFor(reservation: ReservationRow): {
   session: string;
 } {
   const suffix = reservation.id.replace(/^res-/, "");
-  return { customer: `cp4-cus-${suffix}`, session: `cp4-ses-${suffix}` };
+  const generation = reservation.checkout_generation ?? 1;
+  return {
+    customer: `cp4-cus-${suffix}`,
+    session: `cp4-ses-${suffix}-g${generation}`,
+  };
+}
+
+export const CHECKOUT_POLL_INTERVAL_MS = 60_000;
+
+/** Record only the ordinary reservation generation that opened this session. */
+export async function recordOrdinaryCheckoutSession(
+  store: Store,
+  reservation: ReservationRow,
+  session: { id: string; expiresAt: number },
+): Promise<boolean> {
+  const changed = await store.sqlGet<{ id: string }>(
+    "update name_reservations set checkout_session_id=$1, checkout_expires_at=$2, " +
+      "checkout_generation=$6, " +
+      "checkout_state='pending', checkout_next_check_at=$3, updated_at=$4, version=version+1 " +
+      "where id=$5 and coalesce(checkout_generation, 1)=$6 " +
+      "and (checkout_state='opening' or checkout_state is null) " +
+      "and checkout_session_id is null returning id",
+    [
+      session.id,
+      session.expiresAt,
+      store.now() + CHECKOUT_POLL_INTERVAL_MS,
+      store.now(),
+      reservation.id,
+      reservation.checkout_generation ?? 1,
+    ],
+  );
+  return changed !== null;
+}
+
+/** Terminalize only the exact generation Stripe confirms is no longer usable. */
+export async function recordTerminalOrdinarySession(
+  store: Store,
+  reservationId: string,
+  sessionId: string,
+): Promise<boolean> {
+  const changed = await store.sqlGet<{ id: string }>(
+    "update name_reservations set checkout_state='expired', checkout_next_check_at=null, " +
+      "updated_at=$1, version=version+1 where id=$2 and checkout_session_id=$3 " +
+      "and checkout_state='pending' returning id",
+    [store.now(), reservationId, sessionId],
+  );
+  return changed !== null;
+}
+
+/** Start the next generation only after the previous one is terminal. */
+export async function advanceExpiredOrdinaryCheckout(
+  store: Store,
+  reservationId: string,
+): Promise<ReservationRow | null> {
+  return store.sqlGet<ReservationRow>(
+    "update name_reservations set checkout_generation=checkout_generation+1, " +
+      "checkout_session_id=null, checkout_expires_at=null, checkout_state='opening', " +
+      "checkout_next_check_at=null, updated_at=$1, version=version+1 " +
+      "where id=$2 and checkout_state='expired' returning *",
+    [store.now(), reservationId],
+  );
+}
+
+export async function dueOrdinaryCheckouts(
+  store: Store,
+  now: number,
+): Promise<ReservationRow[]> {
+  return store.sqlAll<ReservationRow>(
+    "select r.* from name_reservations r left join subscriptions s " +
+      "on s.instance_id=r.instance_id where r.checkout_state='pending' " +
+      "and r.checkout_session_id is not null and r.checkout_next_check_at <= $1 " +
+      "and s.id is null order by r.checkout_next_check_at, r.name",
+    [now],
+  );
+}
+
+export async function deferOrdinaryCheckoutPoll(
+  store: Store,
+  reservationId: string,
+  sessionId: string,
+  nextCheckAt: number,
+): Promise<boolean> {
+  const changed = await store.sqlGet<{ id: string }>(
+    "update name_reservations set checkout_next_check_at=$1, updated_at=$2, " +
+      "version=version+1 where id=$3 and checkout_session_id=$4 " +
+      "and checkout_state='pending' returning id",
+    [nextCheckAt, store.now(), reservationId, sessionId],
+  );
+  return changed !== null;
 }
 
 /**

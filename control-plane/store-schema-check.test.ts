@@ -22,6 +22,7 @@ import {
   migrateCustomerSshKeyColumns,
   migrateHostedCancellationPolicy,
   migrateMultiOfficeReservations,
+  migratePendingCheckoutColumns,
 } from "./bootstrap.ts";
 import { PRODUCT_TABLES, Store } from "./store.ts";
 import {
@@ -209,6 +210,20 @@ suite("the schema check reads the catalog, not the privilege view", () => {
       /instances has no customer_ssh_key column/,
     );
     await migrateCustomerSshKeyColumns(ownerDsn);
+    const store = await Store.openRuntime(roleDsn);
+    await store.close();
+  });
+
+  test("runtime refuses pending Checkout columns until the owner migration", async () => {
+    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `alter table ${quoteIdentifier(schema)}.name_reservations drop column checkout_session_id`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /name_reservations has no checkout_session_id column/,
+    );
+    await migratePendingCheckoutColumns(ownerDsn);
+    await migratePendingCheckoutColumns(ownerDsn);
     const store = await Store.openRuntime(roleDsn);
     await store.close();
   });

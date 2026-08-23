@@ -27,9 +27,10 @@ import {
   eventSeen,
   getSubscription,
   insertSubscription,
+  type StripeOwnedPatch,
   type SubscriptionRow,
 } from "./billing-store.ts";
-import { decide } from "./dunning.ts";
+import { decide, ownedFrom } from "./dunning.ts";
 import { requestResume } from "../resume.ts";
 import { requestSuspension } from "./suspension.ts";
 import type {
@@ -86,6 +87,125 @@ export type ReconcileOutcome =
     }
   | { kind: "duplicate"; subscriptionId: string | null };
 
+export interface PolledCheckoutInput {
+  reservationId: string;
+  subscription: SubscriptionSnapshot;
+  session: SessionSnapshot;
+  now: number;
+}
+
+/** The single fetched-truth writer used by webhook and poll reconciliation. */
+async function applyFetchedStripeTruth(
+  store: Store,
+  input: Pick<ReconcileInput, "subscription" | "session">,
+  row: SubscriptionRow,
+  stripeOwned: StripeOwnedPatch,
+  actor: string,
+  detail: string,
+): Promise<{
+  current: SubscriptionRow;
+  linkage: Awaited<ReturnType<typeof linkageFrom>>;
+}> {
+  const linkage = await linkageFrom(store, input, row);
+  const current = await casStripeOwnedSubscription(store, row.id, row.version, {
+    ...stripeOwned,
+    ...linkage.patch,
+  });
+  if (!current) {
+    throw new Error(
+      `subscription ${row.id} moved while its Stripe snapshot was being applied`,
+    );
+  }
+  if (linkage.blockedInstanceId) {
+    await raiseAttentionIn(store, {
+      instanceId: linkage.blockedInstanceId,
+      reasonClass: "operation_condition",
+      sourceOpId: "",
+      reason: `subscription ${current.id} was refused linkage to an instance that still contains prior-customer data`,
+      severity: "critical",
+      actor,
+      detail,
+    });
+  }
+  return { current, linkage };
+}
+
+/**
+ * Apply a fetched ordinary-signup Checkout without inventing a Stripe event.
+ * MUST be called inside `store.tx`.
+ *
+ * This is deliberately narrower than `applyEvent`: Stripe-owned subscription
+ * truth and the existing linkage guards run, but dunning episodes do not.
+ */
+export async function applyPolledCheckout(
+  store: Store,
+  input: PolledCheckoutInput,
+  report: (line: string) => void = () => {},
+): Promise<SubscriptionRow> {
+  if (!store.inTransaction()) {
+    throw new Error("applyPolledCheckout must run inside a transaction");
+  }
+  const reservation = await store.sqlGet<{
+    id: string;
+    checkout_session_id: string | null;
+    checkout_state: string | null;
+  }>(
+    "select id, checkout_session_id, checkout_state from name_reservations " +
+      "where id=$1 for update",
+    [input.reservationId],
+  );
+  if (
+    !reservation ||
+    reservation.checkout_state !== "pending" ||
+    reservation.checkout_session_id !== input.session.id
+  ) {
+    throw new Error(
+      "the ordinary Checkout generation moved before reconciliation",
+    );
+  }
+
+  const common = {
+    subscription: input.subscription,
+    session: input.session,
+  };
+  const row = await ensureRow(store, common, report);
+  const { current: afterOwned } = await applyFetchedStripeTruth(
+    store,
+    common,
+    row,
+    ownedFrom(input.subscription, row),
+    "checkout-poll",
+    `session=${input.session.id}; observed=${new Date(input.now).toISOString()}`,
+  );
+  await mirrorToInstance(store, afterOwned);
+  if (
+    input.session.status === "complete" &&
+    input.session.paymentStatus === "paid"
+  ) {
+    await startProvisioningIn(store, afterOwned);
+  }
+  const marked = await store.sqlGet<{ id: string }>(
+    "update name_reservations set checkout_state='reconciled', " +
+      "checkout_next_check_at=null, updated_at=$1, version=version+1 " +
+      "where id=$2 and checkout_session_id=$3 and checkout_state='pending' returning id",
+    [input.now, input.reservationId, input.session.id],
+  );
+  if (!marked) {
+    throw new Error(
+      "the ordinary Checkout generation moved while it was reconciled",
+    );
+  }
+  await store.appendAudit({
+    actor: "checkout-poll",
+    instance_id: afterOwned.instance_id,
+    action: "checkout.session.completed",
+    target: afterOwned.id,
+    outcome: "succeeded",
+    detail: `session=${input.session.id}; observed=${new Date(input.now).toISOString()}`,
+  });
+  return afterOwned;
+}
+
 /**
  * Apply one event. MUST be called inside `store.tx`.
  *
@@ -117,24 +237,14 @@ export async function applyEvent(
     now: input.now,
   });
 
-  // The linkage the fetched objects assert. It travels with the Stripe-owned
-  // patch because reconciliation is its only writer too.
-  const linkage = await linkageFrom(store, input, row);
-  const owned = { ...decision.stripeOwned, ...linkage.patch };
-
-  const afterOwned = await casStripeOwnedSubscription(
+  const { current: afterOwned, linkage } = await applyFetchedStripeTruth(
     store,
-    row.id,
-    row.version,
-    owned,
+    input,
+    row,
+    decision.stripeOwned,
+    WEBHOOK_ACTOR,
+    `event=${input.eventId}; observed=${new Date(input.now).toISOString()}`,
   );
-  if (!afterOwned) {
-    // Inside one transaction this can only mean a genuine concurrent writer, and
-    // the right answer is to roll the whole thing back and let Stripe redeliver.
-    throw new Error(
-      `subscription ${row.id} moved while its Stripe snapshot was being applied`,
-    );
-  }
 
   let current: SubscriptionRow = afterOwned;
   let reinstatement: ReinstatementAttemptRow | null = null;
@@ -163,17 +273,6 @@ export async function applyEvent(
         `subscription ${current.id} moved while its cancellation policy was reset`,
       );
     current = reset;
-  }
-  if (linkage.blockedInstanceId) {
-    await raiseAttentionIn(store, {
-      instanceId: linkage.blockedInstanceId,
-      reasonClass: "operation_condition",
-      sourceOpId: "",
-      reason: `subscription ${current.id} was refused linkage to an instance that still contains prior-customer data`,
-      severity: "critical",
-      actor: WEBHOOK_ACTOR,
-      detail: `event=${input.eventId}; observed=${new Date(input.now).toISOString()}`,
-    });
   }
   if (Object.keys(decision.episode).length > 0) {
     const afterEpisode = await casEpisodeBookkeeping(
@@ -345,7 +444,7 @@ async function insertFirstRow(
 
 async function ensureRow(
   store: Store,
-  input: ReconcileInput,
+  input: Pick<ReconcileInput, "subscription" | "session">,
   report: (line: string) => void,
 ): Promise<SubscriptionRow> {
   const existing = await getSubscription(store, input.subscription.id);
@@ -432,7 +531,7 @@ async function policyForFirstRow(
 
 async function linkageFrom(
   store: Store,
-  input: ReconcileInput,
+  input: Pick<ReconcileInput, "subscription" | "session">,
   row: SubscriptionRow,
 ): Promise<{
   patch: { instance_id?: string };

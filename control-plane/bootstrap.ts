@@ -147,6 +147,25 @@ export async function migrateCustomerSshKeyColumns(dsn: string): Promise<void> {
   }
 }
 
+/** Owner-role migration for durable ordinary-signup Checkout recovery. */
+export async function migratePendingCheckoutColumns(
+  dsn: string,
+): Promise<void> {
+  const pool = await openPool(dsn);
+  try {
+    await inTransaction(pool, dsn, [
+      "alter table if exists name_reservations add column if not exists checkout_session_id text",
+      "alter table if exists name_reservations add column if not exists checkout_generation integer",
+      "alter table if exists name_reservations add column if not exists checkout_expires_at bigint",
+      "alter table if exists name_reservations add column if not exists checkout_state text " +
+        "check (checkout_state in ('opening', 'pending', 'reconciled', 'expired'))",
+      "alter table if exists name_reservations add column if not exists checkout_next_check_at bigint",
+    ]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
 /** Lift the legacy one-office constraint without changing any reservation row. */
 export async function migrateMultiOfficeReservations(
   dsn: string,
@@ -903,12 +922,14 @@ export async function bootstrapDatabase(
   // attempts to create the unique index.
   await migrateHostedCancellationPolicy(dsn);
   await migrateMultiOfficeReservations(dsn);
+  await migratePendingCheckoutColumns(dsn);
   const store = await Store.open(dsn);
   try {
     // A fresh database had no tables for the pre-open migration to alter.
     // Store.open has created them now; this rerun records the immutable cutover.
     await migrateHostedCancellationPolicy(dsn);
     await migrateMultiOfficeReservations(dsn);
+    await migratePendingCheckoutColumns(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

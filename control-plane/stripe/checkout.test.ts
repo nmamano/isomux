@@ -365,6 +365,7 @@ describe("what comes back", () => {
       url: "https://checkout.stripe.com/c/pay/cs_test_x",
       payment_method_collection: "if_required",
       livemode: false,
+      expires_at: 1_800_000_000,
     });
     const session = await createCheckoutSession(
       client,
@@ -397,6 +398,7 @@ describe("what comes back", () => {
         id: "cs_live_shape",
         url: "https://checkout.stripe.com/c/pay/live-shape",
         livemode: true,
+        expires_at: 1_800_000_000,
       }),
     });
     const client = new StripeClient({
@@ -455,6 +457,7 @@ describe("checkout writes nothing", () => {
       url: "https://checkout.stripe.com/c/pay/cs_test_x",
       payment_method_collection: "always",
       livemode: false,
+      expires_at: 1_800_000_000,
     });
     await createCheckoutSession(client, base, "k");
     expect(await listSubscriptions(store)).toEqual([]);
@@ -641,6 +644,7 @@ describe("the order a checkout is opened in", () => {
           url: "https://checkout.stripe.com/c/pay/x",
           payment_method_collection: "if_required",
           livemode: false,
+          expires_at: 1_800_000_000,
         },
       },
     ]);
@@ -689,6 +693,7 @@ describe("the order a checkout is opened in", () => {
           id: "cs_1",
           payment_method_collection: "always",
           livemode: false,
+          expires_at: 1_800_000_000,
         },
       },
     ]);
