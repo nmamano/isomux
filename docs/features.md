@@ -120,7 +120,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 ### Apps
 
 - **Agents can build web apps that keep running** - once an agent registers an app with the office, isomux runs it from then on. It keeps running after the session ends.
-- **Apps tab**: every app available to you, its state, how often it has restarted, and its recent output; start, stop, restart, or delete it from there.
+- **Apps tab**: apps you own and apps built by agents in rooms you can access. You can open any of them and see its state and restart count; the ones you own also show their recent output and the controls to start, stop, restart, or delete.
 - **Its own web address** - on an office with its own domain and wildcard DNS, an app can get an address like `hello.office.example.com`, so it opens from any device ([setup](vps-install.md#app-hostnames)).
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.
