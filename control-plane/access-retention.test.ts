@@ -4,9 +4,13 @@ import {
   sweepCustomerKeyRetention,
 } from "./access-retention.ts";
 import type { Store } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 
-afterEach(releaseTestStores);
+afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
 
 const RAW_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIcustomer";
 

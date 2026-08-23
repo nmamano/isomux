@@ -7,7 +7,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store, type OperationStatus } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import { acknowledgeAttention } from "./attention-ack.ts";
 import { raiseAttention } from "./attention.ts";
 import { DECLARED_UNIMPLEMENTED_KINDS, nextKind } from "./operations.ts";
@@ -31,7 +35,7 @@ afterEach(async () => {
   await releaseTestStores();
   while (temps.length)
     fs.rmSync(temps.pop()!, { recursive: true, force: true });
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 async function signedUp(
   store: Store,

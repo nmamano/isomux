@@ -7,7 +7,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { requestCancel, requestUncancel } from "./cancel.ts";
 import { Store } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import { StripeClient, type FetchLike } from "./stripe/client.ts";
 import {
   ensureAccount,
@@ -22,7 +26,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 const NOW = Date.parse("2027-06-10T00:00:00Z");
 const TEST_KEY = "sk_test_fixture_key_not_real";

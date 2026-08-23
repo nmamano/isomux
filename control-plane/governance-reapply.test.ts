@@ -42,7 +42,11 @@ import {
   type RoleIdentity,
 } from "./roles.ts";
 import { Store } from "./store.ts";
-import { LOCAL_DATABASE_URL, TARGET_IS_LOCAL } from "./testing/pg.ts";
+import {
+  LOCAL_DATABASE_URL,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  TARGET_IS_LOCAL,
+} from "./testing/pg.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
 const measuredProductionRoles = [
@@ -160,7 +164,7 @@ afterAll(async () => {
   if (failures.length > 0) {
     throw new AggregateError(failures, "failed to drop scratch databases");
   }
-}, 30_000);
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 /** A schema-ready database governed exactly as PRODUCTION is today: the roles
  * in place and the catalog carrying the PRIOR matrix. */

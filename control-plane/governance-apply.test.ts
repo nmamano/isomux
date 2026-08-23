@@ -53,7 +53,11 @@ import {
   validateRuntimeRoster,
 } from "./roles.ts";
 import { GOVERNED_SETTINGS, Store } from "./store.ts";
-import { LOCAL_DATABASE_URL, TARGET_IS_LOCAL } from "./testing/pg.ts";
+import {
+  LOCAL_DATABASE_URL,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  TARGET_IS_LOCAL,
+} from "./testing/pg.ts";
 
 const suite = TARGET_IS_LOCAL ? describe : describe.skip;
 
@@ -195,9 +199,6 @@ async function dropRoles(
   }
 }
 
-// Serial database and role cleanup can exceed Bun's 5s hook default under
-// full-suite load (hit at 5000.07ms on auntie, 2026-08-12); give the required
-// integration teardown a safe budget.
 afterAll(async () => {
   for (const entry of databases) {
     const { name, roster, probe } = entry;
@@ -228,7 +229,7 @@ afterAll(async () => {
   expect(leftovers.rows[0]?.n).toBe("0");
   expect(await productionRoleSnapshot()).toEqual(productionRolesBefore);
   await admin.end().catch(() => {});
-}, 30_000);
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 suite("a fresh, empty database", () => {
   // THE ONE THAT WAS BROKEN. Nothing in this repo had ever run the posture

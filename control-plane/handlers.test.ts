@@ -26,7 +26,11 @@ import {
 import { Reporter, type Sink } from "./report.ts";
 import { saveRun, type RunRecord } from "./run-record.ts";
 import { Store } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import type { ExecResult, Exec, ExecOptions } from "./ssh.ts";
 import { RemoteBudget, Ticker, type HandlerContext } from "./tick.ts";
 import { raiseAttentionIn } from "./attention.ts";
@@ -78,7 +82,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 class FakeExec implements Exec {
   readonly calls: { argv: string[]; stdin?: string }[] = [];

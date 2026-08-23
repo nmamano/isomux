@@ -13,6 +13,7 @@ import { Store } from "./store.ts";
 import {
   freshDsn,
   openTestStoreOn,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
   testDsn,
 } from "./testing/pg.ts";
@@ -32,7 +33,7 @@ afterEach(async () => {
   await releaseTestStores();
   while (temps.length)
     fs.rmSync(temps.pop()!, { recursive: true, force: true });
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 interface Bed {
   db: string;

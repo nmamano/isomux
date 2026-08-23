@@ -9,7 +9,11 @@ import * as path from "node:path";
 import { DEADLINES, nextKind } from "./operations.ts";
 import { ObserverWriteFailed, RemoteTimeoutError } from "./ssh.ts";
 import { Store } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import { ContaboAdapter } from "./contabo/adapter.ts";
 import { ContaboHttp } from "./contabo/http.ts";
 import { TokenProvider, type FetchLike } from "./contabo/auth.ts";
@@ -41,7 +45,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 function clock(start = 1_000_000) {
   const state = { t: start };

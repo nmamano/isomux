@@ -17,7 +17,11 @@ import {
 } from "./lifecycle.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 import { Store } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import { RemoteBudget } from "./tick.ts";
 import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
 import { powerOffHandler } from "./stripe/suspension.ts";
@@ -28,7 +32,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 const ENDED = Date.parse("2027-01-31T09:00:00Z");
 const GRACE_END = ENDED + GRACE_MS; // 2027-02-07T09:00:00Z

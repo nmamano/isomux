@@ -9,7 +9,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { openTestStore, releaseTestStores } from "../testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "../testing/pg.ts";
 import { listEvents, listSubscriptions } from "./billing-store.ts";
 import type { StripeObjectReader } from "./reader.ts";
 import {
@@ -81,7 +85,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("the fixtures directory", () => {
   test("holds at least the live-mode refusal fixture", async () => {

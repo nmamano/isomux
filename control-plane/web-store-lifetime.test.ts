@@ -22,7 +22,12 @@
 
 import { afterEach, describe, expect, test } from "bun:test";
 import pg from "pg";
-import { TEST_DATABASE_URL, releaseTestStores, testDsn } from "./testing/pg.ts";
+import {
+  TEST_DATABASE_URL,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+  testDsn,
+} from "./testing/pg.ts";
 import { Store } from "./store.ts";
 import {
   continueSignup,
@@ -120,7 +125,7 @@ afterEach(async () => {
   await resetSlot();
   delete process.env.CONTROL_PLANE_DB;
   await releaseTestStores();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("the web app's store outlives the request", () => {
   test("two cold requests join ONE open, not one pool each", async () => {

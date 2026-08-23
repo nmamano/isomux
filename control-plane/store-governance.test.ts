@@ -32,6 +32,7 @@ import pg from "pg";
 import { Store } from "./store.ts";
 import {
   LOCAL_DATABASE_URL,
+  PG_TEST_HOOK_TIMEOUT_MS,
   TARGET_IS_LOCAL,
   freshDsn,
   testDsn,
@@ -127,7 +128,7 @@ afterAll(async () => {
     await admin.query(`drop role if exists ${name}`).catch(() => {});
   }
   await admin.end().catch(() => {});
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 const schemas: string[] = [];
 

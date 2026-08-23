@@ -6,10 +6,14 @@ import {
   sweepProvisioningStarts,
 } from "./provisioning-start.ts";
 import { insertSubscription } from "./stripe/billing-store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import { applyEvent } from "./stripe/reconcile.ts";
 
-afterEach(releaseTestStores);
+afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
 
 async function bed(status = "active") {
   const store = await openTestStore(() => 1_700_000_000_000);

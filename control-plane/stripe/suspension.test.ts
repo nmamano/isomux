@@ -6,7 +6,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store } from "../store.ts";
-import { openTestStore, releaseTestStores } from "../testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "../testing/pg.ts";
 import { RemoteBudget, Ticker, serviceStateAfter } from "../tick.ts";
 import { DECLARED_UNIMPLEMENTED_KINDS, deadlinesFor } from "../operations.ts";
 import { powerOffHandler } from "./suspension.ts";
@@ -96,7 +100,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("the operation model", () => {
   test("power_off has deadlines, so it can be enqueued at all", async () => {

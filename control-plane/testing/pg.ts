@@ -371,6 +371,19 @@ export async function seedRawSchema(dsn: string, sql: string): Promise<void> {
   );
 }
 
+// 2026-08-12: Under full-suite load on this box, governance-apply's PostgreSQL
+// afterAll reached Bun's 5 s default hook timeout at 5000.07 ms. That incident
+// chose a 30 s budget for the hook.
+// 2026-08-23: Under parallel CI, store-schema-check's afterAll reached the same
+// default at 5007.86 ms while awaiting cluster-global role cleanup. This change
+// generalises the existing 30 s decision to every PostgreSQL hook. Bun names an
+// afterEach timeout for its test but reports afterAll as (unnamed), although
+// both messages say beforeEach/afterEach. A hook can await several store closes,
+// schema drops, or role drops in sequence, so their total time binds before one
+// connection acquisition reaches connectionTimeoutMillis. Keep that acquisition
+// timeout at 5 s so a stuck connection fails fast.
+export const PG_TEST_HOOK_TIMEOUT_MS = 30_000;
+
 /**
  * Close every store this test opened and give its schemas back.
  *

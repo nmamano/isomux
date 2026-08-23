@@ -7,7 +7,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store, type SqlArgs } from "../store.ts";
-import { openTestStore, releaseTestStores } from "../testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "../testing/pg.ts";
 import {
   ensureAccount,
   getSubscription,
@@ -81,7 +85,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("an expired hold with exhaustion already observed", () => {
   test("requests suspension exactly once, and a second pass adds nothing", async () => {

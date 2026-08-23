@@ -8,7 +8,11 @@ import { cancelAssetHandler, removeDnsHandler } from "./deprovision.ts";
 import { LIFECYCLE_REASON } from "./lifecycle.ts";
 import type { AssetState } from "./provider.ts";
 import { Store, type AssetRow } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 
 const temps: string[] = [];
@@ -17,7 +21,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 interface Bed {
   ctx: HandlerContext;

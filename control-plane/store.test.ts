@@ -18,6 +18,7 @@ import {
   freshDsn,
   openTestStore,
   openTestStoreOn,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
   seedRawSchema,
   testDsn,
@@ -62,7 +63,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("compare-and-swap", () => {
   test("a stale version loses and changes nothing", async () => {
@@ -1202,7 +1203,7 @@ describe("the two fences: time bounds ACTING, the token bounds RECORDING", () =>
 // ignores them without an error, so the store now carries them in `options` and
 // READS THEM BACK before it hands anybody a Store.
 describe("the governed connection options", () => {
-  afterEach(releaseTestStores);
+  afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
 
   function optionsOf(url: string): string {
     return new URL(withGovernedOptions(url)).searchParams.get("options") ?? "";
@@ -1287,7 +1288,7 @@ describe("the governed connection options", () => {
 });
 
 describe("connection details on the error path", () => {
-  afterEach(releaseTestStores);
+  afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
 
   const dsn =
     "postgres://therole:thepassword@ep-secret-endpoint.example.com:5432/thedb" +

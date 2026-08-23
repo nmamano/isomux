@@ -27,6 +27,7 @@ import { accountForDevSignIn, hostnameFor, reserveOffice } from "./signup.ts";
 import {
   TARGET_IS_LOCAL,
   openTestStoreOn,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
   testDsn,
 } from "./testing/pg.ts";
@@ -45,11 +46,11 @@ afterEach(async () => {
   await releaseTestStores();
   while (temps.length)
     fs.rmSync(temps.pop()!, { recursive: true, force: true });
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 afterAll(async () => {
   await dropLeastPrivilegedRoles();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 interface Bed {
   /** The owner's string, for setting the world up and reading it back. */

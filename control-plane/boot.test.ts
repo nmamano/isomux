@@ -11,12 +11,13 @@ import { BRANCH_PIN_ENV, liveBranchId, provePinnedBranch } from "./boot.ts";
 import {
   TARGET_IS_LOCAL,
   openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
 } from "./testing/pg.ts";
 
 afterEach(async () => {
   await releaseTestStores();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 /** The refusal's message, or a sentence saying there was not one. */
 async function refusalOf(work: Promise<unknown>): Promise<string> {

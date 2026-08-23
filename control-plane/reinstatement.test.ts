@@ -21,7 +21,11 @@ import {
   insertSubscription,
   type SubscriptionRow,
 } from "./stripe/billing-store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import type { Store } from "./store.ts";
 import {
   checkoutExpiryHandler,
@@ -31,7 +35,7 @@ import { StripeClient } from "./stripe/client.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 import { CANCELLATION_POLICY_CUTOVER_KEY } from "./bootstrap.ts";
 
-afterEach(releaseTestStores);
+afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
 const ENDED = Date.parse("2027-01-01T00:00:00Z");
 
 function clock(at: number) {

@@ -7,7 +7,11 @@ import {
   issueCertificateCredential,
   revokeCertificateCredentials,
 } from "./certificate-credentials.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import type { Store } from "./store.ts";
 import { CertificateService } from "./certificate-service.ts";
 
@@ -15,11 +19,11 @@ let store: Store;
 
 beforeAll(async () => {
   store = await openTestStore();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 afterAll(async () => {
   await releaseTestStores();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 async function office(id = "inst-cert") {
   await store.createInstance({

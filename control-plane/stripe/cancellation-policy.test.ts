@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { CANCELLATION_POLICY_CUTOVER_KEY } from "../bootstrap.ts";
 import { Store } from "../store.ts";
-import { openTestStore, releaseTestStores } from "../testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "../testing/pg.ts";
 import {
   ensureAccount,
   getSubscription,
@@ -15,7 +19,7 @@ const CUTOVER = Date.parse("2026-08-13T00:00:00Z");
 
 afterEach(async () => {
   await releaseTestStores();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 function snapshot(
   id: string,

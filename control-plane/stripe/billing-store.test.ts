@@ -9,6 +9,7 @@ import { Store } from "../store.ts";
 import {
   freshDsn,
   openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
   seedRawSchema,
 } from "../testing/pg.ts";
@@ -76,7 +77,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 describe("the transaction requirement", () => {
   test("every mutator refuses to run outside one", async () => {

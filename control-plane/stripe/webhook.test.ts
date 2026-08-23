@@ -20,7 +20,11 @@ import * as path from "node:path";
 import { Store } from "../store.ts";
 import { InviteHold } from "../invite-hold.ts";
 import { startMintSeam } from "../mint-seam.ts";
-import { openTestStore, releaseTestStores } from "../testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "../testing/pg.ts";
 import {
   getSubscription,
   listAccounts,
@@ -61,7 +65,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 // --------------------------------------------------------------- fake Stripe
 

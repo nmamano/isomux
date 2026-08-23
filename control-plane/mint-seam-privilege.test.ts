@@ -25,7 +25,12 @@ import { MINT_SEAM_PATH, fetchInvite, startMintSeam } from "./mint-seam.ts";
 import { PROVISIONER_GRANTS } from "./roles.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import { Store } from "./store.ts";
-import { TARGET_IS_LOCAL, freshDsn, releaseTestStores } from "./testing/pg.ts";
+import {
+  TARGET_IS_LOCAL,
+  freshDsn,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import {
   dropLeastPrivilegedRoles,
   leastPrivilegedDsn,
@@ -40,11 +45,11 @@ const opened: Store[] = [];
 afterEach(async () => {
   for (const store of opened.splice(0)) await store.close();
   await releaseTestStores();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 afterAll(async () => {
   await dropLeastPrivilegedRoles();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 interface Bed {
   /** The seam's store, opened by the least-privileged role. */

@@ -25,11 +25,16 @@ import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import { ensureAccount } from "./stripe/billing-store.ts";
 import { applyEvent, recordIgnoredEvent } from "./stripe/reconcile.ts";
 import { isUniqueViolation, type SqlArgs, type Store } from "./store.ts";
-import { openTestStoreOn, releaseTestStores, testDsn } from "./testing/pg.ts";
+import {
+  openTestStoreOn,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+  testDsn,
+} from "./testing/pg.ts";
 
 afterEach(async () => {
   await releaseTestStores();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 const NOW = Date.parse("2027-06-10T00:00:00Z");
 

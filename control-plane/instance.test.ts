@@ -11,7 +11,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { CeilingIsImmutable, ensureInstance } from "./instance.ts";
 import { Store, type OperationStatus } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import type { RunRecord } from "./run-record.ts";
 
 const temps: string[] = [];
@@ -27,7 +31,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 function record(overrides: Partial<RunRecord> = {}): RunRecord {
   return {

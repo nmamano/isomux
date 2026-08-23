@@ -25,7 +25,11 @@ import {
 } from "./lifecycle.ts";
 import { suspensionOperationId } from "./stripe/dunning.ts";
 import { Store, type AssetRow, type OperationRow } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 
 const temps: string[] = [];
 afterEach(async () => {
@@ -33,7 +37,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 async function tempStore(now: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-life-"));

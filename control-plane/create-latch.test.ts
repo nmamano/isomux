@@ -22,6 +22,7 @@ import { Store, type Fence } from "./store.ts";
 import {
   openTestStore,
   openTestStoreOn,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
 } from "./testing/pg.ts";
 import { Ticker } from "./tick.ts";
@@ -45,7 +46,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 function fakeAdapter(
   overrides: Partial<ProviderAdapter> = {},

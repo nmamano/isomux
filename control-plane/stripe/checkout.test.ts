@@ -6,7 +6,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Store } from "../store.ts";
-import { openTestStore, releaseTestStores } from "../testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "../testing/pg.ts";
 import { listAccounts, listSubscriptions } from "./billing-store.ts";
 import { StripeClient, formEncode, type FetchLike } from "./client.ts";
 import {
@@ -36,7 +40,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 function clientReturning(body: unknown): {
   client: StripeClient;

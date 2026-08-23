@@ -19,7 +19,11 @@ import {
 } from "./mint-seam.ts";
 import { accountForDevSignIn, reserveOffice } from "./signup.ts";
 import { Store, type OperationStatus } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 
 const URL_HELD = "https://cp1.test.isomux.app/i/seamsecret";
 const temps: string[] = [];
@@ -29,7 +33,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 interface Bed {
   store: Store;

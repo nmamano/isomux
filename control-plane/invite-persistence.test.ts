@@ -43,6 +43,7 @@ import { Store } from "./store.ts";
 import {
   openTestStore,
   quoteIdentifier,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
 } from "./testing/pg.ts";
 import type { Exec, ExecOptions, ExecResult } from "./ssh.ts";
@@ -59,7 +60,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 class MintExec implements Exec {
   async run(_argv: string[], _opts?: ExecOptions): Promise<ExecResult> {

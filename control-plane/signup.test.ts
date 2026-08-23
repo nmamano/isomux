@@ -32,6 +32,7 @@ import type { Store } from "./store.ts";
 import {
   openTestStore,
   openTestStoreOn,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
   testDsn,
 } from "./testing/pg.ts";
@@ -55,7 +56,7 @@ afterEach(async () => {
   await releaseTestStores();
   while (temps.length)
     fs.rmSync(temps.pop()!, { recursive: true, force: true });
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 async function accountFor(store: Store, email = "a@example.com") {
   return await accountForDevSignIn(store, email);

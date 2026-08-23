@@ -29,6 +29,7 @@ import {
   TARGET_IS_LOCAL,
   quoteIdentifier,
   freshDsn,
+  PG_TEST_HOOK_TIMEOUT_MS,
   releaseTestStores,
 } from "./testing/pg.ts";
 import {
@@ -48,12 +49,12 @@ admin.on("error", () => {});
 
 afterEach(async () => {
   await releaseTestStores();
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 afterAll(async () => {
   await dropLeastPrivilegedRoles();
   await admin.end().catch(() => {});
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 /** A bootstrapped schema, and a DSN for a role holding exactly the
  * provisioner's matrix on it. Both come back: the tests mutilate the schema

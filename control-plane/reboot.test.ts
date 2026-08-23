@@ -6,7 +6,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { rebootHandler } from "./reboot.ts";
 import { type AssetRow } from "./store.ts";
-import { openTestStore, releaseTestStores } from "./testing/pg.ts";
+import {
+  openTestStore,
+  PG_TEST_HOOK_TIMEOUT_MS,
+  releaseTestStores,
+} from "./testing/pg.ts";
 import { RemoteBudget, type HandlerContext } from "./tick.ts";
 import { RemoteTimeoutError } from "./ssh.ts";
 import { ensureAccount, insertSubscription } from "./stripe/billing-store.ts";
@@ -18,7 +22,7 @@ afterEach(async () => {
   for (const dir of temps.splice(0)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
-});
+}, PG_TEST_HOOK_TIMEOUT_MS);
 
 interface Bed {
   ctx: HandlerContext;
