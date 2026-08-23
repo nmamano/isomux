@@ -130,8 +130,8 @@ async function main(): Promise<void> {
         AUTH_URL: BASE,
         NEXTAUTH_URL: BASE,
       },
-      stdout: "pipe",
-      stderr: "pipe",
+      stdout: "ignore",
+      stderr: "inherit",
     },
   );
 

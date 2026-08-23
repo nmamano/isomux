@@ -61,7 +61,7 @@ async function bed(over: Partial<RunRecord> = {}): Promise<Bed> {
 
   const rec: RunRecord = {
     runId: "run-test-1",
-    state: "installed",
+    state: "reachable",
     host: hostnameFor("cp1"),
     instanceId: "203474835",
     ipv4: "169.58.97.2",
@@ -72,7 +72,7 @@ async function bed(over: Partial<RunRecord> = {}): Promise<Bed> {
     blob: "AAAA",
     knownHostsFile: "/dev/null",
     ...over,
-  } as RunRecord;
+  };
   fs.writeFileSync(
     path.join(runsDir, `${rec.runId}.json`),
     JSON.stringify(rec),

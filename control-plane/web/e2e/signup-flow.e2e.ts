@@ -23,7 +23,11 @@ import * as path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { Store } from "../../store.ts";
 import { databaseUrl } from "../../config.ts";
-import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
+import {
+  accountForDevSignIn,
+  hostnameFor,
+  reserveOffice,
+} from "../../signup.ts";
 import { StripeClient } from "../../stripe/client.ts";
 import { insertSubscription } from "../../stripe/billing-store.ts";
 
@@ -91,7 +95,7 @@ async function submitSignup(
   coupon = "",
   options: { verifyUx?: boolean; expireSession?: boolean } = {},
 ): Promise<string> {
-  await page.goto(`${BASE}/signup`);
+  await page.goto(`${BASE}/signup?another=1`);
   await page.waitForFunction(
     () =>
       document
@@ -166,7 +170,7 @@ async function submitSignup(
   );
   await page.click('[data-testid="signup-submit"]');
   await Promise.race([
-    page.waitForURL((url) => url.toString() !== `${BASE}/signup`, {
+    page.waitForURL((url) => url.pathname !== "/signup", {
       timeout: 60_000,
     }),
     page.waitForSelector('[data-testid="signup-error"]', { timeout: 60_000 }),
@@ -182,6 +186,8 @@ async function errorCopy(page: Page): Promise<string> {
 
 async function main(): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp4a-e2e-"));
+  const runSuffix = path.basename(dir).slice(-6).toLowerCase();
+  const continuationOfficeName = `continue-${runSuffix}`;
   // The webhook leg needs the slice-3 billing server writing the SAME
   // database, so the runner may pass one in; otherwise both halves use the
   // deployment's own connection string.
@@ -196,12 +202,15 @@ async function main(): Promise<void> {
   say(`stripe legs: ${stripeLegs ? "on" : "SKIPPED (no key or price in env)"}`);
 
   const statusBefore = git(["status", "--porcelain"]);
+  const nextEnvPath = path.join(WEB_DIR, "next-env.d.ts");
+  const nextEnvBefore = fs.readFileSync(nextEnvPath);
   say(
     `git status --porcelain before: ${statusBefore.split("\n").length - 1} lines`,
   );
 
   // A name another account already holds, so the "taken" refusal is a real
   // cross-account refusal rather than the same owner's retry.
+  let reservationCountBeforeRefusals: number;
   {
     const store = await Store.open(db);
     const other = await accountForDevSignIn(store, "someone-else@example.com");
@@ -211,6 +220,12 @@ async function main(): Promise<void> {
       plan: "office",
     });
     check("seeded another account's reservation", seeded.ok);
+    reservationCountBeforeRefusals =
+      (
+        await store.sqlGet<{ n: number }>(
+          "select count(*) as n from name_reservations",
+        )
+      )?.n ?? 0;
     await store.close();
   }
 
@@ -228,12 +243,24 @@ async function main(): Promise<void> {
         NEXTAUTH_URL: BASE,
         ...(priceId ? { CONTROL_PLANE_PRICE_ID: priceId } : {}),
       },
-      stdout: "pipe",
-      stderr: "pipe",
+      stdout: "ignore",
+      stderr: "inherit",
     },
   );
+  let serverStopped = false;
+  const stopServer = async (): Promise<void> => {
+    if (serverStopped) return;
+    server.kill();
+    await server.exited;
+    serverStopped = true;
+  };
+  const restoreNextEnv = (): void => {
+    if (!fs.readFileSync(nextEnvPath).equals(nextEnvBefore))
+      fs.writeFileSync(nextEnvPath, nextEnvBefore);
+  };
 
   let browser: Browser | null = null;
+  let renderedOfficeName: string | null = null;
   let renderedOfficeHostname: string | null = null;
   try {
     await waitForServer(`${BASE}/signin`);
@@ -382,7 +409,7 @@ async function main(): Promise<void> {
       );
       check(
         "no reservation was created by any refusal",
-        rows?.n === 1,
+        rows?.n === reservationCountBeforeRefusals,
         `rows=${rows?.n}`,
       );
       await store.close();
@@ -432,7 +459,7 @@ async function main(): Promise<void> {
       );
       const continuation = await reserveOffice(continuationStore, {
         accountId: customer.id,
-        officeName: "continue-browser",
+        officeName: continuationOfficeName,
         plan: "office",
         customerSshKey: submittedPublic,
       });
@@ -477,10 +504,10 @@ async function main(): Promise<void> {
       const paid = await Store.open(db);
       await paid.tx(async () =>
         insertSubscription(paid, {
-          id: "sub-browser-paid",
+          id: `sub-browser-paid-${runSuffix}`,
           account_id: customer.id,
           instance_id: continuation.reservation.instance_id,
-          stripe_customer_id: "cus-browser-paid",
+          stripe_customer_id: `cus-browser-paid-${runSuffix}`,
           status: "active",
           current_period_end: null,
           cancel_at_period_end: 0,
@@ -504,8 +531,14 @@ async function main(): Promise<void> {
       await paid.close();
       await page.goto(`${BASE}/signup`);
       check(
-        "a paid account is redirected to its office instead of Checkout",
-        page.url() === `${BASE}/office/continue-browser`,
+        "a paid account is redirected to the dashboard instead of Checkout",
+        page.url() === `${BASE}/`,
+        page.url(),
+      );
+      await page.goto(`${BASE}/signup?another=1`);
+      check(
+        "a paid account can deliberately set up another office",
+        (await page.$('[data-testid="office-name"]')) !== null,
         page.url(),
       );
     } else {
@@ -659,8 +692,9 @@ async function main(): Promise<void> {
     {
       const store = await Store.open(db);
       const res = await store.sqlGet<{ instance_id: string; name: string }>(
-        "select instance_id, name from name_reservations where account_id = " +
-          "(select id from accounts where email = 'customer@example.com')",
+        "select instance_id, name from name_reservations where name = $1 and " +
+          "account_id = (select id from accounts where email = 'customer@example.com')",
+        [stripeLegs ? "cp1" : continuationOfficeName],
       );
       if (res) {
         const seq = await store.nextSeq("audit");
@@ -679,11 +713,12 @@ async function main(): Promise<void> {
             say(`office page navigation: ${err.message.split("\n")[0]}`),
           );
         const text = (await page.textContent("body")) ?? "";
-        const officeHostname = "continue-browser.isomux.app";
+        const officeHostname = hostnameFor(res.name);
         check(
           "the signed-in office page renders its stored hostname",
           text.includes(officeHostname),
         );
+        renderedOfficeName = res.name;
         renderedOfficeHostname = officeHostname;
         say(`office page: ${text.replace(/\s+/g, " ").slice(0, 300)}`);
         check(
@@ -831,7 +866,7 @@ async function main(): Promise<void> {
       `before=${sessionCookiesBefore.length} after=${sessionCookiesAfter.length}`,
     );
     const signedOutOffice = await page.request.get(
-      `${BASE}/office/continue-browser`,
+      `${BASE}/office/${renderedOfficeName ?? continuationOfficeName}`,
       { maxRedirects: 0 },
     );
     const signedOutOfficeBody = await signedOutOffice.text();
@@ -852,6 +887,10 @@ async function main(): Promise<void> {
     const claude = fs.existsSync(path.join(WEB_DIR, "CLAUDE.md"));
     check("next dev wrote no AGENTS.md", !agents);
     check("next dev wrote no CLAUDE.md", !claude);
+    await browser.close();
+    browser = null;
+    await stopServer();
+    restoreNextEnv();
     const statusAfter = git(["status", "--porcelain"]);
     check(
       "git status is byte-identical before and after the dev run",
@@ -862,7 +901,8 @@ async function main(): Promise<void> {
     );
   } finally {
     if (browser) await browser.close();
-    server.kill();
+    await stopServer();
+    restoreNextEnv();
     fs.writeFileSync(path.join(dir, "transcript.txt"), transcript.join("\n"));
     say(`transcript: ${path.join(dir, "transcript.txt")}`);
   }

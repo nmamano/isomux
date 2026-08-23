@@ -213,7 +213,7 @@ describe("hosted signup page state", () => {
     await inspect.close();
   });
 
-  test("an unpaid reservation continues, while a paid office permits another signup", async () => {
+  test("an unpaid reservation continues, while a paid office returns to the dashboard", async () => {
     const dsn = await appDsn();
     process.env.CONTROL_PLANE_DB = dsn;
     const seed = await Store.open(dsn);
@@ -258,7 +258,7 @@ describe("hosted signup page state", () => {
         last_event_created: null,
       }),
     );
-    expect(await signupPageState(account.id)).toEqual({ kind: "new" });
+    expect(await signupPageState(account.id)).toEqual({ kind: "paid" });
     expect(await continueSignup(account.id, "continue-me")).toEqual({
       ok: false,
       officeName: "continue-me",

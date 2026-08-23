@@ -195,7 +195,8 @@ export type SignupResult =
 
 export type SignupPageState =
   | { kind: "new" }
-  | { kind: "continue"; officeName: string };
+  | { kind: "continue"; officeName: string }
+  | { kind: "paid" };
 
 export async function signupPageState(
   accountId: string,
@@ -207,6 +208,7 @@ export async function signupPageState(
     ]);
   return withStore(async (store) => {
     const reservations = await reservationsForAccount(store, accountId);
+    let hasSubscription = false;
     for (const reservation of reservations) {
       const subscription = await subscriptionForInstance(
         store,
@@ -214,8 +216,9 @@ export async function signupPageState(
       );
       if (!subscription)
         return { kind: "continue", officeName: reservation.name };
+      hasSubscription = true;
     }
-    return { kind: "new" };
+    return hasSubscription ? { kind: "paid" } : { kind: "new" };
   });
 }
 

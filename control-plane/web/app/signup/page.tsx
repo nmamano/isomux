@@ -22,6 +22,7 @@ export default async function Signup({
     plans(),
     signupPageState(session.accountId),
   ]);
+  if (state.kind === "paid" && params.another !== "1") redirect("/");
   return (
     <main>
       <h1>Set up your office</h1>

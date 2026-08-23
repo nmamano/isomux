@@ -252,8 +252,8 @@ async function main(): Promise<void> {
         CONTROL_PLANE_MINT_URL: `http://127.0.0.1:${seam.port}`,
         CONTROL_PLANE_MINT_TOKEN: TOKEN,
       },
-      stdout: "pipe",
-      stderr: "pipe",
+      stdout: "ignore",
+      stderr: "inherit",
     },
   );
 

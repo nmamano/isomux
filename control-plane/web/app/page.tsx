@@ -58,7 +58,7 @@ export default async function Home() {
             </Link>
           ))}
           <p>
-            <Link href="/signup">Set up another office</Link>.
+            <Link href="/signup?another=1">Set up another office</Link>.
           </p>
         </>
       ) : (
