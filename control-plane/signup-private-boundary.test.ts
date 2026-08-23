@@ -52,15 +52,19 @@ describe("the signup private-key boundary", () => {
     expect(signup).toBeGreaterThan(refusal);
   });
 
-  test("key presence selects the initial path and absence selects continuation", () => {
+  test("explicit intent selects continuation, which refuses a key and keeps the reserved name", () => {
+    expect(route).toContain('field("signupIntent")');
     const continuation = route.slice(
+      route.indexOf('if (signupIntent === "continue")'),
       route.indexOf("if (!customerSshKey)"),
-      route.indexOf('const plan = field("plan")'),
+    );
+    expect(continuation).toContain(
+      "if (customerSshKey) return new Response(null, { status: 400 })",
     );
     expect(continuation).toContain('state.kind !== "continue"');
+    expect(continuation).toContain("if (officeName !== state.officeName)");
     expect(continuation).toContain(
       "await continueSignup(accountId, officeName)",
     );
-    expect(route).not.toContain('field("intent")');
   });
 });
