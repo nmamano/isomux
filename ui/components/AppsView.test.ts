@@ -11,13 +11,38 @@
 import { describe, it, expect } from "bun:test";
 import {
   appCanPreview,
+  appOpenMode,
   appPreviewPhase,
+  demoAppMockContent,
   appHref,
   appLinkLabel,
   nextPollDelay,
   resolveCreatorAgentId,
   shouldCommit,
 } from "./AppsView.tsx";
+
+describe("appOpenMode", () => {
+  it("opens a mock instead of a synthetic address in the demo", () => {
+    expect(appOpenMode(false)).toBe("mock");
+  });
+
+  it("keeps real-office app links external", () => {
+    expect(appOpenMode(true)).toBe("external");
+  });
+});
+
+describe("demoAppMockContent", () => {
+  it("uses the unknown app's own name with neutral content", () => {
+    expect(demoAppMockContent("third-demo-app")).toEqual({
+      heading: "third-demo-app",
+      tiles: [
+        ["Preview", "Demo app"],
+        ["Workspace", "Sample content"],
+        ["Status", "Ready"],
+      ],
+    });
+  });
+});
 
 describe("appCanPreview", () => {
   it("previews a running app at an office-issued origin", () => {

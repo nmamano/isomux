@@ -125,6 +125,10 @@ export function appCanPreview(app: Pick<AppWire, "url" | "state">): boolean {
   );
 }
 
+export function appOpenMode(liveAppPreviews: boolean): "external" | "mock" {
+  return liveAppPreviews ? "external" : "mock";
+}
+
 export type AppPreviewPhase = "open-prompt" | "loading" | "frame";
 
 export function appPreviewPhase(
@@ -198,13 +202,15 @@ function AppPreview({
   href,
   isMobile,
   framesAllowed,
+  onOpenMock,
 }: {
   app: Pick<AppWire, "name">;
   href: string;
   isMobile: boolean;
   framesAllowed: boolean;
+  onOpenMock: () => void;
 }) {
-  const hostRef = useRef<HTMLAnchorElement>(null);
+  const hostRef = useRef<HTMLElement>(null);
   const [visible, setVisible] = useState(
     () => !("IntersectionObserver" in window),
   );
@@ -269,31 +275,8 @@ function AppPreview({
     setWaitingForReturn(true);
   };
 
-  return (
-    <a
-      ref={hostRef}
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      title={`Open ${app.name}`}
-      tabIndex={-1}
-      onClick={recordOpen}
-      onAuxClick={(event) => {
-        if (event.button === 1) recordOpen();
-      }}
-      style={{
-        position: "relative",
-        display: "block",
-        height: isMobile ? 150 : 210,
-        marginTop: 10,
-        overflow: "hidden",
-        border: "1px solid var(--border-subtle)",
-        borderRadius: 6,
-        background: "var(--bg-code, var(--bg-base))",
-        color: "var(--text-muted)",
-        textDecoration: "none",
-      }}
-    >
+  const content = (
+    <>
       {phase === "open-prompt" ? (
         <span
           style={{
@@ -356,7 +339,209 @@ function AppPreview({
           live preview
         </span>
       )}
+    </>
+  );
+  const style: React.CSSProperties = {
+    position: "relative",
+    display: "block",
+    width: "100%",
+    height: isMobile ? 150 : 210,
+    marginTop: 10,
+    padding: 0,
+    overflow: "hidden",
+    border: "1px solid var(--border-subtle)",
+    borderRadius: 6,
+    background: "var(--bg-code, var(--bg-base))",
+    color: "var(--text-muted)",
+    textDecoration: "none",
+    cursor: "pointer",
+  };
+
+  if (!framesAllowed) {
+    return (
+      <button
+        ref={(node) => {
+          hostRef.current = node;
+        }}
+        type="button"
+        title={`Open ${app.name}`}
+        onClick={onOpenMock}
+        style={style}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <a
+      ref={(node) => {
+        hostRef.current = node;
+      }}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title={`Open ${app.name}`}
+      tabIndex={-1}
+      onClick={recordOpen}
+      onAuxClick={(event) => {
+        if (event.button === 1) recordOpen();
+      }}
+      style={style}
+    >
+      {content}
     </a>
+  );
+}
+
+type DemoAppMockContent = {
+  heading: string;
+  tiles: [label: string, value: string][];
+};
+
+const DEMO_APP_MOCKS: Record<string, DemoAppMockContent> = {
+  "cost-tracker": {
+    heading: "Cost tracker",
+    tiles: [
+      ["This month", "$428"],
+      ["API usage", "$276"],
+      ["Infrastructure", "$152"],
+    ],
+  },
+  "standup-board": {
+    heading: "Standup board",
+    tiles: [
+      ["Yesterday", "Shipped app previews"],
+      ["Today", "Polish the demo"],
+      ["Blocked", "Nothing blocked"],
+    ],
+  },
+};
+
+export function demoAppMockContent(name: string): DemoAppMockContent {
+  return (
+    DEMO_APP_MOCKS[name] ?? {
+      heading: name,
+      tiles: [
+        ["Preview", "Demo app"],
+        ["Workspace", "Sample content"],
+        ["Status", "Ready"],
+      ],
+    }
+  );
+}
+
+function DemoAppMock({ app, onClose }: { app: AppWire; onClose: () => void }) {
+  const content = demoAppMockContent(app.name);
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${app.name} demo`}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 10000,
+        display: "grid",
+        placeItems: "center",
+        padding: 20,
+        background: "rgba(5, 10, 18, 0.72)",
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          width: "min(760px, 100%)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          overflow: "hidden",
+          background: "var(--bg-base)",
+          boxShadow: "0 24px 80px rgba(0, 0, 0, 0.45)",
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "12px 16px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-subtle)",
+          }}
+        >
+          <StateDot state={app.state} />
+          <strong style={{ fontSize: 14 }}>{app.name}</strong>
+          <span style={{ color: "var(--text-muted)", fontSize: 12 }}>
+            Demo app
+          </span>
+          <button
+            type="button"
+            aria-label="Close demo app"
+            onClick={onClose}
+            style={{
+              marginLeft: "auto",
+              border: 0,
+              background: "transparent",
+              color: "var(--text-secondary)",
+              cursor: "pointer",
+              fontSize: 20,
+            }}
+          >
+            ×
+          </button>
+        </div>
+        <div style={{ padding: 24 }}>
+          <h2 style={{ margin: "0 0 6px", fontSize: 22 }}>{content.heading}</h2>
+          <p
+            style={{
+              margin: "0 0 22px",
+              color: "var(--text-secondary)",
+              fontSize: 13,
+            }}
+          >
+            {app.description}
+          </p>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+              gap: 12,
+            }}
+          >
+            {content.tiles.map(([label, value]) => (
+              <div
+                key={label}
+                style={{
+                  minHeight: 105,
+                  padding: 14,
+                  border: "1px solid var(--border-subtle)",
+                  borderRadius: 8,
+                  background: "var(--bg-subtle)",
+                }}
+              >
+                <div
+                  style={{
+                    marginBottom: 12,
+                    color: "var(--text-muted)",
+                    fontSize: 11,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.06em",
+                  }}
+                >
+                  {label}
+                </div>
+                <div
+                  style={{ fontSize: app.name === "cost-tracker" ? 24 : 13 }}
+                >
+                  {value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -427,6 +612,7 @@ export function AppsView({
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppWire | null>(null);
   const [previewsEnabled, setPreviewsEnabled] = useState(getAppPreviews);
+  const [mockApp, setMockApp] = useState<AppWire | null>(null);
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   // Moves when the USER changes what the log pane is showing - opening a row,
   // closing one, deleting the open one - so a request in flight can tell that it
@@ -589,11 +775,14 @@ export function AppsView({
       if (e.key === "Escape" && confirmDelete) {
         e.stopPropagation();
         setConfirmDelete(null);
+      } else if (e.key === "Escape" && mockApp) {
+        e.stopPropagation();
+        setMockApp(null);
       }
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [confirmDelete]);
+  }, [confirmDelete, mockApp]);
 
   const sorted = [...apps].sort((a, b) => a.name.localeCompare(b.name));
 
@@ -713,6 +902,37 @@ export function AppsView({
               const creatorAgentId = onFocusAgent
                 ? resolveCreatorAgentId(app, agents)
                 : null;
+              const openMode = appOpenMode(features.liveAppPreviews);
+              const appLink = (
+                label: React.ReactNode,
+                style: React.CSSProperties,
+              ) =>
+                openMode === "mock" ? (
+                  <button
+                    type="button"
+                    title={appLinkLabel(app)}
+                    onClick={() => setMockApp(app)}
+                    style={{
+                      border: 0,
+                      padding: 0,
+                      background: "transparent",
+                      cursor: "pointer",
+                      ...style,
+                    }}
+                  >
+                    {label}
+                  </button>
+                ) : (
+                  <a
+                    href={href}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={appLinkLabel(app)}
+                    style={style}
+                  >
+                    {label}
+                  </a>
+                );
               return (
                 <div
                   key={app.name}
@@ -732,20 +952,12 @@ export function AppsView({
                     }}
                   >
                     <StateDot state={app.state} />
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={appLinkLabel(app)}
-                      style={{
-                        fontSize: 14,
-                        fontWeight: 600,
-                        color: "var(--accent)",
-                        textDecoration: "none",
-                      }}
-                    >
-                      {app.name}
-                    </a>
+                    {appLink(app.name, {
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "var(--accent)",
+                      textDecoration: "none",
+                    })}
                     <span
                       style={{
                         fontSize: 11,
@@ -755,12 +967,12 @@ export function AppsView({
                     >
                       {app.state}
                     </span>
-                    <a
-                      href={href}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={appLinkLabel(app)}
-                      style={{
+                    {appLink(
+                      <>
+                        <span>{appLinkLabel(app)}</span>
+                        <OpenIcon />
+                      </>,
+                      {
                         marginLeft: "auto",
                         fontSize: 12,
                         fontWeight: 600,
@@ -768,11 +980,8 @@ export function AppsView({
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 4,
-                      }}
-                    >
-                      <span>{appLinkLabel(app)}</span>
-                      <OpenIcon />
-                    </a>
+                      },
+                    )}
                   </div>
 
                   {previewsEnabled && appCanPreview(app) && (
@@ -781,6 +990,7 @@ export function AppsView({
                       href={href}
                       isMobile={isMobile}
                       framesAllowed={features.liveAppPreviews}
+                      onOpenMock={() => setMockApp(app)}
                     />
                   )}
 
@@ -995,6 +1205,9 @@ export function AppsView({
             </div>
           </div>
         </div>
+      )}
+      {mockApp !== null && (
+        <DemoAppMock app={mockApp} onClose={() => setMockApp(null)} />
       )}
     </div>
   );
