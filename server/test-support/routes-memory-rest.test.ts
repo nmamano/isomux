@@ -98,8 +98,13 @@ function opLog(srv: TestServer): { actor: string; op: string; text: string }[] {
     .filter(Boolean)
     .map((l) => JSON.parse(l));
 }
-function asRead(body: unknown): { text: string; version: string } {
-  return body as { text: string; version: string };
+function asRead(body: unknown): {
+  text: string;
+  version: string;
+  size: number;
+  cap: number;
+} {
+  return body as { text: string; version: string; size: number; cap: number };
 }
 function asAppend(body: unknown): { item: MemoryItem; version: string } {
   return body as { item: MemoryItem; version: string };
@@ -408,7 +413,7 @@ describe("routes/memory REST: APPEND permissive + existence gates", () => {
 });
 
 describe("routes/memory REST: READ", () => {
-  it("returns {text, version}; empty before any write; reflects appends", async () => {
+  it("returns text, version, exact injected size, and the scope cap", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -420,6 +425,8 @@ describe("routes/memory REST: READ", () => {
     expect(empty.status).toBe(200);
     expect(asRead(empty.body).text).toBe("");
     expect(asRead(empty.body).version).toMatch(/^[0-9a-f]{12}$/);
+    expect(asRead(empty.body).size).toBe(0);
+    expect(asRead(empty.body).cap).toBe(5000);
 
     await api(srv, "/api/memory", {
       method: "POST",
@@ -429,6 +436,28 @@ describe("routes/memory REST: READ", () => {
     const after = await api(srv, "/api/memory?scope=agent", { bearer: token });
     expect(asRead(after.body).text).toContain("uses Bun");
     expect(asRead(after.body).version).not.toBe(asRead(empty.body).version);
+    expect(asRead(after.body).size).toBe(asRead(after.body).text.trim().length);
+  });
+
+  it("uses prompt-injected size, excluding blank lines", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const empty = asRead(
+      (await api(srv, "/api/memory?scope=agent", { bearer: token })).body,
+    );
+    await api(srv, "/api/memory", {
+      method: "PUT",
+      bearer: token,
+      body: { scope: "agent", text: "one\n   \ntwo\n", version: empty.version },
+    });
+    const read = asRead(
+      (await api(srv, "/api/memory?scope=agent", { bearer: token })).body,
+    );
+    expect(read.size).toBe("one\ntwo".length);
   });
 });
 

@@ -10,11 +10,36 @@
 // Pure T0: no server, no FS, no LLM - the builder is a pure string function.
 
 import { describe, it, expect } from "bun:test";
-import { buildSystemPrompt, memorySection } from "../system-prompt.ts";
+import {
+  buildSystemPrompt,
+  HOSTED_IDENTITY_COPY,
+  hostedIdentityNote,
+  memorySection,
+} from "../system-prompt.ts";
 import type { SupportedLanguageCode } from "../../shared/languages.ts";
 
 // Stable marker for the privileged block (the heading the section opens with).
 const MARKER = "## Privileged Operator Capabilities";
+
+describe("hosted office identity", () => {
+  it("uses fixed copy with the public-origin hostname only for hosted installs", () => {
+    expect(hostedIdentityNote("self-hosted", "https://acme.isomux.app")).toBe(
+      "",
+    );
+    expect(hostedIdentityNote("hosted", "https://acme.isomux.app")).toBe(
+      `\n\n## Hosted Isomux\n\n${HOSTED_IDENTITY_COPY.replace("<hostname>", "acme.isomux.app")}\n`,
+    );
+    expect(HOSTED_IDENTITY_COPY).toBe(
+      "This office is a Hosted Isomux instance at <hostname>. It runs on a managed server, and its owner is an Isomux customer.",
+    );
+  });
+
+  it("ends before the next prompt section instead of joining its paragraph", () => {
+    expect(hostedIdentityNote("hosted", "https://acme.isomux.app")).toEndWith(
+      "\n",
+    );
+  });
+});
 
 // All conditional sections (owner / office / room / custom) left null so the
 // only difference between the two prompts is the privileged block - that makes
@@ -121,6 +146,8 @@ describe("buildSystemPrompt - memory affordance", () => {
     expect(p).toContain("not a confidentiality boundary");
     // edit/retract = read-modify-replace guarded by a version; conflict/dedup 409
     expect(p).toContain("version");
+    expect(p).toContain("current injected size");
+    expect(p).toContain("scope cap");
     expect(p).toContain("409");
   });
 

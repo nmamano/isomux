@@ -43,6 +43,7 @@ import { dirname, join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import type { MemoryItem, MemoryScope } from "../shared/types.ts";
+import { injectedMemorySize } from "../shared/memory-size.ts";
 
 // A scopeId (roomId / agentId / userId) is interpolated into a filesystem path,
 // so it MUST be a strict identifier - the only thing between a caller-supplied
@@ -166,10 +167,7 @@ export class MemoryCapError extends Error {
 
 // The size a scope contributes to the prompt: non-empty lines, newline-joined.
 export function injectedSize(text: string): number {
-  return text
-    .split("\n")
-    .filter((l) => l.trim() !== "")
-    .join("\n").length;
+  return injectedMemorySize(text);
 }
 
 // --- optimistic-concurrency version -----------------------------------------

@@ -1445,7 +1445,7 @@ function UserEditPanel({
           Memory{" "}
           <span style={hintStyle}>
             (durable boss-scoped facts for this user; rewrites the file exactly
-            as shown - one memory per line)
+            as shown - one memory per line; {mem.size} / {mem.cap ?? "…"})
           </span>
         </label>
         <ExpandableTextarea

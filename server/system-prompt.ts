@@ -15,8 +15,26 @@ import {
   languageOption,
   type SupportedLanguageCode,
 } from "../shared/languages.ts";
+import { INSTALL_KIND, type InstallKind } from "./install-kind.ts";
 
 const PORT = process.env.PORT || "4000";
+
+export const HOSTED_IDENTITY_COPY =
+  "This office is a Hosted Isomux instance at <hostname>. It runs on a managed server, and its owner is an Isomux customer.";
+
+export function hostedIdentityNote(
+  installKind: InstallKind,
+  origin: string,
+): string {
+  if (installKind !== "hosted") return "";
+  let hostname: string;
+  try {
+    hostname = new URL(origin).hostname;
+  } catch {
+    return "";
+  }
+  return `\n\n## Hosted Isomux\n\n${HOSTED_IDENTITY_COPY.replace("<hostname>", hostname)}\n`;
+}
 
 export function buildSystemPrompt(
   agentName: string,
@@ -45,6 +63,7 @@ export function buildSystemPrompt(
   // fallback would just restate what agents already assume. buildPublicOrigin
   // is boot-stable, so the function stays deterministic per process.
   const publicOrigin = buildPublicOrigin();
+  const hostedNote = hostedIdentityNote(INSTALL_KIND, publicOrigin.origin);
   const humanUrlNote =
     publicOrigin.source === "localhost"
       ? ""
@@ -53,7 +72,7 @@ export function buildSystemPrompt(
 Isomux is a meta-harness: it runs Claude Code and Codex side by side and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
 Your goal is to help the office bosses, who talk to you in this chat.
 Messages are prefixed with the boss's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
-${humanUrlNote}
+${humanUrlNote}${hostedNote}
 How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns a JSON array with one FLAT object per agent in rooms visible to your boss; the exact fields are id, name, desk, room (a 1-based room NUMBER, not an object - the room's name is the sibling roomName field), roomName, roomId, topic, cwd, modelFamily, model, effort, username, logDir (that agent's conversation-log directory), pendingPrompt ("permission", "resume", "model", "effort", or null - the agent is parked waiting for someone to answer a prompt in its chat, not working), and inFlightTurn (null, or {startedAt, activeTool}, with epoch-ms timestamps and no tool name). The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 Add ?killed=1 for killed agents instead - they keep their logs. This list is scoped differently from the live one above: not the rooms your boss can access, but the agents your boss SPAWNED, whatever room they sat in. Fields are id, name, agentType, lastRoomId, lastRoomName, topic, killedAt (ms) and logDir.
   curl -s "localhost:${PORT}/agents?killed=1" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"
@@ -149,7 +168,7 @@ How to use memory: record durable facts about people, projects, environment, and
 APPEND a fact (the safe default - the server stamps the date, and the author unless you are writing to your own agent scope; a normalized-exact duplicate is rejected with 409, and a line that would put the scope over its size cap is rejected with 422 - trim first):
   curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"agent","text":"..."}'
   (room: add "scopeId":"<roomId>"; office: no scopeId; boss: omit scopeId for your manager/own boss context, or pass scopeId to target another boss.)
-READ a scope's full raw memory plus its version:
+READ a scope's full raw memory, optimistic-concurrency version, current injected size, and scope cap:
   curl -s 'localhost:${PORT}/api/memory?scope=agent' -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"   # also scope=room&scopeId=<roomId>, scope=office, or scope=boss[&scopeId=<userId>]
 EDIT or REMOVE a fact by rewriting the whole file: READ it, change the text, then REPLACE (PUT) it back with the version you READ - but do so CAREFULLY so you don't disturb other lines:
   curl -s -X PUT localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"agent","text":"<full new file contents>","version":"<version from READ>"}'

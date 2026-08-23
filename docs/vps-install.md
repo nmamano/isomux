@@ -43,7 +43,7 @@ When the output isn't going to a terminal - cloud-init, a piped log, an agent ru
 
 ## What it does
 
-- Installs bun, Node.js, git, Caddy, and Chrome (headless, for the agents' page-preview cards, and as the browser Playwright drives when an agent wants to look at a page it just changed); fetches isomux and builds it.
+- Installs bun, Node.js, the Claude Code CLI, git, Caddy, and Chrome (headless, for the agents' page-preview cards, and as the browser Playwright drives when an agent wants to look at a page it just changed); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Sets up the `isomux` account so apps agents build keep running without anyone logged in and start again after a reboot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy's admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.

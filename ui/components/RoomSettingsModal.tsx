@@ -253,7 +253,8 @@ export function RoomSettingsModal({
         >
           Memory{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (durable facts for this room; raw lines)
+            (durable facts for this room; raw lines; {mem.size} /{" "}
+            {mem.cap ?? "…"})
           </span>
         </label>
         <ExpandableTextarea

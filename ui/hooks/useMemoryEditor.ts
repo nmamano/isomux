@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
+import { injectedMemorySize } from "../../shared/memory-size.ts";
 
 export type MemoryScope = "office" | "room" | "agent" | "boss";
 
@@ -19,6 +20,8 @@ export interface MemoryEditor {
   setMemory: (v: string) => void;
   loaded: boolean;
   dirty: boolean;
+  size: number;
+  cap: number | null;
   // Save the current text if loaded + dirty; a no-op success otherwise. On a 409
   // the file changed under us - returns { conflict } so the caller keeps the
   // dialog open and tells the user to reopen.
@@ -34,6 +37,7 @@ export function useMemoryEditor(
   const [baseline, setBaseline] = useState("");
   const [version, setVersion] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [cap, setCap] = useState<number | null>(null);
 
   const query =
     scopeId != null
@@ -53,12 +57,17 @@ export function useMemoryEditor(
     setMemory("");
     setBaseline("");
     setVersion(null);
-    apiFetch<{ text: string; version: string }>("GET", `/api/memory${query}`)
+    setCap(null);
+    apiFetch<{ text: string; version: string; size: number; cap: number }>(
+      "GET",
+      `/api/memory${query}`,
+    )
       .then((r) => {
         if (cancelled) return;
         setMemory(r.text);
         setBaseline(r.text);
         setVersion(r.version);
+        setCap(r.cap);
         setLoaded(true);
       })
       .catch(() => {
@@ -99,5 +108,13 @@ export function useMemoryEditor(
     }
   }
 
-  return { memory, setMemory, loaded, dirty, save };
+  return {
+    memory,
+    setMemory,
+    loaded,
+    dirty,
+    size: injectedMemorySize(memory),
+    cap,
+    save,
+  };
 }

@@ -40,6 +40,39 @@ function stepIndex(name: string): number {
   return idx;
 }
 
+describe("install.sh hosted identity and Claude CLI", () => {
+  it("projects root-only enrollment into a readable marker in both directions", () => {
+    expect(SRC).not.toContain("INSTALL_KIND=");
+    expect(SRC).toContain("[[ -f /etc/isomux/renewal/enrollment.json ]]");
+    expect(SRC).toContain("install -d -m 0755 -o root -g root /etc/isomux");
+    expect(SRC).toContain('write_file "$INSTALL_KIND_FILE" 644');
+    expect(SRC).toContain('run rm -f "$INSTALL_KIND_FILE"');
+    expect(SRC).toContain("INSTALL_KIND_FILE=/etc/isomux/install-kind");
+    expect(stepIndex("sync_install_kind")).toBeLessThan(
+      stepIndex("install_service"),
+    );
+    const deps = SRC.slice(
+      SRC.indexOf("deps_only() {"),
+      SRC.indexOf("main() {"),
+    );
+    expect(deps).not.toContain("sync_install_kind");
+  });
+
+  it("installs Claude globally before service start, but not during updates", () => {
+    expect(SRC).toContain("npm install -g @anthropic-ai/claude-code");
+    expect(SRC).toContain("PATH=$service_path");
+    expect(SRC).toContain("command -v claude");
+    expect(stepIndex("install_claude_cli")).toBeLessThan(
+      stepIndex("install_service"),
+    );
+    const deps = SRC.slice(
+      SRC.indexOf("deps_only() {"),
+      SRC.indexOf("main() {"),
+    );
+    expect(deps).not.toContain("install_claude_cli");
+  });
+});
+
 // The polkit unit-name pattern as written in the heredoc. Bash expands `\$`
 // to `$` when writing the file (unquoted heredoc), so unescape exactly that
 // to get the regex polkitd will evaluate.
@@ -461,12 +494,14 @@ describe("install.sh: the managed Caddyfile", () => {
   });
 
   it("uses one explicit hosted wildcard certificate and a request-time gate", () => {
+    const caddy = SRC.indexOf("configure_caddy() {");
+    const hostedBranch = SRC.indexOf(
+      "if [[ -f /etc/isomux/renewal/enrollment.json ]]",
+      caddy,
+    );
     const hosted = SRC.slice(
-      SRC.indexOf("if [[ -f /etc/isomux/renewal/enrollment.json ]]"),
-      SRC.indexOf(
-        "\n  else",
-        SRC.indexOf("if [[ -f /etc/isomux/renewal/enrollment.json ]]"),
-      ),
+      hostedBranch,
+      SRC.indexOf("\n  else", hostedBranch),
     );
     expect(hosted).toContain(
       "tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem",

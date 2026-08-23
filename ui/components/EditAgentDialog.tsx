@@ -1491,7 +1491,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               <label style={{ ...labelStyle, marginTop: 14 }}>
                 Memory{" "}
                 <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                  (durable facts for this agent; raw lines)
+                  (durable facts for this agent; raw lines; {mem.size} /{" "}
+                  {mem.cap ?? "…"})
                 </span>
               </label>
               <ExpandableTextarea

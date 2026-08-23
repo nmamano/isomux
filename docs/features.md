@@ -9,7 +9,7 @@ Isomux is a meta-harness: it sits one level above Claude Code and Codex and mana
 ## Multi-provider
 
 - **Choose Claude or Codex** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list for an agent mixes Claude and Codex chats.
-- **Codex ships bundled** - no separate install. The first time you message a Codex agent, isomux prompts you to sign in via a one-click terminal card. (Claude CLI is still a separate user install for now.)
+- **Codex ships bundled** - no separate install. The first time you message a Codex agent, isomux prompts you to sign in via a one-click terminal card. The unattended VPS installer includes the Claude Code CLI; source checkouts still install it separately.
 
 ## Multi-agent
 

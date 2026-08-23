@@ -20,7 +20,11 @@
 // LEAF over the executor + injected MemoryDeps. No manager/auth/store imports.
 
 import { ok, created, fail, type RouteHandler } from "../executor.ts";
-import { MemoryCapError } from "../../memory-store.ts";
+import {
+  injectedSize,
+  MEMORY_CAPS,
+  MemoryCapError,
+} from "../../memory-store.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
 import type {
@@ -184,7 +188,12 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       const scopeId = ctx.query.get("scopeId") ?? undefined;
       const target = resolveTarget(ctx.identity, scope, scopeId);
       if ("error" in target) return target.error;
-      return ok(deps.read(target.scope, target.scopeId));
+      const memory = deps.read(target.scope, target.scopeId);
+      return ok({
+        ...memory,
+        size: injectedSize(memory.text),
+        cap: MEMORY_CAPS[target.scope],
+      });
     },
 
     // APPEND - one server-stamped line (the safe default). One fact per line.

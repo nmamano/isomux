@@ -350,7 +350,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             >
               Memory{" "}
               <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                (durable office-wide facts; raw lines)
+                (durable office-wide facts; raw lines; {mem.size} /{" "}
+                {mem.cap ?? "…"})
               </span>
             </label>
             <ExpandableTextarea

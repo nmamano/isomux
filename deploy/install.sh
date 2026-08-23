@@ -92,6 +92,7 @@ HARDEN_TOOL=/usr/local/sbin/isomux-harden-ssh
 OOM_TOOL=/usr/local/sbin/isomux-oom-protect
 UPDATE_CONF=/etc/isomux/update.conf
 UPDATE_STATE_DIR=/var/lib/isomux-update
+INSTALL_KIND_FILE=/etc/isomux/install-kind
 COOKIE_JAR=$STATE_DIR/session.cookies
 INVITE_FILE=$STATE_DIR/invite-url
 CHROME_PATH=/usr/bin/google-chrome
@@ -445,6 +446,47 @@ preflight() {
     log "warning: tested on Ubuntu 24.04, detected ${os_id:-unknown} ${os_ver:-unknown}; continuing"
   fi
   run install -d -m 700 "$STATE_DIR"
+}
+
+# Project the root-only hosted enrollment into one secret-free word the office
+# service can read. This full-install-only step heals both directions on every
+# installer re-run. The explicit parent mode avoids a restrictive root umask
+# making the marker unreadable; the renewal directory stays root-only.
+sync_install_kind() {
+  step sync-install-kind
+  run install -d -m 0755 -o root -g root /etc/isomux
+  if [[ -f /etc/isomux/renewal/enrollment.json ]]; then
+    write_file "$INSTALL_KIND_FILE" 644 <<'EOF'
+hosted
+EOF
+  else
+    run rm -f "$INSTALL_KIND_FILE"
+  fi
+}
+
+# Claude Code is needed for the human subscription-login flow. Install it in
+# npm's root prefix (/usr/local/bin), which is on the system service's effective
+# PATH. This network-dependent convenience must never abort the office install.
+install_claude_cli() {
+  step install-claude-cli
+  local service_path=/usr/local/bin:/usr/bin:/bin
+  if as_service_user env "PATH=$service_path" sh -c 'command -v claude' >/dev/null 2>&1; then
+    log "Claude Code CLI already installed"
+    return 0
+  fi
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would install @anthropic-ai/claude-code globally with npm"
+    return 0
+  fi
+  if ! npm install -g @anthropic-ai/claude-code; then
+    log "warning: could not install the Claude Code CLI. Re-run this installer to retry; nothing else is affected."
+    return 0
+  fi
+  if ! as_service_user env "PATH=$service_path" sh -c 'command -v claude' >/dev/null 2>&1; then
+    log "warning: npm installed the Claude Code CLI, but the isomux service account cannot find claude on its PATH. Re-run this installer to retry; nothing else is affected."
+    return 0
+  fi
+  log "Claude Code CLI installed and available to $SERVICE_USER"
 }
 
 install_packages() {
@@ -3513,12 +3555,14 @@ main() {
     return
   fi
   preflight
+  sync_install_kind
   install_packages
   configure_firewall
   harden_ssh
   enable_auto_updates
   configure_oom_protection
   create_service_user
+  install_claude_cli
   configure_user_manager
   check_root_reachability
   install_browser

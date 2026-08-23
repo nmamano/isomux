@@ -631,6 +631,8 @@ export interface MemoryReplaceReq {
 export interface MemoryReadRes {
   text: string;
   version: string;
+  size: number;
+  cap: number;
 }
 
 // APPEND response: the new line + the post-write version.
