@@ -32,9 +32,15 @@ describe("appOpenMode", () => {
 });
 
 describe("demoAppMockContent", () => {
+  it("carries each mock's value size with its content", () => {
+    expect(demoAppMockContent("cost-tracker").valueSize).toBe(24);
+    expect(demoAppMockContent("standup-board").valueSize).toBe(13);
+  });
+
   it("uses the unknown app's own name with neutral content", () => {
     expect(demoAppMockContent("third-demo-app")).toEqual({
       heading: "third-demo-app",
+      valueSize: 13,
       tiles: [
         ["Preview", "Demo app"],
         ["Workspace", "Sample content"],

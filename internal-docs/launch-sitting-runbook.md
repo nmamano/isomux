@@ -130,9 +130,11 @@ mode):
 3. Create live EUR recurring Prices (Entry, Poweruser) with
    `tax_behavior=exclusive` (EUR per plans.ts and the live site; an earlier
    draft said USD).
-4. Mint the restricted `rk_live_` key: Subscriptions read, Invoices read,
-   Checkout Sessions read and write (the documented minimum; the code
-   refuses an `sk_live_` account key at client construction).
+4. Mint the restricted `rk_live_` key: Coupons read, Customers write,
+   Subscriptions write, Invoices read, and Checkout Sessions read and write.
+   Checkout reads coupons and creates a Customer when no existing customer id
+   is present; cancel and un-cancel update the Subscription. The code refuses
+   an `sk_live_` account key at client construction.
 5. Public details: set the terms-of-service URL to exactly
    `https://isomux.com/hosted-terms` and privacy to
    `https://isomux.com/hosted-privacy` - the Dashboard values must equal

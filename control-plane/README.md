@@ -3902,14 +3902,15 @@ before any request. Events and fetched objects must also match the configured
 mode before dedupe, fetch, or database work.
 
 Issue one restricted key per deployment; never share one value between the web
-tier and the provisioner. The web call graph needs exactly three grants:
-Coupons read, Checkout Sessions write, and Subscriptions write. Stripe's write
-permission includes read, as documented on 2026-08-20, so Checkout Sessions
-read is not a fourth grant. The provisioner has a broader call graph: it also
-expires Checkout Sessions, reads subscriptions and invoices during
-reconciliation, and runs dunning and suspension. Separate values keep a public
-web deployment from inheriting that broader reach. Code cannot detect a shared
-value, so this separation is an activation rule.
+tier and the provisioner. The web call graph needs Coupons read, Customers
+write, Checkout Sessions write, and Subscriptions write. Checkout creates a
+Customer when it starts a subscription without an existing customer id;
+cancel and un-cancel update the Subscription. Stripe's write permission
+includes read, as documented on 2026-08-20. The provisioner has a broader call
+graph: it also expires Checkout Sessions, reads subscriptions and invoices
+during reconciliation, and runs dunning and suspension. Separate values keep a
+public web deployment from inheriting that broader reach. Code cannot detect a
+shared value, so this separation is an activation rule.
 
 These boundaries have two deliberate costs. No local run can reach live Stripe,
 including an operator run. The production web deployment can hold only the live

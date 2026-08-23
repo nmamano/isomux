@@ -396,12 +396,14 @@ function AppPreview({
 
 type DemoAppMockContent = {
   heading: string;
+  valueSize: number;
   tiles: [label: string, value: string][];
 };
 
 const DEMO_APP_MOCKS: Record<string, DemoAppMockContent> = {
   "cost-tracker": {
     heading: "Cost tracker",
+    valueSize: 24,
     tiles: [
       ["This month", "$428"],
       ["API usage", "$276"],
@@ -410,6 +412,7 @@ const DEMO_APP_MOCKS: Record<string, DemoAppMockContent> = {
   },
   "standup-board": {
     heading: "Standup board",
+    valueSize: 13,
     tiles: [
       ["Yesterday", "Shipped app previews"],
       ["Today", "Polish the demo"],
@@ -422,6 +425,7 @@ export function demoAppMockContent(name: string): DemoAppMockContent {
   return (
     DEMO_APP_MOCKS[name] ?? {
       heading: name,
+      valueSize: 13,
       tiles: [
         ["Preview", "Demo app"],
         ["Workspace", "Sample content"],
@@ -537,11 +541,7 @@ function DemoAppMock({
                 >
                   {label}
                 </div>
-                <div
-                  style={{ fontSize: app.name === "cost-tracker" ? 24 : 13 }}
-                >
-                  {value}
-                </div>
+                <div style={{ fontSize: content.valueSize }}>{value}</div>
               </div>
             ))}
           </div>
