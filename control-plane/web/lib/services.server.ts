@@ -318,7 +318,7 @@ async function openReservedCheckout(args: {
     return {
       ok: false,
       reason:
-        "we could not check your payment page just now - try again in a moment",
+        "We could not check your payment page just now - try again in a moment.",
     };
   }
   if (
@@ -333,7 +333,7 @@ async function openReservedCheckout(args: {
       return {
         ok: false,
         reason:
-          "we could not check your payment page just now - try again in a moment",
+          "We could not check your payment page just now - try again in a moment.",
       };
     }
     if (existing.kind === "absent" || existing.object.status === "expired") {
@@ -341,7 +341,7 @@ async function openReservedCheckout(args: {
         return {
           ok: false,
           reason:
-            "we could not check your payment page just now - try again in a moment",
+            "We could not check your payment page just now - try again in a moment.",
         };
       }
     } else if (
@@ -424,7 +424,7 @@ async function openReservedCheckout(args: {
     return {
       ok: false,
       reason:
-        "we could not save your payment page just now - try again in a moment",
+        "We could not save your payment page just now - try again in a moment.",
     };
   }
   return {
