@@ -64,6 +64,11 @@ migration while the current build is still serving:
 bun control-plane/cli.ts migrate-pending-checkouts
 ```
 
+Operator invocation for any of these: load the owner DSN in-process, never
+by shell-sourcing a secrets file -
+`bun --env-file=<operator secrets file> control-plane/cli.ts <migrate-command>`.
+The file carries `CONTROL_PLANE_DB` and bun parses it inside the process.
+
 It adds nullable reservation columns with `if not exists`, so it does not
 rewrite existing reservation rows and is safe before the code deploy. The new
 runtime refuses to start until every column is present.

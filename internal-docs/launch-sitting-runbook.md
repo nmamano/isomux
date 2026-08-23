@@ -130,11 +130,16 @@ mode):
 3. Create live EUR recurring Prices (Entry, Poweruser) with
    `tax_behavior=exclusive` (EUR per plans.ts and the live site; an earlier
    draft said USD).
-4. Mint the restricted `rk_live_` key: Coupons read, Customers write,
-   Subscriptions write, Invoices read, and Checkout Sessions read and write.
-   Checkout reads coupons and creates a Customer when no existing customer id
-   is present; cancel and un-cancel update the Subscription. The code refuses
-   an `sk_live_` account key at client construction.
+4. Mint TWO restricted `rk_live_` keys - the surfaces never share a value
+   (split done live 2026-08-23; before that one union key served both):
+   - Web tier (`isomux-web-live`): Coupons read, Customers write,
+     Checkout Sessions write, Subscriptions write. Checkout reads coupons
+     and creates a Customer when no existing customer id is present;
+     cancel and un-cancel update the Subscription.
+   - Provisioner (`isomux-provisioner-live`): the web grants plus Invoices
+     read and Checkout Sessions read - it expires sessions and reads
+     subscriptions and invoices during reconciliation and dunning.
+   The code refuses an `sk_live_` account key at client construction.
 5. Public details: set the terms-of-service URL to exactly
    `https://isomux.com/hosted-terms` and privacy to
    `https://isomux.com/hosted-privacy` - the Dashboard values must equal
@@ -143,9 +148,13 @@ mode):
 6. Enable a customer portal configuration (the intended card-change path;
    none exists today - measured 2026-08-21).
 
-Step 2, Nil -> secrets file: the `rk_live_` key and the two live price IDs
-into the staging env file, single-quoted values, mode 0600. Never printed,
-never shell-sourced; verify with boolean greps and file metadata only.
+Step 2, Nil -> secrets files: the web key and the two live price IDs into
+the web staging env file; the provisioner key (with the webhook secret and
+mode) into the provisioner staging env file. Single-quoted values, mode
+0600. Never printed, never shell-sourced; verify with boolean greps and
+file metadata only. A later VALUE change (key rotation) does not go through
+`--stage-live-env` - it refuses when the live entries already exist; update
+the value in the Vercel dashboard and run `--redeploy` (proven 2026-08-23).
 
 Step 3, PM: `bun control-plane/deploy/production-phase.ts --stage-live-env`.
 Expects exact start inventory 9 (Preview 2 + legacy Production 7), stages
