@@ -6,6 +6,7 @@
     "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "bun run build:ui && bun run server/isomux-office.ts",
     "build:ui": "bash scripts/build.sh",
+    "build:demo": "bun run scripts/build-demo.ts",
     "build:docs": "bun run scripts/build-docs.ts",
     "server": "bun run server/isomux-office.ts",
     "gen:codex-schemas": "bun run scripts/gen-codex-schemas.ts",

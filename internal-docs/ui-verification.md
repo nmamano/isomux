@@ -5,11 +5,13 @@ harness, so UI changes are verified with headless Chrome. Four proven recipes.
 
 ## Demo-bundle route
 
-Build the demo bundle with `bun build ui/demo-entry.tsx` WITHOUT `--splitting`
-(with it the app silently never mounts). `demoApi` THROWS on unmapped routes,
-so a new endpoint needs a demo arm. Drive a /tmp COPY of demo.html served over
-HTTP - `file://` blocks the ES module (CORS) - with an injected `?goto=`
-driver.
+Build both demo bundles with `bun run build:demo`. It runs separate production
+builds for `ui/demo-entry.tsx` and `ui/demo-app-entry.tsx` WITHOUT `--splitting`
+(with it the office silently never mounts), and writes
+`/demo/demo-entry.js` and `/demo/demo-app-entry.js`. `demoApi` THROWS on
+unmapped routes, so a new endpoint needs a demo arm. Drive a /tmp COPY of the
+demo output served over HTTP - `file://` blocks ES modules (CORS) - with an
+injected `?goto=` driver.
 
 Custom-harness route over CDP: import the global stylesheet (ui/styles.ts) or
 box-sizing/theme vars are silently wrong; headless Chrome ignores
@@ -35,7 +37,8 @@ depend on playwright-core; import it from another project's node_modules
 no browser download needed. Serve the demo bundle from a dir whose /demo/
 path matches demo.html's absolute /demo/demo-entry.js refs. Do not pkill by
 name pattern to stop the static server - the safety hook blocks it; keep the
-PID (`$!`) and kill that. (Verified 2026-08-10, task 0448b11e.)
+PID (`$!`) and kill that. The standalone fixture is served at
+`/demo/app?name=<fixture-name>`. (Verified 2026-08-24, task 539d1d7d.)
 
 ## Tooltips and accessibility
 

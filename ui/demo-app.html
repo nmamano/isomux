@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0d1117" />
+    <title>Demo app - Isomux</title>
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          var theme =
+            saved ||
+            (window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark");
+          var lightThemes = ["light", "solarized-light"];
+          var mode = lightThemes.indexOf(theme) >= 0 ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.setAttribute("data-theme-mode", mode);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      body {
+        margin: 0;
+        background: #0a0e16;
+      }
+      [data-theme-mode="light"] body {
+        background: #f0f2f6;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script defer src="/analytics.js"></script>
+    <script type="module" src="/demo/demo-app-entry.js"></script>
+  </body>
+</html>

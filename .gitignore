@@ -1,7 +1,9 @@
 node_modules
 ui/dist/
 site/demo/demo-entry.js
+site/demo/demo-app-entry.js
 site/demo/index.html
+site/demo/app.html
 site/demo/xterm.css
 site/docs/
 site/sitemap.xml

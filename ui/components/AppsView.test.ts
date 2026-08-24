@@ -9,46 +9,17 @@
 // Pure T0: no DOM, no server, no LLM.
 
 import { describe, it, expect } from "bun:test";
+import { DEMO_FEATURES, PRODUCTION_FEATURES } from "../../shared/features.ts";
 import {
   appCanPreview,
-  appOpenMode,
+  appLinkHref,
   appPreviewPhase,
-  demoAppMockContent,
   appHref,
   appLinkLabel,
   nextPollDelay,
   resolveCreatorAgentId,
   shouldCommit,
 } from "./AppsView.tsx";
-
-describe("appOpenMode", () => {
-  it("opens a mock instead of a synthetic address in the demo", () => {
-    expect(appOpenMode(false)).toBe("mock");
-  });
-
-  it("keeps real-office app links external", () => {
-    expect(appOpenMode(true)).toBe("external");
-  });
-});
-
-describe("demoAppMockContent", () => {
-  it("carries each mock's value size with its content", () => {
-    expect(demoAppMockContent("cost-tracker").valueSize).toBe(24);
-    expect(demoAppMockContent("standup-board").valueSize).toBe(13);
-  });
-
-  it("uses the unknown app's own name with neutral content", () => {
-    expect(demoAppMockContent("third-demo-app")).toEqual({
-      heading: "third-demo-app",
-      valueSize: 13,
-      tiles: [
-        ["Preview", "Demo app"],
-        ["Workspace", "Sample content"],
-        ["Status", "Ready"],
-      ],
-    });
-  });
-});
 
 describe("appCanPreview", () => {
   it("previews a running app at an office-issued origin", () => {
@@ -287,6 +258,29 @@ describe("appHref", () => {
     // Guards the empty-first-label fallback: without it the href would be
     // `http://:21000/`.
     expect(appHref({ port: 21000 }, ".ts.net")).toBe("http://.ts.net:21000/");
+  });
+});
+
+describe("appLinkHref", () => {
+  const app = {
+    name: "standup board",
+    url: "https://standup-board.office.example",
+    port: 21000,
+  };
+
+  it("opens a standalone fixture page for synthetic demo previews", () => {
+    expect(appLinkHref(app, "isomux.com", DEMO_FEATURES.liveAppPreviews)).toBe(
+      "/demo/app?name=standup%20board",
+    );
+  });
+
+  it("never produces a demo URL with production features", () => {
+    expect(
+      appLinkHref(app, "office.example", PRODUCTION_FEATURES.liveAppPreviews),
+    ).toBe(appHref(app, "office.example"));
+    expect(
+      appLinkHref(app, "office.example", PRODUCTION_FEATURES.liveAppPreviews),
+    ).not.toStartWith("/demo/");
   });
 });
 
