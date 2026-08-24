@@ -104,7 +104,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Escape** returns to office.
 - **Built-in slash commands**: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort`.
 - **Spawn dialog**: pick model, permission mode, thinking effort, and working directory (with recent-CWD suggestions) when creating an agent.
-- Start with a blank-canvas agent or choose 12 templates like Side Project Builder, Money Planner, and Health Navigator.
+- Start with a blank-canvas agent or choose from 12 templates like Side Project Builder, Money Planner, and Health Navigator.
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
 - **Skills browser** - the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/` and project commands.
