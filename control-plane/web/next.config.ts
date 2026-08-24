@@ -41,7 +41,7 @@ const config: NextConfig = {
   turbopack: { root: repoRoot },
   outputFileTracingRoot: repoRoot,
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [{ source: "/(.*)", headers: securityHeaders }];
   },
 };
 

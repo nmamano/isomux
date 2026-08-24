@@ -1928,7 +1928,7 @@ export class Store {
 
   async operationsFor(instanceId: string): Promise<OperationRow[]> {
     return this.sqlAll<OperationRow>(
-      "select * from operations where instance_id = $1 order by created_at",
+      "select * from operations where instance_id = $1 order by created_at, id",
       [instanceId],
     );
   }

@@ -13,7 +13,7 @@
   ],
   "headers": [
     {
-      "source": "/:path*",
+      "source": "/(.*)",
       "headers": [
         {
           "key": "Content-Security-Policy",
