@@ -23,7 +23,7 @@ export default async function Office({
   return (
     <>
       <nav className="page-back" aria-label="Office navigation">
-        <Link href="/">&larr; Your office</Link>
+        <Link href="/">&larr; Your offices</Link>
       </nav>
       <OfficeView initial={view} instanceId={view.instanceId} />
     </>

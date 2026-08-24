@@ -1050,9 +1050,9 @@ function CancelPanel({
 function RefundNotice() {
   return (
     <p className="note" data-testid="refund-notice">
-      Request a full refund by emailing llc@isomux.com within 7 days of your
-      first payment. If we refund you, we delete your server and its data rather
-      than keeping them for you to restore later.
+      You can request a full refund by emailing llc@isomux.com within 7 days of
+      your first payment. If we refund you, we don&apos;t retain the server data
+      for 14 days in case you want to restore it later.
     </p>
   );
 }

@@ -284,7 +284,7 @@ test("the top office link waits for a minted-or-adopted invite path", () => {
 
 test("refund terms stay visible before and after cancellation is scheduled", () => {
   const refund =
-    "Request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we delete your server and its data rather than keeping them for you to restore later.";
+    "You can request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we don't retain the server data for 14 days in case you want to restore it later.";
   const active = {
     ...baseView,
     subscription: {
@@ -307,8 +307,10 @@ test("refund terms stay visible before and after cancellation is scheduled", () 
       instanceId={active.instanceId}
     />,
   );
-  expect(offered).toContain(`data-testid="refund-notice">${refund}`);
-  expect(scheduled).toContain(`data-testid="refund-notice">${refund}`);
+  // renderToStaticMarkup escapes the apostrophe, so the pin must too.
+  const refundHtml = refund.replaceAll("'", "&#x27;");
+  expect(offered).toContain(`data-testid="refund-notice">${refundHtml}`);
+  expect(scheduled).toContain(`data-testid="refund-notice">${refundHtml}`);
 });
 
 test("handoff uses the customer-approved access removal label", () => {

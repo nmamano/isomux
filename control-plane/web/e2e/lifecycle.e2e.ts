@@ -234,7 +234,7 @@ async function main(): Promise<void> {
     check(
       "S1 shows the first-payment refund terms",
       (await textOf(page, "refund-notice")) ===
-        "Request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we delete your server and its data rather than keeping them for you to restore later.",
+        "You can request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we don't retain the server data for 14 days in case you want to restore it later.",
     );
     const planS1 = await textOf(page, "subscription");
     say(`S1 plan: ${planS1}`);
@@ -269,7 +269,7 @@ async function main(): Promise<void> {
     check(
       "S3 keeps the first-payment refund terms visible",
       (await textOf(page, "refund-notice")) ===
-        "Request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we delete your server and its data rather than keeping them for you to restore later.",
+        "You can request a full refund by emailing llc@isomux.com within 7 days of your first payment. If we refund you, we don't retain the server data for 14 days in case you want to restore it later.",
     );
     const planS3 = await textOf(page, "subscription");
     say(`S3 plan: ${planS3}`);

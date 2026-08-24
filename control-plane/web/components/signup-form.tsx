@@ -15,7 +15,7 @@ const CRYPTO_ERROR =
 const CLIPBOARD_ERROR =
   "Your browser could not copy the server administrator key. Reveal the key and select it from the field instead.";
 const CHECKOUT_ERROR =
-  "we could not open a payment page just now - your name is reserved, so try again in a moment";
+  "We could not open a payment page just now. Try again in a moment.";
 const SIGNUP_REFUSED_ERROR =
   "We could not continue signup. Reload the page and try again.";
 const SAVE_KEY_REASON = "Save your server administrator key before continuing.";

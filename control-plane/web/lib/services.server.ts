@@ -408,18 +408,29 @@ async function openReservedCheckout(args: {
         "Stripe returned a session with no URL",
       ),
     };
-  const recorded = await withStore(async (store) => {
-    if (
-      await recordOrdinaryCheckoutSession(store, reservation, opened.session)
-    ) {
-      return true;
-    }
-    const current = await reservationByName(store, reservation.name);
-    return (
-      current?.checkout_state === "pending" &&
-      current.checkout_session_id === opened.session.id
-    );
-  });
+  // GUARDED: this is the only database call after Stripe has already created
+  // the session, so a transient store failure here must come back as the same
+  // retryable refusal as a lost update - not escape as a 500. The retry reuses
+  // the generation-keyed idempotency key and gets the same session back.
+  // (Seen live 2026-08-24: session created, this write threw, customer saw a
+  // raw 500.)
+  let recorded: boolean;
+  try {
+    recorded = await withStore(async (store) => {
+      if (
+        await recordOrdinaryCheckoutSession(store, reservation, opened.session)
+      ) {
+        return true;
+      }
+      const current = await reservationByName(store, reservation.name);
+      return (
+        current?.checkout_state === "pending" &&
+        current.checkout_session_id === opened.session.id
+      );
+    });
+  } catch {
+    recorded = false;
+  }
   if (!recorded) {
     return {
       ok: false,

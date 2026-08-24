@@ -28,7 +28,7 @@ export default async function Signup({
   return (
     <main>
       <p className="back-link">
-        <Link href="/">&larr; Your office</Link>
+        <Link href="/">&larr; Your offices</Link>
       </p>
       <h1>Set up your office</h1>
       {error && state.kind === "continue" && (
