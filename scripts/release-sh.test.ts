@@ -38,11 +38,17 @@ function runRelease(
 ): { code: number; out: string } {
   const r = spawnSync("bash", [RELEASE_SH, ...args], {
     cwd: repo,
-    env: { ...process.env, ...env },
+    env: { ...process.env, TMPDIR: base, ...env },
     encoding: "utf8",
     timeout: 30_000,
   });
   return { code: r.status ?? -1, out: `${r.stdout}\n${r.stderr}` };
+}
+
+function releaseLogPath(out: string): string {
+  const match = out.match(/^\[isomux-release\] full output: (.+)$/m);
+  expect(match).not.toBeNull();
+  return match![1];
 }
 
 // Today's base tag from the SAME date invocation release.sh uses - JS
@@ -118,6 +124,13 @@ describe("release.sh", () => {
     const tag = todayTag();
     expect(sh(repo, `git cat-file -t refs/tags/${tag}`)).toBe("tag");
     expect(sh(base, `git -C origin.git tag -l ${tag}`)).toBe(tag);
+  });
+
+  it("preserves an early failure in the printed log file", () => {
+    const r = runRelease(["v2026.7.18", "extra"]);
+    expect(r.code).not.toBe(0);
+    const log = readFileSync(releaseLogPath(r.out), "utf8");
+    expect(log).toContain("usage: scripts/release.sh");
   });
 
   it("second release the same day gets the .2 suffix", () => {

@@ -30,7 +30,8 @@ adds two manual conditions:
    the Build workflow itself is green for the commit (not merely "some
    check"), refuses to reuse an existing tag, refuses a bun-pin change
    since the previous release (see the invariant below), tags (annotated),
-   and pushes the tag.
+   and pushes the tag. The script prints the path of a timestamped log and
+   tees its complete release and pre-push output there.
 
 **Bun invariant.** Customer updaters warn - they do not switch runtimes -
 when a release pins a different bun than the box runs, and rollback runs on

@@ -171,11 +171,14 @@ describe("routes/system.version REST", () => {
     const b = r.body as Record<string, unknown>;
     expect(Object.keys(b).sort()).toEqual(["commit", "release", "version"]);
     // The test process runs from a real checkout, so git resolves; the dev
-    // checkout has no release tag at HEAD (and if one ever exists, release
-    // equals version - assert the invariant, not the tag).
+    // checkout may have a release tag at HEAD. The human-readable version
+    // also reports tracked changes, while the pinned release does not.
     expect(typeof b.commit).toBe("string");
     expect(typeof b.version).toBe("string");
-    if (b.release !== null) expect(b.release).toBe(b.version as string);
+    const release = b.release as string | null;
+    if (release !== null) {
+      expect((b.version as string).replace(/-dirty$/, "")).toBe(release);
+    }
 
     expect((await api(srv, "/api/version", { bearer: token })).status).toBe(
       200,

@@ -34,6 +34,17 @@ die() {
   exit 1
 }
 
+LOG_FILE="${TMPDIR:-/tmp}/isomux-release-$(date +%Y%m%dT%H%M%S).log"
+if [[ -z ${_ISOMUX_RELEASE_LOGGED:-} ]]; then
+  log "full output: $LOG_FILE"
+  if _ISOMUX_RELEASE_LOGGED=1 bash "$0" "$@" 2>&1 | tee "$LOG_FILE"; then
+    exit 0
+  else
+    status=${PIPESTATUS[0]}
+    exit "$status"
+  fi
+fi
+
 SECURITY_RELEASE=""
 if [[ ${1:-} == --security ]]; then
   SECURITY_RELEASE=1

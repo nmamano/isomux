@@ -53,6 +53,17 @@ describe("resolveVersionInfo", () => {
     expect(info.commit).toBe(sh("git rev-parse HEAD"));
   });
 
+  it("tracked changes at a release tag dirty only the human-readable version", () => {
+    writeFileSync(join(repo, "f.txt"), "dirty release\n");
+    try {
+      const info = resolveVersionInfo(repo);
+      expect(info.release).toBe("v2026.7.19");
+      expect(info.version).toBe(`${info.release}-dirty`);
+    } finally {
+      sh("git checkout -q -- f.txt");
+    }
+  });
+
   it("commits after the tag: describe-suffixed version, null release", () => {
     writeFileSync(join(repo, "f.txt"), "two\n");
     sh("git add . && git commit -qm two");
