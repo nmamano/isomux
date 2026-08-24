@@ -178,9 +178,10 @@ describe("the matrix is exactly what the deployed command reaches", () => {
     }
   });
 
-  test("the prior web matrix lacks only the prepared reinstatement verbs", () => {
+  test("the prior web matrix lacks the reinstatement verbs and the reservation persist", () => {
     const prior = new Set(grantKeys(PRIOR_WEB_GRANTS));
     expect(grantKeys(WEB_GRANTS).filter((key) => !prior.has(key))).toEqual([
+      "name_reservations:update",
       "reinstatement_attempts:insert",
       "reinstatement_attempts:select",
       "reinstatement_attempts:update",

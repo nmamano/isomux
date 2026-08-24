@@ -172,8 +172,13 @@ export const WEB_GRANTS: readonly TableGrant[] = [
   },
   {
     table: "name_reservations",
-    verbs: ["select", "insert"],
-    because: "signup reserves the office name before it reaches Stripe",
+    verbs: ["select", "insert", "update"],
+    because:
+      "signup reserves the office name before it reaches Stripe, and then " +
+      "persists the Checkout session onto the reservation and advances its " +
+      "generation (recordOrdinaryCheckoutSession and its expiry siblings). " +
+      "The missing UPDATE was measured live 2026-08-24: session created at " +
+      "Stripe, persist refused with 42501, customer saw a 500",
   },
   {
     table: "instances",
