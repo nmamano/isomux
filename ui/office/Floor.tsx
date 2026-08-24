@@ -67,6 +67,18 @@ export function Floor() {
           <stop offset="1" stopColor="#fff9d8" stopOpacity="0" />
         </linearGradient>
       </defs>
+      <path
+        d="M-355 277.5 L120 515 L120 529 L-355 291.5 Z"
+        fill="var(--floor-edge-left)"
+        stroke="var(--floor-stroke)"
+        strokeWidth="0.5"
+      />
+      <path
+        d="M120 515 L595 277.5 L595 291.5 L120 529 Z"
+        fill="var(--floor-edge-right)"
+        stroke="var(--floor-stroke)"
+        strokeWidth="0.5"
+      />
       {tiles}
       <g className="sunrays" aria-hidden="true">
         <path
@@ -194,6 +206,20 @@ export function Walls({
           <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" />
         </clipPath>
       </defs>
+
+      {/* Narrow cap faces make the wall planes read as solid. */}
+      <path
+        d="M-355 37.5 L120 -200 L120 -210 L-355 27.5 Z"
+        fill="var(--wall-top-left)"
+        stroke="var(--wall-stroke)"
+        strokeWidth="0.5"
+      />
+      <path
+        d="M120 -200 L595 37.5 L595 27.5 L120 -210 Z"
+        fill="var(--wall-top-right)"
+        stroke="var(--wall-stroke)"
+        strokeWidth="0.5"
+      />
 
       {/* Left wall (2:1 iso ratio) */}
       <path
