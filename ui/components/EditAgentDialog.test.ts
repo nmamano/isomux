@@ -5,7 +5,11 @@
 // isn't covered because the UI has no React render harness (same limitation
 // noted in ContextBattery.test.ts).
 import { describe, it, expect } from "bun:test";
-import { agentFormDirty, type AgentFormSnapshot } from "./EditAgentDialog.tsx";
+import {
+  agentFormDirty,
+  codexNewEngineDefaults,
+  type AgentFormSnapshot,
+} from "./EditAgentDialog.tsx";
 
 const BASE: AgentFormSnapshot = {
   name: "Dwight",
@@ -70,5 +74,21 @@ describe("agentFormDirty", () => {
     expect(agentFormDirty({ ...BASE, name: "  Jim  " }, BASE, false)).toBe(
       true,
     );
+  });
+});
+
+describe("Codex new-engine defaults", () => {
+  it("gives spawns full access without approval prompts", () => {
+    expect(codexNewEngineDefaults(true)).toEqual({
+      permissionMode: "never",
+      codexSandbox: "danger-full-access",
+    });
+  });
+
+  it("preserves the existing edit-path engine-switch defaults", () => {
+    expect(codexNewEngineDefaults(false)).toEqual({
+      permissionMode: "on-request",
+      codexSandbox: "workspace-write",
+    });
   });
 });

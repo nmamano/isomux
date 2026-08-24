@@ -60,6 +60,15 @@ import {
 // server is tracking its full history of working directories.
 const MAX_CWD_SUGGESTIONS = 10;
 
+export function codexNewEngineDefaults(isSpawn: boolean): {
+  permissionMode: AgentInfo["permissionMode"];
+  codexSandbox: CodexSandboxMode;
+} {
+  return isSpawn
+    ? { permissionMode: "never", codexSandbox: "danger-full-access" }
+    : { permissionMode: "on-request", codexSandbox: "workspace-write" };
+}
+
 const HAIR_STYLE_LABELS: Record<AgentOutfit["hairStyle"], string> = {
   short: "Short",
   long: "Long",
@@ -235,8 +244,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [effort, setEffort] = useState<EffortLevel>(
     agent?.effort ?? DEFAULT_EFFORT,
   );
+  const codexNewEngineDefault = codexNewEngineDefaults(isSpawn);
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
-    agent?.codexSandbox ?? "workspace-write",
+    agent?.codexSandbox ?? codexNewEngineDefault.codexSandbox,
   );
   const claudeDefaultMode: AgentInfo["permissionMode"] =
     agent?.permissionMode === "auto" &&
@@ -246,7 +256,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       ? "bypassPermissions"
       : (agent?.permissionMode ?? "auto");
   const codexDefaultMode: AgentInfo["permissionMode"] =
-    (agent?.permissionMode as AgentInfo["permissionMode"]) ?? "on-request";
+    (agent?.permissionMode as AgentInfo["permissionMode"]) ??
+    codexNewEngineDefault.permissionMode;
   const initialPermissionMode: AgentInfo["permissionMode"] = isCodex
     ? codexDefaultMode
     : claudeDefaultMode;
@@ -568,11 +579,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         codexSandbox: agent?.codexSandbox ?? "workspace-write",
       };
     } else if (targetEngine === "codex") {
+      const codexDefault = codexNewEngineDefaults(isSpawn);
       seed = {
         modelFamily: CODEX_MODELS[0].value,
         effort: DEFAULT_EFFORT,
-        permissionMode: "on-request",
-        codexSandbox: "workspace-write",
+        ...codexDefault,
       };
     } else {
       const claudeDefault = MODEL_FAMILIES[0].family;
@@ -858,11 +869,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   type="button"
                   onClick={applyBlankTemplate}
                   aria-pressed={selectedTemplateKey === null}
-                  style={templateCardStyle(selectedTemplateKey === null, false)}
+                  style={{
+                    ...templateCardStyle(selectedTemplateKey === null, false),
+                    gridColumn: "1 / -1",
+                  }}
                 >
-                  <span style={templateCardTitleStyle}>Blank</span>
-                  <span style={templateCardDescriptionStyle}>
-                    Set up the agent yourself.
+                  <span style={templateCardTextStyle}>
+                    <span style={templateCardTitleStyle}>Blank</span>
+                    <span style={templateCardDescriptionStyle}>
+                      Set up the agent yourself.
+                    </span>
                   </span>
                 </button>
                 {AGENT_TEMPLATES.map((template) => {
@@ -874,13 +890,27 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       disabled={templateModelsPending}
                       onClick={() => applyTemplate(template)}
                       aria-pressed={selected}
-                      style={templateCardStyle(selected, templateModelsPending)}
+                      style={templateCardStyle(
+                        selected,
+                        templateModelsPending,
+                        template.group,
+                      )}
                     >
-                      <span style={templateCardTitleStyle}>
-                        {template.label}
+                      <span style={templateAvatarStyle} aria-hidden="true">
+                        <Character
+                          state="idle"
+                          outfit={template.outfit}
+                          portrait
+                          height={44}
+                        />
                       </span>
-                      <span style={templateCardDescriptionStyle}>
-                        {template.description}
+                      <span style={templateCardTextStyle}>
+                        <span style={templateCardTitleStyle}>
+                          {template.label}
+                        </span>
+                        <span style={templateCardDescriptionStyle}>
+                          {template.description}
+                        </span>
                       </span>
                     </button>
                   );
@@ -1805,24 +1835,52 @@ const saveBtnStyle: React.CSSProperties = dialogSaveBtn;
 function templateCardStyle(
   selected: boolean,
   disabled: boolean,
+  group?: AgentTemplate["group"],
 ): React.CSSProperties {
+  const groupColor = group ? TEMPLATE_GROUP_COLORS[group] : null;
   return {
-    minHeight: 68,
+    minHeight: group ? 78 : 46,
     padding: "8px 9px",
     borderRadius: 7,
     border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
     background: selected
       ? "var(--accent-muted, rgba(88,166,255,0.15))"
-      : "var(--bg-input)",
+      : groupColor
+        ? `color-mix(in srgb, ${groupColor} 8%, var(--bg-input))`
+        : "var(--bg-input)",
     color: "var(--text-primary)",
     textAlign: "left",
     cursor: disabled ? "not-allowed" : "pointer",
     opacity: disabled ? 0.5 : 1,
     display: "flex",
-    flexDirection: "column",
-    gap: 3,
+    alignItems: "center",
+    gap: 7,
+    boxShadow: groupColor ? `inset 3px 0 0 ${groupColor}` : undefined,
   };
 }
+
+const TEMPLATE_GROUP_COLORS: Record<AgentTemplate["group"], string> = {
+  build: "#4A90D9",
+  work: "var(--success, #50b86c)",
+  life: "var(--coral, #e85d75)",
+  places: "var(--warning, #d4a843)",
+};
+
+const templateAvatarStyle: React.CSSProperties = {
+  width: 34,
+  height: 46,
+  flex: "0 0 34px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+};
+
+const templateCardTextStyle: React.CSSProperties = {
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+};
 
 const templateCardTitleStyle: React.CSSProperties = {
   fontSize: 11,

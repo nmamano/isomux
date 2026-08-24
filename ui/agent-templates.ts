@@ -25,6 +25,7 @@ const SHARED_SOFTWARE_WORKFLOW = `${FIRST_TURN_CLAUSE}\n\n${SCOPE_AGREEMENT_CLAU
 
 export interface AgentTemplate {
   key: string;
+  group: AgentTemplateGroup;
   label: string;
   description: string;
   customInstructions: string;
@@ -40,6 +41,8 @@ export interface AgentTemplate {
     };
   };
 }
+
+export type AgentTemplateGroup = "build" | "work" | "life" | "places";
 
 const CODEX_FRONTIER = ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.5"];
 const CODEX_BALANCED = ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.4"];
@@ -78,9 +81,10 @@ function recommendation(
   };
 }
 
-export const AGENT_TEMPLATES: AgentTemplate[] = [
+const TEMPLATE_CATALOG: AgentTemplate[] = [
   {
     key: "money-planner",
+    group: "work",
     label: "Money Planner",
     description: "Plan spending, saving, goals, and financial decisions.",
     customInstructions: prompt(
@@ -96,6 +100,7 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
   },
   {
     key: "side-project-builder",
+    group: "build",
     label: "Side Project Builder",
     description: "Turn a rough idea into a small product that ships.",
     customInstructions: prompt(
@@ -112,13 +117,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     ),
     recommendations: recommendation(
       ["opus", "fable"],
-      "max",
+      "high",
       CODEX_FRONTIER,
-      "max",
+      "high",
     ),
   },
   {
     key: "health-navigator",
+    group: "life",
     label: "Health Navigator",
     description: "Organize health information and prepare for care.",
     customInstructions: prompt(
@@ -127,13 +133,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     outfit: outfit("#50B86C", "#8a5a3a", "bun", "#FDEBD0", "none", "glasses"),
     recommendations: recommendation(
       ["opus", "sonnet"],
-      "high",
+      "medium",
       CODEX_BALANCED,
-      "high",
+      "medium",
     ),
   },
   {
     key: "life-coach",
+    group: "life",
     label: "Life Coach",
     description: "Clarify goals, choose next steps, and review progress.",
     customInstructions: prompt(
@@ -150,13 +157,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     ),
     recommendations: recommendation(
       ["sonnet", "opus"],
-      "high",
+      "medium",
       CODEX_BALANCED,
-      "high",
+      "medium",
     ),
   },
   {
     key: "research-analyst",
+    group: "work",
     label: "Research Analyst",
     description: "Investigate questions and produce decision-ready briefs.",
     customInstructions: prompt(
@@ -165,13 +173,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     outfit: outfit("#45B7D1", "#1a1a2e", "curly", "#5C3A28", "none", "glasses"),
     recommendations: recommendation(
       ["opus", "fable"],
-      "max",
+      "high",
       CODEX_FRONTIER,
-      "max",
+      "high",
     ),
   },
   {
     key: "personal-site-builder",
+    group: "build",
     label: "Personal Site Builder",
     description: "Design, build, and publish a personal website.",
     customInstructions: prompt(
@@ -187,13 +196,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     ),
     recommendations: recommendation(
       ["opus", "fable"],
-      "max",
+      "high",
       CODEX_FRONTIER,
-      "max",
+      "high",
     ),
   },
   {
     key: "city-guide",
+    group: "places",
     label: "City Guide",
     description: "Discover places and plan around how you explore.",
     customInstructions: prompt(
@@ -210,13 +220,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     ),
     recommendations: recommendation(
       ["sonnet", "opus"],
-      "high",
+      "medium",
       CODEX_BALANCED,
-      "high",
+      "medium",
     ),
   },
   {
     key: "todo-list-assistant",
+    group: "life",
     label: "Todo List Assistant",
     description: "Turn commitments into a personal system that stays useful.",
     customInstructions: prompt(
@@ -233,13 +244,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     ),
     recommendations: recommendation(
       ["sonnet", "opus"],
-      "high",
+      "medium",
       CODEX_BALANCED,
-      "high",
+      "medium",
     ),
   },
   {
     key: "code-reviewer",
+    group: "build",
     label: "Code Reviewer",
     description: "Find consequential defects and explain precise fixes.",
     customInstructions: prompt(
@@ -248,13 +260,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     outfit: outfit("#4A90D9", "#222", "bald", "#C68642", "goatee", "glasses"),
     recommendations: recommendation(
       ["opus", "fable"],
-      "max",
+      "high",
       CODEX_FRONTIER,
-      "max",
+      "high",
     ),
   },
   {
     key: "relationship-advisor",
+    group: "life",
     label: "Relationship Advisor",
     description: "Think through communication, needs, and next steps.",
     customInstructions: prompt(
@@ -263,13 +276,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     outfit: outfit("#E85D75", "#3a2a1a", "curly", "#FDEBD0", "none", "bow_tie"),
     recommendations: recommendation(
       ["opus", "sonnet"],
-      "high",
+      "medium",
       CODEX_BALANCED,
-      "high",
+      "medium",
     ),
   },
   {
     key: "job-search-coach",
+    group: "work",
     label: "Job Search Coach",
     description: "Focus a search and improve applications and interviews.",
     customInstructions: prompt(
@@ -278,13 +292,14 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     outfit: outfit("#9B6DFF", "#8a5a3a", "short", "#5C3A28", "mustache", "tie"),
     recommendations: recommendation(
       ["opus", "sonnet"],
-      "high",
+      "medium",
       CODEX_BALANCED,
-      "high",
+      "medium",
     ),
   },
   {
     key: "trip-planner",
+    group: "places",
     label: "Trip Planner",
     description: "Build practical trips around your interests and limits.",
     customInstructions: prompt(
@@ -301,12 +316,31 @@ export const AGENT_TEMPLATES: AgentTemplate[] = [
     ),
     recommendations: recommendation(
       ["sonnet", "opus"],
-      "high",
+      "medium",
       CODEX_BALANCED,
-      "high",
+      "medium",
     ),
   },
 ];
+
+const TEMPLATE_ORDER = [
+  "side-project-builder",
+  "personal-site-builder",
+  "code-reviewer",
+  "money-planner",
+  "job-search-coach",
+  "research-analyst",
+  "health-navigator",
+  "life-coach",
+  "relationship-advisor",
+  "todo-list-assistant",
+  "city-guide",
+  "trip-planner",
+] as const;
+
+export const AGENT_TEMPLATES: AgentTemplate[] = TEMPLATE_ORDER.map(
+  (key) => TEMPLATE_CATALOG.find((template) => template.key === key)!,
+);
 
 export interface TemplateModelResolution {
   modelFamily: string;

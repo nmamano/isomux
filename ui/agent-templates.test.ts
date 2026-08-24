@@ -28,22 +28,41 @@ import {
   resolveTemplateModel,
   resolveTemplatePermission,
   templateFormValues,
+  type AgentTemplateGroup,
 } from "./agent-templates.ts";
 
 const EXPECTED_LABELS = [
-  "Money Planner",
   "Side Project Builder",
+  "Personal Site Builder",
+  "Code Reviewer",
+  "Money Planner",
+  "Job Search Coach",
+  "Research Analyst",
   "Health Navigator",
   "Life Coach",
-  "Research Analyst",
-  "Personal Site Builder",
-  "City Guide",
-  "Todo List Assistant",
-  "Code Reviewer",
   "Relationship Advisor",
-  "Job Search Coach",
+  "Todo List Assistant",
+  "City Guide",
   "Trip Planner",
 ];
+
+const EXPECTED_TEMPLATE_SETTINGS: Record<
+  string,
+  [AgentTemplateGroup, EffortLevel, EffortLevel]
+> = {
+  "Side Project Builder": ["build", "high", "high"],
+  "Personal Site Builder": ["build", "high", "high"],
+  "Code Reviewer": ["build", "high", "high"],
+  "Money Planner": ["work", "high", "high"],
+  "Job Search Coach": ["work", "medium", "medium"],
+  "Research Analyst": ["work", "high", "high"],
+  "Health Navigator": ["life", "medium", "medium"],
+  "Life Coach": ["life", "medium", "medium"],
+  "Relationship Advisor": ["life", "medium", "medium"],
+  "Todo List Assistant": ["life", "medium", "medium"],
+  "City Guide": ["places", "medium", "medium"],
+  "Trip Planner": ["places", "medium", "medium"],
+};
 
 function model(
   id: string,
@@ -66,6 +85,21 @@ describe("agent template catalog", () => {
     expect(new Set(AGENT_TEMPLATES.map((template) => template.key)).size).toBe(
       12,
     );
+  });
+
+  it("pins every template's group and both engine effort recommendations", () => {
+    expect(
+      Object.fromEntries(
+        AGENT_TEMPLATES.map((template) => [
+          template.label,
+          [
+            template.group,
+            template.recommendations.claude.desiredEffort,
+            template.recommendations.codex.desiredEffort,
+          ],
+        ]),
+      ),
+    ).toEqual(EXPECTED_TEMPLATE_SETTINGS);
   });
 
   it("composes every prompt from the shared software workflow clauses", () => {
@@ -131,7 +165,7 @@ describe("resolveTemplateModel", () => {
       ],
       false,
     );
-    expect(result).toEqual({ modelFamily: "gpt-5.6-terra", effort: "max" });
+    expect(result).toEqual({ modelFamily: "gpt-5.6-terra", effort: "high" });
   });
 
   it("keeps the current live default when no preference is offered", () => {
@@ -155,7 +189,7 @@ describe("resolveTemplateModel", () => {
       { modelFamily: "missing", effort: "max" },
       [
         model("first", ["low"]),
-        model("reported", ["medium", "high"], {
+        model("reported", ["low", "medium"], {
           isDefault: true,
           defaultEffort: "medium",
         }),

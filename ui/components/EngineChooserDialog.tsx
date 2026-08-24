@@ -32,7 +32,7 @@ type Props = {
   onCancel: () => void;
 };
 
-const ENGINE_OPTIONS: Array<{
+export const ENGINE_OPTIONS: Array<{
   agentType: AgentBackendType;
   label: string;
   blurb: string;
@@ -41,14 +41,13 @@ const ENGINE_OPTIONS: Array<{
   {
     agentType: "claude",
     label: "Claude",
-    blurb: "Anthropic. Uses your Claude Code login.",
+    blurb: "Works with your Claude Code login.",
     accent: "rgba(100,160,255,0.85)",
   },
   {
     agentType: "codex",
     label: "Codex",
-    blurb:
-      "OpenAI - GPT-5 family. Uses your ChatGPT subscription or OPENAI_API_KEY.",
+    blurb: "Works with your ChatGPT login.",
     accent: "rgba(120,220,160,0.85)",
   },
 ];

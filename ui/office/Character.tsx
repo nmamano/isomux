@@ -342,9 +342,13 @@ function Accessory({
 export function Character({
   state,
   outfit,
+  portrait = false,
+  height = 68,
 }: {
   state: AgentState;
   outfit: AgentOutfit;
+  portrait?: boolean;
+  height?: number;
 }) {
   const skin = outfit.skin ?? "#FFD5B8";
   const bc = outfit.color;
@@ -355,8 +359,8 @@ export function Character({
 
   const wrap = (children: React.ReactNode, anim?: React.CSSProperties) => (
     <svg
-      width="52"
-      height="68"
+      width={Math.round((52 / 68) * height)}
+      height={height}
       viewBox="0 0 52 68"
       overflow="visible"
       style={{ filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.35))", ...anim }}
@@ -365,17 +369,16 @@ export function Character({
     </svg>
   );
 
-  if (vs === "idle") {
+  if (vs === "idle" || portrait) {
     const hCx = 26,
       hCy = 37;
-    return wrap(
+    const figure = (
       <>
         <ellipse cx={hCx} cy={50} rx={11} ry={10} fill={bc} />
         <ellipse cx={hCx} cy={hCy} rx={10} ry={9} fill={skin} />
         <Hair style={hairStyle} color={hair} headCx={hCx} headCy={hCy} />
         <Hat type={outfit.hat} color={bc} headCx={hCx} headCy={hCy} />
         <Accessory type={outfit.accessory} headCx={hCx} headCy={hCy} />
-        {/* Closed eyes */}
         <line
           x1={hCx - 6}
           y1={hCy + 1}
@@ -395,6 +398,12 @@ export function Character({
           strokeLinecap="round"
         />
         <Beard type={beard} color={hair} headCx={hCx} headCy={hCy} />
+      </>
+    );
+    if (portrait) return wrap(figure);
+    return wrap(
+      <>
+        {figure}
         <g>
           <text
             x="36"
