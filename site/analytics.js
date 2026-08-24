@@ -15,6 +15,7 @@
     return;
   }
 
+  // Keep this ID and config aligned with control-plane/web/app/layout.tsx.
   var MEASUREMENT_ID = "G-6QKGF1LV4X";
 
   window.dataLayer = window.dataLayer || [];
