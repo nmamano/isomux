@@ -68,13 +68,13 @@ export function Floor() {
         </linearGradient>
       </defs>
       <path
-        d="M-355 277.5 L120 515 L120 529 L-355 291.5 Z"
+        d="M-364 273 L120 515 L120 529 L-364 287 Z"
         fill="var(--floor-edge-left)"
         stroke="var(--floor-stroke)"
         strokeWidth="0.5"
       />
       <path
-        d="M120 515 L595 277.5 L595 291.5 L120 529 Z"
+        d="M120 515 L604 273 L604 287 L120 529 Z"
         fill="var(--floor-edge-right)"
         stroke="var(--floor-stroke)"
         strokeWidth="0.5"
