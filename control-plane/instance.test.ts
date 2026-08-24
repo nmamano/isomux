@@ -20,10 +20,10 @@ import type { RunRecord } from "./run-record.ts";
 
 const temps: string[] = [];
 
-async function tempStore(): Promise<Store> {
+async function tempStore(now?: () => number): Promise<Store> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cp-instance-"));
   temps.push(dir);
-  return await openTestStore();
+  return await openTestStore(now);
 }
 
 afterEach(async () => {
@@ -85,9 +85,12 @@ describe("the ceiling", () => {
   });
 
   test("an existing prelaunch row over seven days fails closed", async () => {
-    const store = await tempStore();
-    const rec = record();
+    // The store clock stamps created_at; pin it so access_window_expires_at -
+    // created_at is a fixed 30 days, not a delta that shrinks against the real
+    // wall clock (which made this test flip to failing on 2026-08-24).
     const now = Date.parse("2026-08-01T00:00:00Z");
+    const store = await tempStore(() => now);
+    const rec = record();
     const legacy = new Date(now + 30 * 24 * 60 * 60 * 1000);
     await store.createInstance({
       id: "inst-run-1",
