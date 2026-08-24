@@ -20,10 +20,9 @@ import {
 } from "./components/EditAgentDialog.tsx";
 import {
   AGENT_TEMPLATES,
-  APPS_REGISTRATION_CLAUSE,
   FIRST_TURN_CLAUSE,
-  PERSONAL_SOFTWARE_CLAUSE,
-  SCOPE_AGREEMENT_CLAUSE,
+  PLAIN_LANGUAGE_CLAUSE,
+  SOFTWARE_TOOL_CLAUSE,
   blankRestoreValues,
   resolveTemplateModel,
   resolveTemplatePermission,
@@ -107,9 +106,8 @@ describe("agent template catalog", () => {
     for (const template of AGENT_TEMPLATES) {
       expect(template.description.length).toBeGreaterThan(0);
       expect(template.customInstructions).toContain(FIRST_TURN_CLAUSE);
-      expect(template.customInstructions).toContain(SCOPE_AGREEMENT_CLAUSE);
-      expect(template.customInstructions).toContain(PERSONAL_SOFTWARE_CLAUSE);
-      expect(template.customInstructions).toContain(APPS_REGISTRATION_CLAUSE);
+      expect(template.customInstructions).toContain(SOFTWARE_TOOL_CLAUSE);
+      expect(template.customInstructions).toContain(PLAIN_LANGUAGE_CLAUSE);
     }
   });
 
