@@ -20,7 +20,7 @@ test("account controls sit above the dashboard title", () => {
 });
 
 test("signup links back to the signed-in office page", () => {
-  expect(signup).toContain('<Link href="/">&larr; Your office</Link>');
+  expect(signup).toContain('<Link href="/">&larr; Your offices</Link>');
   expect(signup.indexOf('className="back-link"')).toBeLessThan(
     signup.indexOf("<h1>Set up your office</h1>"),
   );
