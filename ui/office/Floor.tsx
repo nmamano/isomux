@@ -207,15 +207,27 @@ export function Walls({
         </clipPath>
       </defs>
 
-      {/* Narrow cap faces make the wall planes read as solid. */}
+      {/* Cut ends and narrow cap faces make the wall planes read as solid. */}
       <path
-        d="M-355 37.5 L120 -200 L120 -210 L-355 27.5 Z"
+        d="M-355 37.5 L-355 277.5 L-364 273 L-364 33 Z"
+        fill="var(--wall-end-left)"
+        stroke="var(--wall-stroke)"
+        strokeWidth="0.5"
+      />
+      <path
+        d="M595 37.5 L595 277.5 L604 273 L604 33 Z"
+        fill="var(--wall-end-right)"
+        stroke="var(--wall-stroke)"
+        strokeWidth="0.5"
+      />
+      <path
+        d="M-355 37.5 L120 -200 L120 -209 L-364 33 Z"
         fill="var(--wall-top-left)"
         stroke="var(--wall-stroke)"
         strokeWidth="0.5"
       />
       <path
-        d="M120 -200 L595 37.5 L595 27.5 L120 -210 Z"
+        d="M120 -200 L595 37.5 L604 33 L120 -209 Z"
         fill="var(--wall-top-right)"
         stroke="var(--wall-stroke)"
         strokeWidth="0.5"
