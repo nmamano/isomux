@@ -4,6 +4,7 @@ import type {
   CronCreateReq,
   CronUpdateReq,
   CronPromptReq,
+  BackupStatusWire,
   OfficeSettingsReq,
   TaskCreateReq,
   RoomCreateReq,
@@ -16,6 +17,11 @@ import type {
   EditAgentReq,
   SendMessageReq,
   PreferencesReq,
+  StoragePruneReq,
+  StoragePruneRes,
+  StorageUsageWire,
+  UsageBucketWire,
+  UsageReportWire,
 } from "../shared/contract-shapes.ts";
 import type {
   AgentInfo,
@@ -25,6 +31,7 @@ import type {
   LogEntry,
   ModelFamily,
   Cronjob,
+  CronjobRun,
   PresenceInfo,
   Schedule,
   SessionContext,
@@ -35,9 +42,11 @@ import type {
 import {
   DEFAULT_AGENT_CAPABILITIES,
   DEFAULT_EFFORT,
+  cronjobRunStreamId,
   generateCronjobId,
   generateUserId,
 } from "../shared/types.ts";
+import { IN_ROOT_ORDER, OUT_OF_ROOT_ORDER } from "../shared/storage-labels.ts";
 import {
   defaultGhostColorForUserId,
   isGhostVariant,
@@ -49,6 +58,9 @@ import { ApiError, type ApiMethod } from "./api.ts";
 
 const state = new OfficeState();
 let embedMode = false;
+let demoSeededAt = 0;
+
+export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
 
 export function setEmbedMode() {
   embedMode = true;
@@ -273,7 +285,11 @@ function seedOffice() {
     ? OFFICE_CHARACTERS.filter((c) => c.room === 0)
     : OFFICE_CHARACTERS;
   const maxRoom = Math.max(...chars.map((c) => c.room));
-  for (let i = 1; i <= maxRoom; i++) state.createRoom();
+  if (maxRoom >= DEMO_ROOM_NAMES.length) {
+    throw new Error("Every demo room needs an explicit name");
+  }
+  state.renameRoom(state.rooms[0].id, DEMO_ROOM_NAMES[0]);
+  for (let i = 1; i <= maxRoom; i++) state.createRoom(DEMO_ROOM_NAMES[i]);
 
   for (const char of chars) {
     const id = `demo-${char.name.toLowerCase().replace(/\s+/g, "-")}`;
@@ -372,6 +388,7 @@ let seeded = false;
 function ensureSeeded() {
   if (seeded) return;
   seeded = true;
+  demoSeededAt = Date.now();
   seedOffice();
   seedCronjobs();
   seedUsers();
@@ -719,9 +736,36 @@ const DEMO_CRONJOBS_SEED: {
     modelFamily: "haiku",
     createdBy: "Angela",
     ageDays: 7,
-    lastFireDaysAgo: null,
+    lastFireDaysAgo: 1,
   },
 ];
+
+let demoCronRun: CronjobRun | null = null;
+let demoCronEntries: LogEntry[] = [];
+const demoCronUsageById = new Map<string, UsageBucketWire>();
+const DEMO_CRON_USAGE_BY_NAME: Record<string, UsageBucketWire> = {
+  "Morning office digest": {
+    totalIn: 128_000,
+    cacheRead: 91_000,
+    cacheCreation: 15_000,
+    totalOut: 18_000,
+    costUSD: 6.42,
+  },
+  "Weekly beet inventory": {
+    totalIn: 203_000,
+    cacheRead: 151_000,
+    cacheCreation: 21_000,
+    totalOut: 27_000,
+    costUSD: 11.83,
+  },
+  "Cat archive backup check": {
+    totalIn: 74_000,
+    cacheRead: 56_000,
+    cacheCreation: 8_000,
+    totalOut: 9_000,
+    costUSD: 3.17,
+  },
+};
 
 function seedCronjobs() {
   const now = Date.now();
@@ -757,6 +801,57 @@ function seedCronjobs() {
       ),
     });
   }
+
+  for (const job of cronjobs) {
+    const usage = DEMO_CRON_USAGE_BY_NAME[job.name];
+    if (usage) demoCronUsageById.set(job.id, usage);
+  }
+
+  const job = cronjobs.find(
+    (candidate) => candidate.name === "Cat archive backup check",
+  );
+  if (!job || job.lastFireAt === null) {
+    throw new Error("The demo cron run needs its seeded cron job");
+  }
+  const runId = "c47a11aa";
+  demoCronRun = {
+    id: runId,
+    cronjobId: job.id,
+    cronjobName: job.name,
+    trigger: "scheduled",
+    status: "completed",
+    startedAt: job.lastFireAt,
+    endedAt: job.lastFireAt + 38_000,
+    errorReason: null,
+    promptSnapshot: job.prompt,
+    agentTypeSnapshot: job.agentType,
+    modelFamilySnapshot: job.modelFamily,
+    effortSnapshot: job.effort,
+    cwdSnapshot: job.cwd,
+    permissionModeSnapshot: job.permissionMode,
+    codexSandboxSnapshot: job.codexSandbox,
+    rootSessionId: "demo-cron-session",
+    currentSessionId: "demo-cron-session",
+    previewText: "All 248 cat photos match the offsite mirror.",
+  };
+  const streamId = cronjobRunStreamId(runId);
+  demoCronEntries = [
+    {
+      id: "demo-cron-entry-1",
+      agentId: streamId,
+      timestamp: job.lastFireAt + 4_000,
+      kind: "text",
+      content: "Checking 248 cat photo checksums against the offsite mirror.",
+    },
+    {
+      id: "demo-cron-entry-2",
+      agentId: streamId,
+      timestamp: job.lastFireAt + 35_000,
+      kind: "text",
+      content:
+        "All 248 cat photos match. No drift detected and no task opened.",
+    },
+  ];
 }
 
 // Users: maintained as a plain in-memory map (not via OfficeState), same as
@@ -955,6 +1050,333 @@ function makeLogEntry(
   };
 }
 
+const DEMO_AGENT_USAGE: Record<
+  string,
+  { session: UsageBucketWire; lifetime: UsageBucketWire }
+> = {
+  "demo-michael": {
+    session: {
+      totalIn: 42_000,
+      cacheRead: 31_000,
+      cacheCreation: 5_000,
+      totalOut: 6_800,
+      costUSD: 1.86,
+    },
+    lifetime: {
+      totalIn: 621_000,
+      cacheRead: 474_000,
+      cacheCreation: 61_000,
+      totalOut: 83_000,
+      costUSD: 27.42,
+    },
+  },
+  "demo-dwight": {
+    session: {
+      totalIn: 67_000,
+      cacheRead: 49_000,
+      cacheCreation: 8_000,
+      totalOut: 9_400,
+      costUSD: 3.91,
+    },
+    lifetime: {
+      totalIn: 884_000,
+      cacheRead: 681_000,
+      cacheCreation: 92_000,
+      totalOut: 118_000,
+      costUSD: 52.18,
+    },
+  },
+  "demo-jim": {
+    session: {
+      totalIn: 18_000,
+      cacheRead: 14_000,
+      cacheCreation: 2_000,
+      totalOut: 2_900,
+      costUSD: 0.72,
+    },
+    lifetime: {
+      totalIn: 312_000,
+      cacheRead: 249_000,
+      cacheCreation: 31_000,
+      totalOut: 44_000,
+      costUSD: 12.64,
+    },
+  },
+  "demo-pam": {
+    session: {
+      totalIn: 25_000,
+      cacheRead: 19_000,
+      cacheCreation: 3_000,
+      totalOut: 4_100,
+      costUSD: 1.04,
+    },
+    lifetime: {
+      totalIn: 401_000,
+      cacheRead: 314_000,
+      cacheCreation: 42_000,
+      totalOut: 57_000,
+      costUSD: 17.83,
+    },
+  },
+  "demo-stanley": {
+    session: {
+      totalIn: 9_000,
+      cacheRead: 7_000,
+      cacheCreation: 1_000,
+      totalOut: 1_300,
+      costUSD: 0.39,
+    },
+    lifetime: {
+      totalIn: 156_000,
+      cacheRead: 124_000,
+      cacheCreation: 16_000,
+      totalOut: 21_000,
+      costUSD: 6.31,
+    },
+  },
+  "demo-kevin": {
+    session: {
+      totalIn: 31_000,
+      cacheRead: 22_000,
+      cacheCreation: 4_000,
+      totalOut: 5_600,
+      costUSD: 1.29,
+    },
+    lifetime: {
+      totalIn: 278_000,
+      cacheRead: 207_000,
+      cacheCreation: 34_000,
+      totalOut: 49_000,
+      costUSD: 10.94,
+    },
+  },
+  "demo-angela": {
+    session: {
+      totalIn: 54_000,
+      cacheRead: 40_000,
+      cacheCreation: 6_000,
+      totalOut: 7_700,
+      costUSD: 3.14,
+    },
+    lifetime: {
+      totalIn: 735_000,
+      cacheRead: 558_000,
+      cacheCreation: 79_000,
+      totalOut: 96_000,
+      costUSD: 43.76,
+    },
+  },
+  "demo-kelly": {
+    session: {
+      totalIn: 14_000,
+      cacheRead: 10_000,
+      cacheCreation: 2_000,
+      totalOut: 3_800,
+      costUSD: 0.81,
+    },
+    lifetime: {
+      totalIn: 225_000,
+      cacheRead: 171_000,
+      cacheCreation: 24_000,
+      totalOut: 39_000,
+      costUSD: 8.72,
+    },
+  },
+};
+
+const EMPTY_USAGE: UsageBucketWire = {
+  totalIn: 0,
+  cacheRead: 0,
+  cacheCreation: 0,
+  totalOut: 0,
+  costUSD: 0,
+};
+
+function addUsage(a: UsageBucketWire, b: UsageBucketWire): UsageBucketWire {
+  return {
+    totalIn: a.totalIn + b.totalIn,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheCreation: a.cacheCreation + b.cacheCreation,
+    totalOut: a.totalOut + b.totalOut,
+    costUSD: Number((a.costUSD + b.costUSD).toFixed(2)),
+  };
+}
+
+function demoUsageReport(): UsageReportWire {
+  const snapshot = state.getState();
+  const agents = snapshot.agents
+    .map((agent) => {
+      const room = snapshot.rooms.find(
+        (candidate) => candidate.id === agent.roomId,
+      )!;
+      const usage = DEMO_AGENT_USAGE[agent.id] ?? {
+        session: EMPTY_USAGE,
+        lifetime: EMPTY_USAGE,
+      };
+      return {
+        id: agent.id,
+        name: agent.name,
+        roomId: room.id,
+        roomName: room.name,
+        ...usage,
+      };
+    })
+    .sort((a, b) => b.lifetime.costUSD - a.lifetime.costUSD);
+  const rooms = snapshot.rooms
+    .map((room) => {
+      const members = agents.filter((agent) => agent.roomId === room.id);
+      return {
+        id: room.id,
+        name: room.name,
+        deleted: false,
+        session: members.reduce(
+          (sum, agent) => addUsage(sum, agent.session),
+          EMPTY_USAGE,
+        ),
+        lifetime: members.reduce(
+          (sum, agent) => addUsage(sum, agent.lifetime),
+          EMPTY_USAGE,
+        ),
+      };
+    })
+    .sort((a, b) => b.lifetime.costUSD - a.lifetime.costUSD);
+  const cronUsage = cronjobs
+    .map((job) => ({
+      id: job.id,
+      name: job.name,
+      deleted: false,
+      lifetime: demoCronUsageById.get(job.id) ?? EMPTY_USAGE,
+    }))
+    .sort((a, b) => b.lifetime.costUSD - a.lifetime.costUSD);
+  const agentSession = agents.reduce(
+    (sum, agent) => addUsage(sum, agent.session),
+    EMPTY_USAGE,
+  );
+  const agentLifetime = agents.reduce(
+    (sum, agent) => addUsage(sum, agent.lifetime),
+    EMPTY_USAGE,
+  );
+  const cronLifetime = cronUsage.reduce(
+    (sum, job) => addUsage(sum, job.lifetime),
+    EMPTY_USAGE,
+  );
+  return {
+    scoped: false,
+    agents,
+    rooms,
+    cronjobs: cronUsage,
+    total: {
+      session: agentSession,
+      lifetime: addUsage(agentLifetime, cronLifetime),
+    },
+  };
+}
+
+const DEMO_STORAGE_CATEGORIES: StorageUsageWire["categories"] = [
+  {
+    id: "transcripts",
+    path: "~/.isomux/logs",
+    available: true,
+    bytes: 188_743_680,
+    files: 412,
+  },
+  {
+    id: "attachments",
+    path: "~/.isomux/logs/*/files",
+    available: true,
+    bytes: 92_274_688,
+    files: 86,
+  },
+  {
+    id: "session-metadata",
+    path: "~/.isomux/logs/*/sessions.json",
+    available: true,
+    bytes: 1_572_864,
+    files: 8,
+  },
+  {
+    id: "codex-home",
+    path: "~/.isomux/codex-home",
+    available: true,
+    bytes: 54_525_952,
+    files: 137,
+  },
+  {
+    id: "cronjobs",
+    path: "~/.isomux/cronjobs",
+    available: true,
+    bytes: 8_388_608,
+    files: 31,
+  },
+  {
+    id: "memory",
+    path: "~/.isomux/memory",
+    available: true,
+    bytes: 196_608,
+    files: 12,
+  },
+  {
+    id: "other-state",
+    path: "~/.isomux",
+    available: true,
+    bytes: 3_670_016,
+    files: 24,
+  },
+  {
+    id: "backups",
+    path: "~/.isomux-backups",
+    available: true,
+    bytes: 629_145_600,
+    files: 7,
+  },
+  {
+    id: "update-snapshots",
+    path: "~/.isomux-updates",
+    available: true,
+    bytes: 314_572_800,
+    files: 3,
+  },
+];
+
+const DEMO_STATE_ROOT_BYTES = DEMO_STORAGE_CATEGORIES.filter((category) =>
+  IN_ROOT_ORDER.includes(category.id),
+).reduce((sum, category) => sum + category.bytes, 0);
+
+const DEMO_STORAGE_CATEGORY_IDS = [...IN_ROOT_ORDER, ...OUT_OF_ROOT_ORDER];
+if (
+  DEMO_STORAGE_CATEGORY_IDS.some(
+    (id) => !DEMO_STORAGE_CATEGORIES.some((category) => category.id === id),
+  )
+) {
+  throw new Error("Every storage category needs a demo fixture");
+}
+
+function demoStorageUsage(): StorageUsageWire {
+  return {
+    stateRoot: "~/.isomux",
+    measuredAt: Date.now(),
+    stateRootBytes: DEMO_STATE_ROOT_BYTES,
+    categories: DEMO_STORAGE_CATEGORIES,
+    agents: state.getState().agents.map((agent, index) => ({
+      agentId: agent.id,
+      transcriptBytes: 12_000_000 + index * 2_750_000,
+      attachmentBytes: index % 3 === 0 ? 18_000_000 + index * 900_000 : 0,
+      sessions: 18 + index * 7,
+      lastActivityAt: demoSeededAt - index * 3_600_000,
+    })),
+  };
+}
+
+function demoBackupStatus(): BackupStatusWire {
+  return {
+    lastRunAt: demoSeededAt - 6 * 3_600_000,
+    ok: true,
+    error: null,
+    retention: 7,
+    destDir: "~/.isomux-backups",
+  };
+}
+
 // Demo counterpart to the server's REST executor. As each command migrates off
 // the WS shim (handleCommand) to apiFetch, its demo handling moves here so the
 // landing demo keeps working - the demo's own WS-case -> REST-route strangle,
@@ -965,6 +1387,7 @@ export async function demoApi(
   path: string,
   body?: unknown,
 ): Promise<unknown> {
+  ensureSeeded();
   // Split the query string off before matching: query/param routes (e.g.
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
@@ -1012,9 +1435,11 @@ export async function demoApi(
     // apps.list - the Apps tab fetches on open and polls while it is open.
     case "GET /api/apps":
       return [...demoApps];
-    // cron.listAllRuns - demo cron jobs never fire, so there are no runs.
+    // cron.listAllRuns - one completed fixture backs the Runs tab.
     case "GET /api/cron-runs":
-      return { jobs: [] };
+      return demoCronRun
+        ? { jobs: [{ cronjobId: demoCronRun.cronjobId, runs: [demoCronRun] }] }
+        : { jobs: [] };
     // cron.create - build a demo cronjob, broadcast cronjob_added, and RETURN
     // it (the dialog awaits the HTTP result; the old agent_save_response emit is
     // gone). username is server-derived in production; the demo user is Ricky.
@@ -1058,69 +1483,27 @@ export async function demoApi(
     case "GET /api/office/settings":
       return { ...state.office, version: "demo-version" };
     case "GET /api/usage":
-      return {
-        scoped: false,
-        agents: [
-          {
-            id: "demo-claude",
-            name: "Claude",
-            roomId: state.rooms[0]?.id ?? "demo-room",
-            roomName: state.rooms[0]?.name ?? "Main",
-            session: {
-              totalIn: 18400,
-              cacheRead: 15000,
-              cacheCreation: 1200,
-              totalOut: 2300,
-              costUSD: 0.84,
-            },
-            lifetime: {
-              totalIn: 93000,
-              cacheRead: 78000,
-              cacheCreation: 6000,
-              totalOut: 12400,
-              costUSD: 4.62,
-            },
-          },
-        ],
-        rooms: [
-          {
-            id: state.rooms[0]?.id ?? "demo-room",
-            name: state.rooms[0]?.name ?? "Main",
-            deleted: false,
-            session: {
-              totalIn: 18400,
-              cacheRead: 15000,
-              cacheCreation: 1200,
-              totalOut: 2300,
-              costUSD: 0.84,
-            },
-            lifetime: {
-              totalIn: 93000,
-              cacheRead: 78000,
-              cacheCreation: 6000,
-              totalOut: 12400,
-              costUSD: 4.62,
-            },
-          },
-        ],
-        cronjobs: [],
-        total: {
-          session: {
-            totalIn: 18400,
-            cacheRead: 15000,
-            cacheCreation: 1200,
-            totalOut: 2300,
-            costUSD: 0.84,
-          },
-          lifetime: {
-            totalIn: 93000,
-            cacheRead: 78000,
-            cacheCreation: 6000,
-            totalOut: 12400,
-            costUSD: 4.62,
-          },
+      return demoUsageReport();
+    case "GET /api/storage/usage":
+      return demoStorageUsage();
+    case "GET /api/backup/status":
+      return demoBackupStatus();
+    case "POST /api/storage/prune": {
+      const request = (body ?? {}) as StoragePruneReq;
+      const plan: StoragePruneRes["plan"] = {
+        target: request.target,
+        policy: {
+          olderThanDays: request.olderThanDays,
+          keepPerAgent: request.keepPerAgent ?? 0,
         },
+        candidates: [],
+        bytes: 0,
+        skipped: [],
       };
+      return request.apply
+        ? { plan, applied: { deleted: 0, bytes: 0, refused: [] } }
+        : { plan, applied: null };
+    }
     // office.setSettings - set + broadcast office_settings_updated; no body
     // (204-like). Mirrors the retired update_office_settings handleCommand:
     // name === undefined preserves the current name (a stale tab), else it sets
@@ -1251,17 +1634,30 @@ export async function demoApi(
   if (method === "GET" && /^\/api\/backends\/[^/]+\/models$/.test(pathname)) {
     return { models: [] };
   }
-  // cron.getRun - no runs in the demo (cronjobs never fire), so no transcript.
+  // cron.getRun - return the fixture transcript for the matching run.
   // Listed before listRuns: the trailing anchors already make the two routes
-  // disjoint, but specific-before-general is the safe convention. The view
-  // ignores the fetched `run`, so returning just `entries` is enough.
+  // disjoint, but specific-before-general is the safe convention. Return the
+  // run too, because the transcript view uses it as a header fallback.
   if (
     method === "GET" &&
     /^\/api\/cronjobs\/[^/]+\/runs\/[^/]+$/.test(pathname)
   ) {
-    return { entries: [] };
+    const match = pathname.match(/^\/api\/cronjobs\/([^/]+)\/runs\/([^/]+)$/)!;
+    const jobId = decodeURIComponent(match[1]);
+    const runId = decodeURIComponent(match[2]);
+    if (demoCronRun?.cronjobId === jobId && demoCronRun.id === runId) {
+      return { run: demoCronRun, entries: demoCronEntries };
+    }
+    throw new ApiError(404, "not_found", "Cron run not found.");
   }
-  // cron.listRuns - no runs in the demo.
+  // cron.listRuns - return the same fixture used by the all-runs endpoint.
+  const cronRunsMatch = pathname.match(/^\/api\/cronjobs\/([^/]+)\/runs$/);
+  if (cronRunsMatch && method === "GET") {
+    const jobId = decodeURIComponent(cronRunsMatch[1]);
+    return {
+      runs: demoCronRun?.cronjobId === jobId ? [demoCronRun] : [],
+    };
+  }
   // apps.logs / apps.{start,stop,restart} / apps.delete - the name is a path
   // param, so these match by pattern like the cronjob run routes below.
   const appLogsMatch = pathname.match(/^\/api\/apps\/([^/]+)\/logs$/);
@@ -1295,9 +1691,6 @@ export async function demoApi(
     return undefined;
   }
 
-  if (method === "GET" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
-    return { runs: [] };
-  }
   // cron.runMessage (POST) / cron.editRunMessage (PATCH) - fire-and-forget
   // mutations. The demo has no runs (unreachable in practice), but demoApi throws
   // on unmapped routes, so map them; the caller ignores the { messageId } ack.
