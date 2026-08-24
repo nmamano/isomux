@@ -1923,6 +1923,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               style={{
                 marginTop: 20,
                 paddingTop: 16,
+                paddingBottom: 14,
                 borderTop: "1px solid var(--border)",
               }}
             >
