@@ -77,14 +77,27 @@ const DARK_VARS = {
 
   "--floor-light": "#181e2e",
   "--floor-dark": "#151b28",
-  "--floor-edge-left": "color-mix(in srgb, var(--floor-dark) 72%, white)",
-  "--floor-edge-right": "color-mix(in srgb, var(--floor-dark) 94%, white)",
+  // Thickness faces (wall caps, wall end cuts, floor slab sides). One rule:
+  // each face takes the base colour of the material directly above it, then
+  // one of three orientation shades - caps face up, the left end cut and the
+  // left slab sides face lower-left, their right counterparts face lower-right.
+  // Up is the brightest, lower-right the darkest. Dark themes take the whole
+  // ladder toward white, because a face mixed toward black sinks into the
+  // page; light themes lift only the caps and take the two lower orientations
+  // toward black. The slab sides come in a light and a dark pair, so the floor
+  // checkerboard continues over the thickness.
+  "--floor-edge-light-left":
+    "color-mix(in srgb, var(--floor-light) 86%, white)",
+  "--floor-edge-dark-left": "color-mix(in srgb, var(--floor-dark) 90%, white)",
+  "--floor-edge-light-right":
+    "color-mix(in srgb, var(--floor-light) 90%, white)",
+  "--floor-edge-dark-right": "color-mix(in srgb, var(--floor-dark) 94%, white)",
   "--floor-stroke": "rgba(255,255,255,0.018)",
   "--wall-left": "#111825",
   "--wall-right": "#0f1520",
-  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 82%, white)",
-  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 88%, white)",
-  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 72%, white)",
+  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 84%, white)",
+  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 84%, white)",
+  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 90%, white)",
   "--wall-end-right": "color-mix(in srgb, var(--wall-right) 94%, white)",
   "--wall-stroke": "rgba(255,255,255,0.025)",
   "--whiteboard-outer": "#1a2236",
@@ -181,15 +194,19 @@ const LIGHT_VARS: ThemeVars = {
 
   "--floor-light": "#d8dce8",
   "--floor-dark": "#cdd2de",
-  "--floor-edge-left": "color-mix(in srgb, var(--floor-dark) 60%, white)",
-  "--floor-edge-right": "color-mix(in srgb, var(--floor-dark) 88%, black)",
+  "--floor-edge-light-left":
+    "color-mix(in srgb, var(--floor-light) 92%, black)",
+  "--floor-edge-dark-left": "color-mix(in srgb, var(--floor-dark) 92%, black)",
+  "--floor-edge-light-right":
+    "color-mix(in srgb, var(--floor-light) 84%, black)",
+  "--floor-edge-dark-right": "color-mix(in srgb, var(--floor-dark) 84%, black)",
   "--floor-stroke": "rgba(0,0,0,0.04)",
   "--wall-left": "#c5cad8",
   "--wall-right": "#bcc2d0",
-  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 82%, white)",
+  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 88%, white)",
   "--wall-top-right": "color-mix(in srgb, var(--wall-right) 88%, white)",
-  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 60%, white)",
-  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 88%, black)",
+  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 92%, black)",
+  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 84%, black)",
   "--wall-stroke": "rgba(0,0,0,0.06)",
   "--whiteboard-outer": "#e8ecf4",
   "--whiteboard-inner": "#f0f4fc",
@@ -283,15 +300,19 @@ const NORD_VARS: ThemeVars = {
 
   "--floor-light": "#393f4e",
   "--floor-dark": "#353a48",
-  "--floor-edge-left": "color-mix(in srgb, var(--floor-dark) 72%, white)",
-  "--floor-edge-right": "color-mix(in srgb, var(--floor-dark) 73%, black)",
+  "--floor-edge-light-left":
+    "color-mix(in srgb, var(--floor-light) 86%, white)",
+  "--floor-edge-dark-left": "color-mix(in srgb, var(--floor-dark) 90%, white)",
+  "--floor-edge-light-right":
+    "color-mix(in srgb, var(--floor-light) 90%, white)",
+  "--floor-edge-dark-right": "color-mix(in srgb, var(--floor-dark) 94%, white)",
   "--floor-stroke": "rgba(255,255,255,0.018)",
   "--wall-left": "#2a313e",
   "--wall-right": "#283040",
-  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 82%, white)",
-  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 88%, white)",
-  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 72%, white)",
-  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 73%, black)",
+  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 84%, white)",
+  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 84%, white)",
+  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 90%, white)",
+  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 94%, white)",
   "--wall-stroke": "rgba(255,255,255,0.025)",
   "--whiteboard-outer": "#3b4458",
   "--whiteboard-inner": "#424d65",
@@ -385,15 +406,19 @@ const DRACULA_VARS: ThemeVars = {
 
   "--floor-light": "#353846",
   "--floor-dark": "#2f323e",
-  "--floor-edge-left": "color-mix(in srgb, var(--floor-dark) 72%, white)",
-  "--floor-edge-right": "color-mix(in srgb, var(--floor-dark) 73%, black)",
+  "--floor-edge-light-left":
+    "color-mix(in srgb, var(--floor-light) 86%, white)",
+  "--floor-edge-dark-left": "color-mix(in srgb, var(--floor-dark) 90%, white)",
+  "--floor-edge-light-right":
+    "color-mix(in srgb, var(--floor-light) 90%, white)",
+  "--floor-edge-dark-right": "color-mix(in srgb, var(--floor-dark) 94%, white)",
   "--floor-stroke": "rgba(255,255,255,0.018)",
   "--wall-left": "#232532",
   "--wall-right": "#1f2230",
-  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 82%, white)",
-  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 88%, white)",
-  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 72%, white)",
-  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 73%, black)",
+  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 84%, white)",
+  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 84%, white)",
+  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 90%, white)",
+  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 94%, white)",
   "--wall-stroke": "rgba(255,255,255,0.025)",
   "--whiteboard-outer": "#383b4c",
   "--whiteboard-inner": "#424659",
@@ -487,15 +512,19 @@ const SOLARIZED_DARK_VARS: ThemeVars = {
 
   "--floor-light": "#0c4250",
   "--floor-dark": "#073642",
-  "--floor-edge-left": "color-mix(in srgb, var(--floor-dark) 72%, white)",
-  "--floor-edge-right": "color-mix(in srgb, var(--floor-dark) 73%, black)",
+  "--floor-edge-light-left":
+    "color-mix(in srgb, var(--floor-light) 86%, white)",
+  "--floor-edge-dark-left": "color-mix(in srgb, var(--floor-dark) 90%, white)",
+  "--floor-edge-light-right":
+    "color-mix(in srgb, var(--floor-light) 90%, white)",
+  "--floor-edge-dark-right": "color-mix(in srgb, var(--floor-dark) 94%, white)",
   "--floor-stroke": "rgba(255,255,255,0.018)",
   "--wall-left": "#052a32",
   "--wall-right": "#03252c",
-  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 82%, white)",
-  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 88%, white)",
-  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 72%, white)",
-  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 73%, black)",
+  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 84%, white)",
+  "--wall-top-right": "color-mix(in srgb, var(--wall-right) 84%, white)",
+  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 90%, white)",
+  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 94%, white)",
   "--wall-stroke": "rgba(255,255,255,0.025)",
   "--whiteboard-outer": "#0c4250",
   "--whiteboard-inner": "#0e4a58",
@@ -589,15 +618,19 @@ const SOLARIZED_LIGHT_VARS: ThemeVars = {
 
   "--floor-light": "#ebe4d0",
   "--floor-dark": "#e0d9c5",
-  "--floor-edge-left": "color-mix(in srgb, var(--floor-dark) 60%, white)",
-  "--floor-edge-right": "color-mix(in srgb, var(--floor-dark) 88%, black)",
+  "--floor-edge-light-left":
+    "color-mix(in srgb, var(--floor-light) 92%, black)",
+  "--floor-edge-dark-left": "color-mix(in srgb, var(--floor-dark) 92%, black)",
+  "--floor-edge-light-right":
+    "color-mix(in srgb, var(--floor-light) 84%, black)",
+  "--floor-edge-dark-right": "color-mix(in srgb, var(--floor-dark) 84%, black)",
   "--floor-stroke": "rgba(0,0,0,0.04)",
   "--wall-left": "#d4ccb8",
   "--wall-right": "#cac2ae",
-  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 82%, white)",
+  "--wall-top-left": "color-mix(in srgb, var(--wall-left) 88%, white)",
   "--wall-top-right": "color-mix(in srgb, var(--wall-right) 88%, white)",
-  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 60%, white)",
-  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 88%, black)",
+  "--wall-end-left": "color-mix(in srgb, var(--wall-left) 92%, black)",
+  "--wall-end-right": "color-mix(in srgb, var(--wall-right) 84%, black)",
   "--wall-stroke": "rgba(0,0,0,0.06)",
   "--whiteboard-outer": "#f6efdb",
   "--whiteboard-inner": "#fdf6e3",

@@ -30,6 +30,13 @@ export function Floor() {
     colDy = 23.75;
   const N = 10;
 
+  // Slab thickness, and the outer corners where the slab passes under the
+  // wall (the wall footprint is 9 x 4.5 wider than the tile grid on each side).
+  const SLAB_H = 14;
+  const outerLeftX = -364,
+    outerRightX = 604,
+    outerY = 273;
+
   const tiles = [];
   for (let r = 0; r < N; r++) {
     for (let c = 0; c < N; c++) {
@@ -47,6 +54,41 @@ export function Floor() {
       );
     }
   }
+
+  // The slab sides carry the checkerboard down over the thickness, so each
+  // front-edge tile continues as its own slab. The tile that meets the left
+  // side is (N-1, i); the one that meets the right side is (i, N-1), so both
+  // share the same parity. The first slab on each side reaches out to the
+  // wall's outer corner.
+  const slabs = [];
+  for (let i = 0; i < N; i++) {
+    const fill = `var(--floor-edge-${(N - 1 + i) % 2 === 0 ? "light" : "dark"}-`;
+    const lx = i === 0 ? outerLeftX : -355 + i * colDx;
+    const ly = i === 0 ? outerY : 277.5 + i * colDy;
+    const lex = -355 + (i + 1) * colDx,
+      ley = 277.5 + (i + 1) * colDy;
+    const rx = i === 0 ? outerRightX : 595 - i * colDx;
+    const ry = i === 0 ? outerY : 277.5 + i * colDy;
+    const rex = 595 - (i + 1) * colDx,
+      rey = 277.5 + (i + 1) * colDy;
+    slabs.push(
+      <path
+        key={`sl-${i}`}
+        d={`M${lx} ${ly} L${lex} ${ley} L${lex} ${ley + SLAB_H} L${lx} ${ly + SLAB_H} Z`}
+        fill={`${fill}left)`}
+        stroke="var(--floor-stroke)"
+        strokeWidth="0.5"
+      />,
+      <path
+        key={`sr-${i}`}
+        d={`M${rx} ${ry} L${rex} ${rey} L${rex} ${rey + SLAB_H} L${rx} ${ry + SLAB_H} Z`}
+        fill={`${fill}right)`}
+        stroke="var(--floor-stroke)"
+        strokeWidth="0.5"
+      />,
+    );
+  }
+
   return (
     <svg
       style={SVG_STYLE}
@@ -67,18 +109,7 @@ export function Floor() {
           <stop offset="1" stopColor="#fff9d8" stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path
-        d="M-364 273 L120 515 L120 529 L-364 287 Z"
-        fill="var(--floor-edge-left)"
-        stroke="var(--floor-stroke)"
-        strokeWidth="0.5"
-      />
-      <path
-        d="M120 515 L604 273 L604 287 L120 529 Z"
-        fill="var(--floor-edge-right)"
-        stroke="var(--floor-stroke)"
-        strokeWidth="0.5"
-      />
+      {slabs}
       {tiles}
       <g className="sunrays" aria-hidden="true">
         <path
