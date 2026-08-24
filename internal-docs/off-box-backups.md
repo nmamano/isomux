@@ -6,7 +6,7 @@
 > responsibility. The local archive publication design below remains current.
 > Initial design
 > drafted 2026-08-02 and reviewed by Reviewer5. Implementation decisions below
-> were approved by Isomux Manager and Reviewer2 on 2026-08-13 for tasks
+> were approved by Isomux PM and Reviewer2 on 2026-08-13 for tasks
 > 903ce4c6 and 624f38d0. They are not Nil rulings unless stated.
 
 Companion reading: `backup-restore.md` and `control-plane-design.md`.
