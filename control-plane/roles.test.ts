@@ -178,13 +178,10 @@ describe("the matrix is exactly what the deployed command reaches", () => {
     }
   });
 
-  test("the prior web matrix lacks the reinstatement verbs and the reservation persist", () => {
+  test("the prior web matrix lacks only the reservation persist", () => {
     const prior = new Set(grantKeys(PRIOR_WEB_GRANTS));
     expect(grantKeys(WEB_GRANTS).filter((key) => !prior.has(key))).toEqual([
       "name_reservations:update",
-      "reinstatement_attempts:insert",
-      "reinstatement_attempts:select",
-      "reinstatement_attempts:update",
     ]);
     const current = new Set(grantKeys(WEB_GRANTS));
     expect(
@@ -192,24 +189,13 @@ describe("the matrix is exactly what the deployed command reaches", () => {
     ).toEqual([]);
   });
 
-  test("the prior provisioner matrix carries all six newly measured verbs", () => {
-    const newlyMeasuredTables = new Set([
-      "certificate_credentials",
-      "reinstatement_attempts",
-      "subscriptions",
-    ]);
-    expect(
-      grantKeys(PRIOR_PROVISIONER_GRANTS).filter((key) =>
-        newlyMeasuredTables.has(key.split(":")[0] ?? ""),
-      ),
-    ).toEqual([
-      "certificate_credentials:insert",
-      "certificate_credentials:select",
-      "certificate_credentials:update",
-      "reinstatement_attempts:select",
-      "reinstatement_attempts:update",
-      "subscriptions:select",
-    ]);
+  test("the prior provisioner matrix equals the current one", () => {
+    // Measured 2026-08-24: production's provisioner already carries the
+    // current matrix, so the pending reapply moves the web role only.
+    const prior = new Set(grantKeys(PRIOR_PROVISIONER_GRANTS));
+    const current = new Set(grantKeys(PROVISIONER_GRANTS));
+    expect([...current].filter((key) => !prior.has(key)).sort()).toEqual([]);
+    expect([...prior].filter((key) => !current.has(key)).sort()).toEqual([]);
   });
 
   // This derived set follows the destination on purpose, so Lane A can extend

@@ -231,6 +231,30 @@ async function provisionerInsertsStripeEvent(
   if (!allowed) expect(result.code).toBe("42501");
 }
 
+async function webUpdatesReservation(
+  dsn: string,
+  allowed: boolean,
+): Promise<void> {
+  const live = liveRuntimes.get(dsn)?.get(WEB_ROLE);
+  if (!live) throw new Error("the production fixture has no live web role");
+  // Zero rows match, so nothing moves either way: the privilege check fires
+  // before the row count matters, which is all this probe needs.
+  const result = await live
+    .query(
+      "update name_reservations set updated_at = updated_at where id = $1",
+      ["probe-no-such-row"],
+    )
+    .then(
+      () => ({ allowed: true, code: "" }),
+      (error: { code?: string }) => ({
+        allowed: false,
+        code: error.code ?? "",
+      }),
+    );
+  expect(result.allowed).toBe(allowed);
+  if (!allowed) expect(result.code).toBe("42501");
+}
+
 /** Every direct grant both runtime roles hold, as a sorted set of strings, so
  * two catalogs can be compared rather than described. */
 async function matrixOf(dsn: string): Promise<string[]> {
@@ -269,15 +293,12 @@ suite("the incremental matrix change", () => {
         expect(
           judgeMatrix(rows, PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
         ).toBe(true);
-        expect(before).not.toContain(
-          `${PROVISIONER_ROLE}:stripe_events:SELECT`,
-        );
-        expect(before).not.toContain(
-          `${WEB_ROLE}:reinstatement_attempts:SELECT`,
-        );
-        await runtimeSelects(dsn, PROVISIONER_ROLE, "stripe_events", false);
-        await provisionerInsertsStripeEvent(dsn, false);
-        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", false);
+        expect(before).not.toContain(`${WEB_ROLE}:name_reservations:UPDATE`);
+        // Grants already in the baseline stay exercisable; the pending one
+        // refuses. Together they prove the live sessions test real privilege.
+        await provisionerInsertsStripeEvent(dsn, true);
+        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", true);
+        await webUpdatesReservation(dsn, false);
 
         const applied = await reapplyMatrix(dsn, "forward");
         expect(applied.exact).toBe(true);
@@ -297,14 +318,8 @@ suite("the incremental matrix change", () => {
 
         const after = await matrixOf(dsn);
         expect(after).toEqual(matrixFor(runtimeRoles()));
-        for (const verb of ["SELECT", "INSERT", "UPDATE"]) {
-          expect(after).toContain(`${WEB_ROLE}:reinstatement_attempts:${verb}`);
-        }
-        expect(after).toContain(`${PROVISIONER_ROLE}:stripe_events:SELECT`);
-        expect(after).toContain(`${PROVISIONER_ROLE}:stripe_events:INSERT`);
-        await runtimeSelects(dsn, PROVISIONER_ROLE, "stripe_events", true);
-        await provisionerInsertsStripeEvent(dsn, true);
-        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", true);
+        expect(after).toContain(`${WEB_ROLE}:name_reservations:UPDATE`);
+        await webUpdatesReservation(dsn, true);
         await dropRoles(dsn);
       }),
     60_000,
@@ -316,13 +331,9 @@ suite("the incremental matrix change", () => {
       serial(async () => {
         const dsn = await asProductionIsToday();
         await reapplyMatrix(dsn, "forward");
-        await runtimeSelects(dsn, PROVISIONER_ROLE, "stripe_events", true);
-        await provisionerInsertsStripeEvent(dsn, true);
-        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", true);
+        await webUpdatesReservation(dsn, true);
         const applied = await reapplyMatrix(dsn, "reverse");
-        await runtimeSelects(dsn, PROVISIONER_ROLE, "stripe_events", false);
-        await provisionerInsertsStripeEvent(dsn, false);
-        await runtimeSelects(dsn, WEB_ROLE, "reinstatement_attempts", false);
+        await webUpdatesReservation(dsn, false);
         expect(applied.exact).toBe(true);
         expect(applied.schemaUsageOnly.map(([, ok]) => ok)).toEqual([
           true,
@@ -339,9 +350,11 @@ suite("the incremental matrix change", () => {
           judgeMatrix(rows, PROVISIONER_ROLE, PRIOR_PROVISIONER_GRANTS).exact,
         ).toBe(true);
         expect(judgeMatrix(rows, WEB_ROLE, PRIOR_WEB_GRANTS).exact).toBe(true);
+        // The provisioner's prior equals its current matrix (measured
+        // 2026-08-24), so only the web role reads as moved-away-from.
         expect(
           judgeMatrix(rows, PROVISIONER_ROLE, PROVISIONER_GRANTS).exact,
-        ).toBe(false);
+        ).toBe(true);
         expect(judgeMatrix(rows, WEB_ROLE, WEB_GRANTS).exact).toBe(false);
         expect(await matrixOf(dsn)).toEqual(matrixFor(priorRuntimeRoles()));
         await dropRoles(dsn);
@@ -542,14 +555,11 @@ suite("it refuses before writing anything", () => {
   );
 
   test(
-    "when the web role already holds the prepared reinstatement grants",
+    "when the web role already holds the reservation persist grant",
     () =>
       serial(() =>
         refuses(async (dsn) => {
-          await ask(
-            dsn,
-            `grant select, insert, update on reinstatement_attempts to ${WEB_ROLE}`,
-          );
+          await ask(dsn, `grant update on name_reservations to ${WEB_ROLE}`);
         }, /does not carry exactly the matrix/),
       ),
     60_000,

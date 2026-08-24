@@ -665,9 +665,10 @@ export const AUDITED_CMDRUN_SURFACES = [
  * THE MATRIX THE PREVIOUS POSTURE APPLIED, kept because a re-apply has to prove
  * its own before-state.
  *
- * Read from the production catalog on 2026-08-16, then read again on
- * 2026-08-21. The newer read found six more provisioner grants and a web role
- * narrower than the code claimed. The
+ * Re-measured from the production catalog on 2026-08-24 (information_schema
+ * role_table_grants): by then the reinstatement verbs and the provisioner's
+ * reconciler grants had already landed, so the only pending move is the web
+ * role's name_reservations UPDATE. The
  * incremental re-apply (`reapplyMatrix`) refuses unless the catalog carries
  * EXACTLY this, and its rollback is this set restored - so both directions are
  * a destination rather than a diff nobody wrote down. Delete it when the
@@ -677,115 +678,135 @@ export const PRIOR_WEB_GRANTS: readonly TableGrant[] = [
   {
     table: "accounts",
     verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "name_reservations",
     verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "instances",
     verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "provider_assets",
     verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "operations",
     verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "attention_reasons",
     verbs: ["select", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "audit_events",
     verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "instance_liveness",
     verbs: ["select"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "sequences",
     verbs: ["select", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "subscriptions",
     verbs: ["select"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
+  },
+  {
+    table: "reinstatement_attempts",
+    verbs: ["select", "insert", "update"],
+    because: "as measured in production 2026-08-24",
   },
 ];
 
 export const PRIOR_PROVISIONER_GRANTS: readonly TableGrant[] = [
   {
     table: "subscriptions",
-    verbs: ["select"],
-    because: "as measured in production 2026-08-21",
+    verbs: ["select", "insert", "update"],
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "reinstatement_attempts",
     verbs: ["select", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "certificate_credentials",
     verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "instances",
     verbs: ["select", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "provider_assets",
     verbs: ["select", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "operations",
     verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "create_intents",
-    verbs: ["select", "insert"],
-    because: "as measured in production 2026-08-21",
+    verbs: ["select", "insert", "update"],
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "instance_liveness",
     verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "attention_reasons",
     verbs: ["select", "insert", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "audit_events",
     verbs: ["insert"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "name_reservations",
     verbs: ["select"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
   },
   {
     table: "sequences",
     verbs: ["select", "update"],
-    because: "as measured in production 2026-08-21",
+    because: "as measured in production 2026-08-24",
+  },
+  {
+    table: "accounts",
+    verbs: ["select", "insert"],
+    because: "as measured in production 2026-08-24",
+  },
+  {
+    table: "schema_meta",
+    verbs: ["select"],
+    because: "as measured in production 2026-08-24",
+  },
+  {
+    table: "stripe_events",
+    verbs: ["select", "insert"],
+    because: "as measured in production 2026-08-24",
   },
 ];
 
