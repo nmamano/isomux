@@ -115,12 +115,12 @@ A managed version is in the works: you pick a name, we set up a server, and your
 ### Agent Backends
 - **Claude** (Anthropic): best general-purpose coding agent. Uses your existing Claude Code login.
 - **Codex** (OpenAI): GPT-5 family. Ships bundled. Uses a ChatGPT subscription via one-click sign-in on first use, or \`OPENAI_API_KEY\`.
-- The engine is chosen at spawn time and is fixed for the agent's lifetime - to switch, spawn a new agent. Model family and effort/reasoning can still be changed afterwards.
+- The engine is chosen at spawn time and can be switched later from the agent's edit dialog. Model family and effort/reasoning can also be changed at any time.
 - Both engines share the same office, queue, task board, inter-agent messaging, and persistence. Agents on different backends can read each other's conversations and message each other.
 
 ### Agent Creation & Editing
 - Click an empty desk to configure the engine (Claude or Codex), name, working directory, model, permission mode, and custom instructions in one dialog
-- Engine is locked once the agent exists; everything else is editable
+- Everything about an agent is editable after it exists, including its engine
 - Working directory input with recent CWD suggestions
 - Outfit customization: color swatches, hat, accessory, randomize with live preview
 - Custom instructions per agent, editable at spawn and later
