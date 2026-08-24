@@ -49,6 +49,12 @@ import {
   dialogChip,
 } from "./dialog-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
+import {
+  AGENT_TEMPLATES,
+  blankRestoreValues,
+  templateFormValues,
+  type AgentTemplate,
+} from "../agent-templates.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -210,6 +216,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [customInstructions, setCustomInstructions] = useState(
     agent?.customInstructions ?? "",
   );
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string | null>(
+    null,
+  );
+  // Synchronous guard for the async Codex model-list response. Once the user
+  // chooses a template, that choice owns model and effort until Blank is
+  // selected; a late machine default must not overwrite it.
+  const templateAppliedRef = useRef(false);
   // Agent memory (edit mode only) - edited via the unified /api/memory verbs
   // (load + version-guarded save), saved separately from the agent PATCH.
   const mem = useMemoryEditor("agent", agent?.id ?? null, !!agent?.id);
@@ -273,6 +286,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     message: string;
     authError: boolean;
   } | null>(null);
+  const templateModelsPending =
+    isCodex && backendModels === null && modelsError === null;
 
   // What "unsaved" is measured against (task 5a20e3f0). Seeded from the same
   // values the form state above is seeded from, so on open the dialog is clean
@@ -298,6 +313,56 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // those writes invisible to the very comparison they exist for.
   const baselineRef = useRef<AgentFormSnapshot | null>(null);
   if (baselineRef.current === null) baselineRef.current = { ...formSnapshot };
+  // The blank text/outfit values are mount-time values. Model, effort, and
+  // permission are deliberately excluded because Codex refines those defaults
+  // asynchronously and records the valid result in baselineRef.
+  const initialBlankRef = useRef<{
+    name: string;
+    customInstructions: string;
+    outfit: AgentOutfit;
+  } | null>(null);
+  if (initialBlankRef.current === null) {
+    initialBlankRef.current = {
+      name,
+      customInstructions,
+      outfit: { ...outfit },
+    };
+  }
+
+  function applyTemplate(template: AgentTemplate) {
+    templateAppliedRef.current = true;
+    setSelectedTemplateKey(template.key);
+    const values = templateFormValues(
+      template,
+      targetEngine,
+      { modelFamily, effort, permissionMode },
+      backendModels,
+      modelsError !== null,
+    );
+    setName(values.name);
+    setCustomInstructions(values.customInstructions);
+    setOutfit(values.outfit);
+    setModelFamily(values.modelFamily);
+    setEffort(values.effort);
+    setPermissionMode(values.permissionMode);
+  }
+
+  function applyBlankTemplate() {
+    templateAppliedRef.current = false;
+    setSelectedTemplateKey(null);
+    // baselineRef follows Codex's machine-selected live default. Restoring its
+    // values keeps Blank both valid and clean after model/list resolves.
+    const values = blankRestoreValues(
+      initialBlankRef.current!,
+      baselineRef.current!,
+    );
+    setName(values.name);
+    setCustomInstructions(values.customInstructions);
+    setOutfit(values.outfit);
+    setModelFamily(values.modelFamily);
+    setEffort(values.effort);
+    setPermissionMode(values.permissionMode);
+  }
 
   function isDirty(): boolean {
     return agentFormDirty(formSnapshot, baselineRef.current!, mem.dirty);
@@ -426,7 +491,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         // models so the value always matches a rendered <option>. The model
         // select is disabled during loading, so the user can't have made a
         // choice we'd be overriding.
-        if (isSpawn || targetEngine !== agentType) {
+        if (
+          (isSpawn || targetEngine !== agentType) &&
+          !templateAppliedRef.current
+        ) {
           const preferredModelId = CODEX_MODELS[0].value;
           const visibleModels = r.models.filter((m) => !m.hidden);
           const def =
@@ -764,6 +832,73 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               ? `Desk #${props.deskIndex + 1}`
               : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}Desk #${agent!.desk + 1}`}
           </p>
+
+          {isSpawn && (
+            <section style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Start with a template</label>
+              <p
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                  margin: "3px 0 8px",
+                }}
+              >
+                Templates fill the fields below. You can edit every suggestion.
+              </p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: isMobile
+                    ? "repeat(2, minmax(0, 1fr))"
+                    : "repeat(3, minmax(0, 1fr))",
+                  gap: 6,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={applyBlankTemplate}
+                  aria-pressed={selectedTemplateKey === null}
+                  style={templateCardStyle(selectedTemplateKey === null, false)}
+                >
+                  <span style={templateCardTitleStyle}>Blank</span>
+                  <span style={templateCardDescriptionStyle}>
+                    Set up the agent yourself.
+                  </span>
+                </button>
+                {AGENT_TEMPLATES.map((template) => {
+                  const selected = selectedTemplateKey === template.key;
+                  return (
+                    <button
+                      key={template.key}
+                      type="button"
+                      disabled={templateModelsPending}
+                      onClick={() => applyTemplate(template)}
+                      aria-pressed={selected}
+                      style={templateCardStyle(selected, templateModelsPending)}
+                    >
+                      <span style={templateCardTitleStyle}>
+                        {template.label}
+                      </span>
+                      <span style={templateCardDescriptionStyle}>
+                        {template.description}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              {templateModelsPending && (
+                <p
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    margin: "6px 0 0",
+                  }}
+                >
+                  Loading models before templates can be applied…
+                </p>
+              )}
+            </section>
+          )}
 
           <label style={labelStyle}>Name</label>
           <input
@@ -1666,6 +1801,40 @@ const selectStyle: React.CSSProperties = {
 const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
 const chipStyle: React.CSSProperties = dialogChip;
 const saveBtnStyle: React.CSSProperties = dialogSaveBtn;
+
+function templateCardStyle(
+  selected: boolean,
+  disabled: boolean,
+): React.CSSProperties {
+  return {
+    minHeight: 68,
+    padding: "8px 9px",
+    borderRadius: 7,
+    border: `1px solid ${selected ? "var(--accent)" : "var(--border)"}`,
+    background: selected
+      ? "var(--accent-muted, rgba(88,166,255,0.15))"
+      : "var(--bg-input)",
+    color: "var(--text-primary)",
+    textAlign: "left",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.5 : 1,
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+  };
+}
+
+const templateCardTitleStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 650,
+  lineHeight: 1.2,
+};
+
+const templateCardDescriptionStyle: React.CSSProperties = {
+  fontSize: 9,
+  color: "var(--text-muted)",
+  lineHeight: 1.3,
+};
 
 const randomBtnStyle: React.CSSProperties = {
   padding: "6px 14px",
