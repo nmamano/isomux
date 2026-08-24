@@ -1562,7 +1562,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 <p
                   style={{
                     fontSize: 10,
-                    color: "var(--text-ghost)",
+                    color: "var(--text-muted)",
                     margin: "3px 0 0",
                   }}
                 >
@@ -1604,7 +1604,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     <p
                       style={{
                         fontSize: 10,
-                        color: "var(--text-ghost)",
+                        color: "var(--text-muted)",
                         margin: "3px 0 0",
                       }}
                     >
@@ -1907,7 +1907,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               <p
                 style={{
                   fontSize: 10,
-                  color: "var(--text-ghost)",
+                  color: "var(--text-muted)",
                   margin: "3px 0 0",
                 }}
               >
@@ -1980,7 +1980,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               </label>
               <ExpandableTextarea
                 title="Agent Memory"
-                hint="This editor rewrites the file exactly as shown. Use one memory per line."
                 value={mem.memory}
                 onChange={mem.setMemory}
                 placeholder={
@@ -1992,16 +1991,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 readOnly={!mem.loaded}
                 style={{ ...inputStyle, resize: "vertical" }}
               />
-              <p
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-ghost)",
-                  margin: "3px 0 0",
-                }}
-              >
-                This editor rewrites the file exactly as shown. Use one memory
-                per line.
-              </p>
             </>
           )}
 
