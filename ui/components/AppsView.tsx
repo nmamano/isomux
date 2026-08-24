@@ -443,6 +443,13 @@ export function resolveCreatorAgentId(
   return byName ? byName.id : null;
 }
 
+export function initialAppPreviews(
+  liveAppPreviews: boolean,
+  storedPreference: boolean,
+): boolean {
+  return liveAppPreviews && storedPreference;
+}
+
 // A link, not a button-shaped control: the same accent-and-underline affordance
 // the task board gives an agent name. A real <button> rather than the task
 // board's <span> so it is reachable by keyboard.
@@ -470,7 +477,9 @@ export function AppsView({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<AppWire | null>(null);
-  const [previewsEnabled, setPreviewsEnabled] = useState(getAppPreviews);
+  const [previewsEnabled, setPreviewsEnabled] = useState(() =>
+    initialAppPreviews(features.liveAppPreviews, getAppPreviews()),
+  );
   const [openLogs, setOpenLogs] = useState<string | null>(null);
   // Moves when the USER changes what the log pane is showing - opening a row,
   // closing one, deleting the open one - so a request in flight can tell that it
@@ -692,29 +701,32 @@ export function AppsView({
           ←
         </button>
         <div style={{ fontSize: 13, fontWeight: 600 }}>Apps</div>
-        <button
-          type="button"
-          onClick={() => {
-            const next = !previewsEnabled;
-            setPreviewsEnabled(next);
-            setAppPreviews(next);
-          }}
-          title={previewsEnabled ? "Hide app previews" : "Show app previews"}
-          style={{
-            marginLeft: "auto",
-            padding: "3px 7px",
-            border: "1px solid var(--border)",
-            borderRadius: 5,
-            background: "var(--btn-surface)",
-            color: "var(--text-dim)",
-            fontSize: 10,
-            cursor: "pointer",
-          }}
-        >
-          previews {previewsEnabled ? "on" : "off"}
-        </button>
+        {features.liveAppPreviews && (
+          <button
+            type="button"
+            onClick={() => {
+              const next = !previewsEnabled;
+              setPreviewsEnabled(next);
+              setAppPreviews(next);
+            }}
+            title={previewsEnabled ? "Hide app previews" : "Show app previews"}
+            style={{
+              marginLeft: "auto",
+              padding: "3px 7px",
+              border: "1px solid var(--border)",
+              borderRadius: 5,
+              background: "var(--btn-surface)",
+              color: "var(--text-dim)",
+              fontSize: 10,
+              cursor: "pointer",
+            }}
+          >
+            previews {previewsEnabled ? "on" : "off"}
+          </button>
+        )}
         <div
           style={{
+            marginLeft: features.liveAppPreviews ? undefined : "auto",
             fontSize: 11,
             color: "var(--text-muted)",
           }}

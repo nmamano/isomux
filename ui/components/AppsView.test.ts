@@ -16,10 +16,26 @@ import {
   appPreviewPhase,
   appHref,
   appLinkLabel,
+  initialAppPreviews,
   nextPollDelay,
   resolveCreatorAgentId,
   shouldCommit,
 } from "./AppsView.tsx";
+
+describe("initialAppPreviews", () => {
+  it("starts off when the build does not support live previews", () => {
+    expect(initialAppPreviews(DEMO_FEATURES.liveAppPreviews, true)).toBe(false);
+  });
+
+  it("keeps the production default and per-device opt-out", () => {
+    expect(initialAppPreviews(PRODUCTION_FEATURES.liveAppPreviews, true)).toBe(
+      true,
+    );
+    expect(initialAppPreviews(PRODUCTION_FEATURES.liveAppPreviews, false)).toBe(
+      false,
+    );
+  });
+});
 
 describe("appCanPreview", () => {
   it("previews a running app at an office-issued origin", () => {
