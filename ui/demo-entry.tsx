@@ -52,7 +52,7 @@ function DemoBanner() {
       <span>
         {isMobile
           ? "This is a demo. To connect real agents:"
-          : "This is a demo office. To connect real Claude agents:"}
+          : "This is a demo office. To connect real Claude and Codex agents:"}
       </span>
       <a
         href="https://isomux.com"
