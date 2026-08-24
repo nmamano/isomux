@@ -92,6 +92,9 @@ function changedHeaders(
     ...Object.keys(after.headers),
   ]);
   for (const name of names) {
+    // `date` differs whenever the two responses straddle a second boundary,
+    // so it can never signal a config-driven change.
+    if (name === "date") continue;
     if (before.headers[name] === after.headers[name]) continue;
     changed[name] = {
       before: before.headers[name],
