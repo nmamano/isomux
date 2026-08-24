@@ -8,8 +8,11 @@ import { describe, it, expect } from "bun:test";
 import {
   agentFormDirty,
   codexNewEngineDefaults,
+  templateValuesAfterEngineSwitch,
   type AgentFormSnapshot,
 } from "./EditAgentDialog.tsx";
+import { AGENT_TEMPLATES } from "../agent-templates.ts";
+import type { BackendModelWire } from "../../shared/types.ts";
 
 const BASE: AgentFormSnapshot = {
   name: "Dwight",
@@ -89,6 +92,28 @@ describe("Codex new-engine defaults", () => {
     expect(codexNewEngineDefaults(false)).toEqual({
       permissionMode: "on-request",
       codexSandbox: "workspace-write",
+    });
+  });
+});
+
+describe("template values after an engine switch", () => {
+  it("resolves a spawn template from valid target-Codex defaults", () => {
+    const template = AGENT_TEMPLATES.find(
+      (candidate) => candidate.label === "Side Project Builder",
+    )!;
+    const models: BackendModelWire[] = [
+      {
+        id: "gpt-5.6-terra",
+        label: "GPT-5.6 Terra",
+        supportedEfforts: [{ level: "high" }],
+      },
+    ];
+    expect(
+      templateValuesAfterEngineSwitch(template, "codex", true, models, false),
+    ).toEqual({
+      modelFamily: "gpt-5.6-terra",
+      effort: "high",
+      permissionMode: "never",
     });
   });
 });

@@ -119,7 +119,7 @@ A managed version is in the works: you pick a name, we set up a server, and your
 - Both engines share the same office, queue, task board, inter-agent messaging, and persistence. Agents on different backends can read each other's conversations and message each other.
 
 ### Agent Creation & Editing
-- Click empty desk to pick an engine (Claude or Codex), then configure: name, working directory, model, permission mode, custom instructions
+- Click an empty desk to configure the engine (Claude or Codex), name, working directory, model, permission mode, and custom instructions in one dialog
 - Engine is locked once the agent exists; everything else is editable
 - Working directory input with recent CWD suggestions
 - Outfit customization: color swatches, hat, accessory, randomize with live preview

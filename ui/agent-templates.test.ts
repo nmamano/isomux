@@ -28,6 +28,7 @@ import {
   resolveTemplateModel,
   resolveTemplatePermission,
   templateFormValues,
+  templateEngineValues,
   type AgentTemplateGroup,
 } from "./agent-templates.ts";
 
@@ -237,6 +238,33 @@ describe("resolveTemplatePermission", () => {
     expect(
       resolveTemplatePermission("codex", "gpt-5.6-sol", "on-request"),
     ).toBe("on-request");
+  });
+});
+
+describe("template engine switch", () => {
+  it("re-resolves a selected template after the Codex model list arrives", () => {
+    const template = AGENT_TEMPLATES.find(
+      (candidate) => candidate.label === "Side Project Builder",
+    )!;
+    const result = templateEngineValues(
+      template,
+      "codex",
+      {
+        modelFamily: "provisional-model",
+        effort: "medium",
+        permissionMode: "never",
+      },
+      [
+        model("account-default", ["medium"], { isDefault: true }),
+        model("gpt-5.6-terra", ["high", "max"]),
+      ],
+      false,
+    );
+    expect(result).toEqual({
+      modelFamily: "gpt-5.6-terra",
+      effort: "high",
+      permissionMode: "never",
+    });
   });
 });
 

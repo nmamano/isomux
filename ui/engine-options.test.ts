@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { ENGINE_OPTIONS } from "./EngineChooserDialog.tsx";
+import { ENGINE_OPTIONS } from "./engine-options.ts";
 
-describe("engine chooser copy", () => {
+describe("spawn engine copy", () => {
   it("describes both supported logins with parallel copy", () => {
     expect(
       Object.fromEntries(

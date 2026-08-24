@@ -34,9 +34,8 @@ import { useSelfUser } from "./hooks/useSelfUser.ts";
 import { apiFetch } from "./api.ts";
 import type { PreferencesReq } from "../shared/contract-shapes.ts";
 import { agentTabLabel } from "./agent-face.ts";
-import type { AgentBackendType, AgentInfo } from "../shared/types.ts";
+import type { AgentInfo } from "../shared/types.ts";
 import { isValidDesk } from "../shared/desks.ts";
-import { EngineChooserDialog } from "./components/EngineChooserDialog.tsx";
 
 /** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
 function cycleAgent(
@@ -86,14 +85,9 @@ export function App() {
   const features = useFeatures();
   const roomCount = rooms.length;
   const dispatch = useDispatch();
-  // Spawn flow: clicking an empty slot opens the engine chooser. Picking an
-  // engine in the chooser sets spawnReady, which opens EditAgentDialog with
-  // agentType locked. Cancelling either step clears state.
+  // Clicking an empty slot opens the complete spawn form. Engine is one of its
+  // fields, so the user can configure the agent in either order.
   const [spawnPickerDesk, setSpawnPickerDesk] = useState<number | null>(null);
-  const [spawnReady, setSpawnReady] = useState<{
-    desk: number;
-    agentType: AgentBackendType;
-  } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -445,7 +439,6 @@ export function App() {
       if (e.key === "Escape") {
         goHome();
         setSpawnPickerDesk(null);
-        setSpawnReady(null);
         setCtxMenu(null);
         setEditAgent(null);
       }
@@ -686,24 +679,12 @@ export function App() {
         />
       )}
       {spawnPickerDesk !== null && currentRoomId && (
-        <EngineChooserDialog
-          deskIndex={spawnPickerDesk}
-          roomId={currentRoomId}
-          onCancel={() => setSpawnPickerDesk(null)}
-          onPick={(agentType) => {
-            const desk = spawnPickerDesk;
-            setSpawnPickerDesk(null);
-            if (desk !== null) setSpawnReady({ desk, agentType });
-          }}
-        />
-      )}
-      {spawnReady !== null && currentRoomId && (
         <EditAgentDialog
-          deskIndex={spawnReady.desk}
+          deskIndex={spawnPickerDesk}
           defaultCwd="~"
-          spawnAgentType={spawnReady.agentType}
-          onClose={() => setSpawnReady(null)}
+          spawnAgentType="claude"
           roomId={currentRoomId}
+          onClose={() => setSpawnPickerDesk(null)}
         />
       )}
       {ctxMenu && (

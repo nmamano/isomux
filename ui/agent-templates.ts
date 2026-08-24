@@ -487,3 +487,24 @@ export function templateFormValues(
     ),
   };
 }
+
+export function templateEngineValues(
+  template: AgentTemplate,
+  engine: AgentBackendType,
+  current: TemplateFormBaseline,
+  backendModels: BackendModelWire[] | null,
+  modelsFailed: boolean,
+): Pick<TemplateFormValues, "modelFamily" | "effort" | "permissionMode"> {
+  const values = templateFormValues(
+    template,
+    engine,
+    current,
+    backendModels,
+    modelsFailed,
+  );
+  return {
+    modelFamily: values.modelFamily,
+    effort: values.effort,
+    permissionMode: values.permissionMode,
+  };
+}

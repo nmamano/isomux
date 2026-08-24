@@ -6,6 +6,7 @@ import type {
   BackendModelWire,
   CodexSandboxMode,
   EffortLevel,
+  KilledAgentSummary,
 } from "../../shared/types.ts";
 import {
   MODEL_FAMILIES,
@@ -38,6 +39,7 @@ import type {
   SpawnReq,
   EditAgentReq,
   SetPrivilegedReq,
+  ReviveReq,
 } from "../../shared/contract-shapes.ts";
 import { useAppState } from "../store.tsx";
 import { getUsername } from "../device-settings.ts";
@@ -53,8 +55,10 @@ import {
   AGENT_TEMPLATES,
   blankRestoreValues,
   templateFormValues,
+  templateEngineValues,
   type AgentTemplate,
 } from "../agent-templates.ts";
+import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -67,6 +71,37 @@ export function codexNewEngineDefaults(isSpawn: boolean): {
   return isSpawn
     ? { permissionMode: "never", codexSandbox: "danger-full-access" }
     : { permissionMode: "on-request", codexSandbox: "workspace-write" };
+}
+
+export function templateValuesAfterEngineSwitch(
+  template: AgentTemplate,
+  targetEngine: AgentBackendType,
+  isSpawn: boolean,
+  backendModels: BackendModelWire[] | null,
+  modelsFailed: boolean,
+): Pick<
+  ReturnType<typeof templateEngineValues>,
+  "modelFamily" | "effort" | "permissionMode"
+> {
+  const targetDefaults =
+    targetEngine === "codex"
+      ? {
+          modelFamily: CODEX_MODELS[0].value,
+          effort: DEFAULT_EFFORT,
+          permissionMode: codexNewEngineDefaults(isSpawn).permissionMode,
+        }
+      : {
+          modelFamily: MODEL_FAMILIES[0].family,
+          effort: DEFAULT_EFFORT,
+          permissionMode: "auto" as AgentInfo["permissionMode"],
+        };
+  return templateEngineValues(
+    template,
+    targetEngine,
+    targetDefaults,
+    backendModels,
+    modelsFailed,
+  );
 }
 
 const HAIR_STYLE_LABELS: Record<AgentOutfit["hairStyle"], string> = {
@@ -184,6 +219,7 @@ type EditAgentDialogProps = {
 export function EditAgentDialog(props: EditAgentDialogProps) {
   const { onClose } = props;
   const isSpawn = !props.agent;
+  const spawnProps = props.agent === undefined ? props : null;
   const agent = props.agent;
   const agentType: AgentBackendType =
     agent?.agentType ?? props.spawnAgentType ?? "claude";
@@ -201,6 +237,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     agents,
     rooms,
     sessionContext,
+    killedAgents,
   } = useAppState();
   // Privilege toggle visibility mirrors the (i-b) server gate (agents.setPrivileged):
   // an office owner may toggle any agent; otherwise only the agent's MANAGER (its
@@ -269,6 +306,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // agent can't self-confer. At spawn we two-step: create, then toggle.
   const [privileged, setPrivileged] = useState(agent?.privileged ?? false);
   const [saving, setSaving] = useState(false);
+  const [reviving, setReviving] = useState<string | null>(null);
+  const [reviveError, setReviveError] = useState<string | null>(null);
   // Save-time errors route to either the Name input or the Cwd input based on
   // the REST error code (name_taken -> Name). Errors that don't map to a specific
   // field (the common case, e.g. cwd validation) fall back to cwdError, where the
@@ -384,6 +423,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // dismissal that also does something (Move to Room) can chain onto it.
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const pendingDiscardActionRef = useRef<(() => void) | null>(null);
+  const pendingReviveRef = useRef<KilledAgentSummary | null>(null);
 
   // Every dismissal path routes through here: backdrop, Cancel, Escape,
   // Move to Room. Clean form closes immediately; dirty one asks first.
@@ -398,6 +438,14 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   }
 
   function commitDiscard() {
+    const revive = pendingReviveRef.current;
+    pendingReviveRef.current = null;
+    if (revive) {
+      pendingDiscardActionRef.current = null;
+      setConfirmDiscard(false);
+      performRevive(revive);
+      return;
+    }
     const next = pendingDiscardActionRef.current;
     pendingDiscardActionRef.current = null;
     setConfirmDiscard(false);
@@ -406,8 +454,39 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   }
 
   function cancelDiscard() {
+    pendingReviveRef.current = null;
     pendingDiscardActionRef.current = null;
     setConfirmDiscard(false);
+  }
+
+  function handleRevive(agentToRevive: KilledAgentSummary) {
+    if (!isSpawn || reviving) return;
+    if (isDirty()) {
+      pendingReviveRef.current = agentToRevive;
+      pendingDiscardActionRef.current = null;
+      setConfirmDiscard(true);
+      return;
+    }
+    performRevive(agentToRevive);
+  }
+
+  function performRevive(agentToRevive: KilledAgentSummary) {
+    if (!spawnProps) return;
+    setReviveError(null);
+    setReviving(agentToRevive.id);
+    apiFetch("POST", `/api/agents/${agentToRevive.id}/revive`, {
+      desk: spawnProps.deskIndex,
+      roomId: spawnProps.roomId,
+    } satisfies ReviveReq)
+      .then(() => onClose())
+      .catch((e) => {
+        setReviveError(
+          e instanceof ApiError
+            ? e.message || "Revive failed"
+            : "Revive failed",
+        );
+      })
+      .finally(() => setReviving(null));
   }
 
   // Escape. App's own handler clears editAgent/spawnReady on Escape and knows
@@ -495,6 +574,25 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           return;
         }
         setBackendModels(r.models);
+        const selectedTemplate = AGENT_TEMPLATES.find(
+          (template) => template.key === selectedTemplateKey,
+        );
+        if (selectedTemplate) {
+          const values = templateValuesAfterEngineSwitch(
+            selectedTemplate,
+            targetEngine,
+            isSpawn,
+            r.models,
+            false,
+          );
+          setModelFamily(values.modelFamily);
+          setEffort(values.effort);
+          setPermissionMode(values.permissionMode);
+          baselineRef.current!.modelFamily = values.modelFamily;
+          baselineRef.current!.effort = values.effort;
+          baselineRef.current!.permissionMode = values.permissionMode;
+          return;
+        }
         // Pick the spawn default. Invariant: prefer Isomux's canonical
         // default (CODEX_MODELS[0], currently gpt-5.6-sol) when this auth tier
         // offers it; otherwise fall back to Codex's per-auth isDefault, then
@@ -595,6 +693,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           : "default",
       };
     }
+    const selectedTemplate = AGENT_TEMPLATES.find(
+      (template) => template.key === selectedTemplateKey,
+    );
+    if (selectedTemplate && targetEngine === "claude") {
+      const values = templateValuesAfterEngineSwitch(
+        selectedTemplate,
+        targetEngine,
+        isSpawn,
+        null,
+        false,
+      );
+      seed.modelFamily = values.modelFamily;
+      seed.effort = values.effort;
+      seed.permissionMode = values.permissionMode;
+    }
     /* eslint-disable react-hooks/set-state-in-effect */
     setModelFamily(seed.modelFamily);
     setEffort(seed.effort);
@@ -609,6 +722,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     baselineRef.current!.permissionMode = seed.permissionMode;
     if (seed.codexSandbox !== undefined)
       baselineRef.current!.codexSandbox = seed.codexSandbox;
+    if (isSpawn) baselineRef.current!.targetEngine = targetEngine;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetEngine]);
 
@@ -657,7 +771,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         customInstructions: customInstructions.trim() || undefined,
         modelFamily,
         effort,
-        agentType,
+        agentType: targetEngine,
         ...(isCodex ? { codexSandbox } : {}),
       } satisfies SpawnReq)
         .then((res) =>
@@ -797,7 +911,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       }}
     >
       <div
-        className={isMobile ? undefined : "edit-agent-dialog-desktop"}
+        className={
+          isMobile
+            ? undefined
+            : isSpawn
+              ? "spawn-agent-dialog-desktop"
+              : "edit-agent-dialog-desktop"
+        }
         style={{
           background: "var(--bg-overlay)",
           backdropFilter: "blur(16px)",
@@ -845,230 +965,913 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           </p>
 
           {isSpawn && (
-            <section style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>Start with a template</label>
-              <p
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-ghost)",
-                  margin: "3px 0 8px",
-                }}
-              >
-                Templates fill the fields below. You can edit every suggestion.
-              </p>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: isMobile
-                    ? "repeat(2, minmax(0, 1fr))"
-                    : "repeat(3, minmax(0, 1fr))",
-                  gap: 6,
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={applyBlankTemplate}
-                  aria-pressed={selectedTemplateKey === null}
-                  style={{
-                    ...templateCardStyle(selectedTemplateKey === null, false),
-                    gridColumn: "1 / -1",
-                  }}
-                >
-                  <span style={templateCardTextStyle}>
-                    <span style={templateCardTitleStyle}>Blank</span>
-                    <span style={templateCardDescriptionStyle}>
-                      Set up the agent yourself.
-                    </span>
-                  </span>
-                </button>
-                {AGENT_TEMPLATES.map((template) => {
-                  const selected = selectedTemplateKey === template.key;
+            <section className="spawn-engine-band">
+              <label style={labelStyle}>Engine</label>
+              <div className="spawn-engine-options">
+                {ENGINE_OPTIONS.map((option) => {
+                  const selected = targetEngine === option.agentType;
                   return (
                     <button
-                      key={template.key}
+                      key={option.agentType}
                       type="button"
-                      disabled={templateModelsPending}
-                      onClick={() => applyTemplate(template)}
                       aria-pressed={selected}
-                      style={templateCardStyle(
-                        selected,
-                        templateModelsPending,
-                        template.group,
-                      )}
+                      onClick={() => setTargetEngine(option.agentType)}
+                      style={{
+                        background: selected
+                          ? "var(--bg-hover)"
+                          : "var(--bg-surface)",
+                        border: `2px solid ${
+                          selected ? option.accent : "var(--border-medium)"
+                        }`,
+                        borderRadius: 8,
+                        padding: "12px 14px",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        color: "var(--text-primary)",
+                        boxShadow: selected
+                          ? `0 0 0 1px ${option.accent}`
+                          : "none",
+                      }}
                     >
-                      <span style={templateAvatarStyle} aria-hidden="true">
-                        <Character
-                          state="idle"
-                          outfit={template.outfit}
-                          portrait
-                          height={44}
-                        />
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 15,
+                          fontWeight: 700,
+                          marginBottom: 4,
+                        }}
+                      >
+                        {option.label}
                       </span>
-                      <span style={templateCardTextStyle}>
-                        <span style={templateCardTitleStyle}>
-                          {template.label}
-                        </span>
-                        <span style={templateCardDescriptionStyle}>
-                          {template.description}
-                        </span>
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 12,
+                          color: "var(--text-muted)",
+                          lineHeight: 1.4,
+                        }}
+                      >
+                        {option.blurb}
                       </span>
                     </button>
                   );
                 })}
               </div>
-              {templateModelsPending && (
-                <p
-                  style={{
-                    fontSize: 10,
-                    color: "var(--text-muted)",
-                    margin: "6px 0 0",
-                  }}
-                >
-                  Loading models before templates can be applied…
-                </p>
-              )}
             </section>
           )}
 
-          <label style={labelStyle}>Name</label>
-          <input
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              if (nameError) setNameError(null);
-            }}
-            placeholder={isSpawn ? `Agent ${props.deskIndex + 1}` : undefined}
-            autoFocus={isSpawn}
-            style={
-              nameError ? { ...inputStyle, borderColor: "#ff6b6b" } : inputStyle
-            }
-          />
-          {nameError && (
-            <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>
-              {nameError}
-            </p>
-          )}
+          <div className={isSpawn ? "spawn-dialog-grid" : undefined}>
+            {isSpawn && (
+              <section className="spawn-template-section">
+                <label style={labelStyle}>Start with a template</label>
+                <p
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-ghost)",
+                    margin: "3px 0 8px",
+                  }}
+                >
+                  Templates fill the fields below. You can edit every
+                  suggestion.
+                </p>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: isMobile
+                      ? "repeat(2, minmax(0, 1fr))"
+                      : "repeat(3, minmax(0, 1fr))",
+                    gap: 6,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={applyBlankTemplate}
+                    aria-pressed={selectedTemplateKey === null}
+                    style={{
+                      ...templateCardStyle(selectedTemplateKey === null, false),
+                      gridColumn: "1 / -1",
+                    }}
+                  >
+                    <span style={templateCardTextStyle}>
+                      <span style={templateCardTitleStyle}>Blank</span>
+                      <span style={templateCardDescriptionStyle}>
+                        Set up the agent yourself.
+                      </span>
+                    </span>
+                  </button>
+                  {AGENT_TEMPLATES.map((template) => {
+                    const selected = selectedTemplateKey === template.key;
+                    return (
+                      <button
+                        key={template.key}
+                        type="button"
+                        disabled={templateModelsPending}
+                        onClick={() => applyTemplate(template)}
+                        aria-pressed={selected}
+                        style={templateCardStyle(
+                          selected,
+                          templateModelsPending,
+                          template.group,
+                        )}
+                      >
+                        <span style={templateAvatarStyle} aria-hidden="true">
+                          <Character
+                            state="idle"
+                            outfit={template.outfit}
+                            portrait
+                            height={44}
+                          />
+                        </span>
+                        <span style={templateCardTextStyle}>
+                          <span style={templateCardTitleStyle}>
+                            {template.label}
+                          </span>
+                          <span style={templateCardDescriptionStyle}>
+                            {template.description}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {templateModelsPending && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-muted)",
+                      margin: "6px 0 0",
+                    }}
+                  >
+                    Loading models before templates can be applied…
+                  </p>
+                )}
+              </section>
+            )}
 
-          <label style={{ ...labelStyle, marginTop: 12 }}>
-            Working Directory
-          </label>
-          <input
-            value={cwd}
-            onChange={(e) => {
-              setCwd(e.target.value);
-              if (cwdError) setCwdError(null);
-            }}
-            style={
-              cwdError ? { ...inputStyle, borderColor: "#ff6b6b" } : inputStyle
-            }
-          />
-          {cwdError && (
-            <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>
-              {cwdError}
-            </p>
-          )}
-          {recentCwds.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 4,
-                marginTop: 6,
-              }}
-            >
-              {recentCwds.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => {
-                    setCwd(c);
+            <div className="spawn-right-column">
+              <div className={isSpawn ? "spawn-identity-section" : undefined}>
+                <label style={labelStyle}>Name</label>
+                {/* Mobile autofocus would scroll the engine and templates out of view
+              as soon as the full-page spawn dialog opens. */}
+                <input
+                  value={name}
+                  onChange={(e) => {
+                    setName(e.target.value);
+                    if (nameError) setNameError(null);
+                  }}
+                  placeholder={
+                    isSpawn ? `Agent ${props.deskIndex + 1}` : undefined
+                  }
+                  autoFocus={isSpawn && !isMobile}
+                  style={
+                    nameError
+                      ? { ...inputStyle, borderColor: "#ff6b6b" }
+                      : inputStyle
+                  }
+                />
+                {nameError && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: "#ff6b6b",
+                      margin: "4px 0 0",
+                    }}
+                  >
+                    {nameError}
+                  </p>
+                )}
+
+                <label style={{ ...labelStyle, marginTop: 12 }}>
+                  Working Directory
+                </label>
+                <input
+                  value={cwd}
+                  onChange={(e) => {
+                    setCwd(e.target.value);
                     if (cwdError) setCwdError(null);
                   }}
-                  style={chipStyle}
+                  style={
+                    cwdError
+                      ? { ...inputStyle, borderColor: "#ff6b6b" }
+                      : inputStyle
+                  }
+                />
+                {cwdError && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: "#ff6b6b",
+                      margin: "4px 0 0",
+                    }}
+                  >
+                    {cwdError}
+                  </p>
+                )}
+                {recentCwds.length > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 4,
+                      marginTop: 6,
+                    }}
+                  >
+                    {recentCwds.map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => {
+                          setCwd(c);
+                          if (cwdError) setCwdError(null);
+                        }}
+                        style={chipStyle}
+                      >
+                        {shortenCwd(c)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!isSpawn && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-ghost)",
+                      margin: "3px 0 0",
+                    }}
+                  >
+                    Changes take effect on next conversation.
+                  </p>
+                )}
+
+                {/* Manager - set at spawn, immutable. Rendered as a read-only
+                badge in both spawn and edit modes so there's no UX
+                divergence on which user the agent is bound to. Style
+                matches the Engine badge (also locked at spawn). On spawn
+                the value comes from the device's bound username; on edit
+                it comes from the agent's persisted user record. */}
+                <label style={{ ...labelStyle, marginTop: 12 }}>Manager</label>
+                <div
+                  title="Set at spawn - manager cannot be changed after the agent is created."
+                  style={{
+                    ...inputStyle,
+                    display: "flex",
+                    alignItems: "center",
+                    color: "var(--text-muted)",
+                    fontFamily: "'JetBrains Mono',monospace",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                    fontWeight: 600,
+                    cursor: "not-allowed",
+                    background: "var(--bg-elevated)",
+                  }}
                 >
-                  {shortenCwd(c)}
-                </button>
-              ))}
+                  {isSpawn
+                    ? (getUsername() ?? "(no user assigned)")
+                    : (agent!.username ?? agent!.userId ?? "(unowned)")}
+                </div>
+                <p
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-ghost)",
+                    margin: "3px 0 0",
+                  }}
+                >
+                  Locked to the spawning user. Controls which{" "}
+                  <code>envFile</code> loads on each session (see User
+                  Settings).
+                </p>
+
+                {/* Privileged operator access. Grants this agent its spawning user's
+              room-scoped operator powers (drive other agents' sessions: resume,
+              new conversation, send-now, lifecycle; plus cron over the user's own
+              jobs). Scope stays the agent - it never posts as the user. Conferred
+              via the dedicated user-gated route, so toggling a running agent
+              re-mints its token and restarts its session, like a model change.
+              Shown only to a user who may actually set it (owner, or the agent's
+              manager - see canTogglePrivilege). */}
+                {canTogglePrivilege && (
+                  <>
+                    <label
+                      style={{
+                        marginTop: 14,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={privileged}
+                        onChange={(e) => setPrivileged(e.target.checked)}
+                        style={{ cursor: "pointer", margin: 0 }}
+                      />
+                      Privileged operator access
+                    </label>
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-ghost)",
+                        margin: "3px 0 0",
+                      }}
+                    >
+                      Lets this agent drive other agents' sessions (resume, new
+                      conversation, send-now) and manage its own cronjobs, with
+                      the spawning user's room-scoped permissions. It still acts
+                      as the agent, never as the user.
+                      {!isSpawn &&
+                        privileged !== (agent!.privileged ?? false) &&
+                        " Saving restarts the agent's session."}
+                    </p>
+                  </>
+                )}
+              </div>
+
+              {/* Editable in edit mode: switching it starts a fresh
+              conversation on the new engine - the current one is preserved in the
+              agent's resume history, and the model/effort/approval menus below
+              repopulate with the selected engine's options. */}
+              {!isSpawn && (
+                <>
+                  <label style={{ ...labelStyle, marginTop: 12 }}>Engine</label>
+                  <select
+                    value={targetEngine}
+                    onChange={(e) =>
+                      setTargetEngine(e.target.value as AgentBackendType)
+                    }
+                    style={{
+                      ...inputStyle,
+                      appearance: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <option value="claude">Claude</option>
+                    <option value="codex">Codex</option>
+                  </select>
+                  {targetEngine !== agentType && (
+                    <p
+                      style={{
+                        margin: "6px 0 0",
+                        fontSize: 11,
+                        color: "var(--text-muted)",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      Switching to{" "}
+                      {targetEngine === "codex" ? "Codex" : "Claude"} starts a
+                      new conversation. The current one stays in this agent's
+                      resume history.
+                    </p>
+                  )}
+                </>
+              )}
+
+              <div className={isSpawn ? "spawn-engine-settings" : undefined}>
+                <label style={{ ...labelStyle, marginTop: 12 }}>
+                  {isCodex ? "Approval Policy" : "Permission Mode"}
+                </label>
+                <select
+                  value={permissionMode}
+                  onChange={(e) =>
+                    setPermissionMode(
+                      e.target.value as AgentInfo["permissionMode"],
+                    )
+                  }
+                  style={{
+                    ...inputStyle,
+                    appearance: "none",
+                    cursor: "pointer",
+                  }}
+                >
+                  {isCodex ? (
+                    <>
+                      <option value="untrusted">
+                        Untrusted (ask on every tool)
+                      </option>
+                      <option value="on-request">
+                        On request (model asks when needed)
+                      </option>
+                      <option value="never">
+                        Never ask (use sandbox-only)
+                      </option>
+                    </>
+                  ) : (
+                    <>
+                      {claudeFamilySupportsAutoPermission(modelFamily) && (
+                        <option value="auto">
+                          Auto (classifier auto-approves safe actions)
+                        </option>
+                      )}
+                      <option value="default">
+                        Default (ask for everything)
+                      </option>
+                      <option value="acceptEdits">
+                        Accept Edits (auto-approve file changes)
+                      </option>
+                      <option value="bypassPermissions">
+                        Bypass (auto-approve all)
+                      </option>
+                    </>
+                  )}
+                </select>
+
+                {isCodex && (
+                  <>
+                    <label style={{ ...labelStyle, marginTop: 12 }}>
+                      Sandbox
+                    </label>
+                    <select
+                      value={codexSandbox}
+                      onChange={(e) =>
+                        setCodexSandbox(e.target.value as CodexSandboxMode)
+                      }
+                      style={{
+                        ...inputStyle,
+                        appearance: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <option value="read-only">
+                        Read-only (model can read, never write)
+                      </option>
+                      <option value="workspace-write">
+                        Workspace write (write inside cwd only)
+                      </option>
+                      <option value="danger-full-access">
+                        Danger: full access (no sandbox)
+                      </option>
+                    </select>
+                  </>
+                )}
+
+                <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
+                {(() => {
+                  // Codex model options come from the server (auth-aware via
+                  // model/list). On fetch failure OR an empty list we fall back to the
+                  // hardcoded CODEX_MODELS list so the dialog is still usable (an empty
+                  // fetched list would otherwise render a zero-option select). Claude
+                  // uses the static MODEL_FAMILIES list either way.
+                  const codexFetched =
+                    isCodex && backendModels && backendModels.length > 0;
+                  const codexVisible = codexFetched
+                    ? backendModels.filter((m) => !m.hidden)
+                    : null;
+                  // Pin the stored model as an extra option whenever the rendered
+                  // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
+                  // editing never silently drops a value not offered on this login.
+                  const renderedModelIds = codexVisible
+                    ? codexVisible.map((m) => m.id)
+                    : CODEX_MODELS.map((m) => m.value);
+                  const storedNotInList =
+                    !isSpawn &&
+                    isCodex &&
+                    !renderedModelIds.includes(modelFamily);
+                  return (
+                    <select
+                      value={modelFamily}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setModelFamily(next);
+                        if (
+                          !isCodex &&
+                          !claudeFamilySupportsAutoPermission(next) &&
+                          permissionMode === "auto"
+                        )
+                          setPermissionMode("bypassPermissions");
+                        if (
+                          !isCodex &&
+                          !claudeFamilySupportsMaxEffort(next) &&
+                          effort === "max"
+                        )
+                          // Same coercion target the server's validateEffort uses
+                          // for an invalid Claude "max".
+                          setEffort(DEFAULT_EFFORT);
+                        // Codex: when the model changes, snap effort to the new
+                        // model's default if the current effort isn't supported.
+                        if (isCodex && codexVisible) {
+                          const picked = codexVisible.find(
+                            (m) => m.id === next,
+                          );
+                          if (picked) {
+                            const supported = new Set(
+                              picked.supportedEfforts.map((o) => o.level),
+                            );
+                            if (
+                              !supported.has(effort) &&
+                              picked.defaultEffort
+                            ) {
+                              setEffort(picked.defaultEffort as EffortLevel);
+                            }
+                          }
+                        }
+                      }}
+                      style={{
+                        ...inputStyle,
+                        appearance: "none",
+                        cursor: "pointer",
+                      }}
+                      disabled={isCodex && modelsLoading}
+                    >
+                      {isCodex ? (
+                        <>
+                          {codexVisible
+                            ? codexVisible.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  {m.label}
+                                </option>
+                              ))
+                            : CODEX_MODELS.map((m) => (
+                                <option key={m.value} value={m.value}>
+                                  {m.label}
+                                </option>
+                              ))}
+                          {storedNotInList && (
+                            <option key={modelFamily} value={modelFamily}>
+                              {modelFamily} (unavailable on current login)
+                            </option>
+                          )}
+                        </>
+                      ) : (
+                        MODEL_FAMILIES.map((m) => (
+                          <option key={m.family} value={m.family}>
+                            {m.label} ({modelVersionLabel(m.family)})
+                          </option>
+                        ))
+                      )}
+                    </select>
+                  );
+                })()}
+                {isCodex && modelsLoading && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-ghost)",
+                      margin: "3px 0 0",
+                    }}
+                  >
+                    Loading available models…
+                  </p>
+                )}
+                {isCodex && modelsError && !modelsLoading && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: modelsError.authError
+                        ? "#ff6b6b"
+                        : "var(--text-ghost)",
+                      margin: "3px 0 0",
+                    }}
+                  >
+                    {modelsError.authError
+                      ? "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then re-open this dialog. (Or set OPENAI_API_KEY in your env.)"
+                      : `Could not load model list (${modelsError.message}). Showing fallback list - some options may not work on your account.`}
+                  </p>
+                )}
+
+                <label style={{ ...labelStyle, marginTop: 12 }}>
+                  Thinking Effort
+                </label>
+                {(() => {
+                  // For Codex we use the selected model's supportedReasoningEfforts
+                  // when available; otherwise we fall back to the global EFFORT_LEVELS
+                  // with the same backend/family filter we used pre-fetch.
+                  let effortLevels: { level: string; label: string }[];
+                  if (isCodex && backendModels) {
+                    const picked = backendModels.find(
+                      (m) => m.id === modelFamily,
+                    );
+                    if (picked && picked.supportedEfforts.length > 0) {
+                      // Map Codex effort enum strings to friendly labels using the
+                      // shared EFFORT_LEVELS table when present, falling back to the
+                      // raw enum value capitalized.
+                      effortLevels = picked.supportedEfforts.map((o) => {
+                        const match = EFFORT_LEVELS.find(
+                          (e) => e.level === o.level,
+                        );
+                        return {
+                          level: o.level,
+                          label: match
+                            ? match.label
+                            : o.level.charAt(0).toUpperCase() +
+                              o.level.slice(1),
+                        };
+                      });
+                    } else {
+                      // Codex model with no supportedEfforts reported: fall back to
+                      // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
+                      // across Codex models - e.g. luna lacks ultra; the dynamic
+                      // per-model list is the real source when available).
+                      effortLevels = EFFORT_LEVELS.filter(
+                        (opt) => opt.level !== "max" && opt.level !== "ultra",
+                      ).map((o) => ({ level: o.level, label: o.label }));
+                    }
+                  } else {
+                    effortLevels = EFFORT_LEVELS.filter((opt) => {
+                      if (opt.level === "max")
+                        return (
+                          !isCodex && claudeFamilySupportsMaxEffort(modelFamily)
+                        );
+                      if (opt.level === "minimal") return isCodex;
+                      if (opt.level === "ultra") return false; // per-model Codex list only
+                      return true;
+                    }).map((o) => ({ level: o.level, label: o.label }));
+                  }
+                  return (
+                    <select
+                      value={effort}
+                      onChange={(e) => setEffort(e.target.value as EffortLevel)}
+                      style={{
+                        ...inputStyle,
+                        appearance: "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {effortLevels.map((opt) => (
+                        <option key={opt.level} value={opt.level}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
+              </div>
             </div>
-          )}
-          {!isSpawn && (
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--text-ghost)",
-                margin: "3px 0 0",
-              }}
-            >
-              Changes take effect on next conversation.
-            </p>
-          )}
-
-          {/* Manager - set at spawn, immutable. Rendered as a read-only
-              badge in both spawn and edit modes so there's no UX
-              divergence on which user the agent is bound to. Style
-              matches the Engine badge (also locked at spawn). On spawn
-              the value comes from the device's bound username; on edit
-              it comes from the agent's persisted user record. */}
-          <label style={{ ...labelStyle, marginTop: 12 }}>Manager</label>
-          <div
-            title="Set at spawn - manager cannot be changed after the agent is created."
-            style={{
-              ...inputStyle,
-              display: "flex",
-              alignItems: "center",
-              color: "var(--text-muted)",
-              fontFamily: "'JetBrains Mono',monospace",
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-              fontWeight: 600,
-              cursor: "not-allowed",
-              background: "var(--bg-elevated)",
-            }}
-          >
-            {isSpawn
-              ? (getUsername() ?? "(no user assigned)")
-              : (agent!.username ?? agent!.userId ?? "(unowned)")}
-          </div>
-          <p
-            style={{
-              fontSize: 10,
-              color: "var(--text-ghost)",
-              margin: "3px 0 0",
-            }}
-          >
-            Locked to the spawning user. Controls which <code>envFile</code>{" "}
-            loads on each session (see User Settings).
-          </p>
-
-          {/* Privileged operator access. Grants this agent its spawning user's
-            room-scoped operator powers (drive other agents' sessions: resume,
-            new conversation, send-now, lifecycle; plus cron over the user's own
-            jobs). Scope stays the agent - it never posts as the user. Conferred
-            via the dedicated user-gated route, so toggling a running agent
-            re-mints its token and restarts its session, like a model change.
-            Shown only to a user who may actually set it (owner, or the agent's
-            manager - see canTogglePrivilege). */}
-          {canTogglePrivilege && (
-            <>
-              <label
+            <div className={isSpawn ? "spawn-appearance-section" : undefined}>
+              <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
+              <div
                 style={{
-                  marginTop: 14,
                   display: "flex",
                   alignItems: "center",
-                  gap: 8,
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: "var(--text-muted)",
-                  cursor: "pointer",
+                  gap: 16,
+                  marginBottom: 10,
                 }}
               >
-                <input
-                  type="checkbox"
-                  checked={privileged}
-                  onChange={(e) => setPrivileged(e.target.checked)}
-                  style={{ cursor: "pointer", margin: 0 }}
-                />
-                Privileged operator access
+                <div
+                  style={{
+                    width: 52,
+                    height: 70,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Character state="idle" outfit={outfit} />
+                </div>
+                <button
+                  onClick={() => setOutfit(makeRandomOutfit())}
+                  style={randomBtnStyle}
+                >
+                  Randomize
+                </button>
+              </div>
+
+              {/* Skin Color */}
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                Skin
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 4,
+                  marginBottom: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                {SKIN_COLORS.map((c) => (
+                  <div
+                    key={c}
+                    onClick={() => setOutfit({ ...outfit, skin: c })}
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 6,
+                      background: c,
+                      cursor: "pointer",
+                      border:
+                        outfit.skin === c
+                          ? "2px solid var(--text-primary)"
+                          : "2px solid transparent",
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Shirt Color */}
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                Shirt
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 4,
+                  marginBottom: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                {SHIRT_COLORS.map((c) => (
+                  <div
+                    key={c}
+                    onClick={() => setOutfit({ ...outfit, color: c })}
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 6,
+                      background: c,
+                      cursor: "pointer",
+                      border:
+                        outfit.color === c
+                          ? "2px solid var(--text-primary)"
+                          : "2px solid transparent",
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Hair Color */}
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                Hair Color
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 4,
+                  marginBottom: 8,
+                  flexWrap: "wrap",
+                }}
+              >
+                {HAIR_COLORS.map((c) => (
+                  <div
+                    key={c}
+                    onClick={() => setOutfit({ ...outfit, hair: c })}
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: 6,
+                      background: c,
+                      cursor: "pointer",
+                      border:
+                        outfit.hair === c
+                          ? "2px solid var(--text-primary)"
+                          : "2px solid transparent",
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Hair Style & Hat */}
+              <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-muted)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Hair Style
+                  </div>
+                  <select
+                    value={outfit.hairStyle ?? "short"}
+                    onChange={(e) =>
+                      setOutfit({
+                        ...outfit,
+                        hairStyle: e.target.value as AgentOutfit["hairStyle"],
+                      })
+                    }
+                    style={selectStyle}
+                  >
+                    {HAIR_STYLES.map((s) => (
+                      <option key={s} value={s}>
+                        {HAIR_STYLE_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-muted)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Hat
+                  </div>
+                  <select
+                    value={outfit.hat}
+                    onChange={(e) =>
+                      setOutfit({
+                        ...outfit,
+                        hat: e.target.value as AgentOutfit["hat"],
+                      })
+                    }
+                    style={selectStyle}
+                  >
+                    {HATS.map((h) => (
+                      <option key={h} value={h}>
+                        {HAT_LABELS[h]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Beard & Accessory */}
+              <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-muted)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Beard
+                  </div>
+                  <select
+                    value={outfit.beard ?? "none"}
+                    onChange={(e) =>
+                      setOutfit({
+                        ...outfit,
+                        beard: e.target.value as AgentOutfit["beard"],
+                      })
+                    }
+                    style={selectStyle}
+                  >
+                    {BEARDS.map((b) => (
+                      <option key={b} value={b}>
+                        {BEARD_LABELS[b]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-muted)",
+                      marginBottom: 4,
+                    }}
+                  >
+                    Accessory
+                  </div>
+                  <select
+                    value={outfit.accessory ?? "none"}
+                    onChange={(e) =>
+                      setOutfit({
+                        ...outfit,
+                        accessory:
+                          e.target.value === "none"
+                            ? null
+                            : (e.target.value as AgentOutfit["accessory"]),
+                      })
+                    }
+                    style={selectStyle}
+                  >
+                    {ACCESSORIES.map((a) => (
+                      <option key={a ?? "none"} value={a ?? "none"}>
+                        {ACCESSORY_LABELS[a ?? "none"]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                Custom Instructions{" "}
+                <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+                  (optional)
+                </span>
               </label>
+              <ExpandableTextarea
+                title="Custom Instructions"
+                hint="Personal system prompt for this agent. Run /isomux-system-prompt in a chat to see the agent's full system prompt."
+                value={customInstructions}
+                onChange={setCustomInstructions}
+                placeholder='e.g. "You are a backend specialist. Always write tests."'
+                rows={3}
+                style={{ ...inputStyle, resize: "vertical" }}
+              />
               <p
                 style={{
                   fontSize: 10,
@@ -1076,580 +1879,62 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   margin: "3px 0 0",
                 }}
               >
-                Lets this agent drive other agents' sessions (resume, new
-                conversation, send-now) and manage its own cronjobs, with the
-                spawning user's room-scoped permissions. It still acts as the
-                agent, never as the user.
-                {!isSpawn &&
-                  privileged !== (agent!.privileged ?? false) &&
-                  " Saving restarts the agent's session."}
+                Run <code>/isomux-system-prompt</code> in a chat to see the
+                agent's full system prompt.
+                {!isSpawn && " Changes take effect on next conversation."}
               </p>
-            </>
-          )}
+            </div>
+          </div>
 
-          {/* Engine. Locked at spawn (chosen via the EngineChooserDialog before
-            this opens). Editable in edit mode: switching it starts a fresh
-            conversation on the new engine - the current one is preserved in the
-            agent's resume history, and the model/effort/approval menus below
-            repopulate with the selected engine's options. */}
-          <label style={{ ...labelStyle, marginTop: 12 }}>Engine</label>
-          {isSpawn ? (
-            <div
-              title="Pick a different engine by cancelling and using the other button."
+          {isSpawn && killedAgents.length > 0 && (
+            <section
               style={{
-                ...inputStyle,
-                display: "flex",
-                alignItems: "center",
-                color: "var(--text-muted)",
-                fontFamily: "'JetBrains Mono',monospace",
-                textTransform: "uppercase",
-                letterSpacing: 0.5,
-                fontWeight: 600,
-                cursor: "not-allowed",
-                background: "var(--bg-elevated)",
+                marginTop: 20,
+                paddingTop: 16,
+                borderTop: "1px solid var(--border)",
               }}
             >
-              {agentType}
-            </div>
-          ) : (
-            <>
-              <select
-                value={targetEngine}
-                onChange={(e) =>
-                  setTargetEngine(e.target.value as AgentBackendType)
-                }
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-              >
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-              </select>
-              {targetEngine !== agentType && (
+              <label style={labelStyle}>Revive a killed agent</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {killedAgents.map((killedAgent) => {
+                  const isThisReviving = reviving === killedAgent.id;
+                  const disabled = reviving !== null && !isThisReviving;
+                  return (
+                    <button
+                      key={killedAgent.id}
+                      type="button"
+                      disabled={disabled}
+                      title={
+                        killedAgent.topic
+                          ? `${killedAgent.lastRoomName} - ${killedAgent.topic}`
+                          : killedAgent.lastRoomName
+                      }
+                      onClick={() => handleRevive(killedAgent)}
+                      style={{
+                        background: "var(--bg-surface)",
+                        border: `1.5px solid ${ENGINE_ACCENT[killedAgent.agentType]}`,
+                        borderRadius: 999,
+                        padding: "5px 10px",
+                        fontSize: 12,
+                        color: "var(--text-primary)",
+                        cursor: disabled ? "not-allowed" : "pointer",
+                        opacity: disabled ? 0.4 : 1,
+                      }}
+                    >
+                      {isThisReviving ? "Reviving…" : killedAgent.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {reviveError && (
                 <p
-                  style={{
-                    margin: "6px 0 0",
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    lineHeight: 1.4,
-                  }}
+                  style={{ margin: "8px 0 0", fontSize: 12, color: "#ff6b6b" }}
                 >
-                  Switching to {targetEngine === "codex" ? "Codex" : "Claude"}{" "}
-                  starts a new conversation. The current one stays in this
-                  agent's resume history.
+                  {reviveError}
                 </p>
               )}
-            </>
+            </section>
           )}
-
-          <label style={{ ...labelStyle, marginTop: 12 }}>
-            {isCodex ? "Approval Policy" : "Permission Mode"}
-          </label>
-          <select
-            value={permissionMode}
-            onChange={(e) =>
-              setPermissionMode(e.target.value as AgentInfo["permissionMode"])
-            }
-            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-          >
-            {isCodex ? (
-              <>
-                <option value="untrusted">Untrusted (ask on every tool)</option>
-                <option value="on-request">
-                  On request (model asks when needed)
-                </option>
-                <option value="never">Never ask (use sandbox-only)</option>
-              </>
-            ) : (
-              <>
-                {claudeFamilySupportsAutoPermission(modelFamily) && (
-                  <option value="auto">
-                    Auto (classifier auto-approves safe actions)
-                  </option>
-                )}
-                <option value="default">Default (ask for everything)</option>
-                <option value="acceptEdits">
-                  Accept Edits (auto-approve file changes)
-                </option>
-                <option value="bypassPermissions">
-                  Bypass (auto-approve all)
-                </option>
-              </>
-            )}
-          </select>
-
-          {isCodex && (
-            <>
-              <label style={{ ...labelStyle, marginTop: 12 }}>Sandbox</label>
-              <select
-                value={codexSandbox}
-                onChange={(e) =>
-                  setCodexSandbox(e.target.value as CodexSandboxMode)
-                }
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-              >
-                <option value="read-only">
-                  Read-only (model can read, never write)
-                </option>
-                <option value="workspace-write">
-                  Workspace write (write inside cwd only)
-                </option>
-                <option value="danger-full-access">
-                  Danger: full access (no sandbox)
-                </option>
-              </select>
-            </>
-          )}
-
-          <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
-          {(() => {
-            // Codex model options come from the server (auth-aware via
-            // model/list). On fetch failure OR an empty list we fall back to the
-            // hardcoded CODEX_MODELS list so the dialog is still usable (an empty
-            // fetched list would otherwise render a zero-option select). Claude
-            // uses the static MODEL_FAMILIES list either way.
-            const codexFetched =
-              isCodex && backendModels && backendModels.length > 0;
-            const codexVisible = codexFetched
-              ? backendModels.filter((m) => !m.hidden)
-              : null;
-            // Pin the stored model as an extra option whenever the rendered
-            // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
-            // editing never silently drops a value not offered on this login.
-            const renderedModelIds = codexVisible
-              ? codexVisible.map((m) => m.id)
-              : CODEX_MODELS.map((m) => m.value);
-            const storedNotInList =
-              !isSpawn && isCodex && !renderedModelIds.includes(modelFamily);
-            return (
-              <select
-                value={modelFamily}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setModelFamily(next);
-                  if (
-                    !isCodex &&
-                    !claudeFamilySupportsAutoPermission(next) &&
-                    permissionMode === "auto"
-                  )
-                    setPermissionMode("bypassPermissions");
-                  if (
-                    !isCodex &&
-                    !claudeFamilySupportsMaxEffort(next) &&
-                    effort === "max"
-                  )
-                    // Same coercion target the server's validateEffort uses
-                    // for an invalid Claude "max".
-                    setEffort(DEFAULT_EFFORT);
-                  // Codex: when the model changes, snap effort to the new
-                  // model's default if the current effort isn't supported.
-                  if (isCodex && codexVisible) {
-                    const picked = codexVisible.find((m) => m.id === next);
-                    if (picked) {
-                      const supported = new Set(
-                        picked.supportedEfforts.map((o) => o.level),
-                      );
-                      if (!supported.has(effort) && picked.defaultEffort) {
-                        setEffort(picked.defaultEffort as EffortLevel);
-                      }
-                    }
-                  }
-                }}
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-                disabled={isCodex && modelsLoading}
-              >
-                {isCodex ? (
-                  <>
-                    {codexVisible
-                      ? codexVisible.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))
-                      : CODEX_MODELS.map((m) => (
-                          <option key={m.value} value={m.value}>
-                            {m.label}
-                          </option>
-                        ))}
-                    {storedNotInList && (
-                      <option key={modelFamily} value={modelFamily}>
-                        {modelFamily} (unavailable on current login)
-                      </option>
-                    )}
-                  </>
-                ) : (
-                  MODEL_FAMILIES.map((m) => (
-                    <option key={m.family} value={m.family}>
-                      {m.label} ({modelVersionLabel(m.family)})
-                    </option>
-                  ))
-                )}
-              </select>
-            );
-          })()}
-          {isCodex && modelsLoading && (
-            <p
-              style={{
-                fontSize: 10,
-                color: "var(--text-ghost)",
-                margin: "3px 0 0",
-              }}
-            >
-              Loading available models…
-            </p>
-          )}
-          {isCodex && modelsError && !modelsLoading && (
-            <p
-              style={{
-                fontSize: 10,
-                color: modelsError.authError ? "#ff6b6b" : "var(--text-ghost)",
-                margin: "3px 0 0",
-              }}
-            >
-              {modelsError.authError
-                ? "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then re-open this dialog. (Or set OPENAI_API_KEY in your env.)"
-                : `Could not load model list (${modelsError.message}). Showing fallback list - some options may not work on your account.`}
-            </p>
-          )}
-
-          <label style={{ ...labelStyle, marginTop: 12 }}>
-            Thinking Effort
-          </label>
-          {(() => {
-            // For Codex we use the selected model's supportedReasoningEfforts
-            // when available; otherwise we fall back to the global EFFORT_LEVELS
-            // with the same backend/family filter we used pre-fetch.
-            let effortLevels: { level: string; label: string }[];
-            if (isCodex && backendModels) {
-              const picked = backendModels.find((m) => m.id === modelFamily);
-              if (picked && picked.supportedEfforts.length > 0) {
-                // Map Codex effort enum strings to friendly labels using the
-                // shared EFFORT_LEVELS table when present, falling back to the
-                // raw enum value capitalized.
-                effortLevels = picked.supportedEfforts.map((o) => {
-                  const match = EFFORT_LEVELS.find((e) => e.level === o.level);
-                  return {
-                    level: o.level,
-                    label: match
-                      ? match.label
-                      : o.level.charAt(0).toUpperCase() + o.level.slice(1),
-                  };
-                });
-              } else {
-                // Codex model with no supportedEfforts reported: fall back to
-                // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
-                // across Codex models - e.g. luna lacks ultra; the dynamic
-                // per-model list is the real source when available).
-                effortLevels = EFFORT_LEVELS.filter(
-                  (opt) => opt.level !== "max" && opt.level !== "ultra",
-                ).map((o) => ({ level: o.level, label: o.label }));
-              }
-            } else {
-              effortLevels = EFFORT_LEVELS.filter((opt) => {
-                if (opt.level === "max")
-                  return !isCodex && claudeFamilySupportsMaxEffort(modelFamily);
-                if (opt.level === "minimal") return isCodex;
-                if (opt.level === "ultra") return false; // per-model Codex list only
-                return true;
-              }).map((o) => ({ level: o.level, label: o.label }));
-            }
-            return (
-              <select
-                value={effort}
-                onChange={(e) => setEffort(e.target.value as EffortLevel)}
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-              >
-                {effortLevels.map((opt) => (
-                  <option key={opt.level} value={opt.level}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            );
-          })()}
-
-          <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-              marginBottom: 10,
-            }}
-          >
-            <div
-              style={{
-                width: 52,
-                height: 70,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Character state="idle" outfit={outfit} />
-            </div>
-            <button
-              onClick={() => setOutfit(makeRandomOutfit())}
-              style={randomBtnStyle}
-            >
-              Randomize
-            </button>
-          </div>
-
-          {/* Skin Color */}
-          <div
-            style={{
-              fontSize: 10,
-              color: "var(--text-muted)",
-              marginBottom: 4,
-            }}
-          >
-            Skin
-          </div>
-          <div
-            style={{
-              display: "flex",
-              gap: 4,
-              marginBottom: 8,
-              flexWrap: "wrap",
-            }}
-          >
-            {SKIN_COLORS.map((c) => (
-              <div
-                key={c}
-                onClick={() => setOutfit({ ...outfit, skin: c })}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 6,
-                  background: c,
-                  cursor: "pointer",
-                  border:
-                    outfit.skin === c
-                      ? "2px solid var(--text-primary)"
-                      : "2px solid transparent",
-                }}
-              />
-            ))}
-          </div>
-
-          {/* Shirt Color */}
-          <div
-            style={{
-              fontSize: 10,
-              color: "var(--text-muted)",
-              marginBottom: 4,
-            }}
-          >
-            Shirt
-          </div>
-          <div
-            style={{
-              display: "flex",
-              gap: 4,
-              marginBottom: 8,
-              flexWrap: "wrap",
-            }}
-          >
-            {SHIRT_COLORS.map((c) => (
-              <div
-                key={c}
-                onClick={() => setOutfit({ ...outfit, color: c })}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 6,
-                  background: c,
-                  cursor: "pointer",
-                  border:
-                    outfit.color === c
-                      ? "2px solid var(--text-primary)"
-                      : "2px solid transparent",
-                }}
-              />
-            ))}
-          </div>
-
-          {/* Hair Color */}
-          <div
-            style={{
-              fontSize: 10,
-              color: "var(--text-muted)",
-              marginBottom: 4,
-            }}
-          >
-            Hair Color
-          </div>
-          <div
-            style={{
-              display: "flex",
-              gap: 4,
-              marginBottom: 8,
-              flexWrap: "wrap",
-            }}
-          >
-            {HAIR_COLORS.map((c) => (
-              <div
-                key={c}
-                onClick={() => setOutfit({ ...outfit, hair: c })}
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 6,
-                  background: c,
-                  cursor: "pointer",
-                  border:
-                    outfit.hair === c
-                      ? "2px solid var(--text-primary)"
-                      : "2px solid transparent",
-                }}
-              />
-            ))}
-          </div>
-
-          {/* Hair Style & Hat */}
-          <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  marginBottom: 4,
-                }}
-              >
-                Hair Style
-              </div>
-              <select
-                value={outfit.hairStyle ?? "short"}
-                onChange={(e) =>
-                  setOutfit({
-                    ...outfit,
-                    hairStyle: e.target.value as AgentOutfit["hairStyle"],
-                  })
-                }
-                style={selectStyle}
-              >
-                {HAIR_STYLES.map((s) => (
-                  <option key={s} value={s}>
-                    {HAIR_STYLE_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  marginBottom: 4,
-                }}
-              >
-                Hat
-              </div>
-              <select
-                value={outfit.hat}
-                onChange={(e) =>
-                  setOutfit({
-                    ...outfit,
-                    hat: e.target.value as AgentOutfit["hat"],
-                  })
-                }
-                style={selectStyle}
-              >
-                {HATS.map((h) => (
-                  <option key={h} value={h}>
-                    {HAT_LABELS[h]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Beard & Accessory */}
-          <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-            <div style={{ flex: 1 }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  marginBottom: 4,
-                }}
-              >
-                Beard
-              </div>
-              <select
-                value={outfit.beard ?? "none"}
-                onChange={(e) =>
-                  setOutfit({
-                    ...outfit,
-                    beard: e.target.value as AgentOutfit["beard"],
-                  })
-                }
-                style={selectStyle}
-              >
-                {BEARDS.map((b) => (
-                  <option key={b} value={b}>
-                    {BEARD_LABELS[b]}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  marginBottom: 4,
-                }}
-              >
-                Accessory
-              </div>
-              <select
-                value={outfit.accessory ?? "none"}
-                onChange={(e) =>
-                  setOutfit({
-                    ...outfit,
-                    accessory:
-                      e.target.value === "none"
-                        ? null
-                        : (e.target.value as AgentOutfit["accessory"]),
-                  })
-                }
-                style={selectStyle}
-              >
-                {ACCESSORIES.map((a) => (
-                  <option key={a ?? "none"} value={a ?? "none"}>
-                    {ACCESSORY_LABELS[a ?? "none"]}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <label style={{ ...labelStyle, marginTop: 14 }}>
-            Custom Instructions{" "}
-            <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-              (optional)
-            </span>
-          </label>
-          <ExpandableTextarea
-            title="Custom Instructions"
-            hint="Personal system prompt for this agent. Run /isomux-system-prompt in a chat to see the agent's full system prompt."
-            value={customInstructions}
-            onChange={setCustomInstructions}
-            placeholder='e.g. "You are a backend specialist. Always write tests."'
-            rows={3}
-            style={{ ...inputStyle, resize: "vertical" }}
-          />
-          <p
-            style={{
-              fontSize: 10,
-              color: "var(--text-ghost)",
-              margin: "3px 0 0",
-            }}
-          >
-            Run <code>/isomux-system-prompt</code> in a chat to see the agent's
-            full system prompt.
-            {!isSpawn && " Changes take effect on next conversation."}
-          </p>
 
           {!isSpawn && (
             <>
