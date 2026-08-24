@@ -314,6 +314,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // inline render lives.
   const [nameError, setNameError] = useState<string | null>(null);
   const [cwdError, setCwdError] = useState<string | null>(null);
+  const [showRecentCwds, setShowRecentCwds] = useState(false);
   // Suggestion chips: allRecentCwds is server-maintained newest-first (capped at
   // 20). Drop the current cwd, then show only the most recent few so the chip
   // row stays a glanceable shortcut instead of a wall of paths.
@@ -942,174 +943,489 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               : "24px 28px 0",
           }}
         >
-          <h3
+          <div
             style={{
-              fontSize: 17,
-              fontWeight: 700,
-              margin: 0,
-              color: "var(--text-primary)",
+              display: "flex",
+              alignItems: "baseline",
+              gap: 8,
+              marginBottom: isSpawn ? 18 : 0,
             }}
           >
-            {isSpawn ? "Spawn New Agent" : "Edit Agent"}
-          </h3>
-          <p
-            style={{
-              fontSize: 12,
-              color: "var(--text-faint)",
-              margin: "2px 0 18px",
-            }}
-          >
-            {isSpawn
-              ? `Desk #${props.deskIndex + 1}`
-              : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}Desk #${agent!.desk + 1}`}
-          </p>
-
-          {isSpawn && (
-            <section className="spawn-engine-band">
-              <label style={labelStyle}>Engine</label>
-              <div className="spawn-engine-options">
-                {ENGINE_OPTIONS.map((option) => {
-                  const selected = targetEngine === option.agentType;
-                  return (
-                    <button
-                      key={option.agentType}
-                      type="button"
-                      aria-pressed={selected}
-                      onClick={() => setTargetEngine(option.agentType)}
-                      style={{
-                        background: selected
-                          ? "var(--bg-hover)"
-                          : "var(--bg-surface)",
-                        border: `2px solid ${
-                          selected ? option.accent : "var(--border-medium)"
-                        }`,
-                        borderRadius: 8,
-                        padding: "12px 14px",
-                        textAlign: "left",
-                        cursor: "pointer",
-                        color: "var(--text-primary)",
-                        boxShadow: selected
-                          ? `0 0 0 1px ${option.accent}`
-                          : "none",
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: "block",
-                          fontSize: 15,
-                          fontWeight: 700,
-                          marginBottom: 4,
-                        }}
-                      >
-                        {option.label}
-                      </span>
-                      <span
-                        style={{
-                          display: "block",
-                          fontSize: 12,
-                          color: "var(--text-muted)",
-                          lineHeight: 1.4,
-                        }}
-                      >
-                        {option.blurb}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
+            <h3
+              style={{
+                fontSize: 17,
+                fontWeight: 700,
+                margin: 0,
+                color: "var(--text-primary)",
+              }}
+            >
+              {isSpawn ? "Spawn New Agent" : "Edit Agent"}
+            </h3>
+            {isSpawn && (
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Desk #{props.deskIndex + 1}
+              </span>
+            )}
+          </div>
+          {!isSpawn && (
+            <p
+              style={{
+                fontSize: 12,
+                color: "var(--text-muted)",
+                margin: "2px 0 18px",
+              }}
+            >
+              {`${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}Desk #${agent!.desk + 1}`}
+            </p>
           )}
 
-          <div className={isSpawn ? "spawn-dialog-grid" : undefined}>
-            {isSpawn && (
-              <section className="spawn-template-section">
-                <label style={labelStyle}>Start with a template</label>
-                <p
-                  style={{
-                    fontSize: 10,
-                    color: "var(--text-ghost)",
-                    margin: "3px 0 8px",
-                  }}
-                >
-                  Templates fill the fields below. You can edit every
-                  suggestion.
-                </p>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: isMobile
-                      ? "repeat(2, minmax(0, 1fr))"
-                      : "repeat(3, minmax(0, 1fr))",
-                    gap: 6,
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={applyBlankTemplate}
-                    aria-pressed={selectedTemplateKey === null}
+          <div className="agent-dialog-grid">
+            <div className="agent-dialog-left-column">
+              {isSpawn ? (
+                <section className="agent-engine-section">
+                  <label style={labelStyle}>Engine</label>
+                  <div className="spawn-engine-options">
+                    {ENGINE_OPTIONS.map((option) => {
+                      const selected = targetEngine === option.agentType;
+                      return (
+                        <button
+                          key={option.agentType}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => setTargetEngine(option.agentType)}
+                          style={{
+                            background: selected
+                              ? "var(--bg-hover)"
+                              : "var(--bg-surface)",
+                            border: `2px solid ${selected ? option.accent : "var(--border-medium)"}`,
+                            borderRadius: 8,
+                            padding: "12px 14px",
+                            textAlign: "left",
+                            cursor: "pointer",
+                            color: "var(--text-primary)",
+                            boxShadow: selected
+                              ? `0 0 0 1px ${option.accent}`
+                              : "none",
+                          }}
+                        >
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: 15,
+                              fontWeight: 700,
+                              marginBottom: 4,
+                            }}
+                          >
+                            {option.label}
+                          </span>
+                          <span
+                            style={{
+                              display: "block",
+                              fontSize: 12,
+                              color: "var(--text-dim)",
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {option.blurb}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ) : (
+                /* Editable in edit mode: switching starts a fresh conversation
+                on the new engine. The current conversation stays in resume
+                history, and the settings use the new engine's options. */
+                <section className="agent-engine-section">
+                  <label style={labelStyle}>Engine</label>
+                  <select
+                    value={targetEngine}
+                    onChange={(e) =>
+                      setTargetEngine(e.target.value as AgentBackendType)
+                    }
                     style={{
-                      ...templateCardStyle(selectedTemplateKey === null, false),
-                      gridColumn: "1 / -1",
+                      ...inputStyle,
+                      appearance: "none",
+                      cursor: "pointer",
                     }}
                   >
-                    <span style={templateCardTextStyle}>
-                      <span style={templateCardTitleStyle}>Blank</span>
-                      <span style={templateCardDescriptionStyle}>
-                        Set up the agent yourself.
-                      </span>
-                    </span>
-                  </button>
-                  {AGENT_TEMPLATES.map((template) => {
-                    const selected = selectedTemplateKey === template.key;
-                    return (
-                      <button
-                        key={template.key}
-                        type="button"
-                        disabled={templateModelsPending}
-                        onClick={() => applyTemplate(template)}
-                        aria-pressed={selected}
-                        style={templateCardStyle(
-                          selected,
-                          templateModelsPending,
-                          template.group,
-                        )}
-                      >
-                        <span style={templateAvatarStyle} aria-hidden="true">
-                          <Character
-                            state="idle"
-                            outfit={template.outfit}
-                            portrait
-                            height={44}
-                          />
-                        </span>
-                        <span style={templateCardTextStyle}>
-                          <span style={templateCardTitleStyle}>
-                            {template.label}
-                          </span>
-                          <span style={templateCardDescriptionStyle}>
-                            {template.description}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                {templateModelsPending && (
+                    <option value="claude">Claude</option>
+                    <option value="codex">Codex</option>
+                  </select>
+                  {targetEngine !== agentType && (
+                    <p
+                      style={{
+                        margin: "6px 0 0",
+                        fontSize: 11,
+                        color: "var(--text-muted)",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      Switching to{" "}
+                      {targetEngine === "codex" ? "Codex" : "Claude"} starts a
+                      new conversation. The current one stays in this agent's
+                      resume history.
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {isSpawn && (
+                <section className="spawn-template-section">
+                  <label style={labelStyle}>Start with a template</label>
                   <p
                     style={{
                       fontSize: 10,
                       color: "var(--text-muted)",
-                      margin: "6px 0 0",
+                      margin: "3px 0 8px",
                     }}
                   >
-                    Loading models before templates can be applied…
+                    Templates fill the fields below. You can edit every
+                    suggestion.
                   </p>
-                )}
-              </section>
-            )}
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: isMobile
+                        ? "repeat(2, minmax(0, 1fr))"
+                        : "repeat(3, minmax(0, 1fr))",
+                      gap: 6,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={applyBlankTemplate}
+                      aria-pressed={selectedTemplateKey === null}
+                      style={{
+                        ...templateCardStyle(
+                          selectedTemplateKey === null,
+                          false,
+                        ),
+                        gridColumn: "1 / -1",
+                      }}
+                    >
+                      <span style={templateCardTextStyle}>
+                        <span style={templateCardTitleStyle}>Blank</span>
+                        <span style={templateCardDescriptionStyle}>
+                          Set up the agent yourself.
+                        </span>
+                      </span>
+                    </button>
+                    {AGENT_TEMPLATES.map((template) => {
+                      const selected = selectedTemplateKey === template.key;
+                      return (
+                        <button
+                          key={template.key}
+                          type="button"
+                          disabled={templateModelsPending}
+                          onClick={() => applyTemplate(template)}
+                          aria-pressed={selected}
+                          style={templateCardStyle(
+                            selected,
+                            templateModelsPending,
+                            template.group,
+                          )}
+                        >
+                          <span style={templateAvatarStyle} aria-hidden="true">
+                            <Character
+                              state="idle"
+                              outfit={template.outfit}
+                              portrait
+                              height={44}
+                            />
+                          </span>
+                          <span style={templateCardTextStyle}>
+                            <span style={templateCardTitleStyle}>
+                              {template.label}
+                            </span>
+                            <span style={templateCardDescriptionStyle}>
+                              {template.description}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {templateModelsPending && (
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                        margin: "6px 0 0",
+                      }}
+                    >
+                      Loading models before templates can be applied…
+                    </p>
+                  )}
+                </section>
+              )}
 
-            <div className="spawn-right-column">
-              <div className={isSpawn ? "spawn-identity-section" : undefined}>
+              <div className="agent-appearance-section">
+                <label style={{ ...labelStyle, marginTop: 14 }}>
+                  Appearance
+                </label>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 16,
+                    marginBottom: 10,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 52,
+                      height: 70,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Character state="idle" outfit={outfit} />
+                  </div>
+                  <button
+                    onClick={() => setOutfit(makeRandomOutfit())}
+                    style={randomBtnStyle}
+                  >
+                    Randomize
+                  </button>
+                </div>
+
+                {/* Skin Color */}
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    marginBottom: 4,
+                  }}
+                >
+                  Skin
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 4,
+                    marginBottom: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {SKIN_COLORS.map((c) => (
+                    <div
+                      key={c}
+                      onClick={() => setOutfit({ ...outfit, skin: c })}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 6,
+                        background: c,
+                        cursor: "pointer",
+                        border:
+                          outfit.skin === c
+                            ? "2px solid var(--text-primary)"
+                            : "2px solid transparent",
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Shirt Color */}
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    marginBottom: 4,
+                  }}
+                >
+                  Shirt
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 4,
+                    marginBottom: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {SHIRT_COLORS.map((c) => (
+                    <div
+                      key={c}
+                      onClick={() => setOutfit({ ...outfit, color: c })}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 6,
+                        background: c,
+                        cursor: "pointer",
+                        border:
+                          outfit.color === c
+                            ? "2px solid var(--text-primary)"
+                            : "2px solid transparent",
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Hair Color */}
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    marginBottom: 4,
+                  }}
+                >
+                  Hair Color
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 4,
+                    marginBottom: 8,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {HAIR_COLORS.map((c) => (
+                    <div
+                      key={c}
+                      onClick={() => setOutfit({ ...outfit, hair: c })}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 6,
+                        background: c,
+                        cursor: "pointer",
+                        border:
+                          outfit.hair === c
+                            ? "2px solid var(--text-primary)"
+                            : "2px solid transparent",
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Hair Style & Hat */}
+                <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                        marginBottom: 4,
+                      }}
+                    >
+                      Hair Style
+                    </div>
+                    <select
+                      value={outfit.hairStyle ?? "short"}
+                      onChange={(e) =>
+                        setOutfit({
+                          ...outfit,
+                          hairStyle: e.target.value as AgentOutfit["hairStyle"],
+                        })
+                      }
+                      style={selectStyle}
+                    >
+                      {HAIR_STYLES.map((s) => (
+                        <option key={s} value={s}>
+                          {HAIR_STYLE_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                        marginBottom: 4,
+                      }}
+                    >
+                      Hat
+                    </div>
+                    <select
+                      value={outfit.hat}
+                      onChange={(e) =>
+                        setOutfit({
+                          ...outfit,
+                          hat: e.target.value as AgentOutfit["hat"],
+                        })
+                      }
+                      style={selectStyle}
+                    >
+                      {HATS.map((h) => (
+                        <option key={h} value={h}>
+                          {HAT_LABELS[h]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Beard & Accessory */}
+                <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                        marginBottom: 4,
+                      }}
+                    >
+                      Beard
+                    </div>
+                    <select
+                      value={outfit.beard ?? "none"}
+                      onChange={(e) =>
+                        setOutfit({
+                          ...outfit,
+                          beard: e.target.value as AgentOutfit["beard"],
+                        })
+                      }
+                      style={selectStyle}
+                    >
+                      {BEARDS.map((b) => (
+                        <option key={b} value={b}>
+                          {BEARD_LABELS[b]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-muted)",
+                        marginBottom: 4,
+                      }}
+                    >
+                      Accessory
+                    </div>
+                    <select
+                      value={outfit.accessory ?? "none"}
+                      onChange={(e) =>
+                        setOutfit({
+                          ...outfit,
+                          accessory:
+                            e.target.value === "none"
+                              ? null
+                              : (e.target.value as AgentOutfit["accessory"]),
+                        })
+                      }
+                      style={selectStyle}
+                    >
+                      {ACCESSORIES.map((a) => (
+                        <option key={a ?? "none"} value={a ?? "none"}>
+                          {ACCESSORY_LABELS[a ?? "none"]}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="agent-dialog-right-column">
+              <div className="agent-identity-section">
                 <label style={labelStyle}>Name</label>
                 {/* Mobile autofocus would scroll the engine and templates out of view
               as soon as the full-page spawn dialog opens. */}
@@ -1144,18 +1460,31 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 <label style={{ ...labelStyle, marginTop: 12 }}>
                   Working Directory
                 </label>
-                <input
-                  value={cwd}
-                  onChange={(e) => {
-                    setCwd(e.target.value);
-                    if (cwdError) setCwdError(null);
-                  }}
-                  style={
-                    cwdError
-                      ? { ...inputStyle, borderColor: "#ff6b6b" }
-                      : inputStyle
-                  }
-                />
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    value={cwd}
+                    onChange={(e) => {
+                      setCwd(e.target.value);
+                      if (cwdError) setCwdError(null);
+                    }}
+                    style={
+                      cwdError
+                        ? { ...inputStyle, borderColor: "#ff6b6b" }
+                        : inputStyle
+                    }
+                  />
+                  {recentCwds.length > 0 && (
+                    <button
+                      type="button"
+                      aria-expanded={showRecentCwds}
+                      aria-controls="recent-cwd-suggestions"
+                      onClick={() => setShowRecentCwds((shown) => !shown)}
+                      style={{ ...dialogCancelBtn, padding: "7px 10px" }}
+                    >
+                      Recent
+                    </button>
+                  )}
+                </div>
                 {cwdError && (
                   <p
                     style={{
@@ -1167,8 +1496,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     {cwdError}
                   </p>
                 )}
-                {recentCwds.length > 0 && (
+                {showRecentCwds && recentCwds.length > 0 && (
                   <div
+                    id="recent-cwd-suggestions"
                     style={{
                       display: "flex",
                       flexWrap: "wrap",
@@ -1181,6 +1511,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         key={c}
                         onClick={() => {
                           setCwd(c);
+                          setShowRecentCwds(false);
                           if (cwdError) setCwdError(null);
                         }}
                         style={chipStyle}
@@ -1289,46 +1620,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 )}
               </div>
 
-              {/* Editable in edit mode: switching it starts a fresh
-              conversation on the new engine - the current one is preserved in the
-              agent's resume history, and the model/effort/approval menus below
-              repopulate with the selected engine's options. */}
-              {!isSpawn && (
-                <>
-                  <label style={{ ...labelStyle, marginTop: 12 }}>Engine</label>
-                  <select
-                    value={targetEngine}
-                    onChange={(e) =>
-                      setTargetEngine(e.target.value as AgentBackendType)
-                    }
-                    style={{
-                      ...inputStyle,
-                      appearance: "none",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <option value="claude">Claude</option>
-                    <option value="codex">Codex</option>
-                  </select>
-                  {targetEngine !== agentType && (
-                    <p
-                      style={{
-                        margin: "6px 0 0",
-                        fontSize: 11,
-                        color: "var(--text-muted)",
-                        lineHeight: 1.4,
-                      }}
-                    >
-                      Switching to{" "}
-                      {targetEngine === "codex" ? "Codex" : "Claude"} starts a
-                      new conversation. The current one stays in this agent's
-                      resume history.
-                    </p>
-                  )}
-                </>
-              )}
-
-              <div className={isSpawn ? "spawn-engine-settings" : undefined}>
+              <div className="agent-engine-settings">
                 <label style={{ ...labelStyle, marginTop: 12 }}>
                   {isCodex ? "Approval Policy" : "Permission Mode"}
                 </label>
@@ -1597,266 +1889,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   );
                 })()}
               </div>
-            </div>
-            <div className={isSpawn ? "spawn-appearance-section" : undefined}>
-              <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 16,
-                  marginBottom: 10,
-                }}
-              >
-                <div
-                  style={{
-                    width: 52,
-                    height: 70,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                  }}
-                >
-                  <Character state="idle" outfit={outfit} />
-                </div>
-                <button
-                  onClick={() => setOutfit(makeRandomOutfit())}
-                  style={randomBtnStyle}
-                >
-                  Randomize
-                </button>
-              </div>
-
-              {/* Skin Color */}
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  marginBottom: 4,
-                }}
-              >
-                Skin
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 4,
-                  marginBottom: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                {SKIN_COLORS.map((c) => (
-                  <div
-                    key={c}
-                    onClick={() => setOutfit({ ...outfit, skin: c })}
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 6,
-                      background: c,
-                      cursor: "pointer",
-                      border:
-                        outfit.skin === c
-                          ? "2px solid var(--text-primary)"
-                          : "2px solid transparent",
-                    }}
-                  />
-                ))}
-              </div>
-
-              {/* Shirt Color */}
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  marginBottom: 4,
-                }}
-              >
-                Shirt
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 4,
-                  marginBottom: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                {SHIRT_COLORS.map((c) => (
-                  <div
-                    key={c}
-                    onClick={() => setOutfit({ ...outfit, color: c })}
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 6,
-                      background: c,
-                      cursor: "pointer",
-                      border:
-                        outfit.color === c
-                          ? "2px solid var(--text-primary)"
-                          : "2px solid transparent",
-                    }}
-                  />
-                ))}
-              </div>
-
-              {/* Hair Color */}
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-muted)",
-                  marginBottom: 4,
-                }}
-              >
-                Hair Color
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  gap: 4,
-                  marginBottom: 8,
-                  flexWrap: "wrap",
-                }}
-              >
-                {HAIR_COLORS.map((c) => (
-                  <div
-                    key={c}
-                    onClick={() => setOutfit({ ...outfit, hair: c })}
-                    style={{
-                      width: 24,
-                      height: 24,
-                      borderRadius: 6,
-                      background: c,
-                      cursor: "pointer",
-                      border:
-                        outfit.hair === c
-                          ? "2px solid var(--text-primary)"
-                          : "2px solid transparent",
-                    }}
-                  />
-                ))}
-              </div>
-
-              {/* Hair Style & Hat */}
-              <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: "var(--text-muted)",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Hair Style
-                  </div>
-                  <select
-                    value={outfit.hairStyle ?? "short"}
-                    onChange={(e) =>
-                      setOutfit({
-                        ...outfit,
-                        hairStyle: e.target.value as AgentOutfit["hairStyle"],
-                      })
-                    }
-                    style={selectStyle}
-                  >
-                    {HAIR_STYLES.map((s) => (
-                      <option key={s} value={s}>
-                        {HAIR_STYLE_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: "var(--text-muted)",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Hat
-                  </div>
-                  <select
-                    value={outfit.hat}
-                    onChange={(e) =>
-                      setOutfit({
-                        ...outfit,
-                        hat: e.target.value as AgentOutfit["hat"],
-                      })
-                    }
-                    style={selectStyle}
-                  >
-                    {HATS.map((h) => (
-                      <option key={h} value={h}>
-                        {HAT_LABELS[h]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Beard & Accessory */}
-              <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-                <div style={{ flex: 1 }}>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: "var(--text-muted)",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Beard
-                  </div>
-                  <select
-                    value={outfit.beard ?? "none"}
-                    onChange={(e) =>
-                      setOutfit({
-                        ...outfit,
-                        beard: e.target.value as AgentOutfit["beard"],
-                      })
-                    }
-                    style={selectStyle}
-                  >
-                    {BEARDS.map((b) => (
-                      <option key={b} value={b}>
-                        {BEARD_LABELS[b]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: "var(--text-muted)",
-                      marginBottom: 4,
-                    }}
-                  >
-                    Accessory
-                  </div>
-                  <select
-                    value={outfit.accessory ?? "none"}
-                    onChange={(e) =>
-                      setOutfit({
-                        ...outfit,
-                        accessory:
-                          e.target.value === "none"
-                            ? null
-                            : (e.target.value as AgentOutfit["accessory"]),
-                      })
-                    }
-                    style={selectStyle}
-                  >
-                    {ACCESSORIES.map((a) => (
-                      <option key={a ?? "none"} value={a ?? "none"}>
-                        {ACCESSORY_LABELS[a ?? "none"]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
               <label style={{ ...labelStyle, marginTop: 14 }}>
                 Custom Instructions{" "}
                 <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
@@ -2175,7 +2207,7 @@ const templateCardTitleStyle: React.CSSProperties = {
 
 const templateCardDescriptionStyle: React.CSSProperties = {
   fontSize: 9,
-  color: "var(--text-muted)",
+  color: "var(--text-dim)",
   lineHeight: 1.3,
 };
 

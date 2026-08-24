@@ -200,29 +200,25 @@ ${emitThemesCss()}
     .nav-action-label { display: none; }
   }
 
-  /* Edit-agent dialog widens on wide-enough screens */
-  .edit-agent-dialog-desktop { width: 380px; }
+  /* Spawn/edit agent forms share one responsive layout. */
+  .edit-agent-dialog-desktop,
   .spawn-agent-dialog-desktop { width: min(640px, 94vw); }
-  .spawn-engine-band { margin-bottom: 18px; }
+  .agent-engine-section { margin-bottom: 18px; }
   .spawn-engine-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .spawn-dialog-grid { display: block; }
+  .agent-dialog-grid { display: block; }
   .spawn-template-section,
-  .spawn-identity-section,
-  .spawn-engine-settings { margin-bottom: 18px; }
-  @media (min-width: 1100px) {
-    .edit-agent-dialog-desktop { width: 460px; }
-  }
+  .agent-identity-section,
+  .agent-engine-settings { margin-bottom: 18px; }
   @media (min-width: 1000px) {
+    .edit-agent-dialog-desktop,
     .spawn-agent-dialog-desktop { width: min(1040px, 94vw); }
-    .spawn-dialog-grid {
+    .agent-dialog-grid {
       display: grid;
       grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
       gap: 0 28px;
       align-items: start;
     }
-    .spawn-template-section { grid-column: 1; grid-row: 1; }
-    .spawn-right-column { grid-column: 2; grid-row: 1 / 3; }
-    .spawn-appearance-section { grid-column: 1; grid-row: 2; }
+    .agent-dialog-right-column { grid-column: 2; }
   }
 
   /* Copy buttons */
