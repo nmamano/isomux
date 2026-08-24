@@ -111,7 +111,7 @@ export type ClaudeModel = string;
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   opus: "claude-opus-5",
   fable: "claude-fable-5",
-  sonnet: "claude-sonnet-4-6",
+  sonnet: "claude-sonnet-5",
   haiku: "claude-haiku-4-5-20251001",
 };
 
