@@ -36,9 +36,14 @@ function runRelease(
   args: string[],
   env: Record<string, string> = { RELEASE_SKIP_CI: "1" },
 ): { code: number; out: string } {
+  // A real release exports _ISOMUX_RELEASE_LOGGED=1 to its whole process
+  // tree - including the pre-push CI that runs this suite - so an inherited
+  // value makes every spawned release.sh skip the pointer line and the
+  // log-file assertions fail exactly and only during an actual release.
+  const { _ISOMUX_RELEASE_LOGGED: _drop, ...ambient } = process.env;
   const r = spawnSync("bash", [RELEASE_SH, ...args], {
     cwd: repo,
-    env: { ...process.env, TMPDIR: base, ...env },
+    env: { ...ambient, TMPDIR: base, ...env },
     encoding: "utf8",
     timeout: 30_000,
   });
