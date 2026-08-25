@@ -421,10 +421,8 @@ describe("reconcile", () => {
       handlers: [],
       holder: "probe",
       now: c.now,
-      reconcile: async () => ({
+      reconcile: async (_asset) => ({
         assetState: "active",
-        ipv4: null,
-        serviceEndsAt: null,
       }),
     });
     let trueProbes = 0;

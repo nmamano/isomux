@@ -223,7 +223,7 @@ test("an explicit customer action stays fast past the progress ceiling", () => {
 test("the polling effect recovers after a non-OK progress response", async () => {
   const scheduled: { run: () => Promise<void>; delay: number }[] = [];
   let fetches = 0;
-  let observed: ProgressView | null = null;
+  const observed: ProgressView[] = [];
   const stop = startProgressPolling({
     delay: () => 3_000,
     fetchProgress: async () => {
@@ -232,7 +232,7 @@ test("the polling effect recovers after a non-OK progress response", async () =>
       return { ok: true, json: async () => ({ ...baseView, ready: true }) };
     },
     accept: (next) => {
-      observed = next;
+      observed.push(next);
       return 30_000;
     },
     schedule: (run, delay) => {
@@ -247,7 +247,7 @@ test("the polling effect recovers after a non-OK progress response", async () =>
   expect(scheduled.map((timer) => timer.delay)).toEqual([3_000]);
   await scheduled.shift()!.run();
   expect(fetches).toBe(2);
-  expect(observed?.ready).toBe(true);
+  expect(observed[0]?.ready).toBe(true);
   expect(scheduled.map((timer) => timer.delay)).toEqual([30_000]);
   stop();
 });

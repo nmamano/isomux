@@ -66,13 +66,9 @@ describe("automatic provisioning start", () => {
     expect(await store.operationsFor(signup.reservation.instance_id)).toEqual(
       [],
     );
-    let trueProbes = 0;
-    for (let probe = 0; probe < 720; probe++) {
-      if (await store.hasPendingWork(store.now(), GRACE_MS, RETENTION_MS)) {
-        trueProbes++;
-      }
-    }
-    expect(trueProbes).toBe(0);
+    expect(
+      await store.hasPendingWork(store.now(), GRACE_MS, RETENTION_MS),
+    ).toBe(false);
   });
 
   test("the one-statement wake probe sees paid repair work and then becomes idle", async () => {
