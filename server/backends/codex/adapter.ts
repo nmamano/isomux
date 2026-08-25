@@ -484,6 +484,13 @@ const SUBAGENT_VISIBLE_ITEMS = new Set([
   "webSearch",
 ]);
 
+const LATE_TOOL_RESULT_NOTICE = "Turn ended before this tool result arrived.";
+
+function isToolActivityItem(rawItem: unknown): boolean {
+  const type = (rawItem as { type?: unknown } | null)?.type;
+  return typeof type === "string" && SUBAGENT_VISIBLE_ITEMS.has(type);
+}
+
 // One bounded line for SubagentOrigin labels (same 200-char cap as the
 // Claude backend's sanitizeTaskLabel - the UI pill ellipsizes, but the
 // metadata is persisted per entry).
@@ -598,6 +605,19 @@ export class CodexSession implements BackendSession {
   // Tracks whether we've yielded turn_completed for the current turn so we
   // can synthesize a failed one on subprocess exit if not.
   private turnInFlight = false;
+  // Covers the turn/start request window without weakening turnInFlight's
+  // stricter invariant: a request that has not succeeded must not cause a
+  // later subprocess exit to synthesize a phantom turn_completed.
+  private turnStarting = false;
+  // Codex can deliver completed tool items after the matching turn/completed.
+  // The orchestrator keeps those results as evidence, and this latch adds one
+  // terminal breadcrumb per episode rather than one repeated line per item.
+  // A successful turn/start clears it for the next real turn.
+  private lateToolResultNoticeEmitted = false;
+  // Distinguishes a genuinely late item from a curated/pre-turn item received
+  // while the session is idle. Armed only by the terminal notification that
+  // establishes the ordering defect.
+  private lateToolResultNoticeArmed = false;
   // Auth-error coalescing for codex stderr. Codex CLI internally retries the
   // OpenAI websocket 5+ times on 401 with exponential backoff, emitting one
   // `ERROR ... 401 Unauthorized` stderr line per retry. Forwarding each one
@@ -863,6 +883,7 @@ export class CodexSession implements BackendSession {
     // (e.g. wire error) we don't want handleSubprocessExit to later synthesize
     // a phantom failed turn_completed for a turn that never actually started
     // - the orchestrator would surface a bogus mid-turn failure.
+    this.turnStarting = true;
     try {
       await this.client.request("turn/start", {
         threadId: this.threadId,
@@ -887,9 +908,13 @@ export class CodexSession implements BackendSession {
       this.authSignalsAllowedThisTurn = false;
       this.authSignalEmittedThisTurn = false;
       this.selfInterruptedForAuth = false;
+      this.turnStarting = false;
       throw err;
     }
     this.turnInFlight = true;
+    this.turnStarting = false;
+    this.lateToolResultNoticeEmitted = false;
+    this.lateToolResultNoticeArmed = false;
   }
 
   // Resolve an "allow, and stop asking" decision into an actual rule, and say
@@ -1341,6 +1366,7 @@ export class CodexSession implements BackendSession {
         const wasSelfInterruptForAuth = this.selfInterruptedForAuth;
         this.activeTurnId = null;
         this.turnInFlight = false;
+        this.lateToolResultNoticeArmed = true;
         // "Model not supported" safety net. The spawn / edit dialog now
         // fetches model/list per-auth, so this branch should be rare -
         // most commonly it'll fire when the user's auth tier changed since
@@ -1511,7 +1537,22 @@ export class CodexSession implements BackendSession {
         break;
       case "item/completed": {
         const item = params?.item;
-        if (item) this.translateCompletedItem(item);
+        if (item) {
+          this.translateCompletedItem(item);
+          if (
+            !(this.turnInFlight || this.turnStarting) &&
+            this.lateToolResultNoticeArmed &&
+            isToolActivityItem(item) &&
+            !this.lateToolResultNoticeEmitted
+          ) {
+            this.lateToolResultNoticeEmitted = true;
+            this.enqueue({
+              kind: "system_text",
+              text: LATE_TOOL_RESULT_NOTICE,
+              isomuxAuthored: true,
+            });
+          }
+        }
         break;
       }
       // Streaming deltas (item/agentMessage/delta, item/reasoning/textDelta,

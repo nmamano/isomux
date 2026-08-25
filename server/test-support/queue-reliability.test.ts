@@ -475,6 +475,70 @@ describe("queue reliability: bounded consumer drain (da065287 L2)", () => {
 // da065287 layer 3 - queue watchdog
 // ---------------------------------------------------------------------------
 
+describe("queue reliability: activity after a completed turn", () => {
+  it("keeps the agent idle and delivers a plain follow-up message", async () => {
+    server = await startTestServer({
+      fakeBackend: new FakeBackend({
+        session: {
+          onSend: (_text, _attachments, session) =>
+            session.completeTurn({ text: "done" }),
+        },
+      }),
+    });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+
+    await sendHuman(server, owner.rawSessionId, recv.id, "first");
+    const session = server.fakeBackend.sessionForAgent(recv.id)!;
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "waiting_for_response",
+      3000,
+      "first turn completed",
+    );
+
+    // These model the whole state-deriving late-event class. The measured
+    // incident contained tool_call/tool_result; assistant_text and thinking
+    // protect beginTurn's early-return invariant for future provider changes.
+    session.pushAll([
+      { kind: "assistant_text", text: "late text" },
+      { kind: "thinking", text: "late thinking" },
+      {
+        kind: "tool_call",
+        toolUseId: "late-tool",
+        name: "Bash",
+        input: { command: "true" },
+      },
+      {
+        kind: "tool_result",
+        toolUseId: "late-tool",
+        content: "late result",
+      },
+    ]);
+    await waitUntil(
+      () =>
+        server!.agentManager
+          .getAgentLogs(recv.id)
+          .some((entry) => entry.content === "late result"),
+      3000,
+      "late result preserved",
+    );
+    await sendHuman(server, owner.rawSessionId, recv.id, "plain follow-up");
+    await waitUntil(
+      () => deliveryCount(server!, recv.id, "plain follow-up") === 1,
+      3000,
+      "plain follow-up delivered",
+    );
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "plain follow-up queue drained",
+    );
+    expect(stateOf(server, recv.id)).toBe("waiting_for_response");
+    expect(server.agentManager.inFlightTurnForLogs(recv.id)).toBeNull();
+  });
+});
+
 describe("queue reliability: watchdog (da065287 L3)", () => {
   it("gentle path: a message stranded by a missed trigger (model pick no-op) is delivered by the sweep", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });

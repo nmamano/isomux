@@ -2994,7 +2994,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const eventManaged = agents.get(agentId);
     if (eventManaged) eventManaged.lastNormalizedEventAt = Date.now();
     const newState = deriveStateFromEvent(ev);
-    if (newState) {
+    // Activity can arrive after its turn_completed boundary (observed from
+    // Codex command completions in task 5404235d). Preserve the event below,
+    // but never let an event with no owning live turn put the agent back into
+    // a busy state. Apply this uniformly to every busy-state derivation:
+    // allowing a late assistant_text / thinking event to leave stale
+    // state="thinking" would make beginTurn's idempotency guard skip stamping
+    // the NEXT real turn's clock.
+    const eventHasLiveTurn = eventManaged?.turnStartedAt !== 0;
+    const derivesBusyState =
+      newState === "thinking" || newState === "tool_executing";
+    if (newState && (!derivesBusyState || eventHasLiveTurn)) {
       // Don't downgrade tool_executing → thinking within the same turn. The
       // original SDK-shape deriveState looked at the whole assistant message
       // and elevated to tool_executing whenever ANY block was a tool_use; in

@@ -68,6 +68,9 @@ class FakeCodexTransport implements CodexTransport {
   // a notification in while the request is in flight.
   holdRateLimitsRead = false;
   private rateLimitsReadGate: (() => void) | null = null;
+  holdTurnStart = false;
+  turnStartPending = false;
+  private turnStartGate: (() => void) | null = null;
   readonly requests: { method: string; params?: unknown }[] = [];
   readonly errorResponses: {
     id: JsonRpcId;
@@ -102,6 +105,12 @@ class FakeCodexTransport implements CodexTransport {
       if (this.bootstrapError) return Promise.reject(this.bootstrapError);
       return Promise.resolve({ thread: { id: this.threadId } } as T);
     }
+    if (method === "turn/start" && this.holdTurnStart) {
+      this.turnStartPending = true;
+      return new Promise<T>((resolve) => {
+        this.turnStartGate = () => resolve({} as T);
+      });
+    }
     if (method === "account/rateLimits/read") {
       if (this.rateLimitsReadError)
         return Promise.reject(this.rateLimitsReadError);
@@ -115,6 +124,14 @@ class FakeCodexTransport implements CodexTransport {
     }
     // turn/start, turn/interrupt, etc.: resolve with an empty payload.
     return Promise.resolve({} as T);
+  }
+
+  releaseTurnStart(): void {
+    const release = this.turnStartGate;
+    this.turnStartGate = null;
+    this.holdTurnStart = false;
+    this.turnStartPending = false;
+    release?.();
   }
 
   respondWithError(id: JsonRpcId, code: number, message: string): void {
@@ -521,6 +538,91 @@ describe("CodexSession item translation - tool calls", () => {
 // Turn lifecycle
 // ---------------------------------------------------------------------------
 describe("CodexSession turn lifecycle", () => {
+  it("marks late completed tools once per ended turn", async () => {
+    const { session, fake, it } = await bootstrapped();
+    await session.send("first");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { status: "completed" },
+    });
+    expectKind(await nextEvent(it, "turn_completed"), "turn_completed");
+
+    fireItem(fake, {
+      type: "commandExecution",
+      id: "late-1",
+      command: "first late command",
+      aggregatedOutput: "first late result",
+      exitCode: 0,
+    });
+    expectKind(await nextEvent(it, "late tool_call"), "tool_call");
+    expectKind(await nextEvent(it, "late tool_result"), "tool_result");
+    const notice = expectKind(
+      await nextEvent(it, "late result notice"),
+      "system_text",
+    );
+    expect(notice.text).toBe("Turn ended before this tool result arrived.");
+
+    // Another late result in the same episode stays visible without repeating
+    // the marker.
+    fireItem(fake, {
+      type: "commandExecution",
+      id: "late-2",
+      command: "second late command",
+      aggregatedOutput: "second late result",
+      exitCode: 0,
+    });
+    expectKind(await nextEvent(it, "second late tool_call"), "tool_call");
+    expectKind(await nextEvent(it, "second late tool_result"), "tool_result");
+
+    // A real turn clears the latch, so a later episode gets its own marker.
+    await session.send("second");
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { status: "completed" },
+    });
+    expectKind(await nextEvent(it, "second turn_completed"), "turn_completed");
+
+    // The turn/start request window is healthy, not late. At this point the
+    // prior completion has armed the notice and no item has emitted it, so the
+    // separate starting flag is the only thing preventing a false marker.
+    fake.holdTurnStart = true;
+    const thirdSend = session.send("third");
+    while (!fake.turnStartPending) await Promise.resolve();
+    fireItem(fake, {
+      type: "commandExecution",
+      id: "during-start",
+      command: "command during turn start",
+      aggregatedOutput: "result during turn start",
+      exitCode: 0,
+    });
+    expectKind(await nextEvent(it, "starting tool_call"), "tool_call");
+    expectKind(await nextEvent(it, "starting tool_result"), "tool_result");
+    fake.releaseTurnStart();
+    await thirdSend;
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { status: "completed" },
+    });
+    expectKind(await nextEvent(it, "third turn_completed"), "turn_completed");
+
+    fireItem(fake, {
+      type: "commandExecution",
+      id: "late-3",
+      command: "third late command",
+      aggregatedOutput: "third late result",
+      exitCode: 0,
+    });
+    expectKind(await nextEvent(it, "third late tool_call"), "tool_call");
+    expectKind(await nextEvent(it, "third late tool_result"), "tool_result");
+    const secondNotice = expectKind(
+      await nextEvent(it, "second late result notice"),
+      "system_text",
+    );
+    expect(secondNotice.text).toBe(
+      "Turn ended before this tool result arrived.",
+    );
+  });
+
   it("turn/completed completed -> turn_completed completed", async () => {
     const { fake, it } = await bootstrapped();
     fake.fireNotification("turn/completed", { turn: { status: "completed" } });
