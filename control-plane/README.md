@@ -1655,9 +1655,20 @@ same answer is a copy that can drift, which is the class of omission
 `run-roster.ts` was extracted to prevent. `database_reachable` is
 a `select 1` whose failure discards the error object entirely. `tick_recent`
 means both the provisioning pass and the lifecycle pass completed within three
-poll intervals. This distinguishes "the port answers" from "both loops run".
+idle-maintenance intervals. This distinguishes "the port answers" from "both
+loops run" without marking a healthy idle process stale.
 A missing `subscriptions` grant does not break `select 1`, so `tick_recent` is
 the gate that makes that lifecycle failure visible to the deployed probe.
+
+An idle provisioner runs one `hasPendingWork` statement every five seconds and
+the full operation, lifecycle, liveness and attention pass once a minute. The
+probe wakes the full pass on active operations, due provider reconciliation,
+paid provisioning-start repair, expired customer-key retention, due
+cancellation lifecycle work, and expired reinstatement checkout work. These
+last classes matter because the cadence pass creates their first operation;
+probing operations alone would add a silent minute before they existed. While
+the probe finds work, full passes keep the existing five-second cadence. The
+idle floor is therefore 720 probe transactions per hour.
 
 The route ALWAYS answers 200 while the process is serving. A database that
 blinked is a boolean, not a dead machine: fly's check is TCP precisely so that
@@ -3170,6 +3181,27 @@ Each row also supplies the duration for that run of the step. While it is live,
 the browser advances from the projection's control-plane clock anchor rather
 than trusting the customer's wall clock. Once the row is terminal, the ladder
 keeps the final duration from its creation time to the terminal write.
+
+The common projection rows are one Store statement: scalar JSON subqueries
+keep operations and attention reasons from multiplying each other, and the
+projection still applies tenant scope before returning anything. A cancelled
+office may make conditional lifecycle reads after that common snapshot.
+
+The page polls a changing build every three seconds. An unchanged projection
+does not stay on that cadence forever: `asOf` is excluded from its signature,
+and after `STALLED_AFTER_MS` (20 minutes) without a material change it uses the
+30-second ready cadence. The longest legitimate inactivity window in the build
+ladder is 15 minutes. At that boundary the server adds deadline attention to
+the projection and resets the unchanged timer, so work the server still calls
+live cannot reach the slower cadence. Explicit customer actions remain fast.
+
+Measured 2026-08-25 against a separate local PostgreSQL 18.4 instance with TLS:
+after an equal-window loopback-background subtraction, one warm statement used
+about 653 bytes and a new TLS/Postgres session added about 7.3 KB beyond its
+query. These are planning coefficients, not Neon packet captures: certificate
+chains and the managed proxy make the session coefficient the larger error
+bar. They are kept separate because the 30-second browser cadence crosses the
+web pool's 10-second idle timeout and makes each remaining poll cold.
 
 Raw evidence never crosses. The extractor is an allowlist of typed, bounded
 fields mapped to our own words - the installer's step marker (only if it still

@@ -6,7 +6,11 @@ import {
   formatDuration,
   nextClock,
   OfficeView,
+  progressPollInterval,
+  startProgressPolling,
+  stableProgressSignature,
   STATE_WORDS,
+  STALLED_AFTER_MS,
   Steps,
 } from "./office-view";
 
@@ -160,6 +164,92 @@ test("a slower poll cannot move the anchored control-plane time backwards", () =
   const slowerPoll = nextClock(advanced, 10_800, 2_000);
   expect(anchoredNow(slowerPoll)).toBe(11_000);
   expect(anchoredNow(slowerPoll)).toBeGreaterThanOrEqual(anchoredNow(advanced));
+});
+
+test("the progress signature ignores only the moving server clock", () => {
+  const first = stableProgressSignature(baseView);
+  expect(stableProgressSignature({ ...baseView, asOf: 99_000 })).toBe(first);
+  expect(stableProgressSignature({ ...baseView, ready: true })).not.toBe(first);
+  expect(
+    stableProgressSignature({
+      ...baseView,
+      attention: [
+        {
+          reasonClass: "inactivity_deadline",
+          severity: "warning",
+          raisedAt: 1,
+          acknowledged: false,
+          summary: "A step is taking longer than expected.",
+        },
+      ],
+    }),
+  ).not.toBe(first);
+});
+
+test("only an unchanged building projection past the ceiling slows down", () => {
+  expect(
+    progressPollInterval({
+      busy: true,
+      explicitAction: false,
+      unchangedMs: STALLED_AFTER_MS - 1,
+    }),
+  ).toBe(3_000);
+  expect(
+    progressPollInterval({
+      busy: true,
+      explicitAction: false,
+      unchangedMs: STALLED_AFTER_MS,
+    }),
+  ).toBe(30_000);
+  expect(
+    progressPollInterval({
+      busy: false,
+      explicitAction: false,
+      unchangedMs: 0,
+    }),
+  ).toBe(30_000);
+});
+
+test("an explicit customer action stays fast past the progress ceiling", () => {
+  expect(
+    progressPollInterval({
+      busy: true,
+      explicitAction: true,
+      unchangedMs: STALLED_AFTER_MS * 2,
+    }),
+  ).toBe(3_000);
+});
+
+test("the polling effect recovers after a non-OK progress response", async () => {
+  const scheduled: { run: () => Promise<void>; delay: number }[] = [];
+  let fetches = 0;
+  let observed: ProgressView | null = null;
+  const stop = startProgressPolling({
+    delay: () => 3_000,
+    fetchProgress: async () => {
+      fetches++;
+      if (fetches === 1) return { ok: false, json: async () => baseView };
+      return { ok: true, json: async () => ({ ...baseView, ready: true }) };
+    },
+    accept: (next) => {
+      observed = next;
+      return 30_000;
+    },
+    schedule: (run, delay) => {
+      scheduled.push({ run, delay });
+      return scheduled.length;
+    },
+    clear: () => {},
+  });
+  expect(scheduled.map((timer) => timer.delay)).toEqual([3_000]);
+  await scheduled.shift()!.run();
+  expect(fetches).toBe(1);
+  expect(scheduled.map((timer) => timer.delay)).toEqual([3_000]);
+  await scheduled.shift()!.run();
+  expect(fetches).toBe(2);
+  expect(observed?.ready).toBe(true);
+  expect(scheduled.map((timer) => timer.delay)).toEqual([30_000]);
+  stop();
 });
 
 test("suspended office shows policies before reinstatement payment", () => {

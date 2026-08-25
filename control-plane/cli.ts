@@ -96,7 +96,7 @@ import { setOperator } from "./operator-admin.ts";
 import { readAndRefreshMarker } from "./state-marker.ts";
 import { Store } from "./store.ts";
 import { PROVISIONER_POOL } from "./roles.ts";
-import { POLL_INTERVAL_MS, Ticker } from "./tick.ts";
+import { IDLE_MAINTENANCE_INTERVAL_MS, Ticker } from "./tick.ts";
 import { StripeClient } from "./stripe/client.ts";
 import {
   resolveStripeMode,
@@ -480,7 +480,8 @@ async function healthReport(deps: {
   // False until BOTH the provisioning and lifecycle passes complete. A missing
   // subscriptions grant leaves `select 1` healthy, so this is the gate that
   // makes that otherwise silent 42501 visible to the deployed probe.
-  const tickRecent = last > 0 && Date.now() - last < 3 * POLL_INTERVAL_MS;
+  const tickRecent =
+    last > 0 && Date.now() - last < 3 * IDLE_MAINTENANCE_INTERVAL_MS;
   const boundsGoverned = true; // Store.open read both bounds back, or threw.
   return {
     ok: boundsGoverned && deps.branchPinned && databaseReachable && tickRecent,

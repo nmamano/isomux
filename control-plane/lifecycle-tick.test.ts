@@ -14,6 +14,7 @@ import {
   phaseAt,
   PROMISE_AT_RISK,
   PROMISE_BROKEN,
+  RETENTION_MS,
 } from "./lifecycle.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 import { Store } from "./store.ts";
@@ -126,6 +127,41 @@ async function succeed(
     [JSON.stringify(evidence), store.now(), id],
   );
 }
+
+test("the wake probe sees lifecycle work before it creates an operation", async () => {
+  const c = clock(GRACE_END);
+  const store = await tempStore(c.now);
+  await seed(store);
+  const asset = (await store.getAsset("asset-1"))!;
+  await store.casAsset(asset.id, asset.version, {
+    next_reconcile_at: GRACE_END + 60_000,
+  });
+  expect(await store.operationsFor("inst-1")).toEqual([]);
+  expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
+    true,
+  );
+});
+
+test("the wake probe recognizes the lifecycle operation's real derived id", async () => {
+  const c = clock(GRACE_END);
+  const store = await tempStore(c.now);
+  await seed(store);
+  const asset = (await store.getAsset("asset-1"))!;
+  await store.casAsset(asset.id, asset.version, {
+    next_reconcile_at: GRACE_END + 60_000,
+  });
+  expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
+    true,
+  );
+  await lifecycleTick(store, c.now());
+  const id = lifecycleOperationId("power_off", "sub_1", ENDED);
+  await store.sqlRun("update operations set status = 'failed' where id = $1", [
+    id,
+  ]);
+  expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
+    false,
+  );
+});
 
 describe("the walk, on seeded dates", () => {
   test("an unknown policy fails closed to the longer legacy timeline", () => {
@@ -484,7 +520,13 @@ describe("the walk, on seeded dates", () => {
     // The provider ends the asset during the grace week, weeks before the
     // deadline the customer was promised.
     const asset = (await store.assetForInstance("inst-1"))!;
-    await store.casAsset(asset.id, asset.version, { asset_state: "cancelled" });
+    await store.casAsset(asset.id, asset.version, {
+      asset_state: "cancelled",
+      next_reconcile_at: c.now() + 60_000,
+    });
+    expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
+      true,
+    );
 
     const summary = await lifecycleTick(store, c.now());
     expect(summary).toMatchObject({ finished: 1, raised: 1 });
@@ -497,6 +539,9 @@ describe("the walk, on seeded dates", () => {
     expect(
       (await store.auditEvents()).filter((e) => e.action === "data_end"),
     ).toHaveLength(1);
+    expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
+      false,
+    );
     await store.close();
   });
 

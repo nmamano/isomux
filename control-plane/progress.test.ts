@@ -182,10 +182,17 @@ describe("it does not invent progress", () => {
   test("a fresh signup shows every step waiting and is not ready", async () => {
     const store = await tempStore();
     const { reservation, account } = await signedUp(store);
+    const sqlGet = store.sqlGet.bind(store);
+    let statements = 0;
+    store.sqlGet = async <T>(sql: string, args = []) => {
+      statements++;
+      return sqlGet<T>(sql, args);
+    };
     const view = (await projectionFor(store, {
       accountId: account.id,
       instanceId: reservation.instance_id,
     }))!;
+    expect(statements).toBe(1);
     expect(view.origin).toBe("created");
     expect(view.steps.every((s) => s.state === "waiting")).toBe(true);
     expect(view.ready).toBe(false);
@@ -709,6 +716,30 @@ describe("what the page is allowed to claim about our key", () => {
 });
 
 describe("comped means an ACTIVE full discount", () => {
+  test("an accepted attempt without a replacement keeps the latest subscription", async () => {
+    const store = await tempStore(() => 10_000);
+    const { reservation, account } = await signedUp(store);
+    await store.sqlRun(
+      "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, " +
+        "status, cancel_at_period_end, cancellation_policy, ever_full_discount, " +
+        "payment_failures, episode_state, version, created_at, updated_at) " +
+        "values ('sub-original', $1, $2, 'cus-1', 'active', 0, 'launch', 0, 0, 'none', 1, 1, 1)",
+      [account.id, reservation.instance_id],
+    );
+    await store.sqlRun(
+      "insert into reinstatement_attempts (id, account_id, reservation_id, instance_id, " +
+        "closed_subscription_id, closed_ended_at, new_subscription_id, checkout_generation, " +
+        "accepted_at, fence_expires_at, stripe_expires_at, state, version, created_at, updated_at) " +
+        "values ('attempt-null', $1, $2, $3, 'closed-missing', 1, null, 1, 2, 3, 3, 'accepted', 1, 1, 1)",
+      [account.id, reservation.id, reservation.instance_id],
+    );
+    const view = (await projectionFor(store, {
+      accountId: account.id,
+      instanceId: reservation.instance_id,
+    }))!;
+    expect(view.subscription?.status).toBe("active");
+  });
+
   async function withDiscount(
     store: Store,
     instanceId: string,

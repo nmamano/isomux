@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ProgressView } from "../lib/services.server";
 import { customerPriceLine } from "./plan-copy";
 import { PolicyNotice } from "./policy-notice";
@@ -10,6 +10,11 @@ import { PolicyNotice } from "./policy-notice";
  * fast cadence is a query, not a probe of the box. */
 const BUILDING_MS = 3_000;
 const READY_MS = 30_000;
+/** A build that has shown no material progress for this long may use the ready
+ * cadence. This is deliberately above the longest 15-minute inactivity window
+ * in the build ladder. Deadline attention changes the projection at that
+ * window, so work the server still considers live cannot reach this ceiling. */
+export const STALLED_AFTER_MS = 20 * 60_000;
 /** How often, and for how long, the page asks the provisioner for a link it has
  * requested. The mint is a two-hop SSH round trip, so seconds rather than
  * milliseconds; the ceiling is generous because giving up early would strand a
@@ -36,6 +41,76 @@ export const STATE_WORDS: Record<string, string> = {
   done: "done",
   failed: "failed",
 };
+
+/** The server clock moves on every response and is not progress. */
+export function stableProgressSignature(view: ProgressView): string {
+  const { asOf: _asOf, ...stable } = view;
+  return JSON.stringify(stable);
+}
+
+export function progressPollInterval(args: {
+  busy: boolean;
+  explicitAction: boolean;
+  unchangedMs: number;
+}): number {
+  if (!args.busy) return READY_MS;
+  if (args.explicitAction) return BUILDING_MS;
+  return args.unchangedMs >= STALLED_AFTER_MS ? READY_MS : BUILDING_MS;
+}
+
+export async function runProgressPoll(args: {
+  delay: number;
+  fetchProgress: () => Promise<{
+    ok: boolean;
+    json(): Promise<unknown>;
+  }>;
+  cancelled: () => boolean;
+  accept: (next: ProgressView) => number;
+  schedule: (delay: number) => void;
+}): Promise<void> {
+  let delay = args.delay;
+  try {
+    const response = await args.fetchProgress();
+    if (!response.ok) return;
+    const next = (await response.json()) as ProgressView;
+    if (args.cancelled()) return;
+    delay = args.accept(next);
+  } catch {
+    // A failed poll changes no state. The scheduled next poll decides.
+  } finally {
+    if (!args.cancelled()) args.schedule(delay);
+  }
+}
+
+export function startProgressPolling(args: {
+  delay: () => number;
+  fetchProgress: () => Promise<{
+    ok: boolean;
+    json(): Promise<unknown>;
+  }>;
+  accept: (next: ProgressView) => number;
+  schedule: (run: () => Promise<void>, delay: number) => unknown;
+  clear: (timer: unknown) => void;
+}): () => void {
+  let cancelled = false;
+  let timer: unknown;
+  const tick = async () => {
+    await runProgressPoll({
+      delay: args.delay(),
+      fetchProgress: args.fetchProgress,
+      cancelled: () => cancelled,
+      accept: args.accept,
+      schedule: (delay) => {
+        timer = args.schedule(tick, delay);
+      },
+    });
+  };
+  timer = args.schedule(tick, args.delay());
+  return () => {
+    cancelled = true;
+    args.clear(timer);
+  };
+}
 
 export function Steps({
   steps,
@@ -222,6 +297,8 @@ export function OfficeView({
 }) {
   const [view, setView] = useState(initial);
   const [clock, setClock] = useState<Clock | null>(null);
+  const progressSignature = useRef(stableProgressSignature(initial));
+  const unchangedSince = useRef(Date.now());
   const [invite, setInvite] = useState<InviteState>({ phase: "idle" });
   const [action, setAction] = useState<string | null>(null);
   const [handoffPending, setHandoffPending] = useState(false);
@@ -249,12 +326,14 @@ export function OfficeView({
   // the office is being built. An invite takes a few seconds to mint, and a
   // dashboard that only noticed on its next slow poll would look broken for
   // half a minute after a button press.
-  const busy =
-    !view.ready ||
+  const explicitAction =
     billing !== null ||
     invite.phase === "waiting" ||
     handoffPending ||
-    view.restart.active ||
+    view.restart.active;
+  const busy =
+    !view.ready ||
+    explicitAction ||
     view.handoff.invite.state === "active" ||
     view.handoff.revocation.state === "active";
 
@@ -283,21 +362,28 @@ export function OfficeView({
   const timerNow = clock ? anchoredNow(clock) : null;
 
   useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const res = await fetch(`/api/progress/${instanceId}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) return;
-        const next = (await res.json()) as ProgressView;
-        if (cancelled) return;
+    return startProgressPolling({
+      delay: () =>
+        progressPollInterval({
+          busy,
+          explicitAction,
+          unchangedMs: Date.now() - unchangedSince.current,
+        }),
+      fetchProgress: () =>
+        fetch(`/api/progress/${instanceId}`, { cache: "no-store" }),
+      accept: (next) => {
+        const nextSignature = stableProgressSignature(next);
+        const observedAt = Date.now();
+        if (nextSignature !== progressSignature.current) {
+          progressSignature.current = nextSignature;
+          unchangedSince.current = observedAt;
+        }
         setView(next);
         if (next.handoff.revocation.state !== "none") {
           setHandoffPending(false);
         }
         // Stripe has confirmed when the CACHED flag matches what we asked for.
-        // Anything else and the pending sentence stands, which is the truth.
+        // Anything else and the pending sentence stands, which is true.
         setBilling((asked) => {
           if (!asked || !next.subscription) return asked;
           const landed =
@@ -306,16 +392,20 @@ export function OfficeView({
               : !next.subscription.cancelAtPeriodEnd;
           return landed ? null : asked;
         });
-      } catch {
-        // A failed poll is a poll that did not happen. The next one decides.
-      }
-    };
-    const timer = setInterval(() => void tick(), busy ? BUILDING_MS : READY_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [instanceId, busy]);
+        return progressPollInterval({
+          busy:
+            !next.ready ||
+            explicitAction ||
+            next.handoff.invite.state === "active" ||
+            next.handoff.revocation.state === "active",
+          explicitAction,
+          unchangedMs: observedAt - unchangedSince.current,
+        });
+      },
+      schedule: (run, delay) => setTimeout(() => void run(), delay),
+      clear: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+    });
+  }, [instanceId, busy, explicitAction]);
 
   // COLLECT THE INVITE THIS CLICK ASKED FOR, and only while we are the ones
   // waiting for it. `phase: "waiting"` is set by the click and by nothing else,

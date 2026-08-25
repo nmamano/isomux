@@ -12,6 +12,7 @@ import {
   releaseTestStores,
 } from "./testing/pg.ts";
 import { applyEvent } from "./stripe/reconcile.ts";
+import { GRACE_MS, RETENTION_MS } from "./lifecycle.ts";
 
 afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
 
@@ -53,6 +54,39 @@ async function bed(status = "active") {
 }
 
 describe("automatic provisioning start", () => {
+  test("a cp4-shaped placeholder without a subscription does not wake repair", async () => {
+    const store = await openTestStore(() => 1_700_000_000_000);
+    const account = await accountForDevSignIn(store, "cp4@example.com");
+    const signup = await reserveOffice(store, {
+      accountId: account.id,
+      officeName: "cp4",
+      plan: "office",
+    });
+    if (!signup.ok) throw new Error(signup.reason);
+    expect(await store.operationsFor(signup.reservation.instance_id)).toEqual(
+      [],
+    );
+    let trueProbes = 0;
+    for (let probe = 0; probe < 720; probe++) {
+      if (await store.hasPendingWork(store.now(), GRACE_MS, RETENTION_MS)) {
+        trueProbes++;
+      }
+    }
+    expect(trueProbes).toBe(0);
+  });
+
+  test("the one-statement wake probe sees paid repair work and then becomes idle", async () => {
+    const b = await bed();
+    expect(
+      await b.store.hasPendingWork(b.store.now(), GRACE_MS, RETENTION_MS),
+    ).toBe(true);
+    await b.store.tx(() => startProvisioningIn(b.store, b.subscription));
+    await b.store.sqlRun("update operations set status='succeeded'");
+    expect(
+      await b.store.hasPendingWork(b.store.now(), GRACE_MS, RETENTION_MS),
+    ).toBe(false);
+  });
+
   test("a fetched paid Checkout event opens the create in its claim transaction", async () => {
     const b = await bed();
     await b.store.tx(() =>

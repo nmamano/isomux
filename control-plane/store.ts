@@ -217,6 +217,18 @@ export interface AuditRow {
   detail: string | null;
 }
 
+/** JSON text from one progress read. Keeping the wire shape here avoids
+ * importing customer projection policy into the Store. */
+export interface ProgressRows {
+  reservation: string | null;
+  instance: string | null;
+  operations: string;
+  asset: string | null;
+  attention: string;
+  liveness: string | null;
+  subscription: string | null;
+}
+
 /**
  * EVERY TABLE `SCHEMA` CREATES, and the ONE list of them.
  *
@@ -1933,6 +1945,31 @@ export class Store {
     );
   }
 
+  /** The common customer progress rows in one statement and one transaction. */
+  async progressRows(instanceId: string): Promise<ProgressRows> {
+    const row = await this.sqlGet<ProgressRows>(
+      "with accepted as (" +
+        "select new_subscription_id from reinstatement_attempts " +
+        "where instance_id = $1 and state = 'accepted' order by accepted_at desc limit 1" +
+        "), current_subscription as (" +
+        "select s.* from subscriptions s where s.id = (select new_subscription_id from accepted) " +
+        "union all select s.* from subscriptions s where s.instance_id = $1 " +
+        "and not exists (select 1 from accepted where new_subscription_id is not null) " +
+        "order by created_at desc limit 1" +
+        ") select " +
+        "(select row_to_json(n)::text from name_reservations n where n.instance_id = $1) as reservation, " +
+        "(select row_to_json(i)::text from instances i where i.id = $1) as instance, " +
+        "coalesce((select json_agg(o order by o.created_at, o.id)::text from operations o where o.instance_id = $1), '[]') as operations, " +
+        "(select row_to_json(a)::text from provider_assets a where a.instance_id = $1 order by a.created_at limit 1) as asset, " +
+        "coalesce((select json_agg(r order by r.raised_at, r.id)::text from attention_reasons r where r.instance_id = $1 and r.cleared_at is null), '[]') as attention, " +
+        "(select row_to_json(l)::text from instance_liveness l where l.instance_id = $1) as liveness, " +
+        "(select row_to_json(s)::text from current_subscription s) as subscription",
+      [instanceId],
+    );
+    if (!row) throw new Error("progress read returned no row");
+    return row;
+  }
+
   async activeOperation(
     instanceId: string,
     kind: string,
@@ -1974,6 +2011,55 @@ export class Store {
         "order by next_attempt_at limit $3",
       [now, now, limit],
     );
+  }
+
+  /**
+   * One small read that decides whether the provisioner's full pass may stay
+   * asleep. A false negative adds latency, so every pre-operation work class
+   * is represented here as well as ordinary active rows.
+   */
+  async hasPendingWork(
+    now: number,
+    lifecycleGraceMs: number,
+    lifecycleRetentionMs: number,
+  ): Promise<boolean> {
+    const row = await this.sqlGet<{ pending: number }>(
+      "select case when " +
+        "exists (select 1 from operations where status in ('pending', 'running', 'ambiguous')) " +
+        "or exists (select 1 from provider_assets where provider_id is not null and next_reconcile_at <= $1) " +
+        "or exists (" +
+        "select 1 from subscriptions s " +
+        "join instances i on i.id = s.instance_id " +
+        "join name_reservations n on n.instance_id = i.id " +
+        "join provider_assets a on a.instance_id = i.id " +
+        "where s.status in ('active', 'trialing') and i.service_state = 'provisioning' " +
+        "and a.provider_id is null and a.asset_state = 'none' " +
+        "and not exists (select 1 from operations o where o.instance_id = i.id and o.kind = 'create_instance')" +
+        ") or exists (" +
+        "select 1 from instances i where i.customer_ssh_key is not null " +
+        "and i.access_window_expires_at is not null and i.access_window_expires_at <= $1" +
+        ") or exists (" +
+        "select 1 from subscriptions s join instances i on i.id = s.instance_id " +
+        "left join provider_assets a on a.instance_id = i.id " +
+        "where s.ended_at is not null and s.cancellation_reason = 'cancellation_requested' and (" +
+        "(i.service_state not in ('suspended', 'deprovisioned') " +
+        "and s.ended_at + case when s.cancellation_policy = 'launch' then 0 else $2 end <= $1 " +
+        "and not exists (select 1 from operations o where o.id = " +
+        "'op-power_off-cancel-' || s.id || '-' || s.ended_at::text)) " +
+        "or (i.service_state = 'suspended' and s.cancellation_policy = 'launch' " +
+        "and s.ended_at + $3 <= $1 " +
+        "and not exists (select 1 from operations o where o.id = " +
+        "'op-cancel_asset-cancel-' || s.id || '-' || s.ended_at::text)) " +
+        "or (a.asset_state in ('cancelled', 'absent') and i.service_state != 'deprovisioned')" +
+        ")" +
+        ") or exists (" +
+        "select 1 from reinstatement_attempts r where r.state = 'opening' " +
+        "and r.fence_expires_at <= $1 and not exists (select 1 from operations o where o.id = " +
+        "'op-checkout_expire-' || r.id)" +
+        ") then 1 else 0 end as pending",
+      [now, lifecycleGraceMs, lifecycleRetentionMs],
+    );
+    return row?.pending === 1;
   }
 
   /**

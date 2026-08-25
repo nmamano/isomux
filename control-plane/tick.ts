@@ -23,6 +23,7 @@ import {
   type OperationKind,
 } from "./operations.ts";
 import { IndeterminateProviderError } from "./provider.ts";
+import { GRACE_MS, RETENTION_MS } from "./lifecycle.ts";
 import { AmbiguousRemoteError, RemoteTimeoutError } from "./ssh.ts";
 import type {
   AssetRow,
@@ -43,6 +44,7 @@ export const LEASE_MS = 300_000;
 /** Margin between a handler's whole-handler remote budget and the lease end. */
 export const LEASE_SAFETY_MS = 60_000;
 export const POLL_INTERVAL_MS = 5_000;
+export const IDLE_MAINTENANCE_INTERVAL_MS = 60_000;
 export const RECONCILE_INTERVAL_MS = 60_000;
 export const MAX_OPS_PER_TICK = 8;
 
@@ -237,9 +239,15 @@ export class Ticker {
       }
     }
 
-    summary.flagged = await this.evaluateDeadlines();
-    summary.live = (await this.store.liveOperations()).length;
+    const live = await this.store.liveOperations();
+    summary.flagged = await this.evaluateDeadlines(live);
+    summary.live = live.length;
     return summary;
+  }
+
+  /** The provisioner's one-statement wake probe. */
+  async hasWork(): Promise<boolean> {
+    return this.store.hasPendingWork(this.now(), GRACE_MS, RETENTION_MS);
   }
 
   /** One classified audit row, in its own transaction. */
@@ -661,10 +669,10 @@ export class Ticker {
    * right now is not stuck, and bumping its version from outside would knock the
    * holder's fence out from under an in-flight remote call.
    */
-  async evaluateDeadlines(): Promise<number> {
+  async evaluateDeadlines(live?: OperationRow[]): Promise<number> {
     const now = this.now();
     let flagged = 0;
-    for (const op of await this.store.liveOperations()) {
+    for (const op of live ?? (await this.store.liveOperations())) {
       if ((op.lease_until ?? 0) > now) continue;
       // Both are examined, and they flag separately: an operation can be past
       // its ceiling AND stalled, and answering one does not answer the other.

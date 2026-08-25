@@ -367,6 +367,114 @@ describe("deadlines flag, they do not conclude", () => {
 });
 
 describe("reconcile", () => {
+  test("production-shaped idle work wakes periodically without latching", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    for (const [id, kind] of [
+      ["op-stuck-install", "run_installer"],
+      ["op-stuck-https", "verify_https"],
+    ] as const) {
+      await store.enqueue({
+        id,
+        instance_id: inst,
+        kind,
+        inactivity_deadline_at: c.now() - 1,
+        absolute_deadline_at: c.now() + 60_000,
+      });
+    }
+    await store.sqlRun(
+      "update operations set status = 'succeeded' where id = 'op-stuck-install'",
+    );
+    await store.sqlRun(
+      "update operations set status = 'failed' where id = 'op-stuck-https'",
+    );
+    for (let index = 0; index < 5; index++) {
+      const instanceId = index === 0 ? inst : `inst-reconcile-${index}`;
+      if (index > 0) {
+        await store.createInstance({
+          id: instanceId,
+          run_id: `run-reconcile-${index}`,
+          name: `reconcile-${index}.test.isomux.app`,
+          plan: "V153",
+          region: "EU",
+          service_state: "live",
+          goal: "live",
+          access_window_expires_at: null,
+        });
+      }
+      await store.createAsset({
+        id: `asset-reconcile-${index}`,
+        instance_id: instanceId,
+        provider: "contabo",
+        provider_id: `provider-reconcile-${index}`,
+        intent_id: null,
+        asset_state: "active",
+        ipv4: null,
+        service_ends_at: null,
+        host_key_fingerprint: null,
+        next_reconcile_at: c.now(),
+      });
+    }
+    const ticker = new Ticker({
+      store,
+      handlers: [],
+      holder: "probe",
+      now: c.now,
+      reconcile: async () => ({
+        assetState: "active",
+        ipv4: null,
+        serviceEndsAt: null,
+      }),
+    });
+    let trueProbes = 0;
+    let currentRun = 0;
+    let longestRun = 0;
+    for (let probe = 0; probe < 720; probe++) {
+      c.advance(5_000);
+      if (await ticker.hasWork()) {
+        trueProbes++;
+        longestRun = Math.max(longestRun, ++currentRun);
+        await ticker.once();
+      } else {
+        currentRun = 0;
+      }
+    }
+    expect({ trueProbes, longestRun }).toEqual({
+      trueProbes: 60,
+      longestRun: 1,
+    });
+  }, 20_000);
+
+  test("the wake probe sees a due asset and becomes idle after it is scheduled", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    const asset = await store.createAsset({
+      id: "asset-probe",
+      instance_id: inst,
+      provider: "contabo",
+      provider_id: "provider-probe",
+      intent_id: null,
+      asset_state: "active",
+      ipv4: null,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now(),
+    });
+    const ticker = new Ticker({
+      store,
+      handlers: [],
+      holder: "probe",
+      now: c.now,
+    });
+    expect(await ticker.hasWork()).toBe(true);
+    await store.casAsset(asset.id, asset.version, {
+      next_reconcile_at: c.now() + 60_000,
+    });
+    expect(await ticker.hasWork()).toBe(false);
+  });
+
   test("moves the asset row toward what the provider says", async () => {
     const c = clock();
     const store = await tempStore(c.now);

@@ -28,6 +28,7 @@ describe("the provisioner's combined cadence", () => {
           events.push("operation:start", "operation:end");
           return summary(0);
         },
+        hasWork: async () => false,
       },
       {
         forever: false,
@@ -57,7 +58,10 @@ describe("the provisioner's combined cadence", () => {
     const problems: string[] = [];
     await driveTicks(
       emptyStore(),
-      { once: async () => summary(++ticks === 1 ? 1 : 0) },
+      {
+        once: async () => summary(++ticks === 1 ? 1 : 0),
+        hasWork: async () => true,
+      },
       {
         forever: false,
         reporter: { line: () => {}, problem: (line) => problems.push(line) },
@@ -74,5 +78,66 @@ describe("the provisioner's combined cadence", () => {
     expect(lifecyclePasses).toBe(2);
     expect(healthyPasses).toBe(1);
     expect(problems).toEqual(["lifecycle pass failed: denied"]);
+  });
+
+  test("idle work wakes the full pass on the next five-second probe", async () => {
+    const events: string[] = [];
+    let ticks = 0;
+    let probes = 0;
+    let now = 0;
+    await driveTicks(
+      emptyStore(),
+      {
+        once: async () => {
+          events.push(`tick:${now}`);
+          return summary(++ticks === 1 ? 1 : 0);
+        },
+        hasWork: async () => {
+          events.push(`probe:${now}`);
+          return ++probes === 2;
+        },
+      },
+      {
+        forever: false,
+        reporter: { line: () => {}, problem: () => {} },
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    );
+    expect(events).toEqual([
+      "tick:0",
+      "probe:5000",
+      "probe:10000",
+      "tick:10000",
+    ]);
+  });
+
+  test("an empty probe returns completed work to minute maintenance", async () => {
+    let ticks = 0;
+    let probes = 0;
+    let now = 0;
+    await driveTicks(
+      emptyStore(),
+      {
+        once: async () => summary(++ticks === 1 ? 1 : 0),
+        hasWork: async () => {
+          probes++;
+          return false;
+        },
+      },
+      {
+        forever: false,
+        reporter: { line: () => {}, problem: () => {} },
+        now: () => now,
+        sleep: async (ms) => {
+          now += ms;
+        },
+      },
+    );
+    expect(ticks).toBe(2);
+    expect(probes).toBe(12);
+    expect(now).toBe(60_000);
   });
 });

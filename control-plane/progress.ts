@@ -20,7 +20,7 @@
 //   IT IS READ-ONLY. Nothing here writes, enqueues or acts. The web app holds
 //   no other verb.
 
-import { accessFor, windowIsOpen, type AccessView } from "./access.ts";
+import { accessForRows, windowIsOpen, type AccessView } from "./access.ts";
 import {
   cancellationStateFrom,
   isCustomerCancellation,
@@ -30,7 +30,6 @@ import {
   attemptForClosedSubscription,
   checkReinstatementEligibility,
   checkoutExpiryOperationId,
-  currentSubscriptionForInstance,
 } from "./reinstatement.ts";
 import { LIVENESS_STRIKES } from "./liveness.ts";
 import {
@@ -42,6 +41,7 @@ import {
 import type { SubscriptionRow } from "./stripe/billing-store.ts";
 import {
   ACTIVE_STATUSES,
+  type AssetRow,
   type AttentionReasonRow,
   type InstanceRow,
   type LivenessRow,
@@ -53,7 +53,6 @@ import {
 } from "./store.ts";
 import {
   planDisplayForProviderProduct,
-  reservationForInstance,
   type ReservationRow,
 } from "./signup.ts";
 
@@ -397,13 +396,6 @@ interface SubscriptionFacts {
   discount_ends_at: number | null;
 }
 
-async function subscriptionRowFor(
-  store: Store,
-  instanceId: string,
-): Promise<SubscriptionRow | null> {
-  return currentSubscriptionForInstance(store, instanceId);
-}
-
 function subscriptionViewOf(
   row: SubscriptionFacts,
   now: number,
@@ -434,6 +426,7 @@ async function lifecycleViewOf(
   reservation: ReservationRow,
   row: SubscriptionRow | null,
   operations: OperationRow[],
+  asset: AssetRow | null,
   now: number,
 ): Promise<LifecycleView | null> {
   if (
@@ -446,7 +439,6 @@ async function lifecycleViewOf(
     return null;
   }
   const subscriptionId = row.id;
-  const asset = await store.assetForInstance(instanceId);
   const attempt = await attemptForClosedSubscription(store, subscriptionId);
   const expiry = attempt
     ? await store.getOperation(checkoutExpiryOperationId(attempt.id))
@@ -506,12 +498,10 @@ async function lifecycleViewOf(
  * create step waiting, which is exactly true - nothing has been ordered yet.
  */
 async function originOf(
-  store: Store,
-  instanceId: string,
   operations: OperationRow[],
+  asset: AssetRow | null,
 ): Promise<"created" | "adopted"> {
   if (operations.some((op) => op.kind === "create_instance")) return "created";
-  const asset = await store.assetForInstance(instanceId);
   // LINKED MEANS IT HAS A PROVIDER ID, and nothing more. Requiring
   // asset_state 'active' looked equivalent and is not: asset state tracks the
   // PROVIDER'S lifecycle, so the first reconcile against a box with a cancel
@@ -647,16 +637,17 @@ export async function projectionFor(
   store: Store,
   args: ProgressArgs,
 ): Promise<ProgressView | null> {
-  const reservation: ReservationRow | null = await reservationForInstance(
-    store,
-    args.instanceId,
-  );
+  const rows = await store.progressRows(args.instanceId);
+  const parsed = <T>(text: string | null): T | null =>
+    text === null ? null : (JSON.parse(text) as T);
+  const reservation = parsed<ReservationRow>(rows.reservation);
   if (!reservation || reservation.account_id !== args.accountId) return null;
-  const instance: InstanceRow | null = await store.getInstance(args.instanceId);
+  const instance = parsed<InstanceRow>(rows.instance);
   if (!instance) return null;
   const asOf = store.now();
 
-  const operations = await store.operationsFor(instance.id);
+  const operations = JSON.parse(rows.operations) as OperationRow[];
+  const asset = parsed<AssetRow>(rows.asset);
   // Latest row per kind: a retried step opens a new row, and the newest is the
   // one that describes where the machine is now.
   const byKind = new Map<string, OperationRow>();
@@ -666,7 +657,7 @@ export async function projectionFor(
   }
 
   const goal = instance.goal as Goal;
-  const origin = await originOf(store, instance.id, operations);
+  const origin = await originOf(operations, asset);
   const ladder = ladderFor(goal).filter(
     (kind) => !(origin === "adopted" && kind === "create_instance"),
   );
@@ -676,16 +667,19 @@ export async function projectionFor(
     .sort();
 
   const verifyHttps = byKind.get("verify_https");
-  const access = await accessFor(store, instance, operations, asOf);
-  const subscriptionRow = await subscriptionRowFor(store, instance.id);
-  const attention = attentionViews(await store.openReasons(instance.id));
-  const liveness = livenessFor(await store.getLiveness(instance.id));
+  const access = accessForRows(instance, operations, asset, asOf);
+  const subscriptionRow = parsed<SubscriptionRow>(rows.subscription);
+  const attention = attentionViews(
+    JSON.parse(rows.attention) as AttentionReasonRow[],
+  );
+  const liveness = livenessFor(parsed<LivenessRow>(rows.liveness));
   const lifecycle = await lifecycleViewOf(
     store,
     instance.id,
     reservation,
     subscriptionRow,
     operations,
+    asset,
     asOf,
   );
 

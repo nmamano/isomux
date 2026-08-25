@@ -13,7 +13,7 @@
 // evidence about what happened on the box.
 
 import type { OperationKind } from "./operations.ts";
-import type { InstanceRow, OperationRow, Store } from "./store.ts";
+import type { AssetRow, InstanceRow, OperationRow, Store } from "./store.ts";
 
 /**
  * What we can HONESTLY say about our provisioning key.
@@ -72,6 +72,21 @@ export async function accessFor(
   operations: OperationRow[],
   now: number,
 ): Promise<AccessView> {
+  return accessForRows(
+    instance,
+    operations,
+    await store.assetForInstance(instance.id),
+    now,
+  );
+}
+
+/** The same decision when a caller already loaded the provider row. */
+export function accessForRows(
+  instance: InstanceRow,
+  operations: OperationRow[],
+  asset: AssetRow | null,
+  now: number,
+): AccessView {
   const ceiling = instance.access_window_expires_at;
   const succeeded = (kind: OperationKind): boolean =>
     operations.some((op) => op.kind === kind && op.status === "succeeded");
@@ -83,7 +98,6 @@ export async function accessFor(
 
   if (succeeded("revoke_access")) return { ...base, state: "gone" };
 
-  const asset = await store.assetForInstance(instance.id);
   if (!asset || asset.provider_id === null) {
     // "No box" is a CLAIM, and only a pristine signup has earned it: the
     // placeholder asset untouched, and no create ever attempted. A create row
