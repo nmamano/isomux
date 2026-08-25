@@ -236,6 +236,12 @@ export function Walls({
         <clipPath id="window-clip">
           <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" />
         </clipPath>
+        <radialGradient id="door-knob" cx="32%" cy="28%" r="68%">
+          <stop offset="0" stopColor="#fff1ad" />
+          <stop offset="0.32" stopColor="#d8bd72" />
+          <stop offset="0.72" stopColor="#a08042" />
+          <stop offset="1" stopColor="#60451f" />
+        </radialGradient>
       </defs>
 
       {/* Cut ends and narrow cap faces make the wall planes read as solid. */}
@@ -1016,15 +1022,23 @@ export function Walls({
               stroke="#4a3020"
               strokeWidth="0.5"
             />
-            <circle cx="15" cy="-25" r="5" fill="#8a7040" />
-            <circle cx="15" cy="-25" r="3.5" fill="#c0a060" />
             <ellipse
-              cx="14.5"
-              cy="-26"
-              rx="2"
-              ry="1.5"
-              fill="#d8c080"
-              opacity="0.6"
+              cx="16.2"
+              cy="-23.8"
+              rx="5"
+              ry="4"
+              fill="#241509"
+              opacity="0.5"
+            />
+            <circle cx="15" cy="-25" r="5.2" fill="#6d5128" />
+            <circle cx="15" cy="-25" r="4.3" fill="url(#door-knob)" />
+            <ellipse
+              cx="13.6"
+              cy="-26.5"
+              rx="1.35"
+              ry="0.9"
+              fill="#fff5c8"
+              opacity="0.78"
             />
             {leftDoor.dragOver && (
               <rect
@@ -1142,15 +1156,23 @@ export function Walls({
               stroke="#4a3020"
               strokeWidth="0.5"
             />
-            <circle cx="-15" cy="-25" r="5" fill="#8a7040" />
-            <circle cx="-15" cy="-25" r="3.5" fill="#c0a060" />
             <ellipse
-              cx="-15.5"
-              cy="-26"
-              rx="2"
-              ry="1.5"
-              fill="#d8c080"
-              opacity="0.6"
+              cx="-13.8"
+              cy="-23.8"
+              rx="5"
+              ry="4"
+              fill="#241509"
+              opacity="0.5"
+            />
+            <circle cx="-15" cy="-25" r="5.2" fill="#6d5128" />
+            <circle cx="-15" cy="-25" r="4.3" fill="url(#door-knob)" />
+            <ellipse
+              cx="-16.4"
+              cy="-26.5"
+              rx="1.35"
+              ry="0.9"
+              fill="#fff5c8"
+              opacity="0.78"
             />
             {rightDoor.dragOver && (
               <rect

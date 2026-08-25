@@ -7,10 +7,10 @@
 // them in hand - start, stop, restart, read the log, delete one.
 //
 // TWO SOURCES OF TRUTH, DELIBERATELY. The app_upserted / app_deleted deltas
-// carry anything isomux itself did, immediately. But systemd restarting a
-// crash-looping app is not something isomux is told about - the restart count
-// only moves when somebody asks - so the list is also re-fetched every few
-// seconds WHILE THIS TAB IS OPEN, and never when it is closed. The fetch
+// carry anything isomux itself did, immediately. But systemd changing an app's
+// runtime state is not something isomux is told about, so the list is also
+// re-fetched every few seconds WHILE THIS TAB IS OPEN, and never when it is
+// closed. The fetch
 // replaces the slice; the deltas patch it; both converge.
 
 import { useEffect, useRef, useState } from "react";
@@ -874,7 +874,6 @@ export function AppsView({
                     }}
                   >
                     <Meta label="port" value={String(app.port)} />
-                    <Meta label="restarts" value={String(app.restartCount)} />
                     {/* The creator opens its conversation when it is still an
                         agent of this office; otherwise it stays plain text. */}
                     <Meta
