@@ -24,4 +24,13 @@ describe("voice input errors", () => {
       "Voice input failed.",
     );
   });
+
+  it("never puts a raw browser code on screen", () => {
+    // Kept separate from the case above, which uses a real Chrome code that
+    // someone could later map deliberately. This one cannot be mapped, so the
+    // fallback keeps a test whatever else changes.
+    expect(voiceInputErrorMessage("not-a-real-speech-error")).toBe(
+      "Voice input failed.",
+    );
+  });
 });
