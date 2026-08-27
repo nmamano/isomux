@@ -2,6 +2,8 @@
 // off-office message attribution. All requests drive the real HTTP server.
 
 import { afterEach, describe, expect, it } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { mintApiToken } from "../api-tokens.ts";
@@ -69,7 +71,7 @@ async function waitFor(predicate: () => boolean) {
 describe("personal API tokens", () => {
   it("mints, lists, sends as the human, and revokes through cookie-only routes", async () => {
     const srv = await startTestServer({
-      fakeBackend: new FakeBackend({ session: { onSend() {} } }),
+      fakeBackend: new FakeBackend({ session: { manualSend: true } }),
     });
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -98,7 +100,7 @@ describe("personal API tokens", () => {
     expect(((await manifest.json()) as Array<{ id: string }>)[0].id).toBe(
       target.id,
     );
-    const sent = await bearer(
+    const sentPromise = bearer(
       srv,
       minted.body.token,
       `/api/agents/${target.id}/messages`,
@@ -108,13 +110,17 @@ describe("personal API tokens", () => {
         body: JSON.stringify({ text: "off-office alert" }),
       },
     );
-    expect(sent.status).toBe(200);
     await waitFor(
       () => (srv.fakeBackend.sessionForAgent(target.id)?.sent.length ?? 0) > 0,
     );
+    const sent = await sentPromise;
+    expect(sent.status).toBe(200);
+    expect(await sent.json()).toEqual({ messageId: "" });
     expect(srv.fakeBackend.sessionForAgent(target.id)!.sent[0].text).toContain(
       `[Boss (API token "Phone 'alerts")] off-office alert`,
     );
+    srv.fakeBackend.sessionForAgent(target.id)!.releaseSends();
+    srv.fakeBackend.sessionForAgent(target.id)!.completeTurn();
     const used = await srv.http("/api/me/api-tokens", {
       rawSessionId: owner.rawSessionId,
     });
@@ -135,6 +141,47 @@ describe("personal API tokens", () => {
     );
     expect(revoked.status).toBe(204);
     expect((await bearer(srv, minted.body.token, "/agents")).status).toBe(401);
+  });
+
+  it("returns the enqueue failure status instead of acknowledging success", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { manualSend: true } }),
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0].id;
+    const target = await spawn(srv, "Target", room);
+    const minted = await mintThroughApi(srv, owner.rawSessionId);
+    const send = (text: string) =>
+      bearer(srv, minted.body.token, `/api/agents/${target.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+    const first = await send("hold the turn");
+    expect(first.status).toBe(200);
+    await waitFor(
+      () => (srv.fakeBackend.sessionForAgent(target.id)?.sent.length ?? 0) > 0,
+    );
+
+    const store = join(srv.stateRoot, "message-queues.json");
+    mkdirSync(store);
+    writeFileSync(join(store, "keep"), "x");
+    const persistFailed = await send("cannot persist");
+    expect(persistFailed.status).toBe(500);
+    expect((await persistFailed.json()).error.code).toBe("persist_failed");
+    rmSync(store, { recursive: true, force: true });
+
+    for (let i = 0; i < 50; i++) {
+      expect((await send(`queued ${i}`)).status).toBe(200);
+    }
+    const queueFull = await send("one too many");
+    expect(queueFull.status).toBe(429);
+    expect((await queueFull.json()).error.code).toBe("queue_full");
+
+    srv.fakeBackend.sessionForAgent(target.id)!.releaseSends();
+    srv.fakeBackend.sessionForAgent(target.id)!.completeTurn();
   });
 
   it("allows only the live manifest below the capability dispatcher", async () => {
