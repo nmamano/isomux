@@ -351,6 +351,13 @@ export function describeMessageSender(
   if (senderAppName) {
     return { label: `${senderAppName} · app`, fromHuman: false };
   }
+  // A scheduled job. Unattended like an app, and it carries no human's
+  // authority: without this arm a cron alert renders as the reader's own
+  // message ("YOU"), which is exactly the misattribution above.
+  const senderCronjobName = metadata?.sender_cronjob_name as string | undefined;
+  if (senderCronjobName) {
+    return { label: `${senderCronjobName} · cron job`, fromHuman: false };
+  }
   const username = metadata?.username as string | undefined;
   const device = metadata?.device as string | undefined;
   return {
