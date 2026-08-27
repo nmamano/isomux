@@ -180,7 +180,9 @@ export function CronjobDialog({
     enabled,
   };
   const baselineRef = useRef<CronjobFormSnapshot | null>(null);
-  if (baselineRef.current == null) baselineRef.current = formSnapshot;
+  // Copy, never alias: the machine-defaults re-stamp mutates the baseline in
+  // place, and an aliased baseline would compare the form against itself.
+  if (baselineRef.current == null) baselineRef.current = { ...formSnapshot };
 
   // Codex models are fetched server-side (auth-aware via model/list). null =
   // not yet attempted. On fetch failure we fall back to the hardcoded
