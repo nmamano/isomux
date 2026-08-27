@@ -1220,20 +1220,6 @@ function UserEditPanel({
           style={{ ...inputStyle, maxWidth: 340 }}
         />
 
-        <label style={subLabelStyle}>
-          Avatar{" "}
-          <span style={hintStyle}>
-            (your ghost in the office scene; other users see it next to the
-            agent you&apos;re viewing)
-          </span>
-        </label>
-        <AvatarPicker
-          color={avatarColor}
-          variant={avatarVariant}
-          onColorChange={setAvatarColor}
-          onVariantChange={setAvatarVariant}
-        />
-
         {/* Rooms (task 9301d0f4): ONE table for the three hierarchical
             per-room settings - ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
             Access is owner-managed on member targets; Displayed and
@@ -1483,6 +1469,23 @@ function UserEditPanel({
             fontFamily: "inherit",
             lineHeight: 1.45,
           }}
+        />
+
+        {/* Aesthetics last (task a0da9bcf): looks are secondary to the
+            settings that change behavior. */}
+        <h5 style={sectionTitleStyle}>Appearance</h5>
+        <label style={subLabelStyle}>
+          Avatar{" "}
+          <span style={hintStyle}>
+            (your ghost in the office scene; other users see it next to the
+            agent you&apos;re viewing)
+          </span>
+        </label>
+        <AvatarPicker
+          color={avatarColor}
+          variant={avatarVariant}
+          onColorChange={setAvatarColor}
+          onVariantChange={setAvatarVariant}
         />
       </div>
 

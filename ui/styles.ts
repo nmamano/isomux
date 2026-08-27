@@ -209,6 +209,15 @@ ${emitThemesCss()}
   .spawn-template-section,
   .agent-identity-section,
   .agent-engine-settings { margin-bottom: 18px; }
+  /* Single column: aesthetics are secondary, so Appearance sinks to the
+     bottom. The column wrappers dissolve (display: contents) so 'order' can
+     move one section across them; desktop's two-column grid is untouched. */
+  @media (max-width: 999px) {
+    .agent-dialog-grid { display: flex; flex-direction: column; }
+    .agent-dialog-left-column,
+    .agent-dialog-right-column { display: contents; }
+    .agent-appearance-section { order: 1; }
+  }
   @media (min-width: 1000px) {
     .edit-agent-dialog-desktop,
     .spawn-agent-dialog-desktop { width: min(1040px, 94vw); }

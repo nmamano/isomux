@@ -61,7 +61,11 @@ export const dialogChip: Readonly<CSSProperties> = Object.freeze({
   maxWidth: "100%",
 });
 
+// Explicit size so hint copy reads the same whether it sits inside an 11px
+// label or as its own block; muted (not ghost) keeps it legible while staying
+// quieter than the bold labels around it.
 export const dialogHint: Readonly<CSSProperties> = Object.freeze({
   fontWeight: 400,
-  color: "var(--text-ghost)",
+  fontSize: 12,
+  color: "var(--text-muted)",
 });
