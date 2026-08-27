@@ -20,7 +20,8 @@
 import { describe, it, expect } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
-import type { PersistedAgent, RoomWire } from "../../shared/types.ts";
+import type { RoomWire } from "../../shared/types.ts";
+import type { PersistedAgent } from "../persistence.ts";
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
 import type { EventHandler } from "../internal-types.ts";
