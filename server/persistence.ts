@@ -783,6 +783,8 @@ export interface ManifestAgentInput {
   modelFamily: string;
   model: string;
   effort: EffortLevel;
+  permissionMode: AgentInfo["permissionMode"];
+  sandbox: AgentInfo["codexSandbox"] | null;
   username: string | null;
 }
 
@@ -799,6 +801,8 @@ export function buildManifest(agents: ManifestAgentInput[]) {
     modelFamily: a.modelFamily,
     model: a.model,
     effort: a.effort,
+    permissionMode: a.permissionMode,
+    sandbox: a.sandbox,
     username: a.username,
     logDir: join(LOGS_DIR, a.id),
   }));

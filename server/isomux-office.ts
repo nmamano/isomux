@@ -512,7 +512,7 @@ function registerBootHooks(): void {
     name: string,
     agentType: "claude" | "codex",
     modelFamily: string,
-    permissionMode: "auto" | "on-request",
+    permissionMode: "auto" | undefined,
     outfit: AgentOutfit,
     username: string,
   ): Promise<void> {
@@ -562,7 +562,7 @@ function registerBootHooks(): void {
       "Codex Welcome Agent",
       "codex",
       CODEX_MODELS[0].value,
-      "on-request",
+      undefined,
       CODEX_WELCOME_OUTFIT,
       username,
     );

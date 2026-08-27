@@ -64,19 +64,16 @@ import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
 // server is tracking its full history of working directories.
 const MAX_CWD_SUGGESTIONS = 10;
 
-export function codexNewEngineDefaults(isSpawn: boolean): {
+export function codexNewEngineDefaults(): {
   permissionMode: AgentInfo["permissionMode"];
   codexSandbox: CodexSandboxMode;
 } {
-  return isSpawn
-    ? { permissionMode: "never", codexSandbox: "danger-full-access" }
-    : { permissionMode: "on-request", codexSandbox: "workspace-write" };
+  return { permissionMode: "never", codexSandbox: "danger-full-access" };
 }
 
 export function templateValuesAfterEngineSwitch(
   template: AgentTemplate,
   targetEngine: AgentBackendType,
-  isSpawn: boolean,
   backendModels: BackendModelWire[] | null,
   modelsFailed: boolean,
 ): Pick<
@@ -88,7 +85,7 @@ export function templateValuesAfterEngineSwitch(
       ? {
           modelFamily: CODEX_MODELS[0].value,
           effort: DEFAULT_EFFORT,
-          permissionMode: codexNewEngineDefaults(isSpawn).permissionMode,
+          permissionMode: codexNewEngineDefaults().permissionMode,
         }
       : {
           modelFamily: MODEL_FAMILIES[0].family,
@@ -281,7 +278,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [effort, setEffort] = useState<EffortLevel>(
     agent?.effort ?? DEFAULT_EFFORT,
   );
-  const codexNewEngineDefault = codexNewEngineDefaults(isSpawn);
+  const codexNewEngineDefault = codexNewEngineDefaults();
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
     agent?.codexSandbox ?? codexNewEngineDefault.codexSandbox,
   );
@@ -582,7 +579,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           const values = templateValuesAfterEngineSwitch(
             selectedTemplate,
             targetEngine,
-            isSpawn,
             r.models,
             false,
           );
@@ -678,7 +674,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         codexSandbox: agent?.codexSandbox ?? "workspace-write",
       };
     } else if (targetEngine === "codex") {
-      const codexDefault = codexNewEngineDefaults(isSpawn);
+      const codexDefault = codexNewEngineDefaults();
       seed = {
         modelFamily: CODEX_MODELS[0].value,
         effort: DEFAULT_EFFORT,
@@ -701,7 +697,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       const values = templateValuesAfterEngineSwitch(
         selectedTemplate,
         targetEngine,
-        isSpawn,
         null,
         false,
       );

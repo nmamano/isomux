@@ -196,7 +196,8 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(claude!.permissionMode).toBe("auto");
     expect(codex!.agentType).toBe("codex");
     expect(codex!.modelFamily).toBe("gpt-5.6-sol");
-    expect(codex!.permissionMode).toBe("on-request");
+    expect(codex!.permissionMode).toBe("never");
+    expect(codex!.codexSandbox).toBe("danger-full-access");
 
     // Lazy spawn: the welcome agents are seeded DORMANT - zero subprocesses
     // until someone messages them (a fresh-install office shouldn't burn ~330MB

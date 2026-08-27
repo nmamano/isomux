@@ -134,7 +134,10 @@ function wireClaudeHome(): string {
   const suffix = `sub-usage-${++homeSuffix}`;
   const claudeHome = join(STATE_ROOT, `claude-home-${suffix}`);
   const envFile = join(STATE_ROOT, `office-${suffix}.env`);
-  writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome}\n`);
+  writeFileSync(
+    envFile,
+    `CLAUDE_CONFIG_DIR=${claudeHome}\nCODEX_HOME=${join(STATE_ROOT, "codex-home")}\n`,
+  );
   setOfficeEnvFileProvider(() => envFile);
   return claudeHome;
 }
@@ -427,7 +430,7 @@ describe("subscription usage", () => {
   });
 
   it("clears when resuming a session recorded under the other engine", async () => {
-    const claudeHome = wireClaudeHome();
+    wireClaudeHome();
     const fake = new FakeBackend({
       session: {
         subscriptionUsage: async () => reading(63),
@@ -443,8 +446,7 @@ describe("subscription usage", () => {
     );
 
     // A session this agent previously ran under Codex.
-    const cwd = mgr.getAgent(info.id)!.cwd;
-    const codexSessionId = "codex-session-1";
+    const codexSessionId = "11111111-1111-4111-8111-111111111111";
     stampSessionEngineConfig(info.id, codexSessionId, {
       agentType: "codex",
       modelFamily: "gpt-5.5",
@@ -452,9 +454,36 @@ describe("subscription usage", () => {
       permissionMode: "on-request",
       codexSandbox: "workspace-write",
     });
-    seedClaudeFile(claudeHome, cwd, codexSessionId);
+    const rolloutDir = join(
+      STATE_ROOT,
+      "codex-home",
+      "sessions",
+      "2026",
+      "08",
+      "27",
+    );
+    mkdirSync(rolloutDir, { recursive: true });
+    writeFileSync(
+      join(rolloutDir, `rollout-test-${codexSessionId}.jsonl`),
+      '{"type":"session_meta"}\n{"type":"response_item"}\n',
+    );
     await mgr.resume(info.id, codexSessionId);
     expect(mgr.getAgent(info.id)?.subscriptionUsage).toBeNull();
+    expect(mgr.getAgent(info.id)?.permissionMode).toBe("never");
+    expect(mgr.getAgent(info.id)?.codexSandbox).toBe("danger-full-access");
+
+    // The stamp records historical posture but is not a resume input. A later
+    // same-engine resume cannot drag the corrected record back to old defaults.
+    stampSessionEngineConfig(info.id, codexSessionId, {
+      agentType: "codex",
+      modelFamily: "gpt-5.5",
+      effort: "medium",
+      permissionMode: "on-request",
+      codexSandbox: "workspace-write",
+    });
+    await mgr.resume(info.id, codexSessionId);
+    expect(mgr.getAgent(info.id)?.permissionMode).toBe("never");
+    expect(mgr.getAgent(info.id)?.codexSandbox).toBe("danger-full-access");
   });
 
   it("drops a read that was already in flight when the engine switched", async () => {

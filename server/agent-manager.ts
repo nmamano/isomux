@@ -189,6 +189,7 @@ import {
   validateModelFamily,
   validateCodexSandbox,
   validateEffort,
+  resolveAgentEngineSettings,
 } from "./agent-validators.ts";
 import {
   configurePluginHooks,
@@ -1085,6 +1086,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ? FAMILY_TO_MODEL[a.info.modelFamily]
           : a.info.modelFamily,
         effort: a.info.effort,
+        permissionMode: a.info.permissionMode,
+        // Keep agentType out of this compact discovery shape: Claude and Codex
+        // permission enums are disjoint, so permissionMode already identifies
+        // which engine owns the adjacent sandbox field.
+        sandbox: a.info.codexSandbox ?? null,
         username: a.info.username,
       };
     });
@@ -1370,11 +1376,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const userId = resolveAgentUserId(p);
     // Same validators as spawn/edit - canonicalizes persisted values
     // (e.g. codex 0.130 deprecated "on-failure" → "on-request").
-    const modelFamily = validateModelFamily(agentType, p.modelFamily);
-    const permissionMode = validatePermissionMode(agentType, p.permissionMode);
-    const effort = validateEffort(agentType, modelFamily, p.effort);
-    const codexSandbox =
-      agentType === "codex" ? validateCodexSandbox(p.codexSandbox) : undefined;
+    const { modelFamily, permissionMode, effort, codexSandbox } =
+      resolveAgentEngineSettings(agentType, p);
     // Tag any pre-feature sessions (no stored engine) with this agent's current
     // engine before it can switch. Runs once per agent at boot/revive; at this
     // point current-engine == the engine every existing session ran under, so a
@@ -3061,22 +3064,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // (spawn / new conversation) gets the agent's current mirror cwd here.
           ensureSessionCwd(agentId, sessionId, managed.info.cwd);
           // Record the engine config (agentType + model/effort/permission/
-          // sandbox) this session is running under. Overwrite, not backfill:
-          // every model/effort/permission/engine change funnels through a
-          // session replace -> fresh system_init, so re-stamping the live
-          // config here keeps the active session's stored config in lockstep,
-          // which is what a later resume restores. (For a cross-engine resume
-          // managed.info was already set to the session's engine before
-          // createSession, so this writes the same values back - a no-op.)
+          // sandbox) this session is running under. Overwrite, not backfill, so
+          // the stamp remains a truthful historical record. A later resume
+          // restores engine/model/effort from it, but permission posture always
+          // comes from the live agent record through the resolver.
           //
           // LOAD-BEARING: this is the ONLY thing that keeps a session's stored
-          // engine/model in sync with the live agent. The invariant relies on
-          // EVERY change to agentType/modelFamily/effort/permissionMode/
-          // codexSandbox going through a session replace (which re-fires
-          // system_init). A future code path that mutates those fields via a
-          // bare officeState.updateAgent WITHOUT replacing the session would
-          // silently desync the stored config and break resume fidelity - route
-          // it through replaceSession, or re-stamp here.
+          // engine/model/effort in sync with the live agent. A future code path
+          // that mutates those fields via a bare officeState.updateAgent WITHOUT
+          // replacing the session would silently desync the stored config and
+          // break resume fidelity - route it through replaceSession, or re-stamp
+          // here. Permission posture is recorded for fidelity, not restored.
           stampSessionEngineConfig(agentId, sessionId, {
             agentType: managed.info.agentType,
             modelFamily: managed.info.modelFamily,
@@ -4569,7 +4567,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function spawn(
     name: string,
     cwd: string,
-    permissionMode: AgentInfo["permissionMode"],
+    permissionMode: AgentInfo["permissionMode"] | undefined,
     desk?: number,
     customInstructions?: string,
     roomId?: string,
@@ -4600,18 +4598,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // mismatched modelFamily with 422 invalid_model_family BEFORE this runs -
     // the coercion here is a last-resort default for internal callers (welcome
     // seed, tests), not input laundering for the API surface.
-    const validatedPermissionMode = validatePermissionMode(
-      agentType,
+    const {
+      permissionMode: validatedPermissionMode,
+      modelFamily: validatedModelFamily,
+      effort: validatedEffort,
+      codexSandbox: validatedCodexSandbox,
+    } = resolveAgentEngineSettings(agentType, {
       permissionMode,
-    );
-    const validatedModelFamily = validateModelFamily(agentType, modelFamily);
-    const validatedEffort = validateEffort(
-      agentType,
-      validatedModelFamily,
+      modelFamily,
       effort,
-    );
-    const validatedCodexSandbox =
-      agentType === "codex" ? validateCodexSandbox(codexSandbox) : undefined;
+      codexSandbox,
+    });
 
     // Funnel AgentInfo construction through OfficeState so the literal lives in
     // one place. Suppress persistAll during the inner emitEvents - at that point
@@ -7039,26 +7036,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Validate any provided override against the TARGET engine (undefined ->
       // that engine's default). Never coerce a source-engine value: e.g.
       // validateModelFamily(codex, "opus") would pass "opus" straight through.
-      const modelFamily = validateModelFamily(
+      const resolved = resolveAgentEngineSettings(
         targetAgentType,
-        engineOverrides?.modelFamily,
+        engineOverrides ?? {},
       );
       for (const event of officeState.updateAgent(agentId, {
         agentType: targetAgentType,
-        modelFamily,
-        effort: validateEffort(
-          targetAgentType,
-          modelFamily,
-          engineOverrides?.effort,
-        ),
-        permissionMode: validatePermissionMode(
-          targetAgentType,
-          engineOverrides?.permissionMode,
-        ),
-        codexSandbox:
-          targetAgentType === "codex"
-            ? validateCodexSandbox(engineOverrides?.codexSandbox)
-            : undefined,
+        ...resolved,
         capabilities: getBackend(targetAgentType).capabilities,
       }))
         emit(event);
@@ -7218,14 +7202,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       emit(event);
   }
 
-  // Engine config (agentType + model/effort/permission/sandbox) is a property of
-  // the session, mirroring cwd. Before a resume, restore the session's stored
-  // engine onto the agent so createSession picks the right backend, runs the
-  // right backend's preflight, and starts with the right model. Recomputes
-  // capabilities from the new backend so UI affordances follow. Returns the prior
-  // config so the caller can roll back if the resume fails. Legacy sessions with
-  // no stored engine (agentType undefined) leave the agent untouched - a
-  // pre-feature agent only ever ran the one engine it still has.
+  // Engine, model, and effort are properties of the session, mirroring cwd.
+  // Permission posture belongs to the live agent record and is resolved for
+  // the target engine below. Recomputes capabilities from the new backend so UI
+  // affordances follow. Returns the prior config so the caller can roll back if
+  // the resume fails. Legacy sessions with no stored engine (agentType
+  // undefined) leave the agent untouched - a pre-feature agent only ever ran
+  // the one engine it still has.
   function applySessionEngineForResume(
     agentId: string,
     managed: ManagedAgent,
@@ -7235,12 +7218,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (!stored || !stored.agentType)
       return { prevConfig: null, switched: false };
     const cur = managed.info;
+    // The live agent record is the only source of permission posture. Session
+    // stamps keep historical posture for transcript fidelity, but neither a
+    // cross-engine resume nor its rollback may restore those old defaults.
+    const resolved = resolveAgentEngineSettings(stored.agentType, {
+      modelFamily: stored.modelFamily ?? cur.modelFamily,
+      effort: stored.effort ?? cur.effort,
+      permissionMode: cur.permissionMode,
+      codexSandbox: cur.codexSandbox,
+    });
     const same =
       stored.agentType === cur.agentType &&
-      stored.modelFamily === cur.modelFamily &&
-      stored.effort === cur.effort &&
-      stored.permissionMode === cur.permissionMode &&
-      (stored.codexSandbox ?? undefined) === (cur.codexSandbox ?? undefined);
+      resolved.modelFamily === cur.modelFamily &&
+      resolved.effort === cur.effort;
     if (same) return { prevConfig: null, switched: false };
     const prevConfig: SessionEngineConfig = {
       agentType: cur.agentType,
@@ -7250,15 +7240,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       codexSandbox: cur.codexSandbox,
     };
     // Resuming a session recorded under the OTHER engine repoints the agent at
-    // a different provider account. Same-engine resumes (model/effort/
-    // permission differences only) leave the account, and the reading, alone.
+    // a different provider account. Same-engine resumes leave the account, and
+    // the reading, alone.
     if (stored.agentType !== cur.agentType) resetSubscriptionUsage(managed);
     for (const event of officeState.updateAgent(agentId, {
       agentType: stored.agentType,
-      modelFamily: stored.modelFamily ?? cur.modelFamily,
-      effort: stored.effort ?? cur.effort,
-      permissionMode: stored.permissionMode ?? cur.permissionMode,
-      codexSandbox: stored.codexSandbox,
+      ...resolved,
       capabilities: getBackend(stored.agentType).capabilities,
     }))
       emit(event);
@@ -7279,12 +7266,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed && managed.info.agentType !== prevConfig.agentType) {
       resetSubscriptionUsage(managed);
     }
+    const resolved = resolveAgentEngineSettings(
+      prevConfig.agentType,
+      prevConfig,
+    );
     for (const event of officeState.updateAgent(agentId, {
       agentType: prevConfig.agentType,
-      modelFamily: prevConfig.modelFamily,
-      effort: prevConfig.effort,
-      permissionMode: prevConfig.permissionMode,
-      codexSandbox: prevConfig.codexSandbox,
+      ...resolved,
       capabilities: getBackend(prevConfig.agentType).capabilities,
     }))
       emit(event);

@@ -20,7 +20,7 @@
 import { describe, it, expect } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
-import type { RoomWire } from "../../shared/types.ts";
+import type { PersistedAgent, RoomWire } from "../../shared/types.ts";
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
 import type { EventHandler } from "../internal-types.ts";
@@ -107,6 +107,46 @@ describe("AgentManager DI (disk-free seam)", () => {
 });
 
 describe("AgentManager DI (temp-state isolated)", () => {
+  it("restore/revive install path fills absent Codex permission defaults", async () => {
+    const persisted = {
+      id: "agent-codex-restore",
+      name: "Restored Codex",
+      desk: 0,
+      cwd: STATE_ROOT,
+      outfit: {
+        hat: "none",
+        color: "#000000",
+        hair: "#000000",
+        hairStyle: "short",
+        skin: "#ffffff",
+        beard: "none",
+        accessory: null,
+      },
+      permissionMode: undefined,
+      modelFamily: "gpt-5.5",
+      effort: "medium",
+      agentType: "codex",
+      codexSandbox: undefined,
+      lastSessionId: null,
+      topic: null,
+      customInstructions: null,
+      userId: null,
+      username: null,
+    } as unknown as PersistedAgent;
+    const mgr = createAgentManager({
+      resolveBackend: () => new FakeBackend(),
+      officeState: new OfficeState({ rooms: rooms("room-a") }),
+      initialRooms: [
+        { id: "room-a", name: "room-a", prompt: null, agents: [persisted] },
+      ],
+    });
+
+    await mgr.restoreAgents();
+
+    expect(mgr.getAgent(persisted.id)?.permissionMode).toBe("never");
+    expect(mgr.getAgent(persisted.id)?.codexSandbox).toBe("danger-full-access");
+  });
+
   it("consults the injected resolver and drives the FakeBackend on first message (lazy spawn: no session at spawn)", async () => {
     // onSend completes the wake turn so it doesn't park; configurePluginHooksDeps
     // lets runAgentTurn run at all (it throws unconfigured) - together they make

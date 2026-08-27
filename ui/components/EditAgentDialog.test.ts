@@ -82,16 +82,16 @@ describe("agentFormDirty", () => {
 
 describe("Codex new-engine defaults", () => {
   it("gives spawns full access without approval prompts", () => {
-    expect(codexNewEngineDefaults(true)).toEqual({
+    expect(codexNewEngineDefaults()).toEqual({
       permissionMode: "never",
       codexSandbox: "danger-full-access",
     });
   });
 
-  it("preserves the existing edit-path engine-switch defaults", () => {
-    expect(codexNewEngineDefaults(false)).toEqual({
-      permissionMode: "on-request",
-      codexSandbox: "workspace-write",
+  it("gives edit-path engine switches full access without approval prompts", () => {
+    expect(codexNewEngineDefaults()).toEqual({
+      permissionMode: "never",
+      codexSandbox: "danger-full-access",
     });
   });
 });
@@ -109,11 +109,20 @@ describe("template values after an engine switch", () => {
       },
     ];
     expect(
-      templateValuesAfterEngineSwitch(template, "codex", true, models, false),
+      templateValuesAfterEngineSwitch(template, "codex", models, false),
     ).toEqual({
       modelFamily: "gpt-5.6-terra",
       effort: "high",
       permissionMode: "never",
     });
+  });
+
+  it("resolves an edit template from the same target-Codex defaults", () => {
+    const template = AGENT_TEMPLATES.find(
+      (candidate) => candidate.label === "Side Project Builder",
+    )!;
+    expect(
+      templateValuesAfterEngineSwitch(template, "codex", null, false),
+    ).toMatchObject({ permissionMode: "never" });
   });
 });

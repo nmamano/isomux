@@ -579,6 +579,50 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     const agent = (res.body as { agent?: { modelFamily?: string } }).agent;
     expect(agent?.modelFamily).toBe("gpt-5.5");
   });
+
+  it("Codex spawn without permission fields gets the agent defaults", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        name: "Default Codex",
+        cwd: srv.stateRoot,
+        roomId,
+        desk: 0,
+        agentType: "codex",
+        modelFamily: "gpt-5.5",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    const agent = (
+      res.body as { agent: { permissionMode: string; codexSandbox: string } }
+    ).agent;
+    expect(agent.permissionMode).toBe("never");
+    expect(agent.codexSandbox).toBe("danger-full-access");
+  });
+
+  it("Claude spawn without a permission field keeps the REST default", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        name: "Default Claude",
+        cwd: srv.stateRoot,
+        roomId,
+        desk: 0,
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    expect(
+      (res.body as { agent: { permissionMode: string } }).agent.permissionMode,
+    ).toBe("default");
+  });
 });
 
 describe("agents.update REST (Phase 3d slice 7b)", () => {
@@ -918,6 +962,8 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     const after = srv.agentManager.getAgent(x.id);
     expect(after?.agentType).toBe("codex");
     expect(after?.modelFamily).toBe("gpt-5.5");
+    expect(after?.permissionMode).toBe("never");
+    expect(after?.codexSandbox).toBe("danger-full-access");
   });
 
   // Task a7a60fba. The engine switch applies the metadata edit (name/cwd/

@@ -33,7 +33,7 @@ export function validatePermissionMode(
     if (raw === "on-failure") return "on-request";
     if (raw === "untrusted" || raw === "on-request" || raw === "never")
       return raw;
-    return "on-request";
+    return "never";
   }
   if (
     raw === "default" ||
@@ -107,7 +107,30 @@ export function validateCodexSandbox(
     raw === "danger-full-access"
   )
     return raw;
+  // Cron relies on undefined to retain the adapter's workspace-write fallback;
+  // agent defaults belong in resolveAgentEngineSettings below.
   return undefined;
+}
+
+export function resolveAgentEngineSettings(
+  agentType: AgentBackendType,
+  raw: {
+    modelFamily?: string;
+    effort?: EffortLevel;
+    permissionMode?: AgentPermissionMode;
+    codexSandbox?: CodexSandboxMode;
+  },
+) {
+  const modelFamily = validateModelFamily(agentType, raw.modelFamily);
+  return {
+    modelFamily,
+    effort: validateEffort(agentType, modelFamily, raw.effort),
+    permissionMode: validatePermissionMode(agentType, raw.permissionMode),
+    codexSandbox:
+      agentType === "codex"
+        ? (validateCodexSandbox(raw.codexSandbox) ?? "danger-full-access")
+        : undefined,
+  };
 }
 
 export function validateEffort(

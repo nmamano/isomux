@@ -152,6 +152,23 @@ function withLiveFields(onDisk: unknown): unknown {
 }
 
 describe("GET /agents (discovery manifest)", () => {
+  it("publishes permission posture with an explicit null Claude sandbox", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0].id;
+    const agent = await spawnOwnedBy(srv, "Alpha", room, 0, owner.username);
+
+    const res = await fetch(`${srv.baseUrl}/agents`, {
+      headers: { Authorization: `Bearer ${bearerFor(agent.id)}` },
+    });
+    const entry = ((await res.json()) as Array<Record<string, unknown>>).find(
+      (candidate) => candidate.id === agent.id,
+    );
+    expect(entry?.permissionMode).toBe("default");
+    expect(entry?.sandbox).toBeNull();
+  });
+
   it("reports the live turn and oldest active-tool time without disclosing its name or persisting it", async () => {
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({ session: { onSend() {} } }),
@@ -244,6 +261,8 @@ describe("GET /agents (discovery manifest)", () => {
       modelFamily: alpha.modelFamily,
       model: alpha.model,
       effort: DEFAULT_EFFORT,
+      permissionMode: "default",
+      sandbox: null,
       username: owner.username,
       logDir: join(srv.stateRoot, "logs", a.id),
       // Live parked-prompt state (task 29daebe2). Null for an agent that is
