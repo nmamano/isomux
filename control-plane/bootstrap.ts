@@ -154,10 +154,10 @@ export async function migrateCertificateContactColumns(
   const pool = await openPool(dsn);
   try {
     await inTransaction(pool, dsn, [
-      "alter table instances add column if not exists certificate_contact_next_check_at bigint",
-      "alter table instances add column if not exists certificate_contact_claim_until bigint",
-      "alter table instances add column if not exists certificate_contact_claim_holder text",
-      "alter table instances add column if not exists certificate_contact_version integer",
+      "alter table if exists instances add column if not exists certificate_contact_next_check_at bigint",
+      "alter table if exists instances add column if not exists certificate_contact_claim_until bigint",
+      "alter table if exists instances add column if not exists certificate_contact_claim_holder text",
+      "alter table if exists instances add column if not exists certificate_contact_version integer",
     ]);
   } finally {
     await pool.end().catch(() => {});

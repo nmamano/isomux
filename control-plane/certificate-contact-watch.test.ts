@@ -85,7 +85,9 @@ describe("the daily certificate-contact pass", () => {
     const visited: string[] = [];
     await watchCertificateContact(store, {
       holder: "watch-a",
-      apply: async (_store, id) => visited.push(id),
+      apply: async (_store, id) => {
+        visited.push(id);
+      },
     });
     expect(visited).toEqual(["inst-later"]);
   });

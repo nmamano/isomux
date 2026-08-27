@@ -419,6 +419,10 @@ describe("reconcile", () => {
     expect(
       await store.claimLiveness(inst, "other", claimUntil, c.now()),
     ).not.toBeNull();
+    await store.sqlRun(
+      "update instances set certificate_contact_next_check_at = $1 where id = $2",
+      [claimUntil, inst],
+    );
     const schedule = await store.workSchedule(c.now(), 0, 0, {
       providerConfigured: false,
       provisioningConfigured: false,
