@@ -1,0 +1,5 @@
+Command (from the worktree root):
+find internal-docs/opencode-gate -type f ! -path '*/node_modules/*' ! -path '*/evidence/freeze-fingerprint.txt' -print0 | sort -z | xargs -0 sha256sum | sha256sum
+
+SHA256:
+8f8c154b2d5a94a0fdf1f260fa9c64e0b244abf07bca3b470e290944f22f2585  -

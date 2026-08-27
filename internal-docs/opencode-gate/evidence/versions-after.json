@@ -1,0 +1,8 @@
+{
+  "date": "2026-08-27",
+  "v2Cli": "0.0.0-beta-202608110357",
+  "v2Client": "0.0.0-beta-18314",
+  "v1Cli": "1.18.23",
+  "v1Sdk": "1.18.23",
+  "disableAutoUpdate": "OPENCODE_DISABLE_AUTOUPDATE=1 in every harness launch and autoupdate=false in every gate config"
+}

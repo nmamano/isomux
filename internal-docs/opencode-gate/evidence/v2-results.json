@@ -1,0 +1,236 @@
+{
+  "date": "2026-08-27",
+  "healthBefore": {
+    "healthy": true,
+    "version": "0.0.0-beta-202608110357"
+  },
+  "healthAfter": {
+    "healthy": true,
+    "version": "0.0.0-beta-202608110357"
+  },
+  "sessionA": {
+    "id": "ses_fbe40f1b4ffe8vbkObZR8tpmai",
+    "projectID": "global",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1787809437864,
+      "updated": 1787809437864
+    },
+    "title": "New session - 2026-08-27T05:43:57.864Z",
+    "location": {
+      "directory": "/tmp/isomux-opencode-gate/v2/repo-a"
+    }
+  },
+  "sessionB": {
+    "id": "ses_fbe40e701ffe1VED5lVfJW0XaU",
+    "projectID": "global",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1787809438159,
+      "updated": 1787809438159
+    },
+    "title": "New session - 2026-08-27T05:43:58.159Z",
+    "location": {
+      "directory": "/tmp/isomux-opencode-gate/v2/repo-b"
+    }
+  },
+  "promptError": {
+    "_tag": "InvalidRequestError",
+    "message": "Missing key\n  at [\"prompt\"]",
+    "kind": "Payload"
+  },
+  "getA": {
+    "id": "ses_fbe40f1b4ffe8vbkObZR8tpmai",
+    "projectID": "global",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1787809437864,
+      "updated": 1787809437864
+    },
+    "title": "New session - 2026-08-27T05:43:57.864Z",
+    "location": {
+      "directory": "/tmp/isomux-opencode-gate/v2/repo-a"
+    }
+  },
+  "getB": {
+    "id": "ses_fbe40e701ffe1VED5lVfJW0XaU",
+    "projectID": "global",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1787809438159,
+      "updated": 1787809438159
+    },
+    "title": "New session - 2026-08-27T05:43:58.159Z",
+    "location": {
+      "directory": "/tmp/isomux-opencode-gate/v2/repo-b"
+    }
+  },
+  "resumedA": {
+    "id": "ses_fbe40f1b4ffe8vbkObZR8tpmai",
+    "projectID": "global",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1787809437864,
+      "updated": 1787809437864
+    },
+    "title": "New session - 2026-08-27T05:43:57.864Z",
+    "location": {
+      "directory": "/tmp/isomux-opencode-gate/v2/repo-a"
+    }
+  },
+  "resumedB": {
+    "id": "ses_fbe40e701ffe1VED5lVfJW0XaU",
+    "projectID": "global",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "time": {
+      "created": 1787809438159,
+      "updated": 1787809438159
+    },
+    "title": "New session - 2026-08-27T05:43:58.159Z",
+    "location": {
+      "directory": "/tmp/isomux-opencode-gate/v2/repo-b"
+    }
+  },
+  "messagesA": {
+    "data": [],
+    "cursor": {
+      "previous": null,
+      "next": null
+    }
+  },
+  "messagesB": {
+    "data": [],
+    "cursor": {
+      "previous": null,
+      "next": null
+    }
+  },
+  "resumedMessagesA": {
+    "data": [],
+    "cursor": {
+      "previous": null,
+      "next": null
+    }
+  },
+  "resumedMessagesB": {
+    "data": [],
+    "cursor": {
+      "previous": null,
+      "next": null
+    }
+  },
+  "forkError": "ClientError: UnsupportedContentType",
+  "compactionError": "ClientError: UnexpectedStatus",
+  "isolation": {
+    "idsDistinct": true,
+    "aContainsOwn": false,
+    "aContainsOther": false,
+    "bContainsOwn": false,
+    "bContainsOther": false,
+    "aDirectory": "/tmp/isomux-opencode-gate/v2/repo-a",
+    "bDirectory": "/tmp/isomux-opencode-gate/v2/repo-b"
+  },
+  "providerWithoutRealCredential": {
+    "location": {
+      "directory": "/tmp/isomux-opencode-gate/v2",
+      "project": {
+        "id": "global",
+        "directory": "/"
+      }
+    },
+    "data": []
+  },
+  "profileFiles": [
+    "cache/opencode/models.json",
+    "data/opencode/opencode.db",
+    "data/opencode/opencode.db-shm",
+    "data/opencode/opencode.db-wal",
+    "data/opencode/log/opencode.log"
+  ],
+  "canaryA": "CANARY_REPO_A_ONLY\n",
+  "canaryB": "CANARY_REPO_B_ONLY\n"
+}

@@ -1,0 +1,125 @@
+{
+  "toolAssertions": [
+    {
+      "partID": "prt_041be327d001gV1yzh994esfkQ",
+      "callIDs": [
+        "call_gate_001"
+      ],
+      "statuses": [
+        "pending",
+        "running",
+        "running",
+        "completed"
+      ],
+      "terminal": [
+        "completed"
+      ],
+      "callIDStable": true,
+      "terminalExactlyOnce": true
+    },
+    {
+      "partID": "prt_041be9482001jwKBLUnjlR9exy",
+      "callIDs": [
+        "call_gate_001"
+      ],
+      "statuses": [
+        "completed"
+      ],
+      "terminal": [
+        "completed"
+      ],
+      "callIDStable": true,
+      "terminalExactlyOnce": true
+    },
+    {
+      "partID": "prt_041be463d001CaIHtGUihV5Gec",
+      "callIDs": [
+        "call_gate_001"
+      ],
+      "statuses": [
+        "pending",
+        "running",
+        "running",
+        "running",
+        "completed"
+      ],
+      "terminal": [
+        "completed"
+      ],
+      "callIDStable": true,
+      "terminalExactlyOnce": true
+    },
+    {
+      "partID": "prt_041be53af001H0t3c1HG9fFvXW",
+      "callIDs": [
+        "call_gate_001"
+      ],
+      "statuses": [
+        "pending",
+        "running",
+        "error"
+      ],
+      "terminal": [
+        "error"
+      ],
+      "callIDStable": true,
+      "terminalExactlyOnce": true
+    }
+  ],
+  "allCallIDsStable": true,
+  "allTerminalExactlyOnce": true,
+  "completionOrdering": [
+    {
+      "index": 75,
+      "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+      "precedingPartType": "step-finish",
+      "precedingPartID": "prt_041be2c8e001HOqdW6hzThec40",
+      "completionAfterStepFinish": true
+    },
+    {
+      "index": 118,
+      "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+      "precedingPartType": "step-finish",
+      "precedingPartID": "prt_041be429f001x1xBdubfCQPJXU",
+      "completionAfterStepFinish": true
+    },
+    {
+      "index": 130,
+      "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+      "precedingPartType": "text",
+      "precedingPartID": "prt_041be592d001eLO71jlcaWOgC0",
+      "completionAfterStepFinish": false
+    },
+    {
+      "index": 246,
+      "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+      "precedingPartType": "step-finish",
+      "precedingPartID": "prt_041be2cfc001b5bP94o4m4UNw0",
+      "completionAfterStepFinish": true
+    },
+    {
+      "index": 290,
+      "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+      "precedingPartType": "step-finish",
+      "precedingPartID": "prt_041be4dff001DTXSZrbVZqo2gf",
+      "completionAfterStepFinish": true
+    },
+    {
+      "index": 313,
+      "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+      "precedingPartType": "step-finish",
+      "precedingPartID": "prt_041be56e0001pufzRzbWXfNC2V",
+      "completionAfterStepFinish": true
+    }
+  ],
+  "completedTurnSignalsAfterStepFinish": 5,
+  "nonStepFinishIdleSignals": [
+    {
+      "index": 130,
+      "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+      "precedingPartType": "text",
+      "precedingPartID": "prt_041be592d001eLO71jlcaWOgC0",
+      "completionAfterStepFinish": false
+    }
+  ]
+}

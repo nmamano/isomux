@@ -1,0 +1,4 @@
+527b7924e79789b53e9fff16a4dfb7003501d7205775cd9db9e0c9b2b8ab1b6a  /home/nil/nil/isomux/package.json
+527b7924e79789b53e9fff16a4dfb7003501d7205775cd9db9e0c9b2b8ab1b6a  /home/nil/nil/isomux-worktrees/opencode-gate/package.json
+ad40d10be2f84cec9a5bcb218bd4cee83db35b09eb0c3bd491a49883f584ec40  /home/nil/nil/isomux/bun.lock
+ad40d10be2f84cec9a5bcb218bd4cee83db35b09eb0c3bd491a49883f584ec40  /home/nil/nil/isomux-worktrees/opencode-gate/bun.lock

@@ -1,0 +1,11 @@
+{
+  "name": "isomux-opencode-feasibility-gate",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@opencode-ai/client": "0.0.0-beta-18314",
+    "@opencode-ai/sdk": "1.18.23",
+    "opencode-v1": "npm:opencode-ai@1.18.23",
+    "opencode-v2": "npm:opencode-ai@0.0.0-beta-202608110357"
+  }
+}

@@ -1,0 +1,111 @@
+{
+  "date": "2026-08-27",
+  "host": "auntie-2",
+  "kernel": "6.8.0-136-generic",
+  "cliVersion": "1.18.23",
+  "sdkVersion": "1.18.23",
+  "count": 16,
+  "definition": "mid-turn means prompt_async accepted, status sampled as busy, and mock held the response open",
+  "status": {
+    "ses_fbe467cdfffeKppecsP4mBMgUv": {
+      "type": "busy"
+    },
+    "ses_fbe467cb4ffe95Ko6zZNzvLgoy": {
+      "type": "busy"
+    },
+    "ses_fbe467c7dffebBdC0QCtkH3ea3": {
+      "type": "busy"
+    },
+    "ses_fbe467c45ffe7eW82zbZYyR0vE": {
+      "type": "busy"
+    },
+    "ses_fbe467c1cffe2pPS2ot2tXibcm": {
+      "type": "busy"
+    },
+    "ses_fbe467bc9ffeTebGOOqAeps1Ni": {
+      "type": "busy"
+    },
+    "ses_fbe467b9dffeSuExtyqo669tlG": {
+      "type": "busy"
+    },
+    "ses_fbe467b5dffeCXgXHGM9l4e7MD": {
+      "type": "busy"
+    },
+    "ses_fbe467b1fffeJT7Z9fXLoHVNIo": {
+      "type": "busy"
+    },
+    "ses_fbe467aaaffecAoG4eiRtWWDUo": {
+      "type": "busy"
+    },
+    "ses_fbe467a65ffedSu9i8yM84smxw": {
+      "type": "busy"
+    },
+    "ses_fbe467a2cffeIgI5wCThV26Bt1": {
+      "type": "busy"
+    },
+    "ses_fbe4679f0ffeFO25sukdOCfE0Z": {
+      "type": "busy"
+    },
+    "ses_fbe4679aaffetdZ4kyRAxjJuSE": {
+      "type": "busy"
+    },
+    "ses_fbe467d94ffe4OckzJbA4Szert": {
+      "type": "busy"
+    },
+    "ses_fbe467d47ffeewPzoWzfgmEToy": {
+      "type": "busy"
+    }
+  },
+  "idleServer": {
+    "label": "server-idle-no-sessions",
+    "at": "2026-08-27T05:37:49.746Z",
+    "mainPid": 2249094,
+    "processes": [
+      {
+        "pid": 2249094,
+        "rssKiB": 359704
+      }
+    ],
+    "totalRssKiB": 359704
+  },
+  "createdIdle": {
+    "label": "16-created-idle-sessions",
+    "at": "2026-08-27T05:37:52.757Z",
+    "mainPid": 2249094,
+    "processes": [
+      {
+        "pid": 2249094,
+        "rssKiB": 357080
+      }
+    ],
+    "totalRssKiB": 357080
+  },
+  "midTurn": {
+    "label": "16-mid-turn-sessions",
+    "at": "2026-08-27T05:37:57.495Z",
+    "mainPid": 2249094,
+    "processes": [
+      {
+        "pid": 2249094,
+        "rssKiB": 566036
+      }
+    ],
+    "totalRssKiB": 566036
+  },
+  "incrementsKiB": {
+    "createdIdleOverServer": -2624,
+    "midTurnOverServer": 206332
+  },
+  "cgroupBefore": {
+    "path": "/sys/fs/cgroup/user.slice/user-1001.slice/user@1001.service/app.slice/isomux-opencode-rss-16b.scope/memory.events",
+    "text": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+  },
+  "cgroupAfter": {
+    "path": "/sys/fs/cgroup/user.slice/user-1001.slice/user@1001.service/app.slice/isomux-opencode-rss-16b.scope/memory.events",
+    "text": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+  },
+  "stdout": "opencode server listening on http://127.0.0.1:41316\n",
+  "stderr": "",
+  "mockStdout": "{\"ready\":true,\"url\":\"http://127.0.0.1:41416/\"}\n",
+  "mockStderr": ""
+}

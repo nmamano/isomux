@@ -1,0 +1,87 @@
+{
+  "date": "2026-08-27",
+  "host": "auntie-2",
+  "kernel": "6.8.0-136-generic",
+  "cliVersion": "1.18.23",
+  "sdkVersion": "1.18.23",
+  "count": 8,
+  "definition": "mid-turn means prompt_async accepted, status sampled as busy, and mock held the response open",
+  "status": {
+    "ses_fbe46ec56ffe07NWYyTRPawZIt": {
+      "type": "busy"
+    },
+    "ses_fbe46ebdeffeFpSIMfTcFHXlIr": {
+      "type": "busy"
+    },
+    "ses_fbe46eb79ffeidYDB7yRdqWUMV": {
+      "type": "busy"
+    },
+    "ses_fbe46eb41ffe5Wp0scPMAVXghv": {
+      "type": "busy"
+    },
+    "ses_fbe46eafaffe8W7kwGK9qHn2lr": {
+      "type": "busy"
+    },
+    "ses_fbe46ea88ffebqvzDt1PJ2yeRE": {
+      "type": "busy"
+    },
+    "ses_fbe46ed25ffe2tRBCzHmqrGyAB": {
+      "type": "busy"
+    },
+    "ses_fbe46ecdbffe5rUVHNu2EIXcGC": {
+      "type": "busy"
+    }
+  },
+  "idleServer": {
+    "label": "server-idle-no-sessions",
+    "at": "2026-08-27T05:37:21.568Z",
+    "mainPid": 2248680,
+    "processes": [
+      {
+        "pid": 2248680,
+        "rssKiB": 389960
+      }
+    ],
+    "totalRssKiB": 389960
+  },
+  "createdIdle": {
+    "label": "8-created-idle-sessions",
+    "at": "2026-08-27T05:37:23.876Z",
+    "mainPid": 2248680,
+    "processes": [
+      {
+        "pid": 2248680,
+        "rssKiB": 355196
+      }
+    ],
+    "totalRssKiB": 355196
+  },
+  "midTurn": {
+    "label": "8-mid-turn-sessions",
+    "at": "2026-08-27T05:37:27.133Z",
+    "mainPid": 2248680,
+    "processes": [
+      {
+        "pid": 2248680,
+        "rssKiB": 489212
+      }
+    ],
+    "totalRssKiB": 489212
+  },
+  "incrementsKiB": {
+    "createdIdleOverServer": -34764,
+    "midTurnOverServer": 99252
+  },
+  "cgroupBefore": {
+    "path": "/sys/fs/cgroup/user.slice/user-1001.slice/user@1001.service/app.slice/isomux-opencode-rss-8b.scope/memory.events",
+    "text": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+  },
+  "cgroupAfter": {
+    "path": "/sys/fs/cgroup/user.slice/user-1001.slice/user@1001.service/app.slice/isomux-opencode-rss-8b.scope/memory.events",
+    "text": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+  },
+  "stdout": "opencode server listening on http://127.0.0.1:41308\n",
+  "stderr": "",
+  "mockStdout": "{\"ready\":true,\"url\":\"http://127.0.0.1:41408/\"}\n",
+  "mockStderr": ""
+}

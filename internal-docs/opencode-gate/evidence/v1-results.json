@@ -1,0 +1,2318 @@
+{
+  "date": "2026-08-27",
+  "healthBefore": {
+    "healthy": true,
+    "version": "1.18.23"
+  },
+  "healthAfter": {
+    "healthy": true,
+    "version": "1.18.23"
+  },
+  "sessionA": {
+    "id": "ses_fbe420badffejq2kGhMFY9NA4P",
+    "slug": "cosmic-pixel",
+    "projectID": "global",
+    "directory": "/tmp/isomux-opencode-gate/v1/repo-a",
+    "path": "",
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "title": "gate-a",
+    "version": "1.18.23",
+    "time": {
+      "created": 1787809363026,
+      "updated": 1787809363026
+    }
+  },
+  "sessionB": {
+    "id": "ses_fbe420b32ffeOCviES6JQwP1iu",
+    "slug": "hidden-river",
+    "projectID": "global",
+    "directory": "/tmp/isomux-opencode-gate/v1/repo-b",
+    "path": "",
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "title": "gate-b",
+    "version": "1.18.23",
+    "time": {
+      "created": 1787809363149,
+      "updated": 1787809363149
+    }
+  },
+  "textResults": [
+    {
+      "info": {
+        "parentID": "msg_041bdf758001cKqGMa6XJAWwkk",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "write": 0,
+            "read": 2
+          }
+        },
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "time": {
+          "created": 1787809368144,
+          "completed": 1787809377927
+        },
+        "finish": "stop",
+        "id": "msg_041be0850001LKy3yVpKF6UO7A",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P"
+      },
+      "parts": [
+        {
+          "snapshot": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b",
+          "type": "step-start",
+          "id": "prt_041be2a42001NJjptaN6Vw6iEq",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A"
+        },
+        {
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809376843,
+            "end": 1787809376853
+          },
+          "id": "prt_041be2a4b001bwtmoiuo9mUqWt",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A"
+        },
+        {
+          "type": "text",
+          "text": "ANSWER:V1_A CANARY_REPO_A_ONLY",
+          "time": {
+            "start": 1787809376859,
+            "end": 1787809376898
+          },
+          "id": "prt_041be2a5b001kgXYfal7s41mIa",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A"
+        },
+        {
+          "reason": "stop",
+          "snapshot": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b",
+          "type": "step-finish",
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "write": 0,
+              "read": 2
+            }
+          },
+          "cost": 0,
+          "id": "prt_041be2c8e001HOqdW6hzThec40",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A"
+        }
+      ]
+    },
+    {
+      "info": {
+        "parentID": "msg_041bdf827001UNRH1W2T4iylmn",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "write": 0,
+            "read": 2
+          }
+        },
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "time": {
+          "created": 1787809368132,
+          "completed": 1787809378028
+        },
+        "finish": "stop",
+        "id": "msg_041be0844001CvR60TA058dnhz",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu"
+      },
+      "parts": [
+        {
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "type": "step-start",
+          "id": "prt_041be2aab001eNqG2AZRqguD1T",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz"
+        },
+        {
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809376947,
+            "end": 1787809376985
+          },
+          "id": "prt_041be2ab3001o2lzkLCEBd3BeD",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz"
+        },
+        {
+          "type": "text",
+          "text": "ANSWER:V1_B CANARY_REPO_B_ONLY",
+          "time": {
+            "start": 1787809376990,
+            "end": 1787809377025
+          },
+          "id": "prt_041be2add001FC13Q3exwqUOj4",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz"
+        },
+        {
+          "reason": "stop",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "type": "step-finish",
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "write": 0,
+              "read": 2
+            }
+          },
+          "cost": 0,
+          "id": "prt_041be2cfc001b5bP94o4m4UNw0",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz"
+        }
+      ]
+    }
+  ],
+  "toolAllowed": {
+    "info": {
+      "parentID": "msg_041be2fcf001ViabK6FV2y9tk5",
+      "role": "assistant",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+        "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+      },
+      "cost": 0,
+      "tokens": {
+        "total": 18,
+        "input": 9,
+        "output": 4,
+        "reasoning": 3,
+        "cache": {
+          "write": 0,
+          "read": 2
+        }
+      },
+      "modelID": "gate-model",
+      "providerID": "gate",
+      "time": {
+        "created": 1787809380771,
+        "completed": 1787809383384
+      },
+      "finish": "stop",
+      "id": "msg_041be39a30015G2CtcYl1AKbJr",
+      "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P"
+    },
+    "parts": [
+      {
+        "snapshot": "050af4d3e37c62bbd2f05a6cabbaa54356dacaf8",
+        "type": "step-start",
+        "id": "prt_041be3ddb001y91mx4YDXDm2iX",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "messageID": "msg_041be39a30015G2CtcYl1AKbJr"
+      },
+      {
+        "type": "reasoning",
+        "text": "gate-reasoning",
+        "time": {
+          "start": 1787809381950,
+          "end": 1787809381956
+        },
+        "id": "prt_041be3e3e001WNXBfJzGVjVf0i",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "messageID": "msg_041be39a30015G2CtcYl1AKbJr"
+      },
+      {
+        "type": "text",
+        "text": "RECOVERED_AFTER_TOOL",
+        "time": {
+          "start": 1787809381960,
+          "end": 1787809381978
+        },
+        "id": "prt_041be3e48001dAa8Nfw7kR1x43",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "messageID": "msg_041be39a30015G2CtcYl1AKbJr"
+      },
+      {
+        "reason": "stop",
+        "snapshot": "050af4d3e37c62bbd2f05a6cabbaa54356dacaf8",
+        "type": "step-finish",
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "write": 0,
+            "read": 2
+          }
+        },
+        "cost": 0,
+        "id": "prt_041be429f001x1xBdubfCQPJXU",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "messageID": "msg_041be39a30015G2CtcYl1AKbJr"
+      }
+    ]
+  },
+  "failedToolRecovery": {
+    "info": {
+      "parentID": "msg_041be44690010tq59NE4C06Fzv",
+      "role": "assistant",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+        "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+      },
+      "cost": 0,
+      "tokens": {
+        "total": 18,
+        "input": 9,
+        "output": 4,
+        "reasoning": 3,
+        "cache": {
+          "write": 0,
+          "read": 2
+        }
+      },
+      "modelID": "gate-model",
+      "providerID": "gate",
+      "time": {
+        "created": 1787809384910,
+        "completed": 1787809386196
+      },
+      "finish": "stop",
+      "id": "msg_041be49ce001dti4LjZiSrHERo",
+      "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu"
+    },
+    "parts": [
+      {
+        "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+        "type": "step-start",
+        "id": "prt_041be4d19001rPkZUolyDWTU5l",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "messageID": "msg_041be49ce001dti4LjZiSrHERo"
+      },
+      {
+        "type": "reasoning",
+        "text": "gate-reasoning",
+        "time": {
+          "start": 1787809385762,
+          "end": 1787809385769
+        },
+        "id": "prt_041be4d22001NqRh15DOfiHFwQ",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "messageID": "msg_041be49ce001dti4LjZiSrHERo"
+      },
+      {
+        "type": "text",
+        "text": "RECOVERED_AFTER_TOOL",
+        "time": {
+          "start": 1787809385773,
+          "end": 1787809385806
+        },
+        "id": "prt_041be4d2d001UesVjo4lXIGW5Y",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "messageID": "msg_041be49ce001dti4LjZiSrHERo"
+      },
+      {
+        "reason": "stop",
+        "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+        "type": "step-finish",
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "write": 0,
+            "read": 2
+          }
+        },
+        "cost": 0,
+        "id": "prt_041be4dff001DTXSZrbVZqo2gf",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "messageID": "msg_041be49ce001dti4LjZiSrHERo"
+      }
+    ]
+  },
+  "toolDenied": {
+    "info": {
+      "parentID": "msg_041be4f4c001HKT7lMyDnAYDM5",
+      "role": "assistant",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+        "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+      },
+      "cost": 0,
+      "tokens": {
+        "total": 18,
+        "input": 9,
+        "output": 4,
+        "reasoning": 3,
+        "cache": {
+          "write": 0,
+          "read": 2
+        }
+      },
+      "modelID": "gate-model",
+      "providerID": "gate",
+      "time": {
+        "created": 1787809386418,
+        "completed": 1787809388499
+      },
+      "finish": "tool-calls",
+      "id": "msg_041be4fb2001sIA84Ct9s9CPDn",
+      "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu"
+    },
+    "parts": [
+      {
+        "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+        "type": "step-start",
+        "id": "prt_041be53a0001Uh3t8BBcrx3dug",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn"
+      },
+      {
+        "type": "tool",
+        "tool": "bash",
+        "callID": "call_gate_001",
+        "state": {
+          "status": "error",
+          "input": {
+            "command": "printf tool-ok > gate-output.txt"
+          },
+          "error": "The user rejected permission to use this specific tool call.",
+          "time": {
+            "start": 1787809387524,
+            "end": 1787809387844
+          }
+        },
+        "id": "prt_041be53af001H0t3c1HG9fFvXW",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn"
+      },
+      {
+        "reason": "tool-calls",
+        "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+        "type": "step-finish",
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "write": 0,
+            "read": 2
+          }
+        },
+        "cost": 0,
+        "id": "prt_041be56e0001pufzRzbWXfNC2V",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn"
+      }
+    ]
+  },
+  "abortResult": true,
+  "getA": {
+    "id": "ses_fbe420badffejq2kGhMFY9NA4P",
+    "slug": "cosmic-pixel",
+    "projectID": "global",
+    "directory": "/tmp/isomux-opencode-gate/v1/repo-a",
+    "path": "",
+    "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 27,
+      "output": 12,
+      "reasoning": 9,
+      "cache": {
+        "read": 6,
+        "write": 0
+      }
+    },
+    "title": "gate-a",
+    "agent": "build",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "version": "1.18.23",
+    "time": {
+      "created": 1787809363026,
+      "updated": 1787809388895
+    }
+  },
+  "getB": {
+    "id": "ses_fbe420b32ffeOCviES6JQwP1iu",
+    "slug": "hidden-river",
+    "projectID": "global",
+    "directory": "/tmp/isomux-opencode-gate/v1/repo-b",
+    "path": "",
+    "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 36,
+      "output": 16,
+      "reasoning": 12,
+      "cache": {
+        "read": 8,
+        "write": 0
+      }
+    },
+    "title": "gate-b",
+    "agent": "build",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "version": "1.18.23",
+    "time": {
+      "created": 1787809363149,
+      "updated": 1787809388646
+    }
+  },
+  "resumedA": {
+    "id": "ses_fbe420badffejq2kGhMFY9NA4P",
+    "slug": "cosmic-pixel",
+    "projectID": "global",
+    "directory": "/tmp/isomux-opencode-gate/v1/repo-a",
+    "path": "",
+    "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 27,
+      "output": 12,
+      "reasoning": 9,
+      "cache": {
+        "read": 6,
+        "write": 0
+      }
+    },
+    "title": "gate-a",
+    "agent": "build",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "version": "1.18.23",
+    "time": {
+      "created": 1787809363026,
+      "updated": 1787809388895
+    }
+  },
+  "resumedB": {
+    "id": "ses_fbe420b32ffeOCviES6JQwP1iu",
+    "slug": "hidden-river",
+    "projectID": "global",
+    "directory": "/tmp/isomux-opencode-gate/v1/repo-b",
+    "path": "",
+    "summary": {
+      "additions": 0,
+      "deletions": 0,
+      "files": 0
+    },
+    "cost": 0,
+    "tokens": {
+      "input": 36,
+      "output": 16,
+      "reasoning": 12,
+      "cache": {
+        "read": 8,
+        "write": 0
+      }
+    },
+    "title": "gate-b",
+    "agent": "build",
+    "model": {
+      "id": "gate-model",
+      "providerID": "gate",
+      "variant": "default"
+    },
+    "version": "1.18.23",
+    "time": {
+      "created": 1787809363149,
+      "updated": 1787809388646
+    }
+  },
+  "messagesA": [
+    {
+      "info": {
+        "id": "msg_041bdf758001cKqGMa6XJAWwkk",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "user",
+        "time": {
+          "created": 1787809363801
+        },
+        "summary": {
+          "diffs": []
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041bdf781001ZimPfhDEZ0sygo",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041bdf758001cKqGMa6XJAWwkk",
+          "type": "text",
+          "text": "V1_A CANARY_REPO_A_ONLY"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be0850001LKy3yVpKF6UO7A",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "assistant",
+        "time": {
+          "created": 1787809368144,
+          "completed": 1787809377927
+        },
+        "parentID": "msg_041bdf758001cKqGMa6XJAWwkk",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      },
+      "parts": [
+        {
+          "id": "prt_041be2a42001NJjptaN6Vw6iEq",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A",
+          "type": "step-start",
+          "snapshot": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b"
+        },
+        {
+          "id": "prt_041be2a4b001bwtmoiuo9mUqWt",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A",
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809376843,
+            "end": 1787809376853
+          }
+        },
+        {
+          "id": "prt_041be2a5b001kgXYfal7s41mIa",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A",
+          "type": "text",
+          "text": "ANSWER:V1_A CANARY_REPO_A_ONLY",
+          "time": {
+            "start": 1787809376859,
+            "end": 1787809376898
+          }
+        },
+        {
+          "id": "prt_041be2c8e001HOqdW6hzThec40",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A",
+          "type": "step-finish",
+          "reason": "stop",
+          "snapshot": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be2fcf001ViabK6FV2y9tk5",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "user",
+        "time": {
+          "created": 1787809378255
+        },
+        "summary": {
+          "diffs": [
+            {
+              "file": "gate-output.txt",
+              "patch": "Index: gate-output.txt\n===================================================================\n--- gate-output.txt\t\n+++ gate-output.txt\t\n@@ -0,0 +1,1 @@\n+tool-ok\n\\ No newline at end of file\n",
+              "additions": 1,
+              "deletions": 0,
+              "status": "added"
+            }
+          ]
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041be2fd1001YkJXTvvlC002qR",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be2fcf001ViabK6FV2y9tk5",
+          "type": "text",
+          "text": "GATE_TOOL allow once"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be3037001aYb33w4iHOfqAj",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "assistant",
+        "time": {
+          "created": 1787809378359,
+          "completed": 1787809380762
+        },
+        "parentID": "msg_041be2fcf001ViabK6FV2y9tk5",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls"
+      },
+      "parts": [
+        {
+          "id": "prt_041be3276001moNntqxN5twJul",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be3037001aYb33w4iHOfqAj",
+          "type": "step-start",
+          "snapshot": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b"
+        },
+        {
+          "id": "prt_041be327d001gV1yzh994esfkQ",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be3037001aYb33w4iHOfqAj",
+          "type": "tool",
+          "callID": "call_gate_001",
+          "tool": "bash",
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "printf tool-ok > gate-output.txt"
+            },
+            "output": "(no output)",
+            "title": "printf tool-ok > gate-output.txt",
+            "metadata": {
+              "output": "(no output)",
+              "exit": 0,
+              "truncated": false
+            },
+            "time": {
+              "start": 1787809379170,
+              "end": 1787809379241
+            }
+          }
+        },
+        {
+          "id": "prt_041be365100190o25IjyHpjRGz",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be3037001aYb33w4iHOfqAj",
+          "type": "step-finish",
+          "reason": "tool-calls",
+          "snapshot": "050af4d3e37c62bbd2f05a6cabbaa54356dacaf8",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        },
+        {
+          "id": "prt_041be397e001BYl0tEf44J1LAN",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be3037001aYb33w4iHOfqAj",
+          "type": "patch",
+          "hash": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b",
+          "files": [
+            "/tmp/isomux-opencode-gate/v1/repo-a/gate-output.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be39a30015G2CtcYl1AKbJr",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "assistant",
+        "time": {
+          "created": 1787809380771,
+          "completed": 1787809383384
+        },
+        "parentID": "msg_041be2fcf001ViabK6FV2y9tk5",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      },
+      "parts": [
+        {
+          "id": "prt_041be3ddb001y91mx4YDXDm2iX",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be39a30015G2CtcYl1AKbJr",
+          "type": "step-start",
+          "snapshot": "050af4d3e37c62bbd2f05a6cabbaa54356dacaf8"
+        },
+        {
+          "id": "prt_041be3e3e001WNXBfJzGVjVf0i",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be39a30015G2CtcYl1AKbJr",
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809381950,
+            "end": 1787809381956
+          }
+        },
+        {
+          "id": "prt_041be3e48001dAa8Nfw7kR1x43",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be39a30015G2CtcYl1AKbJr",
+          "type": "text",
+          "text": "RECOVERED_AFTER_TOOL",
+          "time": {
+            "start": 1787809381960,
+            "end": 1787809381978
+          }
+        },
+        {
+          "id": "prt_041be429f001x1xBdubfCQPJXU",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be39a30015G2CtcYl1AKbJr",
+          "type": "step-finish",
+          "reason": "stop",
+          "snapshot": "050af4d3e37c62bbd2f05a6cabbaa54356dacaf8",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be5916001Zd3u9VDhk3Tqp3",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "user",
+        "time": {
+          "created": 1787809388822
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041be592d001eLO71jlcaWOgC0",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be5916001Zd3u9VDhk3Tqp3",
+          "type": "text",
+          "text": "GATE_ABORT long stream"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be5a3a001EL84uFqPLyoSEk",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "assistant",
+        "time": {
+          "created": 1787809389114,
+          "completed": 1787809389232
+        },
+        "error": {
+          "name": "MessageAbortedError",
+          "data": {
+            "message": "Aborted"
+          }
+        },
+        "parentID": "msg_041be5916001Zd3u9VDhk3Tqp3",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      "parts": []
+    }
+  ],
+  "messagesB": [
+    {
+      "info": {
+        "id": "msg_041bdf827001UNRH1W2T4iylmn",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "user",
+        "time": {
+          "created": 1787809364007
+        },
+        "summary": {
+          "diffs": []
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041bdf8ab001sNDCGZ6R7ZPQCD",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041bdf827001UNRH1W2T4iylmn",
+          "type": "text",
+          "text": "V1_B CANARY_REPO_B_ONLY"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be0844001CvR60TA058dnhz",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "assistant",
+        "time": {
+          "created": 1787809368132,
+          "completed": 1787809378028
+        },
+        "parentID": "msg_041bdf827001UNRH1W2T4iylmn",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      },
+      "parts": [
+        {
+          "id": "prt_041be2aab001eNqG2AZRqguD1T",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz",
+          "type": "step-start",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726"
+        },
+        {
+          "id": "prt_041be2ab3001o2lzkLCEBd3BeD",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz",
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809376947,
+            "end": 1787809376985
+          }
+        },
+        {
+          "id": "prt_041be2add001FC13Q3exwqUOj4",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz",
+          "type": "text",
+          "text": "ANSWER:V1_B CANARY_REPO_B_ONLY",
+          "time": {
+            "start": 1787809376990,
+            "end": 1787809377025
+          }
+        },
+        {
+          "id": "prt_041be2cfc001b5bP94o4m4UNw0",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz",
+          "type": "step-finish",
+          "reason": "stop",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be44690010tq59NE4C06Fzv",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "user",
+        "time": {
+          "created": 1787809383529
+        },
+        "summary": {
+          "diffs": []
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041be4473001mBIe1dOhO2uQDZ",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be44690010tq59NE4C06Fzv",
+          "type": "text",
+          "text": "GATE_FAIL exercise failed tool and recovery"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be45090016Okvq3H2PatUQB",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "assistant",
+        "time": {
+          "created": 1787809383689,
+          "completed": 1787809384898
+        },
+        "parentID": "msg_041be44690010tq59NE4C06Fzv",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls"
+      },
+      "parts": [
+        {
+          "id": "prt_041be463800132dxb6SluxVC1l",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be45090016Okvq3H2PatUQB",
+          "type": "step-start",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726"
+        },
+        {
+          "id": "prt_041be463d001CaIHtGUihV5Gec",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be45090016Okvq3H2PatUQB",
+          "type": "tool",
+          "callID": "call_gate_001",
+          "tool": "bash",
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "printf failed-before-exit; exit 7"
+            },
+            "output": "failed-before-exit",
+            "title": "printf failed-before-exit; exit 7",
+            "metadata": {
+              "output": "failed-before-exit",
+              "exit": 7,
+              "truncated": false
+            },
+            "time": {
+              "start": 1787809384128,
+              "end": 1787809384141
+            }
+          }
+        },
+        {
+          "id": "prt_041be4868001HitZOZJ00c1MoP",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be45090016Okvq3H2PatUQB",
+          "type": "step-finish",
+          "reason": "tool-calls",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be49ce001dti4LjZiSrHERo",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "assistant",
+        "time": {
+          "created": 1787809384910,
+          "completed": 1787809386196
+        },
+        "parentID": "msg_041be44690010tq59NE4C06Fzv",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      },
+      "parts": [
+        {
+          "id": "prt_041be4d19001rPkZUolyDWTU5l",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be49ce001dti4LjZiSrHERo",
+          "type": "step-start",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726"
+        },
+        {
+          "id": "prt_041be4d22001NqRh15DOfiHFwQ",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be49ce001dti4LjZiSrHERo",
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809385762,
+            "end": 1787809385769
+          }
+        },
+        {
+          "id": "prt_041be4d2d001UesVjo4lXIGW5Y",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be49ce001dti4LjZiSrHERo",
+          "type": "text",
+          "text": "RECOVERED_AFTER_TOOL",
+          "time": {
+            "start": 1787809385773,
+            "end": 1787809385806
+          }
+        },
+        {
+          "id": "prt_041be4dff001DTXSZrbVZqo2gf",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be49ce001dti4LjZiSrHERo",
+          "type": "step-finish",
+          "reason": "stop",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be4f4c001HKT7lMyDnAYDM5",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "user",
+        "time": {
+          "created": 1787809386316
+        },
+        "summary": {
+          "diffs": []
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041be4f4d001H8DLwthchj6ZRh",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be4f4c001HKT7lMyDnAYDM5",
+          "type": "text",
+          "text": "GATE_TOOL_DENY reject this tool"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be4fb2001sIA84Ct9s9CPDn",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "assistant",
+        "time": {
+          "created": 1787809386418,
+          "completed": 1787809388499
+        },
+        "parentID": "msg_041be4f4c001HKT7lMyDnAYDM5",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls"
+      },
+      "parts": [
+        {
+          "id": "prt_041be53a0001Uh3t8BBcrx3dug",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn",
+          "type": "step-start",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726"
+        },
+        {
+          "id": "prt_041be53af001H0t3c1HG9fFvXW",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn",
+          "type": "tool",
+          "callID": "call_gate_001",
+          "tool": "bash",
+          "state": {
+            "status": "error",
+            "input": {
+              "command": "printf tool-ok > gate-output.txt"
+            },
+            "error": "The user rejected permission to use this specific tool call.",
+            "time": {
+              "start": 1787809387524,
+              "end": 1787809387844
+            }
+          }
+        },
+        {
+          "id": "prt_041be56e0001pufzRzbWXfNC2V",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn",
+          "type": "step-finish",
+          "reason": "tool-calls",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "resumedMessagesA": [
+    {
+      "info": {
+        "id": "msg_041bdf758001cKqGMa6XJAWwkk",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "user",
+        "time": {
+          "created": 1787809363801
+        },
+        "summary": {
+          "diffs": []
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041bdf781001ZimPfhDEZ0sygo",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041bdf758001cKqGMa6XJAWwkk",
+          "type": "text",
+          "text": "V1_A CANARY_REPO_A_ONLY"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be0850001LKy3yVpKF6UO7A",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "assistant",
+        "time": {
+          "created": 1787809368144,
+          "completed": 1787809377927
+        },
+        "parentID": "msg_041bdf758001cKqGMa6XJAWwkk",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      },
+      "parts": [
+        {
+          "id": "prt_041be2a42001NJjptaN6Vw6iEq",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A",
+          "type": "step-start",
+          "snapshot": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b"
+        },
+        {
+          "id": "prt_041be2a4b001bwtmoiuo9mUqWt",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A",
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809376843,
+            "end": 1787809376853
+          }
+        },
+        {
+          "id": "prt_041be2a5b001kgXYfal7s41mIa",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A",
+          "type": "text",
+          "text": "ANSWER:V1_A CANARY_REPO_A_ONLY",
+          "time": {
+            "start": 1787809376859,
+            "end": 1787809376898
+          }
+        },
+        {
+          "id": "prt_041be2c8e001HOqdW6hzThec40",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be0850001LKy3yVpKF6UO7A",
+          "type": "step-finish",
+          "reason": "stop",
+          "snapshot": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be2fcf001ViabK6FV2y9tk5",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "user",
+        "time": {
+          "created": 1787809378255
+        },
+        "summary": {
+          "diffs": [
+            {
+              "file": "gate-output.txt",
+              "patch": "Index: gate-output.txt\n===================================================================\n--- gate-output.txt\t\n+++ gate-output.txt\t\n@@ -0,0 +1,1 @@\n+tool-ok\n\\ No newline at end of file\n",
+              "additions": 1,
+              "deletions": 0,
+              "status": "added"
+            }
+          ]
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041be2fd1001YkJXTvvlC002qR",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be2fcf001ViabK6FV2y9tk5",
+          "type": "text",
+          "text": "GATE_TOOL allow once"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be3037001aYb33w4iHOfqAj",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "assistant",
+        "time": {
+          "created": 1787809378359,
+          "completed": 1787809380762
+        },
+        "parentID": "msg_041be2fcf001ViabK6FV2y9tk5",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls"
+      },
+      "parts": [
+        {
+          "id": "prt_041be3276001moNntqxN5twJul",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be3037001aYb33w4iHOfqAj",
+          "type": "step-start",
+          "snapshot": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b"
+        },
+        {
+          "id": "prt_041be327d001gV1yzh994esfkQ",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be3037001aYb33w4iHOfqAj",
+          "type": "tool",
+          "callID": "call_gate_001",
+          "tool": "bash",
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "printf tool-ok > gate-output.txt"
+            },
+            "output": "(no output)",
+            "title": "printf tool-ok > gate-output.txt",
+            "metadata": {
+              "output": "(no output)",
+              "exit": 0,
+              "truncated": false
+            },
+            "time": {
+              "start": 1787809379170,
+              "end": 1787809379241
+            }
+          }
+        },
+        {
+          "id": "prt_041be365100190o25IjyHpjRGz",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be3037001aYb33w4iHOfqAj",
+          "type": "step-finish",
+          "reason": "tool-calls",
+          "snapshot": "050af4d3e37c62bbd2f05a6cabbaa54356dacaf8",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        },
+        {
+          "id": "prt_041be397e001BYl0tEf44J1LAN",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be3037001aYb33w4iHOfqAj",
+          "type": "patch",
+          "hash": "d2772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b",
+          "files": [
+            "/tmp/isomux-opencode-gate/v1/repo-a/gate-output.txt"
+          ]
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be39a30015G2CtcYl1AKbJr",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "assistant",
+        "time": {
+          "created": 1787809380771,
+          "completed": 1787809383384
+        },
+        "parentID": "msg_041be2fcf001ViabK6FV2y9tk5",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      },
+      "parts": [
+        {
+          "id": "prt_041be3ddb001y91mx4YDXDm2iX",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be39a30015G2CtcYl1AKbJr",
+          "type": "step-start",
+          "snapshot": "050af4d3e37c62bbd2f05a6cabbaa54356dacaf8"
+        },
+        {
+          "id": "prt_041be3e3e001WNXBfJzGVjVf0i",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be39a30015G2CtcYl1AKbJr",
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809381950,
+            "end": 1787809381956
+          }
+        },
+        {
+          "id": "prt_041be3e48001dAa8Nfw7kR1x43",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be39a30015G2CtcYl1AKbJr",
+          "type": "text",
+          "text": "RECOVERED_AFTER_TOOL",
+          "time": {
+            "start": 1787809381960,
+            "end": 1787809381978
+          }
+        },
+        {
+          "id": "prt_041be429f001x1xBdubfCQPJXU",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be39a30015G2CtcYl1AKbJr",
+          "type": "step-finish",
+          "reason": "stop",
+          "snapshot": "050af4d3e37c62bbd2f05a6cabbaa54356dacaf8",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be5916001Zd3u9VDhk3Tqp3",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "user",
+        "time": {
+          "created": 1787809388822
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041be592d001eLO71jlcaWOgC0",
+          "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+          "messageID": "msg_041be5916001Zd3u9VDhk3Tqp3",
+          "type": "text",
+          "text": "GATE_ABORT long stream"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be5a3a001EL84uFqPLyoSEk",
+        "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+        "role": "assistant",
+        "time": {
+          "created": 1787809389114,
+          "completed": 1787809389232
+        },
+        "error": {
+          "name": "MessageAbortedError",
+          "data": {
+            "message": "Aborted"
+          }
+        },
+        "parentID": "msg_041be5916001Zd3u9VDhk3Tqp3",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-a",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-a"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        }
+      },
+      "parts": []
+    }
+  ],
+  "resumedMessagesB": [
+    {
+      "info": {
+        "id": "msg_041bdf827001UNRH1W2T4iylmn",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "user",
+        "time": {
+          "created": 1787809364007
+        },
+        "summary": {
+          "diffs": []
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041bdf8ab001sNDCGZ6R7ZPQCD",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041bdf827001UNRH1W2T4iylmn",
+          "type": "text",
+          "text": "V1_B CANARY_REPO_B_ONLY"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be0844001CvR60TA058dnhz",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "assistant",
+        "time": {
+          "created": 1787809368132,
+          "completed": 1787809378028
+        },
+        "parentID": "msg_041bdf827001UNRH1W2T4iylmn",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      },
+      "parts": [
+        {
+          "id": "prt_041be2aab001eNqG2AZRqguD1T",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz",
+          "type": "step-start",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726"
+        },
+        {
+          "id": "prt_041be2ab3001o2lzkLCEBd3BeD",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz",
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809376947,
+            "end": 1787809376985
+          }
+        },
+        {
+          "id": "prt_041be2add001FC13Q3exwqUOj4",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz",
+          "type": "text",
+          "text": "ANSWER:V1_B CANARY_REPO_B_ONLY",
+          "time": {
+            "start": 1787809376990,
+            "end": 1787809377025
+          }
+        },
+        {
+          "id": "prt_041be2cfc001b5bP94o4m4UNw0",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be0844001CvR60TA058dnhz",
+          "type": "step-finish",
+          "reason": "stop",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be44690010tq59NE4C06Fzv",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "user",
+        "time": {
+          "created": 1787809383529
+        },
+        "summary": {
+          "diffs": []
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041be4473001mBIe1dOhO2uQDZ",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be44690010tq59NE4C06Fzv",
+          "type": "text",
+          "text": "GATE_FAIL exercise failed tool and recovery"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be45090016Okvq3H2PatUQB",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "assistant",
+        "time": {
+          "created": 1787809383689,
+          "completed": 1787809384898
+        },
+        "parentID": "msg_041be44690010tq59NE4C06Fzv",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls"
+      },
+      "parts": [
+        {
+          "id": "prt_041be463800132dxb6SluxVC1l",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be45090016Okvq3H2PatUQB",
+          "type": "step-start",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726"
+        },
+        {
+          "id": "prt_041be463d001CaIHtGUihV5Gec",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be45090016Okvq3H2PatUQB",
+          "type": "tool",
+          "callID": "call_gate_001",
+          "tool": "bash",
+          "state": {
+            "status": "completed",
+            "input": {
+              "command": "printf failed-before-exit; exit 7"
+            },
+            "output": "failed-before-exit",
+            "title": "printf failed-before-exit; exit 7",
+            "metadata": {
+              "output": "failed-before-exit",
+              "exit": 7,
+              "truncated": false
+            },
+            "time": {
+              "start": 1787809384128,
+              "end": 1787809384141
+            }
+          }
+        },
+        {
+          "id": "prt_041be4868001HitZOZJ00c1MoP",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be45090016Okvq3H2PatUQB",
+          "type": "step-finish",
+          "reason": "tool-calls",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be49ce001dti4LjZiSrHERo",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "assistant",
+        "time": {
+          "created": 1787809384910,
+          "completed": 1787809386196
+        },
+        "parentID": "msg_041be44690010tq59NE4C06Fzv",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "stop"
+      },
+      "parts": [
+        {
+          "id": "prt_041be4d19001rPkZUolyDWTU5l",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be49ce001dti4LjZiSrHERo",
+          "type": "step-start",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726"
+        },
+        {
+          "id": "prt_041be4d22001NqRh15DOfiHFwQ",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be49ce001dti4LjZiSrHERo",
+          "type": "reasoning",
+          "text": "gate-reasoning",
+          "time": {
+            "start": 1787809385762,
+            "end": 1787809385769
+          }
+        },
+        {
+          "id": "prt_041be4d2d001UesVjo4lXIGW5Y",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be49ce001dti4LjZiSrHERo",
+          "type": "text",
+          "text": "RECOVERED_AFTER_TOOL",
+          "time": {
+            "start": 1787809385773,
+            "end": 1787809385806
+          }
+        },
+        {
+          "id": "prt_041be4dff001DTXSZrbVZqo2gf",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be49ce001dti4LjZiSrHERo",
+          "type": "step-finish",
+          "reason": "stop",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be4f4c001HKT7lMyDnAYDM5",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "user",
+        "time": {
+          "created": 1787809386316
+        },
+        "summary": {
+          "diffs": []
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "gate",
+          "modelID": "gate-model"
+        }
+      },
+      "parts": [
+        {
+          "id": "prt_041be4f4d001H8DLwthchj6ZRh",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be4f4c001HKT7lMyDnAYDM5",
+          "type": "text",
+          "text": "GATE_TOOL_DENY reject this tool"
+        }
+      ]
+    },
+    {
+      "info": {
+        "id": "msg_041be4fb2001sIA84Ct9s9CPDn",
+        "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+        "role": "assistant",
+        "time": {
+          "created": 1787809386418,
+          "completed": 1787809388499
+        },
+        "parentID": "msg_041be4f4c001HKT7lMyDnAYDM5",
+        "modelID": "gate-model",
+        "providerID": "gate",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "/tmp/isomux-opencode-gate/v1/repo-b",
+          "root": "/tmp/isomux-opencode-gate/v1/repo-b"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 18,
+          "input": 9,
+          "output": 4,
+          "reasoning": 3,
+          "cache": {
+            "read": 2,
+            "write": 0
+          }
+        },
+        "finish": "tool-calls"
+      },
+      "parts": [
+        {
+          "id": "prt_041be53a0001Uh3t8BBcrx3dug",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn",
+          "type": "step-start",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726"
+        },
+        {
+          "id": "prt_041be53af001H0t3c1HG9fFvXW",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn",
+          "type": "tool",
+          "callID": "call_gate_001",
+          "tool": "bash",
+          "state": {
+            "status": "error",
+            "input": {
+              "command": "printf tool-ok > gate-output.txt"
+            },
+            "error": "The user rejected permission to use this specific tool call.",
+            "time": {
+              "start": 1787809387524,
+              "end": 1787809387844
+            }
+          }
+        },
+        {
+          "id": "prt_041be56e0001pufzRzbWXfNC2V",
+          "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+          "messageID": "msg_041be4fb2001sIA84Ct9s9CPDn",
+          "type": "step-finish",
+          "reason": "tool-calls",
+          "snapshot": "fe04952619af6e7a618eba9c27bb62d60d108726",
+          "cost": 0,
+          "tokens": {
+            "total": 18,
+            "input": 9,
+            "output": 4,
+            "reasoning": 3,
+            "cache": {
+              "read": 2,
+              "write": 0
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "fork": {
+    "id": "ses_fbe417b48ffeLx0ojHiwclfav6",
+    "slug": "eager-mountain",
+    "projectID": "global",
+    "directory": "/tmp/isomux-opencode-gate/v1/repo-a",
+    "path": "",
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "title": "gate-a (fork #1)",
+    "version": "1.18.23",
+    "time": {
+      "created": 1787809399991,
+      "updated": 1787809399991
+    }
+  },
+  "compaction": true,
+  "permissionResponses": [
+    {
+      "sessionID": "ses_fbe420badffejq2kGhMFY9NA4P",
+      "permissionID": "per_041be333d001oH3cqNeiSE9AIb",
+      "response": "once"
+    },
+    {
+      "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+      "permissionID": "per_041be464a001xFyCBW78atTrN3",
+      "response": "once"
+    },
+    {
+      "sessionID": "ses_fbe420b32ffeOCviES6JQwP1iu",
+      "permissionID": "per_041be53e10013jxnvLTEQRZ4uA",
+      "response": "reject"
+    }
+  ],
+  "callPairing": [
+    {
+      "callID": "call_gate_001",
+      "state": "completed",
+      "tool": "bash"
+    },
+    {
+      "callID": "call_gate_001",
+      "state": "completed",
+      "tool": "bash"
+    },
+    {
+      "callID": "call_gate_001",
+      "state": "error",
+      "tool": "bash"
+    }
+  ],
+  "isolation": {
+    "idsDistinct": true,
+    "aContainsOwn": true,
+    "aContainsOther": false,
+    "bContainsOwn": true,
+    "bContainsOther": false,
+    "aDirectory": "/tmp/isomux-opencode-gate/v1/repo-a",
+    "bDirectory": "/tmp/isomux-opencode-gate/v1/repo-b"
+  },
+  "profileFiles": [
+    "gate-config.json",
+    "state/opencode/locks/f93eef75ded3cf1bd77d36ac25644bebf5307c18.lock/meta.json",
+    "state/opencode/locks/f93eef75ded3cf1bd77d36ac25644bebf5307c18.lock/heartbeat",
+    "cache/opencode/models.json",
+    "data/opencode/opencode.db",
+    "data/opencode/opencode.db-shm",
+    "data/opencode/opencode.db-wal",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/config",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/index",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/HEAD",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/description",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/pre-receive.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/applypatch-msg.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/pre-merge-commit.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/prepare-commit-msg.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/sendemail-validate.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/update.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/post-update.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/pre-rebase.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/commit-msg.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/pre-push.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/pre-applypatch.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/push-to-checkout.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/pre-commit.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/hooks/fsmonitor-watchman.sample",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/objects/fe/04952619af6e7a618eba9c27bb62d60d108726",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/objects/b5/e1f3aa9334987698c9e31c727f47de94feec7c",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/objects/info/alternates",
+    "data/opencode/snapshot/global/716ed6a5dc5327b34ef0e88de6689becd55d668d/info/exclude",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/config",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/index",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/HEAD",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/description",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/pre-receive.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/applypatch-msg.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/pre-merge-commit.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/prepare-commit-msg.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/sendemail-validate.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/update.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/post-update.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/pre-rebase.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/commit-msg.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/pre-push.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/pre-applypatch.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/push-to-checkout.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/pre-commit.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/hooks/fsmonitor-watchman.sample",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/objects/b1/0d0d55e479be914989e03cda9b29e2e0011bed",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/objects/05/0af4d3e37c62bbd2f05a6cabbaa54356dacaf8",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/objects/83/38ad678bb90e705adb2ae06f4ad041b4f07f4f",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/objects/info/alternates",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/objects/d2/772a26b6bc3ae0a1d881ca64ab7ed4c8c97c8b",
+    "data/opencode/snapshot/global/0fac4f20a427cd407909c0680d8ffd8704caf622/info/exclude",
+    "data/opencode/log/opencode.log"
+  ],
+  "toolOutputA": "tool-ok",
+  "toolOutputB": null
+}

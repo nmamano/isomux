@@ -1,0 +1,66 @@
+{
+  "date": "2026-08-27",
+  "host": "auntie-2",
+  "kernel": "6.8.0-136-generic",
+  "cliVersion": "1.18.23",
+  "sdkVersion": "1.18.23",
+  "count": 1,
+  "definition": "mid-turn means prompt_async accepted, status sampled as busy, and mock held the response open",
+  "status": {
+    "ses_fbe475873ffeASCGa7DOkaJzex": {
+      "type": "busy"
+    }
+  },
+  "idleServer": {
+    "label": "server-idle-no-sessions",
+    "at": "2026-08-27T05:36:54.471Z",
+    "mainPid": 2248345,
+    "processes": [
+      {
+        "pid": 2248345,
+        "rssKiB": 387448
+      }
+    ],
+    "totalRssKiB": 387448
+  },
+  "createdIdle": {
+    "label": "1-created-idle-sessions",
+    "at": "2026-08-27T05:36:55.787Z",
+    "mainPid": 2248345,
+    "processes": [
+      {
+        "pid": 2248345,
+        "rssKiB": 390508
+      }
+    ],
+    "totalRssKiB": 390508
+  },
+  "midTurn": {
+    "label": "1-mid-turn-sessions",
+    "at": "2026-08-27T05:36:59.445Z",
+    "mainPid": 2248345,
+    "processes": [
+      {
+        "pid": 2248345,
+        "rssKiB": 483776
+      }
+    ],
+    "totalRssKiB": 483776
+  },
+  "incrementsKiB": {
+    "createdIdleOverServer": 3060,
+    "midTurnOverServer": 96328
+  },
+  "cgroupBefore": {
+    "path": "/sys/fs/cgroup/user.slice/user-1001.slice/user@1001.service/app.slice/isomux.service/memory.events",
+    "text": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+  },
+  "cgroupAfter": {
+    "path": "/sys/fs/cgroup/user.slice/user-1001.slice/user@1001.service/app.slice/isomux.service/memory.events",
+    "text": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+  },
+  "stdout": "opencode server listening on http://127.0.0.1:41301\n",
+  "stderr": "",
+  "mockStdout": "{\"ready\":true,\"url\":\"http://127.0.0.1:41401/\"}\n",
+  "mockStderr": ""
+}

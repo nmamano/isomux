@@ -1,0 +1,106 @@
+{
+  "date": "2026-08-27",
+  "session": {
+    "id": "ses_fbe444bb0ffejoIgI91eJK79LU",
+    "slug": "witty-mountain",
+    "projectID": "global",
+    "directory": "/tmp/isomux-opencode-gate/auth-error/repo",
+    "path": "",
+    "cost": 0,
+    "tokens": {
+      "input": 0,
+      "output": 0,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    },
+    "title": "auth-error",
+    "version": "1.18.23",
+    "time": {
+      "created": 1787809215568,
+      "updated": 1787809215568
+    }
+  },
+  "result": {
+    "info": {
+      "parentID": "msg_041bbb5b0001uFdCYErpxCeEta",
+      "role": "assistant",
+      "mode": "build",
+      "agent": "build",
+      "path": {
+        "cwd": "/tmp/isomux-opencode-gate/auth-error/repo",
+        "root": "/tmp/isomux-opencode-gate/auth-error/repo"
+      },
+      "cost": 0,
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "reasoning": 0,
+        "cache": {
+          "read": 0,
+          "write": 0
+        }
+      },
+      "modelID": "gate-model",
+      "providerID": "gate",
+      "time": {
+        "created": 1787809219087,
+        "completed": 1787809224678
+      },
+      "error": {
+        "name": "APIError",
+        "data": {
+          "message": "invalid gate credential",
+          "statusCode": 401,
+          "isRetryable": false,
+          "responseHeaders": {
+            "content-length": "77",
+            "content-type": "application/json;charset=utf-8",
+            "date": "Thu, 27 Aug 2026 05:40:24 GMT",
+            "x-provider-secret": "GATE_HEADER_SECRET_SENTINEL"
+          },
+          "responseBody": "{\"error\":{\"message\":\"invalid gate credential\",\"type\":\"authentication_error\"}}",
+          "metadata": {
+            "url": "http://127.0.0.1:41500/v1/chat/completions"
+          }
+        }
+      },
+      "id": "msg_041bbc20f001muyw5Lv8mJlPvg",
+      "sessionID": "ses_fbe444bb0ffejoIgI91eJK79LU"
+    },
+    "parts": []
+  },
+  "errorEvents": [
+    {
+      "id": "evt_041bbd66c0018E1Le5Zw1Kmglu",
+      "type": "session.error",
+      "properties": {
+        "sessionID": "ses_fbe444bb0ffejoIgI91eJK79LU",
+        "error": {
+          "name": "APIError",
+          "data": {
+            "message": "invalid gate credential",
+            "statusCode": 401,
+            "isRetryable": false,
+            "responseHeaders": {
+              "content-length": "77",
+              "content-type": "application/json;charset=utf-8",
+              "date": "Thu, 27 Aug 2026 05:40:24 GMT",
+              "x-provider-secret": "GATE_HEADER_SECRET_SENTINEL"
+            },
+            "responseBody": "{\"error\":{\"message\":\"invalid gate credential\",\"type\":\"authentication_error\"}}",
+            "metadata": {
+              "url": "http://127.0.0.1:41500/v1/chat/completions"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "stdout": "opencode server listening on http://127.0.0.1:41501\n",
+  "stderr": "",
+  "mockStdout": "{\"ready\":true,\"url\":\"http://127.0.0.1:41500/\"}\n",
+  "mockStderr": ""
+}
