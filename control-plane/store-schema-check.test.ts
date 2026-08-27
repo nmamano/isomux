@@ -19,6 +19,7 @@ import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import pg from "pg";
 import { PROVISIONER_GRANTS, type TableGrant } from "./roles.ts";
 import {
+  migrateCertificateContactColumns,
   migrateCustomerSshKeyColumns,
   migrateHostedCancellationPolicy,
   migrateMultiOfficeReservations,
@@ -210,6 +211,20 @@ suite("the schema check reads the catalog, not the privilege view", () => {
       /instances has no customer_ssh_key column/,
     );
     await migrateCustomerSshKeyColumns(ownerDsn);
+    const store = await Store.openRuntime(roleDsn);
+    await store.close();
+  });
+
+  test("runtime refuses certificate-contact columns until the owner migration", async () => {
+    const { ownerDsn, roleDsn, schema } = await bootstrappedAndRole();
+    await admin.query(
+      `alter table ${quoteIdentifier(schema)}.instances drop column certificate_contact_next_check_at`,
+    );
+    expect(Store.openRuntime(roleDsn)).rejects.toThrow(
+      /instances has no certificate_contact_next_check_at column/,
+    );
+    await migrateCertificateContactColumns(ownerDsn);
+    await migrateCertificateContactColumns(ownerDsn);
     const store = await Store.openRuntime(roleDsn);
     await store.close();
   });

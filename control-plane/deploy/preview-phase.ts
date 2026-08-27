@@ -185,7 +185,7 @@ async function main(): Promise<void> {
   try {
     // ------------------------------------- 2. seed ONLY suites, and count
     const suitesBefore = await rowCounts(previewStore);
-    const { PLANS, accountForDevSignIn, hostnameFor, reserveOffice } =
+    const { PLANS, accountForDevSignIn, reserveOffice } =
       await import("../signup.ts");
     const stamp = Math.floor(Date.now() / 1000).toString(36);
     const owner = await accountForDevSignIn(
@@ -210,7 +210,9 @@ async function main(): Promise<void> {
       return;
     }
     const instanceId = reserved.reservation.instance_id;
-    const hostname = hostnameFor(officeName);
+    const instance = await previewStore.getInstance(instanceId);
+    if (!instance) throw new Error("the reserved preview instance is missing");
+    const hostname = instance.name;
 
     // ------------------------------------------ 3-4. generate, then write
     const writes: EnvWrite[] = [

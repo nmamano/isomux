@@ -23,7 +23,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { PROVISIONER_GRANTS } from "./roles.ts";
-import { accountForDevSignIn, hostnameFor, reserveOffice } from "./signup.ts";
+import {
+  accountForDevSignIn,
+  hostnameForNewOffice,
+  reserveOffice,
+} from "./signup.ts";
 import {
   TARGET_IS_LOCAL,
   openTestStoreOn,
@@ -86,7 +90,7 @@ async function bed(
     // A box that has answered SSH: adoption does not read this field, and a
     // value outside the union would be a fixture lying about a shape.
     state: "reachable",
-    host: hostnameFor("cp1"),
+    host: hostnameForNewOffice("cp1"),
     instanceId: "203474835",
     ipv4: "169.58.97.2",
     loginUser: "root",

@@ -23,11 +23,7 @@ import * as path from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { Store } from "../../store.ts";
 import { databaseUrl } from "../../config.ts";
-import {
-  accountForDevSignIn,
-  hostnameFor,
-  reserveOffice,
-} from "../../signup.ts";
+import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { StripeClient } from "../../stripe/client.ts";
 import { insertSubscription } from "../../stripe/billing-store.ts";
 
@@ -782,7 +778,10 @@ async function main(): Promise<void> {
             say(`office page navigation: ${err.message.split("\n")[0]}`),
           );
         const text = (await page.textContent("body")) ?? "";
-        const officeHostname = hostnameFor(res.name);
+        const instance = await store.getInstance(res.instance_id);
+        if (!instance)
+          throw new Error("the rendered office instance is missing");
+        const officeHostname = instance.name;
         check(
           "the signed-in office page renders its stored hostname",
           text.includes(officeHostname),

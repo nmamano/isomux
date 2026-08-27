@@ -53,11 +53,7 @@ import * as path from "node:path";
 import { encode } from "next-auth/jwt";
 import { chromium, type Browser, type BrowserContext } from "playwright-core";
 import { setOperator } from "../../operator-admin.ts";
-import {
-  accountForDevSignIn,
-  hostnameFor,
-  reserveOffice,
-} from "../../signup.ts";
+import { accountForDevSignIn, reserveOffice } from "../../signup.ts";
 import { Store } from "../../store.ts";
 import { databaseUrl } from "../../config.ts";
 import { LOCAL_DATABASE_URL } from "../../testing/pg.ts";
@@ -233,8 +229,10 @@ async function main(): Promise<void> {
   if (!secondReserved.ok)
     throw new Error(`could not seed second office: ${secondReserved.reason}`);
   // What the page must show: the office name is what the customer typed, and
-  // the hostname is what signup derived from it.
-  const hostname = hostnameFor(officeName);
+  // the hostname is the durable value signup stored on the instance.
+  const instance = await store.getInstance(instanceId);
+  if (!instance) throw new Error("the seeded office instance is missing");
+  const hostname = instance.name;
   say(`seeded office ${hostname} (${instanceId}) for ${owner.id}`);
 
   const cookieFor = async (accountId: string, email: string): Promise<string> =>

@@ -51,8 +51,9 @@ export {
 
 /**
  * The domain new customer offices are named under. It is a reviewed build
- * constant because every caller uses the same customer namespace. Changing it
- * does not rename offices already persisted in the store.
+ * constant because every caller composing a NEW office name uses the same
+ * customer namespace. Changing it does not rename offices already persisted in
+ * the store.
  */
 export const OFFICE_DOMAIN = "isomux.app";
 
@@ -126,7 +127,8 @@ export interface ReservationRow {
   updated_at: number;
 }
 
-export function hostnameFor(officeName: string): string {
+/** Compose the full hostname for a NEW office before its instance is stored. */
+export function hostnameForNewOffice(officeName: string): string {
   return `${officeName}.${OFFICE_DOMAIN}`;
 }
 
@@ -484,7 +486,7 @@ export async function reserveOffice(
     await store.createInstance({
       id: instanceId,
       run_id: null,
-      name: hostnameFor(req.officeName),
+      name: hostnameForNewOffice(req.officeName),
       plan: plan.providerProduct,
       region: plan.region,
       service_state: "provisioning",

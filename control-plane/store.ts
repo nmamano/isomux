@@ -110,6 +110,10 @@ export interface InstanceRow {
   customer_ssh_key: string | null;
   customer_ssh_key_fingerprint: string | null;
   ssh_login_user: string | null;
+  certificate_contact_next_check_at: number | null;
+  certificate_contact_claim_until: number | null;
+  certificate_contact_claim_holder: string | null;
+  certificate_contact_version: number | null;
   version: number;
   created_at: number;
   updated_at: number;
@@ -317,6 +321,10 @@ create table if not exists instances (
   customer_ssh_key text,
   customer_ssh_key_fingerprint text,
   ssh_login_user text,
+  certificate_contact_next_check_at bigint,
+  certificate_contact_claim_until bigint,
+  certificate_contact_claim_holder text,
+  certificate_contact_version integer,
   version integer not null,
   created_at bigint not null,
   updated_at bigint not null
@@ -1409,6 +1417,10 @@ export class Store {
       ["instances", "customer_ssh_key"],
       ["instances", "customer_ssh_key_fingerprint"],
       ["instances", "ssh_login_user"],
+      ["instances", "certificate_contact_next_check_at"],
+      ["instances", "certificate_contact_claim_until"],
+      ["instances", "certificate_contact_claim_holder"],
+      ["instances", "certificate_contact_version"],
       ["name_reservations", "checkout_session_id"],
       ["name_reservations", "checkout_generation"],
       ["name_reservations", "checkout_expires_at"],
@@ -1707,6 +1719,10 @@ export class Store {
       | "customer_ssh_key"
       | "customer_ssh_key_fingerprint"
       | "ssh_login_user"
+      | "certificate_contact_next_check_at"
+      | "certificate_contact_claim_until"
+      | "certificate_contact_claim_holder"
+      | "certificate_contact_version"
     > & {
       subscription_state?: string;
       customer_ssh_key?: string | null;
@@ -2093,9 +2109,12 @@ export class Store {
         "where r.cleared_at is null and r.source_op_id = '' and r.reason = $8 " +
         "and (i.service_state != 'provisioning' or exists " +
         "(select 1 from operations o where o.instance_id = i.id))))) as cadence_due, " +
-        "($11 = 1 and exists (select 1 from instances i left join instance_liveness l on l.instance_id = i.id " +
-        "where i.service_state = 'live' and (l.instance_id is null or (l.next_check_at <= $1 " +
-        "and (l.claim_until is null or l.claim_until <= $1))))) as liveness_due" +
+        "($11 = 1 and (exists (select 1 from instances i left join instance_liveness l on l.instance_id = i.id " +
+        "where i.service_state = 'live' and ((l.instance_id is null or (l.next_check_at <= $1 " +
+        "and (l.claim_until is null or l.claim_until <= $1))) or " +
+        "((i.certificate_contact_next_check_at is null or i.certificate_contact_next_check_at <= $1) " +
+        "and (i.certificate_contact_claim_until is null " +
+        "or i.certificate_contact_claim_until <= $1)))))) as liveness_due" +
         "), due_times as (" +
         "select case when lease_until is not null and lease_until > next_attempt_at " +
         "then lease_until else next_attempt_at end as due_at from operations " +
@@ -2125,7 +2144,13 @@ export class Store {
         "union all select case when l.instance_id is null then $1 " +
         "when l.claim_until is not null and l.claim_until > l.next_check_at then l.claim_until " +
         "else l.next_check_at end from instances i left join instance_liveness l on l.instance_id = i.id " +
-        "where $11 = 1 and i.service_state = 'live'" +
+        "where $11 = 1 and i.service_state = 'live' " +
+        "union all select case when certificate_contact_claim_until is not null and " +
+        "(certificate_contact_next_check_at is null or " +
+        "certificate_contact_claim_until > certificate_contact_next_check_at) " +
+        "then certificate_contact_claim_until when certificate_contact_next_check_at is null " +
+        "then $1 else certificate_contact_next_check_at end " +
+        "from instances where $11 = 1 and service_state = 'live'" +
         ") select case when operation_due or provider_due then 1 else 0 end as tick_due, " +
         "case when cadence_due then 1 else 0 end as cadence_due, " +
         "case when liveness_due then 1 else 0 end as liveness_due, " +
@@ -2412,6 +2437,44 @@ export class Store {
         expectedVersion,
         holder,
       ],
+    );
+  }
+
+  // ---------------------------------------------- certificate-contact checks
+
+  /** Claim this live office's daily check without touching its lifecycle CAS. */
+  async claimCertificateContactCheck(
+    instanceId: string,
+    holder: string,
+    claimUntil: number,
+    now: number,
+  ): Promise<InstanceRow | null> {
+    return this.sqlGet<InstanceRow>(
+      "update instances set certificate_contact_claim_until = $1, " +
+        "certificate_contact_claim_holder = $2, certificate_contact_version = " +
+        "coalesce(certificate_contact_version, 0) + 1, updated_at = $3 where id = $4 " +
+        "and service_state = 'live' and (certificate_contact_next_check_at is null " +
+        "or certificate_contact_next_check_at <= $5) and " +
+        "(certificate_contact_claim_until is null or certificate_contact_claim_until <= $6) " +
+        "returning *",
+      [claimUntil, holder, now, instanceId, now, now],
+    );
+  }
+
+  /** Advance even after a failed check; tomorrow is the explicit retry cadence. */
+  async completeCertificateContactCheck(
+    instanceId: string,
+    expectedVersion: number,
+    holder: string,
+    nextAt: number,
+  ): Promise<InstanceRow | null> {
+    return this.sqlGet<InstanceRow>(
+      "update instances set certificate_contact_next_check_at = $1, " +
+        "certificate_contact_claim_until = null, certificate_contact_claim_holder = null, " +
+        "certificate_contact_version = certificate_contact_version + 1, updated_at = $2 " +
+        "where id = $3 and certificate_contact_version = $4 " +
+        "and certificate_contact_claim_holder = $5 returning *",
+      [nextAt, this.now(), instanceId, expectedVersion, holder],
     );
   }
 

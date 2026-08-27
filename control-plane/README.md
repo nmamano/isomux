@@ -3103,6 +3103,9 @@ account's own retry.
 `account_id` is indexed but not unique. One account can reserve several globally
 named offices, and the dashboard reads them in `created_at, name` order. Every
 office still goes through `reserveOffice`; there is no second creation path.
+`instances.name` is the office's durable full hostname and answers where an
+existing office lives. `OFFICE_DOMAIN` composes a hostname only while a new
+office is being reserved; later reads use the stored instance value.
 The launch admission bound counts reservations globally, so one account can
 consume the whole 40-office-per-seven-days certificate budget. There is no
 separate per-account quota.

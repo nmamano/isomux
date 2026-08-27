@@ -663,6 +663,10 @@ export const AUDITED_CMDRUN_SURFACES = [
   "scheduleCapabilities",
   "runLifecycleCadence",
   "watchLiveness",
+  "watchCertificateContact",
+  // The two independently guarded monitoring passes surface either failure
+  // without stopping the other pass.
+  "reporter.problem",
   "exitCodeFor",
 ] as const;
 

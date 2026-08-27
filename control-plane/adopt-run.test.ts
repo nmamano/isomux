@@ -17,7 +17,11 @@ import {
   releaseTestStores,
   testDsn,
 } from "./testing/pg.ts";
-import { accountForDevSignIn, hostnameFor, reserveOffice } from "./signup.ts";
+import {
+  accountForDevSignIn,
+  hostnameForNewOffice,
+  reserveOffice,
+} from "./signup.ts";
 import type { RunRecord } from "./run-record.ts";
 
 const SCRIPT = path.join(import.meta.dir, "exercises", "adopt-run.ts");
@@ -62,7 +66,7 @@ async function bed(over: Partial<RunRecord> = {}): Promise<Bed> {
   const rec: RunRecord = {
     runId: "run-test-1",
     state: "reachable",
-    host: hostnameFor("cp1"),
+    host: hostnameForNewOffice("cp1"),
     instanceId: "203474835",
     ipv4: "169.58.97.2",
     loginUser: "root",

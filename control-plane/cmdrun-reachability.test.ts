@@ -216,6 +216,23 @@ describe("the audited surface is the surface cmdRun drives", () => {
     // A regex that matched nothing would make the case above pass forever.
     expect(cmdRunCallees().length).toBeGreaterThan(8);
   });
+
+  test("liveness runs first and each monitoring pass has its own guard", () => {
+    const source = fs.readFileSync(
+      path.join(import.meta.dir, "cli.ts"),
+      "utf8",
+    );
+    const liveness = source.indexOf("await watchLiveness(store");
+    const certificate = source.indexOf("await watchCertificateContact(store");
+    expect(liveness).toBeGreaterThan(0);
+    expect(certificate).toBeGreaterThan(liveness);
+    expect(source.slice(liveness, certificate)).toContain(
+      "liveness monitoring pass failed:",
+    );
+    expect(source.slice(certificate)).toContain(
+      "certificate-contact monitoring pass failed:",
+    );
+  });
 });
 
 describe("the audit covers the roster it was taken from", () => {

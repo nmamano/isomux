@@ -147,6 +147,23 @@ export async function migrateCustomerSshKeyColumns(dsn: string): Promise<void> {
   }
 }
 
+/** Owner-role migration for per-office certificate-contact scheduling. */
+export async function migrateCertificateContactColumns(
+  dsn: string,
+): Promise<void> {
+  const pool = await openPool(dsn);
+  try {
+    await inTransaction(pool, dsn, [
+      "alter table instances add column if not exists certificate_contact_next_check_at bigint",
+      "alter table instances add column if not exists certificate_contact_claim_until bigint",
+      "alter table instances add column if not exists certificate_contact_claim_holder text",
+      "alter table instances add column if not exists certificate_contact_version integer",
+    ]);
+  } finally {
+    await pool.end().catch(() => {});
+  }
+}
+
 /** Owner-role migration for durable ordinary-signup Checkout recovery. */
 export async function migratePendingCheckoutColumns(
   dsn: string,
@@ -923,6 +940,7 @@ export async function bootstrapDatabase(
   await migrateHostedCancellationPolicy(dsn);
   await migrateMultiOfficeReservations(dsn);
   await migratePendingCheckoutColumns(dsn);
+  await migrateCertificateContactColumns(dsn);
   const store = await Store.open(dsn);
   try {
     // A fresh database had no tables for the pre-open migration to alter.
@@ -930,6 +948,7 @@ export async function bootstrapDatabase(
     await migrateHostedCancellationPolicy(dsn);
     await migrateMultiOfficeReservations(dsn);
     await migratePendingCheckoutColumns(dsn);
+    await migrateCertificateContactColumns(dsn);
     // INSIDE the try, so a failing grant phase closes the store's pool on the
     // way out instead of leaking it. It used to sit above the try, which left a
     // pool open on every failed bootstrap.

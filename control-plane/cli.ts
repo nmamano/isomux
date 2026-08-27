@@ -32,6 +32,7 @@ import { BRANCH_PIN_ENV, provePinnedBranch } from "./boot.ts";
 import {
   bootstrapDatabase,
   migrateCustomerSshKeyColumns,
+  migrateCertificateContactColumns,
   migrateHostedCancellationPolicy,
   migrateMultiOfficeReservations,
   migratePendingCheckoutColumns,
@@ -78,6 +79,7 @@ import {
 } from "./instance.ts";
 import { InviteHold } from "./invite-hold.ts";
 import { watchLiveness } from "./liveness-watch.ts";
+import { watchCertificateContact } from "./certificate-contact-watch.ts";
 import {
   readReleaseIdentity,
   startMintSeam,
@@ -871,10 +873,32 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           : consecutiveCadenceFailures + 1;
       },
       watch: async () => {
-        await watchLiveness(store, {
-          holder: running.holder,
-          report: (line) => reporter.line(line),
-        });
+        // Both checks inherit the existing livenessConfigured gate. Liveness
+        // runs first and each pass has its own guard, so a certificate failure
+        // cannot suppress outage probes and a probe failure cannot suppress
+        // the daily certificate sweep. A certificate-only due time also pays
+        // the liveness row bookkeeping once that day; its claims prevent an
+        // extra network probe.
+        try {
+          await watchLiveness(store, {
+            holder: running.holder,
+            report: (line) => reporter.line(line),
+          });
+        } catch (err) {
+          reporter.problem(
+            `liveness monitoring pass failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        try {
+          await watchCertificateContact(store, {
+            holder: running.holder,
+            report: (line) => reporter.line(line),
+          });
+        } catch (err) {
+          reporter.problem(
+            `certificate-contact monitoring pass failed: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       },
     });
   } finally {
@@ -1007,6 +1031,11 @@ async function cmdBootstrap(): Promise<void> {
 async function cmdMigrateCustomerSshKey(): Promise<void> {
   await migrateCustomerSshKeyColumns(databaseUrl());
   reporter.line("customer SSH key columns: ready");
+}
+
+async function cmdMigrateCertificateContact(): Promise<void> {
+  await migrateCertificateContactColumns(databaseUrl());
+  reporter.line("certificate-contact schedule columns: ready");
 }
 
 async function cmdMigrateHostedCancellation(): Promise<void> {
@@ -1334,6 +1363,8 @@ async function main(): Promise<void> {
       return cmdBootstrap();
     case "migrate-customer-ssh-key":
       return cmdMigrateCustomerSshKey();
+    case "migrate-certificate-contact":
+      return cmdMigrateCertificateContact();
     case "migrate-hosted-cancellation":
       return cmdMigrateHostedCancellation();
     case "migrate-multi-office":
@@ -1349,7 +1380,7 @@ async function main(): Promise<void> {
     default:
       reporter.line(
         "usage: bun control-plane/cli.ts <list|recycle|connect|resume|provision|run|tick|ops|" +
-          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key|migrate-hosted-cancellation|migrate-multi-office|migrate-pending-checkouts> [--flags]",
+          "attention|operator|finish|mint|status|revoke|expiry-test|bootstrap|migrate-customer-ssh-key|migrate-certificate-contact|migrate-hosted-cancellation|migrate-multi-office|migrate-pending-checkouts> [--flags]",
       );
       process.exit(2);
   }

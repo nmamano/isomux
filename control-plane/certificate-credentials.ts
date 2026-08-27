@@ -122,6 +122,9 @@ export async function applyCertificateContactAttention(
     ...active.map((row) => row.last_used_at ?? row.created_at),
   );
   if (store.now() - newestContact <= CERTIFICATE_CONTACT_STALE_MS) {
+    // Recovery is reconciled by the daily sweep, so a cleared three-day stale
+    // condition can remain visible for up to one day. That delay is accepted
+    // in exchange for taking this check off the per-minute liveness path.
     for (const row of open) {
       await clearAttention(
         store,

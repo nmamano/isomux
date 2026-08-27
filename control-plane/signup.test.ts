@@ -15,7 +15,7 @@ import {
   bindGoogleSubject,
   checkoutInputsFor,
   checkoutKeysFor,
-  hostnameFor,
+  hostnameForNewOffice,
   instanceOwnedBy,
   planById,
   reservationByName,
@@ -168,8 +168,8 @@ describe("the reservation", () => {
 
     expect(out.reused).toBe(false);
     const instance = await store.getInstance(out.reservation.instance_id);
-    expect(hostnameFor("acme")).toBe("acme.isomux.app");
-    expect(instance?.name).toBe(hostnameFor("acme"));
+    expect(hostnameForNewOffice("acme")).toBe("acme.isomux.app");
+    expect(instance?.name).toBe(hostnameForNewOffice("acme"));
     expect(instance?.service_state).toBe("provisioning");
     expect(instance?.goal).toBe("live");
     expect(instance?.plan).toBe(planById("office")?.providerProduct);
