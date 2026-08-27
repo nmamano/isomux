@@ -140,7 +140,6 @@ import {
   type AgentEvent,
   type EventHandler,
   type EnqueueResult,
-  type UserSendAcceptance,
   type SendNowResult,
   type AbortResult,
 } from "./internal-types.ts";
@@ -5806,21 +5805,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     username?: string,
     device?: string,
     attachments?: Attachment[],
-    opts?: {
-      sendNow?: boolean;
-      onAccepted?: (result: UserSendAcceptance) => void;
-    },
+    opts?: { sendNow?: boolean },
   ) {
     const managed = agents.get(agentId);
-    if (!managed) {
-      opts?.onAccepted?.({
-        ok: false,
-        status: 404,
-        code: "agent_not_found",
-        message: "No such agent.",
-      });
-      return;
-    }
+    if (!managed) return;
 
     // Route through queue when busy. Multi-step pending flows (permission /
     // resume / model / effort) need the existing path because the user's reply
@@ -5841,12 +5829,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           "system",
           `Could not queue message: ${result.error}`,
         );
-        opts?.onAccepted?.({
-          ok: false,
-          status: result.status as 404 | 409 | 429 | 500,
-          code: result.error,
-          message: result.error,
-        });
       } else if (opts?.sendNow) {
         // Ctrl/Cmd+Enter "deliver now": the message just landed in the queue,
         // so trigger the same abort+flush the /send-now endpoint runs. The
@@ -5856,21 +5838,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // the endpoint's own wiring (sendNow handles its own state).
         void sendNow(agentId);
       }
-      if (result.ok) {
-        opts?.onAccepted?.({
-          ok: true,
-          messageId: result.messageId ?? "",
-          queued: result.queued,
-        });
-      }
       return;
     }
-
-    opts?.onAccepted?.({
-      ok: true,
-      messageId: "",
-      queued: false,
-    });
 
     // If the prior session ended owing a response, write the gap breadcrumb
     // before any new entries land. Parity with the SDK's lazy synthetic

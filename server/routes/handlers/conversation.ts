@@ -43,7 +43,6 @@ import type {
 import type {
   SendNowResult,
   SteerDeclineReason,
-  UserSendAcceptance,
 } from "../../internal-types.ts";
 // Pure format parser (no state) - safe for a leaf handler module to import.
 import { parseDeliverAt } from "../../scheduled-messages.ts";
@@ -111,14 +110,6 @@ export interface ConversationDeps {
     attachments: Attachment[] | undefined,
     sendNow: boolean,
   ): void;
-  // API-token human send. Resolves at the queue-or-direct acceptance decision,
-  // never at turn completion.
-  sendAsApi(
-    agentId: string,
-    text: string,
-    username: string | undefined,
-    device: string,
-  ): Promise<UserSendAcceptance>;
   // AGENT inter-agent send. Builds the structured sender server-side (blocks
   // prefix-injection / identity spoof) and enqueues; returns the discriminated
   // outcome above.
@@ -231,7 +222,7 @@ export function conversationHandlers(
   deps: ConversationDeps,
 ): Record<string, RouteHandler> {
   return {
-    "agents.sendMessage": async (ctx) => {
+    "agents.sendMessage": (ctx) => {
       const b = (ctx.body ?? {}) as Partial<SendMessageReq>;
       // 400 (not 422) on the text checks + the AGENT-branch reasons below mirrors
       // the legacy POST /agents/:id/message status codes that queue.test.ts pins
@@ -393,14 +384,15 @@ export function conversationHandlers(
         // A personal token is the issuing human, not a separate machine
         // principal. Keeping the user sender kind preserves human-input
         // completion notifications; only the server-derived device differs.
-        const r = await deps.sendAsApi(
+        deps.sendAsUser(
           ctx.params.id,
           b.text,
           deps.attributionFor(ctx.identity).username,
           formatApiTokenDevice(ctx.identity.apiTokenName ?? "unknown"),
+          undefined,
+          false,
         );
-        if (r.ok) return ok({ messageId: r.messageId, queued: r.queued });
-        return fail(r.status, r.code, r.message);
+        return ok({ messageId: "" });
       }
       // USER path: fire-and-forget. Empty text is allowed when attachments carry
       // the content (the composer sends an image with no caption). The ack body

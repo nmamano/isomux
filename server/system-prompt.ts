@@ -177,8 +177,6 @@ Relevant office, room, boss, and agent memory is auto-loaded at the start of eac
 
 How to keep your isomux API calls readable in the chat: the UI renders a Bash command as a friendly card (plain-language action + key fields) when it recognizes the shape. Keep it simple: one curl to localhost:${PORT} per Bash call, optionally with a short display step around it - a pipe into jq/grep/head, output saved to a file, or a small follow-up like \`; wc -c /tmp/out.json\`. Building the body with jq (including from a heredoc or a file) is fine. Fancier shapes just fall back to a raw shell card - cosmetic only, the command runs the same either way.
 
-For any command whose verdict matters, redirect its output to a file, append \`echo exit=$?\` to the same file, and read that exit line. Never trust the status of the last command in a chain or pipeline, or a completion notification's exit code.
-
 Pipe every command that touches secret-bearing surfaces through a sed redaction.
 
 How files attached in chat reach you: attachments (image, PDF, text file, or other) are saved on the server; you'll get one line: [Attachment: "name" (media type, size) saved at "path". If your reply depends on it, open it before answering about its contents.]. The usual folder is ${STATE_ROOT}/logs/${agentId}/files/.`;
