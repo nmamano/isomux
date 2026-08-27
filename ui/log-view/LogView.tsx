@@ -32,6 +32,7 @@ import {
   reconcileDictationEdit,
   startDictationSession,
 } from "../spoken-punctuation.ts";
+import { voiceInputErrorMessage } from "../voice-input-error.ts";
 import { apiFetch } from "../api.ts";
 import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
@@ -850,6 +851,7 @@ export function LogView({
   const [isListening, setIsListening] = useState(false);
   const isListeningRef = useRef(false);
   const [showMicHint, setShowMicHint] = useState(false);
+  const [voiceInputError, setVoiceInputError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   type StagedAttachment = Attachment & {
@@ -1416,6 +1418,7 @@ export function LogView({
 
   function startListening() {
     if (isListeningRef.current || !SpeechRecognition) return;
+    setVoiceInputError(null);
     isListeningRef.current = true;
     setIsListening(true);
     dictationRef.current = startDictationSession(inputRef.current);
@@ -1461,9 +1464,11 @@ export function LogView({
       isListeningRef.current = false;
       setIsListening(false);
     };
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
       isListeningRef.current = false;
       setIsListening(false);
+      const message = voiceInputErrorMessage(event.error);
+      if (message) setVoiceInputError(message);
     };
     recognitionRef.current = recognition;
     recognition.start();
@@ -2542,6 +2547,18 @@ export function LogView({
                       Couldn't send - reconnecting. Your message is still in the
                       box; try again once the banner clears.
                     </span>
+                  </div>
+                )}
+                {voiceInputError && (
+                  <div
+                    role="alert"
+                    style={{
+                      marginBottom: 8,
+                      color: "var(--red)",
+                      fontSize: isMobile ? 12 : 11,
+                    }}
+                  >
+                    {voiceInputError}
                   </div>
                 )}
                 <QueueChips
