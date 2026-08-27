@@ -298,9 +298,10 @@ mkdir -p ~/.isomux-users/marc/.claude && chmod 700 ~/.isomux-users/marc/.claude
 CLAUDE_CONFIG_DIR=~/.isomux-users/marc/.claude claude auth login
 
 mkdir -p ~/.isomux-users/marc/.codex && chmod 700 ~/.isomux-users/marc/.codex
-# Codex now ships bundled with isomux - invoke the bundled launcher from the
-# isomux checkout (cd into it first if your terminal panel is elsewhere).
-CODEX_HOME=~/.isomux-users/marc/.codex bun node_modules/@openai/codex/bin/codex.js login
+# Codex ships bundled with isomux; the wrapper works from any directory and
+# its own CODEX_HOME default only applies when CODEX_HOME is unset. Add
+# --device-auth on a remote or headless box with no browser on it.
+CODEX_HOME=~/.isomux-users/marc/.codex ~/.isomux/bin/codex login
 ```
 
 The CLI prints an OAuth URL; the user opens it in their own browser, signs in with their own Anthropic / OpenAI account, the token lands in the per-user dir. The user then appends the env-var lines above to their envFile, using **absolute paths** - isomux's dotenv parser does not expand `~` or `$VAR`.
