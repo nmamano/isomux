@@ -95,7 +95,9 @@ function expectOfficeSecurityHeaders(response: Response): void {
   // The harness is plain HTTP. Upgrading its own assets and WebSocket would
   // make every non-localhost network office unusable.
   expect(csp).not.toContain("upgrade-insecure-requests");
-  expect(response.headers.get("permissions-policy")).toContain("camera=()");
+  expect(response.headers.get("permissions-policy")).toBe(
+    "camera=(), geolocation=(), microphone=(self), payment=(), usb=()",
+  );
   expect(response.headers.get("referrer-policy")).not.toBeNull();
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   expect(response.headers.get("x-frame-options")).toBe("DENY");

@@ -144,7 +144,7 @@ export function securityHeaders(opts?: {
   const h: Record<string, string> = {
     "Content-Security-Policy": csp,
     "Permissions-Policy":
-      "camera=(), geolocation=(), microphone=(), payment=(), usb=()",
+      "camera=(), geolocation=(), microphone=(self), payment=(), usb=()",
     "Referrer-Policy": tokenInUrl
       ? "no-referrer"
       : "strict-origin-when-cross-origin",
