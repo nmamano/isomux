@@ -1414,10 +1414,13 @@ function UserEditPanel({
         <ValidationLine status={validation} />
         <div style={{ ...hintStyle, marginTop: 4 }}>
           A file of NAME=value lines on the server, loaded into the environment
-          of your agents. Put ANTHROPIC_API_KEY=… (Claude) or OPENAI_API_KEY=…
-          (Codex) here to run them on API-key billing instead of a subscription
-          sign-in. Each agent reads the file when it starts or resumes a
-          conversation, so a change reaches a running agent on its next /clear.
+          of your agents. It lets you bill your agents to your own account
+          rather than the one the office shares: ANTHROPIC_API_KEY=… (Claude) or
+          OPENAI_API_KEY=… (Codex) for API-key billing, or CLAUDE_CONFIG_DIR=… /
+          CODEX_HOME=… pointing at a directory you signed in yourself, for your
+          own subscription. Each agent reads the file when it starts or resumes
+          a conversation, so a change reaches a running agent on its next
+          /clear.
         </div>
 
         <label style={subLabelStyle}>
