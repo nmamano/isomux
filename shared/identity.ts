@@ -66,6 +66,8 @@ export function formatCronjobSenderPrefix(cronjobName: string): string {
   return `[Cron job "${normalized}"]`;
 }
 
+const API_TOKEN_DEVICE_PREFIX = 'API token "';
+
 export function formatApiTokenDevice(tokenName: string): string {
   const normalized = tokenName
     // eslint-disable-next-line no-control-regex -- controls are the threat here
@@ -74,7 +76,18 @@ export function formatApiTokenDevice(tokenName: string): string {
     .replace(/"/g, "'")
     .trim()
     .slice(0, 64);
-  return `API token "${normalized}"`;
+  return `${API_TOKEN_DEVICE_PREFIX}${normalized}"`;
+}
+
+// An API-token message carries the issuing human's authority but was NOT typed
+// in the office, so the log renders it like the other machine senders. A
+// personal token stays a user-kind sender (that is what preserves completion
+// sounds and permission-reply authority), so the device string is what marks
+// it - hence this matcher lives beside the formatter that writes it, with a
+// test pinning the pair. Worst case for a hand-typed device that mimics the
+// format is a dashed border on the typist's own message.
+export function isApiTokenDevice(device: string | undefined): boolean {
+  return device?.startsWith(API_TOKEN_DEVICE_PREFIX) === true;
 }
 
 // Lowercase key used for users.json lookup. Display case is whatever the

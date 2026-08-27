@@ -4,7 +4,7 @@ import type {
   Attachment,
   SubagentOrigin,
 } from "../../shared/types.ts";
-import { formatIdentity } from "../../shared/identity.ts";
+import { formatIdentity, isApiTokenDevice } from "../../shared/identity.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { SpeakButton } from "../components/SpeakButton.tsx";
@@ -362,7 +362,10 @@ export function describeMessageSender(
   const device = metadata?.device as string | undefined;
   return {
     label: formatIdentity({ username, device }) || undefined,
-    fromHuman: true,
+    // A personal API token is the human's authority, but the message came from
+    // a script rather than the composer, so it reads as machine-sent (and is
+    // not editable) like the app, agent and cron senders above.
+    fromHuman: !isApiTokenDevice(device),
   };
 }
 

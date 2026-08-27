@@ -67,6 +67,15 @@ describe("describeMessageSender", () => {
     ).toEqual({ label: "Business health check · cron job", fromHuman: false });
   });
 
+  it("an API-TOKEN message keeps the human's name but renders as machine-sent", () => {
+    // Reported by Nil, 2026-08-27: a token message rendered exactly like him
+    // typing. The token is his authority, so the label stays his identity, but
+    // it arrived from a script and reads that way (dashed, not editable).
+    expect(
+      describeMessageSender({ username: "Nil", device: 'API token "test"' }),
+    ).toEqual({ label: 'Nil (API token "test")', fromHuman: false });
+  });
+
   it("a cron sender is not made human by carrying a username alongside", () => {
     // The job's creator is stamped on the run; the sender is still the job.
     expect(
