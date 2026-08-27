@@ -372,6 +372,16 @@ describe("buildSystemPrompt - inter-agent messaging copy", () => {
 });
 
 describe("buildSystemPrompt - session hygiene", () => {
+  it("records command verdicts from the command's own log", () => {
+    const prompt = buildSystemPrompt("A1", "agent-1", "Test Room", "room-9");
+    expect(prompt).toContain(
+      "For any command whose verdict matters, redirect its output to a file, append `echo exit=$?` to the same file, and read that exit line.",
+    );
+    expect(prompt).toContain(
+      "Never trust the status of the last command in a chain or pipeline, or a completion notification's exit code.",
+    );
+  });
+
   // Task 99f51f50: a completed session closes loose ends, or ends clearly
   // without a trailing commentary coda.
   it("gives one explicit wrap-up path for each loose-end state", () => {

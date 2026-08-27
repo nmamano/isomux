@@ -69,7 +69,7 @@ async function waitFor(predicate: () => boolean) {
 describe("personal API tokens", () => {
   it("mints, lists, sends as the human, and revokes through cookie-only routes", async () => {
     const srv = await startTestServer({
-      fakeBackend: new FakeBackend({ session: { onSend() {} } }),
+      fakeBackend: new FakeBackend({ session: { manualSend: true } }),
     });
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -98,7 +98,7 @@ describe("personal API tokens", () => {
     expect(((await manifest.json()) as Array<{ id: string }>)[0].id).toBe(
       target.id,
     );
-    const sent = await bearer(
+    const sentPromise = bearer(
       srv,
       minted.body.token,
       `/api/agents/${target.id}/messages`,
@@ -108,13 +108,24 @@ describe("personal API tokens", () => {
         body: JSON.stringify({ text: "off-office alert" }),
       },
     );
-    expect(sent.status).toBe(200);
     await waitFor(
       () => (srv.fakeBackend.sessionForAgent(target.id)?.sent.length ?? 0) > 0,
     );
+    const sent = await sentPromise;
+    expect(sent.status).toBe(200);
+    const sentAck = (await sent.json()) as {
+      messageId: string;
+      queued: boolean;
+    };
+    expect(sentAck).toMatchObject({
+      queued: false,
+    });
+    expect(sentAck.messageId).toBe("");
     expect(srv.fakeBackend.sessionForAgent(target.id)!.sent[0].text).toContain(
       `[Boss (API token "Phone 'alerts")] off-office alert`,
     );
+    srv.fakeBackend.sessionForAgent(target.id)!.releaseSends();
+    srv.fakeBackend.sessionForAgent(target.id)!.completeTurn();
     const used = await srv.http("/api/me/api-tokens", {
       rawSessionId: owner.rawSessionId,
     });
@@ -135,6 +146,47 @@ describe("personal API tokens", () => {
     );
     expect(revoked.status).toBe(204);
     expect((await bearer(srv, minted.body.token, "/agents")).status).toBe(401);
+  });
+
+  it("returns the busy queue id and that exact id can cancel the message", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { manualSend: true } }),
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0].id;
+    const target = await spawn(srv, "Target", room);
+    const minted = await mintThroughApi(srv, owner.rawSessionId);
+    const send = (text: string) =>
+      bearer(srv, minted.body.token, `/api/agents/${target.id}/messages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+
+    const first = await send("hold the turn");
+    expect(first.status).toBe(200);
+    await waitFor(
+      () => (srv.fakeBackend.sessionForAgent(target.id)?.sent.length ?? 0) > 0,
+    );
+
+    const queued = await send("cancel me");
+    expect(queued.status).toBe(200);
+    const ack = (await queued.json()) as {
+      messageId: string;
+      queued: boolean;
+    };
+    expect(ack.messageId).not.toBe("");
+    expect(ack.queued).toBe(true);
+
+    const cancelled = await srv.http(
+      `/api/agents/${target.id}/queue/${ack.messageId}`,
+      { method: "DELETE", rawSessionId: owner.rawSessionId },
+    );
+    expect(cancelled.status).toBe(204);
+
+    srv.fakeBackend.sessionForAgent(target.id)!.releaseSends();
+    srv.fakeBackend.sessionForAgent(target.id)!.completeTurn();
   });
 
   it("allows only the live manifest below the capability dispatcher", async () => {

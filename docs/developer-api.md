@@ -34,6 +34,8 @@ curl -s -X POST "$OFFICE_URL/api/agents/$AGENT_ID/messages" \
   -d '{"text":"Please check the latest alert."}'
 ```
 
+The response includes `queued`, which is `true` when the message is waiting behind an active turn or `false` when the office handed it to a turn. When `queued` is `true`, `messageId` is non-empty and identifies the queued message; the issuing human can cancel it from the office while it remains queued. An immediate delivery has no cancellation handle, so `queued` is `false` and `messageId` is an empty string.
+
 The agent sees the message as `[Your name (API token "Token name")]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. The token cannot list killed agents, read conversations or files, upload files, open a WebSocket, manage the office, or use any API route except live-agent discovery and messaging. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
 
 API failures use JSON with an `error` object:

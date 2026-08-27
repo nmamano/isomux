@@ -515,3 +515,15 @@ export type EnqueueResult =
       steerDeclined?: SteerDeclineReason;
     }
   | { ok: false; error: string; status: number };
+
+// Immediate acceptance result for a human-attributed message. This resolves
+// when the manager has decided whether to hand the message to a turn or keep it
+// in the durable queue, not when the agent's turn finishes.
+export type UserSendAcceptance =
+  | { ok: true; messageId: string; queued: boolean }
+  | {
+      ok: false;
+      status: 404 | 409 | 429 | 500;
+      code: string;
+      message: string;
+    };
