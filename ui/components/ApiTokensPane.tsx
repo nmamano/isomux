@@ -17,6 +17,7 @@ export function ApiTokensPane() {
   const [name, setName] = useState("");
   const [expiresInDays, setExpiresInDays] = useState<ExpiryChoice>(30);
   const [rawToken, setRawToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +39,7 @@ export function ApiTokensPane() {
     setPending(true);
     setError(null);
     setRawToken(null);
+    setCopied(false);
     apiFetch<ApiTokenCreateRes>("POST", "/api/me/api-tokens", {
       name: name.trim(),
       expiresInDays,
@@ -75,7 +77,7 @@ export function ApiTokensPane() {
         Send messages to your visible agents from scripts and other devices.
         Tokens cannot manage your office or read conversations.
       </p>
-      <label style={dialogLabel}>How to use</label>
+      <label style={{ ...dialogLabel, marginTop: 14 }}>How to use</label>
       <pre
         style={{
           margin: "0 0 12px",
@@ -162,15 +164,32 @@ curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
         <div style={{ ...cardStyle, marginTop: 12 }}>
           <strong style={{ fontSize: 12 }}>Copy this token now</strong>
           <p style={hint}>It will not be shown again.</p>
-          <code
-            style={{
-              display: "block",
-              overflowWrap: "anywhere",
-              userSelect: "all",
-            }}
-          >
-            {rawToken}
-          </code>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <code
+              style={{
+                flex: 1,
+                minWidth: 0,
+                overflowWrap: "anywhere",
+                userSelect: "all",
+              }}
+            >
+              {rawToken}
+            </code>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(rawToken).then(
+                  () => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  },
+                  () => {},
+                );
+              }}
+              style={{ ...dialogSaveBtn, flexShrink: 0 }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
         </div>
       )}
 
