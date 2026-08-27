@@ -1,6 +1,6 @@
 # OpenCode third-backend scope
 
-Status: proposed, not approved for implementation  
+Status: V2 path on hold; OC1 implementation scoped separately\
 Research date: 2026-08-26  
 OpenCode 2 review: 2026-08-27
 
@@ -33,9 +33,11 @@ clients, configuration, plugin API, and durable runtime behavior were still
 beta on 2026-08-27. Upstream warns that contracts may change and beta data may
 be reset.
 
-Implementation must not start until the feasibility gate below passes and the
-V2 integration contract is stable. The main open risk is process and state
-isolation. OpenCode stores credentials and
+The V2 production path remains on hold until its client and server contract is
+stable. The V1 topology passed the feasibility gate. Nil ruled on 2026-08-27
+that the next step is to scope an adapter against the stable OC1 stack. That
+temporary path and its V2 migration budget live in
+[`opencode-oc1-scope.md`](opencode-oc1-scope.md). OpenCode stores credentials and
 session state in a shared local profile, and its project has an open request
 for a documented parallel-headless-worker isolation contract. Isomux must not
 run several OpenCode processes against one profile and hope that database
@@ -63,9 +65,10 @@ service and generated network client, not its embedded host:
 - `@opencode-ai/client` provides the generated V2 network client;
 - the separate process preserves crash, memory, and lifecycle isolation.
 
-Do not start the production adapter until the V2 server and client contracts
-are stable. If product urgency requires an earlier V1 implementation, treat
-that as a separate temporary decision with an explicit migration budget.
+Do not start a V2 adapter until its server and client contracts are stable.
+Nil's 2026-08-27 ruling allows the separate OC1 path in
+[`opencode-oc1-scope.md`](opencode-oc1-scope.md), including its explicit V2
+migration budget.
 
 Use stable OpenCode 1.x only as the comparison baseline for the gate:
 
