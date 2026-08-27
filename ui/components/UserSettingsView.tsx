@@ -1401,8 +1401,7 @@ function UserEditPanel({
         <label style={subLabelStyle}>
           Env File Path{" "}
           <span style={hintStyle}>
-            (absolute path; applied at agent spawn time - existing agents keep
-            their current env)
+            (absolute path; applied at session start)
           </span>
         </label>
         <input
