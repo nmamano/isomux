@@ -23,7 +23,13 @@ export function EmptySlot({
         e.dataTransfer.dropEffect = "move";
       }}
       onDragEnter={() => setDragOver(true)}
-      onDragLeave={() => setDragOver(false)}
+      onDragLeave={(e) => {
+        // dragleave fires when the pointer crosses onto the clickable hit-area
+        // child; only clear when actually leaving the slot, or the highlight
+        // dies while a release would still move the agent.
+        if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+        setDragOver(false);
+      }}
       onDrop={(e) => {
         e.preventDefault();
         setDragOver(false);

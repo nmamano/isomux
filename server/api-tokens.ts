@@ -9,9 +9,9 @@ import { atomicWriteFileSync } from "./persistence.ts";
 import type { ApiTokenWire } from "../shared/contract-shapes.ts";
 import { errMessage } from "../shared/errors.ts";
 
-export const API_TOKEN_EXPIRY_DAYS = [30, 90, 365] as const;
-export const DEFAULT_API_TOKEN_EXPIRY_DAYS = 90;
-export const MAX_API_TOKEN_EXPIRY_DAYS = 365;
+// null means the token never expires.
+export const API_TOKEN_EXPIRY_DAYS = [30, 365, null] as const;
+export const DEFAULT_API_TOKEN_EXPIRY_DAYS = 30;
 export const API_TOKEN_LAST_USED_PERSIST_INTERVAL_MS = 60_000;
 
 const API_TOKENS_FILE = join(STATE_ROOT, "api-tokens.json");
@@ -74,7 +74,7 @@ function ensureLoaded(): void {
         typeof value.tokenPrefix !== "string" ||
         typeof value.tokenHash !== "string" ||
         typeof value.createdAt !== "number" ||
-        typeof value.expiresAt !== "number"
+        (typeof value.expiresAt !== "number" && value.expiresAt !== null)
       ) {
         console.error("Ignoring invalid API token record:", id);
         continue;
@@ -136,7 +136,7 @@ export function listApiTokens(userId: string): ApiTokenWire[] {
 export async function mintApiToken(input: {
   userId: string;
   name: string;
-  expiresInDays: number;
+  expiresInDays: number | null;
   now?: number;
 }): Promise<{ token: string; apiToken: ApiTokenWire }> {
   return mutate(() => {
@@ -152,7 +152,10 @@ export async function mintApiToken(input: {
       tokenPrefix: raw.slice(0, RAW_PREFIX.length + 8),
       tokenHash,
       createdAt: now,
-      expiresAt: now + input.expiresInDays * 24 * 60 * 60 * 1000,
+      expiresAt:
+        input.expiresInDays === null
+          ? null
+          : now + input.expiresInDays * 24 * 60 * 60 * 1000,
       lastUsedAt: null,
     };
     tokens!.set(id, record);
@@ -204,7 +207,7 @@ export function resolveApiToken(
   if (!id) return null;
   const record = tokens!.get(id);
   if (!record || !safeHashEq(record.tokenHash, hash)) return null;
-  if (record.expiresAt <= now) return null;
+  if (record.expiresAt !== null && record.expiresAt <= now) return null;
   record.lastUsedAt = now;
   const lastPersist = lastUsedPersistedAt.get(id) ?? 0;
   if (now - lastPersist >= API_TOKEN_LAST_USED_PERSIST_INTERVAL_MS) {

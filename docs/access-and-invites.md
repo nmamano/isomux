@@ -231,7 +231,7 @@ That prints a one-time login URL valid for 15 minutes. The CLI talks to the runn
 
 ## Personal API tokens
 
-A signed-in user can create a named personal API token in **User Settings → API tokens**. Tokens expire after 30, 90, or 365 days; 90 days is the default, and a token cannot be created without an expiry. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
+A signed-in user can create a named personal API token in **User Settings → API tokens**. Tokens expire after 30 days (the default), 365 days, or never. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
 
 Personal tokens have a separate API identity scope. They can list live agents in rooms the issuing user can currently access and send messages to those agents. They cannot list killed agents or reach browser, file, upload, WebSocket, office-management, token-management, or other API surfaces. The server reads the issuing user and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
 

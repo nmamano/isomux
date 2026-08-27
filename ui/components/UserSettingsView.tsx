@@ -1430,6 +1430,11 @@ function UserEditPanel({
           style={inputStyle}
         />
         <ValidationLine status={validation} />
+        <div style={{ ...hintStyle, marginTop: 4 }}>
+          To run your agents on API-key billing instead of a subscription
+          sign-in, put ANTHROPIC_API_KEY=… (Claude) or OPENAI_API_KEY=… (Codex)
+          in this file.
+        </div>
 
         <label style={subLabelStyle}>
           Profile Prompt{" "}

@@ -31,7 +31,7 @@ async function mintThroughApi(
   srv: TestServer,
   session: string,
   name = "Laptop",
-  expiresInDays = 90,
+  expiresInDays: number | null = 30,
 ) {
   const response = await srv.http("/api/me/api-tokens", {
     method: "POST",
@@ -158,6 +158,32 @@ describe("personal API tokens", () => {
         .status,
     ).toBe(403);
     expect((await bearer(srv, token, "/api/tasks")).status).toBe(403);
+  });
+
+  it("accepts a never-expiring mint and rejects retired expiry presets", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const unlimited = await mintThroughApi(
+      srv,
+      owner.rawSessionId,
+      "Keep",
+      null,
+    );
+    expect(unlimited.response.status).toBe(201);
+    expect(unlimited.body.apiToken.expiresAt).toBeNull();
+    expect((await bearer(srv, unlimited.body.token, "/agents")).status).toBe(
+      200,
+    );
+    const retired = await mintThroughApi(srv, owner.rawSessionId, "Old", 90);
+    expect(retired.response.status).toBe(422);
+    const missing = await srv.http("/api/me/api-tokens", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "NoExpiryField" }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(missing.status).toBe(422);
   });
 
   it("rejects expired, invalid, leaked-prefix, and API-attribution fields", async () => {

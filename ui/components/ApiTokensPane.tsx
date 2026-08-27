@@ -8,13 +8,14 @@ import type {
 import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
 
-const EXPIRY_OPTIONS = [30, 90, 365] as const;
+const EXPIRY_OPTIONS = [30, 365, null] as const;
+type ExpiryChoice = (typeof EXPIRY_OPTIONS)[number];
 
 export function ApiTokensPane() {
   const [tokens, setTokens] = useState<ApiTokenWire[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [name, setName] = useState("");
-  const [expiresInDays, setExpiresInDays] = useState<30 | 90 | 365>(90);
+  const [expiresInDays, setExpiresInDays] = useState<ExpiryChoice>(30);
   const [rawToken, setRawToken] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -94,9 +95,13 @@ export function ApiTokensPane() {
         <label style={{ display: "block", fontSize: 12 }}>
           Expires after
           <select
-            value={expiresInDays}
+            value={expiresInDays === null ? "never" : expiresInDays}
             onChange={(event) =>
-              setExpiresInDays(Number(event.target.value) as 30 | 90 | 365)
+              setExpiresInDays(
+                event.target.value === "never"
+                  ? null
+                  : (Number(event.target.value) as ExpiryChoice),
+              )
             }
             style={{
               ...dialogInput,
@@ -106,8 +111,11 @@ export function ApiTokensPane() {
             }}
           >
             {EXPIRY_OPTIONS.map((days) => (
-              <option key={days} value={days}>
-                {days} days
+              <option
+                key={days === null ? "never" : days}
+                value={days === null ? "never" : days}
+              >
+                {days === null ? "Unlimited" : `${days} days`}
               </option>
             ))}
           </select>
@@ -161,8 +169,10 @@ export function ApiTokensPane() {
                 <div>
                   <strong style={{ fontSize: 13 }}>{token.name}</strong>
                   <div style={hint}>
-                    {token.tokenPrefix}… · expires{" "}
-                    {new Date(token.expiresAt).toLocaleDateString()}
+                    {token.tokenPrefix}… ·{" "}
+                    {token.expiresAt === null
+                      ? "never expires"
+                      : `expires ${new Date(token.expiresAt).toLocaleDateString()}`}
                   </div>
                   <div style={hint}>
                     Last authenticated request:{" "}

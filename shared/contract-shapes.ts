@@ -512,13 +512,13 @@ export interface ApiTokenWire {
   name: string;
   tokenPrefix: string;
   createdAt: number;
-  expiresAt: number;
+  expiresAt: number | null;
   lastUsedAt: number | null;
 }
 
 export interface ApiTokenCreateReq {
   name: string;
-  expiresInDays: 30 | 90 | 365;
+  expiresInDays: 30 | 365 | null;
 }
 
 export interface ApiTokenCreateRes {

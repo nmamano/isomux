@@ -5,6 +5,7 @@ import { Character } from "./Character.tsx";
 import { StatusLight } from "./StatusLight.tsx";
 import { DESK_SLOTS } from "../../shared/desks.ts";
 import { deskPixelPos } from "./grid.ts";
+import { getDraggedDesk, setDraggedDesk } from "./drag-state.ts";
 import { styleForModel } from "../model-styles.ts";
 import { PENDING_PROMPT_BADGE } from "../pending-prompt.ts";
 
@@ -114,20 +115,29 @@ export function DeskUnit({
         onDragStart={(e) => {
           e.dataTransfer.setData("text/plain", String(agent.desk));
           e.dataTransfer.effectAllowed = "move";
+          setDraggedDesk(agent.desk);
         }}
         onDragOver={(e) => {
           e.preventDefault();
           e.dataTransfer.dropEffect = "move";
         }}
-        onDragEnter={() => setDragOver(true)}
-        onDragLeave={() => setDragOver(false)}
+        onDragEnter={() => {
+          if (getDraggedDesk() !== agent.desk) setDragOver(true);
+        }}
+        onDragLeave={(e) => {
+          if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+          setDragOver(false);
+        }}
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
           const src = parseInt(e.dataTransfer.getData("text/plain"), 10);
           if (!isNaN(src) && src !== agent.desk) onSwap?.(src, agent.desk);
         }}
-        onDragEnd={() => setDragOver(false)}
+        onDragEnd={() => {
+          setDraggedDesk(null);
+          setDragOver(false);
+        }}
         onClick={() => {
           if (!longPressTriggered.current) onClick();
         }}

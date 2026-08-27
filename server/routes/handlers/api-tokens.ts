@@ -18,7 +18,7 @@ export interface ApiTokenDeps {
   mint(input: {
     userId: string;
     name: string;
-    expiresInDays: number;
+    expiresInDays: number | null;
   }): Promise<ApiTokenCreateRes>;
   revoke(userId: string, id: string): Promise<boolean>;
 }
@@ -45,15 +45,15 @@ export function apiTokenHandlers(
         );
       }
       if (
-        typeof body.expiresInDays !== "number" ||
-        !(API_TOKEN_EXPIRY_DAYS as readonly number[]).includes(
+        body.expiresInDays === undefined ||
+        !(API_TOKEN_EXPIRY_DAYS as readonly (number | null)[]).includes(
           body.expiresInDays,
         )
       ) {
         return fail(
           422,
           "invalid_expiry",
-          "expiresInDays must be 30, 90, or 365",
+          "expiresInDays must be 30, 365, or null for a token that does not expire",
         );
       }
       return created(

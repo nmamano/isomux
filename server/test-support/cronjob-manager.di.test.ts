@@ -205,6 +205,7 @@ describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
     expect(id.runId).toBe(run!.id);
     expect([...id.capabilities]).toEqual([
       "self:affordance",
+      "agent:send-as-cron",
       "task:read",
       "task:write",
     ]);
@@ -339,6 +340,7 @@ describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", 
     expect(id.runId).toBe(run.id);
     expect([...id.capabilities]).toEqual([
       "self:affordance",
+      "agent:send-as-cron",
       "task:read",
       "task:write",
     ]);

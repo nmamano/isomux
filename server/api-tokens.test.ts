@@ -38,9 +38,10 @@ describe("personal API token persistence", () => {
     const minted = await mintApiToken({
       userId: "u1",
       name: "Laptop",
-      expiresInDays: 90,
+      expiresInDays: null,
       now: 1_000,
     });
+    expect(minted.apiToken.expiresAt).toBeNull();
     expect(minted.token).toStartWith("isomux_pat_");
     expect(minted.apiToken.lastUsedAt).toBeNull();
     const disk = readFileSync(file, "utf-8");
@@ -49,7 +50,8 @@ describe("personal API token persistence", () => {
     expect(statSync(file).mode & 0o777).toBe(0o600);
 
     _testResetApiTokens();
-    expect(resolveApiToken(minted.token, 2_000)).toEqual({
+    // A never-expiring token stays valid arbitrarily far in the future.
+    expect(resolveApiToken(minted.token, 4_000_000_000_000)).toEqual({
       id: minted.apiToken.id,
       userId: "u1",
       name: "Laptop",
@@ -66,7 +68,9 @@ describe("personal API token persistence", () => {
     });
     expect(resolveApiToken("garbage", 2_000)).toBeNull();
     expect(resolveApiToken(minted.apiToken.tokenPrefix, 2_000)).toBeNull();
-    expect(resolveApiToken(minted.token, minted.apiToken.expiresAt)).toBeNull();
+    expect(
+      resolveApiToken(minted.token, minted.apiToken.expiresAt!),
+    ).toBeNull();
     expect(await revokeApiToken("other", minted.apiToken.id)).toBe(false);
     expect(await revokeApiToken("u1", minted.apiToken.id)).toBe(true);
     expect(resolveApiToken(minted.token, 2_000)).toBeNull();
@@ -77,7 +81,7 @@ describe("personal API token persistence", () => {
     const minted = await mintApiToken({
       userId: "u1",
       name: "Poller",
-      expiresInDays: 90,
+      expiresInDays: 30,
       now: 1_000,
     });
     expect(resolveApiToken(minted.token, 100_000)).not.toBeNull();

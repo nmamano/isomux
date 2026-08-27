@@ -1606,7 +1606,10 @@ export async function demoApi(
         name: b.name,
         tokenPrefix: "isomux_pat_demo",
         createdAt: now,
-        expiresAt: now + b.expiresInDays * 24 * 60 * 60 * 1000,
+        expiresAt:
+          b.expiresInDays === null
+            ? null
+            : now + b.expiresInDays * 24 * 60 * 60 * 1000,
         lastUsedAt: null,
       };
       demoApiTokens = [apiToken, ...demoApiTokens];
