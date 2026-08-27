@@ -177,9 +177,10 @@ const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "never", label: "Never ask (use with sandbox)" },
 ];
 
-// Default sandbox if the caller doesn't pass one. workspace-write is the
-// "Claude-equivalent default" preset from the spec's reference mapping.
-const DEFAULT_SANDBOX_MODE = "workspace-write";
+// Default sandbox if the caller doesn't pass one. Full access matches the
+// posture everywhere else: agents resolve to danger-full-access and Claude
+// cron runs bypass permissions (Nil's consistency ruling, 2026-08-27).
+const DEFAULT_SANDBOX_MODE = "danger-full-access";
 
 const CLIENT_INFO_NAME = "isomux";
 const CLIENT_INFO_VERSION = "1.0.0";

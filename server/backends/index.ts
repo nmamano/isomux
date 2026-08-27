@@ -1,9 +1,8 @@
 // Backend registry. agent-manager calls `getBackend(agent.agentType)` to
 // route session/forkSession/topic-gen/etc. calls to the right engine.
 //
-// Codex backend lands at step 7; until then only "claude" is wired and
-// requesting "codex" throws. The Backend interface contract is verified
-// against claudeBackend at compile time.
+// The Backend interface contract is verified against claudeBackend at
+// compile time.
 
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "./types.ts";
