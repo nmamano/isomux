@@ -23,7 +23,6 @@ import {
   type OperationKind,
 } from "./operations.ts";
 import { IndeterminateProviderError } from "./provider.ts";
-import { GRACE_MS, RETENTION_MS } from "./lifecycle.ts";
 import { AmbiguousRemoteError, RemoteTimeoutError } from "./ssh.ts";
 import type {
   AssetRow,
@@ -43,8 +42,11 @@ import type {
 export const LEASE_MS = 300_000;
 /** Margin between a handler's whole-handler remote budget and the lease end. */
 export const LEASE_SAFETY_MS = 60_000;
-export const POLL_INTERVAL_MS = 5_000;
-export const IDLE_MAINTENANCE_INTERVAL_MS = 60_000;
+/** Fast loop cadence while claimable operation work is present. */
+export const ACTIVE_LOOP_INTERVAL_MS = 5_000;
+/** Step-to-step retry inside the provisioning ladder. */
+export const HANDLER_STEP_RETRY_MS = 5_000;
+export const IDLE_LOOP_INTERVAL_MS = 60_000;
 export const RECONCILE_INTERVAL_MS = 60_000;
 export const MAX_OPS_PER_TICK = 8;
 
@@ -245,11 +247,6 @@ export class Ticker {
     return summary;
   }
 
-  /** The provisioner's one-statement wake probe. */
-  async hasWork(): Promise<boolean> {
-    return this.store.hasPendingWork(this.now(), GRACE_MS, RETENTION_MS);
-  }
-
   /** One classified audit row, in its own transaction. */
   async auditRow(
     instanceId: string | null,
@@ -289,7 +286,10 @@ export class Ticker {
         await this.rescheduleReconcile(asset.id, asset.version);
         continue;
       }
-      if (!truth) continue;
+      if (!truth) {
+        await this.rescheduleReconcile(asset.id, asset.version);
+        continue;
+      }
       // The provider is the authority; every tick moves our row toward what it
       // says rather than toward what we last intended.
       const patch = {
@@ -517,7 +517,7 @@ export class Ticker {
             // pending row to running, and an operation in quarantine must stay
             // ambiguous while it makes progress on finding its box.
             patch.inactivity_deadline_at = now + d.inactivityMs;
-            patch.next_attempt_at = now + POLL_INTERVAL_MS;
+            patch.next_attempt_at = now + HANDLER_STEP_RETRY_MS;
             // ONLY the inactivity flag. A crossed absolute ceiling stays
             // crossed until the operation concludes - clearing it here would
             // make it flap: raised by the deadline pass, cleared by the next
@@ -525,7 +525,7 @@ export class Ticker {
             patch.inactivity_flagged = 0;
             break;
           case "waiting":
-            patch.next_attempt_at = now + POLL_INTERVAL_MS;
+            patch.next_attempt_at = now + HANDLER_STEP_RETRY_MS;
             break;
           case "retry":
             patch.attempt = op.attempt + 1;

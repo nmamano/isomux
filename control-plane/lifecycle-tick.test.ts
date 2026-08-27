@@ -44,6 +44,19 @@ async function tempStore(now: () => number): Promise<Store> {
   return await openTestStore(now);
 }
 
+async function pending(store: Store, now: number): Promise<boolean> {
+  const schedule = await store.workSchedule(now, GRACE_MS, RETENTION_MS, {
+    providerConfigured: true,
+    provisioningConfigured: true,
+    checkoutConfigured: true,
+    cadenceConfigured: true,
+    livenessConfigured: false,
+    staleProvisioningMs: 30 * 60_000,
+    staleProvisioningReason: "stalled",
+  });
+  return schedule.tickDue || schedule.cadenceDue;
+}
+
 function clock(start: number) {
   const state = { t: start };
   return { now: () => state.t, set: (t: number) => (state.t = t) };
@@ -137,9 +150,7 @@ test("the wake probe sees lifecycle work before it creates an operation", async 
     next_reconcile_at: GRACE_END + 60_000,
   });
   expect(await store.operationsFor("inst-1")).toEqual([]);
-  expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
-    true,
-  );
+  expect(await pending(store, c.now())).toBe(true);
 });
 
 test("the wake probe recognizes the lifecycle operation's real derived id", async () => {
@@ -150,17 +161,13 @@ test("the wake probe recognizes the lifecycle operation's real derived id", asyn
   await store.casAsset(asset.id, asset.version, {
     next_reconcile_at: GRACE_END + 60_000,
   });
-  expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
-    true,
-  );
+  expect(await pending(store, c.now())).toBe(true);
   await lifecycleTick(store, c.now());
   const id = lifecycleOperationId("power_off", "sub_1", ENDED);
   await store.sqlRun("update operations set status = 'failed' where id = $1", [
     id,
   ]);
-  expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
-    false,
-  );
+  expect(await pending(store, c.now())).toBe(false);
 });
 
 describe("the walk, on seeded dates", () => {
@@ -524,9 +531,7 @@ describe("the walk, on seeded dates", () => {
       asset_state: "cancelled",
       next_reconcile_at: c.now() + 60_000,
     });
-    expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
-      true,
-    );
+    expect(await pending(store, c.now())).toBe(true);
 
     const summary = await lifecycleTick(store, c.now());
     expect(summary).toMatchObject({ finished: 1, raised: 1 });
@@ -539,9 +544,7 @@ describe("the walk, on seeded dates", () => {
     expect(
       (await store.auditEvents()).filter((e) => e.action === "data_end"),
     ).toHaveLength(1);
-    expect(await store.hasPendingWork(c.now(), GRACE_MS, RETENTION_MS)).toBe(
-      false,
-    );
+    expect(await pending(store, c.now())).toBe(false);
     await store.close();
   });
 

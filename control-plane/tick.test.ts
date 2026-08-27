@@ -367,7 +367,141 @@ describe("deadlines flag, they do not conclude", () => {
 });
 
 describe("reconcile", () => {
-  test("production-shaped idle work wakes periodically without latching", async () => {
+  test("schedule excludes provider work this process cannot action", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
+      id: "asset-no-provider",
+      instance_id: inst,
+      provider: "contabo",
+      provider_id: "provider-no-means",
+      intent_id: null,
+      asset_state: "active",
+      ipv4: null,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now() - 1,
+    });
+    const schedule = await store.workSchedule(c.now(), 0, 0, {
+      providerConfigured: false,
+      provisioningConfigured: false,
+      checkoutConfigured: false,
+      cadenceConfigured: false,
+      livenessConfigured: false,
+      staleProvisioningMs: 30 * 60_000,
+      staleProvisioningReason: "stalled",
+    });
+    expect(schedule).toEqual({
+      tickDue: false,
+      cadenceDue: false,
+      livenessDue: false,
+      nextDueAt: null,
+    });
+  });
+
+  test("schedule parks a retry and a foreign liveness claim at their timestamps", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.casInstance(inst, (await store.getInstance(inst))!.version, {
+      service_state: "live",
+    });
+    const ticker = new Ticker({ store, handlers: [], holder: "schedule" });
+    const operation = await ticker.enqueue(inst, "run_installer");
+    const retryAt = c.now() + 30_000;
+    await store.sqlRun(
+      "update operations set next_attempt_at = $1 where id = $2",
+      [retryAt, operation.id],
+    );
+    await store.ensureLiveness(inst, c.now());
+    const claimUntil = c.now() + 60_000;
+    expect(
+      await store.claimLiveness(inst, "other", claimUntil, c.now()),
+    ).not.toBeNull();
+    const schedule = await store.workSchedule(c.now(), 0, 0, {
+      providerConfigured: false,
+      provisioningConfigured: false,
+      checkoutConfigured: false,
+      cadenceConfigured: false,
+      livenessConfigured: true,
+      staleProvisioningMs: 30 * 60_000,
+      staleProvisioningReason: "stalled",
+    });
+    expect(schedule.tickDue).toBe(false);
+    expect(schedule.livenessDue).toBe(false);
+    expect(schedule.nextDueAt).toBe(retryAt);
+    c.advance(30_000);
+    expect(
+      (
+        await store.workSchedule(c.now(), 0, 0, {
+          providerConfigured: false,
+          provisioningConfigured: false,
+          checkoutConfigured: false,
+          cadenceConfigured: false,
+          livenessConfigured: true,
+          staleProvisioningMs: 30 * 60_000,
+          staleProvisioningReason: "stalled",
+        })
+      ).tickDue,
+    ).toBe(true);
+  });
+
+  test("schedule exposes missed-webhook Checkout recovery as cadence work", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    await store.sqlRun(
+      "insert into name_reservations (name, id, account_id, instance_id, plan, " +
+        "checkout_session_id, checkout_generation, checkout_state, checkout_next_check_at, " +
+        "version, created_at, updated_at) values " +
+        "('waiting', 'res-waiting', 'acct-waiting', 'inst-waiting', 'V153', " +
+        "'cs-waiting', 1, 'pending', $1, 1, $2, $3)",
+      [c.now(), c.now(), c.now()],
+    );
+    const enabled = await store.workSchedule(c.now(), 0, 0, {
+      providerConfigured: false,
+      provisioningConfigured: false,
+      checkoutConfigured: true,
+      cadenceConfigured: true,
+      livenessConfigured: false,
+      staleProvisioningMs: 30 * 60_000,
+      staleProvisioningReason: "stalled",
+    });
+    expect(enabled.cadenceDue).toBe(true);
+    await store.sqlRun(
+      "insert into subscriptions (id, account_id, instance_id, stripe_customer_id, status, " +
+        "version, created_at, updated_at) values " +
+        "('sub-waiting', 'acct-waiting', 'inst-waiting', 'cus-waiting', 'active', 1, $1, $2)",
+      [c.now(), c.now()],
+    );
+    expect(
+      (
+        await store.workSchedule(c.now(), 0, 0, {
+          providerConfigured: false,
+          provisioningConfigured: false,
+          checkoutConfigured: true,
+          cadenceConfigured: true,
+          livenessConfigured: false,
+          staleProvisioningMs: 30 * 60_000,
+          staleProvisioningReason: "stalled",
+        })
+      ).cadenceDue,
+    ).toBe(false);
+    const disabled = await store.workSchedule(c.now(), 0, 0, {
+      providerConfigured: false,
+      provisioningConfigured: false,
+      checkoutConfigured: false,
+      cadenceConfigured: true,
+      livenessConfigured: false,
+      staleProvisioningMs: 30 * 60_000,
+      staleProvisioningReason: "stalled",
+    });
+    expect(disabled.cadenceDue).toBe(false);
+    expect(disabled.nextDueAt).toBeNull();
+  });
+
+  test("production-shaped idle wakes isolate provider work from other classes", async () => {
+    const bodyStartedAt = performance.now();
     const c = clock();
     const store = await tempStore(c.now);
     const inst = await seed(store);
@@ -389,33 +523,18 @@ describe("reconcile", () => {
     await store.sqlRun(
       "update operations set status = 'failed' where id = 'op-stuck-https'",
     );
-    for (let index = 0; index < 5; index++) {
-      const instanceId = index === 0 ? inst : `inst-reconcile-${index}`;
-      if (index > 0) {
-        await store.createInstance({
-          id: instanceId,
-          run_id: `run-reconcile-${index}`,
-          name: `reconcile-${index}.test.isomux.app`,
-          plan: "V153",
-          region: "EU",
-          service_state: "live",
-          goal: "live",
-          access_window_expires_at: null,
-        });
-      }
-      await store.createAsset({
-        id: `asset-reconcile-${index}`,
-        instance_id: instanceId,
-        provider: "contabo",
-        provider_id: `provider-reconcile-${index}`,
-        intent_id: null,
-        asset_state: "active",
-        ipv4: null,
-        service_ends_at: null,
-        host_key_fingerprint: null,
-        next_reconcile_at: c.now(),
-      });
-    }
+    await store.createAsset({
+      id: "asset-reconcile",
+      instance_id: inst,
+      provider: "contabo",
+      provider_id: "provider-reconcile",
+      intent_id: null,
+      asset_state: "active",
+      ipv4: null,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now(),
+    });
     const ticker = new Ticker({
       store,
       handlers: [],
@@ -425,23 +544,36 @@ describe("reconcile", () => {
         assetState: "active",
       }),
     });
-    let trueProbes = 0;
-    let currentRun = 0;
-    let longestRun = 0;
-    for (let probe = 0; probe < 720; probe++) {
-      c.advance(5_000);
-      if (await ticker.hasWork()) {
-        trueProbes++;
-        longestRun = Math.max(longestRun, ++currentRun);
+    let tickPasses = 0;
+    let cadencePasses = 0;
+    let livenessPasses = 0;
+    for (let probe = 0; probe < 60; probe++) {
+      c.advance(60_000);
+      const schedule = await store.workSchedule(c.now(), 0, 0, {
+        providerConfigured: true,
+        provisioningConfigured: false,
+        checkoutConfigured: false,
+        cadenceConfigured: true,
+        livenessConfigured: false,
+        staleProvisioningMs: 30 * 60_000,
+        staleProvisioningReason: "stalled",
+      });
+      if (schedule.tickDue) {
+        tickPasses++;
         await ticker.once();
-      } else {
-        currentRun = 0;
       }
+      if (schedule.cadenceDue) cadencePasses++;
+      if (schedule.livenessDue) livenessPasses++;
     }
-    expect({ trueProbes, longestRun }).toEqual({
-      trueProbes: 60,
-      longestRun: 1,
+    expect({ tickPasses, cadencePasses, livenessPasses }).toEqual({
+      tickPasses: 60,
+      cadencePasses: 0,
+      livenessPasses: 0,
     });
+    // This replaces the essential 720-iteration, five-second-cadence body. The
+    // new production hour has 60 idle wakes, so retaining its old 60s timeout
+    // would hide rather than document the cheaper design.
+    expect(performance.now() - bodyStartedAt).toBeLessThan(10_000);
   }, 20_000);
 
   test("the wake probe sees a due asset and becomes idle after it is scheduled", async () => {
@@ -460,17 +592,49 @@ describe("reconcile", () => {
       host_key_fingerprint: null,
       next_reconcile_at: c.now(),
     });
-    const ticker = new Ticker({
-      store,
-      handlers: [],
-      holder: "probe",
-      now: c.now,
-    });
-    expect(await ticker.hasWork()).toBe(true);
+    const read = () =>
+      store.workSchedule(c.now(), 0, 0, {
+        providerConfigured: true,
+        provisioningConfigured: false,
+        checkoutConfigured: false,
+        cadenceConfigured: false,
+        livenessConfigured: false,
+        staleProvisioningMs: 30 * 60_000,
+        staleProvisioningReason: "stalled",
+      });
+    expect((await read()).tickDue).toBe(true);
     await store.casAsset(asset.id, asset.version, {
       next_reconcile_at: c.now() + 60_000,
     });
-    expect(await ticker.hasWork()).toBe(false);
+    expect((await read()).tickDue).toBe(false);
+  });
+
+  test("a provider read with no truth advances the reconcile timestamp", async () => {
+    const c = clock();
+    const store = await tempStore(c.now);
+    const inst = await seed(store);
+    await store.createAsset({
+      id: "asset-no-truth",
+      instance_id: inst,
+      provider: "contabo",
+      provider_id: "provider-no-truth",
+      intent_id: null,
+      asset_state: "active",
+      ipv4: null,
+      service_ends_at: null,
+      host_key_fingerprint: null,
+      next_reconcile_at: c.now(),
+    });
+    const ticker = new Ticker({
+      store,
+      handlers: [],
+      now: c.now,
+      reconcile: async () => null,
+    });
+    await ticker.once();
+    expect((await store.assetForInstance(inst))?.next_reconcile_at).toBe(
+      c.now() + 60_000,
+    );
   });
 
   test("moves the asset row toward what the provider says", async () => {

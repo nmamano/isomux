@@ -13,8 +13,27 @@ import {
 } from "./testing/pg.ts";
 import { applyEvent } from "./stripe/reconcile.ts";
 import { GRACE_MS, RETENTION_MS } from "./lifecycle.ts";
+import type { Store } from "./store.ts";
 
 afterEach(releaseTestStores, PG_TEST_HOOK_TIMEOUT_MS);
+
+async function pending(store: Store): Promise<boolean> {
+  const schedule = await store.workSchedule(
+    store.now(),
+    GRACE_MS,
+    RETENTION_MS,
+    {
+      providerConfigured: true,
+      provisioningConfigured: true,
+      checkoutConfigured: true,
+      cadenceConfigured: true,
+      livenessConfigured: false,
+      staleProvisioningMs: 30 * 60_000,
+      staleProvisioningReason: "stalled",
+    },
+  );
+  return schedule.tickDue || schedule.cadenceDue;
+}
 
 async function bed(status = "active") {
   const store = await openTestStore(() => 1_700_000_000_000);
@@ -66,21 +85,24 @@ describe("automatic provisioning start", () => {
     expect(await store.operationsFor(signup.reservation.instance_id)).toEqual(
       [],
     );
-    expect(
-      await store.hasPendingWork(store.now(), GRACE_MS, RETENTION_MS),
-    ).toBe(false);
+    expect(await pending(store)).toBe(false);
   });
 
   test("the one-statement wake probe sees paid repair work and then becomes idle", async () => {
     const b = await bed();
-    expect(
-      await b.store.hasPendingWork(b.store.now(), GRACE_MS, RETENTION_MS),
-    ).toBe(true);
+    expect(await pending(b.store)).toBe(true);
     await b.store.tx(() => startProvisioningIn(b.store, b.subscription));
     await b.store.sqlRun("update operations set status='succeeded'");
-    expect(
-      await b.store.hasPendingWork(b.store.now(), GRACE_MS, RETENTION_MS),
-    ).toBe(false);
+    expect(await pending(b.store)).toBe(false);
+  });
+
+  test("the schedule excludes paid repair whose permanent run id disagrees", async () => {
+    const b = await bed();
+    const instance = (await b.store.getInstance(b.instanceId))!;
+    await b.store.casInstance(instance.id, instance.version, {
+      run_id: "run-someone-else",
+    });
+    expect(await pending(b.store)).toBe(false);
   });
 
   test("a fetched paid Checkout event opens the create in its claim transaction", async () => {

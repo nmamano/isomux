@@ -27,6 +27,7 @@ export const GREEN_HEALTH: Record<HealthKey, boolean> = {
   branch_pinned: true,
   database_reachable: true,
   tick_recent: true,
+  cadence_healthy: true,
   state_persisted: true,
   provider_configured: true,
 };

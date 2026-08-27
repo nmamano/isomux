@@ -229,6 +229,25 @@ export interface ProgressRows {
   subscription: string | null;
 }
 
+export interface WorkSchedule {
+  /** A provider reconciliation or claimable operation can run now. */
+  tickDue: boolean;
+  cadenceDue: boolean;
+  livenessDue: boolean;
+  /** Earliest actionable scheduled time across every class. */
+  nextDueAt: number | null;
+}
+
+export interface WorkScheduleOptions {
+  providerConfigured: boolean;
+  provisioningConfigured: boolean;
+  checkoutConfigured: boolean;
+  cadenceConfigured: boolean;
+  livenessConfigured: boolean;
+  staleProvisioningMs: number;
+  staleProvisioningReason: string;
+}
+
 /**
  * EVERY TABLE `SCHEMA` CREATES, and the ONE list of them.
  *
@@ -2014,32 +2033,45 @@ export class Store {
   }
 
   /**
-   * One small read that decides whether the provisioner's full pass may stay
-   * asleep. A false negative adds latency, so every pre-operation work class
-   * is represented here as well as ordinary active rows.
+   * One round trip tells the drive loop which independent work classes can act
+   * now and when the next actionable class becomes due. A due timestamp alone
+   * is not enough: capability and lease predicates keep an unserviceable row
+   * from turning a past timestamp into a hot loop.
    */
-  async hasPendingWork(
+  async workSchedule(
     now: number,
     lifecycleGraceMs: number,
     lifecycleRetentionMs: number,
-  ): Promise<boolean> {
-    const row = await this.sqlGet<{ pending: number }>(
-      "select case when " +
-        "exists (select 1 from operations where status in ('pending', 'running', 'ambiguous')) " +
-        "or exists (select 1 from provider_assets where provider_id is not null and next_reconcile_at <= $1) " +
-        "or exists (" +
-        "select 1 from subscriptions s " +
+    opts: WorkScheduleOptions,
+  ): Promise<WorkSchedule> {
+    const staleProvisioningBefore = now - opts.staleProvisioningMs;
+    const row = await this.sqlGet<{
+      tick_due: number;
+      cadence_due: number;
+      liveness_due: number;
+      next_due_at: number | null;
+    }>(
+      "with schedule as (" +
+        "select " +
+        "exists (select 1 from operations where status in ('pending', 'running', 'ambiguous') " +
+        "and next_attempt_at <= $1 and (lease_until is null or lease_until <= $1)) as operation_due, " +
+        "($4 = 1 and exists (select 1 from provider_assets where provider_id is not null " +
+        "and next_reconcile_at <= $1)) as provider_due, " +
+        "($10 = 1 and (($5 = 1 and exists (select 1 from subscriptions s " +
         "join instances i on i.id = s.instance_id " +
         "join name_reservations n on n.instance_id = i.id " +
         "join provider_assets a on a.instance_id = i.id " +
         "where s.status in ('active', 'trialing') and i.service_state = 'provisioning' " +
         "and a.provider_id is null and a.asset_state = 'none' " +
-        "and not exists (select 1 from operations o where o.instance_id = i.id and o.kind = 'create_instance')" +
-        ") or exists (" +
-        "select 1 from instances i where i.customer_ssh_key is not null " +
-        "and i.access_window_expires_at is not null and i.access_window_expires_at <= $1" +
-        ") or exists (" +
-        "select 1 from subscriptions s join instances i on i.id = s.instance_id " +
+        "and (i.run_id is null or i.run_id = 'run-' || regexp_replace(i.id, '^inst-', '')) " +
+        "and not exists (select 1 from operations o where o.instance_id = i.id and o.kind = 'create_instance'))) " +
+        "or ($6 = 1 and exists (select 1 from name_reservations n " +
+        "left join subscriptions s on s.instance_id = n.instance_id " +
+        "where n.checkout_state = 'pending' and n.checkout_session_id is not null " +
+        "and n.checkout_next_check_at <= $1 and s.id is null)) " +
+        "or exists (select 1 from instances where customer_ssh_key is not null " +
+        "and access_window_expires_at is not null and access_window_expires_at <= $1) " +
+        "or exists (select 1 from subscriptions s join instances i on i.id = s.instance_id " +
         "left join provider_assets a on a.instance_id = i.id " +
         "where s.ended_at is not null and s.cancellation_reason = 'cancellation_requested' and (" +
         "(i.service_state not in ('suspended', 'deprovisioned') " +
@@ -2047,19 +2079,78 @@ export class Store {
         "and not exists (select 1 from operations o where o.id = " +
         "'op-power_off-cancel-' || s.id || '-' || s.ended_at::text)) " +
         "or (i.service_state = 'suspended' and s.cancellation_policy = 'launch' " +
-        "and s.ended_at + $3 <= $1 " +
-        "and not exists (select 1 from operations o where o.id = " +
+        "and s.ended_at + $3 <= $1 and not exists (select 1 from operations o where o.id = " +
         "'op-cancel_asset-cancel-' || s.id || '-' || s.ended_at::text)) " +
-        "or (a.asset_state in ('cancelled', 'absent') and i.service_state != 'deprovisioned')" +
-        ")" +
-        ") or exists (" +
-        "select 1 from reinstatement_attempts r where r.state = 'opening' " +
+        "or (a.asset_state in ('cancelled', 'absent') and i.service_state != 'deprovisioned'))) " +
+        "or exists (select 1 from reinstatement_attempts r where r.state = 'opening' " +
         "and r.fence_expires_at <= $1 and not exists (select 1 from operations o where o.id = " +
-        "'op-checkout_expire-' || r.id)" +
-        ") then 1 else 0 end as pending",
-      [now, lifecycleGraceMs, lifecycleRetentionMs],
+        "'op-checkout_expire-' || r.id)) " +
+        "or exists (select 1 from instances i where i.service_state = 'provisioning' " +
+        "and i.created_at <= $7 and not exists (select 1 from operations o where o.instance_id = i.id) " +
+        "and not exists (select 1 from attention_reasons r where r.instance_id = i.id " +
+        "and r.cleared_at is null and r.source_op_id = '' and r.reason = $8)) " +
+        "or exists (select 1 from attention_reasons r join instances i on i.id = r.instance_id " +
+        "where r.cleared_at is null and r.source_op_id = '' and r.reason = $8 " +
+        "and (i.service_state != 'provisioning' or exists " +
+        "(select 1 from operations o where o.instance_id = i.id))))) as cadence_due, " +
+        "($11 = 1 and exists (select 1 from instances i left join instance_liveness l on l.instance_id = i.id " +
+        "where i.service_state = 'live' and (l.instance_id is null or (l.next_check_at <= $1 " +
+        "and (l.claim_until is null or l.claim_until <= $1))))) as liveness_due" +
+        "), due_times as (" +
+        "select case when lease_until is not null and lease_until > next_attempt_at " +
+        "then lease_until else next_attempt_at end as due_at from operations " +
+        "where status in ('pending', 'running', 'ambiguous') " +
+        "union all select next_reconcile_at from provider_assets where $4 = 1 and provider_id is not null " +
+        "union all select n.checkout_next_check_at from name_reservations n " +
+        "left join subscriptions s on s.instance_id = n.instance_id " +
+        "where $10 = 1 and $6 = 1 and n.checkout_state = 'pending' " +
+        "and n.checkout_session_id is not null and n.checkout_next_check_at is not null and s.id is null " +
+        "union all select access_window_expires_at from instances where customer_ssh_key is not null " +
+        "and $10 = 1 and access_window_expires_at is not null " +
+        "union all select s.ended_at + case when s.cancellation_policy = 'launch' then 0 else $2 end " +
+        "from subscriptions s join instances i on i.id = s.instance_id " +
+        "where $10 = 1 and s.ended_at is not null and s.cancellation_reason = 'cancellation_requested' " +
+        "and i.service_state not in ('suspended', 'deprovisioned') and not exists " +
+        "(select 1 from operations o where o.id = 'op-power_off-cancel-' || s.id || '-' || s.ended_at::text) " +
+        "union all select s.ended_at + $3 from subscriptions s join instances i on i.id = s.instance_id " +
+        "where $10 = 1 and s.ended_at is not null and s.cancellation_reason = 'cancellation_requested' " +
+        "and s.cancellation_policy = 'launch' and i.service_state = 'suspended' and not exists " +
+        "(select 1 from operations o where o.id = 'op-cancel_asset-cancel-' || s.id || '-' || s.ended_at::text) " +
+        "union all select fence_expires_at from reinstatement_attempts r where $10 = 1 and state = 'opening' " +
+        "and not exists (select 1 from operations o where o.id = 'op-checkout_expire-' || r.id) " +
+        "union all select created_at + $9 from instances i where $10 = 1 and i.service_state = 'provisioning' " +
+        "and not exists (select 1 from operations o where o.instance_id = i.id) " +
+        "and not exists (select 1 from attention_reasons r where r.instance_id = i.id " +
+        "and r.cleared_at is null and r.source_op_id = '' and r.reason = $8) " +
+        "union all select case when l.instance_id is null then $1 " +
+        "when l.claim_until is not null and l.claim_until > l.next_check_at then l.claim_until " +
+        "else l.next_check_at end from instances i left join instance_liveness l on l.instance_id = i.id " +
+        "where $11 = 1 and i.service_state = 'live'" +
+        ") select case when operation_due or provider_due then 1 else 0 end as tick_due, " +
+        "case when cadence_due then 1 else 0 end as cadence_due, " +
+        "case when liveness_due then 1 else 0 end as liveness_due, " +
+        "(select min(due_at) from due_times) as next_due_at from schedule",
+      [
+        now,
+        lifecycleGraceMs,
+        lifecycleRetentionMs,
+        opts.providerConfigured ? 1 : 0,
+        opts.provisioningConfigured ? 1 : 0,
+        opts.checkoutConfigured ? 1 : 0,
+        staleProvisioningBefore,
+        opts.staleProvisioningReason,
+        opts.staleProvisioningMs,
+        opts.cadenceConfigured ? 1 : 0,
+        opts.livenessConfigured ? 1 : 0,
+      ],
     );
-    return row?.pending === 1;
+    if (!row) throw new Error("the work schedule query returned no row");
+    return {
+      tickDue: row.tick_due === 1,
+      cadenceDue: row.cadence_due === 1,
+      livenessDue: row.liveness_due === 1,
+      nextDueAt: row.next_due_at,
+    };
   }
 
   /**
@@ -2366,6 +2457,13 @@ export class Store {
       "select * from attention_reasons where instance_id = $1 and cleared_at is null " +
         "order by raised_at",
       [instanceId],
+    );
+  }
+
+  async allOpenReasons(): Promise<AttentionReasonRow[]> {
+    return this.sqlAll<AttentionReasonRow>(
+      "select * from attention_reasons where cleared_at is null " +
+        "order by raised_at, id",
     );
   }
 

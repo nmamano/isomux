@@ -91,12 +91,17 @@ import { CloudflareDns } from "./cloudflare-dns.ts";
 import { FIRST_KIND, type Goal, type OperationKind } from "./operations.ts";
 import { PROVIDER_DEPENDENT_KINDS, tickerHandlerRoster } from "./run-roster.ts";
 import { sweepProvisioningStarts } from "./provisioning-start.ts";
+import {
+  PROVISIONING_STALL_MS,
+  PROVISIONING_STALL_REASON,
+  sweepProvisioningStalls,
+} from "./provisioning-stall.ts";
 import { sweepCustomerKeyRetention } from "./access-retention.ts";
 import { setOperator } from "./operator-admin.ts";
 import { readAndRefreshMarker } from "./state-marker.ts";
 import { Store } from "./store.ts";
 import { PROVISIONER_POOL } from "./roles.ts";
-import { IDLE_MAINTENANCE_INTERVAL_MS, Ticker } from "./tick.ts";
+import { IDLE_LOOP_INTERVAL_MS, Ticker } from "./tick.ts";
 import { StripeClient } from "./stripe/client.ts";
 import {
   resolveStripeMode,
@@ -106,12 +111,17 @@ import {
 import { LiveStripeReader, type StripeObjectReader } from "./stripe/reader.ts";
 import { WebhookProcessor } from "./stripe/webhook.ts";
 import { pollPendingCheckouts } from "./stripe/checkout-poll.ts";
-import { driveTicks } from "./drive-loop.ts";
+import {
+  DriveWake,
+  driveTicks,
+  type ScheduleCapabilities,
+} from "./drive-loop.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
 
 const reporter = new Reporter();
 const audit = new AuditLog(AUDIT_FILE, "control-plane-cli");
 const exec = new SpawnExec();
+const CADENCE_FAILURE_LIMIT = 3;
 
 // ---------------------------------------------------------------- arguments
 
@@ -449,7 +459,7 @@ function deploymentIdOf(args: Map<string, string>): string | undefined {
  * strictly shaped release identity baked at build time and carried by the
  * existing deployment argument.
  *
- * `ok` is the conjunction of the four properties that make this process able to
+ * `ok` is the conjunction of the five properties that make this process able to
  * do its job. `state_persisted` is deliberately NOT one of them: on a first
  * deploy it is correctly false, and a healthy machine must not be reported sick
  * for having been deployed once. Release identity is deliberately not part of
@@ -460,6 +470,7 @@ async function healthReport(deps: {
   branchPinned: boolean;
   persisted: boolean;
   lastTickAt: () => number;
+  cadenceHealthy: () => boolean;
   /** Whether this process registered the provider-dependent handlers, asked of
    * the ticker rather than of the environment. NOT a gating boolean: a
    * provisioner with no provider credentials idles correctly by design, and a
@@ -477,18 +488,24 @@ async function healthReport(deps: {
     // in booleans, so there is nothing here for a message to add.
   }
   const last = deps.lastTickAt();
-  // False until BOTH the provisioning and lifecycle passes complete. A missing
-  // subscriptions grant leaves `select 1` healthy, so this is the gate that
-  // makes that otherwise silent 42501 visible to the deployed probe.
-  const tickRecent =
-    last > 0 && Date.now() - last < 3 * IDLE_MAINTENANCE_INTERVAL_MS;
+  // False until the drive loop's schedule query succeeds. Unlike `select 1`,
+  // that one statement reaches every work table, so a missing grant becomes a
+  // stale health reading even when no class is due.
+  const tickRecent = last > 0 && Date.now() - last < 3 * IDLE_LOOP_INTERVAL_MS;
   const boundsGoverned = true; // Store.open read both bounds back, or threw.
+  const cadenceHealthy = deps.cadenceHealthy();
   return {
-    ok: boundsGoverned && deps.branchPinned && databaseReachable && tickRecent,
+    ok:
+      boundsGoverned &&
+      deps.branchPinned &&
+      databaseReachable &&
+      tickRecent &&
+      cadenceHealthy,
     bounds_governed: boundsGoverned,
     branch_pinned: deps.branchPinned,
     database_reachable: databaseReachable,
     tick_recent: tickRecent,
+    cadence_healthy: cadenceHealthy,
     state_persisted: deps.persisted,
     provider_configured: deps.providerConfigured(),
     ...deps.releaseIdentity,
@@ -641,7 +658,11 @@ async function cmdProvision(args: Map<string, string>): Promise<void> {
     "provision",
     `goal=${goal}, ceiling=${expiresAt.toISOString()}`,
   );
-  await driveTicks(store, ticker, { forever: false, reporter });
+  await driveTicks(store, ticker, {
+    forever: false,
+    reporter,
+    capabilities: scheduleCapabilities(ticker),
+  });
   await printOperations(store, instanceId);
   process.exitCode = await exitCodeFor(store);
 }
@@ -664,6 +685,7 @@ async function runLifecycleCadence(
       );
     }
   }
+  await sweepProvisioningStalls(store);
   await sweepProvisioningStarts(store, (kind) => running.handles(kind));
   await sweepCustomerKeyRetention(store, (line) => reporter.line(line));
   const summary = await lifecycleTick(store, store.now(), (line) =>
@@ -674,6 +696,22 @@ async function runLifecycleCadence(
       `lifecycle pass had ${summary.failed} failed subscription(s)`,
     );
   }
+}
+
+function scheduleCapabilities(
+  ticker: Ticker,
+  checkoutConfigured = false,
+): ScheduleCapabilities {
+  return {
+    providerConfigured: PROVIDER_DEPENDENT_KINDS.every((kind) =>
+      ticker.handles(kind),
+    ),
+    provisioningConfigured:
+      ticker.handles("create_instance") && ticker.handles("wait_for_address"),
+    checkoutConfigured,
+    staleProvisioningMs: PROVISIONING_STALL_MS,
+    staleProvisioningReason: PROVISIONING_STALL_REASON,
+  };
 }
 
 /**
@@ -706,8 +744,10 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
   );
 
   const hold = new InviteHold();
+  const wake = new DriveWake();
   const token = process.env.CONTROL_PLANE_MINT_TOKEN ?? "";
   let lastTickAt = 0;
+  let consecutiveCadenceFailures = 0;
   // Answered BY THE TICKER, once it exists. The seam is started first, so the
   // health surface reads this through a getter rather than a value: a request
   // that arrives before the ticker is built gets `false`, which is the honest
@@ -730,6 +770,10 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
       secret: webhookSecret,
       mode: stripeMode,
       report: (line) => reporter.line(`stripe webhook: ${line}`),
+      // The event transaction has committed before WebhookProcessor calls this.
+      // Without this route or if this poke is missed, the durable schedule is
+      // still found by the idle probe.
+      onApplied: () => wake.signal(),
     });
     const certificateTarget = certificateTargetFromEnv(process.env);
     if (!process.env.ISOMUX_ACME_EMAIL || !process.env.ISOMUX_CF_TOKEN) {
@@ -775,6 +819,8 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
           branchPinned,
           persisted: marker.persisted,
           lastTickAt: () => lastTickAt,
+          cadenceHealthy: () =>
+            consecutiveCadenceFailures < CADENCE_FAILURE_LIMIT,
           providerConfigured: () => providerConfigured,
           releaseIdentity,
         }),
@@ -810,12 +856,19 @@ async function cmdRun(args: Map<string, string>): Promise<void> {
     await driveTicks(store, running, {
       forever: args.get("once") !== "true",
       reporter,
+      capabilities: scheduleCapabilities(running, !!checkoutReader),
+      wake,
       cadence: {
         failureLabel: "lifecycle pass failed",
         run: () => runLifecycleCadence(store, running, checkoutReader),
       },
       onTick: () => {
         lastTickAt = Date.now();
+      },
+      onCadenceResult: (succeeded) => {
+        consecutiveCadenceFailures = succeeded
+          ? 0
+          : consecutiveCadenceFailures + 1;
       },
       watch: async () => {
         await watchLiveness(store, {
@@ -860,7 +913,11 @@ async function cmdFinish(args: Map<string, string>): Promise<void> {
   const instanceId = await ensureInstance(store, rec, goal);
   const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
   await enqueueOnce(store, ticker, instanceId, "verify_https");
-  await driveTicks(store, ticker, { forever: false, reporter });
+  await driveTicks(store, ticker, {
+    forever: false,
+    reporter,
+    capabilities: scheduleCapabilities(ticker),
+  });
   await printOperations(store, instanceId);
   process.exitCode = await exitCodeFor(store);
 }
@@ -871,7 +928,11 @@ async function cmdMint(args: Map<string, string>): Promise<void> {
   const instanceId = await ensureInstance(store, rec, "live");
   const ticker = makeTicker(store, args.get("owner-name") ?? "Owner");
   await enqueueOnce(store, ticker, instanceId, "mint_invite");
-  await driveTicks(store, ticker, { forever: false, reporter });
+  await driveTicks(store, ticker, {
+    forever: false,
+    reporter,
+    capabilities: scheduleCapabilities(ticker),
+  });
   process.exitCode = await exitCodeFor(store);
 }
 
@@ -888,6 +949,7 @@ async function cmdRevoke(args: Map<string, string>): Promise<void> {
   await driveTicks(store, ticker, {
     forever: args.get("until-proven") === "true",
     reporter,
+    capabilities: scheduleCapabilities(ticker),
   });
   await printOperations(store, instanceId);
   process.exitCode = await exitCodeFor(store);

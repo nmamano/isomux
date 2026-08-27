@@ -182,7 +182,7 @@ describe("a verdict that does not follow from the readings refuses", () => {
     expect(parseProbeTranscript(lying).defects).toContain(PROBE_DEFECTS.shape);
   });
 
-  test("counts that cannot be true of seven parsed booleans", () => {
+  test("counts that cannot be true of eight parsed booleans", () => {
     const lying = edited({
       health_missing_fields: "health_missing_fields: 2",
       health_shape_ok: "health_shape_ok: false",

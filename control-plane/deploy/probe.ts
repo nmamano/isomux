@@ -18,8 +18,8 @@
 //      verb's own "no such request". It proves the route works without any real
 //      invite existing.
 //   4. health without a credential -> 401.
-//   5. health with one -> 200, the EXACT expected nested shape, all seven
-//      readiness values boolean, and the five that gate acceptance all true.
+//   5. health with one -> 200, the EXACT expected nested shape, all eight
+//      readiness values boolean, and the six that gate acceptance all true.
 //
 // A 200 IS NOT ACCEPTANCE. An earlier version of this file checked the status
 // and printed whatever fields came back, which would have passed a machine
@@ -48,6 +48,7 @@ export const HEALTH_KEYS = [
   "branch_pinned",
   "database_reachable",
   "tick_recent",
+  "cadence_healthy",
   "state_persisted",
   "provider_configured",
 ] as const;
@@ -58,7 +59,7 @@ export const RELEASE_KEYS = [
 ] as const;
 
 /**
- * The five that must be true for a deployment to be accepted.
+ * The six that must be true for a deployment to be accepted.
  *
  * `state_persisted` is deliberately not one of them: on a first deploy there is
  * nothing for it to have survived, and gating on it would make a correct first
@@ -78,6 +79,7 @@ export const GATING_KEYS = [
   "branch_pinned",
   "database_reachable",
   "tick_recent",
+  "cadence_healthy",
 ] as const;
 
 export interface HealthVerdict {
@@ -88,7 +90,7 @@ export interface HealthVerdict {
   unexpectedFields: number;
   missingFields: number;
   nonBooleanFields: number;
-  /** All five gating booleans true. */
+  /** All six gating booleans true. */
   gatingTrue: boolean;
   /** Valid known identity or the explicit no-claim value. Not a readiness gate:
    * identity does not change whether the process can provision an office. */

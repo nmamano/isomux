@@ -476,6 +476,7 @@ describe("the health gate before the listing", () => {
     branch_pinned: true,
     database_reachable: true,
     tick_recent: true,
+    cadence_healthy: true,
     state_persisted: true,
     provider_configured: true,
     release_source: {

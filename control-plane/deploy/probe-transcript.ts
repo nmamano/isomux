@@ -282,7 +282,7 @@ function inconsistencies(f: ProbeFields): string[] {
     f.booleans.mint_file_shape_ok;
   if (!mintFileOk) out.push(PROBE_DEFECTS.mintFile);
 
-  // Seven health keys parsed as booleans means the child cannot have found any
+  // Eight health keys parsed as booleans means the child cannot have found any
   // missing or non-boolean. Unexpected fields are the one count that may be
   // non-zero without a key line changing.
   if (f.counts.health_missing_fields !== 0) out.push(PROBE_DEFECTS.counts);

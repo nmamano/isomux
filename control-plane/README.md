@@ -1638,7 +1638,7 @@ stops an operator from claiming which build is running. The probe reports that
 distinction separately and validates the exact nested shape before it prints
 any value.
 
-`ok` is the conjunction of the four readiness properties - not of every
+`ok` is the conjunction of the five readiness properties - not of every
 reported field, because
 `state_persisted` is correctly false on a first deploy and a healthy machine
 must not be reported sick for having been deployed once, and
@@ -1654,21 +1654,26 @@ rather than by re-reading the environment beside it. A second derivation of the
 same answer is a copy that can drift, which is the class of omission
 `run-roster.ts` was extracted to prevent. `database_reachable` is
 a `select 1` whose failure discards the error object entirely. `tick_recent`
-means both the provisioning pass and the lifecycle pass completed within three
-idle-maintenance intervals. This distinguishes "the port answers" from "both
-loops run" without marking a healthy idle process stale.
-A missing `subscriptions` grant does not break `select 1`, so `tick_recent` is
-the gate that makes that lifecycle failure visible to the deployed probe.
+means the drive loop's one-row schedule read succeeded within three idle
+intervals. That statement reaches every work table, so it distinguishes "the
+port answers" from "the drive loop can read its work" without marking a healthy
+idle process stale. A missing `subscriptions` grant does not break `select 1`;
+it does stop the schedule read from refreshing `tick_recent`.
+`cadence_healthy` is separate: it stays true while no cadence pass is due,
+resets on a successful pass, and turns false after three consecutive attempted
+passes fail. `ok` requires both readings.
 
-An idle provisioner runs one `hasPendingWork` statement every five seconds and
-the full operation, lifecycle, liveness and attention pass once a minute. The
-probe wakes the full pass on active operations, due provider reconciliation,
-paid provisioning-start repair, expired customer-key retention, due
-cancellation lifecycle work, and expired reinstatement checkout work. These
-last classes matter because the cadence pass creates their first operation;
-probing operations alone would add a silent minute before they existed. While
-the probe finds work, full passes keep the existing five-second cadence. The
-idle floor is therefore 720 probe transactions per hour.
+After one startup pass, an idle provisioner runs one scheduling statement at a
+60-second ceiling. That row names the independent due classes and their next
+actionable timestamp: claimable operations/provider reconciliation, lifecycle
+work (including missed-webhook Checkout recovery), liveness, and a silent
+provisioning-stall check. Only due classes run. A committed Stripe event also
+wakes the in-process loop, so paid provisioning does not wait behind the idle
+ceiling; a missed wake falls back to the durable scheduling row. Claimable
+operation work retains the five-second cadence, and handler step retries remain
+five seconds. As designed 2026-08-27, a fully idle interval is one query; due
+liveness still carries its existing instance scan and certificate-contact
+reads.
 
 The route ALWAYS answers 200 while the process is serving. A database that
 blinked is a boolean, not a dead machine: fly's check is TCP precisely so that
@@ -3584,20 +3589,14 @@ probe left no subscription and no charge. Product code does not match an error
 message when expiry is refused: it fetches the session and uses the normalized
 status as authority.
 
-The deployed provisioner runs `lifecycleTick` after each operation tick in its
-five-second loop. The passes are sequential in one process, so they cannot
-overlap. Fly keeps one machine running and restarts the same command; durable
-operation rows make a restart resume rather than duplicate work. A failed
-lifecycle pass goes to the machine journal and leaves `tick_recent` false. A
-per-subscription failure is counted and reported as a problem while the next
-subscription and the next pass continue.
-
-**Measured 2026-08-16 before deployment:** production had two subscriptions in
-the lifecycle scan, so a five-second cadence would open 34,560 per-subscription
-transactions per day. The scan is intentionally cumulative. Re-measure this
-cost as the lifetime cancellation population grows. The same growth spends the
-15-second `tick_recent` window; a slow pass can make health flap false and make
-a deploy read `readiness_pending` even while the process continues to work.
+The deployed provisioner schedules `lifecycleTick` as its own work class. It
+runs on startup and when the one-row schedule finds lifecycle work due, not
+after unrelated provider reconciliation or liveness. The classes stay
+sequential in one process, so they cannot overlap. Fly keeps one machine running
+and restarts the same command; durable operation rows make a restart resume
+rather than duplicate work. A failed lifecycle pass goes to the machine journal
+and does not refresh `tick_recent`. A per-subscription failure is counted and
+reported as a problem while the next subscription and the next pass continue.
 
 **Measured 2026-08-16 on the deployed provisioner before this change:** the
 authenticated probe reported `provider_configured: true`, so opened

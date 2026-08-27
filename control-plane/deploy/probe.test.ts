@@ -26,6 +26,7 @@ const HEALTHY = {
   branch_pinned: true,
   database_reachable: true,
   tick_recent: true,
+  cadence_healthy: true,
   state_persisted: false,
   provider_configured: false,
   release_source: {

@@ -188,6 +188,7 @@ function processorFor(
   store: Store,
   reader: StripeObjectReader,
   lines: string[] = [],
+  onApplied?: () => void,
 ): WebhookProcessor {
   return new WebhookProcessor({
     store,
@@ -196,6 +197,7 @@ function processorFor(
     mode: "test",
     now: () => NOW,
     report: (l) => lines.push(l),
+    onApplied,
   });
 }
 
@@ -467,6 +469,28 @@ describe("the deployed provisioner route", () => {
 });
 
 describe("applying an event", () => {
+  test("an applied commit wakes once, while its duplicate does not", async () => {
+    const store = await tempStore();
+    const reader = new FakeReader("test");
+    reader.subscriptions.set("sub_1", subscription());
+    let wakes = 0;
+    const processor = processorFor(store, reader, [], () => wakes++);
+    const payload = body({
+      id: "evt_wake",
+      type: "customer.subscription.updated",
+      object: { id: "sub_1" },
+    });
+    expect(await deliver(processor, payload)).toMatchObject({
+      kind: "applied",
+    });
+    expect(wakes).toBe(1);
+    expect(await listEvents(store)).toHaveLength(1);
+    expect(await deliver(processor, payload)).toMatchObject({
+      kind: "duplicate",
+    });
+    expect(wakes).toBe(1);
+  });
+
   test("checkout.session.completed establishes the row from the FETCHED subscription", async () => {
     const store = await tempStore();
     const reader = new FakeReader("test");

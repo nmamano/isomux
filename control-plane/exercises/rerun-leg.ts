@@ -26,7 +26,7 @@ import { deadlinesFor, type OperationKind } from "../operations.ts";
 import { Reporter } from "../report.ts";
 import { loadRun } from "../run-record.ts";
 import { SpawnExec } from "../ssh.ts";
-import { POLL_INTERVAL_MS, Ticker } from "../tick.ts";
+import { HANDLER_STEP_RETRY_MS, Ticker } from "../tick.ts";
 
 const [runId, kind, ...rest] = process.argv.slice(2);
 if (!runId || !kind) {
@@ -100,7 +100,7 @@ for (;;) {
   }
   if (stopping) break;
   if (row && (row.status === "succeeded" || row.status === "failed")) break;
-  await Bun.sleep(POLL_INTERVAL_MS);
+  await Bun.sleep(HANDLER_STEP_RETRY_MS);
 }
 
 reporter.line("--- audit events ---");

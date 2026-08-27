@@ -71,6 +71,8 @@ export interface WebhookDeps {
   mode: StripeMode;
   now?: () => number;
   report?: (line: string) => void;
+  /** After an applied event COMMITTED. Failure is reported, never retried. */
+  onApplied?: () => void;
 }
 
 export class WebhookProcessor {
@@ -304,6 +306,15 @@ export class WebhookProcessor {
           this.report,
         ),
       );
+      if (outcome.kind === "applied") {
+        try {
+          this.deps.onApplied?.();
+        } catch (err) {
+          // The durable row already committed. The idle probe is the fallback;
+          // returning 500 here would only ask Stripe to replay completed work.
+          this.report(`webhook wake failed: ${messageOf(err)}`);
+        }
+      }
       return fromReconcile(outcome);
     } catch (err) {
       // A refusal is never retried: the same fetch produces the same object.

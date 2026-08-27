@@ -630,6 +630,9 @@ export const AUDITED_CMDRUN_SURFACES = [
   "readReleaseIdentity",
   "deploymentIdOf",
   "InviteHold",
+  // In-memory latency hint only. It reaches no table; durable scheduling is the
+  // fallback when the route is absent or the signal is missed.
+  "DriveWake",
   "certificateTargetFromEnv",
   "CertificateService",
   "obtainCertificateWithLego",
@@ -646,6 +649,7 @@ export const AUDITED_CMDRUN_SURFACES = [
   "StripeClient",
   "LiveStripeReader",
   "WebhookProcessor",
+  "wake.signal",
   "bindAddressOf",
   "healthReport",
   "makeTicker",
@@ -656,6 +660,7 @@ export const AUDITED_CMDRUN_SURFACES = [
   "PROVIDER_DEPENDENT_KINDS.every",
   "running.handles",
   "driveTicks",
+  "scheduleCapabilities",
   "runLifecycleCadence",
   "watchLiveness",
   "exitCodeFor",
