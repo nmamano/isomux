@@ -228,3 +228,11 @@ That prints a one-time login URL valid for 15 minutes. The CLI talks to the runn
 - **Member tries to mint an invite for a new user?** Rejected at the wire level. Members can mint device links for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The account panes are scoped per role; the server-side check is the actual gate.
 - **Owner tries to mint an invite for an existing user?** Rejected too (409): invites create new users only, and device links are self-service. To get a locked-out user back in, use the Recovery card in the Invites section.
 - **CSRF / CSWSH?** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't. Everything an agent calls is bearer-authenticated (each agent's injected `ISOMUX_AGENT_TOKEN`); there is no loopback bypass left.
+
+## Personal API tokens
+
+A signed-in user can create a named personal API token in **User Settings → API tokens**. Tokens expire after 30, 90, or 365 days; 90 days is the default, and a token cannot be created without an expiry. The raw token is shown once. Isomux stores only its SHA-256 hash and a short display prefix.
+
+Personal tokens have a separate API identity scope. They can list live agents in rooms the issuing user can currently access and send messages to those agents. They cannot list killed agents or reach browser, file, upload, WebSocket, office-management, token-management, or other API surfaces. The server reads the issuing user and role again for each request, so deletion, demotion, room-access changes, expiry, and revocation take effect on the next request.
+
+The token list shows the approximate time of the last authenticated request. Isomux writes this metadata at most once per minute, and it does not mean that the later route succeeded. Revoke a token from the same pane when a device is lost or a credential may have leaked.

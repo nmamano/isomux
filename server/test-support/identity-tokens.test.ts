@@ -18,6 +18,7 @@ import {
   PRIVILEGED_AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
   APP_CAPABILITIES,
+  API_CAPABILITIES,
   agentCapabilities,
   capabilitiesForScope,
   identityHasCapability,
@@ -68,7 +69,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     );
   });
 
-  it("RUN scope holds the self-affordances plus the task board", () => {
+  it("RUN scope holds self-affordances, cron messaging, and the task board", () => {
     // task:read/task:write are here because the cron system prompt hands a run
     // the office-global board; it reached it over the retired loopback /tasks
     // route before. Nothing else: a run cannot spawn, converse, or read cron -
@@ -76,6 +77,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
     // app:read/app:write: a run has nobody to hand a URL to.
     expect([...RUN_CAPABILITIES]).toEqual([
       "self:affordance",
+      "agent:send-as-cron",
       "task:read",
       "task:write",
     ]);
@@ -96,9 +98,10 @@ describe("identity: capability sets (Phase 2.1)", () => {
     ] as Capability[]) {
       expect(USER_CAPABILITIES).toContain(c);
     }
-    // ...and the two agent-identity caps are deliberately absent (a human is
-    // not an agent and has no own-chat).
+    // ...and the non-user sender/affordance caps are deliberately absent. A
+    // human is not an agent or cron run and has no own-chat.
     expect(USER_CAPABILITIES).not.toContain("agent:send-as-self" as Capability);
+    expect(USER_CAPABILITIES).not.toContain("agent:send-as-cron" as Capability);
     expect(USER_CAPABILITIES).not.toContain("self:affordance" as Capability);
   });
 
@@ -107,6 +110,9 @@ describe("identity: capability sets (Phase 2.1)", () => {
     for (const c of AGENT_CAPABILITIES) {
       expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
     }
+    expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain(
+      "agent:send-as-cron" as Capability,
+    );
     // ...plus exactly the curated operator delta (drive other agents' sessions
     // + full cron over own jobs). Nil-locked set (task 98d63ef7).
     for (const c of [
@@ -184,6 +190,24 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect(capabilitiesForScope("agent")).toBe(AGENT_CAPABILITIES);
     expect(capabilitiesForScope("cron-run")).toBe(RUN_CAPABILITIES);
     expect(capabilitiesForScope("app")).toBe(APP_CAPABILITIES);
+    expect(capabilitiesForScope("api")).toBe(API_CAPABILITIES);
+  });
+
+  it("API scope holds exactly discovery and message capabilities", () => {
+    expect([...API_CAPABILITIES]).toEqual([
+      "api:discover-agents",
+      "api:send-message",
+    ]);
+    for (const set of [
+      USER_CAPABILITIES,
+      AGENT_CAPABILITIES,
+      PRIVILEGED_AGENT_CAPABILITIES,
+      RUN_CAPABILITIES,
+      APP_CAPABILITIES,
+    ]) {
+      expect(set).not.toContain("api:discover-agents" as Capability);
+      expect(set).not.toContain("api:send-message" as Capability);
+    }
   });
 
   it("identityHasCapability checks membership", () => {
@@ -335,6 +359,7 @@ describe("identity: cron-run token mint/resolve/revoke (Phase 2.1)", () => {
     expect(id.userId).toBe("user-9");
     expect([...id.capabilities]).toEqual([
       "self:affordance",
+      "agent:send-as-cron",
       "task:read",
       "task:write",
     ]);

@@ -61,6 +61,7 @@ import {
   PRIVILEGED_AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
   APP_CAPABILITIES,
+  API_CAPABILITIES,
   type Identity,
 } from "../identity/index.ts";
 
@@ -113,6 +114,14 @@ const app: Identity = {
   appName: "hello",
   role: "member",
   capabilities: APP_CAPABILITIES,
+};
+const api: Identity = {
+  scope: "api",
+  userId: "u-mem",
+  apiTokenId: "pat-1",
+  apiTokenName: "Laptop",
+  role: "member",
+  capabilities: API_CAPABILITIES,
 };
 
 const OK = { ok: true } as const;
@@ -780,10 +789,88 @@ describe("guard: messageSend", () => {
       messageSend(ctx(agent, { id: "a-recip" }, { senderAgentId: "a-2" })),
     ).toEqual(DENY);
   });
-  it("CRON-RUN: denied (a run has no chat to send into)", () => {
-    expect(messageSend(ctx(run, { id: "a-recip" }, { text: "hi" }))).toEqual(
+  it("API: uses the issuing user's room access, including hidden view rooms", () => {
+    const accessible = makeDeps({
+      roomIdForAgent: () => "r-hidden-by-view",
+      hasRoomAccess: (identity) => identity.userId === "u-mem",
+    });
+    expect(
+      messageSend(ctx(api, { id: "a-recip" }, undefined, accessible)),
+    ).toEqual(OK);
+    expect(
+      messageSend(
+        ctx(
+          api,
+          { id: "a-recip" },
+          undefined,
+          makeDeps({
+            roomIdForAgent: () => "r-denied",
+            hasRoomAccess: () => false,
+          }),
+        ),
+      ),
+    ).toEqual(DENY);
+  });
+  it("CRON-RUN: matches its live creator's manifest-visible rooms", () => {
+    const visible = makeDeps({
+      cronjobCreatorUserId: () => "u-cron",
+      roomIdForAgent: () => "r-visible",
+      hasRoomAccess: (identity, roomId) =>
+        identity.userId === "u-cron" && roomId === "r-visible",
+    });
+    expect(
+      messageSend(ctx(run, { id: "a-recip" }, { text: "hi" }, visible)),
+    ).toEqual(OK);
+  });
+  it("CRON-RUN: inaccessible and unknown recipients are the same non-leak deny", () => {
+    const inaccessible = messageSend(
+      ctx(
+        run,
+        { id: "a-hidden" },
+        undefined,
+        makeDeps({
+          cronjobCreatorUserId: () => "u-cron",
+          roomIdForAgent: () => "r-hidden",
+          hasRoomAccess: () => false,
+        }),
+      ),
+    );
+    const unknown = messageSend(
+      ctx(
+        run,
+        { id: "a-missing" },
+        undefined,
+        makeDeps({
+          cronjobCreatorUserId: () => "u-cron",
+          roomIdForAgent: () => null,
+        }),
+      ),
+    );
+    expect(inaccessible).toEqual(DENY);
+    expect(unknown).toEqual(inaccessible);
+  });
+  it("CRON-RUN: unowned, access-revoked, and stale-owner jobs deny", () => {
+    const target = { id: "a-recip" };
+    const unowned = makeDeps({
+      cronjobCreatorUserId: () => null,
+      roomIdForAgent: () => "r-1",
+      hasRoomAccess: () => true,
+    });
+    const accessRevoked = makeDeps({
+      cronjobCreatorUserId: () => "u-cron",
+      roomIdForAgent: () => "r-1",
+      hasRoomAccess: () => false,
+    });
+    const staleOwner = makeDeps({
+      cronjobCreatorUserId: () => "u-other",
+      roomIdForAgent: () => "r-1",
+      hasRoomAccess: () => true,
+    });
+    expect(messageSend(ctx(run, target, undefined, unowned))).toEqual(DENY);
+    expect(messageSend(ctx(run, target, undefined, accessRevoked))).toEqual(
       DENY,
     );
+    expect(messageSend(ctx(run, target, undefined, staleOwner))).toEqual(DENY);
   });
 });
 

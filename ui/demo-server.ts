@@ -22,6 +22,8 @@ import type {
   StorageUsageWire,
   UsageBucketWire,
   UsageReportWire,
+  ApiTokenCreateReq,
+  ApiTokenWire,
 } from "../shared/contract-shapes.ts";
 import type {
   AgentInfo,
@@ -59,6 +61,7 @@ import { ApiError, type ApiMethod } from "./api.ts";
 const state = new OfficeState();
 let embedMode = false;
 let demoSeededAt = 0;
+let demoApiTokens: ApiTokenWire[] = [];
 
 export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
 
@@ -1392,6 +1395,11 @@ export async function demoApi(
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
   const pathname = path.split("?")[0];
   const route = `${method} ${pathname}`;
+  if (method === "DELETE" && pathname.startsWith("/api/me/api-tokens/")) {
+    const id = decodeURIComponent(pathname.slice("/api/me/api-tokens/".length));
+    demoApiTokens = demoApiTokens.filter((token) => token.id !== id);
+    return undefined;
+  }
   switch (route) {
     // validate.cwd / validate.env - the demo has no filesystem, so every probe
     // succeeds. REST drops the resolved env path + keyCount the WS arm echoed.
@@ -1586,6 +1594,23 @@ export async function demoApi(
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_updated", user: updated });
       return undefined;
+    }
+    case "GET /api/me/api-tokens":
+      return { apiTokens: [...demoApiTokens] };
+    case "POST /api/me/api-tokens": {
+      const b = (body ?? {}) as ApiTokenCreateReq;
+      const now = Date.now();
+      const id = `demo-${now}`;
+      const apiToken: ApiTokenWire = {
+        id,
+        name: b.name,
+        tokenPrefix: "isomux_pat_demo",
+        createdAt: now,
+        expiresAt: now + b.expiresInDays * 24 * 60 * 60 * 1000,
+        lastUsedAt: null,
+      };
+      demoApiTokens = [apiToken, ...demoApiTokens];
+      return { token: `isomux_pat_demo_${id}`, apiToken };
     }
     // view.listRooms - the demo user is an owner with no hidden rooms, so the
     // accessible set is exactly the live rooms list.

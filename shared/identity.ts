@@ -51,6 +51,32 @@ export function formatAppSenderPrefix(appName: string): string {
   return `[App "${appName}"]`;
 }
 
+// Cron job names are free-form, unlike app names. Normalize them before they
+// enter an agent prompt so controls, newlines, and delimiter-like whitespace
+// cannot forge a second sender line. Clamp after normalization so the rendered
+// value has a firm bound.
+export function formatCronjobSenderPrefix(cronjobName: string): string {
+  const normalized = cronjobName
+    // eslint-disable-next-line no-control-regex -- controls are the threat here
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/"/g, "'")
+    .trim()
+    .slice(0, 80);
+  return `[Cron job "${normalized}"]`;
+}
+
+export function formatApiTokenDevice(tokenName: string): string {
+  const normalized = tokenName
+    // eslint-disable-next-line no-control-regex -- controls are the threat here
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/"/g, "'")
+    .trim()
+    .slice(0, 64);
+  return `API token "${normalized}"`;
+}
+
 // Lowercase key used for users.json lookup. Display case is whatever the
 // client sent; the key only normalizes for matching.
 export function lowercaseKey(name: string): string {

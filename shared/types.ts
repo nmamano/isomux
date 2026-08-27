@@ -270,6 +270,7 @@ export interface QueuedMessage {
   sender:
     | { kind: "user"; username?: string; device?: string }
     | { kind: "agent"; agentId: string; agentName: string; roomName: string }
+    | { kind: "cronjob"; cronjobId: string; cronjobName: string }
     // A registered app messaging the agent that built it (POST /api/app/message).
     // Only the NAME is carried, and it comes from the app's token rather than its
     // request: an app cannot claim to be another app, an agent, or a boss. The

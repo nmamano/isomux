@@ -460,12 +460,14 @@ function QueueChips({
           const label =
             msg.sender.kind === "agent"
               ? `${msg.sender.agentName} · agent · Room "${msg.sender.roomName}"`
-              : msg.sender.kind === "app"
-                ? `${msg.sender.appName} · app`
-                : formatIdentity({
-                    username: msg.sender.username,
-                    device: msg.sender.device,
-                  }) || "You";
+              : msg.sender.kind === "cronjob"
+                ? `${msg.sender.cronjobName} · cron job`
+                : msg.sender.kind === "app"
+                  ? `${msg.sender.appName} · app`
+                  : formatIdentity({
+                      username: msg.sender.username,
+                      device: msg.sender.device,
+                    }) || "You";
           const attachmentCount = msg.attachments?.length ?? 0;
           return (
             <div

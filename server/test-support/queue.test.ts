@@ -1824,12 +1824,12 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
     expect(typeof r.body.messageId).toBe("string");
   });
 
-  it("a valid non-agent bearer (RUN token) cannot send -> 403 (no body-trust bypass)", async () => {
+  it("an unowned RUN token cannot send or body-trust an agent sender", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
-    // RUN scope carries no agent:send-as-self - it is not an agent identity, so
-    // it must not be allowed to body-trust a senderAgentId.
+    // The token has no live owned job, and a cron run never body-trusts a
+    // senderAgentId. Both facts fail closed before delivery.
     const runToken = mintRunToken("some-job", "some-run", null);
 
     const r = await postBearer(server, recv.id, runToken, {

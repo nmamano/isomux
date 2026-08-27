@@ -26,6 +26,7 @@ import {
   PRIVILEGED_AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
   APP_CAPABILITIES,
+  API_CAPABILITIES,
   type Capability,
   type Identity,
 } from "../identity/index.ts";
@@ -38,6 +39,7 @@ const ALL_CAPS = new Set<Capability>([
   // One entry today (app:message); listed so a capability added to the APP set
   // has to be a real Capability, and so this union does not quietly go stale.
   ...APP_CAPABILITIES,
+  ...API_CAPABILITIES,
 ]);
 
 function capsOf(auth: RouteAuth): readonly Capability[] {
@@ -99,9 +101,14 @@ describe("route table: any-of capabilities where the spec uses `|`", () => {
     if (!r) throw new Error(`no route ${opId}`);
     return r;
   }
-  it("agents.sendMessage requires agent:converse | agent:send-as-self", () => {
+  it("agents.sendMessage admits user, agent, cron, or personal API sender capabilities", () => {
     expect(new Set(capsOf(route("agents.sendMessage").auth))).toEqual(
-      new Set<Capability>(["agent:converse", "agent:send-as-self"]),
+      new Set<Capability>([
+        "agent:converse",
+        "agent:send-as-self",
+        "agent:send-as-cron",
+        "api:send-message",
+      ]),
     );
   });
   it("users.update requires user:self | user:admin", () => {
@@ -211,7 +218,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   "rooms.swapDesks": { caps: ["agent:manage"], emits: ["agent_updated"] },
   // Agents - conversation
   "agents.sendMessage": {
-    caps: ["agent:converse", "agent:send-as-self"],
+    caps: [
+      "agent:converse",
+      "agent:send-as-self",
+      "agent:send-as-cron",
+      "api:send-message",
+    ],
     emits: ["log_entry"],
   },
   "agents.editMessage": { caps: ["agent:converse"], emits: ["log_entry"] },
@@ -301,6 +313,9 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["user:self"],
     emits: ["user_admin_updated", "user_self_updated"],
   },
+  "apiTokens.list": { caps: ["user:self"], emits: [] },
+  "apiTokens.mint": { caps: ["user:self"], emits: [] },
+  "apiTokens.revoke": { caps: ["user:self"], emits: [] },
   // Users
   "users.update": {
     caps: ["user:self", "user:admin"],
@@ -608,5 +623,39 @@ describe("route table: an APP identity authorizes exactly the app-self route", (
     expect(
       runAuthorize(someRoute.auth, appIdentity, {}, undefined, generousDeps),
     ).toEqual({ ok: false, status: 403, code: "forbidden" });
+  });
+});
+
+describe("route table: an API identity authorizes exactly agent messaging", () => {
+  const apiIdentity: Identity = {
+    scope: "api",
+    userId: "u-owner",
+    role: "owner",
+    apiTokenId: "pat-1",
+    apiTokenName: "Laptop",
+    capabilities: API_CAPABILITIES,
+  };
+  const deps: GuardDeps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: () => "u-owner",
+    cronjobCreatorUserId: () => "u-owner",
+    appOwnerUserId: () => "u-owner",
+    agentManagerUserId: () => "u-owner",
+    killedAgentManagerUserId: () => "u-owner",
+  };
+  it("denies every table route except agents.sendMessage", () => {
+    const allowed: string[] = [];
+    for (const route of API_ROUTES) {
+      const outcome = runAuthorize(
+        route.auth,
+        apiIdentity,
+        { id: "a-1", roomId: "r1" },
+        { text: "hi" },
+        deps,
+      );
+      if (outcome.ok) allowed.push(route.opId);
+    }
+    expect(allowed).toEqual(["agents.sendMessage"]);
   });
 });

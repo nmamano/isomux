@@ -507,6 +507,29 @@ export type PreferencesReq = Partial<{
 // second hand-maintained list drifting from the type above.
 export const PREFERENCE_KEYS = ["language", "slideMode"] as const;
 
+export interface ApiTokenWire {
+  id: string;
+  name: string;
+  tokenPrefix: string;
+  createdAt: number;
+  expiresAt: number;
+  lastUsedAt: number | null;
+}
+
+export interface ApiTokenCreateReq {
+  name: string;
+  expiresInDays: 30 | 90 | 365;
+}
+
+export interface ApiTokenCreateRes {
+  token: string;
+  apiToken: ApiTokenWire;
+}
+
+export interface ApiTokenListRes {
+  apiTokens: ApiTokenWire[];
+}
+
 export type UserUpdateReq = Partial<{
   name: string;
   envFile: string | null;

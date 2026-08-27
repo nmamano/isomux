@@ -532,6 +532,9 @@ How to use the task board (localhost:${PORT}/api/tasks): only touch it if your p
     -d '{"title":"..."}'                                                                                      # create (office-global)
   curl -s -X POST localhost:${PORT}/api/tasks/ID/done -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'   # mark done
 
+How to message an office agent: POST to its message route with your bearer token. The message is attributed to this cron job, and you can target only agents in rooms visible to your creator. Use GET /agents above to find the id.
+  curl -s -X POST localhost:${PORT}/api/agents/<id>/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"..."}'
+
 How to surface a file in the run transcript (images render inline; other files render as a clickable file chip): call POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file with body {"path":"..."} and your bearer token (the auto-injected $ISOMUX_AGENT_TOKEN). The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) for whoever reviews the run.
   curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
 

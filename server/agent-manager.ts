@@ -30,6 +30,7 @@ import {
   formatPrefix,
   formatAgentSenderPrefix,
   formatAppSenderPrefix,
+  formatCronjobSenderPrefix,
 } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
 import { isValidDesk } from "../shared/desks.ts";
@@ -4843,6 +4844,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           sender_agent_name: sender.agentName,
           sender_agent_room: sender.roomName,
         };
+      case "cronjob":
+        return {
+          sender_cronjob_id: sender.cronjobId,
+          sender_cronjob_name: sender.cronjobName,
+        };
       case "app":
         return { sender_app_name: sender.appName };
       default: {
@@ -4863,6 +4869,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         });
       case "agent":
         return `${formatAgentSenderPrefix(sender.agentId, sender.agentName, sender.roomName)} `;
+      case "cronjob":
+        return `${formatCronjobSenderPrefix(sender.cronjobName)} `;
       // An app the receiving agent registered, speaking with its own token. The
       // name is all the label needs: the system prompt carries the rule about
       // what an app's message is worth, exactly where it carries the same rule
@@ -4955,6 +4963,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         typeof s.agentId === "string" &&
         typeof s.agentName === "string" &&
         typeof s.roomName === "string"
+      );
+    if (s.kind === "cronjob")
+      return (
+        typeof s.cronjobId === "string" && typeof s.cronjobName === "string"
       );
     // An app's message survives a restart like any other queued item. This arm
     // is the persistence boundary: without it a queued app message would be
@@ -5436,6 +5448,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           sdkText: prompt,
           attachments: allAttachments.length > 0 ? allAttachments : undefined,
           origin: "queued",
+          // Cron jobs are machine traffic, like agents and apps, so their
+          // completed turns stay silent. Only a human boss starts a chimeable
+          // turn here.
           humanInput: items.some((m) => m.sender.kind === "user"),
           onSendAccepted: () => {
             // Send accepted by the backend. Finalize: write per-message log

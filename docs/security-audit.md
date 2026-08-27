@@ -161,6 +161,14 @@ Invite acceptance persists the invite-consumed flag **before** the session (`acc
 
 `/ws` (`server/index.ts`) requires both a valid cookie **and** an Origin header matching the resolved public origin. No loopback bypass on `/ws`. A cross-origin website cannot upgrade to the office WebSocket.
 
+A personal API bearer cannot open a WebSocket. The upgrade accepts a browser session cookie only, before the legacy HTTP surface is considered.
+
+### 5.8a Personal API token boundary
+
+Personal API tokens use a distinct `api` identity scope with only live-agent discovery and message-send capabilities. Below the capability dispatcher, an allowlist admits only `GET /agents`; it denies killed-agent discovery, uploads, files, images, and the static UI shell. Every request resolves the issuing user and current role from live state. Token management requires a browser cookie, and the durable token store contains hashes rather than raw credentials.
+
+Backups archive the complete state root, so `api-tokens.json` and its token hashes travel in local and off-box backup archives. The raw bearer secrets do not. Anyone who can alter a backup already sits inside the documented state-integrity trust boundary, but backup readers can perform offline guesses against any low-entropy bearer format. Personal tokens use 256 random bits to make that attack infeasible.
+
 ### 5.9 State-changing HTTP Origin gate
 
 `authenticate()` (`server/auth-middleware.ts`) rejects mismatched Origin on POST/PUT/PATCH/DELETE. Modern browsers attach Origin to fetch/XHR and to cross-site POST navigations, and `SameSite=Lax` independently strips credentials from cross-site non-top-level requests. Either defense alone suffices.

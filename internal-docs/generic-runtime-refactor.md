@@ -135,7 +135,8 @@ Three token scopes resolve to capability sets. Role (`owner`/`member`) is orthog
 - **USER scope** (cookie or user bearer) carries the **browser set** - every capability below, gated further by guards (`officeOwner`, `selfOrOwner`, `requiresRoomAccess`). A member and an owner both hold the browser set; the owner-only routes are blocked for members by `officeOwner`, not by a missing capability.
 - **AGENT scope** (auto-injected `ISOMUX_AGENT_TOKEN`) carries exactly `{ agent:send-as-self, task:read, task:write, self:affordance }` and nothing else. Spawn, kill, room/user/office settings, invites, sessions, cronjob mutation, editor, terminal, and cronjob-transcript reads are all unreachable because the agent set omits their capability - narrowness comes from the identity being narrow, not from a separate automation tier.
 - **PRIVILEGED AGENT** is AGENT scope with a per-agent `privileged` flag set (toggled by `agents.setPrivileged`; stamped into the token at mint time). It adds a **curated allowlist** of the spawning user's operator capabilities - `{ agent:converse, office:read, agent:manage, room:manage, editor:use, file:upload, cron:read, cron:manage }` - on top of the four AGENT capabilities. **Scope STAYS `"agent"`**: privilege only adds capabilities, never changes scope, so every `scope === "user"` guard (`officeOwner`, `selfUser`, the user branch of `messageSend`, the user-only branch of `cronjobOwnerOrOfficeOwner`) still blocks it. The result: a privileged agent drives other agents' sessions (resume / listSessions / sendNow / new-conversation / cancel / lifecycle, room-scoped to its spawning user), manages cron over its **own** jobs, and manages rooms it can access (`room:manage`: create - office-wide - plus rename / settings / close, room-access-scoped on its spawning-user id), but never posts as the user, mints invites, touches human login sessions, edits office settings, or reaches user administration. The set is a deliberate allowlist - **not** `union(AGENT, USER)`, which the security audit (task 98d63ef7) found exposes capability-only owner routes like `invites.mintSelf` (which would mint a durable owner *login*) and `sessions.revoke`. A newly-added capability does **not** reach privileged agents unless added to `PRIVILEGED_AGENT_CAPABILITIES` explicitly. Toggling re-mints the token (rotating the old one dead) and session-swaps a live agent onto it (resuming the current session, like `/model`); a not-running agent picks it up on next spawn/revive.
-- **RUN scope** (auto-injected into a firing cronjob run's env, rotated per run, revoked when the run ends) carries exactly `{ self:affordance }`, bound to its `{ cronjobId, runId }`. It is the cron-run analogue of an agent token: a fresh cron run has no desk-agent identity, so its in-flight read-file/diff affordances authenticate as the run. This closes the loopback hole rather than relying on a bypass.
+- **RUN scope** (auto-injected into a firing cronjob run's env, rotated per run, revoked when the run ends) carries `{ self:affordance, agent:send-as-cron, task:read, task:write }`, bound to its `{ cronjobId, runId }`. It can use its own run affordances, the office-global task board, and message agents in the same creator-visible rooms returned by `GET /agents`.
+- **API scope** (a user's durable personal token) carries `{ api:discover-agents, api:send-message }`. It can list only live agents visible to the issuing user's current role and send them messages. The issuer is resolved from live user state on every request. A legacy-surface allowlist admits only `GET /agents`; every other browser or legacy surface stays closed.
 
 | Capability | Held by USER | Held by AGENT | Gates |
 |---|---|---|---|
@@ -158,13 +159,16 @@ Three token scopes resolve to capability sets. Role (`owner`/`member`) is orthog
 | `task:read` | yes | yes | list/get tasks |
 | `task:write` | yes | yes | create/update/claim/done/delete tasks (attribution from token) |
 | `agent:send-as-self` | no | yes | POST an inter-agent message naming itself as sender |
+| `agent:send-as-cron` | no | no | RUN-only POST attributed to the live cron job, limited to its creator's visible agents |
+| `api:discover-agents` | no | no | API-only `GET /agents`; killed-agent discovery is denied |
+| `api:send-message` | no | no | API-only POST attributed to the issuing user with a server-derived token-name label |
 | `self:affordance` | no | yes† | read-file/diff/edit-file/terminal-command on its OWN chat |
 
-† `self:affordance` is also the sole capability of RUN scope (a firing cron run), bound to its `{ cronjobId, runId }` via `runParamMustEqualTokenRun`. RUN holds nothing else, so it gets a footnote rather than a near-empty column.
+† `self:affordance` is also held by RUN scope (a firing cron run), bound to its `{ cronjobId, runId }` via `runParamMustEqualTokenRun`. RUN additionally holds `agent:send-as-cron` and the office-global task-board capabilities.
 
 ‡ The **Held by AGENT** column is for a *normal* agent. A **privileged** agent (the `privileged` flag set) additionally holds the curated allowlist `{ agent:converse, office:read, agent:manage, room:manage, editor:use, file:upload, cron:read, cron:manage }` - that is the privileged delta. Scope stays `"agent"`, so the `scope === "user"` guards still block it from owner/user-admin routes. `agent:privilege` itself is **not** in the delta, so no agent can grant privilege.
 
-The two agent-identity capabilities (`agent:send-as-self`, `self:affordance`) are deliberately absent from USER scope. A human is not an agent and has no own-chat; the human-facing equivalents (editor, message-to-agent) are separate browser routes with their own capability and guard. Impersonation is impossible by construction: a USER token cannot satisfy `agentParamMustEqualTokenAgent`/`senderMustEqualTokenAgent` (no `agentId`) and lacks the capability anyway. RUN scope holds only `self:affordance`, bound to its `{ cronjobId, runId }` via `runParamMustEqualTokenRun`, and can do nothing else.
+The non-user sender capabilities are deliberately absent from USER scope. A human is not an agent or cron job. A USER or CRON-RUN identity cannot satisfy `agentParamMustEqualTokenAgent` or `senderMustEqualTokenAgent` because it has no `agentId`, and it lacks `agent:send-as-self` anyway. Cron attribution cannot impersonate an agent either: its distinct capability reaches a distinct scope branch, which builds the sender from the live job. RUN scope carries only its run affordances, cron messaging, and the office-global task board.
 
 ### Guard catalog
 
@@ -182,7 +186,7 @@ Named, reusable, individually contract-tested policies. A route names one (possi
 | `requiresRoomAccess(ref)` | room/agent-scoped routes + data-exposing queries | caller has access to `ref` (a `roomId`, or an `agentId` resolved to its `roomId`) by owner-rule or explicit grant | generic `403`/`404` (no exists-but-hidden) |
 | `agentParamMustEqualTokenAgent` | self-affordance routes | AGENT scope ∧ `:id === token.agentId` | `403` |
 | `senderMustEqualTokenAgent` | inter-agent message | AGENT scope; sender authority is the token. `body.senderAgentId` is optional legacy input: rejected if present and ≠ `token.agentId`, ignored otherwise | `403` |
-| `messageSend` | `agents.sendMessage` (composite) | USER ⇒ `requiresRoomAccess(:id)`, sender derived from token; AGENT ⇒ `senderMustEqualTokenAgent`, cross-room delivery allowed (recipient existence checked, never an ACL leak); if a pending approval exists it must belong to `:id` before the text is interpreted as an allow/deny | `403`/`404` |
+| `messageSend` | `agents.sendMessage` (composite) | USER ⇒ `requiresRoomAccess(:id)`; AGENT ⇒ `senderMustEqualTokenAgent`, cross-room delivery allowed; CRON-RUN ⇒ the live job creator can access the target room, matching `GET /agents`. Cron inaccessible and unknown targets both return 403. Attribution is always server-derived | `403`/`404` |
 | `cronjobOwnerOrOfficeOwner(:id)` | cronjob mutate/run | (`scope === "user"` OR a **privileged** agent - one holding `cron:manage`; a normal agent lacks it and 403s at stage 1) ∧ cronjob's creator `userId === token.userId`; OR `officeOwner`. A privileged agent only ever own-matches - `officeOwner` requires `scope === "user"`, so it never gets office-wide cron powers | `403` |
 | `runParamMustEqualTokenRun` | cron-run affordances | RUN scope ∧ `token.cronjobId === :id` ∧ `token.runId === :runId` | `403` |
 
@@ -210,7 +214,7 @@ Grouped by resource. `Cap` = `requiredCapability`; `Guard` = `resourceGuard`. A 
 
 | opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
 |---|---|---|---|---|---|---|---|
-| `agents.sendMessage` | POST `/api/agents/:id/messages` | `agent:converse` \| `agent:send-as-self` | `messageSend` | `SendMessageReq` | `{ messageId }` | `log_entry`* | WS:send_message + HTTP:POST /agents/:id/message `[strangle]`. Sender authority is always the token; `senderAgentId` is optional legacy input, rejected only if present and ≠ `token.agentId` |
+| `agents.sendMessage` | POST `/api/agents/:id/messages` | `agent:converse` \| `agent:send-as-self` \| `agent:send-as-cron` \| `api:send-message` | `messageSend` | `SendMessageReq` | `{ messageId }` | `log_entry`* | WS:send_message + HTTP:POST /agents/:id/message `[strangle]`. Sender authority is always the token; `senderAgentId` is optional legacy agent input, rejected only if present and ≠ `token.agentId`, and rejected for cron and API senders. Cron attribution is built from the live job and targets use creator-visible room access. API attribution uses the live user plus its server-held token name |
 | `agents.editMessage` | PATCH `/api/agents/:id/messages/:logEntryId` | `agent:converse` | `requiresRoomAccess(:id)` | `EditMessageReq` | `{ messageId }` | `log_entry`* | WS:edit_message `[strangle]` |
 | `agents.cancelQueued` | DELETE `/api/agents/:id/queue/:messageId` | `agent:converse` | `requiresRoomAccess(:id)` | - | `204` | - | WS:cancel_queued `[strangle]` |
 | `agents.sendNow` | POST `/api/agents/:id/send-now` | `agent:converse` | `requiresRoomAccess(:id)` | - | `204` | `log_entry`* | WS:send_now `[strangle]` |
@@ -278,6 +282,14 @@ Non-leak invariant on all view writes: inaccessible or unknown room ids are igno
 `users.update` no longer carries `defaultRoomId`/`notifRooms`/`allowedRooms`: the first two move to `view.*`, the third to `users.setAccess`. `claim_user` (first-login prefs) becomes `view.setDefaultRoom` + `view.setNotifRooms`.
 
 User wire projections (see [Named request and wire shapes](#named-request-and-wire-shapes)): `all` user events and the public roster carry `UserPublicWire` (id/name/role/avatar/createdAt only). A user's sensitive fields (`envFile`, `allowedRooms`, `memberPrompt`, view prefs) reach only that user (`UserSelfWire`) or an owner managing them (`UserAdminWire`), never the office-wide `all` audience. `UserRecord` is never a wire shape on an `all` channel.
+
+**Personal API tokens**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `apiTokens.list` | GET `/api/me/api-tokens` | `user:self` | `userScope` | - | `ApiTokenListRes` | - | Cookie USER-only; last authenticated request is approximate |
+| `apiTokens.mint` | POST `/api/me/api-tokens` | `user:self` | `userScope` | `ApiTokenCreateReq` | `ApiTokenCreateRes` | - | Returns the raw token once; durable state holds only its hash |
+| `apiTokens.revoke` | DELETE `/api/me/api-tokens/:id` | `user:self` | `userScope` | - | `204` | - | Cookie USER-only; unknown or another user's id is 404 |
 
 **Sessions, invites, access (auth surface)**
 

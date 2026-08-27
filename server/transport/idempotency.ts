@@ -37,6 +37,8 @@ export function identitySubjectKey(identity: Identity): string {
       return `cron-run:${identity.cronjobId ?? ""}:${identity.runId ?? ""}`;
     case "app":
       return `app:${identity.appName ?? ""}`;
+    case "api":
+      return `api:${identity.apiTokenId ?? ""}`;
   }
 }
 

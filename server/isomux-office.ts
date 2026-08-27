@@ -216,6 +216,8 @@ import { triggerUpdate } from "./update-trigger.ts";
 import { readUpdateConf } from "./update-conf.ts";
 import { viewHandlers } from "./routes/handlers/view.ts";
 import { preferencesHandlers } from "./routes/handlers/preferences.ts";
+import { apiTokenHandlers } from "./routes/handlers/api-tokens.ts";
+import { listApiTokens, mintApiToken, revokeApiToken } from "./api-tokens.ts";
 import { roomsHandlers } from "./routes/handlers/rooms.ts";
 import { agentsHandlers } from "./routes/handlers/agents.ts";
 import { conversationHandlers } from "./routes/handlers/conversation.ts";
@@ -232,7 +234,7 @@ import { taskDeltaFor } from "./events/task-delta.ts";
 import { appDeltaFor, type AppChange } from "./events/app-delta.ts";
 import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
-import { type Identity } from "./identity/index.ts";
+import { identityHasCapability, type Identity } from "./identity/index.ts";
 import {
   appVisibleTo,
   viewerUserId,
@@ -2983,6 +2985,39 @@ function buildExecutorDeps(
           message: result.error,
         };
       },
+      sendAsCron: (receiverId, cronjobId, text, clientMessageId) => {
+        const job = cronjobManager
+          .listCronjobs()
+          .find((candidate) => candidate.id === cronjobId);
+        if (!job)
+          return {
+            ok: false,
+            status: 400,
+            code: "unknown_sender",
+            message: "Sender is not a known cron job.",
+          };
+        const result = agentManager.enqueueMessage(receiverId, {
+          sender: {
+            kind: "cronjob",
+            cronjobId: job.id,
+            cronjobName: job.name,
+          },
+          text,
+          clientMessageId,
+        });
+        if (result.ok)
+          return {
+            ok: true,
+            messageId: result.messageId,
+            ...(result.deduped ? {} : { queued: result.queued }),
+          };
+        return {
+          ok: false,
+          status: result.status as 400 | 404 | 409 | 429 | 500,
+          code: result.error,
+          message: result.error,
+        };
+      },
       // Scheduled messages (task 8ff369b5). Thin pass-throughs: the manager
       // owns validation (future/horizon/quota/idempotency) and returns the
       // status+code discriminated results the handler maps verbatim.
@@ -3268,6 +3303,13 @@ function buildExecutorDeps(
     preferencesHandlers({
       applyPreferences: (userId, change) =>
         applyPreferencesChange(userId, change),
+    }),
+  );
+  register(
+    apiTokenHandlers({
+      list: (userId) => listApiTokens(userId),
+      mint: (input) => mintApiToken(input),
+      revoke: (userId, id) => revokeApiToken(userId, id),
     }),
   );
   register(
@@ -4745,7 +4787,9 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         const auth = authenticate(req, { officeName });
         if (auth.kind === "rejected") return auth.response;
 
-        // APP tokens stop here, before any of it.
+        // Narrow non-browser tokens stop here, before the identity-only legacy
+        // surface. API tokens get one explicit exception: the live GET /agents
+        // manifest without the killed roster query.
         //
         // Everything below this line predates the capability model and gates on
         // "is there an identity" alone: the agent manifest (live and killed), the
@@ -4759,7 +4803,15 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // ONE check for the whole surface rather than per-handler, so a legacy
         // route added later cannot forget it. 403, not 401: the token is real and
         // isomux knows whose it is.
-        if (auth.identity.scope === "app") {
+        const apiManifestAllowed =
+          auth.identity.scope === "api" &&
+          req.method === "GET" &&
+          url.pathname === "/agents" &&
+          !url.searchParams.has("killed");
+        if (
+          auth.identity.scope === "app" ||
+          (auth.identity.scope === "api" && !apiManifestAllowed)
+        ) {
           return new Response(JSON.stringify({ error: "forbidden" }), {
             status: 403,
             headers: { "Content-Type": "application/json" },
@@ -4827,6 +4879,15 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // deleted user) has access to no rooms and receives [] - mirrors
         // guard-deps hasRoomAccess.
         if (url.pathname === "/agents" && req.method === "GET") {
+          if (
+            auth.identity.scope === "api" &&
+            !identityHasCapability(auth.identity, "api:discover-agents")
+          ) {
+            return new Response(JSON.stringify({ error: "forbidden" }), {
+              status: 403,
+              headers: { "Content-Type": "application/json" },
+            });
+          }
           if (req.headers.get("origin") !== null && !checkOrigin(req)) {
             return new Response(JSON.stringify({ error: "bad origin" }), {
               status: 403,

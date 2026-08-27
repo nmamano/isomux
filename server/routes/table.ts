@@ -95,6 +95,9 @@ import type {
   NotifRoomsReq,
   MeRoomsRes,
   PreferencesReq,
+  ApiTokenCreateReq,
+  ApiTokenCreateRes,
+  ApiTokenListRes,
   RecoveryMintReq,
   UserUpdateReq,
   SetAccessReq,
@@ -223,8 +226,15 @@ const pub: RouteAuth = { kind: "public" };
 // --- room-ref shorthands ----------------------------------------------------
 const roomParam = (name: string): Guard =>
   requiresRoomAccess({ kind: "paramRoomId", name });
-const agentParam = (name: string): Guard =>
-  requiresRoomAccess({ kind: "paramAgentId", name });
+// Capability-free agent routes also use this shorthand, so narrow APP/API
+// identities must clear the authenticated-scope wall before room projection.
+const agentParam = (name: string): Guard => {
+  const roomAccess = requiresRoomAccess({ kind: "paramAgentId", name });
+  return (ctx) => {
+    const identityGate = authenticated(ctx);
+    return identityGate.ok ? roomAccess(ctx) : identityGate;
+  };
+};
 const bodyRoom = (name: string): Guard =>
   requiresRoomAccess({ kind: "bodyRoomId", name });
 
@@ -384,7 +394,15 @@ export const API_ROUTES: readonly RouteDef[] = [
     // message: stored durably, fired later by scheduled-messages.ts; the ack is
     // ScheduledAck instead of MessageAck. Same route on purpose - one send
     // surface, one new field (design-pinned, task 8ff369b5).
-    auth: cap(["agent:converse", "agent:send-as-self"], messageSend),
+    auth: cap(
+      [
+        "agent:converse",
+        "agent:send-as-self",
+        "agent:send-as-cron",
+        "api:send-message",
+      ],
+      messageSend,
+    ),
     emits: ["log_entry"],
     preconditions: [
       "messageRecipientExists",
@@ -712,6 +730,30 @@ export const API_ROUTES: readonly RouteDef[] = [
     // observable change and would only broadcast the TIMING of a private edit.
     // Owners get the full record on the admin channel, the subject on its own.
     emits: ["user_admin_updated", "user_self_updated"],
+  }),
+
+  // Personal durable API credentials. Management is cookie USER-only: an API
+  // token can never mint, list, or revoke API tokens, including itself.
+  defineRoute<void, ApiTokenListRes>({
+    opId: "apiTokens.list",
+    method: "GET",
+    path: "/api/me/api-tokens",
+    auth: cap("user:self", userScope),
+    emits: [],
+  }),
+  defineRoute<ApiTokenCreateReq, ApiTokenCreateRes>({
+    opId: "apiTokens.mint",
+    method: "POST",
+    path: "/api/me/api-tokens",
+    auth: cap("user:self", userScope),
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "apiTokens.revoke",
+    method: "DELETE",
+    path: "/api/me/api-tokens/:id",
+    auth: cap("user:self", userScope),
+    emits: [],
   }),
 
   // --- Users ----------------------------------------------------------------

@@ -37,6 +37,7 @@ import { _testResetSkillUsage } from "../skill-usage.ts";
 import { _testResetAppMessageLimits } from "../app-message-limits.ts";
 import { _testResetAppHostDomain } from "../app-domain.ts";
 import { _testResetAppAuth } from "../app-auth.ts";
+import { _testResetApiTokens } from "../api-tokens.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";
 
@@ -148,6 +149,7 @@ async function bootTestServer(
     _testResetState();
     _testResetUsers();
     _testResetTokens();
+    _testResetApiTokens();
     _testResetSkillUsage();
     // App-message rate limits live in memory and reset when isomux restarts, so
     // a boot - INCLUDING a no-wipe restart(), which models exactly that - has to

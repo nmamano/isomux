@@ -19,6 +19,8 @@ import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
+  APP_CAPABILITIES,
+  API_CAPABILITIES,
   type Identity,
 } from "../identity/index.ts";
 
@@ -101,20 +103,25 @@ describe("dispatcher: stage 1 (coarse capability)", () => {
 });
 
 describe("dispatcher: stage 1 any-of capability (composite routes)", () => {
-  // agents.sendMessage declares `agent:converse | agent:send-as-self`, so both a
+  // agents.sendMessage admits a user, agent, cron-run, or API sender capability.
   // USER (has converse, not send-as-self) and an AGENT (has send-as-self, not
   // converse) must clear stage 1 and reach messageSend's scope-specific stage 2.
   const anyOf: RouteAuthz = {
-    requiredCapability: ["agent:converse", "agent:send-as-self"],
+    requiredCapability: [
+      "agent:converse",
+      "agent:send-as-self",
+      "agent:send-as-cron",
+      "api:send-message",
+    ],
     resourceGuard: allowGuard,
   };
-  it("a USER holding only one of the two clears stage 1", () => {
+  it("a USER holding its sender capability clears stage 1", () => {
     expect(authorize(anyOf, input(userOwner))).toEqual({ ok: true });
   });
-  it("an AGENT holding the other of the two clears stage 1", () => {
+  it("an AGENT holding its sender capability clears stage 1", () => {
     expect(authorize(anyOf, input(agent))).toEqual({ ok: true });
   });
-  it("an identity holding NEITHER is 403 at stage 1", () => {
+  it("a CRON-RUN holding its dedicated capability clears stage 1", () => {
     const run: Identity = {
       scope: "cron-run",
       userId: "u",
@@ -123,7 +130,28 @@ describe("dispatcher: stage 1 any-of capability (composite routes)", () => {
       role: "member",
       capabilities: RUN_CAPABILITIES,
     };
-    expect(authorize(anyOf, input(run))).toEqual({
+    expect(authorize(anyOf, input(run))).toEqual({ ok: true });
+  });
+  it("an API identity holding its dedicated capability clears stage 1", () => {
+    const api: Identity = {
+      scope: "api",
+      userId: "u",
+      apiTokenId: "pat-1",
+      apiTokenName: "Phone",
+      role: "member",
+      capabilities: API_CAPABILITIES,
+    };
+    expect(authorize(anyOf, input(api))).toEqual({ ok: true });
+  });
+  it("an APP identity holding none of the four is denied at stage 1", () => {
+    const app: Identity = {
+      scope: "app",
+      userId: "u",
+      appName: "status",
+      role: "member",
+      capabilities: APP_CAPABILITIES,
+    };
+    expect(authorize(anyOf, input(app))).toEqual({
       ok: false,
       status: 403,
       code: "forbidden",

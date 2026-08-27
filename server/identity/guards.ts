@@ -158,7 +158,7 @@ export const publicGuard: Guard = () => ALLOW;
 // serving strangers; it opts IN to a route deliberately, one route at a time,
 // through appScope below, never by being merely authenticated.
 export const authenticated: Guard = ({ identity }) =>
-  identity.scope === "app" ? FORBIDDEN : ALLOW;
+  identity.scope === "app" || identity.scope === "api" ? FORBIDDEN : ALLOW;
 
 // APP-scope gate: the opt-in half of the rule above, and the ONLY guard that
 // admits an app. Paired with the app:message capability on the one route an app
@@ -395,7 +395,10 @@ export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
 //              is derived from the cookie/identity by the handler, never the body.
 //   AGENT    → senderMustEqualTokenAgent; cross-room delivery is allowed, so NO
 //              room-access check is applied to an agent sender.
-//   CRON-RUN → deny (a run has no chat to send into).
+//   CRON-RUN → creator-room access, matching the GET /agents projection. A run
+//              can message exactly the live agents it can discover. Resolve the
+//              live job creator instead of widening accessibleRoomIdsForIdentity:
+//              that helper deliberately stays empty for cron task-board scope.
 //
 // NOT in this guard, deliberately: recipient EXISTENCE (for the AGENT branch)
 // and pendingPermission OWNERSHIP. Those are send-message SEMANTIC preconditions
@@ -415,8 +418,19 @@ export const messageSend: Guard = (ctx) => {
       return messageSendUserGuard(ctx);
     case "agent":
       return senderMustEqualTokenAgent(ctx);
-    case "cron-run":
-      return FORBIDDEN;
+    case "cron-run": {
+      const cronjobId = ctx.identity.cronjobId;
+      const recipientId = ctx.params.id;
+      if (!cronjobId || !recipientId) return FORBIDDEN;
+      const creatorUserId = ctx.deps.cronjobCreatorUserId(cronjobId);
+      if (!creatorUserId || creatorUserId !== ctx.identity.userId)
+        return FORBIDDEN;
+      const roomId = ctx.deps.roomIdForAgent(recipientId);
+      if (!roomId) return FORBIDDEN;
+      return ctx.deps.hasRoomAccess(ctx.identity, roomId) ? ALLOW : FORBIDDEN;
+    }
+    case "api":
+      return messageSendUserGuard(ctx);
     // An app messaging its agent is the NEXT slice's feature, and it arrives as
     // its own capability and its own guard - not as an app slipping through the
     // route agents use to message each other, where the sender authority is a
@@ -463,6 +477,8 @@ export const scheduledMessagesOwner: Guard = (ctx) => {
       return FORBIDDEN;
     case "app": // no outbox, and no agent id to bind one to
       return FORBIDDEN;
+    case "api": // no scheduled-message outbox
+      return FORBIDDEN;
   }
 };
 
@@ -493,6 +509,8 @@ export const conversationReset: Guard = (ctx) => {
     case "cron-run":
       return FORBIDDEN;
     case "app": // an app has no session of its own, and none over an agent
+      return FORBIDDEN;
+    case "api": // a personal token can send, not reset sessions
       return FORBIDDEN;
   }
 };
@@ -569,6 +587,8 @@ export const logSearchAccess: Guard = (ctx) => {
     // for attribution, and killedAgentLogAccess own-matches on exactly that -
     // so this branch is what stops a truthful field from becoming an authority.
     case "app":
+      return FORBIDDEN;
+    case "api":
       return FORBIDDEN;
   }
 };

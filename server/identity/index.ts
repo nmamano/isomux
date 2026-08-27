@@ -23,7 +23,7 @@ import type { UserRole } from "../../shared/types.ts";
 // running unattended, and it holds NO capabilities at all today. Adding it here
 // rather than off to one side is what makes every `switch (identity.scope)` in
 // the guard catalog fail to compile until it has decided about apps.
-export type TokenScope = "user" | "agent" | "cron-run" | "app";
+export type TokenScope = "user" | "agent" | "cron-run" | "app" | "api";
 
 // The capability lattice. A capability gates a class of operations; the route
 // table's `requiredCapability` is checked against the identity's set before any
@@ -75,9 +75,16 @@ export type Capability =
   // capability to reach this route would drag every other office:read surface
   // along with it. Its own capability is what keeps the widening surgical.
   | "log:read"
-  // AGENT-identity capabilities - deliberately absent from USER scope (a human
-  // is not an agent and has no own-chat).
+  // Non-user sender/affordance capabilities. Deliberately absent from USER
+  // scope: a human is not an agent or cron run and has no own-chat.
   | "agent:send-as-self"
+  // CRON-RUN only: send a message attributed to the live scheduled job. Kept
+  // distinct from agent:send-as-self because a run is never an agent.
+  | "agent:send-as-cron"
+  // Durable personal API-token scope. Separate discovery and send capabilities
+  // keep the credential from inheriting any broader browser surface.
+  | "api:discover-agents"
+  | "api:send-message"
   | "self:affordance";
 
 // A resolved caller identity. Produced from a cookie session
@@ -101,10 +108,15 @@ export interface Identity {
   runId?: string;
   // APP scope: the registered app's name (unique, and fixed for its whole life).
   appName?: string;
-  // Role is meaningful ONLY for USER scope (owner-only routes are gated by the
-  // officeOwner guard on a USER identity). For AGENT and CRON-RUN scope it is
-  // an inert least-privilege filler ("member"). Authorization for non-user
-  // identities MUST key on scope + capabilities + resource guards, never on
+  // API scope: stable token id for idempotency and a server-stored display name
+  // used in sender attribution. Neither comes from the request body.
+  apiTokenId?: string;
+  apiTokenName?: string;
+  // Role is authoritative for USER scope. API scope also carries the issuing
+  // user's truthful, live role, although no API guard currently consults it.
+  // For AGENT, CRON-RUN, and APP scope it is an inert least-privilege filler
+  // ("member"). Authorization for those identities MUST key on scope +
+  // capabilities + resource guards, never on
   // role - a role-only guard must never authorize an agent/run identity.
   role: UserRole;
   capabilities: readonly Capability[];
@@ -180,6 +192,8 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // defense-in-depth on top of that. Whenever a new capability is added, decide
 // explicitly whether a privileged agent should hold it; do NOT let it ride in by
 // default.
+// agent:send-as-cron is deliberately absent too: cron attribution belongs only
+// to a live CRON-RUN identity, never to an agent with operator privileges.
 export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
   ...AGENT_CAPABILITIES,
   "agent:converse",
@@ -219,6 +233,7 @@ export function agentCapabilities(privileged: boolean): readonly Capability[] {
 // anyone has asked for, and granting it later is one line.
 export const RUN_CAPABILITIES: readonly Capability[] = [
   "self:affordance",
+  "agent:send-as-cron",
   "task:read",
   "task:write",
 ];
@@ -241,6 +256,11 @@ export const RUN_CAPABILITIES: readonly Capability[] = [
 // pins that the one is exactly one.
 export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
 
+export const API_CAPABILITIES: readonly Capability[] = [
+  "api:discover-agents",
+  "api:send-message",
+];
+
 export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
   switch (scope) {
     case "user":
@@ -251,6 +271,8 @@ export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
       return RUN_CAPABILITIES;
     case "app":
       return APP_CAPABILITIES;
+    case "api":
+      return API_CAPABILITIES;
   }
 }
 

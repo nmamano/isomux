@@ -47,6 +47,7 @@ import { InvitesPane } from "./InvitesPane.tsx";
 import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
+import { ApiTokensPane } from "./ApiTokensPane.tsx";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -64,7 +65,13 @@ type ValidationStatus =
 // two self-scoped panes ("My devices" - task eb3354e6 revision: device links
 // are self-service for everyone - and "Preferences", task 49d4e2f6); members
 // get the two self-scoped ones.
-type AccountSection = "access" | "invites" | "sessions" | "devices" | "prefs";
+type AccountSection =
+  | "access"
+  | "invites"
+  | "sessions"
+  | "devices"
+  | "prefs"
+  | "apiTokens";
 
 // What the detail pane shows: a user's editor, or one account section.
 // null = nothing selected - on mobile that means the list is showing; on
@@ -261,10 +268,12 @@ export function UserSettingsView({
         { section: "sessions", label: "Sessions" },
         { section: "devices", label: "My devices" },
         { section: "prefs", label: "Preferences" },
+        { section: "apiTokens", label: "API tokens" },
       ]
     : [
         { section: "devices", label: "My devices" },
         { section: "prefs", label: "Preferences" },
+        { section: "apiTokens", label: "API tokens" },
       ];
 
   function signOut() {
@@ -634,6 +643,8 @@ export function UserSettingsView({
                   <MyDevicesPane />
                 ) : selection.section === "prefs" && sessionContext ? (
                   <PreferencesPane />
+                ) : selection.section === "apiTokens" && sessionContext ? (
+                  <ApiTokensPane />
                 ) : null}
               </div>
             ) : selectedUser && isFullUserView(selectedUser) ? (

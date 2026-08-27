@@ -22,7 +22,7 @@ import {
   type InvitePeek,
   type SessionLookup,
 } from "./auth.ts";
-import { getUserByName, hasOwner } from "./users.ts";
+import { getUserById, getUserByName, hasOwner } from "./users.ts";
 import {
   readBearerToken,
   identityFromSession,
@@ -30,6 +30,8 @@ import {
 } from "./identity/index.ts";
 import { resolveToken } from "./identity/tokens.ts";
 import { appIdentityFromToken } from "./app-tokens.ts";
+import { resolveApiToken } from "./api-tokens.ts";
+import { API_CAPABILITIES } from "./identity/index.ts";
 import { deriveAppHostDomain } from "./app-domain.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
@@ -306,7 +308,22 @@ function resolveBearerIdentity(req: Request): Identity | null {
   // store. The two spaces cannot collide - 256 bits of entropy each - so the
   // order is about cost, not precedence: an agent token resolves from a map,
   // an app token reads a file.
-  return resolveToken(bearer) ?? appIdentityFromToken(bearer);
+  const transientOrApp = resolveToken(bearer) ?? appIdentityFromToken(bearer);
+  if (transientOrApp) return transientOrApp;
+  const apiToken = resolveApiToken(bearer);
+  if (!apiToken) return null;
+  // Role and existence are live, never stamped into a durable credential. A
+  // deletion or demotion therefore changes authorization on the next request.
+  const user = getUserById(apiToken.userId);
+  if (!user) return null;
+  return {
+    scope: "api",
+    userId: user.id,
+    role: user.role,
+    capabilities: API_CAPABILITIES,
+    apiTokenId: apiToken.id,
+    apiTokenName: apiToken.name,
+  };
 }
 
 // ---------------------------------------------------------------------------

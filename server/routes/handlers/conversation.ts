@@ -47,6 +47,7 @@ import type {
 // Pure format parser (no state) - safe for a leaf handler module to import.
 import { parseDeliverAt } from "../../scheduled-messages.ts";
 import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
+import { formatApiTokenDevice } from "../../../shared/identity.ts";
 
 // The AGENT (inter-agent) send outcome. The failure carries the status + stable
 // code directly (self-send/unknown-sender from the dep's checks; otherwise
@@ -120,6 +121,14 @@ export interface ConversationDeps {
     // Interrupt the receiver's in-flight turn so this message lands now
     // (task 80b2bb08). Enqueue + interrupt happen inside one manager call.
     steer: boolean,
+  ): SendAsAgentResult;
+  // CRON-RUN send. The dependency resolves the live job and constructs its
+  // sender attribution; the request body cannot name or impersonate a sender.
+  sendAsCron(
+    receiverId: string,
+    cronjobId: string,
+    text: string,
+    clientMessageId: string | undefined,
   ): SendAsAgentResult;
   // AGENT send with deliverAt: store a durable scheduled entry instead of
   // enqueueing now (fired later by scheduled-messages.ts). Self-send IS
@@ -234,11 +243,13 @@ export function conversationHandlers(
       // silently ignore a delivery-affecting flag); agents pass steer instead
       // (POST /api/agents/:id/send-now is privileged-only, so it was never the
       // answer for an ordinary agent).
-      if (b.sendNow !== undefined && ctx.identity.scope === "agent") {
+      if (b.sendNow !== undefined && ctx.identity.scope !== "user") {
         return fail(
           400,
           "send_now_not_supported",
-          "sendNow is only supported for user senders; agents pass steer:true instead.",
+          ctx.identity.scope === "agent"
+            ? "sendNow is only supported for user senders; agents pass steer:true instead."
+            : "sendNow is only supported for user senders.",
         );
       }
       // steer is the mirror image: AGENT-branch only. A user with the same
@@ -260,6 +271,32 @@ export function conversationHandlers(
           400,
           "deliver_at_not_supported",
           "deliverAt is only supported for agent (bearer-token) senders.",
+        );
+      }
+      if (ctx.identity.scope === "cron-run" && b.attachments !== undefined) {
+        return fail(
+          400,
+          "attachments_not_supported",
+          "attachments are not supported for cron job senders.",
+        );
+      }
+      if (
+        ctx.identity.scope === "api" &&
+        (b.device !== undefined ||
+          b.attachments !== undefined ||
+          b.senderAgentId !== undefined)
+      ) {
+        return fail(
+          400,
+          "api_attribution_not_supported",
+          "device, attachments, and senderAgentId are not supported for API token senders.",
+        );
+      }
+      if (ctx.identity.scope === "cron-run" && b.senderAgentId !== undefined) {
+        return fail(
+          400,
+          "sender_agent_not_supported",
+          "senderAgentId is not supported for cron job senders.",
         );
       }
       if (ctx.identity.scope === "agent") {
@@ -322,6 +359,40 @@ export function conversationHandlers(
               : { steerDeclined: r.steerDeclined }),
           });
         return fail(r.status, r.code, r.message);
+      }
+      if (ctx.identity.scope === "cron-run") {
+        if (b.text.length === 0) {
+          return fail(400, "invalid_text", "text is required");
+        }
+        const r = deps.sendAsCron(
+          ctx.params.id,
+          ctx.identity.cronjobId ?? "",
+          b.text,
+          b.clientMessageId,
+        );
+        if (r.ok)
+          return ok({
+            messageId: r.messageId ?? "",
+            ...(r.queued === undefined ? {} : { queued: r.queued }),
+          });
+        return fail(r.status, r.code, r.message);
+      }
+      if (ctx.identity.scope === "api") {
+        if (b.text.length === 0) {
+          return fail(400, "invalid_text", "text is required");
+        }
+        // A personal token is the issuing human, not a separate machine
+        // principal. Keeping the user sender kind preserves human-input
+        // completion notifications; only the server-derived device differs.
+        deps.sendAsUser(
+          ctx.params.id,
+          b.text,
+          deps.attributionFor(ctx.identity).username,
+          formatApiTokenDevice(ctx.identity.apiTokenName ?? "unknown"),
+          undefined,
+          false,
+        );
+        return ok({ messageId: "" });
       }
       // USER path: fire-and-forget. Empty text is allowed when attachments carry
       // the content (the composer sends an image with no caption). The ack body
