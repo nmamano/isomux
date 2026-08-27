@@ -350,6 +350,16 @@ export class FakeBackend implements Backend {
     return session;
   }
 
+  checkSessionResumable(
+    _sessionId: string,
+    _opts: {
+      cwd: string;
+      env?: { [key: string]: string | undefined };
+    },
+  ): string | null {
+    return null;
+  }
+
   async forkSessionBeforeMessage(
     _sessionId: string,
     _targetMessageId: string,

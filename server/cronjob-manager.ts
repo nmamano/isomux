@@ -31,14 +31,7 @@ import {
   type LogEntry,
   type Schedule,
 } from "../shared/types.ts";
-import {
-  validateCwd,
-  resolveCwd,
-  claudeSessionFileExists,
-  claudeProjectDir,
-  codexRolloutFileExists,
-  codexSessionsDir,
-} from "./cwd-utils.ts";
+import { validateCwd, resolveCwd } from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
@@ -1634,25 +1627,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
     } catch (err) {
       return `Cannot build env: ${errMessage(err)}`;
     }
-    if (run.agentTypeSnapshot === "claude") {
-      if (!claudeSessionFileExists(run.cwdSnapshot, leaf, env)) {
-        return (
-          `Cannot resume session ${leaf.slice(0, 8)}…: its file is missing from ${claudeProjectDir(run.cwdSnapshot, env)}. ` +
-          `Most commonly this happens after the cwd was moved or renamed - the Claude CLI stores sessions under a path derived from cwd.`
-        );
-      }
-      return null;
-    }
-    // Codex: explicit-resume paths only block on missing-file. Header-only
-    // and corrupt rollouts surface via Codex's own thread/resume error with
-    // a more specific message - let it through.
-    if (!codexRolloutFileExists(leaf, env)) {
-      return (
-        `Cannot resume Codex thread ${leaf.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(env)}. ` +
-        `This usually means the thread was started but never received a user turn before its process exited.`
-      );
-    }
-    return null;
+    return getBackend(run.agentTypeSnapshot).checkSessionResumable(leaf, {
+      cwd: run.cwdSnapshot,
+      env,
+    });
   }
 
   // Edit-to-fork a user message in a finalized run. Mirrors agent-manager's

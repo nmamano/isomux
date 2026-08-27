@@ -168,6 +168,44 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     fake.sessions.forEach((s) => s.close());
   });
 
+  it("selects the Codex backend and passes its run options through unchanged", async () => {
+    const claude = new FakeBackend();
+    const codex = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },
+    });
+    const selected: string[] = [];
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: (agentType) => {
+          selected.push(agentType);
+          return agentType === "codex" ? codex : claude;
+        },
+      }),
+    );
+    const job = mgr.addCronjob({
+      ...intervalInput("CodexRunJob"),
+      agentType: "codex",
+      modelFamily: "gpt-test-cron",
+      effort: "high",
+      permissionMode: "never",
+      codexSandbox: "read-only",
+    });
+
+    mgr.runCronjobNow(job.id, "Nil");
+    await new Promise((r) => setTimeout(r, 25));
+
+    expect(selected).toContain("codex");
+    expect(claude.createSessionCount).toBe(0);
+    expect(codex.createSessionCount).toBe(1);
+    expect(codex.lastSession?.opts).toMatchObject({
+      modelFamily: "gpt-test-cron",
+      effort: "high",
+      permissionMode: "never",
+      sandbox: "read-only",
+    });
+    codex.sessions.forEach((s) => s.close());
+  });
+
   it("production factory constructs against today's defaults (shallow)", () => {
     const mgr = createProductionCronjobManager();
     expect(typeof mgr.listCronjobs).toBe("function");

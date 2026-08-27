@@ -451,6 +451,13 @@ export interface Backend {
 
   createSession(opts: CreateSessionOptions): BackendSession;
   resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession;
+  checkSessionResumable(
+    sessionId: string,
+    opts: {
+      cwd: string;
+      env?: { [key: string]: string | undefined };
+    },
+  ): string | null;
 
   // Branch a conversation so that `targetMessageId` and everything after it
   // is replaced. The backend resolves predecessor / first-message semantics

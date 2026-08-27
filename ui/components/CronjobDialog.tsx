@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
@@ -28,6 +28,10 @@ import {
   dialogChip,
 } from "./dialog-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
+import {
+  ExpandableTextarea,
+  isExpandedEditorOpen,
+} from "./ExpandableTextarea.tsx";
 
 const WEEKDAYS: { value: 0 | 1 | 2 | 3 | 4 | 5 | 6; label: string }[] = [
   { value: 0, label: "Sunday" },
@@ -40,6 +44,54 @@ const WEEKDAYS: { value: 0 | 1 | 2 | 3 | 4 | 5 | 6; label: string }[] = [
 ];
 
 type ScheduleType = "daily" | "weekly" | "interval";
+
+export interface CronjobFormSnapshot {
+  name: string;
+  scheduleType: ScheduleType;
+  hourStr: string;
+  minuteStr: string;
+  weekday: number;
+  intervalStr: string;
+  prompt: string;
+  cwd: string;
+  agentType: AgentBackendType;
+  modelFamily: string;
+  effort: EffortLevel;
+  permissionMode: CronjobPermissionMode;
+  codexSandbox: CodexSandboxMode;
+  enabled: boolean;
+}
+
+export function cronjobFormDirty(
+  current: CronjobFormSnapshot,
+  baseline: CronjobFormSnapshot,
+): boolean {
+  return (
+    current.name.trim() !== baseline.name.trim() ||
+    current.scheduleType !== baseline.scheduleType ||
+    current.hourStr !== baseline.hourStr ||
+    current.minuteStr !== baseline.minuteStr ||
+    current.weekday !== baseline.weekday ||
+    current.intervalStr !== baseline.intervalStr ||
+    current.prompt.trim() !== baseline.prompt.trim() ||
+    current.cwd.trim() !== baseline.cwd.trim() ||
+    current.agentType !== baseline.agentType ||
+    current.modelFamily !== baseline.modelFamily ||
+    current.effort !== baseline.effort ||
+    current.permissionMode !== baseline.permissionMode ||
+    current.codexSandbox !== baseline.codexSandbox ||
+    current.enabled !== baseline.enabled
+  );
+}
+
+export function updateCronjobMachineDefaults(
+  baseline: CronjobFormSnapshot,
+  modelFamily: string,
+  effort?: EffortLevel,
+): void {
+  baseline.modelFamily = modelFamily;
+  if (effort) baseline.effort = effort;
+}
 
 export function CronjobDialog({
   cronjob,
@@ -110,6 +162,25 @@ export function CronjobDialog({
     agentType === "codex" ? "never" : "bypassPermissions",
   );
   const [enabled, setEnabled] = useState(cronjob?.enabled ?? true);
+
+  const formSnapshot: CronjobFormSnapshot = {
+    name,
+    scheduleType,
+    hourStr,
+    minuteStr,
+    weekday,
+    intervalStr,
+    prompt,
+    cwd,
+    agentType,
+    modelFamily,
+    effort,
+    permissionMode,
+    codexSandbox,
+    enabled,
+  };
+  const baselineRef = useRef<CronjobFormSnapshot | null>(null);
+  if (baselineRef.current == null) baselineRef.current = formSnapshot;
 
   // Codex models are fetched server-side (auth-aware via model/list). null =
   // not yet attempted. On fetch failure we fall back to the hardcoded
@@ -191,13 +262,20 @@ export function CronjobDialog({
             visibleModels[0];
           if (def) {
             setModelFamily(def.id);
+            updateCronjobMachineDefaults(baselineRef.current!, def.id);
             // Keep Isomux's DEFAULT_EFFORT when the model supports it; only
             // adopt the model's own reported default when it doesn't.
             const supportsDefault = def.supportedEfforts.some(
               (o) => o.level === DEFAULT_EFFORT,
             );
-            if (!supportsDefault && def.defaultEffort)
+            if (!supportsDefault && def.defaultEffort) {
               setEffort(def.defaultEffort as EffortLevel);
+              updateCronjobMachineDefaults(
+                baselineRef.current!,
+                def.id,
+                def.defaultEffort as EffortLevel,
+              );
+            }
           }
         }
       })
@@ -218,17 +296,58 @@ export function CronjobDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isCodex, agentType]);
 
+  function isDirty(): boolean {
+    return cronjobFormDirty(formSnapshot, baselineRef.current!);
+  }
+
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const pendingDiscardActionRef = useRef<(() => void) | null>(null);
+
+  function requestClose(after?: () => void) {
+    if (isDirty()) {
+      pendingDiscardActionRef.current = after ?? null;
+      setConfirmDiscard(true);
+    } else {
+      onClose();
+      after?.();
+    }
+  }
+
+  function commitDiscard() {
+    const next = pendingDiscardActionRef.current;
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
+    onClose();
+    next?.();
+  }
+
+  function cancelDiscard() {
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
+  }
+
   // ESC to close
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
+      if (e.key !== "Escape") return;
+      if (isExpandedEditorOpen()) return;
+      e.stopPropagation();
+      if (saving) return;
+      if (confirmDiscard) cancelDiscard();
+      else requestClose();
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onClose]);
+  });
+
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!isDirty()) return;
+      e.preventDefault();
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  });
 
   function buildSchedule(): Schedule {
     const hour = clamp(parseIntOr(hourStr, 0), 0, 23);
@@ -308,7 +427,7 @@ export function CronjobDialog({
   return (
     <div
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
       style={{
         position: "fixed",
@@ -501,9 +620,10 @@ export function CronjobDialog({
           </p>
 
           <label style={{ ...labelStyle, marginTop: 14 }}>Prompt</label>
-          <textarea
+          <ExpandableTextarea
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={setPrompt}
+            title="Cron Job Prompt"
             placeholder='e.g. "Summarize what every agent accomplished yesterday."'
             rows={4}
             style={{ ...inputStyle, resize: "vertical" }}
@@ -820,9 +940,6 @@ export function CronjobDialog({
 
         <div
           style={{
-            display: "flex",
-            justifyContent: isEdit ? "space-between" : "flex-end",
-            gap: 8,
             padding: isMobile
               ? "16px 20px max(16px, env(safe-area-inset-bottom))"
               : "16px 28px",
@@ -830,32 +947,74 @@ export function CronjobDialog({
             flexShrink: 0,
           }}
         >
-          {isEdit && (
-            <button
-              onClick={handleDelete}
-              onBlur={() => setConfirmDelete(false)}
+          {confirmDiscard && (
+            <div
               style={{
-                padding: "7px 16px",
-                borderRadius: 8,
-                border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
-                background: confirmDelete ? "var(--red)" : "transparent",
-                color: confirmDelete ? "var(--bg-base)" : "var(--red)",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+                marginBottom: 10,
+                padding: "8px 10px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "var(--bg-input)",
               }}
-              disabled={saving}
             >
-              {confirmDelete ? "Confirm?" : "Delete"}
-            </button>
+              <span
+                style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}
+              >
+                Discard unsaved changes?
+              </span>
+              <button onClick={commitDiscard} style={discardBtnStyle}>
+                Discard
+              </button>
+              <button onClick={cancelDiscard} style={cancelBtnStyle}>
+                Cancel
+              </button>
+            </div>
           )}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
-              Cancel
-            </button>
-            <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
-              {saving ? "Saving…" : isEdit ? "Save" : "Create"}
-            </button>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: isEdit ? "space-between" : "flex-end",
+              gap: 8,
+            }}
+          >
+            {isEdit && (
+              <button
+                onClick={handleDelete}
+                onBlur={() => setConfirmDelete(false)}
+                style={{
+                  padding: "7px 16px",
+                  borderRadius: 8,
+                  border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
+                  background: confirmDelete ? "var(--red)" : "transparent",
+                  color: confirmDelete ? "var(--bg-base)" : "var(--red)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+                disabled={saving}
+              >
+                {confirmDelete ? "Confirm?" : "Delete"}
+              </button>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                onClick={() => requestClose()}
+                style={cancelBtnStyle}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                style={saveBtnStyle}
+                disabled={saving}
+              >
+                {saving ? "Saving…" : isEdit ? "Save" : "Create"}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -868,3 +1027,13 @@ const inputStyle: React.CSSProperties = dialogInput;
 const chipStyle: React.CSSProperties = dialogChip;
 const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
 const saveBtnStyle: React.CSSProperties = dialogSaveBtn;
+const discardBtnStyle: React.CSSProperties = {
+  padding: "6px 12px",
+  borderRadius: 6,
+  border: "1px solid var(--red)",
+  background: "var(--red)",
+  color: "var(--bg-base)",
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: "pointer",
+};

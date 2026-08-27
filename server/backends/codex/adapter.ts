@@ -38,6 +38,7 @@ import { markdownInlineCode } from "../../../shared/format-human.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import type { SubagentOrigin } from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
+import { codexRolloutFileExists, codexSessionsDir } from "../../cwd-utils.ts";
 
 import type {
   ApprovalDecision,
@@ -2581,6 +2582,19 @@ export const codexBackend: Backend = {
       env: opts.env,
       resumeThreadId: sessionId,
     });
+  },
+
+  checkSessionResumable(sessionId, opts): string | null {
+    // Explicit-resume paths only block on missing-file. Header-only and corrupt
+    // rollouts surface through Codex's own thread/resume error with a more
+    // specific message.
+    if (!codexRolloutFileExists(sessionId, opts.env)) {
+      return (
+        `Cannot resume Codex thread ${sessionId.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(opts.env)}. ` +
+        `This usually means the thread was started but never received a user turn before its process exited.`
+      );
+    }
+    return null;
   },
 
   async forkSessionBeforeMessage(

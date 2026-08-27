@@ -79,7 +79,11 @@ import {
   formatAttachmentLines,
 } from "../attachment-prompt.ts";
 import { createSafetyHooks } from "../safety-hooks.ts";
-import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import {
+  CLAUDE_NATIVE_BIN,
+  claudeProjectDir,
+  claudeSessionFileExists,
+} from "../cwd-utils.ts";
 import {
   isClaudeCodeAuthenticated,
   isClaudeCodeInstalled,
@@ -1373,6 +1377,16 @@ export function createClaudeBackend(
         buildSdkOpts(opts),
         sessionId,
       );
+    },
+
+    checkSessionResumable(sessionId, opts): string | null {
+      if (!claudeSessionFileExists(opts.cwd, sessionId, opts.env)) {
+        return (
+          `Cannot resume session ${sessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(opts.cwd, opts.env)}. ` +
+          `Most commonly this happens after the cwd was moved or renamed - the Claude CLI stores sessions under a path derived from cwd.`
+        );
+      }
+      return null;
     },
 
     async forkSessionBeforeMessage(
