@@ -25,6 +25,11 @@ import {
 } from "../identity/tokens.ts";
 import { STATE_ROOT } from "../config.ts";
 import {
+  CODEX_MODELS,
+  MODEL_FAMILIES,
+  type AgentBackendType,
+} from "../../shared/types.ts";
+import {
   createCronjobManager,
   createProductionCronjobManager,
   registerProductionCronjobManagerForModuleReads,
@@ -141,6 +146,75 @@ describe("CronjobManager DI (disk-free seam)", () => {
     expect(job.createdAt).toBe(FIXED_NOW);
     expect(job.nextFireAt).toBeGreaterThan(FIXED_NOW);
     expect(job.nextFireAt).toBeLessThan(1e9);
+  });
+
+  it("switches a Claude cronjob to Codex under the new engine", () => {
+    const mgr = createCronjobManager(baseDeps());
+    const job = mgr.addCronjob(intervalInput("SwitchToCodex"));
+
+    const updated = mgr.updateCronjob(job.id, { agentType: "codex" });
+
+    expect(updated).toMatchObject({
+      agentType: "codex",
+      modelFamily: CODEX_MODELS[0].value,
+      effort: "high",
+      permissionMode: "never",
+    });
+  });
+
+  it("switches a Codex cronjob to Claude atomically and removes its sandbox", () => {
+    const mgr = createCronjobManager(baseDeps());
+    const job = mgr.addCronjob({
+      ...intervalInput("SwitchToClaude"),
+      agentType: "codex",
+      modelFamily: "gpt-test-cron",
+      effort: "high",
+      permissionMode: "never",
+      codexSandbox: "read-only",
+    });
+
+    const updated = mgr.updateCronjob(job.id, { agentType: "claude" });
+
+    expect(updated).toMatchObject({
+      agentType: "claude",
+      modelFamily: MODEL_FAMILIES[0].family,
+      effort: "high",
+      permissionMode: "bypassPermissions",
+    });
+    expect(updated?.codexSandbox).toBeUndefined();
+  });
+
+  it("ignores an unknown engine instead of persisting it", () => {
+    const mgr = createCronjobManager(baseDeps());
+    const job = mgr.addCronjob(intervalInput("InvalidEngine"));
+
+    const updated = mgr.updateCronjob(job.id, {
+      agentType: "gpt" as AgentBackendType,
+    });
+
+    expect(updated?.agentType).toBe("claude");
+    expect(
+      mgr.listCronjobs().find((item) => item.id === job.id)?.agentType,
+    ).toBe("claude");
+  });
+
+  it("keeps a fired run on its snapshotted engine after the cronjob switches", () => {
+    const mgr = createCronjobManager(baseDeps());
+    const job = mgr.addCronjob(intervalInput("SnapshotEngine"));
+    const run = mgr.runCronjobNow(job.id, "Nil");
+
+    mgr.updateCronjob(job.id, {
+      agentType: "codex",
+      modelFamily: "gpt-test-cron",
+      effort: "high",
+      permissionMode: "never",
+    });
+
+    const storedRun = mgr
+      .getRunsForCronjob(job.id)
+      .find((item) => item.id === run?.id);
+    expect(storedRun?.agentTypeSnapshot).toBe("claude");
+    expect(storedRun?.modelFamilySnapshot).toBe(MODEL_FAMILIES[0].family);
   });
 
   it("startCronjobScheduler registers tick + interval on the injected scheduler", () => {

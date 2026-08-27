@@ -392,6 +392,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
         | "schedule"
         | "prompt"
         | "cwd"
+        | "agentType"
         | "modelFamily"
         | "effort"
         | "permissionMode"
@@ -403,33 +404,43 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const idx = cronjobs.findIndex((c) => c.id === id);
     if (idx < 0) return null;
     const prev = cronjobs[idx];
-    // agentType is immutable on edit, mirroring agents. Re-validate the rest
-    // under the existing agentType so a stale UI payload can't slip an
-    // invalid Codex model into a Claude cronjob (or vice versa).
     const next: Cronjob = { ...prev };
+    const agentType =
+      changes.agentType === "claude" || changes.agentType === "codex"
+        ? changes.agentType
+        : prev.agentType;
+    const engineChanged = agentType !== prev.agentType;
+    next.agentType = agentType;
     if (changes.name !== undefined)
       next.name = changes.name.trim() || prev.name;
     if (changes.prompt !== undefined) next.prompt = changes.prompt;
     if (changes.cwd !== undefined) next.cwd = resolveCwd(changes.cwd);
-    if (changes.modelFamily !== undefined)
+    if (
+      engineChanged ||
+      changes.modelFamily !== undefined ||
+      changes.effort !== undefined ||
+      changes.permissionMode !== undefined
+    ) {
       next.modelFamily = validateModelFamily(
-        prev.agentType,
-        changes.modelFamily,
+        agentType,
+        changes.modelFamily ?? (engineChanged ? undefined : prev.modelFamily),
       );
-    if (changes.effort !== undefined)
       next.effort = validateEffort(
-        prev.agentType,
+        agentType,
         next.modelFamily,
-        changes.effort,
+        changes.effort ?? (engineChanged ? undefined : prev.effort),
       );
-    if (changes.permissionMode !== undefined)
       next.permissionMode = validateCronjobPermissionMode(
-        prev.agentType,
-        changes.permissionMode,
+        agentType,
+        changes.permissionMode ??
+          (engineChanged ? undefined : prev.permissionMode),
       );
-    if (changes.codexSandbox !== undefined && prev.agentType === "codex") {
-      const v = validateCodexSandbox(changes.codexSandbox);
-      if (v) next.codexSandbox = v;
+    }
+    if (agentType === "claude") {
+      if (engineChanged) delete next.codexSandbox;
+    } else if (changes.codexSandbox !== undefined) {
+      const sandbox = validateCodexSandbox(changes.codexSandbox);
+      if (sandbox) next.codexSandbox = sandbox;
       else delete next.codexSandbox;
     }
     if (changes.enabled !== undefined) next.enabled = changes.enabled;

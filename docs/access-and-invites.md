@@ -203,6 +203,33 @@ explicitly) rather than relying on session expiry.
 - **Agents run with the host Linux user's permissions.** The cookie auth doesn't constrain what an agent does once it's spawned in the office.
 - **Session revocation stops future use of a session but doesn't undo past actions.** Anything the leaked session already wrote stays written.
 
+## Use your own provider account
+
+Set your Env File Path in User Settings to a file with one of these API keys:
+
+```text
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+```
+
+For subscription billing, create a separate config directory and sign in once:
+
+```bash
+mkdir -p ~/.isomux-users/<user>/.claude
+CLAUDE_CONFIG_DIR=~/.isomux-users/<user>/.claude claude auth login
+
+# Run /usage in any Codex agent once first.
+mkdir -p ~/.isomux-users/<user>/.codex
+CODEX_HOME=~/.isomux-users/<user>/.codex ~/.isomux/bin/codex login --device-auth
+```
+
+Then put the config directory in the env file with an absolute path. Isomux does not expand `~` or `$VAR` there.
+
+```text
+CLAUDE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/.claude
+CODEX_HOME=/home/<linux-user>/.isomux-users/<user>/.codex
+```
+
 ## Bootstrap-window exposure
 
 Before an owner exists, the first-owner form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/VPN topology - Isomux is not reachable to an outside attacker.

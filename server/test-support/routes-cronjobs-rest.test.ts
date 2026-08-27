@@ -248,6 +248,34 @@ describe("routes/cron REST: create + attribution", () => {
 });
 
 describe("routes/cron REST: ownership tightening", () => {
+  it("PATCH /api/cronjobs/:id changes the engine and dependent settings together", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const job = seedJob(srv, "Boss", "EngineSwitch");
+
+    const result = await api(srv, `/api/cronjobs/${job.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        agentType: "codex",
+        modelFamily: "gpt-5-codex",
+        effort: "high",
+        permissionMode: "never",
+        codexSandbox: "workspace-write",
+      },
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body as Cronjob).toMatchObject({
+      agentType: "codex",
+      modelFamily: "gpt-5-codex",
+      effort: "high",
+      permissionMode: "never",
+      codexSandbox: "workspace-write",
+    });
+  });
+
   it("a member cannot update/delete/run another user's cronjob via REST (403) but can manage their own", async () => {
     const srv = await startTestServer();
     server = srv;

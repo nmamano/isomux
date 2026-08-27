@@ -698,6 +698,7 @@ export type CronUpdateReq = Partial<{
   schedule: Cronjob["schedule"];
   prompt: string;
   cwd: string;
+  agentType: Cronjob["agentType"];
   modelFamily: Cronjob["modelFamily"];
   effort: Cronjob["effort"];
   permissionMode: Cronjob["permissionMode"];

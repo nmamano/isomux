@@ -137,8 +137,6 @@ export function CronjobDialog({
   const [prompt, setPrompt] = useState(cronjob?.prompt ?? "");
   const [cwd, setCwd] = useState(cronjob?.cwd ?? "~");
 
-  // agentType is fixed at create-time, mirroring agents. The select is
-  // disabled on edit; to change engines the user creates a new cronjob.
   const [agentType, setAgentType] = useState<AgentBackendType>(
     cronjob?.agentType ?? "claude",
   );
@@ -204,7 +202,7 @@ export function CronjobDialog({
 
   // Engine change resets dependent fields to the new backend's safe defaults
   // so a stale Claude-flavored model/effort/permission doesn't survive a flip
-  // to Codex (or vice versa). Locked when editing - see Engine field below.
+  // to Codex (or vice versa).
   function handleEngineChange(next: AgentBackendType) {
     if (next === agentType) return;
     setAgentType(next);
@@ -373,13 +371,14 @@ export function CronjobDialog({
     // agent_save_response.error). Same .then/.catch shape as the model load.
     let req: Promise<unknown>;
     if (isEdit) {
-      // agentType is intentionally omitted - immutable on edit. CronUpdateReq is
-      // the changes FLAT (not wrapped in { changes } like the old WS command).
+      // CronUpdateReq is the changes FLAT (not wrapped in { changes } like the
+      // old WS command).
       const body: CronUpdateReq = {
         name: name.trim() || cronjob.name,
         schedule: buildSchedule(),
         prompt,
         cwd,
+        agentType,
         modelFamily,
         effort,
         permissionMode,
@@ -657,38 +656,16 @@ export function CronjobDialog({
           )}
 
           <label style={{ ...labelStyle, marginTop: 14 }}>Engine</label>
-          {isEdit ? (
-            // Locked on edit, mirroring agents. To switch engines the user
-            // creates a new cronjob.
-            <div
-              title="Engine is fixed at create time - to switch engines, create a new cronjob."
-              style={{
-                ...inputStyle,
-                display: "flex",
-                alignItems: "center",
-                color: "var(--text-muted)",
-                fontFamily: "'JetBrains Mono',monospace",
-                textTransform: "uppercase",
-                letterSpacing: 0.5,
-                fontWeight: 600,
-                cursor: "not-allowed",
-                background: "var(--bg-elevated)",
-              }}
-            >
-              {agentType}
-            </div>
-          ) : (
-            <select
-              value={agentType}
-              onChange={(e) =>
-                handleEngineChange(e.target.value as AgentBackendType)
-              }
-              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-            >
-              <option value="claude">Claude</option>
-              <option value="codex">Codex</option>
-            </select>
-          )}
+          <select
+            value={agentType}
+            onChange={(e) =>
+              handleEngineChange(e.target.value as AgentBackendType)
+            }
+            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+          >
+            <option value="claude">Claude</option>
+            <option value="codex">Codex</option>
+          </select>
 
           <label style={{ ...labelStyle, marginTop: 14 }}>Model</label>
           {(() => {
