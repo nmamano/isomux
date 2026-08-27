@@ -4,11 +4,13 @@
 
 import type { CSSProperties } from "react";
 
+// Labels sit one contrast step above hint copy (dim/600 vs muted/400) so the
+// hierarchy survives every theme's ladder.
 export const dialogLabel: Readonly<CSSProperties> = Object.freeze({
   display: "block",
-  fontSize: 11,
+  fontSize: 12,
   fontWeight: 600,
-  color: "var(--text-muted)",
+  color: "var(--text-dim)",
   marginBottom: 5,
 });
 

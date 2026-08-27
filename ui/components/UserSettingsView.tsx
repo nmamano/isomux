@@ -545,7 +545,7 @@ export function UserSettingsView({
             <p
               style={{
                 fontSize: 10,
-                color: "var(--text-ghost)",
+                color: "var(--text-muted)",
                 margin: "16px 14px 10px",
                 lineHeight: 1.4,
               }}
@@ -1256,7 +1256,7 @@ function UserEditPanel({
                   borderBottom: "1px solid var(--border-subtle)",
                   fontSize: 10,
                   fontWeight: 600,
-                  color: "var(--text-ghost)",
+                  color: "var(--text-muted)",
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0 }}>Room</span>
@@ -1279,7 +1279,7 @@ function UserEditPanel({
                   style={{
                     padding: "8px 12px",
                     fontSize: 12,
-                    color: "var(--text-ghost)",
+                    color: "var(--text-muted)",
                   }}
                 >
                   No rooms yet.
@@ -1826,8 +1826,8 @@ const sectionTitleStyle: React.CSSProperties = {
   borderBottom: "1px solid var(--border-subtle)",
 };
 const sectionHintStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: "var(--text-ghost)",
+  fontSize: 12,
+  color: "var(--text-muted)",
   margin: "6px 0 0",
   lineHeight: 1.4,
 };
