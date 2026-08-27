@@ -1399,10 +1399,7 @@ function UserEditPanel({
 
         <h5 style={sectionTitleStyle}>Agent Context</h5>
         <label style={subLabelStyle}>
-          Env File Path{" "}
-          <span style={hintStyle}>
-            (absolute path; applied at session start)
-          </span>
+          Env File Path <span style={hintStyle}>(absolute path)</span>
         </label>
         <input
           value={envFile}
@@ -1416,9 +1413,11 @@ function UserEditPanel({
         />
         <ValidationLine status={validation} />
         <div style={{ ...hintStyle, marginTop: 4 }}>
-          To run your agents on API-key billing instead of a subscription
-          sign-in, put ANTHROPIC_API_KEY=… (Claude) or OPENAI_API_KEY=… (Codex)
-          in this file.
+          A file of NAME=value lines on the server, loaded into the environment
+          of your agents. Put ANTHROPIC_API_KEY=… (Claude) or OPENAI_API_KEY=…
+          (Codex) here to run them on API-key billing instead of a subscription
+          sign-in. Each agent reads the file when it starts or resumes a
+          conversation, so a change reaches a running agent on its next /clear.
         </div>
 
         <label style={subLabelStyle}>
