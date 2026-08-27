@@ -1,7 +1,7 @@
 // Isometric grid layout for the desks (see shared/desks.ts for the slot list)
-// All coordinates are in SVG space (viewBox: -450 -100 1100 700)
+// All coordinates are in SVG space (viewBox: -355 -100 950 700)
 
-// Scene container dimensions and viewBox - sized wall-to-wall (left wall -355 to right wall 595)
+// Scene viewport spans -355 to 595; wall thickness overhangs from -364 to 604.
 export const SCENE_W = 950,
   SCENE_H = 700;
 export const VB_X = -355,

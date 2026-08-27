@@ -80,7 +80,9 @@ export function UsageModal({ onBack }: { onBack: () => void }) {
           marginBottom: isMobile ? 24 : undefined,
           width: isMobile ? "calc(100% - 32px)" : 760,
           maxWidth: isMobile ? "100%" : "calc(100% - 48px)",
-          maxHeight: isMobile ? "calc(100dvh - 48px)" : "90vh",
+          maxHeight: isMobile
+            ? "calc(100dvh - 48px - var(--banner-h, 0px))"
+            : "calc(90vh - var(--banner-h, 0px))",
           boxShadow: "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}

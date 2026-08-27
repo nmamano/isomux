@@ -662,7 +662,9 @@ export function AppsView({
   return (
     <div
       style={{
-        height: isMobile ? "100dvh" : "100vh",
+        height: isMobile
+          ? "calc(100dvh - var(--banner-h, 0px))"
+          : "calc(100vh - var(--banner-h, 0px))",
         display: "flex",
         flexDirection: "column",
         background: "var(--bg-base)",

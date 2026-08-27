@@ -928,8 +928,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           flexDirection: "column",
           width: isMobile ? "100%" : undefined,
           maxWidth: isMobile ? "100%" : undefined,
-          height: isMobile ? "100dvh" : undefined,
-          maxHeight: isMobile ? "100dvh" : "90vh",
+          height: isMobile ? "calc(100dvh - var(--banner-h, 0px))" : undefined,
+          maxHeight: isMobile
+            ? "calc(100dvh - var(--banner-h, 0px))"
+            : "calc(90vh - var(--banner-h, 0px))",
           boxShadow: isMobile ? "none" : "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}

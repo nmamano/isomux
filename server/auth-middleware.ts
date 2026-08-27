@@ -733,9 +733,9 @@ function renderLoginPage(officeName: string | null): string {
       <h1>Isomux</h1>
       ${
         hasOfficeOwner
-          ? `<p>This office requires an invite link.</p>
-      <p>If the owner sent you a URL, open it. Each invite link signs you in on the device that opens it.</p>
-      <p class="muted">If you don't have one, ask the office owner to issue one from the Invites pane.</p>`
+          ? `<p>Open an invite link to sign in on this device.</p>
+      <p>Already signed in elsewhere? Create one in User settings there.</p>
+      <p class="muted">Otherwise, ask the office owner for one.</p>`
           : `<p>No owner has been set up for this office yet.</p>
       <p>Open <a href="/">this office's home page</a> to claim ownership.</p>
       <p class="muted">If you're trying to reach this office from another machine, you'll need to SSH-tunnel first (the claim form is only reachable from loopback). The server's startup log spells out the exact <code>ssh -L</code> command.</p>`
