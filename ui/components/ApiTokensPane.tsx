@@ -75,6 +75,30 @@ export function ApiTokensPane() {
         Send messages to your visible agents from scripts and other devices.
         Tokens cannot manage your office or read conversations.
       </p>
+      <pre
+        style={{
+          margin: "0 0 12px",
+          padding: "8px 10px",
+          borderRadius: 6,
+          background: "var(--bg-code)",
+          border: "1px solid var(--border)",
+          fontSize: 11,
+          lineHeight: 1.5,
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+          color: "var(--text-secondary)",
+          userSelect: "text",
+        }}
+      >
+        {`# list your agents and their ids
+curl ${window.location.origin}/agents -H "Authorization: Bearer <token>"
+
+# message one
+curl -X POST ${window.location.origin}/api/agents/<id>/messages \\
+  -H "Authorization: Bearer <token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"text":"..."}'`}
+      </pre>
 
       <div style={cardStyle}>
         <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
