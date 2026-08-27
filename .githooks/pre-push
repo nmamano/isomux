@@ -3,7 +3,24 @@
 # build, tests, web app) so a push that passes here passes on GitHub. One command on
 # purpose - a hand-copied subset of the steps is how the two drifted apart.
 # Bypass with `git push --no-verify` only after deciding the push is safe.
+#
+# The run is teed to a file because the gate takes minutes and its output
+# otherwise lives only in whatever invoked the push - a pipe, a truncating
+# wrapper, or a tool that reports the wrapper's exit code instead of this one.
+# Losing it costs another full run to learn which step failed.
 set -e
 
+LOG_FILE="${TMPDIR:-/tmp}/isomux-pre-push-$(date +%Y%m%dT%H%M%S).log"
+
 echo "→ bun run ci (the exact GitHub gate)"
-bun run ci
+echo "  full output: $LOG_FILE"
+
+set +e
+bun run ci 2>&1 | tee "$LOG_FILE"
+status=${PIPESTATUS[0]}
+set -e
+
+if [[ $status -ne 0 ]]; then
+  echo "✗ bun run ci failed (exit $status). Full output: $LOG_FILE"
+fi
+exit "$status"
