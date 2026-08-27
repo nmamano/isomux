@@ -1184,11 +1184,13 @@ describe("app-ws-upstream: an app that stops reading", () => {
   });
 
   it("can still send a close when the data queue is full", async () => {
-    // The reserve's whole purpose: a connection that has to end must be able to
-    // say so, even when the app has stopped reading.
-    peer = startPeer({ stopReading: true });
+    // The reserve's whole purpose: a blocked connection that has to end must be
+    // able to say so. A real peer's kernel buffer can drain between the fill and
+    // the measurement, so the fake socket holds the precondition stable.
+    const fake = makeFakeConnector({ autoUpgrade: true });
     const got = collector();
-    await dial(peer.port, got, {
+    await dial(4010, got, {
+      connector: fake.connector,
       limits: {
         queueMaxBytes: 64 * 1024,
         controlReserveBytes: 4 * 1024,
@@ -1196,6 +1198,7 @@ describe("app-ws-upstream: an app that stops reading", () => {
         closeHandshakeMs: 100,
       },
     });
+    fake.socket.accept = 0;
     // PACK the data queue, in two passes. Big frames get it near the data
     // ceiling fast; small ones then close the gap to under one small frame. This
     // matters: filling with 16KB frames alone leaves up to 16KB of slack under
@@ -1207,6 +1210,9 @@ describe("app-ws-upstream: an app that stops reading", () => {
     const small = Buffer.alloc(32, 7);
     fillQueue(() => live!.sendBinary(small), "packing frames", small.length);
     const before = live!.queuedBytes();
+    expect(before, "data queue fill did not take").toBeGreaterThan(
+      64 * 1024 - 4 * 1024 - 38,
+    );
     // Under the DATA ceiling there is now less than one 38-byte frame of room,
     // so this close frame - 2 code bytes plus a 123-byte reason plus a 6-byte
     // masked header, 131 on the wire - can only be queued out of the control

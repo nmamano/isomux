@@ -106,39 +106,52 @@ async function run(dsn: string, statements: readonly string[]): Promise<void> {
 }
 
 async function dropRoles(dsn: string): Promise<void> {
-  const live = liveRuntimes.get(dsn);
-  if (live) {
-    liveRuntimes.delete(dsn);
-    for (const client of live.values()) await client.end().catch(() => {});
-  }
-  const auxiliaries = auxiliaryRoles.get(dsn) ?? { parents: [], members: [] };
-  auxiliaryRoles.delete(dsn);
-  for (const member of auxiliaries.members) {
-    await ask(dsn, `revoke ${PROVISIONER_ROLE} from ${member}`).catch(() => []);
-    await ask(dsn, `drop role if exists ${member}`).catch(() => []);
-  }
-  for (const parent of auxiliaries.parents) {
-    await ask(dsn, `revoke ${parent} from ${PROVISIONER_ROLE}`).catch(() => []);
-    await ask(dsn, `drop role if exists ${parent}`).catch(() => []);
-  }
-  const rolesPresent = await ask<{ count: string }>(
-    dsn,
-    "select count(*)::text as count from pg_roles where rolname = any($1)",
-    [[WEB_ROLE, PROVISIONER_ROLE]],
-  );
-  if (Number(rolesPresent[0]?.count ?? -1) === 0) return;
-  for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
-    await ask(
-      dsn,
-      `revoke all privileges on all tables in schema public from ${role}`,
-    ).catch(() => []);
-    await ask(dsn, `revoke all privileges on schema public from ${role}`).catch(
-      () => [],
+  const pool = new pg.Pool({ connectionString: dsn, max: 1 });
+  pool.on("error", () => {});
+  const query = async <T extends pg.QueryResultRow>(
+    sql: string,
+    args: unknown[] = [],
+  ): Promise<T[]> => (await pool.query<T>(sql, args)).rows;
+  try {
+    const live = liveRuntimes.get(dsn);
+    if (live) {
+      liveRuntimes.delete(dsn);
+      await Promise.all(
+        [...live.values()].map((client) => client.end().catch(() => {})),
+      );
+    }
+    const auxiliaries = auxiliaryRoles.get(dsn) ?? {
+      parents: [],
+      members: [],
+    };
+    auxiliaryRoles.delete(dsn);
+    for (const member of auxiliaries.members) {
+      await query(`revoke ${PROVISIONER_ROLE} from ${member}`).catch(() => []);
+      await query(`drop role if exists ${member}`).catch(() => []);
+    }
+    for (const parent of auxiliaries.parents) {
+      await query(`revoke ${parent} from ${PROVISIONER_ROLE}`).catch(() => []);
+      await query(`drop role if exists ${parent}`).catch(() => []);
+    }
+    const rolesPresent = await query<{ count: string }>(
+      "select count(*)::text as count from pg_roles where rolname = any($1)",
+      [[WEB_ROLE, PROVISIONER_ROLE]],
     );
-    await ask(dsn, `drop owned by ${role}`).catch(() => []);
-    await ask(dsn, `alter role ${role} connection limit -1`).catch(() => []);
-    await ask(dsn, `alter role ${role} nologin`).catch(() => []);
-    await ask(dsn, `drop role if exists ${role}`).catch(() => []);
+    if (Number(rolesPresent[0]?.count ?? -1) === 0) return;
+    for (const role of [WEB_ROLE, PROVISIONER_ROLE]) {
+      await query(
+        `revoke all privileges on all tables in schema public from ${role}`,
+      ).catch(() => []);
+      await query(`revoke all privileges on schema public from ${role}`).catch(
+        () => [],
+      );
+      await query(`drop owned by ${role}`).catch(() => []);
+      await query(`alter role ${role} connection limit -1`).catch(() => []);
+      await query(`alter role ${role} nologin`).catch(() => []);
+      await query(`drop role if exists ${role}`).catch(() => []);
+    }
+  } finally {
+    await pool.end().catch(() => {});
   }
 }
 
