@@ -5,7 +5,7 @@ import type {
   ApiTokenListRes,
   ApiTokenWire,
 } from "../../shared/contract-shapes.ts";
-import { dialogInput, dialogSaveBtn } from "./dialog-styles.ts";
+import { dialogInput, dialogLabel, dialogSaveBtn } from "./dialog-styles.ts";
 import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
 
 const EXPIRY_OPTIONS = [30, 365, null] as const;
@@ -75,6 +75,7 @@ export function ApiTokensPane() {
         Send messages to your visible agents from scripts and other devices.
         Tokens cannot manage your office or read conversations.
       </p>
+      <label style={dialogLabel}>How to use</label>
       <pre
         style={{
           margin: "0 0 12px",
