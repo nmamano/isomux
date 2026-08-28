@@ -246,22 +246,28 @@ kex_exchange_identification: Connection closed by remote host`;
 
 describe("harden-ssh.sh --check", () => {
   it("a successful login is a FAIL, whatever ssh exits with", async () => {
-    for (const rc of ["0", "1", "255"]) {
-      const { code, output } = await check({
+    const checks = ["0", "1", "255"].map(async (rc) => ({
+      rc,
+      ...(await check({
         STUB_SSH_TRANSCRIPT: AUTHENTICATED,
         STUB_SSH_RC: rc,
-      });
+      })),
+    }));
+    for (const { rc, code, output } of await Promise.all(checks)) {
       expect({ rc, code }).toEqual({ rc, code: 1 });
       expect(output).toContain("can reach root");
     }
   });
 
   it("a refused login is a PASS, whatever ssh exits with", async () => {
-    for (const rc of ["0", "255"]) {
-      const { code, output } = await check({
+    const checks = ["0", "255"].map(async (rc) => ({
+      rc,
+      ...(await check({
         STUB_SSH_TRANSCRIPT: DENIED,
         STUB_SSH_RC: rc,
-      });
+      })),
+    }));
+    for (const { rc, code, output } of await Promise.all(checks)) {
       expect({ rc, code }).toEqual({ rc, code: 0 });
       expect(output).toContain("cannot log in as root over SSH");
       expect(output).toContain("and cannot sudo");
@@ -272,15 +278,19 @@ describe("harden-ssh.sh --check", () => {
     // ssh stops at the first address it can connect to, so a single
     // root@localhost attempt can be answered by ::1 while 127.0.0.1 runs a
     // different policy (or vice versa). Each address is tried on its own.
-    for (const [v4, v6] of [
+    const checks = [
       [DENIED, AUTHENTICATED],
       [AUTHENTICATED, DENIED],
-    ]) {
-      const { code, output } = await check({
+    ].map(async ([v4, v6]) => ({
+      v4,
+      v6,
+      ...(await check({
         STUB_SSH_V4: v4,
         STUB_SSH_V6: v6,
         STUB_SSH_RC: "255",
-      });
+      })),
+    }));
+    for (const { code, output } of await Promise.all(checks)) {
       expect(code).toBe(1);
       expect(output).toContain("logged in as root over SSH at");
     }
