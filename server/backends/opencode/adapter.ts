@@ -31,6 +31,7 @@ import {
   type SafeOpenCodeError,
 } from "./transport.ts";
 import {
+  OPENCODE_CRON_AGENT,
   openCodeSupervisorForEnvironment,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
@@ -117,6 +118,10 @@ class OpenCodeServerSession implements BackendSession {
     this.transport = new OpenCodeTransport({
       cwd: opts.cwd,
       model,
+      agent:
+        opts.permissionMode === "bypassPermissions"
+          ? OPENCODE_CRON_AGENT
+          : undefined,
       supervisor,
       sessionId,
       contractShapeSink,
@@ -338,7 +343,12 @@ export function createOpenCodeTracerBackend(
 export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Backend {
   const bindings = new Map<
     string,
-    { cwd: string; supervisor: OpenCodeSupervisor; model: string }
+    {
+      cwd: string;
+      supervisor: OpenCodeSupervisor;
+      model: string;
+      agent?: string;
+    }
   >();
   const supervisorFor = (opts: SessionEnvironmentOptions): OpenCodeSupervisor => {
     if (options.supervisor) return options.supervisor;
@@ -361,6 +371,7 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
     return new OpenCodeTransport({
       cwd: binding.cwd,
       model: binding.model,
+      agent: binding.agent,
       supervisor: binding.supervisor,
       sessionId,
       contractShapeSink: options.contractShapeSink,
@@ -371,7 +382,12 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
     sessionId: string,
     cwd: string,
     access: SessionAccessOptions | undefined,
-  ): { cwd: string; supervisor: OpenCodeSupervisor; model: string } => {
+  ): {
+    cwd: string;
+    supervisor: OpenCodeSupervisor;
+    model: string;
+    agent?: string;
+  } => {
     const existing = bindings.get(sessionId);
     if (existing) return existing;
     if (!access) {
@@ -383,6 +399,9 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
       cwd,
       supervisor: supervisorFor(access),
       model: productionModel(access.modelFamily),
+      ...(access.permissionMode === "bypassPermissions"
+        ? { agent: OPENCODE_CRON_AGENT }
+        : {}),
     };
     bindings.set(sessionId, binding);
     return binding;
@@ -402,6 +421,10 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
     createSession(opts: CreateSessionOptions): BackendSession {
       const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
+      const agent =
+        opts.permissionMode === "bypassPermissions"
+          ? OPENCODE_CRON_AGENT
+          : undefined;
       return new OpenCodeServerSession(
         opts,
         model,
@@ -410,13 +433,17 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
         options.contractShapeSink,
         options.safeErrorSink,
         (sessionId) =>
-          bindings.set(sessionId, { cwd: opts.cwd, supervisor, model }),
+          bindings.set(sessionId, { cwd: opts.cwd, supervisor, model, agent }),
       );
     },
     resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
       const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
-      bindings.set(sessionId, { cwd: opts.cwd, supervisor, model });
+      const agent =
+        opts.permissionMode === "bypassPermissions"
+          ? OPENCODE_CRON_AGENT
+          : undefined;
+      bindings.set(sessionId, { cwd: opts.cwd, supervisor, model, agent });
       return new OpenCodeServerSession(
         opts,
         model,
@@ -425,7 +452,12 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
         options.contractShapeSink,
         options.safeErrorSink,
         (resolvedSessionId) =>
-          bindings.set(resolvedSessionId, { cwd: opts.cwd, supervisor, model }),
+          bindings.set(resolvedSessionId, {
+            cwd: opts.cwd,
+            supervisor,
+            model,
+            agent,
+          }),
       );
     },
     inspectStoredSession(): StoredSessionState {

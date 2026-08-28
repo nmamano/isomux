@@ -92,7 +92,7 @@ function gateConfig(mock: ReturnType<typeof Bun.serve>): Record<string, unknown>
 
 function makeSupervisor(
   path: string,
-  config: Record<string, unknown>,
+  config?: Record<string, unknown>,
   idleShutdownMs = 1000,
   launchEnv: Record<string, string | undefined> = {},
   replacementDrainMs = 5000,
@@ -151,6 +151,30 @@ describe("OpenCode shared server supervisor", () => {
     expect(first.profileDir).not.toContain("alpha");
     expect(different.profileDir).not.toContain("beta");
   });
+
+  it("writes the named unattended agent without widening the default permissions", async () => {
+    const path = await root();
+    const supervisor = makeSupervisor(path, undefined, 1000);
+    const lease = await supervisor.acquire();
+    const config = JSON.parse(
+      await readFile(join(supervisor.profileDir, "opencode.json"), "utf8"),
+    );
+    expect(config.permission).toEqual({
+      bash: "ask",
+      edit: "ask",
+      question: "deny",
+    });
+    expect(config.agent?.["isomux-cron"]).toMatchObject({
+      mode: "primary",
+      permission: {
+        bash: "allow",
+        edit: "allow",
+        task: "deny",
+        question: "deny",
+      },
+    });
+    lease.release();
+  }, 20_000);
 
   it("serializes two supervisors and reconciles by adopting one healthy process", async () => {
     const path = await root();
@@ -249,6 +273,41 @@ describe("OpenCode shared server supervisor", () => {
     expect(alive(oldPid)).toBe(false);
     oldLease.release();
     newLease.release();
+  }, 20_000);
+
+  it("adopts an unchanged config but replaces a pre-revision config record", async () => {
+    const path = await root();
+    const oldConfig = gateConfig(mockProvider());
+    const first = makeSupervisor(path, oldConfig, 1000);
+    const initial = await first.acquire();
+    const firstPid = initial.pid;
+    initial.release();
+
+    const unchanged = makeSupervisor(path, oldConfig, 1000);
+    const adopted = await unchanged.acquire();
+    expect(adopted.pid).toBe(firstPid);
+    adopted.release();
+
+    const record = JSON.parse(await readFile(first.recordPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    delete record.configRevision;
+    await writeFile(first.recordPath, `${JSON.stringify(record)}\n`);
+    const changedConfig = {
+      ...oldConfig,
+      agent: {
+        "isomux-cron": {
+          mode: "primary",
+          permission: { bash: "allow", edit: "allow" },
+        },
+      },
+    };
+    const upgraded = makeSupervisor(path, changedConfig, 1000);
+    const replaced = await upgraded.acquire();
+    expect(replaced.pid).not.toBe(firstPid);
+    expect(alive(firstPid)).toBe(false);
+    replaced.release();
   }, 20_000);
 
   it("waits for an active turn before an environment replacement", async () => {

@@ -188,6 +188,10 @@ export function validateCronjobPermissionMode(
   raw: string | undefined,
 ): CronjobPermissionMode {
   if (agentType === "codex") return "never";
+  // OpenCode already reached this value through the non-Codex fall-through.
+  // Keep the unattended standing-rule choice explicit so a later Claude
+  // default change cannot silently move OpenCode back to Ask mode.
+  if (agentType === "opencode") return "bypassPermissions";
   // Claude: only "bypassPermissions" is unattended-safe with the Backend
   // abstraction. Migrate legacy "auto" up to "bypassPermissions".
   if (raw === "bypassPermissions") return "bypassPermissions";

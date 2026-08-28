@@ -53,6 +53,7 @@ import type {
   BackendSession,
   CreateSessionOptions,
   NormalizedEvent,
+  SessionAccessOptions,
 } from "./backends/types.ts";
 import {
   validateCronjobPermissionMode,
@@ -68,7 +69,11 @@ import {
 // (not agent-manager) to keep cron decoupled from the orchestrator - the
 // `cronjob-manager → agent-manager → command-handlers → cronjob-manager`
 // cycle is what env-loader exists to break.
-import { buildEnvForUserId as defaultResolveEnv } from "./env-loader.ts";
+import {
+  buildEnvForUserId as defaultResolveEnv,
+  environmentSourceKeyForUserId as defaultResolveEnvironmentKey,
+  environmentSourceRevisionForUserId as defaultResolveEnvironmentRevision,
+} from "./env-loader.ts";
 import { mintRunToken, revokeRunToken } from "./identity/tokens.ts";
 import { getUserByName as defaultResolveUser } from "./users.ts";
 // The cron persistence surface is injected as a whole (see CronPersistence /
@@ -155,6 +160,8 @@ export interface CronjobManagerDeps {
   resolveBackend: (agentType: AgentBackendType) => Backend;
   // Per-run env resolution (production: buildEnvForUserId from env-loader).
   resolveEnv: typeof defaultResolveEnv;
+  resolveEnvironmentKey: typeof defaultResolveEnvironmentKey;
+  resolveEnvironmentRevision: typeof defaultResolveEnvironmentRevision;
   // Owner lookup for env/identity (production: getUserByName).
   resolveUser: typeof defaultResolveUser;
   // The whole cron config/run persistence surface, injected as one unit.
@@ -180,6 +187,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
   const getBackend = deps.resolveBackend;
   const {
     resolveEnv: buildEnvForUserId,
+    resolveEnvironmentKey: environmentSourceKeyForUserId,
+    resolveEnvironmentRevision: environmentSourceRevisionForUserId,
     resolveUser: getUserByName,
     clock,
     scheduler,
@@ -525,7 +534,10 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
 
     let prompt = `You are "${cronjob.name}", a scheduled cron job in the Isomux office. You run ${scheduleDescription}.
 
-The Isomux office consists of agents that have persistent identity and sit at desks in various rooms of the office. You don't have a desk or persistent identity - each scheduled run starts fresh. There is no human in the loop during your run; any result must be self-contained, since someone may review it later.
+The Isomux office consists of agents that have persistent identity and sit at desks in various rooms of the office. You don't have a desk or persistent identity - each scheduled run starts fresh. There is no human in the loop during your run; any result must be self-contained, since someone may review it later.`;
+
+    if (cronjob.agentType !== "opencode") {
+      prompt += `
 
 How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" - returns id, name, room (name and roomId), topic, cwd, model, and log directory for every agent in rooms visible to your creator. The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 
@@ -544,7 +556,14 @@ How to surface a file in the run transcript (images render inline; other files r
 
 How to show a styled code diff in the run transcript: call POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff with your bearer token. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes.
   curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'                                                # uncommitted in your cwd
-  curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'   # a specific commit
+  curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'   # a specific commit`;
+    } else {
+      prompt += `
+
+OpenCode cron runs can work in their project directory but cannot use Isomux office API or run-transcript affordances.`;
+    }
+
+    prompt += `
 
 How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents - they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
@@ -697,16 +716,18 @@ How to answer questions about Isomux itself: the source lives at https://github.
         break;
       }
       case "approval_request": {
-        // Should not happen for cronjob permission modes (Claude
-        // bypassPermissions, Codex never). If it does the turn will block
-        // until the 30-minute hard timeout - surface a system note so it's
-        // diagnosable in the transcript.
         writeLog(
           active,
-          "system",
-          `Approval requested for ${ev.toolName} - cronjobs run unattended; ` +
-            `this should not occur with the configured permission mode. ` +
-            `The run will block until the 30-minute hard timeout.`,
+          "error",
+          "Run failed because the backend requested tool permission during an unattended cron run.",
+        );
+        break;
+      }
+      case "input_request": {
+        writeLog(
+          active,
+          "error",
+          "Run failed because the backend requested an interactive question during an unattended cron run.",
         );
         break;
       }
@@ -824,6 +845,41 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
   }
 
+  function openCodeDeletedJobError(): Error {
+    return new Error(
+      "Cannot resume this OpenCode run because its cronjob was deleted and its shared environment profile can no longer be resolved.",
+    );
+  }
+
+  function resolveRunEnvironment(
+    agentType: AgentBackendType,
+    userId: string | null | undefined,
+  ): Pick<
+    CreateSessionOptions,
+    "env" | "environmentKey" | "environmentRevision"
+  > {
+    const env = buildEnvForUserId(userId);
+    if (agentType !== "opencode") return { env };
+    return {
+      env,
+      environmentKey: environmentSourceKeyForUserId(userId),
+      environmentRevision: environmentSourceRevisionForUserId(userId),
+    };
+  }
+
+  function sessionAccessForRun(run: CronjobRun): SessionAccessOptions {
+    const job = cronjobs.find((candidate) => candidate.id === run.cronjobId);
+    if (run.agentTypeSnapshot === "opencode" && !job) {
+      throw openCodeDeletedJobError();
+    }
+    return {
+      cwd: run.cwdSnapshot,
+      modelFamily: run.modelFamilySnapshot,
+      permissionMode: run.permissionModeSnapshot,
+      ...resolveRunEnvironment(run.agentTypeSnapshot, job?.userId ?? null),
+    };
+  }
+
   function writeLog(
     active: ActiveRun,
     kind: LogEntry["kind"],
@@ -865,6 +921,30 @@ How to answer questions about Isomux itself: the source lives at https://github.
     try {
       for await (const ev of active.session.stream()) {
         processNormalizedEvent(active, ev);
+        if (ev.kind === "approval_request") {
+          const reason =
+            "Backend requested tool permission during an unattended cron run.";
+          try {
+            await active.session.approve(ev.approvalId, { kind: "deny" });
+          } finally {
+            try {
+              await active.session.abort();
+            } finally {
+              finalizeRun(active, "failed", reason);
+            }
+          }
+          return;
+        }
+        if (ev.kind === "input_request") {
+          const reason =
+            "Backend requested an interactive question during an unattended cron run.";
+          try {
+            await active.session.abort();
+          } finally {
+            finalizeRun(active, "failed", reason);
+          }
+          return;
+        }
         if (ev.kind === "turn_completed") {
           const status: CronjobRun["status"] =
             ev.status === "completed" ? "completed" : "failed";
@@ -1011,9 +1091,12 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // Resolve env up-front so a broken env file surfaces as a "Failed to create
     // session" run row instead of a stream-time error. Falls back to
     // process.env when no env file is configured for the cronjob owner.
-    let env: { [key: string]: string | undefined } | undefined;
+    let environment: Pick<
+      CreateSessionOptions,
+      "env" | "environmentKey" | "environmentRevision"
+    >;
     try {
-      env = buildEnvForUserId(job.userId ?? null);
+      environment = resolveRunEnvironment(job.agentType, job.userId ?? null);
     } catch (err) {
       const updated = updateRun(jobId, runId, {
         status: "failed",
@@ -1023,21 +1106,21 @@ How to answer questions about Isomux itself: the source lives at https://github.
       if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
       return updated ?? run;
     }
-    // Mint this run's bearer token now that runId is known, cwd is valid, and
-    // env built cleanly; inject it as ISOMUX_AGENT_TOKEN (same env var as agent
-    // scope - scope is resolved server-side) so the run's in-flight read-file/
-    // diff affordances authenticate as the run (RUN scope: self:affordance
-    // bound to {cronjobId, runId}). Revoked on every terminal path - the
-    // createSession failure below, and finalizeRun for everything after
-    // activeRuns.set. In-memory secret, never persisted/logged.
+    // For Claude and Codex, mint this run's bearer after cwd and env validation
+    // and inject it as ISOMUX_AGENT_TOKEN. OpenCode shares one server process,
+    // so it gets no run token and its prompt advertises no token affordances.
+    // Tokens are revoked on every terminal path: the createSession failure
+    // below, and finalizeRun for everything after activeRuns.set.
     //
-    // Both the primary turn (here) and resumed follow-up turns (sendRunMessage /
-    // editRunMessage, via buildRunSessionOptions) mint a RUN token and inject it
-    // as ISOMUX_AGENT_TOKEN, so a run's in-flight read-file/diff affordances
-    // authenticate as the run on the token-required /api cron-run routes
-    // (Follow-up #11).
-    const runToken = mintRunToken(jobId, runId, job.userId ?? null);
-    env = { ...(env ?? process.env), ISOMUX_AGENT_TOKEN: runToken };
+    // The same rule applies to resumed and edit-forked turns through
+    // buildRunSessionOptions.
+    if (job.agentType !== "opencode") {
+      const runToken = mintRunToken(jobId, runId, job.userId ?? null);
+      environment.env = {
+        ...(environment.env ?? process.env),
+        ISOMUX_AGENT_TOKEN: runToken,
+      };
+    }
     const opts: CreateSessionOptions = {
       agentId: cronjobRunStreamId(runId),
       cwd: job.cwd,
@@ -1046,7 +1129,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       effort: job.effort,
       permissionMode: job.permissionMode,
       sandbox: job.codexSandbox,
-      env,
+      ...environment,
     };
     let session: BackendSession;
     try {
@@ -1381,37 +1464,47 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // the prior segment would otherwise vanish from lifetime accounting.
   //
   // systemPrompt: re-built from the live cronjob config when still present so
-  // resumed runs pick up office/cronjobs prompt edits. For deleted cronjobs
-  // we'd have nothing to derive the prompt from; pass an empty string so the
-  // backend's saved session keeps using whatever it was started with.
+  // resumed runs pick up office/cronjobs prompt edits. Claude and Codex keep
+  // their old empty-prompt fallback after deletion. OpenCode refuses because
+  // its shared environment profile can no longer be resolved from the job.
   //
   // env: resolved from the live cronjob's username (env file paths are
-  // per-user, not snapshotted). Deleted-cronjob resume falls back to
-  // process.env. A broken env file throws here - the caller surfaces it as
-  // a "Failed to resume" entry in the run transcript.
+  // per-user, not snapshotted). Deleted Claude/Codex jobs fall back to
+  // process.env. A broken env file throws here - the caller surfaces it as a
+  // "Failed to resume" entry in the run transcript.
   function buildRunSessionOptions(
     run: CronjobRun,
     resumeSessionId: string,
   ): CreateSessionOptions {
-    rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
     const job = cronjobs.find((c) => c.id === run.cronjobId);
+    if (run.agentTypeSnapshot === "opencode" && !job) {
+      throw openCodeDeletedJobError();
+    }
+    rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
     const systemPrompt = job ? buildCronjobSystemPrompt(job, run.id) : "";
-    // Resolve env BEFORE minting so a broken env file throws with no token to
-    // leak (mirrors fire()'s env-build-first ordering). Then mint this resumed
-    // turn's RUN token and inject it as ISOMUX_AGENT_TOKEN, exactly as fire()
-    // does for the primary turn, so the resumed run's in-flight read-file/diff
-    // affordances authenticate as the run (RUN scope: self:affordance bound to
-    // {cronjobId, runId}) on the token-required /api cron-run routes. mintRunToken
-    // rotates (revokes any prior token for this {cronjobId, runId}) so repeated
-    // resumes are safe. Spread `env ?? process.env` (env is undefined when the
-    // owner has no env file) so the subprocess keeps PATH/HOME/etc. In-memory
-    // secret, never persisted/logged.
+    // Resolve env before minting so a broken env file cannot leak a token.
+    // Claude and Codex get a rotated RUN token. OpenCode gets no token because
+    // its shared server cannot hold per-run authority. Spread
+    // `env ?? process.env` so the subprocess keeps PATH/HOME/etc.
     //
     // Revoke ownership: the minted token has exactly one terminal owner - the
     // caller's resume-failure catch (revokeRunToken) if resumeSession throws
     // before installResumedActive, otherwise finalizeRun after activeRuns.set.
-    const env = buildEnvForUserId(job?.userId ?? null);
-    const runToken = mintRunToken(run.cronjobId, run.id, job?.userId ?? null);
+    const environment = resolveRunEnvironment(
+      run.agentTypeSnapshot,
+      job?.userId ?? null,
+    );
+    if (run.agentTypeSnapshot !== "opencode") {
+      const runToken = mintRunToken(
+        run.cronjobId,
+        run.id,
+        job?.userId ?? null,
+      );
+      environment.env = {
+        ...(environment.env ?? process.env),
+        ISOMUX_AGENT_TOKEN: runToken,
+      };
+    }
     return {
       agentId: cronjobRunStreamId(run.id),
       cwd: run.cwdSnapshot,
@@ -1420,7 +1513,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       effort: run.effortSnapshot,
       permissionMode: run.permissionModeSnapshot,
       sandbox: run.codexSandboxSnapshot,
-      env: { ...(env ?? process.env), ISOMUX_AGENT_TOKEN: runToken },
+      ...environment,
     };
   }
 
@@ -1632,6 +1725,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // A broken envFile is a real precheck failure: fall through to a clear
     // error rather than silently checking the wrong directory.
     const job = cronjobs.find((c) => c.id === run.cronjobId);
+    if (run.agentTypeSnapshot === "opencode" && !job) {
+      return openCodeDeletedJobError().message;
+    }
     let env: { [key: string]: string | undefined } | undefined;
     try {
       env = buildEnvForUserId(job?.userId ?? null);
@@ -1730,6 +1826,13 @@ How to answer questions about Isomux itself: the source lives at https://github.
     const jobId = run.cronjobId;
     const runId = run.id;
     const backend = getBackend(run.agentTypeSnapshot);
+    let sessionAccess: SessionAccessOptions;
+    try {
+      sessionAccess = sessionAccessForRun(run);
+    } catch (err) {
+      emitRunErrorEntry(jobId, runId, errMessage(err));
+      return;
+    }
 
     // 1. Locate the target log entry in the run's transcript (with ancestry).
     const oldEntries = loadRunLogWithAncestors(jobId, runId, leaf);
@@ -1744,7 +1847,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
     //    agnostic - Claude and Codex both surface user turns identically here.
     let sessionMessages: Awaited<ReturnType<typeof backend.getSessionMessages>>;
     try {
-      sessionMessages = await backend.getSessionMessages(leaf, run.cwdSnapshot);
+      sessionMessages = await backend.getSessionMessages(
+        leaf,
+        run.cwdSnapshot,
+        sessionAccess,
+      );
     } catch (err) {
       emitRunErrorEntry(
         jobId,
@@ -1823,6 +1930,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       const forkResult = await backend.forkSessionBeforeMessage(
         leaf,
         targetMessageId,
+        sessionAccess,
       );
       if (forkResult.kind !== "fork") {
         emitRunErrorEntry(
@@ -2128,6 +2236,8 @@ export function createProductionCronjobManager(overrides?: {
   return createCronjobManager({
     resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
     resolveEnv: defaultResolveEnv,
+    resolveEnvironmentKey: defaultResolveEnvironmentKey,
+    resolveEnvironmentRevision: defaultResolveEnvironmentRevision,
     resolveUser: defaultResolveUser,
     persistence: cronPersistence,
     clock: overrides?.clock ?? { now: Date.now },

@@ -106,6 +106,12 @@ OpenCode uses shared servers, not one process per agent:
 - a command that changes the selected environment or profile must replace the
   affected server before a new conversation uses it.
 
+The server record also carries a revision of the generated OpenCode config.
+The first S6-era acquire treats a pre-S6 record without that revision as stale,
+drains active turns for the existing two-minute bound, and replaces the server.
+An operator can therefore see each still-running OpenCode server restart once
+after this upgrade. An unchanged config continues to adopt the same process.
+
 This grouping preserves Isomux's existing environment selection. It does not
 make agents or conversations private to the spawning user.
 
@@ -213,11 +219,25 @@ controls, and normalized events.
 
 An unattended OC1 session receives standing allow rules at creation, not
 `once` answers. The gate showed that `once` does not persist: a later shell
-request asks again. Disable the interactive question tool. If a permission or
-question event still arrives, fail the run and record the reason instead of
-parking it. A run resolves the same environment and profile without a browser
-session and can resume only through that profile. It also keeps the server
-alive for the whole run.
+request asks again. The named `isomux-cron` agent allows shell and edit tools,
+and denies the question and task tools. Task delegation is disabled because a
+delegated subagent can use its own permission rules; S6 does not claim standing
+authority across that boundary. If a permission or question event still
+arrives, fail the run and record the reason instead of parking it. A run
+resolves the same environment and profile without a browser session and can
+resume only through that profile. It also keeps the server alive for the whole
+run.
+
+OpenCode cron runs do not receive an Isomux run token. Their system prompt omits
+the agent list, task board, inter-agent message, read-file, and diff affordances
+that need that token. These self-affordances remain unavailable until Isomux can
+grant per-session tool authority without putting a run token in the shared
+server environment.
+
+The fail-closed event handling applies to every cron backend, not only
+OpenCode. If a Claude or Codex cron run unexpectedly requests permission or
+interactive input, Isomux now denies when possible, aborts the turn, and fails
+the run instead of leaving it parked until the 30-minute hard timeout.
 
 ## V2 migration budget
 
@@ -415,6 +435,14 @@ date, and result by hand. The deterministic local gate provider proves the
 pinned binary contract but is not a certified real provider.
 7. **S6 - unattended run.** Run an OpenCode cronjob with standing allow rules.
    An unexpected permission or question fails visibly instead of parking.
+
+The 2026-08-28 pinned probe used one shared server process for all cases. The
+default agent asked for shell permission, `isomux-cron` completed the same shell
+tool without a permission event, a denied question returned an ordinary failed
+tool result and the model recovered, and an unknown agent failed without
+falling back to the default agent. This makes the config revision a correctness
+boundary, not only an update optimization. Raw results are in
+`opencode-gate/evidence/s6-permission-probe-results.json`.
 8. **S7 - release hardening.** Measure real-stream memory, prove update and
    rollback with the pinned binary/profile, scan for secrets, run final
    regression, and update every surface in `documentation.md`.
@@ -503,9 +531,9 @@ Residual two-backend assumptions recorded 2026-08-28:
   `ui/agent-templates.ts:384,415`.
 - S6 owns cron permission defaults and UI at `agent-validators.ts:185`,
   `cronjob-manager.ts:352,430`, and `ui/components/CronjobDialog.tsx`.
-  S6 must also pass the stable environment-source key at all three cron session
+  S6 passes the stable environment-source key at all three cron session
   creation paths. The OpenCode adapter rejects a missing key, so cron cannot
-  silently join the default profile before that work is complete.
+  silently join the default profile.
 
 The S1b drift fixture covers only the real OC1 shapes emitted by the local
 deterministic provider for session creation, prompt admission, assistant text,
@@ -518,7 +546,11 @@ S1b replaces every real `session.error` body with one fixed safe message. The
 adapter cannot classify a real authentication failure from that message. S2
 must add and review the safe error keep list (`name`, `message`, `statusCode`,
 and `isRetryable`) before it enables the terminal login card. The credential
-canary must stay green for the normalized stream and agent JSONL.
+boundary does not promise that retained free-form messages contain no internal
+stack or implementation detail; `SafeOpenCodeError` means credential-safe, not
+internal-detail-free. The S6 unknown-agent probe observed such a stack trace.
+The credential canary must stay green for the normalized stream and agent
+JSONL.
 
 S2 pulls one narrow provider-discovery check forward from S5. When OC1 reports
 the observed no-credential `UnknownError` / selected-model-not-found shape, the

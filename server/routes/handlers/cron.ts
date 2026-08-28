@@ -105,6 +105,10 @@ export interface CronDeps {
   // Returns an error message if the cwd is invalid, or null if it is fine.
   validateCwd(cwd: string): string | null;
   saveRecentCwd(cwd: string): void;
+  modelFamilyError(
+    agentType: Cronjob["agentType"],
+    modelFamily: string | undefined,
+  ): string | null;
 }
 
 export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
@@ -143,6 +147,11 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
       }
       const cwdErr = deps.validateCwd(body.cwd);
       if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
+      const familyErr = deps.modelFamilyError(
+        body.agentType ?? "claude",
+        body.modelFamily,
+      );
+      if (familyErr) return fail(422, "invalid_model_family", familyErr);
       deps.saveRecentCwd(body.cwd);
       const { username } = deps.attributionFor(ctx.identity);
       const job = deps.createCronjob({
@@ -170,6 +179,17 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         const cwdErr = deps.validateCwd(body.cwd);
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
         deps.saveRecentCwd(body.cwd);
+      }
+      if (body.modelFamily !== undefined) {
+        const existing = deps
+          .listCronjobs()
+          .find((cronjob) => cronjob.id === ctx.params.id);
+        if (!existing) return fail(404, "not_found");
+        const familyErr = deps.modelFamilyError(
+          existing.agentType,
+          body.modelFamily,
+        );
+        if (familyErr) return fail(422, "invalid_model_family", familyErr);
       }
       const job = deps.updateCronjob(ctx.params.id, body);
       return job ? ok(job) : fail(404, "not_found");

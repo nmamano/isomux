@@ -119,10 +119,11 @@ describe("OpenCode Slice 1B pinned transport", () => {
     );
   });
 
-  it("keeps each session model in system init and the prompt wire body", async () => {
+  it("keeps each session model and permission profile in the prompt wire body", async () => {
     let nextSession = 0;
     let nextEvent = 0;
     const promptModels: unknown[] = [];
+    const promptAgents: unknown[] = [];
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -150,8 +151,12 @@ describe("OpenCode Slice 1B pinned transport", () => {
           );
         }
         if (url.pathname.endsWith("/prompt_async")) {
-          const body = (await request.json()) as { model?: unknown };
+          const body = (await request.json()) as {
+            model?: unknown;
+            agent?: unknown;
+          };
           promptModels.push(body.model);
+          promptAgents.push(body.agent);
           return Response.json(true);
         }
         return new Response("not found", { status: 404 });
@@ -183,6 +188,7 @@ describe("OpenCode Slice 1B pinned transport", () => {
     const second = backend.createSession({
       ...opts,
       modelFamily: "beta/model-two",
+      permissionMode: "bypassPermissions",
     });
     const firstInit = first.stream()[Symbol.asyncIterator]().next();
     const secondInit = second.stream()[Symbol.asyncIterator]().next();
@@ -208,6 +214,7 @@ describe("OpenCode Slice 1B pinned transport", () => {
       { providerID: "alpha", modelID: "model-one" },
       { providerID: "beta", modelID: "model-two" },
     ]);
+    expect(promptAgents).toEqual([undefined, "isomux-cron"]);
     first.close();
     second.close();
   }, 10_000);
@@ -345,6 +352,7 @@ describe("OpenCode Slice 1B pinned transport", () => {
       await reboundBackend.getSessionMessages(parentId, root, {
         cwd: root,
         modelFamily: "gate/gate-model",
+        permissionMode: "default",
         environmentKey: "rebound",
         environmentRevision: "rebound",
       }),
@@ -358,6 +366,7 @@ describe("OpenCode Slice 1B pinned transport", () => {
       {
         cwd: root,
         modelFamily: "gate/gate-model",
+        permissionMode: "default",
         environmentKey: "rebound",
         environmentRevision: "rebound",
       },
@@ -411,6 +420,8 @@ describe("OpenCode Slice 1B pinned transport", () => {
             if (!hasToolResult) {
               const command = prompt.includes("ABORT")
                 ? "sleep 30"
+                : prompt.includes("CRON")
+                  ? "sleep 0.25; printf cron > gate-cron.txt"
                 : prompt.includes("REPO")
                   ? "pwd > repo-observed.txt"
                 : prompt.includes("FAIL")
@@ -443,6 +454,17 @@ describe("OpenCode Slice 1B pinned transport", () => {
       config: {
         autoupdate: false, model: "gate/gate-model", small_model: "gate/gate-model", share: "disabled",
         permission: { bash: "ask", edit: "ask", question: "deny" },
+        agent: {
+          "isomux-cron": {
+            mode: "primary",
+            permission: {
+              bash: "allow",
+              edit: "allow",
+              task: "deny",
+              question: "deny",
+            },
+          },
+        },
         provider: { gate: { name: "Gate", npm: "@ai-sdk/openai-compatible", env: [], models: { "gate-model": { name: "Gate", reasoning: true, tool_call: true, limit: { context: 100000, output: 10000 }, cost: { input: 0, output: 0 } } }, options: { apiKey: "test-only", baseURL: `http://127.0.0.1:${mock.port}/v1` } } },
       },
     });
@@ -453,8 +475,14 @@ describe("OpenCode Slice 1B pinned transport", () => {
       allow: boolean,
       repeats = 1,
       cwd = root,
+      permissionMode: CreateSessionOptions["permissionMode"] = "default",
     ) => {
-      const session = backend.createSession({ ...opts, cwd, modelFamily: "gate/gate-model" });
+      const session = backend.createSession({
+        ...opts,
+        cwd,
+        modelFamily: "gate/gate-model",
+        permissionMode,
+      });
       const events: NormalizedEvent[] = [];
       const turnWaiters: Array<() => void> = [];
       const consumer = (async () => {
@@ -479,6 +507,19 @@ describe("OpenCode Slice 1B pinned transport", () => {
     const allowed = await run("ALLOW", true, 2);
     const denied = await run("DENY", false);
     const failed = await run("FAIL", true);
+    const cronBefore = await supervisor.acquire();
+    const cronPid = cronBefore.pid;
+    cronBefore.release();
+    const cron = await run(
+      "CRON",
+      false,
+      1,
+      root,
+      "bypassPermissions",
+    );
+    const cronAfter = await supervisor.acquire();
+    expect(cronAfter.pid).toBe(cronPid);
+    cronAfter.release();
     await Bun.write(join(root, "gate-edit.txt"), "before\n");
     const edited = await run("EDIT", true);
     const abortAtPermission = async () => {
@@ -541,6 +582,9 @@ describe("OpenCode Slice 1B pinned transport", () => {
     expect(denied.at(-1)).toMatchObject({ kind: "turn_completed", status: "completed" });
     expect(failed.some((event) => event.kind === "tool_result" && event.isError)).toBe(true);
     expect(failed.some((event) => event.kind === "assistant_text" && event.text.includes("Recovered"))).toBe(true);
+    expect(cron.filter((event) => event.kind === "approval_request")).toHaveLength(0);
+    expect(cron.at(-1)).toMatchObject({ kind: "turn_completed", status: "completed" });
+    expect(await Bun.file(join(root, "gate-cron.txt")).text()).toBe("cron");
     expect(await Bun.file(join(root, "gate-edit.txt")).text()).toBe("after\n");
     expect(edited.some((event) => event.kind === "tool_call" && event.name === "edit")).toBe(true);
     expect(permissionAbort.at(-1)).toEqual({ kind: "turn_completed", status: "interrupted" });

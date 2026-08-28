@@ -201,6 +201,28 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     expect(JSON.stringify(events)).not.toContain(canary);
   });
 
+  it("keeps only the question request identity", () => {
+    const canary = "QUESTION_PRIVATE_CANARY";
+    const parsed = parseAllowedEvent(
+      JSON.stringify({
+        type: "question.asked",
+        properties: {
+          sessionID: "session-1",
+          id: "question-1",
+          questions: [{ question: canary, options: [canary] }],
+          tool: { messageID: canary, callID: canary },
+          metadata: canary,
+        },
+      }),
+    );
+    expect(parsed).toEqual({
+      kind: "question",
+      sessionId: "session-1",
+      id: "question-1",
+    });
+    expect(JSON.stringify(parsed)).not.toContain(canary);
+  });
+
   it("classifies only observed structured authentication failures", () => {
     expect(
       isAuthenticationError(

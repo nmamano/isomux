@@ -28,6 +28,7 @@ import {
   dialogChip,
 } from "./dialog-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
+import { openCodeModelSelectionReady } from "../backend-model-selection.ts";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -141,6 +142,8 @@ export function CronjobDialog({
     cronjob?.agentType ?? "claude",
   );
   const isCodex = agentType === "codex";
+  const isOpenCode = agentType === "opencode";
+  const usesBackendModels = isCodex || isOpenCode;
 
   const [modelFamily, setModelFamily] = useState<string>(
     cronjob?.modelFamily ?? MODEL_FAMILIES[0].family,
@@ -193,6 +196,21 @@ export function CronjobDialog({
     message: string;
     authError: boolean;
   } | null>(null);
+  const openCodeModelReady =
+    !isOpenCode ||
+    openCodeModelSelectionReady(
+      modelFamily,
+      modelsLoading,
+      modelsError !== null,
+      backendModels,
+    );
+  const openCodeCatalogRejectsSelection =
+    isOpenCode &&
+    !!modelFamily &&
+    !modelsLoading &&
+    modelsError === null &&
+    backendModels !== null &&
+    !openCodeModelReady;
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -210,6 +228,10 @@ export function CronjobDialog({
       setModelFamily(CODEX_MODELS[0].value);
       setEffort(DEFAULT_EFFORT);
       setPermissionMode("never");
+    } else if (next === "opencode") {
+      setModelFamily("");
+      setEffort(DEFAULT_EFFORT);
+      setPermissionMode("bypassPermissions");
     } else {
       setModelFamily(MODEL_FAMILIES[0].family);
       setEffort(DEFAULT_EFFORT);
@@ -224,11 +246,12 @@ export function CronjobDialog({
   // NOT a thrown ApiError - so read r.error in .then(); only a real HTTP/network
   // failure reaches .catch().
   useEffect(() => {
-    if (!isCodex) return;
+    if (!usesBackendModels) return;
     let cancelled = false;
     /* eslint-disable react-hooks/set-state-in-effect */
     setModelsLoading(true);
     setModelsError(null);
+    setBackendModels(null);
     /* eslint-enable react-hooks/set-state-in-effect */
     apiFetch<{
       models: BackendModelWire[];
@@ -254,10 +277,12 @@ export function CronjobDialog({
         // select is disabled during loading so the user can't have
         // overridden us.
         if (!isEdit) {
-          const preferredModelId = CODEX_MODELS[0].value;
+          const preferredModelId = isCodex ? CODEX_MODELS[0].value : null;
           const visibleModels = r.models.filter((m) => !m.hidden);
           const def =
-            visibleModels.find((m) => m.id === preferredModelId) ??
+            (preferredModelId
+              ? visibleModels.find((m) => m.id === preferredModelId)
+              : undefined) ??
             visibleModels.find((m) => m.isDefault) ??
             visibleModels[0];
           if (def) {
@@ -294,7 +319,7 @@ export function CronjobDialog({
     // would spawn a codex subprocess per character. Auth is global, so the
     // result is the same regardless of the cwd we hand model/list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCodex, agentType]);
+  }, [usesBackendModels, agentType]);
 
   function isDirty(): boolean {
     return cronjobFormDirty(formSnapshot, baselineRef.current!);
@@ -362,6 +387,10 @@ export function CronjobDialog({
   function handleSave() {
     if (!prompt.trim()) {
       setError("Prompt cannot be empty.");
+      return;
+    }
+    if (!openCodeModelReady) {
+      setError("Select a connected OpenCode model before saving.");
       return;
     }
     setError(null);
@@ -665,6 +694,7 @@ export function CronjobDialog({
           >
             <option value="claude">Claude</option>
             <option value="codex">Codex</option>
+            <option value="opencode">OpenCode</option>
           </select>
 
           <label style={{ ...labelStyle, marginTop: 14 }}>Model</label>
@@ -674,19 +704,21 @@ export function CronjobDialog({
             // CODEX_MODELS list so the dialog is still usable (an empty fetched
             // list would otherwise render a zero-option select). Claude uses
             // MODEL_FAMILIES.
-            const codexFetched =
-              isCodex && backendModels && backendModels.length > 0;
-            const codexVisible = codexFetched
+            const backendFetched =
+              usesBackendModels && backendModels && backendModels.length > 0;
+            const backendVisible = backendFetched
               ? backendModels.filter((m) => !m.hidden)
               : null;
             // Pin the stored model as an extra option whenever the rendered
             // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
             // editing never silently drops a value not offered on this login.
-            const renderedModelIds = codexVisible
-              ? codexVisible.map((m) => m.id)
+            const renderedModelIds = backendVisible
+              ? backendVisible.map((m) => m.id)
               : CODEX_MODELS.map((m) => m.value);
             const storedNotInList =
-              isEdit && isCodex && !renderedModelIds.includes(modelFamily);
+              isEdit &&
+              usesBackendModels &&
+              !renderedModelIds.includes(modelFamily);
             return (
               <select
                 value={modelFamily}
@@ -707,8 +739,8 @@ export function CronjobDialog({
                     setEffort(DEFAULT_EFFORT);
                   // Codex: snap effort to the new model's default if the
                   // current effort isn't in its supportedEfforts list.
-                  if (isCodex && codexVisible) {
-                    const picked = codexVisible.find((m) => m.id === next);
+                  if (isCodex && backendVisible) {
+                    const picked = backendVisible.find((m) => m.id === next);
                     if (picked) {
                       const supported = new Set(
                         picked.supportedEfforts.map((o) => o.level),
@@ -720,21 +752,23 @@ export function CronjobDialog({
                   }
                 }}
                 style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-                disabled={isCodex && modelsLoading}
+                disabled={usesBackendModels && modelsLoading}
               >
-                {isCodex ? (
+                {usesBackendModels ? (
                   <>
-                    {codexVisible
-                      ? codexVisible.map((m) => (
+                    {backendVisible
+                      ? backendVisible.map((m) => (
                           <option key={m.id} value={m.id}>
                             {m.label}
                           </option>
                         ))
-                      : CODEX_MODELS.map((m) => (
-                          <option key={m.value} value={m.value}>
-                            {m.label}
-                          </option>
-                        ))}
+                      : isCodex
+                        ? CODEX_MODELS.map((m) => (
+                            <option key={m.value} value={m.value}>
+                              {m.label}
+                            </option>
+                          ))
+                        : null}
                     {storedNotInList && (
                       <option key={modelFamily} value={modelFamily}>
                         {modelFamily} (unavailable on current login)
@@ -751,7 +785,7 @@ export function CronjobDialog({
               </select>
             );
           })()}
-          {isCodex && modelsLoading && (
+          {usesBackendModels && modelsLoading && (
             <p
               style={{
                 fontSize: 10,
@@ -762,7 +796,7 @@ export function CronjobDialog({
               Loading available models…
             </p>
           )}
-          {isCodex && modelsError && !modelsLoading && (
+          {usesBackendModels && modelsError && !modelsLoading && (
             <p
               style={{
                 fontSize: 10,
@@ -772,15 +806,44 @@ export function CronjobDialog({
             >
               {modelsError.message}
               {modelsError.authError
-                ? " - sign in via the card a Codex agent emits."
+                ? isOpenCode
+                  ? " - use an OpenCode agent's login card."
+                  : " - sign in via the card a Codex agent emits."
                 : ""}
             </p>
           )}
+          {isOpenCode &&
+            !modelsLoading &&
+            !modelsError &&
+            backendModels?.filter((model) => !model.hidden).length === 0 && (
+              <p
+                style={{
+                  fontSize: 10,
+                  color: "#ff6b6b",
+                  margin: "3px 0 0",
+                }}
+              >
+                OpenCode has no connected provider models for this environment.
+              </p>
+            )}
+          {openCodeCatalogRejectsSelection && (
+            <p
+              style={{
+                fontSize: 10,
+                color: "#ff6b6b",
+                margin: "3px 0 0",
+              }}
+            >
+              Select a connected OpenCode model before saving.
+            </p>
+          )}
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>
-            Thinking Effort
-          </label>
-          {(() => {
+          {!isOpenCode && (
+            <>
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                Thinking Effort
+              </label>
+              {(() => {
             // Codex: per-model supportedEfforts from model/list when available.
             // Claude: family-level rules (max only for opus).
             let effortOptions: { level: string; label: string }[];
@@ -827,7 +890,9 @@ export function CronjobDialog({
                 ))}
               </select>
             );
-          })()}
+              })()}
+            </>
+          )}
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
             {isCodex ? "Approval Policy" : "Permission Mode"}
@@ -841,6 +906,10 @@ export function CronjobDialog({
           >
             {isCodex ? (
               <option value="never">Never ask (use sandbox-only)</option>
+            ) : isOpenCode ? (
+              <option value="bypassPermissions">
+                Allow project tools (unattended)
+              </option>
             ) : (
               <option value="bypassPermissions">
                 Bypass (auto-approve all)
@@ -854,8 +923,9 @@ export function CronjobDialog({
               margin: "3px 0 0",
             }}
           >
-            Cron jobs run unattended - modes that require human approval are not
-            available.
+            {isOpenCode
+              ? "Shell and edit tools are allowed. Delegation and questions are denied."
+              : "Cron jobs run unattended - modes that require human approval are not available."}
           </p>
 
           {isCodex && (
@@ -989,7 +1059,7 @@ export function CronjobDialog({
               <button
                 onClick={handleSave}
                 style={saveBtnStyle}
-                disabled={saving}
+                disabled={saving || !openCodeModelReady}
               >
                 {saving ? "Saving…" : isEdit ? "Save" : "Create"}
               </button>

@@ -3648,6 +3648,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         updateState(agentId, "waiting_for_response");
         break;
       }
+      case "input_request": {
+        const managed = agents.get(agentId);
+        if (!managed) break;
+        addLogEntry(
+          agentId,
+          "error",
+          "The backend requested interactive input that Isomux cannot display safely.",
+        );
+        void managed.session?.abort();
+        updateState(agentId, "error");
+        break;
+      }
     }
   }
 
@@ -7722,6 +7734,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const sessionAccess = {
         cwd: managed.info.cwd,
         modelFamily: managed.info.modelFamily,
+        permissionMode: managed.info.permissionMode,
         env: editEnv,
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
         environmentRevision: environmentSourceRevisionForUserId(

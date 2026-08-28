@@ -39,6 +39,7 @@ export async function discoverOpenCodeModels(
 export interface OpenCodeTransportOptions {
   cwd: string;
   model: string;
+  agent?: string;
   supervisor?: OpenCodeSupervisor;
   sessionId?: string;
   contractShapeSink?: (shape: string) => void;
@@ -68,6 +69,7 @@ export class OpenCodeTransport {
   private readonly supervisor: OpenCodeSupervisor;
   private readonly cwd: string;
   private readonly model: string;
+  private readonly agent: string | undefined;
   private readonly resumedSessionId?: string;
   private readonly contractShapeSink?: (shape: string) => void;
   private readonly safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
@@ -83,6 +85,7 @@ export class OpenCodeTransport {
     this.supervisor = options.supervisor ?? openCodeSupervisor;
     this.cwd = options.cwd;
     this.model = options.model;
+    this.agent = options.agent;
     this.resumedSessionId = options.sessionId;
     this.contractShapeSink = options.contractShapeSink;
     this.safeErrorSink = options.safeErrorSink;
@@ -120,6 +123,7 @@ export class OpenCodeTransport {
         method: "POST",
         body: JSON.stringify({
           model: { providerID, modelID },
+          ...(this.agent ? { agent: this.agent } : {}),
           parts: [{ type: "text", text }],
         }),
       });
@@ -278,6 +282,13 @@ export class OpenCodeTransport {
               seenPermissions.add(event.id);
               this.pendingPermission = { id: event.id, sessionId: event.sessionId };
               sink({ kind: "approval_request", approvalId: event.id, toolName: event.permission, input: event.patterns.length ? { patterns: event.patterns } : {}, title: `OpenCode wants to use ${event.permission}` });
+            }
+            if (event.kind === "question") {
+              sink({
+                kind: "input_request",
+                inputType: "question",
+                requestId: event.id,
+              });
             }
             if (event.kind === "step_finish") stepFinish = { usage: event.usage, cost: event.cost };
             if (event.kind === "idle") {
@@ -500,6 +511,7 @@ type AllowedEvent =
   | { kind: "reasoning"; sessionId: string; messageId: string; partId: string; text: string; durationMs?: number }
   | { kind: "tool"; sessionId: string; partId: string; callId: string; name: string; status: "pending" | "running" | "completed" | "error"; input: Record<string, unknown>; output?: string; error?: string; exitCode?: number; durationMs?: number }
   | { kind: "permission"; sessionId: string; id: string; permission: string; patterns: string[] }
+  | { kind: "question"; sessionId: string; id: string }
   | { kind: "step_finish"; sessionId: string; usage?: TokenUsage; cost?: number }
   | { kind: "idle"; sessionId: string }
   | { kind: "error"; sessionId: string; error: SafeOpenCodeError };
@@ -534,6 +546,11 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
       ? properties.patterns.filter((value): value is string => typeof value === "string")
       : [];
     return { kind: "permission", sessionId, id, permission, patterns };
+  }
+  if (type === "question.asked") {
+    const id = stringField(properties, "id");
+    if (!id) return null;
+    return { kind: "question", sessionId, id };
   }
   if (type === "message.updated") {
     const info = asRecord(properties.info);

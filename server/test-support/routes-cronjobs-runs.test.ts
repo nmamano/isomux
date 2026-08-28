@@ -557,6 +557,7 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
       attributionFor: () => ({ createdBy: "Boss", username: "Boss" }),
       validateCwd: () => null,
       saveRecentCwd: () => {},
+      modelFamilyError: () => null,
     };
     return { ...base, ...over };
   }
@@ -605,6 +606,52 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
     if (result.kind !== "json") throw new Error("expected json");
     const messageId = (result.body as { messageId: string }).messageId;
     expect(captured?.messageId).toBe(messageId);
+  });
+
+  it("rejects an OpenCode cron model at create and update boundaries", async () => {
+    const modelFamilyError = (agentType: Cronjob["agentType"], model: string | undefined) =>
+      agentType === "opencode" && model === "opencode/fake"
+        ? "Select a connected OpenCode model."
+        : null;
+    const existing = {
+      id: "job1",
+      agentType: "opencode",
+    } as Cronjob;
+    const handlers = cronHandlers(
+      stubDeps({
+        listCronjobs: () => [existing],
+        modelFamilyError,
+      }),
+    );
+    const createResult = await handlers["cron.create"](
+      unitCtx(
+        {
+          name: "OpenCode job",
+          schedule: { type: "interval", minutes: 60 },
+          prompt: "run",
+          cwd: "/tmp",
+          agentType: "opencode",
+          modelFamily: "opencode/fake",
+          effort: "high",
+          permissionMode: "bypassPermissions",
+        },
+        {},
+      ),
+    );
+    expect(createResult).toMatchObject({
+      kind: "error",
+      status: 422,
+      code: "invalid_model_family",
+    });
+
+    const updateResult = await handlers["cron.update"](
+      unitCtx({ modelFamily: "opencode/fake" }, { id: "job1" }),
+    );
+    expect(updateResult).toMatchObject({
+      kind: "error",
+      status: 422,
+      code: "invalid_model_family",
+    });
   });
 
   it("cron.listAllRuns maps the manager's internal jobId to the public cronjobId on the wire", async () => {

@@ -76,6 +76,7 @@ export interface SessionEnvironmentOptions {
 export interface SessionAccessOptions extends SessionEnvironmentOptions {
   cwd: string;
   modelFamily: string;
+  permissionMode: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -175,6 +176,14 @@ export type NormalizedEvent =
       allowPersistentLabel?: string;
       allowPrefixLabel?: string;
       allowPrefixExample?: string;
+    }
+  // Backend requested interactive input that is not a tool permission. The
+  // payload stays backend-owned and default-denied; callers only need the
+  // reviewed request kind and id to fail an unattended turn visibly.
+  | {
+      kind: "input_request";
+      inputType: "question";
+      requestId: string;
     }
   // Turn boundary. `cost` is total session cost in USD when the backend
   // reports it (Claude: yes; Codex: not yet).

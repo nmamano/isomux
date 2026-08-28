@@ -18,6 +18,7 @@ interface ServerRecord {
   binary: string;
   profileDir: string;
   environmentRevision: string;
+  configRevision: string;
 }
 
 const OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS = 2_000;
@@ -38,6 +39,10 @@ const password = required("OPENCODE_SERVER_PASSWORD");
 const serverCwd = required("OPENCODE_SERVER_CWD");
 const configPath = required("OPENCODE_CONFIG");
 const environmentRevision = required("OPENCODE_ENVIRONMENT_REVISION");
+// Keep this below the stop early-return. Stop intentionally receives only the
+// action, profile and record; requiring start-only state above it breaks the
+// replacement path that this revision protects.
+const configRevision = required("OPENCODE_CONFIG_REVISION");
 const username = "isomux";
 const keepDebugOutput = process.env.ISOMUX_OPENCODE_DEBUG === "1";
 
@@ -55,7 +60,8 @@ async function healthy(record: ServerRecord): Promise<boolean> {
   if (
     record.binary !== binary ||
     record.profileDir !== profileDir ||
-    record.environmentRevision !== environmentRevision
+    record.environmentRevision !== environmentRevision ||
+    record.configRevision !== configRevision
   )
     return false;
   try {
@@ -194,6 +200,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
       binary,
       profileDir,
       environmentRevision,
+      configRevision,
     };
     if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });
     break;
@@ -206,6 +213,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
       binary,
       profileDir,
       environmentRevision,
+      configRevision,
     });
   const startupError = await readFile(stderrPath, "utf8").catch(() => "");
   if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });

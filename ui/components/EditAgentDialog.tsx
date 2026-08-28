@@ -59,6 +59,8 @@ import {
   type AgentTemplate,
 } from "../agent-templates.ts";
 import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
+import { openCodeModelSelectionReady } from "../backend-model-selection.ts";
+export { openCodeModelSelectionReady } from "../backend-model-selection.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -69,19 +71,6 @@ export function codexNewEngineDefaults(): {
   codexSandbox: CodexSandboxMode;
 } {
   return { permissionMode: "never", codexSandbox: "danger-full-access" };
-}
-
-export function openCodeModelSelectionReady(
-  modelFamily: string,
-  modelsLoading: boolean,
-  modelsFailed: boolean,
-  backendModels: BackendModelWire[] | null,
-): boolean {
-  if (!modelFamily) return false;
-  if (modelsLoading || modelsFailed || backendModels === null) return true;
-  return backendModels.some(
-    (model) => !model.hidden && model.id === modelFamily,
-  );
 }
 
 export function templateValuesAfterEngineSwitch(

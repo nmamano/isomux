@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { STATE_ROOT } from "../../config.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
 import { openCodeProfilePaths } from "./login-wrapper.ts";
@@ -17,6 +17,43 @@ interface ServerRecord {
   binary: string;
   profileDir: string;
   environmentRevision: string;
+  configRevision: string;
+}
+
+export const OPENCODE_CRON_AGENT = "isomux-cron";
+
+const DEFAULT_OPENCODE_CONFIG: Record<string, unknown> = {
+  autoupdate: false,
+  share: "disabled",
+  permission: { bash: "ask", edit: "ask", question: "deny" },
+  agent: {
+    [OPENCODE_CRON_AGENT]: {
+      description: "Isomux unattended cron run",
+      mode: "primary",
+      permission: {
+        bash: "allow",
+        edit: "allow",
+        task: "deny",
+        question: "deny",
+      },
+    },
+  },
+};
+
+function stableConfigValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableConfigValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, stableConfigValue(entry)]),
+  );
+}
+
+export function openCodeConfigRevision(config: Record<string, unknown>): string {
+  return createHash("sha256")
+    .update(JSON.stringify(stableConfigValue(config)))
+    .digest("hex");
 }
 
 export interface OpenCodeLease {
@@ -50,7 +87,8 @@ export class OpenCodeSupervisor {
   readonly profileDir: string;
   readonly recordPath: string;
   private readonly binary: string;
-  private readonly config: Record<string, unknown>;
+  private config: Record<string, unknown>;
+  private configRevision: string;
   private readonly serverCwd: string;
   private readonly idleShutdownMs: number;
   private launchEnv: Record<string, string | undefined>;
@@ -58,17 +96,17 @@ export class OpenCodeSupervisor {
   private readonly replacementDrainMs: number;
   private readonly pendingLoginTtlMs: number;
   private replacementPromise: Promise<void> | null = null;
-  private environmentReplacementRequested = false;
+  private replacementRequested = false;
 
   constructor(options: OpenCodeSupervisorOptions = {}) {
     this.profileDir = options.profileDir ?? join(STATE_ROOT, "opencode", "profiles", "default");
     this.recordPath = join(this.profileDir, "server.lock");
     this.binary = options.binary ?? resolveOpenCodeBinary();
-    this.config = options.config ?? {
+    this.config = {
+      ...(options.config ?? DEFAULT_OPENCODE_CONFIG),
       autoupdate: false,
-      share: "disabled",
-      permission: { bash: "ask", edit: "ask", question: "deny" },
     };
+    this.configRevision = openCodeConfigRevision(this.config);
     this.serverCwd = options.serverCwd ?? STATE_ROOT;
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
@@ -135,7 +173,16 @@ export class OpenCodeSupervisor {
     if (environmentRevision === this.environmentRevision) return;
     this.launchEnv = launchEnv;
     this.environmentRevision = environmentRevision;
-    this.environmentReplacementRequested = true;
+    this.replacementRequested = true;
+  }
+
+  updateConfiguration(config: Record<string, unknown>): void {
+    const next = { ...config, autoupdate: false };
+    const revision = openCodeConfigRevision(next);
+    if (revision === this.configRevision) return;
+    this.config = next;
+    this.configRevision = revision;
+    this.replacementRequested = true;
   }
 
   shutdown(): Promise<void> {
@@ -229,6 +276,7 @@ export class OpenCodeSupervisor {
           OPENCODE_SERVER_CWD: this.serverCwd,
           OPENCODE_CONFIG: configPath,
           OPENCODE_ENVIRONMENT_REVISION: this.environmentRevision,
+          OPENCODE_CONFIG_REVISION: this.configRevision,
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -247,19 +295,19 @@ export class OpenCodeSupervisor {
 
   private async replaceServerIfRequested(): Promise<void> {
     const marker = join(this.profileDir, "server.replace");
-    if (!existsSync(marker) && !this.environmentReplacementRequested) return;
+    if (!existsSync(marker) && !this.replacementRequested) return;
     if (!this.replacementPromise) {
       this.replacementPromise = (async () => {
         const deadline = Date.now() + this.replacementDrainMs;
         while (this.activeTurns > 0 && Date.now() < deadline) await Bun.sleep(25);
         if (this.activeTurns > 0) {
           throw new Error(
-            "OpenCode environment changed, but active turns did not drain in time. Send your message again to retry.",
+            "OpenCode configuration changed, but active turns did not drain in time. Send your message again to retry.",
           );
         }
         await this.shutdown();
         await rm(marker, { force: true });
-        this.environmentReplacementRequested = false;
+        this.replacementRequested = false;
       })().finally(() => {
         this.replacementPromise = null;
       });
@@ -314,6 +362,7 @@ export function openCodeSupervisorForEnvironment(
     });
     environmentSupervisors.set(key, supervisor);
   } else {
+    supervisor.updateConfiguration(DEFAULT_OPENCODE_CONFIG);
     supervisor.updateLaunchEnvironment(launchEnv, environmentRevision);
   }
   return supervisor;

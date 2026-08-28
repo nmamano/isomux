@@ -78,6 +78,8 @@ function baseDeps(over: Partial<CronDeps> = {}): CronDeps {
   return {
     resolveBackend: () => new FakeBackend(),
     resolveEnv: () => ({}),
+    resolveEnvironmentKey: () => "test-environment",
+    resolveEnvironmentRevision: () => "test-revision",
     resolveUser: () => undefined,
     persistence: makeFakeCronPersistence(),
     clock: { now: () => FIXED_NOW },
@@ -280,6 +282,211 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     codex.sessions.forEach((s) => s.close());
   });
 
+  it("runs OpenCode with its unattended profile and no office bearer", async () => {
+    const fake = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },
+    });
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        resolveEnv: () => ({ PROVIDER_KEY: "test-provider" }),
+        resolveEnvironmentKey: () => "office-profile",
+        resolveEnvironmentRevision: () => "office-revision",
+      }),
+    );
+    const job = mgr.addCronjob({
+      ...intervalInput("OpenCodeRunJob"),
+      agentType: "opencode",
+      modelFamily: "gate/gate-model",
+    });
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(fake.lastSession?.opts).toMatchObject({
+      modelFamily: "gate/gate-model",
+      permissionMode: "bypassPermissions",
+      environmentKey: "office-profile",
+      environmentRevision: "office-revision",
+    });
+    expect(fake.lastSession?.opts.env?.ISOMUX_AGENT_TOKEN).toBeUndefined();
+    expect(getRunTokenRaw(job.id, run.id)).toBeNull();
+    const prompt = fake.lastSession?.opts.systemPrompt ?? "";
+    for (const forbidden of [
+      "ISOMUX_AGENT_TOKEN",
+      "/agents",
+      "/api/tasks",
+      "/messages",
+      "/read-file",
+      "/diff",
+    ]) {
+      expect(prompt).not.toContain(forbidden);
+    }
+    const claudePrompt = mgr.buildCronjobSystemPrompt(
+      mgr.addCronjob(intervalInput("ClaudePromptJob")),
+    );
+    for (const required of [
+      "ISOMUX_AGENT_TOKEN",
+      "/agents",
+      "/api/tasks",
+      "/messages",
+      "/read-file",
+      "/diff",
+    ]) {
+      expect(claudePrompt).toContain(required);
+    }
+    expect(mgr.findRun(job.id, run.id)?.status).toBe("completed");
+    fake.sessions.forEach((session) => session.close());
+  });
+
+  it("denies permission before aborting and fails unattended OpenCode runs", async () => {
+    const order: string[] = [];
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_text, _attachments, session) => {
+          session.approve = async (id, decision) => {
+            order.push(`deny:${id}:${decision.kind}`);
+          };
+          session.abort = async () => {
+            order.push("abort");
+          };
+          session.push({
+            kind: "approval_request",
+            approvalId: "permission-1",
+            toolName: "bash",
+            input: {},
+          });
+        },
+      },
+    });
+    const mgr = createCronjobManager(baseDeps({ resolveBackend: () => fake }));
+    const job = mgr.addCronjob({
+      ...intervalInput("PermissionFailure"),
+      agentType: "opencode",
+      modelFamily: "gate/gate-model",
+    });
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(order).toEqual(["deny:permission-1:deny", "abort"]);
+    expect(mgr.findRun(job.id, run.id)).toMatchObject({
+      status: "failed",
+      errorReason:
+        "Backend requested tool permission during an unattended cron run.",
+    });
+    fake.sessions.forEach((session) => session.close());
+  });
+
+  it("aborts and explains an interactive question request", async () => {
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.push({
+            kind: "input_request",
+            inputType: "question",
+            requestId: "question-1",
+          }),
+      },
+    });
+    const mgr = createCronjobManager(baseDeps({ resolveBackend: () => fake }));
+    const job = mgr.addCronjob({
+      ...intervalInput("QuestionFailure"),
+      agentType: "opencode",
+      modelFamily: "gate/gate-model",
+    });
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    expect(fake.lastSession?.abortCount).toBe(1);
+    expect(mgr.findRun(job.id, run.id)).toMatchObject({
+      status: "failed",
+      errorReason:
+        "Backend requested an interactive question during an unattended cron run.",
+    });
+    fake.sessions.forEach((session) => session.close());
+  });
+
+  it("resumes OpenCode in the stored environment without minting a run bearer", async () => {
+    let sends = 0;
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_text, _attachments, session) => {
+          sends++;
+          session.completeTurn({ text: `done-${sends}` });
+        },
+      },
+    });
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        resolveEnvironmentKey: () => "resume-environment",
+        resolveEnvironmentRevision: () => "resume-revision",
+      }),
+    );
+    const job = mgr.addCronjob({
+      ...intervalInput("OpenCodeResume"),
+      agentType: "opencode",
+      modelFamily: "gate/gate-model",
+    });
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    for (let index = 0; index < 100; index++) {
+      if (mgr.findRun(job.id, run.id)?.status === "completed") break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    for (let index = 0; index < 100; index++) {
+      if (fake.resumeSessionCount === 1) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(fake.lastSession?.isResume).toBe(true);
+    expect(fake.lastSession?.opts).toMatchObject({
+      modelFamily: "gate/gate-model",
+      permissionMode: "bypassPermissions",
+      environmentKey: "resume-environment",
+      environmentRevision: "resume-revision",
+    });
+    expect(fake.lastSession?.opts.env?.ISOMUX_AGENT_TOKEN).toBeUndefined();
+    expect(getRunTokenRaw(job.id, run.id)).toBeNull();
+    fake.sessions.forEach((session) => session.close());
+  });
+
+  it("explains why a deleted OpenCode cronjob cannot resume", async () => {
+    const { events, sink } = capture();
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.completeTurn({ text: "done" }),
+      },
+    });
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => fake, eventSink: sink }),
+    );
+    const job = mgr.addCronjob({
+      ...intervalInput("DeletedOpenCode"),
+      agentType: "opencode",
+      modelFamily: "gate/gate-model",
+    });
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    for (let index = 0; index < 100; index++) {
+      if (mgr.findRun(job.id, run.id)?.status === "completed") break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(mgr.deleteCronjob(job.id)).toBe(true);
+    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+
+    expect(fake.resumeSessionCount).toBe(0);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "log_entry" &&
+          event.entry.content.includes(
+            "cronjob was deleted and its shared environment profile can no longer be resolved",
+          ),
+      ),
+    ).toBe(true);
+    fake.sessions.forEach((session) => session.close());
+  });
+
   it("production factory constructs against today's defaults (shallow)", () => {
     const mgr = createProductionCronjobManager();
     expect(typeof mgr.listCronjobs).toBe("function");
@@ -287,11 +494,9 @@ describe("CronjobManager DI (temp-state isolated)", () => {
   });
 });
 
-// Phase 2.1 (ADDITIVE) - RUN-scope token wired into the PRIMARY run lifecycle.
-// fire() mints a token, injects it as ISOMUX_AGENT_TOKEN into the run env (so a
-// firing run's in-flight read-file/diff can authenticate as the run), and every
-// terminal path revokes it. Resumed follow-up turns are out of 2.1 scope (still
-// loopback-covered; wired with the Phase 3 loopback-bypass removal).
+// Phase 2.1 (ADDITIVE) - RUN-scope token wired into the primary Claude/Codex
+// lifecycle. OpenCode is excluded because its process is shared across runs.
+// For the supported backends, every terminal path revokes the token.
 describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
   afterEach(() => _testResetTokens());
 

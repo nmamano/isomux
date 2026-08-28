@@ -3,6 +3,7 @@ import {
   modelFamilyMismatchError,
   resolveAgentEngineSettings,
   validateCodexSandbox,
+  validateCronjobPermissionMode,
 } from "./agent-validators.ts";
 
 describe("validateCodexSandbox", () => {
@@ -71,5 +72,16 @@ describe("OpenCode model validation", () => {
       modelFamily: "",
       permissionMode: "default",
     });
+  });
+});
+
+describe("OpenCode cron validation", () => {
+  it("uses the fixed unattended permission mode", () => {
+    expect(validateCronjobPermissionMode("opencode", undefined)).toBe(
+      "bypassPermissions",
+    );
+    expect(validateCronjobPermissionMode("opencode", "default")).toBe(
+      "bypassPermissions",
+    );
   });
 });

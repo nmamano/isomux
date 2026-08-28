@@ -1965,6 +1965,7 @@ function buildExecutorDeps(
           return errMessage(err, "Invalid directory");
         }
       },
+      modelFamilyError: modelFamilyMismatchError,
       saveRecentCwd,
     }),
   );

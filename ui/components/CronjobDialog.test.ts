@@ -4,6 +4,7 @@ import {
   updateCronjobMachineDefaults,
   type CronjobFormSnapshot,
 } from "./CronjobDialog.tsx";
+import { openCodeModelSelectionReady } from "../backend-model-selection.ts";
 
 const CLAUDE_CREATE: CronjobFormSnapshot = {
   name: "",
@@ -100,5 +101,23 @@ describe("cronjobFormDirty", () => {
         baseline,
       ),
     ).toBe(false);
+  });
+});
+
+describe("OpenCode cron model selection", () => {
+  it("requires a connected model after discovery and keeps edits available during discovery failure", () => {
+    const models = [
+      { id: "gate/model", label: "Gate model", supportedEfforts: [] },
+    ];
+    expect(openCodeModelSelectionReady("", false, false, models)).toBe(false);
+    expect(
+      openCodeModelSelectionReady("gate/model", false, false, models),
+    ).toBe(true);
+    expect(
+      openCodeModelSelectionReady("retired/model", false, false, models),
+    ).toBe(false);
+    expect(
+      openCodeModelSelectionReady("retired/model", false, true, null),
+    ).toBe(true);
   });
 });

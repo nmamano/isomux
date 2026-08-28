@@ -1,0 +1,1739 @@
+{
+  "date": "2026-08-28",
+  "version": "1.18.23",
+  "shared": {
+    "pid": 3226965,
+    "result": {
+      "default": {
+        "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+        "promptStatus": 204,
+        "events": [
+          {
+            "type": "session.created",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.diff",
+            "propertyKeys": [
+              "diff",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": {
+              "name": "bash",
+              "status": "pending"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": {
+              "name": "bash",
+              "status": "running"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "permission.asked",
+            "propertyKeys": [
+              "always",
+              "id",
+              "metadata",
+              "patterns",
+              "permission",
+              "sessionID",
+              "tool"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": "bash",
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "permission.replied",
+            "propertyKeys": [
+              "reply",
+              "requestID",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": {
+              "name": "bash",
+              "status": "error"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.idle",
+            "propertyKeys": [
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.diff",
+            "propertyKeys": [
+              "diff",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f76f8ffelcvQsF0dCmxGFb",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          }
+        ]
+      },
+      "cron": {
+        "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+        "promptStatus": 204,
+        "events": [
+          {
+            "type": "session.created",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.diff",
+            "propertyKeys": [
+              "diff",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": {
+              "name": "bash",
+              "status": "pending"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": {
+              "name": "bash",
+              "status": "running"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": {
+              "name": "bash",
+              "status": "running"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": {
+              "name": "bash",
+              "status": "completed"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.diff",
+            "propertyKeys": [
+              "diff",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.delta",
+            "propertyKeys": [
+              "delta",
+              "field",
+              "messageID",
+              "partID",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.delta",
+            "propertyKeys": [
+              "delta",
+              "field",
+              "messageID",
+              "partID",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.delta",
+            "propertyKeys": [
+              "delta",
+              "field",
+              "messageID",
+              "partID",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.idle",
+            "propertyKeys": [
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.diff",
+            "propertyKeys": [
+              "diff",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f5288ffeJuPFwPp9Ri76Pc",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          }
+        ]
+      },
+      "questionDeny": {
+        "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+        "promptStatus": 204,
+        "events": [
+          {
+            "type": "session.created",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.diff",
+            "propertyKeys": [
+              "diff",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": {
+              "name": "question",
+              "status": "pending"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": {
+              "name": "invalid",
+              "status": "running"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": {
+              "name": "invalid",
+              "status": "completed"
+            },
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.diff",
+            "propertyKeys": [
+              "diff",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.delta",
+            "propertyKeys": [
+              "delta",
+              "field",
+              "messageID",
+              "partID",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.delta",
+            "propertyKeys": [
+              "delta",
+              "field",
+              "messageID",
+              "partID",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.delta",
+            "propertyKeys": [
+              "delta",
+              "field",
+              "messageID",
+              "partID",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.part.updated",
+            "propertyKeys": [
+              "part",
+              "sessionID",
+              "time"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "message.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.status",
+            "propertyKeys": [
+              "sessionID",
+              "status"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.idle",
+            "propertyKeys": [
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.updated",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.diff",
+            "propertyKeys": [
+              "diff",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f4058ffe00l3lIdpvW8swY",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          }
+        ]
+      },
+      "unknown": {
+        "sessionID": "ses_fb89f3389ffeiF13ha8tsdojEo",
+        "promptStatus": 204,
+        "terminalType": "session.error",
+        "events": [
+          {
+            "type": "session.created",
+            "propertyKeys": [
+              "info",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f3389ffeiF13ha8tsdojEo",
+            "permission": null,
+            "tool": null,
+            "errorName": null,
+            "errorMessage": null
+          },
+          {
+            "type": "session.error",
+            "propertyKeys": [
+              "error",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f3389ffeiF13ha8tsdojEo",
+            "permission": null,
+            "tool": null,
+            "errorName": "UnknownError",
+            "errorMessage": "Agent not found: \"isomux-agent-does-not-exist\". Available agents: build, explore, general, isomux-cron, plan"
+          },
+          {
+            "type": "session.error",
+            "propertyKeys": [
+              "error",
+              "sessionID"
+            ],
+            "sessionID": "ses_fb89f3389ffeiF13ha8tsdojEo",
+            "permission": null,
+            "tool": null,
+            "errorName": "UnknownError",
+            "errorMessage": "UnknownError: UnknownError\n    at <anonymous> (/$bunfs/root/chunk-ng3vfrbf.js:1096:2069)\n    at SessionPrompt.createUserMessage (/$bunfs/root/chunk-ng3vfrbf.js:1096:9954)\n    at SessionPrompt.createUserMessage (definition) (/$bunfs/root/chunk-ng3vfrbf.js:1096:1827)\n    at SessionPrompt.prompt (/$bunfs/root/chunk-nhgqe8hz.js:4:13569)\n    at SessionPrompt.prompt (definition) (/$bunfs/root/chunk-ng3vfrbf.js:1096:9838)\n    at SessionHttpApi.promptAsync (/$bunfs/root/chunk-nhgqe8hz.js:2:84428)\n    at SessionHttpApi.promptAsync (definition) (/$bunfs/root/chunk-nhgqe8hz.js:4:13476)\n    at Server.listen (/$bunfs/root/chunk-nhgqe8hz.js:6:15456)\n    at Server.listen (definition) (/$bunfs/root/chunk-nhgqe8hz.js:6:15579)"
+          }
+        ]
+      }
+    }
+  },
+  "questionAsk": {
+    "pid": 3227226,
+    "result": {
+      "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+      "promptStatus": 204,
+      "terminalType": "question.asked",
+      "terminal": {
+        "type": "question.asked",
+        "propertyKeys": [
+          "id",
+          "questions",
+          "sessionID",
+          "tool"
+        ],
+        "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+        "permission": null,
+        "tool": null,
+        "errorName": null,
+        "errorMessage": null
+      },
+      "events": [
+        {
+          "type": "session.created",
+          "propertyKeys": [
+            "info",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.updated",
+          "propertyKeys": [
+            "info",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.updated",
+          "propertyKeys": [
+            "info",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.part.updated",
+          "propertyKeys": [
+            "part",
+            "sessionID",
+            "time"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.updated",
+          "propertyKeys": [
+            "info",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.status",
+          "propertyKeys": [
+            "sessionID",
+            "status"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.updated",
+          "propertyKeys": [
+            "info",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.updated",
+          "propertyKeys": [
+            "info",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.diff",
+          "propertyKeys": [
+            "diff",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.updated",
+          "propertyKeys": [
+            "info",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.status",
+          "propertyKeys": [
+            "sessionID",
+            "status"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.part.updated",
+          "propertyKeys": [
+            "part",
+            "sessionID",
+            "time"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.part.updated",
+          "propertyKeys": [
+            "part",
+            "sessionID",
+            "time"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": {
+            "name": "question",
+            "status": "pending"
+          },
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "question.asked",
+          "propertyKeys": [
+            "id",
+            "questions",
+            "sessionID",
+            "tool"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.part.updated",
+          "propertyKeys": [
+            "part",
+            "sessionID",
+            "time"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": {
+            "name": "question",
+            "status": "running"
+          },
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.error",
+          "propertyKeys": [
+            "error",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": "MessageAbortedError",
+          "errorMessage": "Aborted"
+        },
+        {
+          "type": "session.status",
+          "propertyKeys": [
+            "sessionID",
+            "status"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.idle",
+          "propertyKeys": [
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.part.updated",
+          "propertyKeys": [
+            "part",
+            "sessionID",
+            "time"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": {
+            "name": "question",
+            "status": "error"
+          },
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "message.updated",
+          "propertyKeys": [
+            "info",
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.status",
+          "propertyKeys": [
+            "sessionID",
+            "status"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        },
+        {
+          "type": "session.idle",
+          "propertyKeys": [
+            "sessionID"
+          ],
+          "sessionID": "ses_fb89f0e49fferSbkASGt6ahblR",
+          "permission": null,
+          "tool": null,
+          "errorName": null,
+          "errorMessage": null
+        }
+      ]
+    }
+  }
+}
