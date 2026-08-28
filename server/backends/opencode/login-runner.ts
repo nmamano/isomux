@@ -2,17 +2,36 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { randomUUID } from "node:crypto"
 
+const OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS = 2_000
+
 export async function assertOpenCodeServerStopped(profileDir: string): Promise<void> {
-  let pid: number
+  let record: Record<string, unknown>
   try {
-    const record = JSON.parse(await readFile(join(profileDir, "server.lock"), "utf8")) as unknown
-    if (!isRecord(record) || typeof record.pid !== "number") return
-    pid = record.pid
+    const parsed = JSON.parse(await readFile(join(profileDir, "server.lock"), "utf8")) as unknown
+    if (!isRecord(parsed)) return
+    record = parsed
+  } catch {
+    return
+  }
+  const { pid, port, password } = record
+  if (
+    typeof pid !== "number" ||
+    typeof port !== "number" ||
+    typeof password !== "string" ||
+    record.profileDir !== profileDir
+  ) return
+  try {
+    process.kill(pid, 0)
   } catch {
     return
   }
   try {
-    process.kill(pid, 0)
+    const response = await fetch(`http://127.0.0.1:${port}/global/health`, {
+      headers: { authorization: `Basic ${btoa(`isomux:${password}`)}` },
+      signal: AbortSignal.timeout(OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS),
+    })
+    const body = await response.json() as { healthy?: unknown; version?: unknown }
+    if (!(response.ok && body.healthy === true && body.version === "1.18.23")) return
   } catch {
     return
   }

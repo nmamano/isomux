@@ -1,0 +1,277 @@
+{
+  "date": "2026-08-28",
+  "version": "1.18.23",
+  "fork": {
+    "parentID": "ses_fb93cee83ffeJvLrTOGXrmMKA7",
+    "boundaryMessageID": "msg_046c32b83001n22fUU8HSh0rhE",
+    "childID": "ses_fb93cc99cffe8YvdrAsKi97Jk2",
+    "parentBefore": [
+      {
+        "id": "msg_046c31326001RRLjeWiQpfrZ9w",
+        "role": "user",
+        "text": "TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c31b5c001AaaosWgY95H6vC",
+        "role": "assistant",
+        "text": "ANSWER:TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c32b83001n22fUU8HSh0rhE",
+        "role": "user",
+        "text": "TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c32c08001HfXzjD850EucLj",
+        "role": "assistant",
+        "text": "ANSWER:TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331b4001X40OfSq51kjmo3",
+        "role": "user",
+        "text": "TURN_THREE SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331fa001xedW7d450eAb6f",
+        "role": "assistant",
+        "text": "ANSWER:TURN_THREE SHOULD_BE_REMOVED"
+      }
+    ],
+    "parentAfterFork": [
+      {
+        "id": "msg_046c31326001RRLjeWiQpfrZ9w",
+        "role": "user",
+        "text": "TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c31b5c001AaaosWgY95H6vC",
+        "role": "assistant",
+        "text": "ANSWER:TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c32b83001n22fUU8HSh0rhE",
+        "role": "user",
+        "text": "TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c32c08001HfXzjD850EucLj",
+        "role": "assistant",
+        "text": "ANSWER:TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331b4001X40OfSq51kjmo3",
+        "role": "user",
+        "text": "TURN_THREE SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331fa001xedW7d450eAb6f",
+        "role": "assistant",
+        "text": "ANSWER:TURN_THREE SHOULD_BE_REMOVED"
+      }
+    ],
+    "parentAfterChildPrompt": [
+      {
+        "id": "msg_046c31326001RRLjeWiQpfrZ9w",
+        "role": "user",
+        "text": "TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c31b5c001AaaosWgY95H6vC",
+        "role": "assistant",
+        "text": "ANSWER:TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c32b83001n22fUU8HSh0rhE",
+        "role": "user",
+        "text": "TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c32c08001HfXzjD850EucLj",
+        "role": "assistant",
+        "text": "ANSWER:TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331b4001X40OfSq51kjmo3",
+        "role": "user",
+        "text": "TURN_THREE SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331fa001xedW7d450eAb6f",
+        "role": "assistant",
+        "text": "ANSWER:TURN_THREE SHOULD_BE_REMOVED"
+      }
+    ],
+    "childAfterFork": [
+      {
+        "id": "msg_046c33668001vkS0M3AHQ1jDKT",
+        "role": "user",
+        "text": "TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c3366f001UkI1yUxnfqP9nv",
+        "role": "assistant",
+        "text": "ANSWER:TURN_ONE S4_CONTEXT_CANARY"
+      }
+    ],
+    "childAfterPrompt": [
+      {
+        "id": "msg_046c33668001vkS0M3AHQ1jDKT",
+        "role": "user",
+        "text": "TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c3366f001UkI1yUxnfqP9nv",
+        "role": "assistant",
+        "text": "ANSWER:TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c3372d001MX94MhqVpdAEI0",
+        "role": "user",
+        "text": "CHILD_FIRST GATE_RECALL"
+      },
+      {
+        "id": "msg_046c3375a001c9Ng2hpIWFQ9xB",
+        "role": "assistant",
+        "text": "RECALLED:S4_CONTEXT_CANARY"
+      }
+    ],
+    "parentAfterParallel": [
+      {
+        "id": "msg_046c31326001RRLjeWiQpfrZ9w",
+        "role": "user",
+        "text": "TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c31b5c001AaaosWgY95H6vC",
+        "role": "assistant",
+        "text": "ANSWER:TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c32b83001n22fUU8HSh0rhE",
+        "role": "user",
+        "text": "TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c32c08001HfXzjD850EucLj",
+        "role": "assistant",
+        "text": "ANSWER:TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331b4001X40OfSq51kjmo3",
+        "role": "user",
+        "text": "TURN_THREE SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331fa001xedW7d450eAb6f",
+        "role": "assistant",
+        "text": "ANSWER:TURN_THREE SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c33af2001Xf2eLyzfKFcebx",
+        "role": "user",
+        "text": "PARENT_PARALLEL_ONLY"
+      },
+      {
+        "id": "msg_046c33b41001bEZKyFmL6iKBM3",
+        "role": "assistant",
+        "text": "ANSWER:PARENT_PARALLEL_ONLY"
+      }
+    ],
+    "childAfterParallel": [
+      {
+        "id": "msg_046c33668001vkS0M3AHQ1jDKT",
+        "role": "user",
+        "text": "TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c3366f001UkI1yUxnfqP9nv",
+        "role": "assistant",
+        "text": "ANSWER:TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c3372d001MX94MhqVpdAEI0",
+        "role": "user",
+        "text": "CHILD_FIRST GATE_RECALL"
+      },
+      {
+        "id": "msg_046c3375a001c9Ng2hpIWFQ9xB",
+        "role": "assistant",
+        "text": "RECALLED:S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c33b0c001dvChayocy4k1gn",
+        "role": "user",
+        "text": "CHILD_PARALLEL_ONLY"
+      },
+      {
+        "id": "msg_046c33b4b001hW3hE3wOnKCW69",
+        "role": "assistant",
+        "text": "ANSWER:CHILD_PARALLEL_ONLY"
+      }
+    ],
+    "emptyForkMessageCount": 0
+  },
+  "cwd": {
+    "repoA": "/tmp/isomux-opencode-gate/s4-durability-probes/repo-a",
+    "repoB": "/tmp/isomux-opencode-gate/s4-durability-probes/repo-b",
+    "cwdA": "/tmp/isomux-opencode-gate/s4-durability-probes/repo-a\n",
+    "cwdB": null,
+    "parentAfterCwd": [
+      {
+        "id": "msg_046c31326001RRLjeWiQpfrZ9w",
+        "role": "user",
+        "text": "TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c31b5c001AaaosWgY95H6vC",
+        "role": "assistant",
+        "text": "ANSWER:TURN_ONE S4_CONTEXT_CANARY"
+      },
+      {
+        "id": "msg_046c32b83001n22fUU8HSh0rhE",
+        "role": "user",
+        "text": "TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c32c08001HfXzjD850EucLj",
+        "role": "assistant",
+        "text": "ANSWER:TURN_TWO SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331b4001X40OfSq51kjmo3",
+        "role": "user",
+        "text": "TURN_THREE SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c331fa001xedW7d450eAb6f",
+        "role": "assistant",
+        "text": "ANSWER:TURN_THREE SHOULD_BE_REMOVED"
+      },
+      {
+        "id": "msg_046c33af2001Xf2eLyzfKFcebx",
+        "role": "user",
+        "text": "PARENT_PARALLEL_ONLY"
+      },
+      {
+        "id": "msg_046c33b41001bEZKyFmL6iKBM3",
+        "role": "assistant",
+        "text": "ANSWER:PARENT_PARALLEL_ONLY"
+      },
+      {
+        "id": "msg_046c3428d00140UzdkRLFF5Buw",
+        "role": "user",
+        "text": "GATE_CWD RETARGET_TO_REPO_B"
+      },
+      {
+        "id": "msg_046c342ef001D6l7wFqhLHKx39",
+        "role": "assistant",
+        "text": ""
+      },
+      {
+        "id": "msg_046c34b6f001gxRkj5hct1ocxf",
+        "role": "assistant",
+        "text": "RECOVERED_AFTER_TOOL"
+      }
+    ]
+  }
+}

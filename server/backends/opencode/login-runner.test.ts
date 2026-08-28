@@ -74,8 +74,28 @@ describe("OpenCode exact-profile authentication install", () => {
   it("fails fast when the shared server restarted before login", async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-auth-running-"))
     scratch.push(root)
-    await writeFile(join(root, "server.lock"), JSON.stringify({ pid: process.pid }))
+    const password = "health-test-password"
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        if (request.headers.get("authorization") !== `Basic ${btoa(`isomux:${password}`)}`) {
+          return new Response("unauthorized", { status: 401 })
+        }
+        return Response.json({ healthy: true, version: "1.18.23" })
+      },
+    })
+    await writeFile(join(root, "server.lock"), JSON.stringify({
+      pid: process.pid,
+      port: server.port,
+      password,
+      profileDir: root,
+    }))
     await expectRejection(assertOpenCodeServerStopped(root), /get a fresh login command/)
+    await server.stop(true)
+    // A recycled unrelated pid is not enough to block login.
+    await writeFile(join(root, "server.lock"), JSON.stringify({ pid: process.pid }))
+    await assertOpenCodeServerStopped(root)
     await writeFile(join(root, "server.lock"), JSON.stringify({ pid: 999_999_999 }))
     await assertOpenCodeServerStopped(root)
   })

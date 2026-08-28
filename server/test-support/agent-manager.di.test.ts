@@ -37,6 +37,7 @@ import { openCodeProfilePaths } from "../backends/opencode/login-wrapper.ts";
 import {
   createAgentManager,
   createProductionAgentManager,
+  backendSessionHasFixedCwd,
 } from "../agent-manager.ts";
 
 // STATE_ROOT is a temp dir (the bun test preload preset ISOMUX_HOME before
@@ -206,6 +207,44 @@ describe("AgentManager DI (disk-free seam)", () => {
 });
 
 describe("AgentManager DI (temp-state isolated)", () => {
+  it("classifies OpenCode and Codex sessions as fixed to their birth cwd", () => {
+    expect(backendSessionHasFixedCwd("opencode")).toBe(true);
+    expect(backendSessionHasFixedCwd("codex")).toBe(true);
+    expect(backendSessionHasFixedCwd("claude")).toBe(false);
+  });
+
+  it("maps the backend edit capability into the OpenCode agent payload", async () => {
+    for (const edit of [true, false]) {
+      const fake = new FakeBackend({
+        capabilities: {
+          ...new FakeBackend().capabilities,
+          edit,
+          fork: edit,
+        },
+      });
+      const mgr = createAgentManager({
+        resolveBackend: () => fake,
+        officeState: new OfficeState({ rooms: rooms(`room-edit-${edit}`) }),
+        initialRooms: [],
+      });
+      const info = await mgr.spawn(
+        `OpenCode edit ${edit}`,
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        `room-edit-${edit}`,
+        undefined,
+        "opencode/fake",
+        "high",
+        undefined,
+        "opencode",
+      );
+      expect(info?.capabilities.edit).toBe(edit);
+      expect(info?.capabilities.fork).toBe(edit);
+    }
+  });
+
   it("runs the OpenCode first-reply tracer through normal logs and persistence", async () => {
     const { calls, resolveBackend } = spyResolver(createOpenCodeTracerBackend());
     const { events, sink } = capture();
@@ -695,8 +734,8 @@ describe("AgentManager DI (temp-state isolated)", () => {
         }
         if (url.pathname === "/v1/chat/completions") {
           return Response.json(
-            { error: { message: canary, type: "authentication_error" } },
-            { status: 401, headers: { "x-provider-secret": canary } },
+            { error: { message: canary, type: "provider_error" } },
+            { status: 400, headers: { "x-provider-secret": canary } },
           );
         }
         return new Response("not found", { status: 404 });

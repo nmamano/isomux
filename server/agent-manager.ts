@@ -176,8 +176,10 @@ import { versionOf } from "../shared/blob-version.ts";
 import {
   buildEnvForUserId,
   environmentSourceKeyForUserId,
+  environmentSourceRevisionForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
+
 import {
   mintAgentToken,
   revokeAgentToken,
@@ -231,6 +233,12 @@ export interface ManagerDeps {
   // real WS-broadcast sink via onEvent() AFTER construction, because that
   // closure references broadcast helpers defined later in isomux-office.ts.
   eventSink?: EventHandler;
+}
+
+export function backendSessionHasFixedCwd(
+  agentType: AgentInfo["agentType"],
+): boolean {
+  return agentType === "codex" || agentType === "opencode";
 }
 
 // Public surface of an AgentManager instance, derived from the explicitly
@@ -421,16 +429,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   const agents = new Map<string, ManagedAgent>();
   const logCache = new Map<string, LogEntry[]>(); // agentId → entries
-  // Agents mid-way through a LIVE Codex cwd change. The old thread is being
-  // abandoned (a resumed Codex thread can't change cwd), but managed.sessionId is
-  // kept pointing at it until the fresh thread's system_init lands, so the success
-  // path's "new thread id" clear-branch runs and a synchronous replace failure can
-  // roll back with the old id intact. The gap this set closes: Codex bootstraps
-  // ASYNChronously, so a fresh-thread bootstrap FAILURE emits system_init with an
+  // Agents mid-way through a live fixed-cwd-backend change. The old session is
+  // abandoned, but managed.sessionId stays until the fresh session's system_init
+  // lands, so the success clear-branch runs and a synchronous replace failure can
+  // roll back with the old id intact. Codex bootstraps asynchronously, so a fresh
+  // bootstrap failure emits system_init with an
   // empty sessionId, which bypasses that clear-branch - leaving the abandoned old
   // id + stale logCache bound to the already-committed new cwd. The system_init
   // handler consumes this marker to clear that state on the empty-init path.
-  const pendingCodexCwdReset = new Set<string>(); // agentId
+  const pendingFixedCwdReset = new Set<string>(); // agentId
   // Event sink (instance-scoped). isomux-office.ts overrides this via onEvent() after
   // construction; deps.eventSink lets tests capture emitted events.
   let eventHandler: EventHandler = deps.eventSink ?? (() => {});
@@ -838,7 +845,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     );
     const isClaude = managed.info.agentType === "claude";
 
-    const codexCwdChange = cwdChanging && !isClaude;
+    // Codex and pinned OC1 sessions keep their birth directory. A 2026-08-28
+    // OC1 probe showed that a repo-B request against a repo-A session still
+    // ran its tool in repo A. Both therefore start fresh after a cwd edit.
+    const fixedCwdChange =
+      cwdChanging &&
+      backendSessionHasFixedCwd(managed.info.agentType);
     // A cwd change retargets the session. If a live backend process exists it
     // must be replaced (a process's cwd is fixed at spawn); if not, relocating the
     // on-disk session file + restamping its cwd is enough - the next message
@@ -853,19 +865,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const needClaudeFileMove =
       cwdChanging && isClaude && managed.sessionId !== null;
 
-    // Codex can't carry a cwd across a resume (thread/resume ignores cwd - see
-    // backends/codex/adapter.ts), so a cwd change abandons the thread; the next
-    // message starts a fresh one in the new cwd. Split by whether a replace runs:
+    // Fixed-cwd backends cannot carry cwd across a resume, so a cwd change
+    // abandons the session and the next message starts fresh in the new cwd.
+    // Split by whether a replace runs:
     //   - NO replace (lazy process AND cwd-only change): there's no session-install
     //     transaction to protect, so drop the id + clear logs NOW. The next message
     //     spawns fresh in the new cwd.
     //   - replace WILL run (live process, OR a setting change forces one): DEFER the
-    //     drop into the replace via pendingCodexCwdReset (set below). Dropping now
+    //     drop into the replace via pendingFixedCwdReset (set below). Dropping now
     //     would lose the still-valid old id if that replace then fails and the edit
     //     rolls back - the lazy-cwd+setting foot-gun. Leaving sessionId set also
     //     lets the success-path system_init clear-branch (new id !== old id) wipe
     //     the abandoned chat.
-    if (codexCwdChange && managed.sessionId && !needReplace) {
+    if (fixedCwdChange && managed.sessionId && !needReplace) {
       clearStaleAutoResumeState(agentId, managed);
     }
 
@@ -928,13 +940,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         claudeFileMoved = moved.moved;
       }
 
-      // Replace the live session when needed. For a live Codex cwd change this
-      // forces a fresh thread (a resumed Codex thread keeps its birth cwd); Claude
-      // passes its active session through and resumes it at the new cwd. Skipped
-      // entirely in the lazy case (no live process to retarget).
+      // Replace the live session when needed. A fixed-cwd change forces a fresh
+      // session; Claude passes its active session through and resumes it at the
+      // new cwd. Skipped in the lazy case.
       if (needReplace) {
-        // A Codex cwd change that reaches this replace (live, or lazy + a setting
-        // change that forced the replace) abandons the old thread for a fresh one.
+        // A fixed-cwd change that reaches this replace abandons the old session.
         // We intentionally do NOT drop managed.sessionId yet: leaving it set means
         // (a) the success-path system_init clear-branch (new id !== old id) wipes
         // the abandoned thread's chat without contaminating the fresh thread, and
@@ -946,11 +956,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // the consumer's pre-init error path) knows to abandon the old id +
         // logCache. Cleared in the catch below (replace never installed the fresh
         // session, so the old one stands and there's nothing to abandon).
-        if (codexCwdChange) pendingCodexCwdReset.add(agentId);
-        const sessionId = codexCwdChange
+        if (fixedCwdChange) pendingFixedCwdReset.add(agentId);
+        const sessionId = fixedCwdChange
           ? null
           : pickAutoResumeSessionId(managed);
-        if (managed.sessionId && !sessionId && !codexCwdChange)
+        if (managed.sessionId && !sessionId && !fixedCwdChange)
           clearStaleAutoResumeState(agentId, managed);
         try {
           await replaceSession(
@@ -968,7 +978,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         } catch (err) {
           // replaceSession failed before installing the fresh session: the old
           // session still stands, so there's no abandoned thread to reconcile.
-          pendingCodexCwdReset.delete(agentId);
+          pendingFixedCwdReset.delete(agentId);
           officeState.updateAgent(agentId, snapshot);
           // Roll the Claude file move back so the on-disk session location stays
           // consistent with the rolled-back mirror. Surface a reverse failure -
@@ -3159,10 +3169,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // see backends/codex/adapter.ts bootstrap catch. Slash_commands/skills
         // still land below in either case.
         if (managed && ev.sessionId) {
-          // A live Codex cwd change is committing: the fresh thread bootstrapped.
+          // A live fixed-cwd change is committing: the fresh session bootstrapped.
           // The clear-branch below (new id !== old id) handles abandoning the old
           // thread's chat, so just retire the pending-reset marker here.
-          pendingCodexCwdReset.delete(agentId);
+          pendingFixedCwdReset.delete(agentId);
           const sessionId = ev.sessionId;
           const hadPreviousSession = !!managed.sessionId;
           // Load prior log history if this session was seen before (walks fork ancestry)
@@ -3220,8 +3230,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             }
           }
           persistAll();
-        } else if (managed && pendingCodexCwdReset.has(agentId)) {
-          // Empty-sessionId system_init while a live Codex cwd change was pending:
+        } else if (managed && pendingFixedCwdReset.has(agentId)) {
+          // Empty-sessionId system_init while a live fixed-cwd change was pending:
           // the fresh thread failed to bootstrap (see backends/codex/adapter.ts).
           // replaceSession already closed the old process and AgentInfo.cwd is
           // committed to the new cwd, but managed.sessionId / logCache still point
@@ -3229,7 +3239,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // associate the old thread with the new cwd - the next message starts a
           // genuinely fresh conversation in the new dir. The old thread's
           // transcript remains on disk under its own id (resumable via /resume).
-          pendingCodexCwdReset.delete(agentId);
+          pendingFixedCwdReset.delete(agentId);
           clearStaleAutoResumeState(agentId, managed);
           persistAll();
         }
@@ -3856,15 +3866,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.pendingTurn = null;
       if (turn) turn.reject(err);
 
-      // A fresh Codex session installed for a cwd change can error before it ever
+      // A fresh fixed-cwd session can error before it ever
       // emits system_init (an out-of-band stream failure; the adapter normally
       // routes bootstrap failures through an empty-sessionId system_init, which the
       // handler reconciles). In that case neither system_init reconciliation path
       // runs, so honor the pending-reset marker here too: abandon the old thread's
       // id + logCache so the committed new cwd isn't left paired with the dead old
       // thread. No-op for the common error path (marker absent).
-      if (pendingCodexCwdReset.has(agentId)) {
-        pendingCodexCwdReset.delete(agentId);
+      if (pendingFixedCwdReset.has(agentId)) {
+        pendingFixedCwdReset.delete(agentId);
         clearStaleAutoResumeState(agentId, managed);
       }
 
@@ -4668,6 +4678,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sandbox: managed.info.codexSandbox,
       env,
       environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+      environmentRevision: environmentSourceRevisionForUserId(
+        managed.info.userId,
+      ),
     };
     const backend = getBackend(managed.info.agentType);
     return resumeSessionId
@@ -6980,9 +6993,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // A killed agent's durable queue record must not replay into a future
     // revive (task 9870b472).
     removeQueueRecord(agentId);
-    // Drop any pending live-Codex-cwd-change marker so a kill during the
+    // Drop any pending live fixed-cwd-change marker so a kill during the
     // sub-second replace window doesn't leave a dangling entry for a dead agent.
-    pendingCodexCwdReset.delete(agentId);
+    pendingFixedCwdReset.delete(agentId);
     if (oldConsumer) {
       // Bounded like closeAndDrainSession: a wedged stream must not park the
       // kill() caller forever (same hazard class as task da065287).
@@ -7687,9 +7700,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       //    raw command (e.g. "/grill") but the SDK received the expanded prompt;
       //    `metadata.sdkText` captures that expanded form for matching.
       const backend = getBackend(managed.info.agentType);
+      const editEnv = buildSessionEnv(managed);
       const backendMessages = await backend.getSessionMessages(
         oldSessionId,
         managed.info.cwd,
+        {
+          env: editEnv,
+          environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+          environmentRevision: environmentSourceRevisionForUserId(
+            managed.info.userId,
+          ),
+        },
       );
       const targetUsername = targetEntry.metadata?.username as
         | string

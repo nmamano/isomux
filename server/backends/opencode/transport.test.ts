@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   interruptedToolResults,
   isAuthenticationError,
+  allowMessages,
   parseAllowedEvent,
 } from "./transport.ts";
 import { writeSafeContractFixture } from "./contract-fixture.ts";
@@ -11,6 +12,22 @@ import { tmpdir } from "node:os";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 
 describe("OpenCode OC1 raw-ingress allowlist", () => {
+  it("keeps only message ids, roles, and text for edit matching", () => {
+    const canary = "HISTORY_PRIVATE_CANARY";
+    expect(
+      allowMessages([
+        {
+          info: { id: "m1", role: "user", providerMetadata: canary },
+          parts: [
+            { type: "text", text: "safe", metadata: canary },
+            { type: "tool", state: { output: canary } },
+          ],
+          metadata: canary,
+        },
+      ]),
+    ).toEqual([{ uuid: "m1", role: "user", text: "safe" }]);
+  });
+
   it("closes only non-terminal tools when an abort reaches idle", () => {
     expect(
       interruptedToolResults([

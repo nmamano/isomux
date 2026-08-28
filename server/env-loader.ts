@@ -74,6 +74,24 @@ export function environmentSourceKeyForUserId(
     .slice(0, 16);
 }
 
+// Revision of configured environment-file contents. This is replacement
+// state, not profile identity: a value change keeps the same profile and
+// durable sessions but prevents adoption of a server with the old env.
+// Process values are excluded so an Isomux restart can adopt the same server.
+export function environmentSourceRevisionForUserId(
+  userId: string | null | undefined,
+): string {
+  const officeEnvFile = getOfficeEnvFile();
+  const userEnvFile = userId ? getUserEnvFileById(userId) : null;
+  const configured: Record<string, string> = {};
+  if (officeEnvFile) Object.assign(configured, readEnvFile(officeEnvFile));
+  if (userEnvFile) Object.assign(configured, readEnvFile(userEnvFile));
+  const entries = Object.entries(configured).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+  return createHash("sha256").update(JSON.stringify(entries)).digest("hex");
+}
+
 // Compatibility wrapper. New code should use `buildEnvForUserId(userId)`
 // directly. This resolves a username string (display name) to a userId
 // via case-insensitive lookup so legacy call sites that only carry a

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   environmentSourceKeyForUserId,
+  environmentSourceRevisionForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
 
@@ -21,11 +22,14 @@ describe("environment source identity", () => {
       setOfficeEnvFileProvider(() => firstPath);
       process.env.INVOCATION_ID = "first-start";
       const first = environmentSourceKeyForUserId(null);
+      const firstRevision = environmentSourceRevisionForUserId(null);
       process.env.INVOCATION_ID = "second-start";
       expect(environmentSourceKeyForUserId(null)).toBe(first);
+      expect(environmentSourceRevisionForUserId(null)).toBe(firstRevision);
 
       await writeFile(firstPath, "PROVIDER_KEY=rotated\nUNRELATED=value\n");
       expect(environmentSourceKeyForUserId(null)).toBe(first);
+      expect(environmentSourceRevisionForUserId(null)).not.toBe(firstRevision);
 
       setOfficeEnvFileProvider(() => secondPath);
       expect(environmentSourceKeyForUserId(null)).not.toBe(first);

@@ -62,6 +62,15 @@ export interface CreateSessionOptions {
   // share a process use this for grouping instead of restart-volatile
   // entries inherited from process.env.
   environmentKey?: string;
+  // Hash of configured environment-file contents only. Shared-process
+  // backends use it to replace a server without changing profile identity.
+  environmentRevision?: string;
+}
+
+export interface SessionEnvironmentOptions {
+  env?: { [key: string]: string | undefined };
+  environmentKey?: string;
+  environmentRevision?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -492,6 +501,7 @@ export interface Backend {
   getSessionMessages(
     sessionId: string,
     cwd: string,
+    environment?: SessionEnvironmentOptions,
   ): Promise<NormalizedMessage[]>;
 
   // Single-prompt operation used by topic generation. Returns the assistant

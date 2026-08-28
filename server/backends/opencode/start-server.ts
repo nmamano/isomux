@@ -17,7 +17,10 @@ interface ServerRecord {
   password: string;
   binary: string;
   profileDir: string;
+  environmentRevision: string;
 }
+
+const OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS = 2_000;
 
 const profileDir = required("OPENCODE_PROFILE_DIR");
 const recordPath = required("OPENCODE_SERVER_RECORD");
@@ -34,6 +37,7 @@ const binary = required("OPENCODE_BINARY");
 const password = required("OPENCODE_SERVER_PASSWORD");
 const serverCwd = required("OPENCODE_SERVER_CWD");
 const configPath = required("OPENCODE_CONFIG");
+const environmentRevision = required("OPENCODE_ENVIRONMENT_REVISION");
 const username = "isomux";
 const keepDebugOutput = process.env.ISOMUX_OPENCODE_DEBUG === "1";
 
@@ -48,12 +52,17 @@ function authHeader(secret: string): string {
 }
 
 async function healthy(record: ServerRecord): Promise<boolean> {
-  if (record.binary !== binary || record.profileDir !== profileDir) return false;
+  if (
+    record.binary !== binary ||
+    record.profileDir !== profileDir ||
+    record.environmentRevision !== environmentRevision
+  )
+    return false;
   try {
     process.kill(record.pid, 0);
     const response = await fetch(`http://127.0.0.1:${record.port}/global/health`, {
       headers: { authorization: authHeader(record.password) },
-      signal: AbortSignal.timeout(400),
+      signal: AbortSignal.timeout(OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS),
     });
     const body = (await response.json()) as { healthy?: boolean; version?: string };
     return response.ok && body.healthy === true && body.version === "1.18.23";
@@ -178,11 +187,26 @@ for (let attempt = 0; attempt < 40; attempt++) {
   await Promise.all([stdout.close(), stderr.close()]);
   child.unref();
   if (child.pid && (await waitHealthy(child, port))) {
-    started = { pid: child.pid, port, password, binary, profileDir };
+    started = {
+      pid: child.pid,
+      port,
+      password,
+      binary,
+      profileDir,
+      environmentRevision,
+    };
     if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });
     break;
   }
-  if (child.pid) await stop({ pid: child.pid, port, password, binary, profileDir });
+  if (child.pid)
+    await stop({
+      pid: child.pid,
+      port,
+      password,
+      binary,
+      profileDir,
+      environmentRevision,
+    });
   const startupError = await readFile(stderrPath, "utf8").catch(() => "");
   if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });
   if (!bindFailure(startupError)) {

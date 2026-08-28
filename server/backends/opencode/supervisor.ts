@@ -16,6 +16,7 @@ interface ServerRecord {
   password: string;
   binary: string;
   profileDir: string;
+  environmentRevision: string;
 }
 
 export interface OpenCodeLease {
@@ -24,7 +25,7 @@ export interface OpenCodeLease {
   profileDir: string;
   pid: number;
   release(): void;
-  beginTurn(): void;
+  beginTurn(): Promise<void>;
   endTurn(): void;
 }
 
@@ -37,6 +38,7 @@ export interface OpenCodeSupervisorOptions {
   launchEnv?: Record<string, string | undefined>;
   replacementDrainMs?: number;
   pendingLoginTtlMs?: number;
+  environmentRevision?: string;
 }
 
 export class OpenCodeSupervisor {
@@ -51,10 +53,12 @@ export class OpenCodeSupervisor {
   private readonly config: Record<string, unknown>;
   private readonly serverCwd: string;
   private readonly idleShutdownMs: number;
-  private readonly launchEnv: Record<string, string | undefined>;
+  private launchEnv: Record<string, string | undefined>;
+  private environmentRevision: string;
   private readonly replacementDrainMs: number;
   private readonly pendingLoginTtlMs: number;
   private replacementPromise: Promise<void> | null = null;
+  private environmentReplacementRequested = false;
 
   constructor(options: OpenCodeSupervisorOptions = {}) {
     this.profileDir = options.profileDir ?? join(STATE_ROOT, "opencode", "profiles", "default");
@@ -68,6 +72,7 @@ export class OpenCodeSupervisor {
     this.serverCwd = options.serverCwd ?? STATE_ROOT;
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
+    this.environmentRevision = options.environmentRevision ?? "default";
     this.replacementDrainMs = options.replacementDrainMs ?? OPENCODE_REPLACEMENT_DRAIN_MS;
     this.pendingLoginTtlMs = options.pendingLoginTtlMs ?? OPENCODE_AUTH_LOGIN_PENDING_TTL_MS;
     this.clearPendingLogin();
@@ -85,20 +90,30 @@ export class OpenCodeSupervisor {
     this.leases++;
     let released = false;
     let turnActive = false;
-    const record = this.record!;
+    const initialRecord = this.record!;
+    const currentRecord = () => this.record ?? initialRecord;
     return {
-      baseUrl: `http://127.0.0.1:${record.port}`,
-      authHeader: `Basic ${btoa(`isomux:${record.password}`)}`,
+      get baseUrl() {
+        return `http://127.0.0.1:${currentRecord().port}`;
+      },
+      get authHeader() {
+        return `Basic ${btoa(`isomux:${currentRecord().password}`)}`;
+      },
       profileDir: this.profileDir,
-      pid: record.pid,
+      get pid() {
+        return currentRecord().pid;
+      },
       release: () => {
         if (released) return;
         released = true;
         this.leases--;
         this.armIdleReap();
       },
-      beginTurn: () => {
+      beginTurn: async () => {
         if (released || turnActive) return;
+        await this.replaceServerIfRequested();
+        if (this.shutdownPromise) await this.shutdownPromise;
+        if (!this.record) await this.ensureServer();
         turnActive = true;
         this.activeTurns++;
         if (this.idleTimer) clearTimeout(this.idleTimer);
@@ -111,6 +126,16 @@ export class OpenCodeSupervisor {
         this.armIdleReap();
       },
     };
+  }
+
+  updateLaunchEnvironment(
+    launchEnv: Record<string, string | undefined>,
+    environmentRevision: string,
+  ): void {
+    if (environmentRevision === this.environmentRevision) return;
+    this.launchEnv = launchEnv;
+    this.environmentRevision = environmentRevision;
+    this.environmentReplacementRequested = true;
   }
 
   shutdown(): Promise<void> {
@@ -203,6 +228,7 @@ export class OpenCodeSupervisor {
           OPENCODE_SERVER_PASSWORD: password,
           OPENCODE_SERVER_CWD: this.serverCwd,
           OPENCODE_CONFIG: configPath,
+          OPENCODE_ENVIRONMENT_REVISION: this.environmentRevision,
         },
         stdout: "pipe",
         stderr: "pipe",
@@ -221,16 +247,19 @@ export class OpenCodeSupervisor {
 
   private async replaceServerIfRequested(): Promise<void> {
     const marker = join(this.profileDir, "server.replace");
-    if (!existsSync(marker)) return;
+    if (!existsSync(marker) && !this.environmentReplacementRequested) return;
     if (!this.replacementPromise) {
       this.replacementPromise = (async () => {
         const deadline = Date.now() + this.replacementDrainMs;
         while (this.activeTurns > 0 && Date.now() < deadline) await Bun.sleep(25);
         if (this.activeTurns > 0) {
-          throw new Error("OpenCode authentication changed, but active turns did not drain in time.");
+          throw new Error(
+            "OpenCode environment changed, but active turns did not drain in time. Send your message again to retry.",
+          );
         }
         await this.shutdown();
         await rm(marker, { force: true });
+        this.environmentReplacementRequested = false;
       })().finally(() => {
         this.replacementPromise = null;
       });
@@ -259,6 +288,7 @@ const environmentSupervisors = new Map<string, OpenCodeSupervisor>();
 export function openCodeSupervisorForEnvironment(
   environmentKey: string | undefined,
   env: Record<string, string | undefined> | undefined,
+  environmentRevision = "default",
 ): OpenCodeSupervisor {
   const launchEnv = Object.fromEntries(
     Object.entries(env ?? {})
@@ -280,8 +310,11 @@ export function openCodeSupervisorForEnvironment(
     supervisor = new OpenCodeSupervisor({
       profileDir,
       launchEnv,
+      environmentRevision,
     });
     environmentSupervisors.set(key, supervisor);
+  } else {
+    supervisor.updateLaunchEnvironment(launchEnv, environmentRevision);
   }
   return supervisor;
 }

@@ -1,5 +1,9 @@
 import type { NormalizedEvent } from "../types.ts";
-import type { ApprovalDecision, TokenUsage } from "../types.ts";
+import type {
+  ApprovalDecision,
+  NormalizedMessage,
+  TokenUsage,
+} from "../types.ts";
 import {
   openCodeSupervisor,
   type OpenCodeLease,
@@ -78,7 +82,7 @@ export class OpenCodeTransport {
 
   async send(text: string, sink: EventSink): Promise<void> {
     const sessionId = await this.initialize(sink);
-    this.lease!.beginTurn();
+    await this.lease!.beginTurn();
     this.activeTurn = true;
     this.abortRequested = false;
     this.abortController = new AbortController();
@@ -123,6 +127,30 @@ export class OpenCodeTransport {
     }
     this.pendingPermission = null;
     await this.replyPermission(approvalId, decision.kind === "allow_once" ? "once" : "reject");
+  }
+
+  async getSessionMessages(): Promise<NormalizedMessage[]> {
+    const sessionId = await this.initialize(() => undefined);
+    const response = await this.request(
+      `/session/${encodeURIComponent(sessionId)}/message`,
+    );
+    const messages = allowMessages(await response.json());
+    this.contractShapeSink?.("http:message:list");
+    return messages;
+  }
+
+  async forkAtMessage(messageId: string): Promise<string> {
+    const sessionId = await this.initialize(() => undefined);
+    const response = await this.request(
+      `/session/${encodeURIComponent(sessionId)}/fork`,
+      {
+        method: "POST",
+        body: JSON.stringify({ messageID: messageId }),
+      },
+    );
+    const child = allowSession(await response.json()).id;
+    this.contractShapeSink?.("http:fork:{id:string}");
+    return child;
   }
 
   canAbortInPlace(): boolean {
@@ -347,6 +375,34 @@ function allowSession(raw: unknown): { id: string } {
     throw new Error("OpenCode returned an invalid session shape.");
   }
   return { id: (raw as { id: string }).id };
+}
+
+export function allowMessages(raw: unknown): NormalizedMessage[] {
+  if (!Array.isArray(raw)) {
+    throw new Error("OpenCode returned an invalid message list.");
+  }
+  return raw.map((value) => {
+    const message = asRecord(value);
+    const info = asRecord(message.info);
+    const uuid = stringField(info, "id");
+    const role = info.role;
+    if (
+      !uuid ||
+      (role !== "user" &&
+        role !== "assistant" &&
+        role !== "system" &&
+        role !== "result")
+    ) {
+      throw new Error("OpenCode returned an invalid message shape.");
+    }
+    const parts = Array.isArray(message.parts) ? message.parts : [];
+    const text = parts
+      .map(asRecord)
+      .filter((part) => part.type === "text")
+      .map((part) => stringField(part, "text") ?? "")
+      .join("");
+    return { uuid, role, text };
+  });
 }
 
 type AllowedEvent =

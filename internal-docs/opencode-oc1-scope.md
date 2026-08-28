@@ -1,6 +1,6 @@
 # OpenCode OC1 adapter scope
 
-Status: alignment in progress; implementation not started\
+Status: OC1 implementation in progress\
 Decision dates: 2026-08-27 to 2026-08-28\
 Runtime target: OpenCode CLI 1.18.23
 
@@ -43,9 +43,11 @@ difference. In particular:
   environment file selects process environment; it is not a private-office or
   private-conversation boundary.
 
-Fork and edit-message may ship disabled for OpenCode if OC1 cannot implement
-them reliably. A stable V2 release during this work does not change the target:
-finish the pinned OC1 backend, and migrate only after a separate V2 gate.
+Fork and edit-message are enabled from S4 after the selected boundary, child
+history, first child turn, first-message boundary, and parent preservation all
+passed against the pinned binary. A stable V2 release during this work does not
+change the target: finish the pinned OC1 backend, and migrate only after a
+separate V2 gate.
 
 ## OC1 contract
 
@@ -197,10 +199,10 @@ and user environment-file merge. They do not use `auth.json`.
 
 ## Fork and edit-message
 
-The gate proved only that the OC1 fork endpoint responds. Slice 1 must first
-verify fork at the selected message, the child transcript, and the child's
-first new message. If any of these fail, Isomux capability-gates edit-message
-and fork off for OpenCode and ships OC1 without them.
+The original gate proved only that the OC1 fork endpoint responds. S4 recorded
+the selected boundary, child transcript, child's first new message, empty
+first-message boundary, and unchanged parent after the child's write. Those
+proofs enable both fork and edit-message for OpenCode.
 
 ## Cron requirements
 
@@ -309,6 +311,40 @@ does not mean transport recovery.
    message plus child history and first child turn, or keep fork and edit off.
    Pin that OpenCode remains observe-only in the busy-turn watchdog; S3 did not
    change that existing behavior.
+
+S4's 2026-08-28 pinned probes found that `messageID` is an exclusion boundary.
+Forking at the second user message retained the complete first turn, removed
+the selected and later turns, and left the parent unchanged after both the
+fork and the child's first prompt. Forking at the first user message produced
+an empty linked child. The child's first reply recalled a canary available only
+in its retained parent context. Fork and edit can therefore ship for OC1.
+
+Fork parents are retained in OpenCode's profile. This matches Isomux's existing
+branch history and Codex rollout retention, makes `/resume` honest, and means
+profile and backup size can grow with edits. S4 does not add automatic parent
+deletion.
+
+An OC1 session is fixed to its birth directory. A repo-B client request against
+a repo-A session still ran its tool in repo A, so a cwd edit starts a fresh
+session for OpenCode as it does for Codex. The profile and other durable
+sessions stay in place.
+
+The SSE subscription is per turn. Replacement drains all active turns, so no
+idle persistent subscription can be stranded on the old endpoint. Retained
+leases read the supervisor's current authenticated endpoint before their next
+turn. Agent-manager enforces one live backend session per agent; edit closes
+the parent handle before it installs and sends through the child, and resume
+replaces the old handle. A fork parent and child have distinct session ids. A
+cron run can share the profile in S6 but must never receive an interactive
+agent's session id. The server-record revision design assumes one Isomux
+process owns one `STATE_ROOT`; two Isomux processes with different views of the
+same env files are unsupported.
+
+Environment-file contents have a separate revision from profile identity. The
+revision hashes configured office and user env-file values only, never ambient
+process values, and is stored only in the mode-0600 server record. A changed
+revision replaces the active server in the same paths-only profile after the
+two-minute bounded drain. Durable session ids remain valid.
 6. **S5 - model and UI completion.** Add provider/model discovery, at most
    three first-release certified models, capability-shaped controls, and every
    killed/resumed-agent surface.

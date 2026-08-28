@@ -18,6 +18,7 @@ import type {
   NormalizedMessage,
   OneShotOptions,
   PermissionModeOption,
+  SessionEnvironmentOptions,
   StoredSessionState,
   SubscriptionUsageResult,
 } from "../types.ts";
@@ -48,16 +49,21 @@ function loginInstructions(environmentKey: string | undefined): {
 }
 
 const CAPABILITIES: BackendCapabilities = {
-  fork: false,
+  fork: true,
   hooks: false,
   skills: false,
   oneShot: false,
   canUseTool: true,
   topicGen: false,
-  edit: false,
+  edit: true,
   mcp: false,
 };
-const TRACER_CAPABILITIES: BackendCapabilities = { ...CAPABILITIES, canUseTool: false };
+const TRACER_CAPABILITIES: BackendCapabilities = {
+  ...CAPABILITIES,
+  fork: false,
+  edit: false,
+  canUseTool: false,
+};
 
 const MODELS: ModelOption[] = [
   { value: OPENCODE_TRACER_MODEL, label: "OpenCode tracer" },
@@ -91,6 +97,7 @@ class OpenCodeServerSession implements BackendSession {
     sessionId?: string,
     contractShapeSink?: (shape: string) => void,
     safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void,
+    private readonly onSessionId?: (sessionId: string) => void,
   ) {
     this.transport = new OpenCodeTransport({
       cwd: opts.cwd,
@@ -104,6 +111,9 @@ class OpenCodeServerSession implements BackendSession {
 
   private push = (event: NormalizedEvent): void => {
     if (this.ended) return;
+    if (event.kind === "system_init" && event.sessionId) {
+      this.onSessionId?.(event.sessionId);
+    }
     this.events.push(event);
     const wake = this.wake;
     this.wake = null;
@@ -312,12 +322,36 @@ export function createOpenCodeTracerBackend(
 
 export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Backend {
   const model = options.model ?? OPENCODE_TRACER_MODEL;
+  const bindings = new Map<
+    string,
+    { cwd: string; supervisor: OpenCodeSupervisor }
+  >();
   const supervisorFor = (opts: CreateSessionOptions): OpenCodeSupervisor => {
     if (options.supervisor) return options.supervisor;
     if (!opts.environmentKey) {
       throw new Error("OpenCode session environment identity is required.");
     }
-    return openCodeSupervisorForEnvironment(opts.environmentKey, opts.env);
+    return openCodeSupervisorForEnvironment(
+      opts.environmentKey,
+      opts.env,
+      opts.environmentRevision,
+    );
+  };
+  const transportForSession = (sessionId: string): OpenCodeTransport => {
+    const binding = bindings.get(sessionId);
+    if (!binding) {
+      throw new Error(
+        "OpenCode session is not bound to this Isomux agent process.",
+      );
+    }
+    return new OpenCodeTransport({
+      cwd: binding.cwd,
+      model,
+      supervisor: binding.supervisor,
+      sessionId,
+      contractShapeSink: options.contractShapeSink,
+      safeErrorSink: options.safeErrorSink,
+    });
   };
   return {
     capabilities: CAPABILITIES,
@@ -335,10 +369,12 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
         undefined,
         options.contractShapeSink,
         options.safeErrorSink,
+        (sessionId) => bindings.set(sessionId, { cwd: opts.cwd, supervisor }),
       );
     },
     resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
       const supervisor = supervisorFor(opts);
+      bindings.set(sessionId, { cwd: opts.cwd, supervisor });
       return new OpenCodeServerSession(
         opts,
         model,
@@ -346,6 +382,8 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
         sessionId,
         options.contractShapeSink,
         options.safeErrorSink,
+        (resolvedSessionId) =>
+          bindings.set(resolvedSessionId, { cwd: opts.cwd, supervisor }),
       );
     },
     inspectStoredSession(): StoredSessionState {
@@ -354,11 +392,54 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
     checkSessionResumable(): string | null {
       return null;
     },
-    async forkSessionBeforeMessage(): Promise<ForkSessionBeforeMessageResult> {
-      return { kind: "fresh" };
+    async forkSessionBeforeMessage(
+      sessionId: string,
+      targetMessageId: string,
+    ): Promise<ForkSessionBeforeMessageResult> {
+      const parent = bindings.get(sessionId);
+      if (!parent) {
+        throw new Error(
+          "OpenCode parent session is not bound to this Isomux process.",
+        );
+      }
+      const transport = transportForSession(sessionId);
+      try {
+        const childId = await transport.forkAtMessage(targetMessageId);
+        bindings.set(childId, parent);
+        return {
+          kind: "fork",
+          sessionId: childId,
+          forkedFromSessionId: sessionId,
+        };
+      } finally {
+        transport.close();
+      }
     },
-    async getSessionMessages(): Promise<NormalizedMessage[]> {
-      return [];
+    async getSessionMessages(
+      sessionId: string,
+      cwd: string,
+      environment?: SessionEnvironmentOptions,
+    ): Promise<NormalizedMessage[]> {
+      if (!bindings.has(sessionId)) {
+        const supervisor = supervisorFor({
+          agentId: "opencode-session-access",
+          cwd,
+          systemPrompt: "",
+          modelFamily: model,
+          effort: "",
+          permissionMode: "default",
+          env: environment?.env,
+          environmentKey: environment?.environmentKey,
+          environmentRevision: environment?.environmentRevision,
+        });
+        bindings.set(sessionId, { cwd, supervisor });
+      }
+      const transport = transportForSession(sessionId);
+      try {
+        return await transport.getSessionMessages();
+      } finally {
+        transport.close();
+      }
     },
     async oneShotPrompt(): Promise<string> {
       throw new Error("OpenCode one-shot prompts are not available in this slice.");

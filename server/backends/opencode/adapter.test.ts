@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { getBackend } from "../index.ts";
@@ -34,16 +34,20 @@ describe("OpenCode Slice 1A tracer", () => {
   it("is registered with only the capabilities this tracer proves", () => {
     const backend = getBackend("opencode");
     expect(backend.capabilities).toEqual({
-      fork: false,
+      fork: true,
       hooks: false,
       skills: false,
       oneShot: false,
       canUseTool: true,
       topicGen: false,
-      edit: false,
+      edit: true,
       mcp: false,
     });
     expect(backend.inspectStoredSession("stored", opts)).toBe("durable");
+    expect(createOpenCodeTracerBackend().capabilities).toMatchObject({
+      fork: false,
+      edit: false,
+    });
   });
 
   it("emits one deterministic reply through the normalized event contract", async () => {
@@ -179,7 +183,6 @@ describe("OpenCode Slice 1B pinned transport", () => {
         throw new Error("timed out waiting for the real OpenCode tracer");
       }),
     ]);
-    session.close();
     expect(events[0]).toMatchObject({ kind: "system_init", model: "gate/gate-model" });
     expect(events.filter((event) => event.kind === "assistant_text")).toEqual([
       { kind: "assistant_text", text: "OpenCode real tracer reply." },
@@ -188,6 +191,57 @@ describe("OpenCode Slice 1B pinned transport", () => {
     expect([...new Set(contractShapes)].sort()).toEqual(
       await Bun.file(join(import.meta.dir, "fixtures", "s1b-text-contract.json")).json(),
     );
+    const secondTurn = (async () => {
+      const turn: NormalizedEvent[] = [];
+      for await (const event of session.stream()) {
+        turn.push(event);
+        if (event.kind === "turn_completed") return turn;
+      }
+      return turn;
+    })();
+    await session.send("second parent turn");
+    await secondTurn;
+    const parentBefore = await backend.getSessionMessages(
+      events[0].kind === "system_init" ? events[0].sessionId! : "",
+      root,
+    );
+    const parentId = events[0].kind === "system_init" ? events[0].sessionId! : "";
+    const reboundBackend = createOpenCodeBackend({
+      supervisor,
+      model: "gate/gate-model",
+    });
+    expect(
+      await reboundBackend.getSessionMessages(parentId, root, {
+        environmentKey: "rebound",
+        environmentRevision: "rebound",
+      }),
+    ).toEqual(parentBefore);
+    const target = parentBefore.filter((message) => message.role === "user")[1];
+    if (!target) throw new Error("OpenCode parent did not record a second user turn");
+    const fork = await reboundBackend.forkSessionBeforeMessage(parentId, target.uuid);
+    expect(fork.kind).toBe("fork");
+    if (fork.kind !== "fork") throw new Error("OpenCode fork was not linked");
+    const childBefore = await reboundBackend.getSessionMessages(fork.sessionId, root);
+    expect(childBefore.map((message) => message.text)).toEqual([
+      "hello from Isomux",
+      "OpenCode real tracer reply.",
+    ]);
+    session.close();
+    const child = reboundBackend.resumeSession(fork.sessionId, {
+      ...opts,
+      cwd: root,
+      modelFamily: "gate/gate-model",
+    });
+    const childTurn = (async () => {
+      for await (const event of child.stream()) {
+        if (event.kind === "turn_completed") return;
+      }
+    })();
+    await child.send("edited second turn");
+    await childTurn;
+    child.close();
+    const parentAfter = await reboundBackend.getSessionMessages(parentId, root);
+    expect(parentAfter).toEqual(parentBefore);
   }, 20_000);
 
   it("runs and denies controlled shell tools through the real OC1 permission route", async () => {
@@ -214,6 +268,8 @@ describe("OpenCode Slice 1B pinned transport", () => {
             if (!hasToolResult) {
               const command = prompt.includes("ABORT")
                 ? "sleep 30"
+                : prompt.includes("REPO")
+                  ? "pwd > repo-observed.txt"
                 : prompt.includes("FAIL")
                   ? "printf failed-before-exit; exit 7"
                 : prompt.includes("DENY")
@@ -249,8 +305,13 @@ describe("OpenCode Slice 1B pinned transport", () => {
     });
     cleanup.push(() => supervisor.shutdown());
     const backend = createOpenCodeBackend({ supervisor, model: "gate/gate-model" });
-    const run = async (text: string, allow: boolean, repeats = 1) => {
-      const session = backend.createSession({ ...opts, cwd: root, modelFamily: "gate/gate-model" });
+    const run = async (
+      text: string,
+      allow: boolean,
+      repeats = 1,
+      cwd = root,
+    ) => {
+      const session = backend.createSession({ ...opts, cwd, modelFamily: "gate/gate-model" });
       const events: NormalizedEvent[] = [];
       const turnWaiters: Array<() => void> = [];
       const consumer = (async () => {
@@ -316,6 +377,13 @@ describe("OpenCode Slice 1B pinned transport", () => {
     };
     const permissionAbort = await abortAtPermission();
     const toolAbort = await abortDuringTool();
+    const repoA = join(root, "repo-a");
+    const repoB = join(root, "repo-b");
+    await Promise.all([mkdir(repoA), mkdir(repoB)]);
+    await Promise.all([
+      run("REPO A", true, 1, repoA),
+      run("REPO B", true, 1, repoB),
+    ]);
     expect(await Bun.file(join(root, "gate-allowed.txt")).text()).toBe("allowed");
     expect(await Bun.file(join(root, "gate-denied.txt")).exists()).toBe(false);
     expect(allowed.filter((event) => event.kind === "approval_request")).toHaveLength(2);
@@ -336,5 +404,7 @@ describe("OpenCode Slice 1B pinned transport", () => {
     expect(toolAbort.filter((event) => event.kind === "tool_call")).toHaveLength(1);
     expect(toolAbort.filter((event) => event.kind === "tool_result")).toHaveLength(1);
     expect(toolAbort.at(-1)).toEqual({ kind: "turn_completed", status: "interrupted" });
+    expect((await readFile(join(repoA, "repo-observed.txt"), "utf8")).trim()).toBe(repoA);
+    expect((await readFile(join(repoB, "repo-observed.txt"), "utf8")).trim()).toBe(repoB);
   }, 40_000);
 });

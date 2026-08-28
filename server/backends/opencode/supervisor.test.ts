@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -192,6 +192,94 @@ describe("OpenCode shared server supervisor", () => {
     expect(alive(leaseA.pid)).toBe(false);
   }, 20_000);
 
+  it("replaces changed environment contents and refreshes retained leases", async () => {
+    const path = await root();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      launchEnv: { S4_ENV_CANARY: "before" },
+      environmentRevision: "revision-before",
+      idleShutdownMs: 1000,
+    });
+    supervisors.push(supervisor);
+    const retained = await supervisor.acquire();
+    const priorPid = retained.pid;
+    expect((await readFile(`/proc/${priorPid}/environ`)).toString()).toContain(
+      "S4_ENV_CANARY=before",
+    );
+    supervisor.updateLaunchEnvironment(
+      { S4_ENV_CANARY: "after" },
+      "revision-after",
+    );
+    const replacement = await supervisor.acquire();
+    expect(replacement.pid).not.toBe(priorPid);
+    expect(retained.pid).toBe(replacement.pid);
+    expect(
+      (await readFile(`/proc/${replacement.pid}/environ`)).toString(),
+    ).toContain("S4_ENV_CANARY=after");
+    const response = await fetch(`${retained.baseUrl}/global/health`, {
+      headers: { authorization: retained.authHeader },
+    });
+    expect(response.ok).toBe(true);
+    retained.release();
+    replacement.release();
+  }, 20_000);
+
+  it("refuses cross-process adoption when the environment revision changed", async () => {
+    const path = await root();
+    const config = gateConfig(mockProvider());
+    const first = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config,
+      environmentRevision: "revision-before",
+    });
+    const second = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config,
+      environmentRevision: "revision-after",
+    });
+    supervisors.push(first, second);
+    const oldLease = await first.acquire();
+    const oldPid = oldLease.pid;
+    const newLease = await second.acquire();
+    expect(newLease.pid).not.toBe(oldPid);
+    expect(alive(oldPid)).toBe(false);
+    oldLease.release();
+    newLease.release();
+  }, 20_000);
+
+  it("waits for an active turn before an environment replacement", async () => {
+    const path = await root();
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      config: gateConfig(mockProvider()),
+      environmentRevision: "revision-before",
+      replacementDrainMs: 1000,
+    });
+    supervisors.push(supervisor);
+    const active = await supervisor.acquire();
+    await active.beginTurn();
+    const priorPid = active.pid;
+    supervisor.updateLaunchEnvironment({}, "revision-after");
+    let granted = false;
+    const waiting = supervisor.acquire().then((lease) => {
+      granted = true;
+      return lease;
+    });
+    await Bun.sleep(80);
+    expect(granted).toBe(false);
+    expect(alive(priorPid)).toBe(true);
+    active.endTurn();
+    const replacement = await waiting;
+    expect(replacement.pid).not.toBe(priorPid);
+    active.release();
+    replacement.release();
+  }, 20_000);
+
   it("replaces a stale cross-process record before starting", async () => {
     const path = await root();
     const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
@@ -216,7 +304,7 @@ describe("OpenCode shared server supervisor", () => {
     const path = await root();
     const supervisor = makeSupervisor(path, gateConfig(mockProvider()), 80);
     const lease = await supervisor.acquire();
-    lease.beginTurn();
+    await lease.beginTurn();
     lease.release();
     await Bun.sleep(180);
     expect(alive(lease.pid)).toBe(true);
@@ -266,6 +354,8 @@ describe("OpenCode shared server supervisor", () => {
     await mkdir(supervisor.profileDir, { recursive: true });
     const pending = `${supervisor.profileDir}.auth-login-pending`;
     await writeFile(pending, "abandoned login\n");
+    const stale = new Date(Date.now() - 60_000);
+    await utimes(pending, stale, stale);
     const lease = await supervisor.acquire();
     expect(await Bun.file(pending).exists()).toBe(false);
     expect(alive(lease.pid)).toBe(true);
@@ -287,7 +377,7 @@ describe("OpenCode shared server supervisor", () => {
     const path = await root();
     const supervisor = makeSupervisor(path, gateConfig(mockProvider()), 1000, {}, 30);
     const lease = await supervisor.acquire();
-    lease.beginTurn();
+    await lease.beginTurn();
     await expectRejection(
       supervisor.prepareForAuthentication(),
       /Send your message again to retry/,
@@ -302,9 +392,9 @@ describe("OpenCode shared server supervisor", () => {
     const path = await root();
     const supervisor = makeSupervisor(path, gateConfig(mockProvider()), 1000, {}, 30);
     const lease = await supervisor.acquire();
-    lease.beginTurn();
+    await lease.beginTurn();
     await writeFile(join(supervisor.profileDir, "server.replace"), "authentication changed\n");
-    await expectRejection(supervisor.acquire(), /active turns did not drain in time/);
+    await expectRejection(supervisor.acquire(), /Send your message again to retry/);
     expect(alive(lease.pid)).toBe(true);
     lease.endTurn();
     lease.release();

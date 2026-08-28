@@ -54,9 +54,11 @@ const server = Bun.serve({
         send(chunk(id, { role: "assistant" }))
         if (prompt.includes("GATE_ABORT")) await Bun.sleep(Number(process.env.GATE_ABORT_MS ?? "2500"))
 
-        if (!isSummary && (prompt.includes("GATE_TOOL") || prompt.includes("GATE_FAIL") || prompt.includes("GATE_ABORT_TOOL") || prompt.includes("GATE_QUESTION")) && !hasToolResult(messages)) {
+        if (!isSummary && (prompt.includes("GATE_TOOL") || prompt.includes("GATE_FAIL") || prompt.includes("GATE_ABORT_TOOL") || prompt.includes("GATE_QUESTION") || prompt.includes("GATE_CWD")) && !hasToolResult(messages)) {
           const command = prompt.includes("GATE_ABORT_TOOL")
             ? "sleep 30"
+            : prompt.includes("GATE_CWD")
+            ? "pwd > s4-cwd-observed.txt"
             : prompt.includes("GATE_FAIL")
             ? "printf failed-before-exit; exit 7"
             : "printf tool-ok > gate-output.txt"
@@ -78,7 +80,14 @@ const server = Bun.serve({
           )
           send(chunk(id, {}, "tool_calls"))
         } else {
-          const text = hasToolResult(messages)
+          const contextCanary = messages
+            .map((message) => typeof message.content === "string" ? message.content : "")
+            .find((content) => content.includes("S4_CONTEXT_CANARY"))
+          const text = prompt.includes("GATE_RECALL")
+            ? contextCanary
+              ? "RECALLED:S4_CONTEXT_CANARY"
+              : "RECALLED:EMPTY"
+            : hasToolResult(messages)
             ? "RECOVERED_AFTER_TOOL"
             : `ANSWER:${prompt.replaceAll("\n", " ").slice(0, 160)}`
           send(chunk(id, { reasoning_content: "gate-reasoning" }))
