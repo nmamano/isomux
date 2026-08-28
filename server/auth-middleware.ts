@@ -50,9 +50,14 @@ export function setOnOwnerCreated(cb: OwnerCreatedCb | null): void {
 }
 
 // ---------------------------------------------------------------------------
-// Loopback detection. Localhost calls (agent-to-server curl, in-process tests)
-// bypass cookie auth - the host already trusts its own processes. The cookie
-// path exists to gate browser/remote access, not local IPC.
+// Loopback detection. This is NOT an authentication bypass, and there is no
+// longer one: every caller needs a bearer token or a session cookie, and the
+// last loopback-trusted prefixes were retired (see the gating function below,
+// which says so at the point it enforces it). What survives is a locality
+// check for the two places that care where the peer is rather than who it is -
+// the tokenless claim, which refuses an off-box peer outright, and /readyz,
+// which exempts loopback from rate limiting so the updater's own poll cannot
+// manufacture a rollback.
 
 function isLoopback(addr: string | null): boolean {
   if (!addr) return false;
