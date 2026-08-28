@@ -262,3 +262,78 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
     expect(r.code).not.toBe(0);
   });
 });
+
+function runGithubCliInstall(fail: "curl" | "update" | "install" | "none") {
+  const root = mkdtempSync(join(tmpdir(), "isomux-gh-install-test-"));
+  const keyring = join(root, "keyrings", "githubcli-archive-keyring.gpg");
+  const source = join(root, "sources", "github-cli.list");
+  mkdirSync(join(root, "keyrings"));
+  mkdirSync(join(root, "sources"));
+  writeFileSync(source, "stale source\n");
+  const functionSource = readFileSync(INSTALL_SH, "utf8")
+    .match(/^install_github_cli\(\) \{[\s\S]*?^\}/m)?.[0]
+    ?.replaceAll("/usr/share/keyrings/githubcli-archive-keyring.gpg", keyring)
+    .replaceAll("/etc/apt/sources.list.d/github-cli.list", source)
+    .replaceAll(
+      "/usr/share/keyrings/.githubcli-keyring.XXXXXXXXXX",
+      join(root, "keyrings", ".githubcli-keyring.XXXXXXXXXX"),
+    )
+    .replaceAll(
+      "/etc/apt/sources.list.d/.github-cli.XXXXXXXXXX",
+      join(root, "sources", ".github-cli.XXXXXXXXXX"),
+    );
+  expect(functionSource).toBeDefined();
+  const script = `
+${functionSource}
+DRY_RUN=""
+log() { echo "LOG: $*"; }
+warn() { echo "WARN: $*"; }
+apt_install() { echo "APT_INSTALL: $*"; [[ ${JSON.stringify(fail)} != install ]]; }
+curl() { [[ ${JSON.stringify(fail)} != curl ]] || return 1; printf key; }
+dpkg() { printf amd64; }
+apt-get() { [[ ${JSON.stringify(fail)} != update ]]; }
+install_github_cli
+`;
+  const res = spawnSync("bash", ["-Eeuo", "pipefail", "-c", script], {
+    encoding: "utf8",
+  });
+  const result = {
+    code: res.status ?? -1,
+    out: `${res.stdout}${res.stderr}`,
+    keyring: existsSync(keyring),
+    source: existsSync(source),
+  };
+  rmSync(root, { recursive: true, force: true });
+  return result;
+}
+
+describe("install.sh GitHub CLI repository failure", () => {
+  it("removes the source when the key fetch fails", () => {
+    const r = runGithubCliInstall("curl");
+    expect(r.code).toBe(0);
+    expect(r.source).toBe(false);
+    expect(r.out).toContain("could not add the GitHub CLI apt repository");
+  });
+
+  it("removes the source when its apt update fails", () => {
+    const r = runGithubCliInstall("update");
+    expect(r.code).toBe(0);
+    expect(r.source).toBe(false);
+    expect(r.keyring).toBe(true);
+    expect(r.out).toContain("could not add the GitHub CLI apt repository");
+  });
+
+  it("installs gh after its repository update succeeds", () => {
+    const r = runGithubCliInstall("none");
+    expect(r.code).toBe(0);
+    expect(r.source).toBe(true);
+    expect(r.out).toContain("APT_INSTALL: gh");
+  });
+
+  it("keeps the source and continues when the package install fails", () => {
+    const r = runGithubCliInstall("install");
+    expect(r.code).toBe(0);
+    expect(r.source).toBe(true);
+    expect(r.out).toContain("could not install GitHub CLI");
+  });
+});

@@ -492,6 +492,40 @@ install_claude_cli() {
   log "Claude Code CLI installed and available to $SERVICE_USER"
 }
 
+install_github_cli() {
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would add the GitHub CLI apt repository and install gh"
+    return 0
+  fi
+  local keyring=/usr/share/keyrings/githubcli-archive-keyring.gpg
+  local source=/etc/apt/sources.list.d/github-cli.list
+  local keyring_tmp="" source_tmp="" arch=""
+  keyring_tmp=$(mktemp /usr/share/keyrings/.githubcli-keyring.XXXXXXXXXX) || true
+  source_tmp=$(mktemp /etc/apt/sources.list.d/.github-cli.XXXXXXXXXX) || true
+  if [[ -z $keyring_tmp || -z $source_tmp ]] ||
+    ! curl -fsSL 'https://cli.github.com/packages/githubcli-archive-keyring.gpg' >"$keyring_tmp" ||
+    ! chmod go+r "$keyring_tmp" ||
+    ! mv -f "$keyring_tmp" "$keyring" ||
+    ! arch=$(dpkg --print-architecture) ||
+    ! printf 'deb [arch=%s signed-by=%s] https://cli.github.com/packages stable main\n' "$arch" "$keyring" >"$source_tmp" ||
+    ! mv -f "$source_tmp" "$source" ||
+    # A one-source update otherwise deletes every other repository's cached
+    # package list, which breaks the package installs that follow this step.
+    ! apt-get update -y \
+      -o "Dir::Etc::sourcelist=$source" \
+      -o Dir::Etc::sourceparts=/dev/null \
+      -o APT::Get::List-Cleanup=0; then
+    rm -f "$source" "$keyring_tmp" "$source_tmp"
+    warn "could not add the GitHub CLI apt repository. The office will continue without GitHub CLI. Install it later with the official instructions: https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
+    return 0
+  fi
+  if ! apt_install gh; then
+    warn "could not install GitHub CLI. The office will continue without it. Install it later with: apt-get install gh"
+    return 0
+  fi
+  log "installed GitHub CLI"
+}
+
 install_packages() {
   step install-packages
   export DEBIAN_FRONTEND=noninteractive
@@ -549,6 +583,7 @@ install_packages() {
     run systemctl stop caddy
     run systemctl disable caddy
   fi
+  install_github_cli
 }
 
 # True when our Caddyfile is in place and the office has an owner. Only then

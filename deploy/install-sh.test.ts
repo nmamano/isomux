@@ -182,6 +182,23 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(SRC).toMatch(/apt_install[^\n]*\bnodejs\b/);
   });
 
+  it("uses GitHub's scoped apt repository for GitHub CLI", () => {
+    expect(SRC).toContain(
+      "https://cli.github.com/packages/githubcli-archive-keyring.gpg",
+    );
+    expect(SRC).toContain(
+      "signed-by=%s] https://cli.github.com/packages stable main",
+    );
+    expect(SRC).toContain("-o APT::Get::List-Cleanup=0");
+    expect(SRC).toMatch(/apt_install[^\n]*\bgh\b/);
+  });
+
+  it("reports the GitHub CLI repository and package in dry-run mode", () => {
+    expect(SRC).toContain(
+      "DRY-RUN: would add the GitHub CLI apt repository and install gh",
+    );
+  });
+
   it("installs a browser from Chrome's .deb, never snap, and verifies a capture", () => {
     // snap chromium installs cleanly and then cannot screenshot on a headless
     // server, so an installer that reaches for it would look successful and
