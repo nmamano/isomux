@@ -48,6 +48,7 @@
     "marked-highlight": "^2.2.4",
     "mermaid": "^11.15.0",
     "node-pty": "^1.1.0",
+    "opencode-v1": "npm:opencode-ai@1.18.23",
     "pg": "^8.23.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"

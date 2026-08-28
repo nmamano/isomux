@@ -1,0 +1,7 @@
+[
+  "http:prompt_async:success",
+  "http:session:{id:string}",
+  "sse:assistant",
+  "sse:idle",
+  "sse:text"
+]

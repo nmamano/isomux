@@ -246,6 +246,12 @@ the running office.
    profile under `STATE_ROOT`, all launch controls, loopback authentication,
    raw-ingress redaction, and the ten-minute idle shutdown. The timeout is a
    named constant with a test-only injected duration.
+
+S1b packages `opencode-ai` 1.18.23 as the root dependency alias
+`opencode-v1`. The supervisor resolves the installed platform package's native
+binary directly (`opencode-linux-<arch>/bin/opencode`); it does not use PATH,
+the postinstall wrapper, or V2. Release/update preservation for this installed
+dependency and its profile remains an S7 proof.
 3. **S2 - authentication recovery.** Prove missing login -> exact
    profile-scoped terminal card -> manual API-key login -> `/clear` -> a
    successful reply. Browser OAuth remains uncertified until tested.
@@ -285,6 +291,33 @@ The limit is named per test: two competing startup attempts fit under 2 GiB;
 larger concurrency probes use 4 GiB or another measured bound rather than
 turning a cgroup kill into a false startup-lock failure.
 
+The profile's `server.lock` is both the cross-process `flock` target and its
+0600 pid/port/auth record. Every start takes that file lock, probes the record,
+adopts a healthy pinned server, and replaces a stale or unhealthy process.
+This applies after an Isomux SIGKILL and across test processes, not only inside
+one supervisor object. An ordinary Isomux SIGINT or SIGTERM reaps the shared
+server before the signal is re-raised. The reserved retry range is
+22000-22999, directly above Isomux app allocation at 21000-21999 and below the
+Linux ephemeral range; an occupied port is retried.
+Two concurrent starts are proved by a `/proc` count of the exact pinned binary,
+not by the supervisor registry.
+
+The environment identity hashes only the normalized configured office and user
+environment-file paths. It does not hash file contents or inherited process
+values. Thus, systemd values such as `INVOCATION_ID` cannot move the profile
+after an Isomux restart, and a credential rotation can replace the server
+without stranding durable sessions in a new profile. Paths, values, and
+credentials do not enter profile directory names.
+`ISOMUX_AGENT_TOKEN` is excluded from the shared server environment: it is a
+per-agent capability and cannot be inherited by a server shared across agents.
+The child first removes every inherited `OPENCODE_*` variable and then applies
+only the reviewed launch controls. S1b has tools disabled; S3 must add
+per-session tool authority at a narrower boundary.
+
+The idle timer starts only when both the lease count and active-turn count are
+zero. The injected short-timeout tests prove both edges: an idle server is
+reaped, and a turn that exceeds the timeout remains alive and completes.
+
 Live scripts refuse to run without `ISOMUX_TEST_LIVE=1`. The stated budget is
 $2 or 200,000 billed input-plus-output tokens for an ordinary slice, and $2 per
 model for at most three certification models. The script enforces the token
@@ -295,7 +328,8 @@ unproved and parks the exact live command for Nil.
 
 Stop immediately for a launch-control bypass, provider data reaching logs or
 the browser, competing processes for one profile, cross-session event/file
-mixing, or real-binary contract drift. Re-cut a slice after two failed focused
+mixing, a server reaped during an active turn, or real-binary contract drift.
+Re-cut a slice after two failed focused
 repairs of one invariant, one focused day without its tracer, or three focused
 days in that slice. There is no separate whole-project deadline.
 
@@ -319,10 +353,31 @@ Residual two-backend assumptions recorded 2026-08-28:
   `ui/agent-templates.ts:384,415`.
 - S6 owns cron permission defaults and UI at `agent-validators.ts:185`,
   `cronjob-manager.ts:352,430`, and `ui/components/CronjobDialog.tsx`.
+  S6 must also pass the stable environment-source key at all three cron session
+  creation paths. The OpenCode adapter rejects a missing key, so cron cannot
+  silently join the default profile before that work is complete.
+
+The S1b drift fixture covers only the real OC1 shapes emitted by the local
+deterministic provider for session creation, prompt admission, assistant text,
+and idle completion. It does not cover reasoning, tools, permissions, abort,
+or provider error bodies; S3 adds those shapes. The fixture recorder refuses a
+credential-shaped value before writing, and the final canary scan covers the
+fixtures, normalized stream, and agent JSONL.
+
+S1b replaces every real `session.error` body with one fixed safe message. The
+adapter cannot classify a real authentication failure from that message. S2
+must add and review the safe error keep list (`name`, `message`, `statusCode`,
+and `isRetryable`) before it enables the terminal login card. The credential
+canary must stay green for the normalized stream and agent JSONL.
+
+OpenCode startup output is not persisted below `STATE_ROOT`. A startup stops
+after one non-bind error. For one diagnostic run, an operator can set
+`ISOMUX_OPENCODE_DEBUG=1`; this keeps private startup output in a mode-0600
+directory below `/tmp`. The operator must treat that output as secret-bearing
+and remove it after diagnosis.
 
 ## Open questions
 
-- Which safe structured-error fields, if any, should join the keep list?
 - What memory ceiling is safe under real provider streams and large tool
   results?
 - What exact subpaths and packaging layout hold the pinned binary and the

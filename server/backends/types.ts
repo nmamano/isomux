@@ -58,6 +58,10 @@ export interface CreateSessionOptions {
   // the backend's default ("workspace-write" for Codex).
   sandbox?: string;
   env?: { [key: string]: string | undefined };
+  // Stable identity of the configured environment sources. Backends that
+  // share a process use this for grouping instead of restart-volatile
+  // entries inherited from process.env.
+  environmentKey?: string;
 }
 
 // ---------------------------------------------------------------------------

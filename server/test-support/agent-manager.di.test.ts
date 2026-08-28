@@ -24,8 +24,11 @@ import type { RoomWire } from "../../shared/types.ts";
 import { loadAgents, type PersistedAgent } from "../persistence.ts";
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
-import { getBackend } from "../backends/index.ts";
-import { createOpenCodeTracerBackend } from "../backends/opencode/adapter.ts";
+import {
+  createOpenCodeBackend,
+  createOpenCodeTracerBackend,
+} from "../backends/opencode/adapter.ts";
+import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 import {
@@ -111,7 +114,7 @@ describe("AgentManager DI (disk-free seam)", () => {
 
 describe("AgentManager DI (temp-state isolated)", () => {
   it("runs the OpenCode first-reply tracer through normal logs and persistence", async () => {
-    const { calls, resolveBackend } = spyResolver(getBackend("opencode"));
+    const { calls, resolveBackend } = spyResolver(createOpenCodeTracerBackend());
     const { events, sink } = capture();
     const mgr = createAgentManager({
       resolveBackend,
@@ -173,6 +176,115 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).toBe("opencode");
     expect(await mgr.demoteToLazy(info!.id)).toBe(true);
   });
+
+  it("runs the first reply end to end through the real pinned OpenCode server", async () => {
+    const mock = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/v1/models") {
+          return Response.json({ object: "list", data: [{ id: "gate-model", object: "model" }] });
+        }
+        if (url.pathname !== "/v1/chat/completions") {
+          return new Response("not found", { status: 404 });
+        }
+        const stream = new ReadableStream({
+          start(controller) {
+            const send = (value: unknown) =>
+              controller.enqueue(`data: ${typeof value === "string" ? value : JSON.stringify(value)}\n\n`);
+            send({
+              id: "gate",
+              object: "chat.completion.chunk",
+              created: 1,
+              model: "gate-model",
+              choices: [{ index: 0, delta: { role: "assistant", content: "OpenCode real tracer reply." }, finish_reason: null }],
+            });
+            send({
+              id: "gate",
+              object: "chat.completion.chunk",
+              created: 1,
+              model: "gate-model",
+              choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+            });
+            send("[DONE]");
+            controller.close();
+          },
+        });
+        return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: `${STATE_ROOT}/opencode-success-profile`,
+      serverCwd: STATE_ROOT,
+      idleShutdownMs: 100,
+      config: {
+        autoupdate: false,
+        model: "gate/gate-model",
+        small_model: "gate/gate-model",
+        provider: {
+          gate: {
+            name: "Gate mock",
+            npm: "@ai-sdk/openai-compatible",
+            env: [],
+            models: {
+              "gate-model": {
+                name: "Gate model",
+                limit: { context: 100000, output: 10000 },
+                cost: { input: 0, output: 0 },
+              },
+            },
+            options: { apiKey: "test-only", baseURL: `http://127.0.0.1:${mock.port}/v1` },
+          },
+        },
+      },
+    });
+    try {
+      const backend = createOpenCodeBackend({ supervisor, model: "gate/gate-model" });
+      const mgr = createAgentManager({
+        resolveBackend: () => backend,
+        officeState: new OfficeState({ rooms: rooms("room-opencode-real") }),
+        initialRooms: [],
+      });
+      mgr.configurePluginHooksDeps();
+      const info = await mgr.spawn(
+        "OpenCode real tracer",
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        "room-opencode-real",
+        undefined,
+        "gate/gate-model",
+        "high",
+        undefined,
+        "opencode",
+      );
+      mgr.enqueueMessage(info!.id, {
+        sender: { kind: "user", username: "tester" },
+        text: "hello through OC1",
+      });
+      const deadline = Date.now() + 15_000;
+      while (
+        !mgr
+          .getAgentLogs(info!.id)
+          .some((entry) => entry.content === "OpenCode real tracer reply.") &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(
+        mgr
+          .getAgentLogs(info!.id)
+          .some((entry) => entry.content === "OpenCode real tracer reply."),
+      ).toBe(true);
+      expect(mgr.listSessions(info!.id)[0]?.agentType).toBe("opencode");
+      expect(await mgr.demoteToLazy(info!.id)).toBe(true);
+    } finally {
+      await supervisor.shutdown();
+      await mock.stop(true);
+    }
+  }, 25_000);
 
   it("uses the selected backend's stored-session fact for silent restore", async () => {
     const persisted = {
@@ -346,6 +458,101 @@ describe("AgentManager DI (temp-state isolated)", () => {
     expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(false);
     expect(await mgr.demoteToLazy(info!.id)).toBe(true);
   });
+
+  it("drops a real provider-error canary before normalized events and agent JSONL", async () => {
+    const canary = "OPENCODE_PROVIDER_ERROR_SECRET_CANARY";
+    const mock = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/v1/models") {
+          return Response.json({ object: "list", data: [{ id: "gate-model", object: "model" }] });
+        }
+        if (url.pathname === "/v1/chat/completions") {
+          return Response.json(
+            { error: { message: canary, type: "authentication_error" } },
+            { status: 401, headers: { "x-provider-secret": canary } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: `${STATE_ROOT}/opencode-error-profile`,
+      serverCwd: STATE_ROOT,
+      idleShutdownMs: 100,
+      config: {
+        autoupdate: false,
+        model: "gate/gate-model",
+        small_model: "gate/gate-model",
+        provider: {
+          gate: {
+            name: "Gate mock",
+            npm: "@ai-sdk/openai-compatible",
+            env: [],
+            models: {
+              "gate-model": {
+                name: "Gate model",
+                limit: { context: 100000, output: 10000 },
+                cost: { input: 0, output: 0 },
+              },
+            },
+            options: { apiKey: "invalid-test-key", baseURL: `http://127.0.0.1:${mock.port}/v1` },
+          },
+        },
+      },
+    });
+    try {
+      const backend = createOpenCodeBackend({ supervisor, model: "gate/gate-model" });
+      const mgr = createAgentManager({
+        resolveBackend: () => backend,
+        officeState: new OfficeState({ rooms: rooms("room-opencode-error") }),
+        initialRooms: [],
+      });
+      mgr.configurePluginHooksDeps();
+      const info = await mgr.spawn(
+        "OpenCode error tracer",
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        "room-opencode-error",
+        undefined,
+        "gate/gate-model",
+        "high",
+        undefined,
+        "opencode",
+      );
+      mgr.enqueueMessage(info!.id, {
+        sender: { kind: "user", username: "tester" },
+        text: "trigger provider error",
+      });
+      const deadline = Date.now() + 15_000;
+      while (
+        !mgr
+          .getAgentLogs(info!.id)
+          .some((entry) => entry.content.includes("provider or transport error")) &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const normalized = JSON.stringify(mgr.getAgentLogs(info!.id));
+      expect(normalized).not.toContain(canary);
+      expect(normalized).toContain("provider or transport error");
+      for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
+        expect(await Bun.file(`${STATE_ROOT}/${path}`).text()).not.toContain(canary);
+      }
+      for (const name of ["server.stdout.log", "server.stderr.log"]) {
+        const file = Bun.file(`${supervisor.profileDir}/${name}`);
+        expect((await file.exists()) ? await file.text() : "").not.toContain(canary);
+      }
+      await mgr.kill(info!.id);
+    } finally {
+      await supervisor.shutdown();
+      await mock.stop(true);
+    }
+  }, 25_000);
 
   it("restore/revive install path fills absent Codex permission defaults", async () => {
     const persisted = {

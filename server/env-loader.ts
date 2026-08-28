@@ -15,6 +15,8 @@
 
 import { readEnvFile } from "./persistence.ts";
 import { getUserByName, getUserEnvFileById } from "./users.ts";
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 // Provider lookup for the current office env file path. agent-manager sets
 // this once at module init from its `officeState.office.envFile` so we can
@@ -51,6 +53,25 @@ export function buildEnvForUserId(
     Object.assign(merged, userEnv);
   }
   return merged;
+}
+
+// Stable identity for the intentional environment sources. Contents are not
+// identity: rotating a credential must replace the server without stranding
+// durable sessions in a new profile. Do not derive this from the merged
+// process environment; systemd values change on every isomux restart.
+export function environmentSourceKeyForUserId(
+  userId: string | null | undefined,
+): string {
+  const sources = [
+    getOfficeEnvFile(),
+    userId ? getUserEnvFileById(userId) : null,
+  ].filter((path): path is string => Boolean(path));
+  if (sources.length === 0) return "default";
+  const identity = sources.map((path) => resolve(path));
+  return createHash("sha256")
+    .update(JSON.stringify(identity))
+    .digest("hex")
+    .slice(0, 16);
 }
 
 // Compatibility wrapper. New code should use `buildEnvForUserId(userId)`

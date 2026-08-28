@@ -1,9 +1,6 @@
-// Slice 1A tracer for the OpenCode backend boundary.
-//
-// This module deliberately starts no process and reads no OpenCode profile.
-// It proves that a third backend can cross Isomux's spawn, queue, persistence,
-// normalized-event, and UI contracts. Slice 1B replaces this transport with
-// the pinned OC1 server while keeping the Backend surface below unchanged.
+// OpenCode backend boundary. The production singleton uses the pinned OC1
+// server transport. createOpenCodeTracerBackend remains as the deterministic
+// no-process test double that proved the S1a orchestrator seam.
 
 import type {
   ApprovalDecision,
@@ -25,6 +22,11 @@ import type {
   SubscriptionUsageResult,
 } from "../types.ts";
 import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
+import { OpenCodeTransport } from "./transport.ts";
+import {
+  openCodeSupervisorForEnvironment,
+  type OpenCodeSupervisor,
+} from "./supervisor.ts";
 
 const AUTH_FAILURE = "OpenCode authentication is not configured.";
 
@@ -49,6 +51,86 @@ const PERMISSION_MODES: PermissionModeOption[] = [
 
 interface TracerOptions {
   failAuth?: boolean;
+}
+
+export interface OpenCodeBackendOptions {
+  supervisor?: OpenCodeSupervisor;
+  model?: string;
+  contractShapeSink?: (shape: string) => void;
+}
+
+class OpenCodeServerSession implements BackendSession {
+  private readonly events: NormalizedEvent[] = [];
+  private wake: (() => void) | null = null;
+  private ended = false;
+  private readonly transport: OpenCodeTransport;
+
+  constructor(
+    opts: CreateSessionOptions,
+    model: string,
+    supervisor: OpenCodeSupervisor,
+    sessionId?: string,
+    contractShapeSink?: (shape: string) => void,
+  ) {
+    this.transport = new OpenCodeTransport({
+      cwd: opts.cwd,
+      model,
+      supervisor,
+      sessionId,
+      contractShapeSink,
+    });
+  }
+
+  private push = (event: NormalizedEvent): void => {
+    if (this.ended) return;
+    this.events.push(event);
+    const wake = this.wake;
+    this.wake = null;
+    wake?.();
+  };
+
+  async *stream(): AsyncIterable<NormalizedEvent> {
+    while (true) {
+      while (this.events.length > 0) yield this.events.shift()!;
+      if (this.ended) return;
+      await new Promise<void>((resolve) => {
+        this.wake = resolve;
+      });
+    }
+  }
+
+  async getContextUsage(): Promise<ContextUsage | null> {
+    return null;
+  }
+
+  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+    return { kind: "unavailable" };
+  }
+
+  async send(text: string, _attachments?: AttachmentSpec[]): Promise<void> {
+    await this.transport.send(text, this.push);
+  }
+
+  async approve(): Promise<void> {
+    throw new Error("OpenCode permissions are not available in this slice.");
+  }
+
+  async abort(): Promise<void> {
+    await this.transport.abort();
+  }
+
+  canAbortInPlace(): boolean {
+    return true;
+  }
+
+  close(): void {
+    if (this.ended) return;
+    this.ended = true;
+    this.transport.close();
+    const wake = this.wake;
+    this.wake = null;
+    wake?.();
+  }
 }
 
 class OpenCodeTracerSession implements BackendSession {
@@ -209,4 +291,64 @@ export function createOpenCodeTracerBackend(
   };
 }
 
-export const opencodeBackend = createOpenCodeTracerBackend();
+export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Backend {
+  const model = options.model ?? OPENCODE_TRACER_MODEL;
+  const supervisorFor = (opts: CreateSessionOptions): OpenCodeSupervisor => {
+    if (options.supervisor) return options.supervisor;
+    if (!opts.environmentKey) {
+      throw new Error("OpenCode session environment identity is required.");
+    }
+    return openCodeSupervisorForEnvironment(opts.environmentKey, opts.env);
+  };
+  return {
+    capabilities: CAPABILITIES,
+    getModelOptions: () => MODELS,
+    getPermissionModes: () => PERMISSION_MODES,
+    async listModels(): Promise<BackendModel[]> {
+      return [{ id: model, label: "OpenCode tracer", isDefault: true, supportedEfforts: [] }];
+    },
+    createSession(opts: CreateSessionOptions): BackendSession {
+      const supervisor = supervisorFor(opts);
+      return new OpenCodeServerSession(
+        opts,
+        model,
+        supervisor,
+        undefined,
+        options.contractShapeSink,
+      );
+    },
+    resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
+      const supervisor = supervisorFor(opts);
+      return new OpenCodeServerSession(
+        opts,
+        model,
+        supervisor,
+        sessionId,
+        options.contractShapeSink,
+      );
+    },
+    inspectStoredSession(): StoredSessionState {
+      return "durable";
+    },
+    checkSessionResumable(): string | null {
+      return null;
+    },
+    async forkSessionBeforeMessage(): Promise<ForkSessionBeforeMessageResult> {
+      return { kind: "fresh" };
+    },
+    async getSessionMessages(): Promise<NormalizedMessage[]> {
+      return [];
+    },
+    async oneShotPrompt(): Promise<string> {
+      throw new Error("OpenCode one-shot prompts are not available in this slice.");
+    },
+    detectAuthError(text: string): boolean {
+      return text.includes(AUTH_FAILURE);
+    },
+    getLoginInstructions(): { text: string } {
+      return { text: "OpenCode is not configured. Login instructions are not available in this slice." };
+    },
+  };
+}
+
+export const opencodeBackend = createOpenCodeBackend();

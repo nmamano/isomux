@@ -173,7 +173,11 @@ import type {
 } from "../shared/contract-shapes.ts";
 import { OfficeState } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
-import { buildEnvForUserId, setOfficeEnvFileProvider } from "./env-loader.ts";
+import {
+  buildEnvForUserId,
+  environmentSourceKeyForUserId,
+  setOfficeEnvFileProvider,
+} from "./env-loader.ts";
 import {
   mintAgentToken,
   revokeAgentToken,
@@ -4668,6 +4672,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // the Codex adapter's "workspace-write" default.
       sandbox: managed.info.codexSandbox,
       env,
+      environmentKey:
+        managed.info.agentType === "opencode"
+          ? environmentSourceKeyForUserId(managed.info.userId)
+          : undefined,
     };
     const backend = getBackend(managed.info.agentType);
     return resumeSessionId
