@@ -69,99 +69,20 @@ The `My devices` pane also lists your own outstanding device links and active se
 
 ## Reachability
 
-Auth gates who can use the office once they reach it. Getting the box itself reachable from outside your home network is a separate problem.
-
-### Recommended: Tailscale Funnel
-
-Funnel exposes a single port on a Tailscale machine to the public internet over the box's existing `*.ts.net` hostname. Free, no domain to buy, no router port-forwarding, no inbound IP exposure. Tailscale's relay forwards an encrypted TCP tunnel between the visitor and your node; TLS terminates on your box, not at the relay, so the relay cannot read traffic in flight.
-
-Trade-offs:
-
-- **Dependency on Tailscale's relay and control plane.** Your reachability is contingent on Tailscale's infrastructure being up and on Tailscale not changing the free tier in adverse ways.
-- **Public DNS visibility.** Your `*.ts.net` hostname (and therefore your tailnet name) becomes resolvable from the public internet and appears in Certificate Transparency logs once Tailscale provisions a Let's Encrypt cert.
-
-To set this up, claim ownership of your office first (open the form on the host or via `ssh -L`), then paste the following prompt into one of your isomux agents. The agent will install Tailscale if needed, walk you through enabling Funnel in the admin console, detect any existing services sharing port 443, and finish by reporting the public URL back to you. The final step (turning external access on inside the office) is a manual paste into the Access pane so the office's auth-state mutation goes through the documented configuration surface.
-
-```
-Set up Tailscale Funnel so my isomux office is publicly reachable
-from the internet.
-
-Steps:
-
-1. If tailscale isn't installed, install it and pause to ask me to
-   authenticate.
-
-2. Confirm my tailnet has MagicDNS + HTTPS certs enabled in the
-   admin console. Walk me through if needed.
-
-3. Confirm the tailnet policy has a `funnel` nodeAttr covering
-   this device. Ask me to add it if not.
-
-4. Run `tailscale serve status` and `tailscale funnel status` to
-   see what's currently configured. Enabling Funnel on port 443
-   will either make every other path/mapping on port 443
-   publicly reachable, or replace them entirely (Tailscale's
-   docs: a port is either all-private Serve or all-public
-   Funnel, never mixed). If port 443 has any mappings beyond the
-   one pointing at isomux (default localhost:4000), list each by
-   name and target. Stop and ask before continuing. For each
-   extra mapping I need to choose one of: (a) confirm it's safe
-   to expose publicly, (b) move it to a different port and update
-   the Serve config yourself, since Claude agents refuse recognized
-   tunnel commands, or (c) remove it. If moving to a
-   different port, prefer a port outside Tailscale's
-   Funnel-eligible list (avoid 443, 8443, 10000) so a future
-   Funnel command can't accidentally expose it.
-
-5. Once port 443 carries only the isomux mapping, ask me to run this command
-   myself, because Claude agents refuse recognized tunnel commands:
-   `tailscale funnel --bg http://localhost:4000`
-
-6. Capture the public URL from `tailscale funnel status --json`
-   and report it back to me with these exact instructions:
-
-     "Funnel is up at <URL>. To finish, in your isomux office
-      open User Settings → Access → External access, enable the
-      toggle, paste this URL into the Public URL field, click
-      Save, then restart isomux for the bind to take effect (on a
-      system service, run sudo systemctl restart isomux instead):
-        systemctl --user restart isomux
-      Sign in on the public URL using the link the Access pane
-      shows you after Save."
-
-7. Verify the public URL responds. Ask me to test from a device
-   not on the tailnet (phone on cellular, or any non-tailnet
-   machine). A curl from the box itself goes over the tailnet
-   path and isn't a true public-reachability check.
-
-If you run into any issues with this setup, ask in the Isomux
-Discord: https://discord.gg/FrjEYyNvYs
-```
-
-### Alternative: Tailscale, tailnet-only (no public URL)
-
-If you don't want a public URL at all, run isomux on your tailnet and only invite people who are willing to join. Tailscale Serve gives you HTTPS at `https://auntie.<your-tailnet>.ts.net`. After claiming, open the Access pane, enable _External access_, paste that URL into the Public URL field, save, and restart isomux. (Or `http://auntie:4000` if you want plain HTTP over the tailnet rather than Serve's HTTPS terminator.)
-
-Invite links still work over the tailnet, but invitees have to install Tailscale and join your tailnet first.
-
-### Alternative: Caddy + your own DNS
-
-No third-party hop in the data path. Open port 443 on your router, point a DNS A record at your home IP (or use DDNS), run Caddy in front of isomux with `reverse_proxy localhost:4000` (Caddy auto-provisions a Let's Encrypt cert), then enable _External access_ in the Access pane with your `https://` URL and restart. Trade-offs: your home IP is publicly visible, you carry any DDoS surface, and the path fails if your ISP puts you behind CG-NAT.
-
-Cloudflare Tunnel is another outbound-tunnel option (same shape as Funnel using Cloudflare's edge; requires a domain on a Cloudflare-managed zone).
+Auth gates who can use the office once they reach it. Getting the box itself reachable from outside your home network is a separate problem, covered in [self-hosted setup](self-hosted.md#make-the-office-reachable): Tailscale for your own devices, Tailscale Funnel or Caddy for a public URL.
 
 ## External access and public origin
 
 Post-claim, the **Access pane** in User Settings has an _External access_ section with:
 
 - **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/VPN.
-- **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://auntie.<your-tailnet>.ts.net`).
+- **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://my-mac-mini.<your-tailnet>.ts.net`).
 
 Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the restart command: `systemctl --user restart isomux` for a user service, `sudo systemctl restart isomux` for a system one). Restart is intentional: changing the reachability and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
 
 The same file can set `networkBind` to `"loopback"`, `"all"`, or `"auto"`. `"auto"` keeps today's rule: loopback before claim or while external access is off, and all interfaces otherwise. Remove the field to use the same runtime default while allowing the installer or updater to select `"loopback"` when it verifies a local proxy. An explicit `"auto"` opts out of that automatic installer change. The loopback listener uses IPv4 `127.0.0.1`; callers that use `localhost` fall back to it on dual-stack hosts.
 
-The tunnel-setup agent prompts above end at "report the public URL." The final step - telling the running office about that URL - is a paste into the Access pane, so the office's auth-state mutation goes through the same in-process mutex as every other settings change.
+The tunnel-setup agent prompt ([self-hosted setup](self-hosted.md#other-users-public-url)) ends at "report the public URL." The final step - telling the running office about that URL - is a paste into the Access pane, so the office's auth-state mutation goes through the same in-process mutex as every other settings change.
 
 The resolved value drives:
 

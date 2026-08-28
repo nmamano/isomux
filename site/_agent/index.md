@@ -12,4 +12,4 @@ Isomux is an open-source workspace for managing Claude Code and Codex agents sid
 
 ## Install
 
-See the [self-hosted guide](https://isomux.com/docs/self-hosted) or the [VPS guide](https://isomux.com/docs/vps-install).
+See the [self-hosted guide](https://isomux.com/docs/self-hosted).

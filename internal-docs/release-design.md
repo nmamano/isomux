@@ -313,7 +313,7 @@ Remaining:
   drop-in takes effect. A correctly tagged invocation remains a true no-op.
   Existing app hostnames are separate: the updater deliberately never rewrites
   Caddy because the operator must add wildcard DNS and opt into that migration;
-  follow `docs/vps-install.md`.
+  follow `docs/self-hosted.md`.
 - The in-UI trigger's busy-agent confirm has never been exercised with an
   agent genuinely mid-turn: the count comes from live agent state, and the
   test box has no model credentials, so it is always 0 there.

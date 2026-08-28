@@ -19,7 +19,7 @@ Keep these consistent across all surfaces below.
 - **Structure:**
   - Headline tagline (the bold line under the H1): Isomux's one-line category pitch. **Must stay in lockstep with the landing's `<title>`, social meta tags, and hero (section 2), and the org profile tagline (section 11).**
   - `## Feature Highlights` - two subsections, `### Coworkers...` and `### An office made for humans and agents`. **Must stay in lockstep with the landing page's `<ul class="coworker-list">` and `<ul class="office-list">` (see section 2)** - same bullets, same order, same wording. Any edit here needs a matching edit there, and vice versa. Ends with a one-liner linking to `docs/features.md`.
-  - `## Get Started` - install & first-run instructions (basic local only). Ends with links to `docs/self-hosted.md`, `docs/vps-install.md`, and the hosted page (section 2b).
+  - `## Get Started` - install & first-run instructions (basic local only). Ends with links to `docs/self-hosted.md` and the hosted page (section 2b).
   - `## How it works` - one-line link to `docs/how-it-works.md`. Technical overview content lives in the docs.
 - **Update when:** any user-visible feature is added, removed, or meaningfully changed.
 
@@ -30,7 +30,7 @@ Keep these consistent across all surfaces below.
 - **Structure:**
   - `<title>`, social meta tags (og/twitter title + description), and the hero `<p class="tagline">`: Isomux's category pitch. **Must stay in lockstep with the README headline (section 1)** and the org profile tagline (section 11). The `<title>` and social titles use the short form; the description and hero use the full line.
   - `<section id="features">` with `<ul class="coworker-list">`, and `<section id="office">` with `<ul class="office-list">` - **must stay in lockstep with the README's `## Feature Highlights` (section 1)**: same bullets, same order, same wording (modulo HTML markup, inline links, and code-style spans). Any edit here needs a matching edit there, and vice versa. Followed by a one-liner linking to `/docs/features`.
-  - `<section id="setup">` - basic local Get Started (always open, no foldables). Ends with links to `/docs/self-hosted` and `/docs/vps-install` for always-on-server setups, and to `/hosted` for the managed version.
+  - `<section id="setup">` - basic local Get Started (always open, no foldables). Ends with a link to `/docs/self-hosted` for always-on-server setups, and to `/hosted` for the managed version.
   - `<section id="how-it-works">` - one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
 - **Update when:** headline features change. Always update both this file and the README in the same commit so they don't drift.
 - **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`).
@@ -68,10 +68,8 @@ Keep these consistent across all surfaces below.
 - **Audience:** Anyone who needs more than the README/landing highlights - operators, security reviewers, would-be contributors.
 - **Pages (in sidebar/nav order):**
   - `features.md` - canonical long-form feature inventory. Built as the docs **landing page** at `/docs` (not `/docs/features`).
-  - `self-hosted.md` - three-part always-on-server walkthrough: keep it running (systemd), make it reachable (VPN vs public URL), authorize users (links to access-and-invites). Its first section carries the operational backup details.
-  - `vps-install.md` - unattended VPS setup (`deploy/install.sh`): fresh Ubuntu 24.04 → HTTPS-served office + owner invite link. Keep the parameter table in sync with the script's env vars.
-  - `deployments.md` - boundary matrix for every supported deployment shape: reachability, app addresses, firewall ownership, request logging, and exclusions.
-  - `access-and-invites.md` - canonical reachability/auth deep dive: invite-link flow, Tailscale Funnel agent prompt, Caddy, `ISOMUX_PUBLIC_ORIGIN`, cookie semantics. The Funnel prompt lives here, nowhere else.
+  - `self-hosted.md` - the one always-on-server page. Covers the unattended VPS install (`deploy/install.sh`: fresh Ubuntu 24.04 → HTTPS-served office + owner invite link; keep the parameter table in sync with the script's env vars), the own-hardware walkthrough (keep it running / make it reachable - the Tailscale Funnel agent prompt lives here, nowhere else - / authorize users), backups, out-of-memory protection, and the deployment-boundary matrix (reachability, app addresses, firewall ownership, request logging, exclusions). The retired `/docs/vps-install` and `/docs/deployments` URLs redirect here (`vercel.json`).
+  - `access-and-invites.md` - canonical auth deep dive: invite-link flow, roles and TTLs, device links, external access and public origin, cookie semantics, trust model, owner recovery. Reachability setup moved to `self-hosted.md`.
   - `how-it-works.md` - short multi-provider technical overview (Bun process, Claude SDK + Codex app-server, WebSocket sync, persistence).
   - `security-audit.md` - authorization-system threat model and findings.
   - `developer-api.md` - Isomux developer resource index: website OpenAPI contract, self-hosted API authentication, route-table source, and structured error shape.

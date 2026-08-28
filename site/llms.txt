@@ -6,8 +6,7 @@
 
 - [Isomux documentation](https://isomux.com/docs): Feature index and product guide
 - [Isomux developer API resources](https://isomux.com/docs/developer-api): API authentication, errors, and machine-readable references
-- [Self-hosted installation](https://isomux.com/docs/self-hosted): Local installation and operation
-- [VPS installation](https://isomux.com/docs/vps-install): Persistent remote deployment
+- [Self-hosted installation](https://isomux.com/docs/self-hosted): Local, own-hardware, and VPS installation and operation
 - [Access and invites](https://isomux.com/docs/access-and-invites): Browser authentication and access control
 - [Security audit](https://isomux.com/docs/security-audit): Security model and findings
 

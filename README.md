@@ -90,7 +90,7 @@ Visit **http://localhost:4000** in your browser.
 - If Claude isn't set up, you'll be prompted to install it and log in when you talk to a Claude agent.
 - Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
 
-Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md), or the [unattended VPS install](docs/vps-install.md) for a fresh server.
+Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, or an unattended VPS install for a fresh server.
 
 Rather not run a server at all? [We can host it for you](https://isomux.com/hosted).
 

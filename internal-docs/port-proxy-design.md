@@ -87,7 +87,7 @@ state agents poke at. No.
 
 Ship **A now, C when hosted goes live** - and not before the prerequisite lands.
 
-A is a docs change (`docs/vps-install.md`) plus a line in the agent system
+A is a docs change (`docs/vps-install.md`, since merged into `docs/self-hosted.md`) plus a line in the agent system
 prompt, so agents suggest the tunnel instead of handing out a `localhost:5173`
 URL that will not resolve from the boss's browser. That is the whole answer for
 a laptop.

@@ -9,6 +9,26 @@
       "has": [{ "type": "host", "value": "www.isomux.com" }],
       "destination": "https://isomux.com/:path*",
       "permanent": true
+    },
+    {
+      "source": "/docs/vps-install",
+      "destination": "/docs/self-hosted",
+      "permanent": true
+    },
+    {
+      "source": "/docs/deployments",
+      "destination": "/docs/self-hosted",
+      "permanent": true
+    },
+    {
+      "source": "/_agent/docs/vps-install/index.md",
+      "destination": "/_agent/docs/self-hosted/index.md",
+      "permanent": true
+    },
+    {
+      "source": "/_agent/docs/deployments/index.md",
+      "destination": "/_agent/docs/self-hosted/index.md",
+      "permanent": true
     }
   ],
   "headers": [

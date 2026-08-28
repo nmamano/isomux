@@ -138,7 +138,7 @@ systemctl --user stop isomux
 systemctl --user is-active isomux
 ```
 
-System service (a VPS install, `docs/vps-install.md`) - as root:
+System service (a VPS install, `docs/self-hosted.md`) - as root:
 
 ```
 systemctl stop isomux
@@ -236,7 +236,7 @@ normally.**
 
 They have to resolve to the new box before you install, or Caddy cannot
 get a certificate - including an AAAA record if the domain has one. Then
-the installer steps from `docs/vps-install.md`:
+the installer steps from `docs/self-hosted.md`:
 
 ```
 (

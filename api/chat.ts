@@ -58,7 +58,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 - Works with your existing Claude or ChatGPT subscription - if \`claude\` works in your terminal, Claude agents work in your browser; Codex ships bundled and authenticates on first use. No API key needed - it piggybacks on the underlying CLI's auth.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. No bundler, no database, minimal deps.
 - GitHub: github.com/nmamano/isomux
-- Docs: isomux.com/docs (full feature list, self-hosted setup, unattended VPS install, access and invites, backup/restore, security audit)
+- Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install, access and invites, backup/restore, security audit)
 - Created by Nil Mamano (nilmamano.com)
 - Blog post with architecture deep dive: nilmamano.com/blog/isomux
 - Community and support: Discord: https://discord.gg/FrjEYyNvYs (questions, setup help, bug reports, and Hosted Isomux support)
@@ -225,7 +225,7 @@ Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
 - The Apps tab lists every app available to you with its state, restart count, and recent output, and lets you start, stop, restart, or delete it.
-- On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/vps-install).
+- On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/self-hosted).
 - Only people signed in to the office can open an app's address.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.
 
