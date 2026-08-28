@@ -516,7 +516,7 @@ install_github_cli() {
       -o Dir::Etc::sourceparts=/dev/null \
       -o APT::Get::List-Cleanup=0; then
     rm -f "$source" "$keyring_tmp" "$source_tmp"
-    warn "could not add the GitHub CLI apt repository. The office will continue without GitHub CLI. Install it later with the official instructions: https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
+    warn "could not add the GitHub CLI apt repository. The office will continue without GitHub CLI. Install it later by following the official instructions: https://github.com/cli/cli/blob/trunk/docs/install_linux.md"
     return 0
   fi
   if ! apt_install gh; then
