@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { isAuthenticationError, parseAllowedEvent } from "./transport.ts";
+import {
+  interruptedToolResults,
+  isAuthenticationError,
+  parseAllowedEvent,
+} from "./transport.ts";
 import { writeSafeContractFixture } from "./contract-fixture.ts";
 import { join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -7,6 +11,22 @@ import { tmpdir } from "node:os";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 
 describe("OpenCode OC1 raw-ingress allowlist", () => {
+  it("closes only non-terminal tools when an abort reaches idle", () => {
+    expect(
+      interruptedToolResults([
+        { callId: "running", terminal: false },
+        { callId: "done", terminal: true },
+      ]),
+    ).toEqual([
+      {
+        kind: "tool_result",
+        toolUseId: "running",
+        content: "Tool interrupted.",
+        isError: true,
+      },
+    ]);
+  });
+
   it("keeps only text shape and drops provider fields before normalization", () => {
     const canary = "PROVIDER_SECRET_CANARY";
     const parsed = parseAllowedEvent(
@@ -62,6 +82,35 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       },
     });
     expect(JSON.stringify(parsed)).not.toContain(canary);
+  });
+
+  it("keeps only reviewed reasoning, tool, permission, and completion fields", () => {
+    const canary = "CONTROL_EVENT_SECRET_CANARY";
+    const events = [
+      {
+        type: "message.part.updated",
+        properties: { sessionID: "s", part: { type: "reasoning", id: "r", messageID: "m", text: "why", time: { start: 10, end: 14 }, metadata: canary } },
+      },
+      {
+        type: "message.part.updated",
+        properties: { sessionID: "s", part: { type: "tool", id: "p", messageID: "m", tool: "bash", callID: "call", state: { status: "error", input: { command: "false" }, error: "exit 1", time: { start: 20, end: 25 }, metadata: { exit: 1, private: canary } } } },
+      },
+      {
+        type: "permission.asked",
+        properties: { sessionID: "s", id: "perm", permission: "bash", patterns: ["false"], metadata: canary, always: [canary] },
+      },
+      {
+        type: "message.part.updated",
+        properties: { sessionID: "s", part: { type: "step-finish", id: "f", messageID: "m", tokens: { input: 9, output: 4, cache: { read: 2, write: 1 }, provider: canary }, cost: 0, snapshot: canary } },
+      },
+    ].map((event) => parseAllowedEvent(JSON.stringify(event)));
+    expect(events).toEqual([
+      { kind: "reasoning", sessionId: "s", messageId: "m", partId: "r", text: "why", durationMs: 4 },
+      { kind: "tool", sessionId: "s", partId: "p", callId: "call", name: "bash", status: "error", input: { command: "false" }, error: "exit 1", exitCode: 1, durationMs: 5 },
+      { kind: "permission", sessionId: "s", id: "perm", permission: "bash", patterns: ["false"] },
+      { kind: "step_finish", sessionId: "s", usage: { inputTokens: 9, outputTokens: 4, cacheReadInputTokens: 2, cacheCreationInputTokens: 1 }, cost: 0 },
+    ]);
+    expect(JSON.stringify(events)).not.toContain(canary);
   });
 
   it("classifies only observed structured authentication failures", () => {

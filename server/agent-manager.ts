@@ -3587,24 +3587,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       case "approval_request": {
         const managed = agents.get(agentId);
         if (!managed) break;
-        // Build the 3-option /resolve prompt. Same UX as the pre-2c
-        // requestPermission flow; only difference is the backend now owns the
-        // SDK resolver and we route the decision back via session.approve().
+        // Build the /resolve prompt. The backend owns the SDK resolver and
+        // states per request which persistent choices it can represent.
         const lines: string[] = [
           `**${ev.title ?? `Wants to use ${ev.toolName}`}**`,
         ];
         if (ev.description) lines.push(ev.description);
         lines.push("");
         lines.push("Reply:");
-        // Backend-aware scope wording: Claude applies SDK-suggested pattern
-        // rules scoped to the session, so option 1 covers similar calls.
-        // Codex caches the exact canonicalized command (cwd, tty, sandbox
-        // included), so option 1 only covers byte-identical re-runs.
-        lines.push(
-          managed.info.agentType === "codex"
-            ? "  1. Allow - and don't ask again for this exact command this session"
-            : "  1. Allow - and don't ask again for similar calls this session",
-        );
+        if (ev.allowPersistentLabel) lines.push(`  1. ${ev.allowPersistentLabel}`);
         lines.push("  2. Allow - just this time");
         lines.push("  3. Deny");
         // Offered only when the backend proposed a broader rule than "this
@@ -3640,6 +3631,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.pendingPermission = {
           approvalId: ev.approvalId,
           toolName: ev.toolName,
+          allowPersistent: Boolean(ev.allowPersistentLabel),
           allowPrefixLabel: ev.allowPrefixLabel,
         };
         updateState(agentId, "waiting_for_response");
@@ -6098,7 +6090,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const prefixReply = parsePrefixAllowReply(trimmed);
       let decision: ApprovalDecision;
       let resumeState: AgentState;
-      if (trimmed === "1") {
+      if (trimmed === "1" && pending.allowPersistent) {
         emitEphemeralLog(
           agentId,
           "system",

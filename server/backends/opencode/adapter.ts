@@ -52,11 +52,12 @@ const CAPABILITIES: BackendCapabilities = {
   hooks: false,
   skills: false,
   oneShot: false,
-  canUseTool: false,
+  canUseTool: true,
   topicGen: false,
   edit: false,
   mcp: false,
 };
+const TRACER_CAPABILITIES: BackendCapabilities = { ...CAPABILITIES, canUseTool: false };
 
 const MODELS: ModelOption[] = [
   { value: OPENCODE_TRACER_MODEL, label: "OpenCode tracer" },
@@ -131,8 +132,8 @@ class OpenCodeServerSession implements BackendSession {
     await this.transport.send(text, this.push);
   }
 
-  async approve(): Promise<void> {
-    throw new Error("OpenCode permissions are not available in this slice.");
+  async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
+    await this.transport.approve(approvalId, decision);
   }
 
   async abort(): Promise<void> {
@@ -140,7 +141,7 @@ class OpenCodeServerSession implements BackendSession {
   }
 
   canAbortInPlace(): boolean {
-    return true;
+    return this.transport.canAbortInPlace();
   }
 
   close(): void {
@@ -238,7 +239,7 @@ export function createOpenCodeTracerBackend(
 ): Backend {
   let nextSessionId = 0;
   return {
-    capabilities: CAPABILITIES,
+    capabilities: TRACER_CAPABILITIES,
 
     getModelOptions(): ModelOption[] {
       return MODELS;

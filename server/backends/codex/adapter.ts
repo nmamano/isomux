@@ -2028,6 +2028,7 @@ export class CodexSession implements BackendSession {
             input: extractApprovalInput(req.method, params),
             title,
             description,
+            allowPersistentLabel: "Allow - and don't ask again for this exact command this session",
             // Both labels are built here, already safe to display: the
             // orchestrator renders them and never takes them apart again.
             ...(suggestedPrefix

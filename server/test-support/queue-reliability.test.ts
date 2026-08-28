@@ -835,11 +835,12 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     ).toBe(true);
   });
 
-  it("observes the same quiescent signature on Codex without recovering it", async () => {
+  it("observes the same quiescent signature on Codex and OpenCode without recovering it", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
-    const sender = await spawnAgent(server, "Sender", room.id);
+    for (const agentType of ["codex", "opencode"] as const) {
+    const recv = await spawnAgent(server, `Receiver-${agentType}`, room.id, agentType);
+    const sender = await spawnAgent(server, `Sender-${agentType}`, room.id);
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     const session = server.fakeBackend.sessionForAgent(recv.id)!;
     await waitUntil(() => session.sent.length === 1, 3000, "kickoff sent");
@@ -871,6 +872,7 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     expect(queueOf(server, recv.id).length).toBe(1);
     // An observation must not spend the cooldown shared by real recovery.
     expect(server.agentManager._testLastForcedRecoveryAt(recv.id)).toBe(0);
+    }
   });
 
   it("forced path: attempts a session-replacement recovery once, then respects the cooldown (never force-clears flushInProgress)", async () => {

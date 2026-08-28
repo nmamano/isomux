@@ -1,0 +1,119 @@
+{
+  "date": "2026-08-28",
+  "version": "1.18.23",
+  "permissionAbort": {
+    "pendingPermissionID": "per_0468e3173001XNB256t4H5RI78",
+    "abortResult": true,
+    "eventTypes": [
+      "server.connected",
+      "session.created",
+      "session.updated",
+      "message.updated",
+      "message.part.updated",
+      "session.updated",
+      "session.status",
+      "message.updated",
+      "session.updated",
+      "session.diff",
+      "message.updated",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "catalog.updated",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "plugin.added",
+      "reference.updated",
+      "integration.updated",
+      "catalog.updated",
+      "session.status",
+      "message.part.updated",
+      "message.part.updated",
+      "message.part.updated",
+      "permission.asked",
+      "session.error",
+      "session.status",
+      "session.idle"
+    ]
+  },
+  "questionDeny": {
+    "permissionAsked": false,
+    "toolStates": [
+      {
+        "tool": "question",
+        "status": "pending"
+      },
+      {
+        "tool": "invalid",
+        "status": "running"
+      },
+      {
+        "tool": "invalid",
+        "status": "completed"
+      }
+    ]
+  },
+  "toolAbort": {
+    "runningPartID": "prt_0468ee0b5001gYN1s8SYaLiBh5",
+    "abortResult": true,
+    "abortElapsedMs": 1021,
+    "toolStates": [
+      {
+        "partID": "prt_0468ee0b5001gYN1s8SYaLiBh5",
+        "status": "pending"
+      },
+      {
+        "partID": "prt_0468ee0b5001gYN1s8SYaLiBh5",
+        "status": "running"
+      },
+      {
+        "partID": "prt_0468ee0b5001gYN1s8SYaLiBh5",
+        "status": "running"
+      },
+      {
+        "partID": "prt_0468ee0b5001gYN1s8SYaLiBh5",
+        "status": "completed"
+      }
+    ],
+    "stepFinishObserved": false
+  }
+}

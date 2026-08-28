@@ -478,6 +478,8 @@ describe("ClaudeSession approval flow", () => {
       input: { cmd: "ls" },
       title: "Bash ls",
       description: "list dir",
+      allowPersistentLabel:
+        "Allow - and don't ask again for similar calls this session",
     });
 
     await session.approve("u1", { kind: "allow_once" });

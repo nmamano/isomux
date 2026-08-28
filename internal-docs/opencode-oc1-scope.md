@@ -280,10 +280,35 @@ dependency and its profile remains an S7 proof.
 4. **S3 - controlled work.** Add streaming text and reasoning, shell and edit
    tools, allow-once and deny replies, failed-tool recovery, abort, and exact
    completion ordering.
+
+S3 keeps OpenCode in Ask mode. `validatePermissionMode` accepts only `default`
+for OpenCode, so no other posture is representable before the model/UI slice.
+Each permission request offers only Allow once and Deny; no persistent rule is
+shown or accepted. The retained `patterns` field supplies the reviewed command
+patterns displayed with the request. The shared server config asks for shell
+and edit, and denies the interactive question tool. A 2026-08-28 pinned probe
+confirmed that question denial emits no permission request and settles as an
+invalid-tool result.
+
+Completed turns require `session.idle` after a recorded `step-finish`. A local
+abort may idle without `step-finish` and is interrupted, not completed. Abort
+rejects a pending permission before it calls the session abort route. Any
+non-terminal tool at abort receives one synthesized interrupted result; the
+2026-08-28 pinned running-shell probe emitted its own terminal result before
+idle, so the synthesis is a future-shape guard. This rule assumes Isomux is the
+only actor for the session. A remote abort is not reachable in S3 and would be
+reported as a failed unexplained idle.
+
+A dropped SSE stream fails the active turn. S3 does not reconnect or replay an
+in-flight turn. Failed-tool recovery means that OpenCode reports the tool result
+to the model and the same server turn continues to final reasoning and text; it
+does not mean transport recovery.
 5. **S4 - durable conversations.** Prove process loss, isolated Isomux
    restart/resume, simultaneous repositories without crossover, and server
    replacement after environment/profile change. Prove fork at the selected
    message plus child history and first child turn, or keep fork and edit off.
+   Pin that OpenCode remains observe-only in the busy-turn watchdog; S3 did not
+   change that existing behavior.
 6. **S5 - model and UI completion.** Add provider/model discovery, at most
    three first-release certified models, capability-shaped controls, and every
    killed/resumed-agent surface.
@@ -366,8 +391,8 @@ branch is knowingly not covered by a focused test.
 
 Residual two-backend assumptions recorded 2026-08-28:
 
-- S3 owns permission-copy wording at `agent-manager.ts:3481` and the busy-turn
-  watchdog at `agent-manager.ts:4241`.
+- S4 owns the regression test for OpenCode's existing observe-only busy-turn
+  watchdog behavior at `agent-manager.ts:4241`.
 - S4 owns cwd-change classification at `agent-manager.ts:827`.
 - S5 owns slide model selection at `agent-manager.ts:2449`, welcome-agent
   naming at `isomux-office.ts:480-484`, LogView engine display at

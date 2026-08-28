@@ -278,6 +278,7 @@ export interface ManagedAgent {
   pendingPermission: {
     approvalId: string;
     toolName: string;
+    allowPersistent: boolean;
     // Human-readable form of the broader session rule the backend offered as
     // option 4, when it offered one. Display + gate only: the rule itself
     // stays inside the backend, which applies it on an "allow_prefix"

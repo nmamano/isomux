@@ -1,4 +1,5 @@
 import type { NormalizedEvent } from "../types.ts";
+import type { ApprovalDecision, TokenUsage } from "../types.ts";
 import {
   openCodeSupervisor,
   type OpenCodeLease,
@@ -16,6 +17,23 @@ export interface OpenCodeTransportOptions {
 
 type EventSink = (event: NormalizedEvent) => void;
 
+export function interruptedToolResults(
+  tools: Iterable<{ callId: string; terminal: boolean }>,
+): NormalizedEvent[] {
+  const results: NormalizedEvent[] = [];
+  for (const tool of tools) {
+    if (!tool.terminal) {
+      results.push({
+        kind: "tool_result",
+        toolUseId: tool.callId,
+        content: "Tool interrupted.",
+        isError: true,
+      });
+    }
+  }
+  return results;
+}
+
 export class OpenCodeTransport {
   private readonly supervisor: OpenCodeSupervisor;
   private readonly cwd: string;
@@ -26,6 +44,9 @@ export class OpenCodeTransport {
   private lease: OpenCodeLease | null = null;
   private sessionId: string | null = null;
   private abortController: AbortController | null = null;
+  private activeTurn = false;
+  private abortRequested = false;
+  private pendingPermission: { id: string; sessionId: string } | null = null;
   private closed = false;
 
   constructor(options: OpenCodeTransportOptions) {
@@ -58,6 +79,8 @@ export class OpenCodeTransport {
   async send(text: string, sink: EventSink): Promise<void> {
     const sessionId = await this.initialize(sink);
     this.lease!.beginTurn();
+    this.activeTurn = true;
+    this.abortRequested = false;
     this.abortController = new AbortController();
     const eventsReady = this.consumeEvents(sessionId, sink, this.abortController.signal);
     await eventsReady;
@@ -73,6 +96,7 @@ export class OpenCodeTransport {
       this.contractShapeSink?.("http:prompt_async:success");
     } catch (error) {
       this.abortController.abort();
+      this.activeTurn = false;
       this.lease!.endTurn();
       sink({
         kind: "turn_completed",
@@ -84,14 +108,34 @@ export class OpenCodeTransport {
 
   async abort(): Promise<void> {
     if (!this.sessionId) return;
+    this.abortRequested = true;
+    await this.rejectPendingPermission();
     await this.request(`/session/${encodeURIComponent(this.sessionId)}/abort`, {
       method: "POST",
     }).catch(() => undefined);
   }
 
+  async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
+    const pending = this.pendingPermission;
+    if (!pending || pending.id !== approvalId || pending.sessionId !== this.sessionId) return;
+    if (decision.kind !== "allow_once" && decision.kind !== "deny") {
+      throw new Error("OpenCode supports Allow once and Deny in this slice.");
+    }
+    this.pendingPermission = null;
+    await this.replyPermission(approvalId, decision.kind === "allow_once" ? "once" : "reject");
+  }
+
+  canAbortInPlace(): boolean {
+    return this.activeTurn;
+  }
+
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    // release() only drops the supervisor reference count. It must keep this
+    // lease's endpoint fields usable until this close-time reject and abort
+    // chain finishes.
+    if (this.activeTurn) void this.rejectPendingPermission().then(() => this.abort());
     this.abortController?.abort();
     this.lease?.endTurn();
     this.lease?.release();
@@ -108,6 +152,20 @@ export class OpenCodeTransport {
     const decoder = new TextDecoder();
     const assistantMessages = new Set<string>();
     const textByPart = new Map<string, string>();
+    const reasoningByPart = new Map<string, string>();
+    const tools = new Map<string, { callId: string; name: string; terminal: boolean }>();
+    const seenPermissions = new Set<string>();
+    let stepFinish: { usage?: TokenUsage; cost?: number } | null = null;
+    let settled = false;
+    const settle = (event: NormalizedEvent): void => {
+      if (settled) return;
+      settled = true;
+      this.activeTurn = false;
+      this.pendingPermission = null;
+      this.lease?.endTurn();
+      sink(event);
+      this.abortController?.abort();
+    };
     let buffer = "";
     void (async () => {
       try {
@@ -140,13 +198,49 @@ export class OpenCodeTransport {
               }
               textByPart.set(event.partId, event.text);
             }
+            if (event.kind === "reasoning" && assistantMessages.has(event.messageId)) {
+              const prior = reasoningByPart.get(event.partId) ?? "";
+              if (event.text.startsWith(prior)) {
+                const delta = event.text.slice(prior.length);
+                if (delta) sink({ kind: "thinking", text: delta, ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}) });
+                else if (event.durationMs !== undefined) sink({ kind: "thinking", text: "", durationMs: event.durationMs });
+              }
+              reasoningByPart.set(event.partId, event.text);
+            }
+            if (event.kind === "tool") {
+              const prior = tools.get(event.partId);
+              if (!prior) {
+                tools.set(event.partId, { callId: event.callId, name: event.name, terminal: false });
+                sink({ kind: "tool_call", toolUseId: event.callId, name: event.name, input: event.input });
+              }
+              const tracked = tools.get(event.partId);
+              if (tracked && !tracked.terminal && (event.status === "completed" || event.status === "error")) {
+                tracked.terminal = true;
+                sink({ kind: "tool_result", toolUseId: tracked.callId, content: event.output ?? event.error ?? "", ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}), ...(event.status === "error" || (event.exitCode !== undefined && event.exitCode !== 0) ? { isError: true } : {}) });
+              }
+            }
+            if (event.kind === "permission") {
+              if (seenPermissions.has(event.id)) continue;
+              seenPermissions.add(event.id);
+              this.pendingPermission = { id: event.id, sessionId: event.sessionId };
+              sink({ kind: "approval_request", approvalId: event.id, toolName: event.permission, input: event.patterns.length ? { patterns: event.patterns } : {}, title: `OpenCode wants to use ${event.permission}` });
+            }
+            if (event.kind === "step_finish") stepFinish = { usage: event.usage, cost: event.cost };
             if (event.kind === "idle") {
-              this.lease?.endTurn();
-              sink({ kind: "turn_completed", status: "completed" });
-              this.abortController?.abort();
+              if (this.abortRequested) {
+                for (const result of interruptedToolResults(tools.values())) sink(result);
+                settle({ kind: "turn_completed", status: "interrupted" });
+              } else if (stepFinish) {
+                settle({ kind: "turn_completed", status: "completed", ...(stepFinish.usage ? { usage: stepFinish.usage } : {}), ...(stepFinish.cost !== undefined ? { cost: stepFinish.cost } : {}) });
+              } else {
+                settle({ kind: "turn_completed", status: "failed", error: "OpenCode became idle without a recorded completion." });
+              }
               return;
             }
             if (event.kind === "error") {
+              if (this.abortRequested) continue;
+              settled = true;
+              this.activeTurn = false;
               this.lease?.endTurn();
               this.safeErrorSink?.(event.error);
               const auth = await this.isAuthenticationError(event.error);
@@ -173,8 +267,7 @@ export class OpenCodeTransport {
           }
         }
         if (!signal.aborted) {
-          this.lease?.endTurn();
-          sink({
+          settle({
             kind: "turn_completed",
             status: "failed",
             error: "OpenCode event stream ended before turn completion.",
@@ -182,8 +275,7 @@ export class OpenCodeTransport {
         }
       } catch (error) {
         if (!signal.aborted) {
-          this.lease?.endTurn();
-          sink({
+          settle({
             kind: "turn_completed",
             status: "failed",
             error: `OpenCode event stream failed: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -191,6 +283,20 @@ export class OpenCodeTransport {
         }
       }
     })();
+  }
+
+  private async replyPermission(id: string, reply: "once" | "reject"): Promise<void> {
+    await this.request(`/permission/${encodeURIComponent(id)}/reply`, {
+      method: "POST",
+      body: JSON.stringify({ reply }),
+    });
+  }
+
+  private async rejectPendingPermission(): Promise<void> {
+    const pending = this.pendingPermission;
+    if (!pending || pending.sessionId !== this.sessionId) return;
+    this.pendingPermission = null;
+    await this.replyPermission(pending.id, "reject").catch(() => undefined);
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<Response> {
@@ -246,6 +352,10 @@ function allowSession(raw: unknown): { id: string } {
 type AllowedEvent =
   | { kind: "assistant"; sessionId: string; messageId: string }
   | { kind: "text"; sessionId: string; messageId: string; partId: string; text: string }
+  | { kind: "reasoning"; sessionId: string; messageId: string; partId: string; text: string; durationMs?: number }
+  | { kind: "tool"; sessionId: string; partId: string; callId: string; name: string; status: "pending" | "running" | "completed" | "error"; input: Record<string, unknown>; output?: string; error?: string; exitCode?: number; durationMs?: number }
+  | { kind: "permission"; sessionId: string; id: string; permission: string; patterns: string[] }
+  | { kind: "step_finish"; sessionId: string; usage?: TokenUsage; cost?: number }
   | { kind: "idle"; sessionId: string }
   | { kind: "error"; sessionId: string; error: SafeOpenCodeError };
 
@@ -271,6 +381,15 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
   if (type === "session.error") {
     return { kind: "error", sessionId, error: allowError(properties.error) };
   }
+  if (type === "permission.asked") {
+    const id = stringField(properties, "id");
+    const permission = stringField(properties, "permission");
+    if (!id || !permission) return null;
+    const patterns = Array.isArray(properties.patterns)
+      ? properties.patterns.filter((value): value is string => typeof value === "string")
+      : [];
+    return { kind: "permission", sessionId, id, permission, patterns };
+  }
   if (type === "message.updated") {
     const info = asRecord(properties.info);
     const messageId = stringField(info, "id");
@@ -285,6 +404,46 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
     const text = stringField(part, "text");
     if (part.type === "text" && messageId && partId && text !== null) {
       return { kind: "text", sessionId, messageId, partId, text };
+    }
+    if (part.type === "reasoning" && messageId && partId && text !== null) {
+      const time = asRecord(part.time);
+      const start = numberField(time, "start");
+      const end = numberField(time, "end");
+      return { kind: "reasoning", sessionId, messageId, partId, text, ...(start !== null && end !== null ? { durationMs: Math.max(0, end - start) } : {}) };
+    }
+    if (part.type === "tool" && partId) {
+      const state = asRecord(part.state);
+      const status = state.status;
+      const callId = stringField(part, "callID");
+      const name = stringField(part, "tool");
+      if (!callId || !name || !isToolStatus(status)) return null;
+      const time = asRecord(state.time);
+      const metadata = asRecord(state.metadata);
+      const start = numberField(time, "start");
+      const end = numberField(time, "end");
+      return {
+        kind: "tool", sessionId, partId, callId, name, status,
+        input: asRecord(state.input),
+        ...(typeof state.output === "string" ? { output: state.output } : {}),
+        ...(typeof state.error === "string" ? { error: state.error } : {}),
+        ...(numberField(metadata, "exit") !== null ? { exitCode: numberField(metadata, "exit")! } : {}),
+        ...(start !== null && end !== null ? { durationMs: Math.max(0, end - start) } : {}),
+      };
+    }
+    if (part.type === "step-finish") {
+      const tokens = asRecord(part.tokens);
+      const cache = asRecord(tokens.cache);
+      const input = numberField(tokens, "input");
+      const output = numberField(tokens, "output");
+      if (!partId) return null;
+      const usage = input !== null && output !== null ? {
+        inputTokens: input,
+        outputTokens: output,
+        cacheReadInputTokens: numberField(cache, "read") ?? 0,
+        cacheCreationInputTokens: numberField(cache, "write") ?? 0,
+      } : undefined;
+      const cost = numberField(part, "cost");
+      return { kind: "step_finish", sessionId, ...(usage ? { usage } : {}), ...(cost !== null ? { cost } : {}) };
     }
   }
   return null;
@@ -328,4 +487,12 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function stringField(value: Record<string, unknown>, key: string): string | null {
   return typeof value[key] === "string" ? value[key] : null;
+}
+
+function numberField(value: Record<string, unknown>, key: string): number | null {
+  return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : null;
+}
+
+function isToolStatus(value: unknown): value is "pending" | "running" | "completed" | "error" {
+  return value === "pending" || value === "running" || value === "completed" || value === "error";
 }

@@ -60,7 +60,11 @@ export class OpenCodeSupervisor {
     this.profileDir = options.profileDir ?? join(STATE_ROOT, "opencode", "profiles", "default");
     this.recordPath = join(this.profileDir, "server.lock");
     this.binary = options.binary ?? resolveOpenCodeBinary();
-    this.config = options.config ?? { autoupdate: false, share: "disabled" };
+    this.config = options.config ?? {
+      autoupdate: false,
+      share: "disabled",
+      permission: { bash: "ask", edit: "ask", question: "deny" },
+    };
     this.serverCwd = options.serverCwd ?? STATE_ROOT;
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};

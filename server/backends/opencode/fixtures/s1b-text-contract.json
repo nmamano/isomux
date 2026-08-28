@@ -3,5 +3,6 @@
   "http:session:{id:string}",
   "sse:assistant",
   "sse:idle",
+  "sse:step_finish",
   "sse:text"
 ]

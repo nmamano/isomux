@@ -135,7 +135,10 @@ export type NormalizedEvent =
   // apply them automatically on `allow_persistent`. Keeps the orchestrator
   // free of backend-specific permission rule shapes.
   //
-  // `allowPrefixLabel` is the one crack in that wall, and it stays display-only:
+  // The allow labels are deliberate display-only cracks in this wall.
+  // `allowPersistentLabel` states that this request can represent the normal
+  // session-persistent choice. A backend that omits it cannot receive that
+  // choice. `allowPrefixLabel` states that the backend has a broader rule:
   // when a backend can offer a BROADER session-scoped allow than "this exact
   // call" (Codex: the prefix rule it suggests alongside an exec approval), it
   // puts the human-readable form of that rule here and the orchestrator offers
@@ -155,6 +158,7 @@ export type NormalizedEvent =
       input: Record<string, unknown>;
       title?: string;
       description?: string;
+      allowPersistentLabel?: string;
       allowPrefixLabel?: string;
       allowPrefixExample?: string;
     }

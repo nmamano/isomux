@@ -54,10 +54,16 @@ const server = Bun.serve({
         send(chunk(id, { role: "assistant" }))
         if (prompt.includes("GATE_ABORT")) await Bun.sleep(Number(process.env.GATE_ABORT_MS ?? "2500"))
 
-        if (!isSummary && (prompt.includes("GATE_TOOL") || prompt.includes("GATE_FAIL")) && !hasToolResult(messages)) {
-          const command = prompt.includes("GATE_FAIL")
+        if (!isSummary && (prompt.includes("GATE_TOOL") || prompt.includes("GATE_FAIL") || prompt.includes("GATE_ABORT_TOOL") || prompt.includes("GATE_QUESTION")) && !hasToolResult(messages)) {
+          const command = prompt.includes("GATE_ABORT_TOOL")
+            ? "sleep 30"
+            : prompt.includes("GATE_FAIL")
             ? "printf failed-before-exit; exit 7"
             : "printf tool-ok > gate-output.txt"
+          const tool = prompt.includes("GATE_QUESTION") ? "question" : "bash"
+          const args = tool === "question"
+            ? { questions: [{ header: "Gate", question: "Continue?", options: [{ label: "Yes", description: "Continue" }] }] }
+            : { command }
           send(
             chunk(id, {
               tool_calls: [
@@ -65,7 +71,7 @@ const server = Bun.serve({
                   index: 0,
                   id: "call_gate_001",
                   type: "function",
-                  function: { name: "bash", arguments: JSON.stringify({ command }) },
+                  function: { name: tool, arguments: JSON.stringify(args) },
                 },
               ],
             }),

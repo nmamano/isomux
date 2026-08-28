@@ -34,7 +34,11 @@ describe("pendingPromptOf", () => {
     expect(
       pendingPromptOf(
         agentWith({
-          pendingPermission: { approvalId: "a1", toolName: "Bash" },
+          pendingPermission: {
+            approvalId: "a1",
+            toolName: "Bash",
+            allowPersistent: false,
+          },
         }),
       ),
     ).toBe("permission");
@@ -54,7 +58,11 @@ describe("pendingPromptOf", () => {
     expect(
       pendingPromptOf(
         agentWith({
-          pendingPermission: { approvalId: "a1", toolName: "Bash" },
+          pendingPermission: {
+            approvalId: "a1",
+            toolName: "Bash",
+            allowPersistent: false,
+          },
           pendingResume: true,
           pendingModelPick: true,
           pendingEffortPick: true,
@@ -69,7 +77,13 @@ describe("pendingPromptOf", () => {
     // must never disagree about whether an agent is parked.
     const cases: Partial<ManagedAgent>[] = [
       {},
-      { pendingPermission: { approvalId: "a1", toolName: "Bash" } },
+      {
+        pendingPermission: {
+          approvalId: "a1",
+          toolName: "Bash",
+          allowPersistent: false,
+        },
+      },
       { pendingResume: true },
       { pendingModelPick: true },
       { pendingEffortPick: true },

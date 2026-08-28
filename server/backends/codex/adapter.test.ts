@@ -1108,6 +1108,9 @@ describe("CodexSession approvals", () => {
     });
     expect(ev.title).toContain("echo hi");
     expect(ev.description).toBe("demo");
+    expect(ev.allowPersistentLabel).toBe(
+      "Allow - and don't ask again for this exact command this session",
+    );
     await session.approve("appr-1", { kind: "allow_once" });
     expect(await allowResp).toEqual({ decision: "approved" });
 
