@@ -6,6 +6,8 @@ navTitle: VPS install
 
 Set up isomux on a fresh Ubuntu 24.04 server with the unattended installer. It installs everything, hardens the box, serves the office over HTTPS at your domain, and hands you a sign-in link.
 
+See [deployment shapes](deployments.md) for the boundary between this setup, a hand-built VPS, and a home or tailnet office.
+
 For more details, see [this blog post](https://nilmamano.com/blog/hosted-isomux).
 
 You need:
@@ -46,7 +48,7 @@ When the output isn't going to a terminal - cloud-init, a piped log, an agent ru
 - Installs bun, Node.js, the Claude Code CLI, git, Caddy, and Chrome (headless, for the agents' page-preview cards, and as the browser Playwright drives when an agent wants to look at a page it just changed); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Sets up the `isomux` account so apps agents build keep running without anyone logged in and start again after a reboot.
-- Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy's admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.
+- Serves your domain through Caddy with an automatic Let's Encrypt certificate. Caddy keeps a size-bounded request log for 14 days and redacts invite and app sign-in credentials from URLs. Its admin API is turned off, since anything on the box could otherwise reconfigure the proxy without a credential - so apply Caddyfile edits with `systemctl restart caddy`, not `reload`.
 - Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth; unattended security updates (a standard Ubuntu feature - it patches system packages, never isomux itself).
 - Checks that the `isomux` account cannot log in as root, and stops the install if it can. See [root access](#root-access).
 - Sets up out-of-memory protection so a busy office can't lock the box up. See [running out of memory](#running-out-of-memory).
@@ -71,6 +73,8 @@ sudo isomux-harden-ssh
 ```
 
 That command applies the SSH hardening and re-runs the check. It is a snapshot of the moment it runs - giving root a new key later reopens the hole - so run it again whenever root's key list changes.
+
+Run `sudo isomux-verify-hardening --check` to check both the current firewall and SSH boundary without changing either. Each Isomux update runs the same read-only check on an installer-managed VPS and prints a warning when it no longer holds.
 
 ## Running out of memory
 
@@ -118,7 +122,7 @@ Either way, it installs any system dependencies the new release needs, rebuilds 
 
 ## App hostnames
 
-Each app an agent registers can get its own address, like `hello.office.example.com`, open from any device and behind the same sign-in as the office. A fresh install sets up the proxy side. When you create the office A record, also create a wildcard A record, `*.office.example.com`, pointing at the same server. Creating both together avoids a cached missing-name answer delaying the app check. On an office installed before this release, also re-run the installer once to add the site block (or add it to `/etc/caddy/Caddyfile` yourself); `isomux-update` never rewrites that file.
+Each app an agent registers can get its own address, like `hello.office.example.com`, open from any device and behind the same sign-in as the office. A fresh install sets up the proxy side. When you create the office A record, also create a wildcard A record, `*.office.example.com`, pointing at the same server. Creating both together avoids a cached missing-name answer delaying the app check. On an office installed before this release, also re-run the installer once to add the site block (or add it to `/etc/caddy/Caddyfile` yourself). An update replaces only a byte-exact older installer rendering, and only to add its access log.
 
 Certificates are obtained per app the first time it is opened. Two things follow:
 

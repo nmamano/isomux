@@ -10,6 +10,7 @@ import { describe, it, expect } from "bun:test";
 import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { createHash } from "crypto";
 import { EMBEDDED, embed } from "../scripts/embed-deploy-scripts.ts";
 import { AGENT_OOM_SCORE_ADJ } from "../server/oom-stamp.ts";
 import { TLS_ASK_PATH } from "../server/tls-ask.ts";
@@ -269,9 +270,9 @@ describe("install.sh escalation: template unit + placement", () => {
 
   it("deps-only mode installs dependencies and nothing else", () => {
     // scripts/update.sh runs the target release's installer with
-    // ISOMUX_DEPS_ONLY=1 on a LIVE box, so this mode must stay narrow: box
-    // policy (firewall, SSH, unattended upgrades), the runtime (bun), and
-    // everything that decides the box's identity stay out of it.
+    // ISOMUX_DEPS_ONLY=1 runs on a LIVE box. It may refresh and run a read-only
+    // hardening verifier, but box-policy mutation (firewall, SSH, unattended
+    // upgrades), the runtime (bun), and identity changes stay out of it.
     const fn = SRC.slice(
       SRC.indexOf("deps_only() {"),
       SRC.lastIndexOf("\nmain() {"),
@@ -282,6 +283,13 @@ describe("install.sh escalation: template unit + placement", () => {
     // A release can newly require a working codex sandbox, and the step is a
     // no-op on a box that already has one.
     expect(fn).toContain("configure_codex_sandbox");
+    expect(fn).toContain("install_hardening_verifier");
+    expect(fn).toContain('"$VERIFY_HARDENING_TOOL" --check');
+    expect(fn).toContain("migrate_caddy_access_log");
+    expect(fn).toContain("write_loopback_bind_if_proxied");
+    expect(fn.indexOf("restore_caddy_state")).toBeLessThan(
+      fn.indexOf("write_loopback_bind_if_proxied"),
+    );
     // Calls only: the comments name steps they explain.
     const calls = fn
       .split("\n")
@@ -430,22 +438,28 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
 function renderCaddyfile(
   domain: string,
   kind: "hosted" | "self-hosted" = "self-hosted",
+  accessLog = true,
 ): string {
-  const configure = SRC.indexOf("configure_caddy() {");
-  const first = SRC.indexOf('cat > "$rendered" <<EOF\n', configure);
+  const renderer = SRC.indexOf(
+    accessLog
+      ? "render_caddyfile() {"
+      : "render_caddyfile_without_access_log() {",
+  );
+  const first = SRC.indexOf('cat >"$output" <<EOF\n', renderer);
   const from =
     kind === "hosted"
       ? first
-      : SRC.indexOf('cat > "$rendered" <<EOF\n', first + 1);
-  const open = 'cat > "$rendered" <<EOF\n';
+      : SRC.indexOf('cat >"$output" <<EOF\n', first + 1);
+  const open = 'cat >"$output" <<EOF\n';
   expect(from).toBeGreaterThan(-1);
   const body = SRC.slice(from + open.length, SRC.indexOf("\nEOF\n", from) + 1);
   expect(new Set(body.match(/\$[A-Za-z_]+/g))).toEqual(
-    new Set(["$CADDY_MARKER", "$DOMAIN"]),
+    new Set(["$CADDY_MARKER", "$domain"]),
   );
   return body
     .replaceAll("$CADDY_MARKER", CADDY_MARKER)
-    .replaceAll("$DOMAIN", domain);
+    .replaceAll("$domain", domain)
+    .replaceAll("\\${", "${");
 }
 
 const CADDY_MARKER = "# Managed by the isomux installer";
@@ -460,6 +474,64 @@ function block(rendered: string, header: string): string {
 }
 
 describe("install.sh: the managed Caddyfile", () => {
+  it("pins both pre-log renderings used as the migration ownership proof", () => {
+    const sha = (text: string) =>
+      createHash("sha256").update(text).digest("hex");
+    expect(sha(renderCaddyfile("office.example", "hosted", false))).toBe(
+      "09f4544624d0412cc03dfbfdd44b20bce34529761792a6823b29cb24c9ff85d4",
+    );
+    expect(sha(renderCaddyfile("office.example", "self-hosted", false))).toBe(
+      "fa001a042800a0805c71dc3a70933b6b4915615f85b98b5d5ca0ecbac7332fa0",
+    );
+  });
+
+  it("keeps bounded 14-day logs and redacts both URL credential forms", () => {
+    for (const kind of ["hosted", "self-hosted"] as const) {
+      const rendered = renderCaddyfile("office.example", kind);
+      for (const header of ["office.example", "*.office.example"]) {
+        const site = block(rendered, header);
+        expect(site).toContain("roll_size 10MiB");
+        expect(site).toContain("roll_interval 24h");
+        expect(site).toContain("roll_keep 14");
+        expect(site).toContain("roll_keep_for 312h");
+        expect(site).not.toContain("log_credentials");
+        const filters = site.match(/request>uri regexp[^\n]+/g) ?? [];
+        expect(filters).toHaveLength(1);
+        expect(filters[0]).toContain("(/i/)[^/?#]+");
+        expect(filters[0]).toContain("([?&]code=)[^&#]*");
+
+        const pattern = /(\/i\/)[^/?#]+|([?&]code=)[^&#]*/g;
+        const replacement = "$1$2<redacted>";
+        expect("/i/live-invite?next=/".replace(pattern, replacement)).toBe(
+          "/i/<redacted>?next=/",
+        );
+        expect(
+          "/__isomux/auth?code=live-code&return=%2F".replace(
+            pattern,
+            replacement,
+          ),
+        ).toBe("/__isomux/auth?code=<redacted>&return=%2F");
+      }
+    }
+  });
+
+  it("writes networkBind only after Caddy succeeds", () => {
+    const main = SRC.slice(SRC.lastIndexOf("\nmain() {"));
+    expect(main.indexOf("  configure_caddy\n")).toBeGreaterThan(-1);
+    expect(main.indexOf("  write_loopback_bind_if_proxied\n")).toBeGreaterThan(
+      main.indexOf("  configure_caddy\n"),
+    );
+    const writer = SRC.slice(
+      SRC.indexOf("write_loopback_bind_if_proxied() {"),
+      SRC.indexOf("\nconfigure_caddy() {"),
+    );
+    expect(writer).toContain("systemctl is-active --quiet caddy");
+    expect(writer).toContain("reverse_proxy");
+    expect(writer).toContain('has("networkBind")');
+    expect(writer).toContain("run_as_service_user");
+    expect(writer).toContain("chmod --reference");
+  });
+
   it("reports box-side certificate failure and recovery with its one-office credential", () => {
     const helper = SRC.slice(
       SRC.indexOf("install_hosted_tls_renewal() {"),
@@ -482,27 +554,18 @@ describe("install.sh: the managed Caddyfile", () => {
     // agents run on this box, and an SSRF bug in anything they build reaches it.
     // Not the usual "up to the next \n}\n": the Caddyfile heredoc has its own
     // closing braces at column 0. Slice to the next function instead.
-    const body = SRC.slice(
-      SRC.indexOf("configure_caddy() {"),
-      SRC.indexOf("\nreport() {"),
-    );
-    expect(body).toContain("admin off");
+    const rendered = renderCaddyfile("office.example");
+    expect(rendered).toContain("admin off");
     // Caddy only accepts global options as the FIRST block in the file.
-    expect(body.indexOf("admin off")).toBeLessThan(body.indexOf("$DOMAIN {"));
+    expect(rendered.indexOf("admin off")).toBeLessThan(
+      rendered.indexOf("office.example {"),
+    );
     // Still the same office it proxies to.
-    expect(body).toContain("reverse_proxy 127.0.0.1:4000");
+    expect(rendered).toContain("reverse_proxy 127.0.0.1:4000");
   });
 
   it("uses one explicit hosted wildcard certificate and a request-time gate", () => {
-    const caddy = SRC.indexOf("configure_caddy() {");
-    const hostedBranch = SRC.indexOf(
-      "if [[ -f /etc/isomux/renewal/enrollment.json ]]",
-      caddy,
-    );
-    const hosted = SRC.slice(
-      hostedBranch,
-      SRC.indexOf("\n  else", hostedBranch),
-    );
+    const hosted = renderCaddyfile("office.example", "hosted");
     expect(hosted).toContain(
       "tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem",
     );

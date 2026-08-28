@@ -116,8 +116,13 @@ updater copy the same way.
    target needs by
    running THAT release's `deploy/install.sh` with `ISOMUX_DEPS_ONLY=1`
    (packages, the browser, the codex sandbox, and the user-manager setup
-   agents' apps run on - not the firewall, SSH hardening, unattended upgrades,
-   bun, or anything that decides the box's identity). A checkout-only updater
+   agents' apps run on - not firewall or SSH mutation, unattended upgrades,
+   bun, or anything that decides the box's identity). It refreshes and runs a
+   read-only hardening verifier on installer-managed VPSes; a failure prints a
+   warning but does not stop the update. The target installer emits that warning
+   on the first carrying release. The newly installed updater retains it in the
+   final status file from the following update onward; nothing in the office UI
+   reads that root-owned file. A checkout-only updater
    cannot deliver a dependency a release
    starts requiring: boxes installed before the Node.js step kept a dead
    terminal panel through every update. The release's own installer is the
@@ -156,6 +161,13 @@ updater copy the same way.
    unverifiable office `install_packages` stops and masks the proxy with no
    `configure_caddy` to follow, and on a verified one apt is free to upgrade
    Caddy and start a proxy the operator had deliberately turned off.
+
+   At the end of the target release's dependency-only installer, after it
+   restores Caddy, the installer records
+   `networkBind: "loopback"` only when the key is absent and the active Caddy
+   config currently proxies to `127.0.0.1:4000`. The write preserves the state
+   file's owner, group and mode. A stopped proxy or an explicit `auto`,
+   `loopback` or `all` value is left alone.
 
    Installed packages are additive and are NOT undone by a later rollback; a
    failed dependency step can leave host packages partly changed.

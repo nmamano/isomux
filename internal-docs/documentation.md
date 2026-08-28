@@ -70,6 +70,7 @@ Keep these consistent across all surfaces below.
   - `features.md` - canonical long-form feature inventory. Built as the docs **landing page** at `/docs` (not `/docs/features`).
   - `self-hosted.md` - three-part always-on-server walkthrough: keep it running (systemd), make it reachable (VPN vs public URL), authorize users (links to access-and-invites). Its first section carries the operational backup details.
   - `vps-install.md` - unattended VPS setup (`deploy/install.sh`): fresh Ubuntu 24.04 → HTTPS-served office + owner invite link. Keep the parameter table in sync with the script's env vars.
+  - `deployments.md` - boundary matrix for every supported deployment shape: reachability, app addresses, firewall ownership, request logging, and exclusions.
   - `access-and-invites.md` - canonical reachability/auth deep dive: invite-link flow, Tailscale Funnel agent prompt, Caddy, `ISOMUX_PUBLIC_ORIGIN`, cookie semantics. The Funnel prompt lives here, nowhere else.
   - `how-it-works.md` - short multi-provider technical overview (Bun process, Claude SDK + Codex app-server, WebSocket sync, persistence).
   - `security-audit.md` - authorization-system threat model and findings.

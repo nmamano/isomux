@@ -126,6 +126,9 @@ die() { echo "DIE: $*"; case "$*" in *caddy*) exit 1 ;; esac; }
 install_packages() { echo "install_packages"; ${apt}; ${opts.packagesFail ? "report_failure; exit 1" : "true"}; }
 install_browser() { echo "install_browser"; }
 configure_codex_sandbox() { echo "configure_codex_sandbox"; }
+configure_user_manager() { echo "configure_user_manager"; }
+migrate_caddy_access_log() { echo "migrate_caddy_access_log"; }
+write_loopback_bind_if_proxied() { echo "write_loopback_bind_if_proxied"; }
 deps_only
 `;
   const res = spawnSync("bash", ["-c", script], {

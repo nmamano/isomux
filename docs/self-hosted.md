@@ -6,6 +6,8 @@ There are three pieces to set up: keep the server **running** when nobody is log
 
 Renting a cloud VPS instead of using your own hardware? The [VPS install](vps-install.md) page has an unattended installer that covers all three.
 
+The [deployment shapes](deployments.md) page states which setups get an installer-managed firewall check, request log, and app addresses.
+
 ## 1. Keep it running
 
 Drop this prompt into one of your Isomux agents to get a systemd user service that auto-restarts and survives logout:

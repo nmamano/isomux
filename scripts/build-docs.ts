@@ -63,6 +63,7 @@ const NAV_ORDER = [
   "features",
   "self-hosted",
   "vps-install",
+  "deployments",
   "how-it-works",
   "access-and-invites",
   "security-audit",

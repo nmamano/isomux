@@ -656,10 +656,8 @@ describe("update.sh failure ladders", () => {
   });
 });
 
-// Slice 7. Enabling app hostnames on an office that already exists is an
-// operator's decision - it needs a wildcard DNS record they have to add
-// anyway - so the updater must never quietly rewrite the terminator's config
-// underneath them. The installer owns that file; the updater does not touch it.
+// Network convergence lives in the target release's deps-only installer. The
+// installed updater still has no path to the terminator's config.
 describe("update.sh leaves the terminator's config alone", () => {
   const SRC = readFileSync(new URL("./update.sh", import.meta.url), "utf8");
 

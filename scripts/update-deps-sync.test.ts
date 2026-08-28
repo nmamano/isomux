@@ -40,6 +40,7 @@ function buildToolsDir(dir: string) {
     "chmod",
     "git",
     "grep",
+    "cat",
     "rm",
     "bash",
     "env",
@@ -73,7 +74,9 @@ function buildTrustRepo(name: string, installer: string | null): string {
 // and the environment it was handed, then succeeds or fails.
 // The log path is baked in rather than read from the environment: the updater
 // runs the installer with `env -i`, so nothing the caller exports reaches it.
-function fakeInstaller(opts: { fails?: boolean } = {}): string {
+function fakeInstaller(
+  opts: { fails?: boolean; warning?: string } = {},
+): string {
   return `#!/usr/bin/env bash
 ISOMUX_INSTALL_DEPS_MODE_VERSION=1
 {
@@ -81,6 +84,7 @@ ISOMUX_INSTALL_DEPS_MODE_VERSION=1
   printf 'DRY_RUN=%s\\n' "\${DRY_RUN:-unset}"
   printf 'INSTALL_CALLBACK_URL=%s\\n' "\${INSTALL_CALLBACK_URL:-unset}"
 } > "${runLogPath()}"
+${opts.warning ? `echo 'ISOMUX_UPDATE_WARNING=${opts.warning}'` : ""}
 ${opts.fails ? 'echo "deps broken" >&2; exit 1' : "exit 0"}
 `;
 }
@@ -109,9 +113,12 @@ function syncDeps(opts: {
     .trim();
   const script = `
 eval "$(sed -n '/^sync_system_deps()/,/^}/p' "$UPDATE_SH")"
+eval "$(sed -n '/^add_deps_warning()/,/^}/p' "$UPDATE_SH")"
 log() { echo "LOG: $*"; }
+DEPS_WARNING=""
 sync_system_deps "${commit}"
 echo "rc=$?"
+echo "DEPS_WARNING=$DEPS_WARNING"
 `;
   const res = spawnSync("bash", ["-c", script], {
     env: {
@@ -164,11 +171,21 @@ describe("update.sh system-dependency sync", () => {
     expect(r.ran).toContain("INSTALL_CALLBACK_URL=unset");
   });
 
-  it("propagates a dependency failure to the caller", () => {
+  it("preserves a dependency failure through output capture", () => {
     const repo = buildTrustRepo("trust-fail", fakeInstaller({ fails: true }));
     const r = syncDeps({ trustRepo: repo });
     expect(r.ran).toContain("ISOMUX_DEPS_ONLY=1");
     expect(r.out).toContain("rc=1");
+  });
+
+  it("retains an installer warning for the final update status", () => {
+    const repo = buildTrustRepo(
+      "trust-warning",
+      fakeInstaller({ warning: "hardening verification failed" }),
+    );
+    const r = syncDeps({ trustRepo: repo });
+    expect(r.out).toContain("DEPS_WARNING=hardening verification failed");
+    expect(r.out).toContain("rc=0");
   });
 
   it("skips on a user-kind box, which has no root", () => {

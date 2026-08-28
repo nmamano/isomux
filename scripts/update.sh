@@ -80,6 +80,15 @@ SNAPSHOT_KEEP=3
 BROKEN_KEEP=1
 DEPS_WARNING=""
 
+add_deps_warning() {
+  local warning=$1
+  if [[ -n $DEPS_WARNING ]]; then
+    DEPS_WARNING+="; $warning"
+  else
+    DEPS_WARNING=$warning
+  fi
+}
+
 # --- Status file ------------------------------------------------------------
 
 # JSON without jq: every value is either a fixed identifier or sanitized to a
@@ -224,7 +233,7 @@ sync_system_deps() {
     # update still succeeds, but the success is qualified: the warning is
     # carried into the final status.json so it stays visible, not a log line
     # that scrolls away.
-    DEPS_WARNING="system dependencies were not synced (no apt-get on this box); if $TARGET_TAG needs new system packages, install them yourself"
+    add_deps_warning "system dependencies were not synced (no apt-get on this box); if $TARGET_TAG needs new system packages, install them yourself"
     log "warning: $DEPS_WARNING"
     return 0
   fi
@@ -252,8 +261,16 @@ sync_system_deps() {
   # and an inherited INSTALL_CALLBACK_URL would post about an install nobody
   # ran. Constants rather than "$PATH"/"$HOME": this runs as root, so nothing
   # caller-controlled should reach it at all.
+  local output warning
+  output=$(mktemp /tmp/isomux-deps-output.XXXXXXXXXX)
   env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-    HOME=/root ISOMUX_DEPS_ONLY=1 /bin/bash "$installer" || rc=$?
+    HOME=/root ISOMUX_DEPS_ONLY=1 /bin/bash "$installer" >"$output" 2>&1 || rc=$?
+  grep -v 'ISOMUX_UPDATE_WARNING=' "$output" || true
+  while IFS= read -r warning; do
+    warning=${warning#*ISOMUX_UPDATE_WARNING=}
+    add_deps_warning "$warning"
+  done < <(grep 'ISOMUX_UPDATE_WARNING=' "$output" || true)
+  rm -f "$output"
   rm -f "$installer"
   return "$rc"
 }

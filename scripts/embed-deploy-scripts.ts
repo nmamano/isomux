@@ -17,6 +17,10 @@ const INSTALL_SH = `${ROOT}deploy/install.sh`;
 
 export const EMBEDDED = [
   { path: "deploy/harden-ssh.sh", delimiter: "ISOMUX_HARDEN_SSH_SH" },
+  {
+    path: "deploy/verify-hardening.sh",
+    delimiter: "ISOMUX_VERIFY_HARDENING_SH",
+  },
   { path: "deploy/oom-protect.sh", delimiter: "ISOMUX_OOM_PROTECT_SH" },
   // Not a script: the AppArmor profile the installer falls back to when the
   // box has no apparmor-profiles package to copy it from. Same reason it is

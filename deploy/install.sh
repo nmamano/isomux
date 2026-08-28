@@ -89,6 +89,7 @@ SERVICE_HOME=/home/isomux
 STATE_DIR=/var/lib/isomux-install
 UPDATER_PATH=/usr/local/sbin/isomux-update
 HARDEN_TOOL=/usr/local/sbin/isomux-harden-ssh
+VERIFY_HARDENING_TOOL=/usr/local/sbin/isomux-verify-hardening
 OOM_TOOL=/usr/local/sbin/isomux-oom-protect
 UPDATE_CONF=/etc/isomux/update.conf
 UPDATE_STATE_DIR=/var/lib/isomux-update
@@ -113,6 +114,8 @@ HEALTH_TIMEOUT_S=180
 USER_MANAGER_DROPIN=/etc/systemd/system/isomux.service.d/10-user-manager.conf
 USER_MANAGER_TIMEOUT_S=15
 CADDY_MARKER="# Managed by the isomux installer"
+CADDY_DIR=/etc/caddy
+CADDYFILE=$CADDY_DIR/Caddyfile
 # Where dpkg keeps package config files. A constant because apt_install scans
 # it to report the operator's files it kept, and the tests point that scan at a
 # temp tree instead.
@@ -560,8 +563,114 @@ caddy_serving_claimed_office() {
     "$SERVICE_HOME/.isomux/users.json" >/dev/null 2>&1
 }
 
+install_hardening_verifier() {
+  write_file "$VERIFY_HARDENING_TOOL" 755 <<'ISOMUX_VERIFY_HARDENING_SH'
+#!/usr/bin/env bash
+# isomux-verify-hardening - read-only checks for an isomux VPS.
+#
+# The installer runs this after it configures the firewall. The updater runs it
+# only on a box whose Caddyfile still carries the installer marker. Operators
+# can also run it after a migration or a manual repair:
+#
+#   sudo isomux-verify-hardening --check
+#
+# This file is embedded verbatim in deploy/install.sh. Edit this file, then run
+# `bun run scripts/embed-deploy-scripts.ts` to update the embedded copy.
+
+set -Eeuo pipefail
+
+HARDEN_TOOL=${HARDEN_TOOL:-/usr/local/sbin/isomux-harden-ssh}
+TAG=isomux-verify-hardening
+
+log() { printf '[%s] %s\n' "$TAG" "$*"; }
+
+usage() {
+  cat <<'EOF'
+Usage: isomux-verify-hardening --check
+
+Checks the active firewall against the ports the installer expects, then runs
+the SSH privilege check. It changes nothing.
+
+Exit status: 0 passed, 1 failed, 2 could not tell, 10 no ufw installation.
+EOF
+}
+
+firewall_check() {
+  if ! command -v ufw >/dev/null; then
+    return 10
+  fi
+
+  local status ports port shortfall=""
+  if ! status=$(LC_ALL=C ufw status verbose 2>/dev/null) || [[ -z $status ]]; then
+    log "FIREWALL CHECK INCOMPLETE - ufw did not report its status"
+    return 2
+  fi
+  grep -q '^Status: active$' <<<"$status" || shortfall+="; ufw is not active"
+  grep -Eq '^Default: deny \(incoming\), allow \(outgoing\)' <<<"$status" ||
+    shortfall+="; defaults are not deny incoming and allow outgoing"
+
+  ports=$'80\n443'
+  if command -v sshd >/dev/null; then
+    local ssh_ports
+    ssh_ports=$(sshd -T 2>/dev/null | awk '$1 == "port" { print $2 }') || true
+    if [[ -z $ssh_ports ]]; then
+      shortfall+="; sshd would not report its listening port"
+    else
+      ports+=$'\n'"$ssh_ports"
+    fi
+  fi
+
+  while IFS= read -r port; do
+    [[ -n $port ]] || continue
+    if ! awk -v target="$port" '
+      $1 == target || $1 == target "/tcp" {
+        for (i = 2; i <= NF; i++) if ($i == "ALLOW" || $i == "ALLOW-IN") found = 1
+      }
+      END { exit found ? 0 : 1 }
+    ' <<<"$status"; then
+      shortfall+="; TCP port $port is not allowed"
+    fi
+  done <<<"$(printf '%s\n' "$ports" | awk '!seen[$0]++')"
+
+  if [[ -n $shortfall ]]; then
+    log "FIREWALL CHECK FAILED - ${shortfall#; }"
+    return 1
+  fi
+  log "firewall check passed"
+}
+
+main() {
+  [[ (${1:-} == --check || ${1:-} == --check-firewall) && $# -eq 1 ]] || {
+    usage
+    exit 3
+  }
+
+  local firewall_rc=0 ssh_rc=0
+  firewall_check || firewall_rc=$?
+  ((firewall_rc == 10)) && exit 10
+  if [[ $1 == --check-firewall ]]; then
+    exit "$firewall_rc"
+  fi
+
+  if [[ ! -x $HARDEN_TOOL ]]; then
+    log "HARDENING CHECK INCOMPLETE - $HARDEN_TOOL is not installed"
+    ssh_rc=2
+  else
+    "$HARDEN_TOOL" --check || ssh_rc=$?
+  fi
+
+  ((firewall_rc == 0 && ssh_rc == 0)) && exit 0
+  ((firewall_rc == 2 || ssh_rc == 2 || ssh_rc == 3)) && exit 2
+  exit 1
+}
+
+main "$@"
+ISOMUX_VERIFY_HARDENING_SH
+}
+
 configure_firewall() {
   step configure-firewall
+  install_hardening_verifier
   run ufw default deny incoming
   run ufw default allow outgoing
   run ufw allow 80/tcp
@@ -572,10 +681,12 @@ configure_firewall() {
     log "SSH_PORT=none: not opening an SSH port"
   fi
   run ufw --force enable
-  # The deny-default firewall must really be active before the later restart
-  # binds isomux on 0.0.0.0:4000, so verify instead of trusting the exit code.
+  # The deny-default firewall must really be active before the later restart,
+  # so verify its effective policy and live SSH port instead of trusting the
+  # commands above.
   if [[ -z $DRY_RUN ]]; then
-    LC_ALL=C ufw status | grep -q '^Status: active' || die "ufw did not report active after enable"
+    "$VERIFY_HARDENING_TOOL" --check-firewall ||
+      die "the firewall check failed after configuration (see above)"
   fi
 }
 
@@ -3358,6 +3469,183 @@ assert_caddy_file() {
   [[ $(stat -c '%U:%G:%a' "$(dirname "$file")") == root:caddy:750 ]]
 }
 
+write_loopback_bind_if_proxied() {
+  local config=$SERVICE_HOME/.isomux/office-config.json
+  [[ -z $DRY_RUN ]] || {
+    log "DRY-RUN: would set networkBind=loopback only if caddy is active and proxies to $BASE_URL"
+    return 0
+  }
+  systemctl is-active --quiet caddy || return 0
+  grep -Eq '^[[:space:]]*reverse_proxy[[:space:]]+127\.0\.0\.1:4000([[:space:]]|$)' \
+    "$CADDYFILE" || return 0
+  if ! run_as_service_user env "CONFIG=$config" bash -c '
+    set -Eeuo pipefail
+    dir=$(dirname "$CONFIG")
+    mkdir -p "$dir"
+    if [[ -f $CONFIG ]]; then
+      jq -e '\''type == "object"'\'' "$CONFIG" >/dev/null
+      jq -e '\''has("networkBind")'\'' "$CONFIG" >/dev/null && exit 0
+    fi
+    tmp=$(mktemp "$dir/.office-config.network-bind.XXXXXXXXXX")
+    trap '\''rm -f "$tmp"'\'' EXIT
+    if [[ -f $CONFIG ]]; then
+      jq '\''. + {networkBind: "loopback"}'\'' "$CONFIG" >"$tmp"
+      chmod --reference="$CONFIG" "$tmp"
+    else
+      jq -n '\''{networkBind: "loopback"}'\'' >"$tmp"
+      chmod 644 "$tmp"
+    fi
+    mv -f "$tmp" "$CONFIG"
+    trap - EXIT
+  '; then
+    log "warning: $config could not be merged as $SERVICE_USER; networkBind was not changed"
+  fi
+}
+
+render_caddyfile_without_access_log() {
+  local kind=$1 output=$2 domain=$3
+  if [[ $kind == hosted ]]; then
+    cat >"$output" <<EOF
+$CADDY_MARKER
+{
+	admin off
+}
+
+$domain {
+	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
+	respond /__isomux/tls-ask 404
+	reverse_proxy 127.0.0.1:4000
+}
+
+*.$domain {
+	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
+	forward_auth 127.0.0.1:4000 {
+		uri /__isomux/tls-ask?domain={http.request.host}
+	}
+	reverse_proxy 127.0.0.1:4000
+}
+EOF
+  else
+    cat >"$output" <<EOF
+$CADDY_MARKER
+{
+	admin off
+	on_demand_tls {
+		ask http://127.0.0.1:4000/__isomux/tls-ask
+	}
+}
+
+$domain {
+	respond /__isomux/tls-ask 404
+	reverse_proxy 127.0.0.1:4000
+}
+
+*.$domain {
+	tls {
+		on_demand
+	}
+	reverse_proxy 127.0.0.1:4000
+}
+EOF
+  fi
+}
+
+render_caddyfile() {
+  local kind=$1 output=$2 domain=$3
+  if [[ $kind == hosted ]]; then
+    cat >"$output" <<EOF
+$CADDY_MARKER
+{
+	admin off
+}
+
+$domain {
+	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
+	log {
+		output file /var/log/caddy/isomux-office-access.log {
+			mode 0600
+			roll_size 10MiB
+			roll_interval 24h
+			roll_keep 14
+			roll_keep_for 312h
+		}
+		format filter {
+			request>uri regexp "(/i/)[^/?#]+|([?&]code=)[^&#]*" "\${1}\${2}<redacted>"
+		}
+	}
+	respond /__isomux/tls-ask 404
+	reverse_proxy 127.0.0.1:4000
+}
+
+*.$domain {
+	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
+	log {
+		output file /var/log/caddy/isomux-app-access.log {
+			mode 0600
+			roll_size 10MiB
+			roll_interval 24h
+			roll_keep 14
+			roll_keep_for 312h
+		}
+		format filter {
+			request>uri regexp "(/i/)[^/?#]+|([?&]code=)[^&#]*" "\${1}\${2}<redacted>"
+		}
+	}
+	forward_auth 127.0.0.1:4000 {
+		uri /__isomux/tls-ask?domain={http.request.host}
+	}
+	reverse_proxy 127.0.0.1:4000
+}
+EOF
+  else
+    cat >"$output" <<EOF
+$CADDY_MARKER
+{
+	admin off
+	on_demand_tls {
+		ask http://127.0.0.1:4000/__isomux/tls-ask
+	}
+}
+
+$domain {
+	log {
+		output file /var/log/caddy/isomux-office-access.log {
+			mode 0600
+			roll_size 10MiB
+			roll_interval 24h
+			roll_keep 14
+			roll_keep_for 312h
+		}
+		format filter {
+			request>uri regexp "(/i/)[^/?#]+|([?&]code=)[^&#]*" "\${1}\${2}<redacted>"
+		}
+	}
+	respond /__isomux/tls-ask 404
+	reverse_proxy 127.0.0.1:4000
+}
+
+*.$domain {
+	log {
+		output file /var/log/caddy/isomux-app-access.log {
+			mode 0600
+			roll_size 10MiB
+			roll_interval 24h
+			roll_keep 14
+			roll_keep_for 312h
+		}
+		format filter {
+			request>uri regexp "(/i/)[^/?#]+|([?&]code=)[^&#]*" "\${1}\${2}<redacted>"
+		}
+	}
+	tls {
+		on_demand
+	}
+	reverse_proxy 127.0.0.1:4000
+}
+EOF
+  fi
+}
+
 configure_caddy() {
   step configure-caddy
   # `admin off` turns off Caddy's admin API, which otherwise listens on
@@ -3393,61 +3681,75 @@ configure_caddy() {
   # office which apps exist. Only on the office's own site - an app host serves
   # its sign-in handshake under the same prefix.
   #
-  # The update path deliberately never rewrites this file: turning app
-  # hostnames on for an office that already exists is an operator's decision
-  # (it needs a DNS record they have to add anyway), so it is a documented
-  # step, not something an update does to them.
+  # Updates replace only an exact byte match for one of the two older managed
+  # renderings, and only to add the access log. They never edit a Caddyfile or
+  # infer ownership from its marker alone.
   install_hosted_tls_renewal
-  local rendered
+  local rendered kind=self-hosted
   rendered=$(mktemp /etc/caddy/.Caddyfile.XXXXXX)
   if [[ -f /etc/isomux/renewal/enrollment.json ]]; then
-    cat > "$rendered" <<EOF
-$CADDY_MARKER
-{
-	admin off
-}
-
-$DOMAIN {
-	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
-	respond /__isomux/tls-ask 404
-	reverse_proxy 127.0.0.1:4000
-}
-
-*.$DOMAIN {
-	tls /etc/isomux/tls/cert.pem /etc/isomux/tls/key.pem
-	forward_auth 127.0.0.1:4000 {
-		uri /__isomux/tls-ask?domain={http.request.host}
-	}
-	reverse_proxy 127.0.0.1:4000
-}
-EOF
-  else
-    cat > "$rendered" <<EOF
-$CADDY_MARKER
-{
-	admin off
-	on_demand_tls {
-		ask http://127.0.0.1:4000/__isomux/tls-ask
-	}
-}
-
-$DOMAIN {
-	respond /__isomux/tls-ask 404
-	reverse_proxy 127.0.0.1:4000
-}
-
-*.$DOMAIN {
-	tls {
-		on_demand
-	}
-	reverse_proxy 127.0.0.1:4000
-}
-EOF
+    kind=hosted
   fi
+  render_caddyfile "$kind" "$rendered" "$DOMAIN"
   chmod 0644 "$rendered"
   run systemctl enable caddy
   install_caddyfile_transaction "$rendered"
 }
+
+migrate_caddy_access_log() (
+  systemctl is-active --quiet caddy || return 0
+  [[ -f $CADDYFILE ]] || return 0
+
+  local domain old_hosted old_self rendered kind=""
+  domain=$(awk '
+    /^[^[:space:]#].*[[:space:]]\{$/ {
+      line=$0
+      sub(/[[:space:]]+\{$/, "", line)
+      if (line != "{" && line !~ /^\*/) { print line; exit }
+    }
+  ' "$CADDYFILE")
+  [[ $domain =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || {
+    grep -qs "$CADDY_MARKER" "$CADDYFILE" || return 0
+    log "warning: the managed Caddyfile's office domain could not be recovered; access logging was not added"
+    log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added; inspect $CADDYFILE"
+    return 0
+  }
+
+  old_hosted=$(mktemp "$CADDY_DIR/.Caddyfile.pre-log-hosted.XXXXXX")
+  old_self=$(mktemp "$CADDY_DIR/.Caddyfile.pre-log-self.XXXXXX")
+  rendered=$(mktemp "$CADDY_DIR/.Caddyfile.access-log.XXXXXX")
+  trap 'rm -f "$old_hosted" "$old_self" "$rendered"' EXIT
+  render_caddyfile_without_access_log hosted "$old_hosted" "$domain"
+  render_caddyfile_without_access_log self-hosted "$old_self" "$domain"
+  if cmp -s "$CADDYFILE" "$old_hosted"; then
+    kind=hosted
+  elif cmp -s "$CADDYFILE" "$old_self"; then
+    kind=self-hosted
+  else
+    grep -qs "$CADDY_MARKER" "$CADDYFILE" || return 0
+    log "warning: the managed Caddyfile differs from both known installer renderings; access logging was not added"
+    log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added because $CADDYFILE has different bytes"
+    return 0
+  fi
+
+  render_caddyfile "$kind" "$rendered" "$domain"
+  chmod 0644 "$rendered"
+  local transaction_rc=0
+  # Run outside a conditional context so the transaction keeps its errexit
+  # guarantee. The caller is optional; the transaction itself is not.
+  set +e
+  (set -Ee; install_caddyfile_transaction "$rendered")
+  transaction_rc=$?
+  set -e
+  if ((transaction_rc != 0)); then
+    if systemctl is-active --quiet caddy; then
+      log "warning: Caddy rejected the access-log migration and its previous configuration was restored"
+      log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added; the previous configuration was restored"
+      return 0
+    fi
+    die "Caddy access logging was not added and Caddy is down; restore $CADDYFILE before continuing"
+  fi
+)
 
 report() {
   step report
@@ -3509,9 +3811,9 @@ report() {
 #     idempotent. The sandbox step only touches AppArmor on a box where
 #     bubblewrap is already broken, so a sync cannot change a working box's
 #     policy.
-#   - NOT the firewall, SSH hardening, or unattended upgrades: that is box
-#     policy the operator may have adjusted since the install, and an update
-#     must not silently reimpose ours.
+#   - NOT firewall or SSH MUTATION, nor unattended upgrades: that is box policy
+#     the operator may have adjusted since install. A read-only verifier is the
+#     narrow exception; it warns when installer-managed policy no longer holds.
 #   - NOT install_bun: a release never switches the runtime under a running
 #     box (release-design.md, "Bun invariant" - the updater warns about a pin
 #     change instead, and its rollback has to run on the installed bun).
@@ -3539,9 +3841,51 @@ deps_only() {
   # the office would be unreachable and the update would carry on regardless.
   restore_caddy_state ||
     die "installed the system dependencies but could not restore caddy to active=${CADDY_PRIOR_ACTIVE:-no} enabled=${CADDY_PRIOR_ENABLED:-no}; the office's public URL may be down. Check: systemctl status caddy"
+  # The marker is the best available signal that the installer established
+  # this public-VPS firewall policy. Verify without changing it. Failure warns
+  # but does not strand later security updates. The stable marker lets the
+  # updater retain the warning in status.json.
+  if grep -qs "$CADDY_MARKER" "$CADDYFILE"; then
+    local verifier_install_rc=0
+    set +e
+    (set -Ee; install_hardening_verifier)
+    verifier_install_rc=$?
+    set -e
+    if ((verifier_install_rc != 0)); then
+      log "warning: could not install $VERIFY_HARDENING_TOOL; hardening was not verified"
+      log "ISOMUX_UPDATE_WARNING=hardening verification could not run because $VERIFY_HARDENING_TOOL was not installed"
+    else
+      local verify_rc=0
+      "$VERIFY_HARDENING_TOOL" --check || verify_rc=$?
+      case $verify_rc in
+        0 | 10) ;;
+        *)
+          log "warning: installer-managed hardening no longer verifies; run sudo $VERIFY_HARDENING_TOOL --check"
+          log "ISOMUX_UPDATE_WARNING=hardening verification failed; run sudo $VERIFY_HARDENING_TOOL --check"
+          ;;
+      esac
+    fi
+  fi
   install_browser
   configure_codex_sandbox
   configure_user_manager
+  local migration_rc=0
+  set +e
+  (set -Ee; migrate_caddy_access_log)
+  migration_rc=$?
+  set -e
+  if ((migration_rc != 0)); then
+    if systemctl is-active --quiet caddy; then
+      log "warning: Caddy access-log migration did not complete; the active front door was left unchanged"
+      log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added; the active front door was left unchanged"
+    else
+      die "Caddy access logging was not added and Caddy is down; restore $CADDYFILE before continuing"
+    fi
+  fi
+  # Caddy has been restored to its pre-update active state by this point. This
+  # target-release writer therefore converges on the first update that carries
+  # it, and the active-unit gate cannot observe apt's transient stop.
+  write_loopback_bind_if_proxied
   step report
   [[ -z $FAILURE_SENTINEL ]] || rm -f "$FAILURE_SENTINEL"
   log "system dependencies are up to date"
@@ -3578,6 +3922,7 @@ main() {
   configure_public_access
   mint_invite
   configure_caddy
+  write_loopback_bind_if_proxied
   report
 }
 
