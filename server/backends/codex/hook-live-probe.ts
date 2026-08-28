@@ -351,7 +351,7 @@ async function waitForTurn(
       outerDeadlineMs,
     );
     const stop = client.onNotification((event) => {
-      events.push(event as Json);
+      events.push(event as unknown as Json);
       const params = event.params as Json | undefined;
       if (params?.threadId !== threadId) return;
       if (event.method === "turn/completed") {
