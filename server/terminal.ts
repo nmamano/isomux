@@ -190,6 +190,13 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
             typeof msg.process === "string" &&
             typeof msg.shell === "boolean"
           ) {
+            // Same identity check as the output branch, and for a sharper
+            // reason: the panel decides whether to send a card's command from
+            // this status, so a stale owner from a replaced sidecar is a
+            // refused click rather than a cosmetic line. Exit is deliberately
+            // NOT guarded here - a stale exit must still reach finalize(),
+            // which makes it a no-op itself.
+            if (managed.ptySidecar !== sidecar) continue;
             deps.emit({
               type: "terminal_status",
               agentId,
