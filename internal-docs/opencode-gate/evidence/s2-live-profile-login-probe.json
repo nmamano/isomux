@@ -1,0 +1,10 @@
+{
+  "date": "2026-08-28",
+  "version": "1.18.23",
+  "profileState": "pinned server running against the same profile",
+  "command": "opencode auth login --provider openai --method 'Manually enter API Key'",
+  "observationWindowMs": 40000,
+  "promptObserved": false,
+  "causeMeasured": false,
+  "sourceTracer": "server/test-support/agent-manager.di.test.ts"
+}

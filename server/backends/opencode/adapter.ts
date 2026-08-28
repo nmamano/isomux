@@ -22,13 +22,30 @@ import type {
   SubscriptionUsageResult,
 } from "../types.ts";
 import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
-import { OpenCodeTransport } from "./transport.ts";
+import { OpenCodeTransport, type SafeOpenCodeError } from "./transport.ts";
 import {
   openCodeSupervisorForEnvironment,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
+import { ensureOpenCodeLoginWrapper, quoteShellWord } from "./login-wrapper.ts";
 
 const AUTH_FAILURE = "OpenCode authentication is not configured.";
+
+function loginInstructions(environmentKey: string | undefined): {
+  text: string;
+  commands: string[];
+} {
+  if (!environmentKey) {
+    throw new Error("OpenCode session environment identity is required.");
+  }
+  const wrapper = ensureOpenCodeLoginWrapper(environmentKey);
+  return {
+    text:
+      `OpenCode needs an OpenAI API key for this shared environment. Review and run ${wrapper}, ` +
+      "complete the masked prompt, and then use /clear. Browser OAuth is not certified.",
+    commands: [quoteShellWord(wrapper)],
+  };
+}
 
 const CAPABILITIES: BackendCapabilities = {
   fork: false,
@@ -57,6 +74,7 @@ export interface OpenCodeBackendOptions {
   supervisor?: OpenCodeSupervisor;
   model?: string;
   contractShapeSink?: (shape: string) => void;
+  safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
 }
 
 class OpenCodeServerSession implements BackendSession {
@@ -71,6 +89,7 @@ class OpenCodeServerSession implements BackendSession {
     supervisor: OpenCodeSupervisor,
     sessionId?: string,
     contractShapeSink?: (shape: string) => void,
+    safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void,
   ) {
     this.transport = new OpenCodeTransport({
       cwd: opts.cwd,
@@ -78,6 +97,7 @@ class OpenCodeServerSession implements BackendSession {
       supervisor,
       sessionId,
       contractShapeSink,
+      safeErrorSink,
     });
   }
 
@@ -283,10 +303,8 @@ export function createOpenCodeTracerBackend(
       return text.includes(AUTH_FAILURE);
     },
 
-    getLoginInstructions(): { text: string } {
-      return {
-        text: "OpenCode is not configured. Login instructions are not available in this slice.",
-      };
+    getLoginInstructions(opts): { text: string; commands: string[] } {
+      return loginInstructions(opts?.environmentKey);
     },
   };
 }
@@ -315,6 +333,7 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
         supervisor,
         undefined,
         options.contractShapeSink,
+        options.safeErrorSink,
       );
     },
     resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
@@ -325,6 +344,7 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
         supervisor,
         sessionId,
         options.contractShapeSink,
+        options.safeErrorSink,
       );
     },
     inspectStoredSession(): StoredSessionState {
@@ -345,8 +365,8 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
     detectAuthError(text: string): boolean {
       return text.includes(AUTH_FAILURE);
     },
-    getLoginInstructions(): { text: string } {
-      return { text: "OpenCode is not configured. Login instructions are not available in this slice." };
+    getLoginInstructions(opts): { text: string; commands: string[] } {
+      return loginInstructions(opts?.environmentKey);
     },
   };
 }

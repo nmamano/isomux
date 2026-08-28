@@ -11,6 +11,7 @@ export interface OpenCodeTransportOptions {
   supervisor?: OpenCodeSupervisor;
   sessionId?: string;
   contractShapeSink?: (shape: string) => void;
+  safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
 }
 
 type EventSink = (event: NormalizedEvent) => void;
@@ -21,6 +22,7 @@ export class OpenCodeTransport {
   private readonly model: string;
   private readonly resumedSessionId?: string;
   private readonly contractShapeSink?: (shape: string) => void;
+  private readonly safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
   private lease: OpenCodeLease | null = null;
   private sessionId: string | null = null;
   private abortController: AbortController | null = null;
@@ -32,6 +34,7 @@ export class OpenCodeTransport {
     this.model = options.model;
     this.resumedSessionId = options.sessionId;
     this.contractShapeSink = options.contractShapeSink;
+    this.safeErrorSink = options.safeErrorSink;
   }
 
   async initialize(sink: EventSink): Promise<string> {
@@ -145,10 +148,24 @@ export class OpenCodeTransport {
             }
             if (event.kind === "error") {
               this.lease?.endTurn();
+              this.safeErrorSink?.(event.error);
+              const auth = await this.isAuthenticationError(event.error);
+              let recoveryError: string | null = null;
+              if (auth) {
+                try {
+                  await this.supervisor.prepareForAuthentication();
+                } catch (error) {
+                  recoveryError = error instanceof Error
+                    ? error.message
+                    : "OpenCode login could not prepare the shared server.";
+                }
+              }
               sink({
                 kind: "turn_completed",
                 status: "failed",
-                error: "OpenCode reported a provider or transport error.",
+                error: recoveryError ?? (auth
+                  ? "OpenCode authentication is not configured."
+                  : "OpenCode reported a provider or transport error."),
               });
               this.abortController?.abort();
               return;
@@ -194,6 +211,21 @@ export class OpenCodeTransport {
     }
     return response;
   }
+
+  private async isAuthenticationError(error: SafeOpenCodeError): Promise<boolean> {
+    if (error.statusCode === 401 || error.statusCode === 403) return true;
+    if (
+      error.name !== "UnknownError" ||
+      !error.message?.startsWith(`Model not found: ${this.model}. Did you mean:`)
+    ) return false;
+    try {
+      const response = await this.request("/provider");
+      const connected = allowConnectedProviders(await response.json());
+      return isAuthenticationError(error, this.model, connected);
+    } catch {
+      return false;
+    }
+  }
 }
 
 function splitModel(model: string): [string, string] {
@@ -215,7 +247,14 @@ type AllowedEvent =
   | { kind: "assistant"; sessionId: string; messageId: string }
   | { kind: "text"; sessionId: string; messageId: string; partId: string; text: string }
   | { kind: "idle"; sessionId: string }
-  | { kind: "error"; sessionId: string };
+  | { kind: "error"; sessionId: string; error: SafeOpenCodeError };
+
+export interface SafeOpenCodeError {
+  name?: string;
+  message?: string;
+  statusCode?: number;
+  isRetryable?: boolean;
+}
 
 export function parseAllowedEvent(data: string): AllowedEvent | null {
   let raw: Record<string, unknown>;
@@ -229,7 +268,9 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
   const sessionId = stringField(properties, "sessionID");
   if (!sessionId) return null;
   if (type === "session.idle") return { kind: "idle", sessionId };
-  if (type === "session.error") return { kind: "error", sessionId };
+  if (type === "session.error") {
+    return { kind: "error", sessionId, error: allowError(properties.error) };
+  }
   if (type === "message.updated") {
     const info = asRecord(properties.info);
     const messageId = stringField(info, "id");
@@ -247,6 +288,38 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
     }
   }
   return null;
+}
+
+function allowError(value: unknown): SafeOpenCodeError {
+  const error = asRecord(value);
+  const data = asRecord(error.data);
+  return {
+    ...(typeof error.name === "string" ? { name: error.name } : {}),
+    ...(typeof data.message === "string" ? { message: data.message } : {}),
+    ...(typeof data.statusCode === "number" ? { statusCode: data.statusCode } : {}),
+    ...(typeof data.isRetryable === "boolean" ? { isRetryable: data.isRetryable } : {}),
+  };
+}
+
+export function isAuthenticationError(
+  error: SafeOpenCodeError,
+  selectedModel: string,
+  connectedProviders: string[],
+): boolean {
+  if (error.statusCode === 401 || error.statusCode === 403) return true;
+  if (error.name !== "UnknownError" || !error.message) return false;
+  const providerID = splitModel(selectedModel)[0];
+  return (
+    error.message.startsWith(`Model not found: ${selectedModel}. Did you mean:`) &&
+    !connectedProviders.includes(providerID)
+  );
+}
+
+function allowConnectedProviders(raw: unknown): string[] {
+  const connected = asRecord(raw).connected;
+  return Array.isArray(connected)
+    ? connected.filter((value): value is string => typeof value === "string")
+    : [];
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

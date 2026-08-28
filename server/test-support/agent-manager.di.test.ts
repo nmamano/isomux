@@ -31,6 +31,9 @@ import {
 import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
+import { openCodeProfilePaths } from "../backends/opencode/login-wrapper.ts";
 import {
   createAgentManager,
   createProductionAgentManager,
@@ -53,6 +56,96 @@ function capture() {
   const events: Parameters<EventHandler>[0][] = [];
   const sink: EventHandler = (e) => events.push(e);
   return { events, sink };
+}
+
+async function runLoginCardThroughPty(
+  command: string,
+  cwd: string,
+  apiKey: string,
+): Promise<void> {
+  const sidecar = Bun.spawn(["/usr/bin/node", join(import.meta.dir, "..", "pty-sidecar.cjs")], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const write = (message: Record<string, unknown>) =>
+    sidecar.stdin.write(`${JSON.stringify(message)}\n`);
+  await write({
+    type: "spawn",
+    shell: "/bin/bash",
+    cols: 80,
+    rows: 24,
+    cwd,
+    env: {
+      PATH: process.env.PATH,
+      HOME: join(cwd, "global-home"),
+      XDG_DATA_HOME: join(cwd, "global-data"),
+      OPENCODE_CONFIG_CONTENT: "S2_AMBIENT_CONFIG_CANARY",
+      TERM: "xterm-256color",
+      SHELL: "/bin/bash",
+      LANG: "C.UTF-8",
+    },
+  });
+  await Bun.sleep(500);
+  await write({ type: "input", data: `${command}\r` });
+  const reader = sidecar.stdout.getReader();
+  const decoder = new TextDecoder();
+  let output = "";
+  let partial = "";
+  let keySent = false;
+  let doneAt: number | null = null;
+  let exited = false;
+  let pendingRead = reader.read();
+  const deadline = Date.now() + 60_000;
+  while (!exited && Date.now() < deadline) {
+    const next = await Promise.race([
+      pendingRead.then((result) => ({ kind: "read" as const, result })),
+      Bun.sleep(100).then(() => ({ kind: "tick" as const })),
+    ]);
+    if (next.kind === "read") {
+      pendingRead = reader.read();
+      if (next.result.done) exited = true;
+      if (!next.result.value) continue;
+      partial += decoder.decode(next.result.value, { stream: true });
+      const lines = partial.split("\n");
+      partial = lines.pop() ?? "";
+      for (const line of lines) {
+        if (!line) continue;
+        const message = JSON.parse(line) as {
+          type?: string;
+          data?: string;
+        };
+        if (message.type === "output") output += message.data ?? "";
+        if (message.type === "exit") exited = true;
+      }
+    }
+    if (!keySent && output.includes("Enter your API key")) {
+      keySent = true;
+      await write({ type: "input", data: apiKey });
+      await Bun.sleep(250);
+      await write({ type: "input", data: "\r" });
+    }
+    if (keySent && doneAt === null && output.includes("Done")) {
+      doneAt = Date.now();
+    }
+    if (doneAt !== null && Date.now() - doneAt >= 1000) {
+      await write({ type: "kill" });
+      await sidecar.exited;
+      exited = true;
+    }
+  }
+  if (!exited) {
+    await write({ type: "input", data: "\u0003" });
+    await Bun.sleep(250);
+    await write({ type: "kill" });
+    throw new Error(
+      `Timed out driving the OpenCode login card through pty-sidecar. Output: ${output.slice(-1000)}`,
+    );
+  }
+  expect(output).toContain("Enter your API key");
+  expect(output).toContain("Done");
+  expect(output).not.toContain(apiKey);
+  await sidecar.exited;
 }
 
 // Spy resolver: records the agentTypes asked for and returns the FakeBackend.
@@ -415,7 +508,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).toBe(true);
   });
 
-  it("surfaces OpenCode missing auth as text without a terminal card", async () => {
+  it("surfaces OpenCode missing auth with one profile-scoped terminal card", async () => {
     const backend = createOpenCodeTracerBackend({ failAuth: true });
     const mgr = createAgentManager({
       resolveBackend: () => backend,
@@ -444,20 +537,151 @@ describe("AgentManager DI (temp-state isolated)", () => {
     while (
       !mgr
         .getAgentLogs(info!.id)
-        .some((entry) => entry.content.includes("Login instructions")) &&
+        .some((entry) => entry.kind === "terminal-command") &&
       Date.now() < deadline
     ) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const logs = mgr.getAgentLogs(info!.id);
-    expect(
-      logs.some((entry) =>
-        entry.content.includes("Login instructions are not available"),
-      ),
-    ).toBe(true);
-    expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(false);
+    expect(logs.some((entry) => entry.content.includes("shared environment"))).toBe(true);
+    const cards = logs.filter((entry) => entry.kind === "terminal-command");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].terminal?.command).toContain("opencode-login-");
     expect(await mgr.demoteToLazy(info!.id)).toBe(true);
   });
+
+  it("recovers through the exact login card, pty-sidecar, and /clear", async () => {
+    const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
+    const requestPaths: string[] = [];
+    const safeErrors: Array<Record<string, unknown>> = [];
+    const mock = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        requestPaths.push(url.pathname);
+        if (url.pathname === "/v1/models") {
+          return Response.json({ object: "list", data: [{ id: "gate-model", object: "model" }] });
+        }
+        if (url.pathname !== "/v1/responses") return new Response("not found", { status: 404 });
+        if (request.headers.get("authorization") !== `Bearer ${apiKey}`) {
+          return Response.json(
+            { error: { message: "invalid credential", type: "authentication_error" } },
+            { status: 401, headers: { "x-provider-private": apiKey } },
+          );
+        }
+        const response = {
+          id: "resp_gate",
+          object: "response",
+          created_at: 1,
+          status: "completed",
+          model: "gpt-4o",
+          output: [
+            {
+              id: "msg_gate",
+              type: "message",
+              status: "completed",
+              role: "assistant",
+              content: [{ type: "output_text", text: "Recovered after login.", annotations: [] }],
+            },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+        };
+        const stream = new ReadableStream({
+          start(controller) {
+            const send = (type: string, data: unknown) =>
+              controller.enqueue(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+            send("response.created", { type: "response.created", response: { ...response, status: "in_progress", output: [] } });
+            send("response.output_item.added", { type: "response.output_item.added", output_index: 0, item: { ...response.output[0], status: "in_progress", content: [] } });
+            send("response.content_part.added", { type: "response.content_part.added", item_id: "msg_gate", output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } });
+            send("response.output_text.delta", { type: "response.output_text.delta", item_id: "msg_gate", output_index: 0, content_index: 0, delta: "Recovered after login." });
+            send("response.output_text.done", { type: "response.output_text.done", item_id: "msg_gate", output_index: 0, content_index: 0, text: "Recovered after login." });
+            send("response.content_part.done", { type: "response.content_part.done", item_id: "msg_gate", output_index: 0, content_index: 0, part: response.output[0].content[0] });
+            send("response.output_item.done", { type: "response.output_item.done", output_index: 0, item: response.output[0] });
+            send("response.completed", { type: "response.completed", response });
+            controller.close();
+          },
+        });
+        return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    const profile = openCodeProfilePaths("default");
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: profile.profileDir,
+      serverCwd: STATE_ROOT,
+      idleShutdownMs: 100,
+      launchEnv: { OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1` },
+      config: {
+        autoupdate: false,
+        model: "openai/gpt-4o",
+        small_model: "openai/gpt-4o",
+        share: "disabled",
+      },
+    });
+    try {
+      const backend = createOpenCodeBackend({
+        supervisor,
+        model: "openai/gpt-4o",
+        safeErrorSink: (error) => safeErrors.push({ ...error }),
+      });
+      const mgr = createAgentManager({
+        resolveBackend: () => backend,
+        officeState: new OfficeState({ rooms: rooms("room-opencode-recovery") }),
+        initialRooms: [],
+      });
+      mgr.configurePluginHooksDeps();
+      const info = await mgr.spawn(
+        "OpenCode recovery tracer",
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        "room-opencode-recovery",
+        undefined,
+        "openai/gpt-4o",
+        "high",
+        undefined,
+        "opencode",
+      );
+      mgr.enqueueMessage(info!.id, {
+        sender: { kind: "user", username: "tester" },
+        text: "fail before login",
+      });
+      const authDeadline = Date.now() + 30_000;
+      while (
+        !mgr.getAgentLogs(info!.id).some((entry) => entry.kind === "terminal-command") &&
+        Date.now() < authDeadline
+      ) await Bun.sleep(10);
+      const card = mgr.getAgentLogs(info!.id).find((entry) => entry.kind === "terminal-command");
+      expect(card?.terminal?.command).toContain("opencode-login-");
+
+      const globalAuth = join(STATE_ROOT, "global-data", "opencode", "auth.json");
+      expect(await Bun.file(globalAuth).exists()).toBe(false);
+      await runLoginCardThroughPty(card!.terminal!.command, STATE_ROOT, apiKey);
+      expect(await Bun.file(globalAuth).exists()).toBe(false);
+      expect((await stat(join(profile.dataHome, "opencode", "auth.json"))).mode & 0o777).toBe(0o600);
+
+      await mgr.sendMessage(info!.id, "/clear", "tester");
+      await mgr.sendMessage(info!.id, "reply after login", "tester");
+      const replyDeadline = Date.now() + 15_000;
+      while (
+        !mgr.getAgentLogs(info!.id).some((entry) => entry.content === "Recovered after login.") &&
+        Date.now() < replyDeadline
+      ) await Bun.sleep(10);
+      const serialized = JSON.stringify(mgr.getAgentLogs(info!.id));
+      expect(safeErrors.slice(1)).toEqual([]);
+      expect(requestPaths).toContain("/v1/responses");
+      expect(serialized).toContain("Recovered after login.");
+      expect(serialized).not.toContain(apiKey);
+      for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
+        expect(await Bun.file(join(STATE_ROOT, path)).text()).not.toContain(apiKey);
+      }
+      await mgr.kill(info!.id);
+    } finally {
+      await supervisor.shutdown();
+      await mock.stop(true);
+    }
+  }, 130_000);
 
   it("drops a real provider-error canary before normalized events and agent JSONL", async () => {
     const canary = "OPENCODE_PROVIDER_ERROR_SECRET_CANARY";
@@ -540,6 +764,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       const normalized = JSON.stringify(mgr.getAgentLogs(info!.id));
       expect(normalized).not.toContain(canary);
       expect(normalized).toContain("provider or transport error");
+      expect(mgr.getAgentLogs(info!.id).some((entry) => entry.kind === "terminal-command")).toBe(false);
       for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
         expect(await Bun.file(`${STATE_ROOT}/${path}`).text()).not.toContain(canary);
       }

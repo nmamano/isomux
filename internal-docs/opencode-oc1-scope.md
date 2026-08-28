@@ -166,11 +166,31 @@ The manual API-key path was tested on 2026-08-28 with pinned OC1 1.18.23:
 5. A newly started OpenCode server using the same profile reported `openai` as
    connected through its provider API.
 
-This proves the terminal, persistence, and server-reload parts for manual API
-keys. It does not yet prove browser OAuth. It also cannot prove that an Isomux
-OpenCode agent recovers after `/clear`, because the adapter does not exist. The
-first authentication slice must test the complete failure -> terminal card ->
-login -> `/clear` -> successful message path before claiming it in user copy.
+This proves the terminal and persistence parts for manual API keys. It does not
+prove browser OAuth. S2 also runs the complete failure -> terminal card -> login
+-> `/clear` -> successful message path through the real pinned binary and a
+local deterministic provider before it claims recovery in user copy.
+
+Follow-up probes on 2026-08-28 found two different reload behaviors. A running
+OC1 server added a newly authenticated provider to `provider.connected` on the
+same PID, but its model registry did not reload. A prompt on that PID still
+failed with the same selected-model-not-found error. Provider variables changed
+in an environment file also cannot affect a process that already inherited the
+old environment. Both routes require server replacement.
+
+The same probes found that pinned `opencode auth login` against a profile with
+a live server produced no prompt for more than 40 seconds. The cause was not
+measured. Before it emits the card, Isomux stops new acquires, gives active turns
+a two-minute drain, and stops the shared server. A drain timeout asks the user
+to retry. Pending login state expires after ten minutes and is removed when a
+supervisor starts, so an abandoned card cannot disable the shared environment.
+The
+mode-0700 wrapper runs the pinned login against the exact shared profile under
+`flock`. It keeps a mode-0600 snapshot in a temporary sibling directory, checks
+that the requested provider was written, atomically merges the result with the
+other providers, and always removes the snapshot. Login and replacement affect
+every agent that uses the shared environment. `/clear` starts the replacement
+server with the authenticated profile.
 
 Provider environment variables remain supported through the existing office
 and user environment-file merge. They do not use `auth.json`.
@@ -216,6 +236,8 @@ Re-record and adapt:
 
 - every HTTP route, request, response, and SSE fixture;
 - runtime validators and event translation;
+- the login snapshot merge and private `data/opencode/auth.json` layout authored
+  by Isomux under the pinned OC1 profile;
 - fork, compaction, permission, prompt, completion, and abort behavior;
 - live-model, memory, isolation, redaction, restart, and update checks.
 
@@ -369,6 +391,16 @@ adapter cannot classify a real authentication failure from that message. S2
 must add and review the safe error keep list (`name`, `message`, `statusCode`,
 and `isRetryable`) before it enables the terminal login card. The credential
 canary must stay green for the normalized stream and agent JSONL.
+
+S2 pulls one narrow provider-discovery check forward from S5. When OC1 reports
+the observed no-credential `UnknownError` / selected-model-not-found shape, the
+transport queries the server's sanitized `connected` provider IDs on that error
+path only. A disconnected selected provider is authentication failure; a
+connected provider with a missing model is not. This prevents the current
+`opencode/fake` tracer model, deprecated models, and mistyped models from
+producing false login cards. Recorded 401 and 403 API errors remain structured
+authentication failures. Free-form error messages are used for classification
+but are never persisted.
 
 OpenCode startup output is not persisted below `STATE_ROOT`. A startup stops
 after one non-bind error. For one diagnostic run, an operator can set

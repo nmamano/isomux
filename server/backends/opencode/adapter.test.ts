@@ -62,7 +62,7 @@ describe("OpenCode Slice 1A tracer", () => {
     ]);
   });
 
-  it("reports missing auth as plain text with no runnable command", async () => {
+  it("requires exact profile identity before it renders the login command", async () => {
     const backend = createOpenCodeTracerBackend({ failAuth: true });
     const session = backend.createSession(opts);
     await session.send("hello");
@@ -73,9 +73,13 @@ describe("OpenCode Slice 1A tracer", () => {
       status: "failed",
       error: "OpenCode authentication is not configured.",
     });
-    expect(backend.getLoginInstructions()).toEqual({
-      text: "OpenCode is not configured. Login instructions are not available in this slice.",
-    });
+    expect(() => backend.getLoginInstructions()).toThrow(
+      "OpenCode session environment identity is required.",
+    );
+    const instructions = backend.getLoginInstructions({ environmentKey: "default" });
+    expect(instructions.text).toContain("shared environment");
+    expect(instructions.text).toContain("Browser OAuth is not certified");
+    expect(instructions.commands).toHaveLength(1);
   });
 });
 

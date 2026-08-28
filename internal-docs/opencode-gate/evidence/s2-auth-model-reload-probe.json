@@ -1,0 +1,15 @@
+{
+  "date": "2026-08-28",
+  "version": "1.18.23",
+  "profileState": "one pinned server PID, auth.json added after startup",
+  "connectedBefore": ["opencode"],
+  "connectedAfter": ["openai", "opencode"],
+  "sameServerPid": true,
+  "selectedModel": "openai/gpt-4o",
+  "promptAfterAuthSucceeded": false,
+  "errorAfterAuth": {
+    "name": "UnknownError",
+    "messageShape": "selected model not found"
+  },
+  "conclusion": "provider.connected reloads auth.json, but the running model registry does not"
+}

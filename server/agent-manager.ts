@@ -342,7 +342,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     } catch {
       env = undefined;
     }
-    return getBackend(managed.info.agentType).getLoginInstructions({ env });
+    return getBackend(managed.info.agentType).getLoginInstructions({
+      env,
+      environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+    });
   }
 
   // Emit a system log entry with the login/install text, plus an adjacent
@@ -4672,10 +4675,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // the Codex adapter's "workspace-write" default.
       sandbox: managed.info.codexSandbox,
       env,
-      environmentKey:
-        managed.info.agentType === "opencode"
-          ? environmentSourceKeyForUserId(managed.info.userId)
-          : undefined,
+      environmentKey: environmentSourceKeyForUserId(managed.info.userId),
     };
     const backend = getBackend(managed.info.agentType);
     return resumeSessionId

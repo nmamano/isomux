@@ -511,5 +511,6 @@ export interface Backend {
   // user to "sign in" when their envFile already authenticates them.
   getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
+    environmentKey?: string;
   }): { text: string; commands?: string[] };
 }

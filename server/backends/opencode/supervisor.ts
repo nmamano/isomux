@@ -1,11 +1,14 @@
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { existsSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { createHash } from "node:crypto";
 import { STATE_ROOT } from "../../config.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
+import { openCodeProfilePaths } from "./login-wrapper.ts";
 
 export const OPENCODE_IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
+export const OPENCODE_REPLACEMENT_DRAIN_MS = 2 * 60 * 1000;
+export const OPENCODE_AUTH_LOGIN_PENDING_TTL_MS = 10 * 60 * 1000;
 
 interface ServerRecord {
   pid: number;
@@ -32,6 +35,8 @@ export interface OpenCodeSupervisorOptions {
   serverCwd?: string;
   idleShutdownMs?: number;
   launchEnv?: Record<string, string | undefined>;
+  replacementDrainMs?: number;
+  pendingLoginTtlMs?: number;
 }
 
 export class OpenCodeSupervisor {
@@ -47,6 +52,9 @@ export class OpenCodeSupervisor {
   private readonly serverCwd: string;
   private readonly idleShutdownMs: number;
   private readonly launchEnv: Record<string, string | undefined>;
+  private readonly replacementDrainMs: number;
+  private readonly pendingLoginTtlMs: number;
+  private replacementPromise: Promise<void> | null = null;
 
   constructor(options: OpenCodeSupervisorOptions = {}) {
     this.profileDir = options.profileDir ?? join(STATE_ROOT, "opencode", "profiles", "default");
@@ -56,12 +64,19 @@ export class OpenCodeSupervisor {
     this.serverCwd = options.serverCwd ?? STATE_ROOT;
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
+    this.replacementDrainMs = options.replacementDrainMs ?? OPENCODE_REPLACEMENT_DRAIN_MS;
+    this.pendingLoginTtlMs = options.pendingLoginTtlMs ?? OPENCODE_AUTH_LOGIN_PENDING_TTL_MS;
+    this.clearPendingLogin();
   }
 
   async acquire(): Promise<OpenCodeLease> {
+    if (this.hasActivePendingLogin()) {
+      throw new Error("OpenCode login is in progress for this shared environment.");
+    }
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (this.shutdownPromise) await this.shutdownPromise;
+    await this.replaceServerIfRequested();
     await this.ensureServer();
     this.leases++;
     let released = false;
@@ -100,6 +115,41 @@ export class OpenCodeSupervisor {
       this.shutdownPromise = null;
     });
     return this.shutdownPromise;
+  }
+
+  async prepareForAuthentication(): Promise<void> {
+    await mkdir(this.profileDir, { recursive: true });
+    const pending = `${this.profileDir}.auth-login-pending`;
+    await writeFile(pending, "login pending\n", { mode: 0o600 });
+    const deadline = Date.now() + this.replacementDrainMs;
+    while (this.activeTurns > 0 && Date.now() < deadline) await Bun.sleep(25);
+    if (this.activeTurns > 0) {
+      await rm(pending, { force: true });
+      throw new Error(
+        "OpenCode login is waiting for another turn to finish. Send your message again to retry.",
+      );
+    }
+    await this.shutdown();
+  }
+
+  private clearPendingLogin(): void {
+    try {
+      unlinkSync(`${this.profileDir}.auth-login-pending`);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
+  }
+
+  private hasActivePendingLogin(): boolean {
+    const pending = `${this.profileDir}.auth-login-pending`;
+    try {
+      if (Date.now() - statSync(pending).mtimeMs < this.pendingLoginTtlMs) return true;
+      unlinkSync(pending);
+      return false;
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+      throw error;
+    }
   }
 
   private async performShutdown(): Promise<void> {
@@ -165,6 +215,25 @@ export class OpenCodeSupervisor {
     if (!this.record) throw new Error("OpenCode startup did not write its server record.");
   }
 
+  private async replaceServerIfRequested(): Promise<void> {
+    const marker = join(this.profileDir, "server.replace");
+    if (!existsSync(marker)) return;
+    if (!this.replacementPromise) {
+      this.replacementPromise = (async () => {
+        const deadline = Date.now() + this.replacementDrainMs;
+        while (this.activeTurns > 0 && Date.now() < deadline) await Bun.sleep(25);
+        if (this.activeTurns > 0) {
+          throw new Error("OpenCode authentication changed, but active turns did not drain in time.");
+        }
+        await this.shutdown();
+        await rm(marker, { force: true });
+      })().finally(() => {
+        this.replacementPromise = null;
+      });
+    }
+    await this.replacementPromise;
+  }
+
   private async readRecord(): Promise<ServerRecord | null> {
     try {
       return JSON.parse(await readFile(this.recordPath, "utf8")) as ServerRecord;
@@ -197,13 +266,15 @@ export function openCodeSupervisorForEnvironment(
       .filter((entry): entry is [string, string] => entry[1] !== undefined)
       .sort(([a], [b]) => a.localeCompare(b)),
   );
-  const key = environmentKey
-    ? createHash("sha256").update(environmentKey).digest("hex").slice(0, 16)
-    : "default";
+  if (!environmentKey) {
+    throw new Error("OpenCode session environment identity is required.");
+  }
+  const profileDir = openCodeProfilePaths(environmentKey).profileDir;
+  const key = profileDir.slice(profileDir.lastIndexOf("/") + 1);
   let supervisor = environmentSupervisors.get(key);
   if (!supervisor) {
     supervisor = new OpenCodeSupervisor({
-      profileDir: join(STATE_ROOT, "opencode", "profiles", key),
+      profileDir,
       launchEnv,
     });
     environmentSupervisors.set(key, supervisor);
