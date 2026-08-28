@@ -39,8 +39,9 @@
 // REST mutations the broadcast fires inside the handler before the HTTP response
 // resolves - so awaiting one recipient's resulting full_state settles all of them.
 //
-// Scope note - terminal: routeAgentEventToWs gates terminal_output/terminal_exit
-// in the SAME agentVisibleForSession switch arm as log_entry/slash_commands. The
+// Scope note - terminal: routeAgentEventToWs gates terminal_output,
+// terminal_status, and terminal_exit in the SAME agentVisibleForSession switch
+// arm as log_entry/slash_commands. The
 // terminal_open buffered REPLAY is now characterized below (task 39ce6225): it
 // seeds the agent's buffered output to ONLY the requesting socket, so a member
 // without room access never receives a hidden agent's backlog. That case seeds

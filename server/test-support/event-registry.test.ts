@@ -41,6 +41,7 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   killed_agent_added: "room-ACL",
   killed_agent_removed: "room-ACL",
   terminal_output: "room-ACL",
+  terminal_status: "room-ACL",
   terminal_exit: "room-ACL",
   room_created: "room-ACL",
   room_closed: "room-ACL",

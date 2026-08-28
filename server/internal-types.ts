@@ -386,6 +386,12 @@ export type AgentEvent =
       skills: SkillInfo[];
     }
   | { type: "terminal_output"; agentId: string; data: string }
+  | {
+      type: "terminal_status";
+      agentId: string;
+      process: string;
+      shell: boolean;
+    }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   // Killed-agent chip lifecycle. Emitted by kill() and revive() in
   // agent-manager. Routed through routeAgentEventToWs with per-session

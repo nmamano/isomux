@@ -3,6 +3,7 @@ import { homedir, userInfo } from "os";
 import { accessSync, constants as fsConstants } from "fs";
 import { spawnSync } from "child_process";
 import type { ManagedAgent } from "./internal-types.ts";
+import { createTerminalFinalizer } from "./terminal-finalizer.ts";
 
 const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.cjs");
 const MAX_PTY_BUFFER = 100_000;
@@ -81,11 +82,18 @@ function resolveRealNode(): string | null {
 
 type TerminalEvent =
   | { type: "terminal_output"; agentId: string; data: string }
+  | {
+      type: "terminal_status";
+      agentId: string;
+      process: string;
+      shell: boolean;
+    }
   | { type: "terminal_exit"; agentId: string; exitCode: number };
 
 // Wire shape of messages sent by the PTY sidecar over JSONL stdout.
 type SidecarMessage =
   | { type: "output"; data: string }
+  | { type: "status"; process: string; shell: boolean }
   | { type: "exit"; exitCode?: number; signal?: string | null };
 
 export interface TerminalDeps {
@@ -138,6 +146,17 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   managed.ptySidecar = sidecar;
   managed.ptyBuffer = "";
 
+  const finalize = createTerminalFinalizer({
+    // A restarted terminal may already have installed a replacement sidecar.
+    // A late exit from the old process must not detach that replacement.
+    isCurrent: () => managed.ptySidecar === sidecar,
+    detach: () => {
+      managed.ptySidecar = null;
+    },
+    emitExit: (exitCode) =>
+      deps.emit({ type: "terminal_exit", agentId, exitCode }),
+  });
+
   // Read stdout as text lines using Bun's native ReadableStream
   void (async () => {
     const reader = sidecar.stdout.getReader();
@@ -160,32 +179,38 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
           }
           const msg = parsed as SidecarMessage;
           if (msg.type === "output" && typeof msg.data === "string") {
+            if (managed.ptySidecar !== sidecar) continue;
             managed.ptyBuffer += msg.data;
             if (managed.ptyBuffer.length > MAX_PTY_BUFFER) {
               managed.ptyBuffer = managed.ptyBuffer.slice(-MAX_PTY_BUFFER);
             }
             deps.emit({ type: "terminal_output", agentId, data: msg.data });
+          } else if (
+            msg.type === "status" &&
+            typeof msg.process === "string" &&
+            typeof msg.shell === "boolean"
+          ) {
+            deps.emit({
+              type: "terminal_status",
+              agentId,
+              process: msg.process,
+              shell: msg.shell,
+            });
           } else if (msg.type === "exit") {
             console.log(
               `[terminal] PTY exited for ${agentId}: code=${msg.exitCode ?? null}, signal=${msg.signal ?? null}`,
             );
-            managed.ptySidecar = null;
-            deps.emit({
-              type: "terminal_exit",
-              agentId,
-              exitCode: typeof msg.exitCode === "number" ? msg.exitCode : 0,
-            });
+            finalize(typeof msg.exitCode === "number" ? msg.exitCode : 0);
           }
         }
       }
     } catch {}
   })();
 
-  void sidecar.exited.then(() => {
-    if (managed.ptySidecar === sidecar) {
-      managed.ptySidecar = null;
-    }
-  });
+  // The sidecar normally reports a structured exit line. If it dies before it
+  // can do that, this fallback still tells the client instead of silently
+  // clearing the reference. finalize makes the two paths one-shot.
+  void sidecar.exited.then((exitCode) => finalize(exitCode));
 
   // Tell sidecar to spawn the PTY
   sidecarSend(managed, {
@@ -231,12 +256,22 @@ export function terminalResize(
   if (managed?.ptySidecar) sidecarSend(managed, { type: "resize", cols, rows });
 }
 
+export function terminalStatus(agentId: string, deps: TerminalDeps) {
+  const managed = deps.getAgent(agentId);
+  if (managed?.ptySidecar) sidecarSend(managed, { type: "status" });
+}
+
 export function closeTerminal(agentId: string, deps: TerminalDeps) {
   const managed = deps.getAgent(agentId);
   if (!managed?.ptySidecar) return;
   sidecarSend(managed, { type: "kill" });
   managed.ptySidecar = null;
   managed.ptyBuffer = "";
+}
+
+export function restartTerminal(agentId: string, deps: TerminalDeps): boolean {
+  closeTerminal(agentId, deps);
+  return openTerminal(agentId, deps);
 }
 
 // Used during kill flow: shut down a sidecar held in `managed` directly.

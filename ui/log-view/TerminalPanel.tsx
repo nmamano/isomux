@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { useTheme } from "../store.tsx";
 import type { ServerMessage } from "../../shared/types.ts";
+import { commandInputBytes } from "./terminal-command.ts";
 
 const DARK_THEME = {
   background: "#0a0e16",
@@ -253,6 +254,8 @@ export function TerminalPanel({
   autoFocus = true,
   mobile = false,
   onSendToChat,
+  pendingCommand,
+  onCommandHandled,
 }: {
   agentId: string;
   onClose: () => void;
@@ -271,6 +274,8 @@ export function TerminalPanel({
   // selection; activating it hands the selected text to the parent (which
   // inserts it into the chat draft as a fenced code block).
   onSendToChat?: (text: string) => void;
+  pendingCommand?: string | null;
+  onCommandHandled?: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -283,6 +288,11 @@ export function TerminalPanel({
   const scrollMovedRef = useRef<(() => boolean) | null>(null);
   const { mode } = useTheme();
   const [exited, setExited] = useState<number | null>(null);
+  const [owner, setOwner] = useState<{
+    process: string;
+    shell: boolean;
+  } | null>(null);
+  const [commandIssue, setCommandIssue] = useState<string | null>(null);
   // Whether xterm currently has a text selection - drives the "Send to
   // chat" pill's visibility.
   const [hasSelection, setHasSelection] = useState(false);
@@ -308,13 +318,54 @@ export function TerminalPanel({
         const msg = JSON.parse(data) as ServerMessage;
         if (msg.type === "terminal_output" && msg.agentId === agentId) {
           termRef.current?.write(msg.data);
+        } else if (msg.type === "terminal_status" && msg.agentId === agentId) {
+          setOwner({ process: msg.process, shell: msg.shell });
+          setCommandIssue(null);
         } else if (msg.type === "terminal_exit" && msg.agentId === agentId) {
+          setOwner(null);
           setExited(msg.exitCode);
+          onCommandHandled?.();
         }
       } catch {}
     },
-    [agentId],
+    [agentId, onCommandHandled],
   );
+
+  // The panel is the single owner of terminal status, so command-card input is
+  // composed and gated here instead of keeping a stale second copy in LogView.
+  // A status can lag a foreground change by up to the 500 ms sidecar poll. Also,
+  // node-pty falls back to the shell path when its foreground lookup fails, so
+  // Ready is a useful indicator, not a correctness guarantee. The payload has
+  // no Enter, which bounds that race: bytes can reach stdin but cannot execute.
+  useEffect(() => {
+    if (!pendingCommand || !owner) return;
+    setCommandIssue(null);
+    if (owner.shell) {
+      send({
+        type: "terminal_input",
+        agentId,
+        data: commandInputBytes(pendingCommand),
+      });
+      const helper = containerRef.current?.querySelector(
+        ".xterm-helper-textarea",
+      ) as HTMLTextAreaElement | null;
+      helper?.focus();
+    } else {
+      setCommandIssue(`Not sent: ${owner.process} is using the terminal`);
+    }
+    // A foreign owner receives no bytes. Its name in the header makes the
+    // blocked click visible, and the user can choose whether to interrupt it.
+    onCommandHandled?.();
+  }, [agentId, onCommandHandled, owner, pendingCommand]);
+
+  useEffect(() => {
+    if (!pendingCommand) return;
+    const timeout = setTimeout(() => {
+      setCommandIssue("Terminal unavailable");
+      onCommandHandled?.();
+    }, 5000);
+    return () => clearTimeout(timeout);
+  }, [onCommandHandled, pendingCommand]);
 
   // Send keystrokes to the PTY, applying the sticky Ctrl modifier if armed.
   const sendInput = useCallback(
@@ -614,10 +665,10 @@ export function TerminalPanel({
 
   function handleRespawn() {
     setExited(null);
+    setOwner(null);
+    setCommandIssue(null);
     termRef.current?.clear();
-    // Close old PTY (if still around) and open a new one
-    send({ type: "terminal_close", agentId });
-    setTimeout(() => send({ type: "terminal_open", agentId }), 100);
+    send({ type: "terminal_restart", agentId });
   }
 
   async function doPaste() {
@@ -704,22 +755,61 @@ export function TerminalPanel({
             <span style={{ color: "var(--green)", fontSize: 13 }}>&#9654;</span>
           )}
           Terminal
+          <span
+            style={{
+              color: owner?.shell ? "var(--green)" : "var(--text-muted)",
+            }}
+          >
+            {owner ? (owner.shell ? "Ready" : `Busy: ${owner.process}`) : ""}
+          </span>
         </span>
-        <button
-          onClick={onClose}
-          style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            fontSize: mobile ? 24 : 20,
-            padding: mobile ? "4px 10px" : "4px 12px",
-            lineHeight: 1,
-          }}
-          title="Close terminal"
-        >
-          &times;
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button
+            onClick={() => sendInput("\x03")}
+            style={{
+              padding: "3px 7px",
+              borderRadius: 5,
+              border: "1px solid var(--border-medium)",
+              background: "var(--bg-overlay)",
+              color: "var(--text-secondary)",
+              fontSize: mobile ? 11 : 10,
+              cursor: "pointer",
+            }}
+            title="Interrupt the foreground command"
+          >
+            Interrupt
+          </button>
+          <button
+            onClick={handleRespawn}
+            style={{
+              padding: "3px 7px",
+              borderRadius: 5,
+              border: "1px solid var(--border-medium)",
+              background: "var(--bg-overlay)",
+              color: "var(--text-secondary)",
+              fontSize: mobile ? 11 : 10,
+              cursor: "pointer",
+            }}
+            title="Restart the terminal"
+          >
+            Restart
+          </button>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: mobile ? 24 : 20,
+              padding: mobile ? "4px 10px" : "4px 12px",
+              lineHeight: 1,
+            }}
+            title="Close terminal"
+          >
+            &times;
+          </button>
+        </div>
       </div>
 
       {/* Terminal body. position:relative so the exit overlay anchors to the
@@ -738,6 +828,21 @@ export function TerminalPanel({
       >
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
         {mobile && <MobileInputProxy ref={inputProxyRef} onInput={sendInput} />}
+        {commandIssue && (
+          <div
+            style={{
+              position: "absolute",
+              top: 8,
+              left: "50%",
+              transform: "translateX(-50%)",
+              color: "var(--text-muted)",
+              fontSize: 12,
+              zIndex: 2,
+            }}
+          >
+            {commandIssue}
+          </div>
+        )}
         {/* "Send to chat" pill - shown only while a selection exists. Top-
             right of the body: clear of the exit overlay (bottom-center), the
             soft-key bar (bottom) and the scrollbar edge. It can cover the

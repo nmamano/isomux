@@ -25,7 +25,6 @@ import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
 import { ghostBodyBottomOffset } from "../office/Ghost.tsx";
 import { MiniGhostCluster } from "../office/MiniGhostCluster.tsx";
-import { send } from "../ws.ts";
 import {
   advanceDictationSession,
   joinSpoken,
@@ -721,6 +720,9 @@ export function LogView({
     readPanelWidth("editor", 600),
   );
   const terminalContainerRef = useRef<HTMLDivElement>(null);
+  const [pendingTerminalCommand, setPendingTerminalCommand] = useState<
+    string | null
+  >(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const commitTerminalWidth = useCallback((w: number) => {
     setTerminalWidth(w);
@@ -808,33 +810,23 @@ export function LogView({
     },
     [dispatch, agent.id],
   );
-  // Open the terminal panel and prefill the command at the prompt without
-  // executing it. The 250ms delay covers the panel-mount → terminal_open →
-  // PTY-spawn → first-prompt sequence; if the panel is already open it just
-  // adds a small lag before the command appears. WS messages are ordered
-  // per-connection, so terminal_open (sent on panel mount) lands before
-  // terminal_input only because of this delay - sending synchronously here
-  // would race ahead of mount and the bytes would hit a non-existent PTY.
-  // After sending, focus xterm's helper textarea so Enter goes to the shell
-  // instead of re-firing the still-focused button (which would re-copy).
+  // The panel owns terminal status and sends this command after it receives the
+  // first owner event. Repeated clicks replace this pending value, so a cold
+  // panel opens with one command instead of racing a mount timer.
   const copyToTerminal = useCallback(
     (command: string) => {
-      const wasOpen = sidePanels.get(agent.id) === "terminal";
+      setPendingTerminalCommand(command);
       dispatch({
         type: "set_side_panel",
         agentId: agent.id,
         panel: "terminal",
       });
-      const delay = wasOpen ? 0 : 250;
-      setTimeout(() => {
-        send({ type: "terminal_input", agentId: agent.id, data: command });
-        const helper = terminalContainerRef.current?.querySelector(
-          ".xterm-helper-textarea",
-        ) as HTMLTextAreaElement | null;
-        helper?.focus();
-      }, delay);
     },
-    [dispatch, agent.id, sidePanels],
+    [dispatch, agent.id],
+  );
+  const handleTerminalCommandHandled = useCallback(
+    () => setPendingTerminalCommand(null),
+    [],
   );
   const [showAvatar, setShowAvatar] = useState(
     () => localStorage.getItem("isomux-show-avatar") !== "false",
@@ -3248,6 +3240,8 @@ export function LogView({
               onClose={() => setTerminalOpen(false)}
               autoFocus={terminalAutoFocus}
               onSendToChat={handleTerminalSendToChat}
+              pendingCommand={pendingTerminalCommand}
+              onCommandHandled={handleTerminalCommandHandled}
             />
           </div>
         )}
@@ -3298,6 +3292,8 @@ export function LogView({
             onClose={() => setTerminalOpen(false)}
             autoFocus={terminalAutoFocus}
             mobile
+            pendingCommand={pendingTerminalCommand}
+            onCommandHandled={handleTerminalCommandHandled}
             // On mobile the terminal is a full-screen overlay covering the
             // composer, so also close it - otherwise the insert would be
             // invisible and the tap would appear to do nothing.

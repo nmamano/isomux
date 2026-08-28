@@ -2114,6 +2114,7 @@ export function handleCommand(cmd: ClientCommand) {
     case "terminal_input":
     case "terminal_resize":
     case "terminal_close":
+    case "terminal_restart":
       break;
   }
 }

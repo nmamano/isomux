@@ -124,6 +124,8 @@ import {
   terminalInput as terminalInputImpl,
   terminalResize as terminalResizeImpl,
   closeTerminal as closeTerminalImpl,
+  restartTerminal as restartTerminalImpl,
+  terminalStatus as terminalStatusImpl,
   killSidecar,
   type TerminalDeps,
 } from "./terminal.ts";
@@ -7920,6 +7922,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     closeTerminalImpl(agentId, terminalDeps);
   }
 
+  function restartTerminal(agentId: string): boolean {
+    return restartTerminalImpl(agentId, terminalDeps);
+  }
+
+  function terminalStatus(agentId: string) {
+    terminalStatusImpl(agentId, terminalDeps);
+  }
+
   // Test-only seam (projection/ACL net). Seed a fake PTY sidecar + buffered
   // output so the terminal_open buffered-replay path can be exercised without a
   // real node-pty sidecar: node-pty's native binding won't run under Bun, so
@@ -8102,6 +8112,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     terminalInput,
     terminalResize,
     closeTerminal,
+    restartTerminal,
+    terminalStatus,
     _testSeedTerminalBuffer,
     _testSetConsumerDrainTimeout,
     _testSetBusyTurnWatchdogStuckMs,

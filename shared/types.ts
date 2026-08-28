@@ -1408,6 +1408,12 @@ export type ServerMessage =
   // not a conversation boundary - clients keep the unread dot.
   | { type: "clear_logs"; agentId: string; rollback?: boolean }
   | { type: "terminal_output"; agentId: string; data: string }
+  | {
+      type: "terminal_status";
+      agentId: string;
+      process: string;
+      shell: boolean;
+    }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   | {
       type: "editor_external_change";
@@ -1507,6 +1513,7 @@ export type ClientCommand =
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
+  | { type: "terminal_restart"; agentId: string }
   | {
       // Live-avatars feature: client tells the server where its ghost
       // should appear. Sent on initial WS open (after session_context

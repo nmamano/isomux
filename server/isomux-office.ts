@@ -4079,6 +4079,13 @@ function emitAgentEvent(event: AgentEvent): void {
         data: event.data,
       });
       break;
+    case "terminal_status":
+      liveEmit("terminal_status", {
+        agentId: event.agentId,
+        process: event.process,
+        shell: event.shell,
+      });
+      break;
     case "terminal_exit":
       liveEmit("terminal_exit", {
         agentId: event.agentId,
@@ -4246,6 +4253,7 @@ function routeAgentEventToWs(
     case "clear_logs":
     case "slash_commands":
     case "terminal_output":
+    case "terminal_status":
     case "terminal_exit": {
       if (agentVisibleForSession(session, event.agentId)) {
         ws.send(JSON.stringify(event));
@@ -4492,6 +4500,7 @@ async function handleInboundMessage(
               }),
             );
           }
+          agentManager.terminalStatus(cmd.agentId);
         }
         break;
       }
@@ -4506,6 +4515,12 @@ async function handleInboundMessage(
       case "terminal_close":
         if (!agentVisibleForSession(session, cmd.agentId)) break;
         agentManager.closeTerminal(cmd.agentId);
+        break;
+      case "terminal_restart":
+        // Restart is a terminal-I/O capability: it can kill a foreground
+        // process, so it carries the same room visibility gate as open/input.
+        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        agentManager.restartTerminal(cmd.agentId);
         break;
     }
   } catch (err) {
