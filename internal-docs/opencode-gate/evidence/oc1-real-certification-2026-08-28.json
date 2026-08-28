@@ -1,0 +1,39 @@
+{
+  "date": "2026-08-28",
+  "cliVersion": "1.18.23",
+  "providerContentRecorded": false,
+  "note": "The first two safe summaries were recovered from the private profile after the third model timed out. The original collector verified each completed turn's outgoing prompt_async model before advancing.",
+  "models": [
+    {
+      "date": "2026-08-28",
+      "requestedModel": "opencode/hy3-free",
+      "wireModel": "opencode/hy3-free",
+      "wireModelVerifiedByOriginalCollector": true,
+      "status": "completed",
+      "canaryMatched": true,
+      "billedTokens": 6009,
+      "inputTokens": 6002,
+      "outputTokens": 7
+    },
+    {
+      "date": "2026-08-28",
+      "requestedModel": "opencode/mimo-v2.5-free",
+      "wireModel": "opencode/mimo-v2.5-free",
+      "wireModelVerifiedByOriginalCollector": true,
+      "status": "completed",
+      "canaryMatched": true,
+      "billedTokens": 6996,
+      "inputTokens": 6959,
+      "outputTokens": 37
+    },
+    {
+      "date": "2026-08-28",
+      "requestedModel": "opencode/nemotron-3.5-lightning-free",
+      "wireModel": null,
+      "wireModelVerifiedByOriginalCollector": false,
+      "status": "timeout",
+      "canaryMatched": false,
+      "timeoutMs": 120000
+    }
+  ]
+}

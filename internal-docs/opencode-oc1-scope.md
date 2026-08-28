@@ -425,14 +425,20 @@ composite model id, and S5 pins that serialization. S6 owns executable OpenCode
 cron sessions, unattended permissions, explicit model selection, and all
 three environment-key creation sites. It cannot rely on a model fallback.
 
-Real-provider certification remains parked when credentials are absent. The
-opt-in harness accepts at most three explicit connected models, records billed
-tokens, and fails after a response exceeds 200,000 input-plus-output tokens per
-model. This is not a pre-spend cap. Its pre-spend bound is one short prompt with
-a 120-second response wait per model and a stated $2 per-model intent. The
-harness produces no certification record; the operator records the model ID,
-date, and result by hand. The deterministic local gate provider proves the
-pinned binary contract but is not a certified real provider.
+The real-provider gate ran on 2026-08-28 with three explicit connected free
+models. `opencode/hy3-free` and `opencode/mimo-v2.5-free` completed, returned
+the canary, and matched the requested model in the adapter's outgoing
+`prompt_async` body. `opencode/nemotron-3.5-lightning-free` timed out after the
+fixed 120-second wait and is not certified. The gate recorded no provider
+response content. The safe result is in
+`opencode-gate/evidence/oc1-real-certification-2026-08-28.json`.
+
+The opt-in harness accepts at most three explicit connected models, records
+billed tokens, and fails after a response exceeds 200,000 input-plus-output
+tokens per model. This is not a pre-spend cap. Its pre-spend bound is one short
+prompt with a 120-second response wait per model and a stated $2 per-model
+intent. The deterministic local gate provider still proves only the pinned
+binary contract and is not a certified real provider.
 7. **S6 - unattended run.** Run an OpenCode cronjob with standing allow rules.
    An unexpected permission or question fails visibly instead of parking.
 
@@ -471,10 +477,41 @@ list. The runtime-artifact scanner remains opt-in because normalized streams,
 agent JSONL, cron JSONL, and browser payloads exist only after a run. A green
 automatic scan does not claim that opt-in gate ran.
 
-Real-provider certification and real-stream memory remain parked until Nil
-supplies credentials and starts the dated, budgeted gate. The 2026-08-27
-1/8/16-session figures used a deterministic local provider and show topology,
-not a production memory ceiling. No real-stream ceiling is claimed.
+The real-stream memory gate ran on 2026-08-28 with
+`opencode/mimo-v2.5-free`. Each independent level used a fresh server and
+scope. For the active levels, every real model turn had a Bash tool running a
+`sleep` process before and after the sample. The N=16 calibration measured a
+5.084-second first-to-last tool spread. The measured N=16 run widened to 6.992
+seconds. The derived holds were 45.3 and 51.0 seconds respectively, so the
+60-second floor, not the calibration estimate, kept both barriers safe.
+
+| Active turns | Core anon + kernel | Charged `memory.current` | Scope `memory.peak` | Summed PSS (descriptive) |
+|---:|---:|---:|---:|---:|
+| 0 | 458.9 MiB | 477.7 MiB | 561.7 MiB | 484.0 MiB |
+| 1 | 505.2 MiB | 540.0 MiB | 571.3 MiB | 563.9 MiB |
+| 8 | 603.0 MiB | 651.1 MiB | 679.1 MiB | 640.3 MiB |
+| 16 | 526.2 MiB | 569.9 MiB | 650.5 MiB | 564.2 MiB |
+
+At the barrier, generation had finished and every active session was parked in
+a Bash `sleep`. Core, `memory.current`, and PSS therefore describe parked
+sessions. Only `memory.peak` covers the generation phase as well.
+
+All four samples had stable cgroup PID sets, zero swap, and no `high`, `max`,
+OOM, `pgscan`, or `pgsteal` movement. Two added fresh repeats at N=0 measured
+core ranges of 448.3-513.3 MiB; two valid added N=16 repeats produced a combined
+526.2-632.2 MiB range across the three valid N=16 runs. The fixed-level ranges
+are comparable to the difference between levels, so these measurements do not
+resolve a concurrency effect in either direction and establish no per-session
+formula or production ceiling. One additional N=16 attempt aborted before its
+barrier on a provider connection error; it is retained as evidence and excluded
+from the ranges.
+
+`memory.current` is the charged total, while the table leads with anon plus
+kernel because file cache is reclaimable. The full cgroup counters, host
+pressure, process PSS/RSS tables, barrier timestamps, calibration, repeats, and
+aborted attempt are in the dated
+`opencode-gate/evidence/oc1-real-memory-*` files. The earlier 2026-08-27
+deterministic-provider figures remain topology evidence only.
 
 The architecture image has no editable source in this repository. S7 does not
 replace the binary image or keep using its two-backend caption as a current
@@ -607,6 +644,5 @@ and remove it after diagnosis.
   results?
 - What exact subpaths and packaging layout hold the pinned binary and the
   profiles below `STATE_ROOT`?
-- Which small provider/model set is certified first?
 - Which provider login methods, beyond a manual API key, are certified in the
   first release?
