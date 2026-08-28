@@ -45,10 +45,16 @@ import {
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
+const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
 
 afterEach(async () => {
   await server?.stop();
   server = null;
+  if (originalClaudeConfigDir === undefined) {
+    delete process.env.CLAUDE_CONFIG_DIR;
+  } else {
+    process.env.CLAUDE_CONFIG_DIR = originalClaudeConfigDir;
+  }
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -187,6 +193,218 @@ async function sendHuman(
   });
   if (res.status >= 400) throw new Error(`sendHuman -> ${res.status}`);
 }
+
+async function respondInteraction(
+  srv: TestServer,
+  rawSessionId: string,
+  agentId: string,
+  interactionId: string,
+  value: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const res = await srv.http(
+    `/api/agents/${agentId}/interactions/${interactionId}/respond`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+      rawSessionId,
+    },
+  );
+  return { status: res.status, body: await res.json() };
+}
+
+describe("structured choice interactions", () => {
+  it("uses semantic values and settles a double response once", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const agent = await spawnAgent(server, "Receiver", room.id);
+    const socket = await server.connectWs(owner.rawSessionId);
+    await socket.waitFor("full_state");
+    await sendHuman(server, owner.rawSessionId, agent.id, "/model");
+
+    const interaction = server.agentManager.getPendingInteractions()[0];
+    if (!interaction) throw new Error("model interaction missing");
+    const added = await socket.waitFor("interaction_added");
+    expect((added.interaction as { id: string }).id).toBe(interaction.id);
+    const reconnect = await server.connectWs(owner.rawSessionId);
+    const initial = await reconnect.waitFor("full_state");
+    expect(
+      (initial.interactions as { id: string }[]).map((item) => item.id),
+    ).toContain(interaction.id);
+    expect(interaction.kind).toBe("model");
+    const fallback = server.agentManager
+      .getAgentLogs(agent.id)
+      .find((entry) => entry.metadata?.interactionFallback === true);
+    expect(fallback?.content.endsWith(interaction.instruction)).toBe(true);
+    expect(interaction.instruction).toContain("anything else to cancel");
+    expect(interaction.choices.map((choice) => choice.value)).toContain(
+      "sonnet",
+    );
+    expect(
+      interaction.choices.some((choice) => /^\d+$/.test(choice.value)),
+    ).toBe(false);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe("model");
+
+    const ordinaryAgent = await spawnAgent(server, "Ordinary", room.id);
+    const denied = await server.http(
+      `/api/agents/${agent.id}/interactions/${interaction.id}/respond`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getAgentTokenRaw(ordinaryAgent.id)}`,
+        },
+        body: JSON.stringify({ value: "sonnet" }),
+      },
+    );
+    expect(denied.status).toBe(403);
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
+
+    const [first, second] = await Promise.all([
+      respondInteraction(
+        server,
+        owner.rawSessionId,
+        agent.id,
+        interaction.id,
+        "sonnet",
+      ),
+      respondInteraction(
+        server,
+        owner.rawSessionId,
+        agent.id,
+        interaction.id,
+        "sonnet",
+      ),
+    ]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.body.status).toBe("settled");
+    expect(second.body.status).toBe("settled");
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
+  });
+
+  it("keeps typed number replies on the same settlement path", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const agent = await spawnAgent(server, "Receiver", room.id);
+    await sendHuman(server, owner.rawSessionId, agent.id, "/effort");
+    const interaction = server.agentManager.getPendingInteractions()[0];
+    if (!interaction) throw new Error("effort interaction missing");
+
+    await sendHuman(server, owner.rawSessionId, agent.id, "1");
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(agentOf(server, agent.id).pendingPrompt).toBe(null);
+
+    const stale = await respondInteraction(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      interaction.id,
+      interaction.choices[0].value,
+    );
+    expect(stale.status).toBe(200);
+    expect(stale.body.status).toBe("settled");
+  });
+
+  it("applies a typed menu pick even when the agent becomes busy again", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const agent = await spawnAgent(server, "Receiver", room.id, "codex");
+    await sendHuman(server, owner.rawSessionId, agent.id, "Start a turn");
+    await waitUntil(() => stateOf(server!, agent.id) === "thinking");
+
+    await sendHuman(server, owner.rawSessionId, agent.id, "/model");
+    const interaction = server.agentManager.getPendingInteractions()[0];
+    if (!interaction) throw new Error("model interaction missing");
+    const choiceIndex = interaction.choices.findIndex(
+      (choice) => !choice.current,
+    );
+    if (choiceIndex < 0) throw new Error("alternate model choice missing");
+    const choice = interaction.choices[choiceIndex];
+
+    server.fakeBackend.sessionForAgent(agent.id)!.push({
+      kind: "assistant_text",
+      text: "Still working",
+    });
+    await waitUntil(() => stateOf(server!, agent.id) === "thinking");
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      String(choiceIndex + 1),
+    );
+
+    await waitUntil(
+      () => agentOf(server!, agent.id).modelFamily === choice.value,
+      2000,
+      "typed model choice applied",
+    );
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+    expect(queueOf(server, agent.id)).toHaveLength(0);
+  });
+
+  it("applies a typed resume pick while the current session is dead", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const agent = await spawnAgent(server, "Receiver", room.id);
+    await sendHuman(server, owner.rawSessionId, agent.id, "First turn");
+    await waitUntil(
+      () => server!.agentManager.getCurrentSessionId(agent.id) !== null,
+      2000,
+      "first session id",
+    );
+    const firstSessionId = server.agentManager.getCurrentSessionId(agent.id);
+    if (!firstSessionId) throw new Error("first session id missing");
+    server.fakeBackend.sessionForAgent(agent.id)!.completeTurn();
+    await waitUntil(() => {
+      const state = stateOf(server!, agent.id);
+      return state !== "thinking" && state !== "tool_executing";
+    });
+
+    const claudeConfigDir = join(server.stateRoot, "claude-config");
+    process.env.CLAUDE_CONFIG_DIR = claudeConfigDir;
+    const projectDir = join(
+      claudeConfigDir,
+      "projects",
+      server.stateRoot.replace(/[^a-zA-Z0-9-]/g, "-"),
+    );
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, `${firstSessionId}.jsonl`), "");
+
+    await sendHuman(server, owner.rawSessionId, agent.id, "/clear");
+    const deadSessionId = server.agentManager.getCurrentSessionId(agent.id);
+    expect(deadSessionId).not.toBe(firstSessionId);
+    server.fakeBackend.sessionForAgent(agent.id)!.endStream();
+    await waitUntil(() => agentOf(server!, agent.id).dormant === true);
+
+    await sendHuman(server, owner.rawSessionId, agent.id, "/resume");
+    const interaction = server.agentManager.getPendingInteractions()[0];
+    if (!interaction) throw new Error("resume interaction missing");
+    const choiceIndex = interaction.choices.findIndex(
+      (choice) => choice.value === firstSessionId,
+    );
+    if (choiceIndex < 0) throw new Error("first session choice missing");
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      agent.id,
+      String(choiceIndex + 1),
+    );
+
+    await waitUntil(
+      () =>
+        server!.agentManager.getCurrentSessionId(agent.id) === firstSessionId,
+      2000,
+      "resume choice applied",
+    );
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+  });
+});
 
 // Authenticated USER mutation with no response body (cancelQueued / sendNow /
 // newConversation - the retired WS commands, now 204 REST routes).

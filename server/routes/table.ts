@@ -273,6 +273,11 @@ type AgentInstructionsRes = {
   customInstructionsVersion: string;
 };
 type OkTrue = { ok: true };
+type InteractionResponseReq = { value: string };
+type InteractionResponseRes = {
+  interactionId: string;
+  status: "settled" | "canceled";
+};
 
 // ---------------------------------------------------------------------------
 // The /api route table
@@ -403,11 +408,22 @@ export const API_ROUTES: readonly RouteDef[] = [
       ],
       messageSend,
     ),
-    emits: ["log_entry"],
+    emits: ["log_entry", "interaction_added", "agent_updated"],
     preconditions: [
       "messageRecipientExists",
       "messagePendingPermissionBindsParam",
     ],
+  }),
+  defineRoute<InteractionResponseReq, InteractionResponseRes>({
+    opId: "agents.respondInteraction",
+    method: "POST",
+    path: "/api/agents/:id/interactions/:interactionId/respond",
+    // The same operator-vs-self policy as conversation reset. It allows a
+    // human operator (or a privileged agent with agent:converse) to answer a
+    // reachable agent, while an ordinary agent cannot use its spawning user's
+    // room grants as a confused deputy.
+    auth: cap(["agent:converse", "self:affordance"], conversationReset),
+    emits: ["interaction_removed", "agent_updated", "log_entry", "clear_logs"],
   }),
   // --- Agents - scheduled messages (task 8ff369b5) ---------------------------
   // `:id` is the SENDER here (the outbox being managed) - the deliberate

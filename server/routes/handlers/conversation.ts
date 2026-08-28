@@ -181,6 +181,24 @@ export interface ConversationDeps {
     sessions: SessionInfo[];
     currentSessionId: string | null;
   };
+  respondInteraction(
+    agentId: string,
+    interactionId: string,
+    value: string,
+    username: string | undefined,
+    device: string | undefined,
+  ):
+    | {
+        ok: true;
+        interactionId: string;
+        status: "settled" | "canceled";
+      }
+    | {
+        ok: false;
+        status: 404 | 409 | 422;
+        code: string;
+        message: string;
+      };
 }
 
 // One attachment spec, element-validated. The container check below is not
@@ -231,6 +249,27 @@ export function conversationHandlers(
   deps: ConversationDeps,
 ): Record<string, RouteHandler> {
   return {
+    "agents.respondInteraction": async (ctx) => {
+      const value = (ctx.body as { value?: unknown } | undefined)?.value;
+      if (typeof value !== "string" || value.length === 0) {
+        return fail(422, "invalid_interaction_value", "value is required");
+      }
+      const interactionId = ctx.params.interactionId;
+      if (!interactionId) {
+        return fail(404, "interaction_not_found", "No such interaction.");
+      }
+      const attribution = deps.attributionFor(ctx.identity);
+      const result = deps.respondInteraction(
+        ctx.params.id,
+        interactionId,
+        value,
+        attribution.username,
+        undefined,
+      );
+      return result.ok
+        ? ok({ interactionId: result.interactionId, status: result.status })
+        : fail(result.status, result.code, result.message);
+    },
     "agents.sendMessage": async (ctx) => {
       const b = (ctx.body ?? {}) as Partial<SendMessageReq>;
       // 400 (not 422) on the text checks + the AGENT-branch reasons below mirrors

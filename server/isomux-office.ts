@@ -3122,6 +3122,14 @@ function buildExecutorDeps(
         sessions: agentManager.listSessions(agentId),
         currentSessionId: agentManager.getCurrentSessionId(agentId),
       }),
+      respondInteraction: (agentId, interactionId, value, username, device) =>
+        agentManager.respondToChoiceInteraction(
+          agentId,
+          interactionId,
+          value,
+          username,
+          device,
+        ),
     }),
   );
   // 3d.6a - send-message preconditions (audit-pinned in routes-table.test.ts;
@@ -3691,6 +3699,10 @@ function sendProjectedFullState(
     const projected = projectAgentForSession(session, a, proj);
     if (projected) agents.push(projected);
   }
+  const visibleAgentIds = new Set(agents.map((agent) => agent.id));
+  const interactions = agentManager
+    .getPendingInteractions()
+    .filter((interaction) => visibleAgentIds.has(interaction.agentId));
   // ACL-filtered list of currently-killed agents for the spawn menu's
   // revive chips. Drop entries whose lastRoomId isn't visible to this
   // session - a member shouldn't be able to revive an agent from a
@@ -3709,6 +3721,7 @@ function sendProjectedFullState(
       office: projectOfficeFor(session),
       rooms: proj.rooms,
       killedAgents,
+      interactions,
     }),
   );
   if (options?.replayLogsForVisible) {
@@ -4094,6 +4107,15 @@ function emitAgentEvent(event: AgentEvent): void {
       break;
     case "agent_added":
       liveEmit("agent_added", { agent: event.agent });
+      break;
+    case "interaction_added":
+      liveEmit("interaction_added", { interaction: event.interaction });
+      break;
+    case "interaction_removed":
+      liveEmit("interaction_removed", {
+        interactionId: event.interactionId,
+        agentId: event.agentId,
+      });
       break;
     case "killed_agent_added":
       liveEmit("killed_agent_added", { agent: event.agent });

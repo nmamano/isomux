@@ -2131,6 +2131,7 @@ export function sendInitialState() {
     // The demo doesn't simulate kill/revive - the chip row in the spawn
     // menu just stays empty.
     killedAgents: [],
+    interactions: [],
   });
   shimEmit({ type: "tasks", tasks: s.tasks });
   shimEmit({ type: "cronjobs_state", cronjobs: [...cronjobs], cronjobsPrompt });

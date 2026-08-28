@@ -402,6 +402,7 @@ describe("reducer: reconnect replay window (full_state → log_replay_complete)"
       office: { prompt: null, name: null },
       rooms: [],
       killedAgents: [],
+      interactions: [],
     };
   }
 
@@ -591,6 +592,44 @@ describe("reducer: reconnect replay window (full_state → log_replay_complete)"
     expect(s.hydrationEpoch).toBe(2);
     // Still connected the whole way through - the epoch moved anyway.
     expect(s.connected).toBe(true);
+  });
+});
+
+describe("reducer: structured choice interactions", () => {
+  const interaction = {
+    id: "interaction-1",
+    agentId: "agent-1",
+    kind: "model" as const,
+    title: "Switch model",
+    instruction: "Choose or cancel.",
+    choices: [{ value: "sonnet", label: "Sonnet" }],
+  };
+
+  it("hydrates and applies the add and remove lifecycle", () => {
+    let state = reducer(initialState, {
+      type: "interaction_added",
+      interaction,
+    });
+    expect(state.interactions).toEqual([interaction]);
+    state = reducer(state, {
+      type: "interaction_removed",
+      interactionId: interaction.id,
+      agentId: interaction.agentId,
+    });
+    expect(state.interactions).toEqual([]);
+  });
+
+  it("falls back cleanly when an older server omits interactions", () => {
+    const state = reducer(initialState, {
+      type: "full_state",
+      agents: [],
+      recentCwds: [],
+      office: { prompt: null, name: null },
+      rooms: [],
+      killedAgents: [],
+      interactions: undefined as never,
+    });
+    expect(state.interactions).toEqual([]);
   });
 });
 

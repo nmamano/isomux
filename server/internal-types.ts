@@ -1,5 +1,6 @@
 import type {
   AgentInfo,
+  AgentChoiceInteraction,
   KilledAgentSummary,
   LogEntry,
   PendingPromptKind,
@@ -267,6 +268,9 @@ export interface ManagedAgent {
   pendingModelPick: boolean;
   // /effort two-step state
   pendingEffortPick: boolean;
+  pendingInteraction?: AgentChoiceInteraction | null;
+  pendingInteractionAdded?: AgentChoiceInteraction | null;
+  pendingInteractionRemoved?: { interactionId: string; agentId: string } | null;
   // Auto-mode permission prompt two-step state. Carries the approvalId for
   // routing plus enough to interpret the reply; the backend holds the
   // SDK-side resolver and the rules themselves, applied when session.approve()
@@ -349,6 +353,8 @@ export interface ManagedAgent {
 
 export type AgentEvent =
   | OfficeEvent
+  | { type: "interaction_added"; interaction: AgentChoiceInteraction }
+  | { type: "interaction_removed"; interactionId: string; agentId: string }
   | { type: "log_entry"; entry: LogEntry }
   // Slide Mode: a turn's slide finished generating. Routed to the WS as the
   // `slide_ready` wire event (room-ACL, like log_entry). sessionId is the

@@ -224,7 +224,11 @@ const SPEC_ROUTE_CONTRACT: Record<
       "agent:send-as-cron",
       "api:send-message",
     ],
-    emits: ["log_entry"],
+    emits: ["log_entry", "interaction_added", "agent_updated"],
+  },
+  "agents.respondInteraction": {
+    caps: ["agent:converse", "self:affordance"],
+    emits: ["interaction_removed", "agent_updated", "log_entry", "clear_logs"],
   },
   "agents.editMessage": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.cancelQueued": { caps: ["agent:converse"], emits: [] },

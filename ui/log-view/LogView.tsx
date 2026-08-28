@@ -9,6 +9,7 @@ import {
 } from "react";
 import type {
   AgentInfo,
+  AgentChoiceInteraction,
   AgentState,
   PendingPromptKind,
   LogEntry,
@@ -585,6 +586,127 @@ function HeaderTimer({
   );
 }
 
+function ChoiceInteractionCard({
+  interaction,
+}: {
+  interaction: AgentChoiceInteraction;
+}) {
+  const [submitting, setSubmitting] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function choose(value: string) {
+    if (submitting) return;
+    setSubmitting(value);
+    setError(null);
+    try {
+      await apiFetch(
+        "POST",
+        `/api/agents/${interaction.agentId}/interactions/${interaction.id}/respond`,
+        { value },
+      );
+    } catch {
+      setSubmitting(null);
+      setError("Could not apply that choice.");
+    }
+  }
+
+  return (
+    <section
+      aria-label={interaction.title}
+      style={{
+        margin: "12px 0 16px",
+        padding: 16,
+        border: "1px solid var(--border-strong)",
+        borderRadius: 12,
+        background: "var(--bg-surface)",
+        boxShadow: "0 8px 24px rgba(0, 0, 0, 0.12)",
+      }}
+    >
+      <div
+        style={{
+          color: "var(--text-primary)",
+          fontSize: 14,
+          fontWeight: 650,
+          marginBottom: 10,
+        }}
+      >
+        {interaction.title}
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>
+        {interaction.choices.map((choice) => (
+          <button
+            key={choice.value}
+            type="button"
+            disabled={submitting !== null}
+            aria-current={choice.current ? "true" : undefined}
+            onClick={() => void choose(choice.value)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              width: "100%",
+              minHeight: 42,
+              padding: "9px 12px",
+              border: choice.current
+                ? "1px solid var(--accent)"
+                : "1px solid var(--border)",
+              borderRadius: 9,
+              color: "var(--text-primary)",
+              background: choice.current ? "var(--bg-hover)" : "var(--bg-code)",
+              cursor: submitting ? "wait" : "pointer",
+              textAlign: "left",
+              opacity: submitting && submitting !== choice.value ? 0.55 : 1,
+            }}
+          >
+            <span>
+              <span style={{ display: "block", fontWeight: 600 }}>
+                {choice.label}
+              </span>
+              {choice.description && (
+                <span
+                  style={{
+                    display: "block",
+                    color: "var(--text-secondary)",
+                    fontSize: 12,
+                    marginTop: 2,
+                  }}
+                >
+                  {choice.description}
+                </span>
+              )}
+            </span>
+            {choice.current && (
+              <span
+                style={{ color: "var(--accent)", fontSize: 11, flexShrink: 0 }}
+              >
+                Current
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+      <div
+        style={{
+          color: "var(--text-secondary)",
+          fontSize: 12,
+          marginTop: 10,
+        }}
+      >
+        {interaction.instruction}
+      </div>
+      {error && (
+        <div
+          role="alert"
+          style={{ color: "var(--red)", fontSize: 12, marginTop: 8 }}
+        >
+          {error}
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function LogView({
   agent,
   logs,
@@ -613,7 +735,9 @@ export function LogView({
     sidePanels,
     presences,
     sessionContext,
+    interactions,
   } = useAppState();
+  const interaction = interactions.find((item) => item.agentId === agent.id);
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
   const isTouchPrimary = useMemo(
@@ -1938,7 +2062,7 @@ export function LogView({
                 stateChangedAt={stateChangedAt.get(agent.id)}
               />
             )}
-            {agent.pendingPrompt && (
+            {agent.pendingPrompt && !interaction && (
               <PendingPromptLabel kind={agent.pendingPrompt} />
             )}
             {/* Topic (conversation summary) stacked over cwd (task efdabed3):
@@ -2203,7 +2327,7 @@ export function LogView({
                       stateChangedAt={stateChangedAt.get(agent.id)}
                     />
                   )}
-                  {agent.pendingPrompt && (
+                  {agent.pendingPrompt && !interaction && (
                     <PendingPromptLabel kind={agent.pendingPrompt} />
                   )}
                   <SubscriptionPill
@@ -2399,6 +2523,7 @@ export function LogView({
                   </div>
                 )}
                 {logs.map((entry) => {
+                  if (entry.metadata?.interactionFallback === true) return null;
                   if (groupedChildIds.has(entry.id)) return null;
                   const td = turnData.get(entry.id);
                   const rawToolGroup = rawToolGroupByFirstId.get(entry.id);
@@ -2445,6 +2570,9 @@ export function LogView({
                     </div>
                   );
                 })}
+                {interaction && (
+                  <ChoiceInteractionCard interaction={interaction} />
+                )}
                 <ActivityIndicator
                   state={agent.state}
                   stateChangedAt={stateChangedAt.get(agent.id)}

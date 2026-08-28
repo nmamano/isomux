@@ -1,5 +1,7 @@
 import type {
   AgentBackendType,
+  AgentChoiceInteraction,
+  AgentChoiceInteractionKind,
   AgentInfo,
   AgentOutfit,
   AgentState,
@@ -1517,6 +1519,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       pendingResumeSessions: [],
       pendingModelPick: false,
       pendingEffortPick: false,
+      pendingInteraction: null,
       pendingPermission: null,
       ptySidecar: null,
       ptyBuffer: "",
@@ -2082,6 +2085,102 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       emit(event);
   }
 
+  type SettledChoiceInteraction = {
+    interaction: AgentChoiceInteraction;
+    status: "settled" | "canceled";
+  };
+  const settledChoiceInteractions = new Map<string, SettledChoiceInteraction>();
+
+  function dropSettledChoiceInteractions(agentId: string) {
+    for (const [interactionId, settled] of settledChoiceInteractions) {
+      if (settled.interaction.agentId === agentId) {
+        settledChoiceInteractions.delete(interactionId);
+      }
+    }
+  }
+
+  type ClaimedChoiceInteraction = {
+    interaction: AgentChoiceInteraction;
+    value: string | null;
+  };
+
+  function openChoiceInteraction(
+    agentId: string,
+    kind: AgentChoiceInteractionKind,
+    title: string,
+    instruction: string,
+    choices: AgentChoiceInteraction["choices"],
+  ) {
+    const managed = agents.get(agentId);
+    if (!managed) return;
+    // One retry record per agent is enough: opening a new interaction proves
+    // the previous response is no longer the interaction a client can answer.
+    dropSettledChoiceInteractions(agentId);
+    const interaction: AgentChoiceInteraction = {
+      id: crypto.randomUUID(),
+      agentId,
+      kind,
+      title,
+      instruction,
+      choices,
+    };
+    managed.pendingResume = kind === "resume";
+    managed.pendingModelPick = kind === "model";
+    managed.pendingEffortPick = kind === "effort";
+    managed.pendingInteraction = interaction;
+    managed.pendingInteractionAdded = interaction;
+    // updateState is the one funnel that synchronizes the legacy badge and
+    // publishes the structured lifecycle event.
+    updateState(agentId, managed.info.state);
+  }
+
+  function settleChoiceInteraction(
+    managed: ManagedAgent,
+    interaction: AgentChoiceInteraction,
+    value: string | null,
+  ): ClaimedChoiceInteraction | null {
+    if (managed.pendingInteraction?.id !== interaction.id) {
+      return null;
+    }
+    managed.pendingResume = false;
+    managed.pendingModelPick = false;
+    managed.pendingEffortPick = false;
+    managed.pendingInteraction = null;
+    managed.pendingInteractionRemoved = {
+      interactionId: interaction.id,
+      agentId: interaction.agentId,
+    };
+    settledChoiceInteractions.set(interaction.id, {
+      interaction,
+      status: value === null ? "canceled" : "settled",
+    });
+    // The click and typed paths both settle through updateState, which clears
+    // the compatibility badge and emits removal without an intervening await.
+    updateState(interaction.agentId, managed.info.state);
+    return { interaction, value };
+  }
+
+  function claimTypedChoiceInteraction(
+    managed: ManagedAgent,
+    text: string,
+  ): ClaimedChoiceInteraction | null {
+    const interaction = managed.pendingInteraction;
+    if (!interaction) return null;
+    const num = parseInt(text.trim(), 10);
+    const choice =
+      !isNaN(num) && num >= 1 && num <= interaction.choices.length
+        ? interaction.choices[num - 1]
+        : null;
+    return settleChoiceInteraction(managed, interaction, choice?.value ?? null);
+  }
+
+  function cancelChoiceInteraction(agentId: string) {
+    const managed = agents.get(agentId);
+    const interaction = managed?.pendingInteraction;
+    if (!managed || !interaction) return;
+    settleChoiceInteraction(managed, interaction, null);
+  }
+
   function updateState(agentId: string, state: AgentState) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -2093,6 +2192,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // at waiting_for_response from waiting_for_response is a real change to
     // pendingPrompt even though the state is unchanged.
     syncPendingPrompt(agentId, managed);
+    if (managed.pendingInteractionRemoved) {
+      emit({
+        type: "interaction_removed",
+        ...managed.pendingInteractionRemoved,
+      });
+      managed.pendingInteractionRemoved = null;
+    }
+    if (managed.pendingInteractionAdded) {
+      emit({
+        type: "interaction_added",
+        interaction: managed.pendingInteractionAdded,
+      });
+      managed.pendingInteractionAdded = null;
+    }
     if (state === "thinking" && managed.info.state !== "thinking") {
       managed.thinkingStartedAt = Date.now();
     }
@@ -4696,6 +4809,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       pendingResumeSessions: [],
       pendingModelPick: false,
       pendingEffortPick: false,
+      pendingInteraction: null,
       pendingPermission: null,
       ptySidecar: null,
       ptyBuffer: "",
@@ -4783,6 +4897,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     updateAgent: (agentId, changes) =>
       officeState.updateAgent(agentId, changes),
     beginTurn,
+    openChoiceInteraction,
+    cancelChoiceInteraction,
     emitLoginInstructionsFor: (agentId, managed) =>
       emitLoginInstructions(agentId, agentLoginInstructions(managed)),
     createSession,
@@ -5811,6 +5927,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     opts?: {
       sendNow?: boolean;
       onAccepted?: (result: UserSendAcceptance) => void;
+      claimedChoice?: ClaimedChoiceInteraction;
     },
   ) {
     const managed = agents.get(agentId);
@@ -5824,6 +5941,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return;
     }
 
+    // Claim a menu reply before any await so a click and typed answer cannot
+    // both win while this function yields. A click endpoint supplies the claim
+    // it already made; typed replies claim here. Both paths pass through
+    // settleChoiceInteraction(), the sole state transition from pending. Every
+    // early-return path below must therefore exclude a claimed choice.
+    const claimedChoice =
+      opts?.claimedChoice ?? claimTypedChoiceInteraction(managed, text);
+
     // Route through queue when busy. Multi-step pending flows (permission /
     // resume / model / effort) need the existing path because the user's reply
     // is interpreted as a pick. Slash commands also pass through so /clear,
@@ -5831,7 +5956,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const state = managed.info.state;
     const busy = state === "thinking" || state === "tool_executing";
     const isSlash = text.startsWith("/");
-    if (busy && !inMultiStepFlow(managed) && !isSlash) {
+    if (busy && !claimedChoice && !inMultiStepFlow(managed) && !isSlash) {
       const result = enqueueMessage(agentId, {
         sender: { kind: "user", username, device },
         text,
@@ -5882,11 +6007,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // the path that ends up at the addLogEntry/send block at the bottom of
     // this function.
     const echoEarly =
-      !managed.pendingPermission &&
-      !managed.pendingResume &&
-      !managed.pendingModelPick &&
-      !managed.pendingEffortPick &&
-      !text.startsWith("/");
+      !managed.pendingPermission && !claimedChoice && !text.startsWith("/");
     if (echoEarly) {
       addLogEntry(
         agentId,
@@ -5933,7 +6054,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // resume policy, which for Claude re-throws the missing-file error and would
     // block the user's escape hatch. Normal messages still hit the recovery path
     // below and surface the descriptive error.
-    if (!managed.session && !isSlash) {
+    if (!managed.session && !claimedChoice && !isSlash) {
       // Fall through on success so the message is actually sent on the new
       // session; bail on failure (an error was logged inside the helper).
       if (
@@ -5952,7 +6073,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Runs before slash-command interception by design - any typed slash command
     // while a prompt is pending is consumed as a deny reason, matching the
     // "anything else denies" contract shown to the user.
-    if (managed.pendingPermission) {
+    if (managed.pendingPermission && !claimedChoice) {
       const pending = managed.pendingPermission;
       managed.pendingPermission = null;
       const userMeta = buildUserMeta(username, device);
@@ -6042,18 +6163,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     // Handle /resume two-step: if pendingResume, check if input is a number pick
-    if (managed.pendingResume) {
-      managed.pendingResume = false;
-      const trimmed = text.trim();
-      const num = parseInt(trimmed, 10);
-      if (
-        !isNaN(num) &&
-        num >= 1 &&
-        num <= managed.pendingResumeSessions.length
-      ) {
+    if (claimedChoice?.interaction.kind === "resume") {
+      const picked = managed.pendingResumeSessions.find(
+        (session) => session.sessionId === claimedChoice.value,
+      );
+      if (picked) {
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
-        const picked = managed.pendingResumeSessions[num - 1];
         managed.pendingResumeSessions = [];
         // Resuming a different past session is a context switch; queued
         // messages were addressed to the current session and shouldn't bleed
@@ -6162,14 +6278,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     // Handle /model two-step: if pendingModelPick, check if input is a number pick
-    if (managed.pendingModelPick) {
-      managed.pendingModelPick = false;
-      const trimmed = text.trim();
-      const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && num >= 1 && num <= MODEL_FAMILIES.length) {
+    if (claimedChoice?.interaction.kind === "model") {
+      const picked = MODEL_FAMILIES.find(
+        (model) => model.family === claimedChoice.value,
+      );
+      if (picked) {
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
-        const picked = MODEL_FAMILIES[num - 1];
         const label = familyDisplayLabel(picked.family);
         if (picked.family === managed.info.modelFamily) {
           emitEphemeralLog(agentId, "system", `Already using ${label}.`);
@@ -6218,25 +6333,25 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     // Handle /effort two-step: if pendingEffortPick, check if input is a number pick
-    if (managed.pendingEffortPick) {
-      managed.pendingEffortPick = false;
-      const trimmed = text.trim();
-      const num = parseInt(trimmed, 10);
-      // Same backend/model-filtered list the /effort handler rendered
-      // (command-handlers.ts) - indices must line up. validateEffort below is
-      // belt-and-braces against future drift between the two lists.
+    if (claimedChoice?.interaction.kind === "effort") {
+      // Match the stable effort value against the backend/model-filtered list.
+      // If the available levels changed after the card opened, cancel instead
+      // of selecting a different level by position.
       const effortLevels = effortLevelsFor(
         managed.info.agentType,
         managed.info.modelFamily,
       );
-      if (!isNaN(num) && num >= 1 && num <= effortLevels.length) {
+      const selectedEffort = effortLevels.find(
+        (effort) => effort.level === claimedChoice.value,
+      );
+      if (selectedEffort) {
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
         const picked = {
           level: validateEffort(
             managed.info.agentType,
             managed.info.modelFamily,
-            effortLevels[num - 1].level,
+            selectedEffort.level,
           ),
         };
         const label = effortDisplayLabel(picked.level);
@@ -6374,6 +6489,78 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       addCallerFailureEntry(agentId, managed, err, (raw) => `Error: ${raw}`);
       updateState(agentId, "error");
     }
+  }
+
+  function respondToChoiceInteraction(
+    agentId: string,
+    interactionId: string,
+    value: string,
+    username?: string,
+    device?: string,
+  ):
+    | { ok: true; interactionId: string; status: "settled" | "canceled" }
+    | {
+        ok: false;
+        status: 404 | 409 | 422;
+        code: string;
+        message: string;
+      } {
+    const settled = settledChoiceInteractions.get(interactionId);
+    if (settled?.interaction.agentId === agentId)
+      return { ok: true, interactionId, status: settled.status };
+    const managed = agents.get(agentId);
+    if (!managed) {
+      return {
+        ok: false,
+        status: 404,
+        code: "interaction_not_found",
+        message: "No such interaction.",
+      };
+    }
+    const interaction = managed.pendingInteraction;
+    if (!interaction || interaction.id !== interactionId) {
+      return {
+        ok: false,
+        status: 404,
+        code: "interaction_not_found",
+        message: "No such interaction.",
+      };
+    }
+    const choice = interaction.choices.find((item) => item.value === value);
+    if (!choice) {
+      return {
+        ok: false,
+        status: 422,
+        code: "invalid_interaction_value",
+        message: "That choice is not available.",
+      };
+    }
+    const claimed = settleChoiceInteraction(managed, interaction, value);
+    if (!claimed) {
+      const current = settledChoiceInteractions.get(interactionId);
+      if (current?.interaction.agentId === agentId)
+        return { ok: true, interactionId, status: current.status };
+      return {
+        ok: false,
+        status: 409,
+        code: "interaction_settled",
+        message: "This interaction is already settled.",
+      };
+    }
+    // The HTTP 200 acknowledges settlement. Applying the choice continues on
+    // the normal message path, which reports any later failure in the chat.
+    void sendMessage(agentId, choice.label, username, device, undefined, {
+      claimedChoice: claimed,
+    });
+    return { ok: true, interactionId, status: "settled" };
+  }
+
+  function getPendingInteractions(): AgentChoiceInteraction[] {
+    return [...agents.values()]
+      .map((managed) => managed.pendingInteraction)
+      .filter(
+        (interaction): interaction is AgentChoiceInteraction => !!interaction,
+      );
   }
 
   function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
@@ -6788,6 +6975,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.session = null;
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
     agents.delete(agentId);
+    dropSettledChoiceInteractions(agentId);
     // The agent left the live map; revoke its bearer token (mirrors the mint at
     // spawn/restore). A killed agent has no subprocess and no valid token.
     revokeAgentToken(agentId);
@@ -6957,6 +7145,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Manual rollback avoids re-stamping killedAt - the chip retains
       // its original kill-time order.
       agents.delete(agentId);
+      dropSettledChoiceInteractions(agentId);
       // Revive failed and we're removing the just-installed agent; revoke the
       // token minted in restoreOrReviveAgent so a non-live agent has none.
       revokeAgentToken(agentId);
@@ -7001,10 +7190,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
-    managed.pendingResume = false;
+    cancelChoiceInteraction(agentId);
     managed.pendingResumeSessions = [];
-    managed.pendingModelPick = false;
-    managed.pendingEffortPick = false;
     // /clear is a fresh start; queued messages from the prior context shouldn't
     // bleed into the new conversation.
     if (managed.messageQueue.length > 0) {
@@ -7273,10 +7460,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   async function resume(agentId: string, sessionId: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
-    managed.pendingResume = false;
+    cancelChoiceInteraction(agentId);
     managed.pendingResumeSessions = [];
-    managed.pendingModelPick = false;
-    managed.pendingEffortPick = false;
     persistCurrentSessionTopic(agentId, managed);
     // Captured before the swap: resuming a DIFFERENT session is a conversation
     // switch (reset below); re-resuming the current one continues it (fullness
@@ -8075,6 +8260,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getUsageReportData,
     getManifest,
     pendingPrompt,
+    getPendingInteractions,
     inFlightTurnForLogs,
     getKilledAgentSummaries,
     getKilledAgentSummariesForManager,
@@ -8098,6 +8284,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     cancelQueued,
     sendNow,
     sendMessage,
+    respondToChoiceInteraction,
     abort,
     kill,
     revive,

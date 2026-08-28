@@ -12,6 +12,7 @@ import {
 import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
 import type {
   AgentInfo,
+  AgentChoiceInteraction,
   KilledAgentSummary,
   LogEntry,
   SessionInfo,
@@ -198,6 +199,7 @@ export interface AppState {
   // desc. Server pushes additions/removals via killed_agent_added /
   // killed_agent_removed events as kills and revivals happen.
   killedAgents: KilledAgentSummary[];
+  interactions: AgentChoiceInteraction[];
 }
 
 type Action =
@@ -208,10 +210,13 @@ type Action =
       office: OfficeWire;
       rooms: RoomWire[];
       killedAgents: KilledAgentSummary[];
+      interactions?: AgentChoiceInteraction[];
     }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string; roomId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
+  | { type: "interaction_added"; interaction: AgentChoiceInteraction }
+  | { type: "interaction_removed"; interactionId: string; agentId: string }
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   | { type: "log_entry"; entry: LogEntry }
@@ -459,6 +464,7 @@ export function reducer(state: AppState, action: Action): AppState {
         },
         rooms: action.rooms,
         killedAgents: action.killedAgents,
+        interactions: action.interactions ?? [],
         currentRoomId,
         logs:
           holding && focusedId
@@ -490,6 +496,23 @@ export function reducer(state: AppState, action: Action): AppState {
     }
     case "agent_added":
       return { ...state, agents: [...state.agents, action.agent] };
+    case "interaction_added":
+      return {
+        ...state,
+        interactions: [
+          ...state.interactions.filter(
+            (interaction) => interaction.id !== action.interaction.id,
+          ),
+          action.interaction,
+        ],
+      };
+    case "interaction_removed":
+      return {
+        ...state,
+        interactions: state.interactions.filter(
+          (interaction) => interaction.id !== action.interactionId,
+        ),
+      };
     case "killed_agent_added": {
       // De-dupe in case the server re-emits (defensive) and prepend so the
       // newest kill is left-most in the chip row. Server-side cap (12) is
@@ -534,6 +557,9 @@ export function reducer(state: AppState, action: Action): AppState {
         logsReplay,
         needsAttention,
         sidePanels,
+        interactions: state.interactions.filter(
+          (interaction) => interaction.agentId !== action.agentId,
+        ),
         focusedAgentId:
           state.focusedAgentId === action.agentId ? null : state.focusedAgentId,
       };
@@ -1134,6 +1160,7 @@ export const initialState: AppState = {
   totalOnlineUsers: 0,
   onlineUserIds: [],
   killedAgents: [],
+  interactions: [],
 };
 
 const StateCtx = createContext<AppState>(initialState);

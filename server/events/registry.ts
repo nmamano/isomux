@@ -33,6 +33,7 @@
 import type {
   LogEntry,
   AgentInfo,
+  AgentChoiceInteraction,
   KilledAgentSummary,
   RoomWire,
   SessionContext,
@@ -151,6 +152,8 @@ export interface EventPayloads {
     agentId: string;
     changes: Partial<AgentInfo> & { oldRoomId?: string; newRoomId?: string };
   };
+  interaction_added: { interaction: AgentChoiceInteraction };
+  interaction_removed: { interactionId: string; agentId: string };
   killed_agent_added: { agent: KilledAgentSummary };
   killed_agent_removed: { agentId: string; lastRoomId: string };
   terminal_output: { agentId: string; data: string };
@@ -171,6 +174,7 @@ export interface EventPayloads {
     office: OfficeWire;
     rooms: RoomWire[];
     killedAgents: KilledAgentSummary[];
+    interactions: AgentChoiceInteraction[];
   };
   all_rooms_list: { rooms: RoomWire[] };
   // recipient-scoped per connectionId: each socket gets its OWN dense-remapped
@@ -285,6 +289,17 @@ export const EVENT_REGISTRY = {
       oldPath: ["changes", "oldRoomId"],
       newPath: ["changes", "newRoomId"],
     },
+  },
+  interaction_added: {
+    audience: "room-ACL",
+    projectionKey: {
+      kind: "agentLookup",
+      path: ["interaction", "agentId"],
+    },
+  },
+  interaction_removed: {
+    audience: "room-ACL",
+    projectionKey: { kind: "agentLookup", path: ["agentId"] },
   },
   killed_agent_added: {
     audience: "room-ACL",

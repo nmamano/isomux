@@ -1,6 +1,7 @@
 import type {
   Attachment,
   AgentInfo,
+  AgentChoiceInteractionKind,
   AgentState,
   LogEntry,
   OfficeSettings,
@@ -61,6 +62,17 @@ type HandlerFn = (
   username?: string,
   device?: string,
 ) => Promise<boolean>;
+
+const RESUME_CHOICE_INSTRUCTION =
+  "\nReply with a number to resume, or anything else to cancel.";
+const SWITCH_CHOICE_INSTRUCTION =
+  "\nReply with a number to switch, or anything else to cancel.";
+
+function choiceInstruction(kind: AgentChoiceInteractionKind): string {
+  return kind === "resume"
+    ? RESUME_CHOICE_INSTRUCTION
+    : SWITCH_CHOICE_INSTRUCTION;
+}
 
 function buildMeta(
   username?: string,
@@ -150,6 +162,19 @@ interface HandlerDeps {
   updateState: (agentId: string, state: AgentState) => void;
   updateAgent: (agentId: string, changes: Partial<AgentInfo>) => OfficeEvent[];
   beginTurn: (agentId: string, opts: { humanInput: boolean }) => void;
+  openChoiceInteraction: (
+    agentId: string,
+    kind: AgentChoiceInteractionKind,
+    title: string,
+    instruction: string,
+    choices: {
+      value: string;
+      label: string;
+      description?: string;
+      current?: boolean;
+    }[],
+  ) => void;
+  cancelChoiceInteraction: (agentId: string) => void;
 
   // Login-instructions helper. Wraps agentLoginInstructions + per-backend
   // dispatch in agent-manager so the /login handler can render the same
@@ -221,10 +246,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       // messages into the fresh session.
       try {
         const newSession = deps.createSession(managed);
-        managed.pendingResume = false;
         managed.pendingResumeSessions = [];
-        managed.pendingModelPick = false;
-        managed.pendingEffortPick = false;
+        deps.cancelChoiceInteraction(agentId);
         if (managed.messageQueue.length > 0) {
           managed.messageQueue.length = 0;
           deps.emit({ type: "agent_updated", agentId, changes: { queue: [] } });
@@ -547,12 +570,33 @@ export function createCommandHandling(deps: HandlerDeps) {
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-      lines.push(
-        "\nReply with a number to resume, or anything else to cancel.",
-      );
-      deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
-      managed.pendingResume = true;
+      const instruction = choiceInstruction("resume");
+      lines.push(instruction);
       managed.pendingResumeSessions = pickable;
+      deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
+        interactionFallback: true,
+      });
+      deps.openChoiceInteraction(
+        agentId,
+        "resume",
+        "Resume a conversation",
+        instruction,
+        pickable.map((session) => {
+          const date = new Date(session.lastModified).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+          const cwd = session.cwd ? ` · ${tildifyCwd(session.cwd)}` : "";
+          const branched = session.branched ? " · Branched" : "";
+          return {
+            value: session.sessionId,
+            label: `${session.forked ? "↳ " : ""}${session.topic || `${session.sessionId.slice(0, 8)}...`}`,
+            description: `${date}${cwd}${branched}`,
+          };
+        }),
+      );
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
@@ -570,11 +614,22 @@ export function createCommandHandling(deps: HandlerDeps) {
           m.family === managed.info.modelFamily ? " (current)" : "";
         lines.push(`  ${i + 1}. ${familyDisplayLabel(m.family)}${marker}`);
       }
-      lines.push(
-        "\nReply with a number to switch, or anything else to cancel.",
+      const instruction = choiceInstruction("model");
+      lines.push(instruction);
+      deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
+        interactionFallback: true,
+      });
+      deps.openChoiceInteraction(
+        agentId,
+        "model",
+        "Switch model",
+        instruction,
+        MODEL_FAMILIES.map((model) => ({
+          value: model.family,
+          label: familyDisplayLabel(model.family),
+          current: model.family === managed.info.modelFamily,
+        })),
       );
-      deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
-      managed.pendingModelPick = true;
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
@@ -586,9 +641,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       const lines: string[] = [
         `Switch thinking effort (current: **${currentLabel}**):\n`,
       ];
-      // Backend/model-filtered list. Must stay in lockstep with the numeric
-      // pick handler in agent-manager.ts (pendingEffortPick), which indexes
-      // into the same effortLevelsFor() result.
+      // Backend/model-filtered list. The structured interaction carries each
+      // level id, so a typed number and a card click resolve to the same value.
       const levels = effortLevelsFor(
         managed.info.agentType,
         managed.info.modelFamily,
@@ -598,11 +652,22 @@ export function createCommandHandling(deps: HandlerDeps) {
         const marker = e.level === managed.info.effort ? " (current)" : "";
         lines.push(`  ${i + 1}. ${effortDisplayLabel(e.level)}${marker}`);
       }
-      lines.push(
-        "\nReply with a number to switch, or anything else to cancel.",
+      const instruction = choiceInstruction("effort");
+      lines.push(instruction);
+      deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
+        interactionFallback: true,
+      });
+      deps.openChoiceInteraction(
+        agentId,
+        "effort",
+        "Switch thinking effort",
+        instruction,
+        levels.map((effort) => ({
+          value: effort.level,
+          label: effortDisplayLabel(effort.level),
+          current: effort.level === managed.info.effort,
+        })),
       );
-      deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
-      managed.pendingEffortPick = true;
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },

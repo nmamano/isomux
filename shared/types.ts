@@ -16,6 +16,22 @@ export type AgentState =
 // merely finished its turn sits. See AgentInfo.pendingPrompt.
 export type PendingPromptKind = "permission" | "resume" | "model" | "effort";
 
+export type AgentChoiceInteractionKind = "resume" | "model" | "effort";
+
+export interface AgentChoiceInteraction {
+  id: string;
+  agentId: string;
+  kind: AgentChoiceInteractionKind;
+  title: string;
+  instruction: string;
+  choices: {
+    value: string;
+    label: string;
+    description?: string;
+    current?: boolean;
+  }[];
+}
+
 // Deterministic outfit from name hash
 export interface AgentOutfit {
   hat: "none" | "cap" | "beanie" | "bow" | "headband";
@@ -1340,6 +1356,7 @@ export type ServerMessage =
       // revive chips. Sorted killedAt desc, capped server-side. Empty array
       // for sessions with no killed agents in visible rooms.
       killedAgents: KilledAgentSummary[];
+      interactions?: AgentChoiceInteraction[];
     }
   | { type: "agent_added"; agent: AgentInfo }
   // Carries the agent's pre-removal roomId; delivery is scoped to sessions
@@ -1347,6 +1364,8 @@ export type ServerMessage =
   // so a session outside the room never learns the id existed.
   | { type: "agent_removed"; agentId: string; roomId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
+  | { type: "interaction_added"; interaction: AgentChoiceInteraction }
+  | { type: "interaction_removed"; interactionId: string; agentId: string }
   // Killed-agent chip lifecycle. ACL-filtered server-side: both variants
   // are delivered only to sessions whose visible rooms include the
   // agent's `lastRoomId` (the room it was killed in, captured in the
