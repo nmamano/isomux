@@ -8,9 +8,10 @@
 //     --unit=isomux-opencode-s5-live bun test \
 //     server/backends/opencode/live-certification.test.ts
 //
-// At most three explicit models are accepted. Each model has a 200,000 billed
-// input-plus-output token ceiling and a stated $2 intent. Providers do not
-// report billed dollars during the run, so the test can enforce tokens only.
+// At most three explicit models are accepted. The harness records billed
+// input-plus-output tokens and fails after a response exceeds 200,000; this is
+// not a pre-spend cap. The actual pre-spend bound is one short prompt with a
+// 120-second response wait per model, plus a stated $2-per-model intent.
 
 import { afterAll, describe, expect, it } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
@@ -61,6 +62,8 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
       const connected = new Set(discovered.map((model) => model.id));
       for (const model of requestedModels) {
         expect(connected.has(model)).toBe(true);
+      }
+      for (const model of requestedModels) {
         const session = backend.createSession({
           agentId: `live-${model.replaceAll(/[^a-zA-Z0-9]/g, "-")}`,
           cwd: repo,

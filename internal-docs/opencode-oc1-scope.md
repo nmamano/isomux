@@ -406,11 +406,13 @@ cron sessions, unattended permissions, explicit model selection, and all
 three environment-key creation sites. It cannot rely on a model fallback.
 
 Real-provider certification remains parked when credentials are absent. The
-opt-in harness accepts at most three explicit connected models, enforces
-200,000 input-plus-output tokens per model, and records the stated $2 per-model
-intent without claiming that dollars can be measured during the run. The
-deterministic local gate provider proves the pinned binary contract but is not
-a certified real provider.
+opt-in harness accepts at most three explicit connected models, records billed
+tokens, and fails after a response exceeds 200,000 input-plus-output tokens per
+model. This is not a pre-spend cap. Its pre-spend bound is one short prompt with
+a 120-second response wait per model and a stated $2 per-model intent. The
+harness produces no certification record; the operator records the model ID,
+date, and result by hand. The deterministic local gate provider proves the
+pinned binary contract but is not a certified real provider.
 7. **S6 - unattended run.** Run an OpenCode cronjob with standing allow rules.
    An unexpected permission or question fails visibly instead of parking.
 8. **S7 - release hardening.** Measure real-stream memory, prove update and
@@ -466,11 +468,13 @@ reaped, and a turn that exceeds the timeout remains alive and completes.
 
 Live scripts refuse to run without `ISOMUX_TEST_LIVE=1`. The stated budget is
 $2 or 200,000 billed input-plus-output tokens for an ordinary slice, and $2 per
-model for at most three certification models. The script enforces the token
-limit; the dollar figure is intent because providers do not report billed cost
-during the run. When no credential exists, a slice can commit in the worktree
-after cheap gates, but its acceptance says the real-provider tracer is
-unproved and parks the exact live command for Nil.
+model for at most three certification models. The certification script records
+tokens and fails after a response exceeds the limit; it cannot prevent that
+spend. Its actual pre-spend bound is one short prompt with a 120-second response
+wait per model. The dollar figure is intent because providers do not report
+billed cost during the run. When no credential exists, a slice can commit in
+the worktree after cheap gates, but its acceptance says the real-provider
+tracer is unproved and parks the exact live command for Nil.
 
 Stop immediately for a launch-control bypass, provider data reaching logs or
 the browser, competing processes for one profile, cross-session event/file
