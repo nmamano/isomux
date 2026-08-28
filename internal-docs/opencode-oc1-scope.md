@@ -447,6 +447,39 @@ boundary, not only an update optimization. Raw results are in
    rollback with the pinned binary/profile, scan for secrets, run final
    regression, and update every surface in `documentation.md`.
 
+S7 pins the packaged runtime at three levels: the root alias, the platform
+package selected by the resolver, and every Linux package in `bun.lock` all
+name version `1.18.23` and the locked packages carry integrity values. A fresh
+frozen install completed in a 2 GiB scratch scope on 2026-08-28 and the
+resolved Linux binary reported `1.18.23`. The dated result is in
+`opencode-gate/evidence/s7-release-hardening-results.json`.
+
+Daily backup archives and updater snapshots contain the managed OpenCode
+profile, including provider login state. New partial archives, published
+archives, and updater snapshots are mode `0600`. The partial is reserved at
+that mode before `tar` opens it, so there is no more-readable window during a
+large write. The matching backup verification sidecar was already mode `0600`;
+the archive was the missing restrictive path. No off-box backup copier exists
+in this repository as of 2026-08-28. Existing archives are not changed by the
+code update. Operators should run `chmod 600 ~/isomux-backups/isomux-*.tar.gz`
+and can run `chmod 700 ~/isomux-backups` to tighten the directory.
+
+The automatic committed-artifact credential scan receives its synthetic
+positive control directly, then scans the OC1 fixtures, the S6 evidence, the
+generated login sources, and the server-record sources without an exclusion
+list. The runtime-artifact scanner remains opt-in because normalized streams,
+agent JSONL, cron JSONL, and browser payloads exist only after a run. A green
+automatic scan does not claim that opt-in gate ran.
+
+Real-provider certification and real-stream memory remain parked until Nil
+supplies credentials and starts the dated, budgeted gate. The 2026-08-27
+1/8/16-session figures used a deterministic local provider and show topology,
+not a production memory ceiling. No real-stream ceiling is claimed.
+
+The architecture image has no editable source in this repository. S7 does not
+replace the binary image or keep using its two-backend caption as a current
+architecture claim. A new source asset remains a documentation blocker.
+
 ## Slice gates and rails
 
 Every slice runs focused tests, its deterministic end-to-end path, ESLint on

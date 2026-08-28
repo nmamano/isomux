@@ -1,0 +1,20 @@
+{
+  "date": "2026-08-28",
+  "freshFrozenInstall": {
+    "commandClass": "bun install --frozen-lockfile --ignore-scripts in a scratch directory",
+    "memoryScope": "isomux-oc1-s7-frozen-install, MemoryMax=2G",
+    "exitCode": 0,
+    "resolvedLinuxBinaryVersion": "1.18.23"
+  },
+  "deterministicGates": {
+    "backupProfileRoundTrip": "pass",
+    "updateProfilePreservation": "pass",
+    "rollbackProfileRestoration": "pass",
+    "committedArtifactCredentialScan": "pass with direct positive control"
+  },
+  "parked": {
+    "realProviderCertification": "No credentials supplied",
+    "realProviderStreamMemory": "No credentials supplied",
+    "runtimeArtifactCredentialScan": "Requires a runtime capture"
+  }
+}

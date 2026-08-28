@@ -6,7 +6,7 @@
     <title>Isomux - Agents that act like coworkers</title>
     <meta
       name="description"
-      content="A meta-harness for Claude Code and Codex, where agents act like coworkers, not throwaway sessions."
+      content="A meta-harness for Claude Code, Codex, and OpenCode, where agents act like coworkers, not throwaway sessions."
     />
     <link rel="canonical" href="https://isomux.com/" />
     <script type="application/ld+json">
@@ -14,7 +14,7 @@
         "@context": "https://schema.org",
         "@type": "SoftwareApplication",
         "name": "Isomux",
-        "description": "A meta-harness for Claude Code and Codex, where agents act like coworkers, not throwaway sessions.",
+        "description": "A meta-harness for Claude Code, Codex, and OpenCode, where agents act like coworkers, not throwaway sessions.",
         "url": "https://isomux.com/",
         "applicationCategory": "DeveloperApplication",
         "operatingSystem": "Linux, macOS, Windows",
@@ -38,7 +38,7 @@
     />
     <meta
       property="og:description"
-      content="A meta-harness for Claude Code and Codex, where agents act like coworkers, not throwaway sessions."
+      content="A meta-harness for Claude Code, Codex, and OpenCode, where agents act like coworkers, not throwaway sessions."
     />
     <meta property="og:image" content="https://isomux.com/screenshot.png" />
     <meta property="og:site_name" content="Isomux" />
@@ -52,7 +52,7 @@
     />
     <meta
       name="twitter:description"
-      content="A meta-harness for Claude Code and Codex, where agents act like coworkers, not throwaway sessions."
+      content="A meta-harness for Claude Code, Codex, and OpenCode, where agents act like coworkers, not throwaway sessions."
     />
     <meta name="twitter:image" content="https://isomux.com/screenshot.png" />
 
@@ -876,7 +876,7 @@
         </li>
         <li>
           &hellip;keep being themselves when you switch their provider between
-          Claude and Codex
+          Claude, Codex, and OpenCode
         </li>
         <li>&hellip;track work on a shared board</li>
         <li>
@@ -961,7 +961,7 @@
           <a href="https://nodejs.org/" target="_blank" rel="noopener"
             >Node.js</a
           >
-          20+, and a subscription for at least one provider.
+          20+, and access to at least one supported provider.
         </p>
         <pre>curl -fsSL https://bun.sh/install | bash</pre>
         <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.9rem">
@@ -1013,6 +1013,11 @@ bun run dev</pre
           <li>
             Codex is bundled with isomux. You'll be prompted to log in when you
             talk to a Codex agent.
+          </li>
+          <li>
+            OpenCode is bundled with isomux. Choose a connected model when you
+            create the agent; if its provider needs a key, isomux gives you a
+            profile-specific login command.
           </li>
         </ul>
 

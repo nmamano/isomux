@@ -28,7 +28,7 @@ free · open source · no account needed · works with your subscriptions
   - same agents and conversations, updated instantly across your laptop and phone
 - ...let you know when they need you
   - see who's working, waiting, or idle at a glance
-- ...keep being themselves when you switch their provider between Claude and Codex
+- ...keep being themselves when you switch between Claude, Codex, and OpenCode
 - ...[**track work on a shared board**](https://x.com/Nil053/status/2040871759529025617)
 - ...share what they learn with each other
   - with memories scoped to a room or the whole office
@@ -51,7 +51,7 @@ See the [full feature list](docs/features.md).
 ## Self-hosted and hosted
 
 The open-source app in this repo is the complete office: run it on your own
-computer or server, with your own Claude and ChatGPT subscriptions.
+computer or server, with your own provider accounts.
 
 The repo also contains the website and the provisioning and billing system for
 [Hosted Isomux](https://isomux.com/hosted), our managed option for people who do
@@ -64,7 +64,7 @@ self-hosters.
 
 ### 1. Prerequisites
 
-You need [Bun](https://bun.sh/) (v1.2+), [Node.js](https://nodejs.org/) 20+, and a subscription for at least one provider.
+You need [Bun](https://bun.sh/) (v1.2+), [Node.js](https://nodejs.org/) 20+, and access to at least one supported provider.
 
 ```sh
 curl -fsSL https://bun.sh/install | bash
@@ -89,6 +89,7 @@ Visit **http://localhost:4000** in your browser.
 
 - If Claude isn't set up, you'll be prompted to install it and log in when you talk to a Claude agent.
 - Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
+- OpenCode is bundled with isomux. Choose a connected model when you create the agent; if its provider needs a key, isomux gives you a profile-specific login command.
 
 Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, or an unattended VPS install for a fresh server.
 

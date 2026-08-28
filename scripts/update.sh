@@ -560,7 +560,11 @@ main() {
   phase snapshot
   if [[ -d $STATE_ROOT ]]; then
     SNAPSHOT="$SNAPSHOT_DIR/pre-update-$(json_sanitize "$OLD_DESC")-to-$TARGET_TAG-$(date +%Y%m%d-%H%M%S).tar.gz"
+    # Reserve the archive under the same private posture as its 0700 directory.
+    # tar truncates this existing file without widening its mode.
+    (umask 077; : > "$SNAPSHOT")
     tar -C "$(dirname "$STATE_ROOT")" -czf "$SNAPSHOT" "$(basename "$STATE_ROOT")"
+    chmod 600 "$SNAPSHOT"
     tar -tzf "$SNAPSHOT" >/dev/null
     prune_glob "$SNAPSHOT_DIR" 'pre-update-*.tar.gz' "$SNAPSHOT_KEEP"
     log "state snapshot: $SNAPSHOT"

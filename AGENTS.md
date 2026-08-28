@@ -1,6 +1,6 @@
 # Isomux
 
-Isomux is a meta-harness: it sits one level above Claude Code and Codex and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration, a mobile UI, and more. See the README.md for a full feature overview and setup instructions.
+Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCode and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration, a mobile UI, and more. See the README.md for a full feature overview and setup instructions.
 
 ## How to develop
 
@@ -37,6 +37,7 @@ Run ESLint during development. A good time to do it is right before human review
 - Single Bun process means no caller-controlled CPU-bound work on the main thread. Conversation-log search is the one place that would otherwise break this (caller-supplied regexes plus JSON parsing over every session), so its scan runs in a short-lived child process the parent can SIGKILL - `server/log-search-child.ts`. A Worker was tried first and is NOT sufficient: `terminate()` does not preempt running JavaScript, so a scan with no interruption point cannot be stopped at all. Only a killable process gives a real deadline. The invariant is architectural, not a benchmark: aggregate caller-controlled matching cost is unbounded, belongs off the event loop, and must be stoppable. Measurements live in that module's header and its test, not here.
 - Agent-built apps run as systemd **user** units that isomux generates; `server/app-supervisor.ts` is the only runtime module that manages those units. The registry owns names and ports: both are fixed for an app's whole life, and deleting an app frees both for reuse. A name's hostname is stable across reuse; a separate registration identity binds and retires all server-held sessions, credentials and routes before the name or port becomes free. `server/app-hosts.ts` classifies an incoming Host before URL parsing, authentication, and route dispatch, and diverts an app hostname into its own arm (`app-auth.ts`, `app-proxy.ts`, `app-ws-relay.ts`), which can never reach an office route. `tls-ask.ts` is the certificate-admission route the terminator calls over loopback; it is an office route, refused at the public edge. An app is also an identity: `server/app-tokens.ts` mints it a token whose one capability reaches one route - messaging the agent that registered it. The token store keeps only the hash; the raw value lives in the app's 0600 systemd EnvironmentFile, which is what lets the token survive an isomux restart without bouncing the app.
 - Codex integration uses the App Server, not `@openai/codex-sdk`. App Server is OpenAI's first-class integration for UI clients.
+- OpenCode integration uses the pinned bundled server. One supervised server and profile are shared by agents with the same environment-source identity.
 - React/SVG for rendering. Bun's bundler, no Vite.
 
 ## Project layout

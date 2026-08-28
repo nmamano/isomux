@@ -32,6 +32,7 @@ import {
   readFileSync,
   chmodSync,
   readdirSync,
+  statSync,
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -61,6 +62,10 @@ function sh(cwd: string, cmd: string): string {
   return execSync(cmd, { cwd, stdio: ["ignore", "pipe", "pipe"] })
     .toString()
     .trim();
+}
+
+function statMode(path: string): number {
+  return statSync(path).mode & 0o777;
 }
 
 // Build: origin bare repo with commit c1 (current install) and commit c2
@@ -109,6 +114,11 @@ function buildFixture(opts: {
   const stateRoot = join(base, "state", ".isomux");
   mkdirSync(stateRoot, { recursive: true });
   writeFileSync(join(stateRoot, "users.json"), '{"u1":{"name":"Boss"}}\n');
+  const profile = join(stateRoot, "opencode", "profiles", "shared", "data", "opencode");
+  mkdirSync(profile, { recursive: true });
+  writeFileSync(join(profile, "auth.json"), "PROFILE_AUTH_CANARY_BEFORE\n", {
+    mode: 0o600,
+  });
 
   const snapshotDir = join(base, "snapshots");
   const statusDir = join(base, "status");
@@ -147,6 +157,7 @@ case $1 in
     # restored state root.
     if [[ -n \${MUTATE_STATE_ON_START:-} ]] && ((starts == 1)); then
       echo migrated > "$TEST_STATE_ROOT/migrated-marker"
+      echo PROFILE_AUTH_CANARY_MIGRATED > "$TEST_STATE_ROOT/opencode/profiles/shared/data/opencode/auth.json"
     fi
     ;;
   is-active)
@@ -297,11 +308,26 @@ describe("update.sh happy path", () => {
       f.startsWith("pre-update-"),
     );
     expect(snaps.length).toBe(1);
+    expect(
+      statMode(join(fx.snapshotDir, snaps[0])),
+    ).toBe(0o600);
     const listing = sh(
       fx.snapshotDir,
       `tar -tzf ${join(fx.snapshotDir, snaps[0])}`,
     );
     expect(listing).toContain(".isomux/users.json");
+    expect(listing).toContain(
+      ".isomux/opencode/profiles/shared/data/opencode/auth.json",
+    );
+    expect(
+      readFileSync(
+        join(
+          fx.stateRoot,
+          "opencode/profiles/shared/data/opencode/auth.json",
+        ),
+        "utf8",
+      ),
+    ).toBe("PROFILE_AUTH_CANARY_BEFORE\n");
 
     // Install + build ran for the target.
     const bunOps = stubCalls().filter((l) => l.startsWith("bun"));
@@ -641,6 +667,15 @@ describe("update.sh failure ladders", () => {
     // marker gone.
     expect(existsSync(join(fx.stateRoot, "users.json"))).toBe(true);
     expect(existsSync(join(fx.stateRoot, "migrated-marker"))).toBe(false);
+    expect(
+      readFileSync(
+        join(
+          fx.stateRoot,
+          "opencode/profiles/shared/data/opencode/auth.json",
+        ),
+        "utf8",
+      ),
+    ).toBe("PROFILE_AUTH_CANARY_BEFORE\n");
     // The broken state was preserved for forensics, marker included.
     const broken = readdirSync(fx.snapshotDir).filter((f) =>
       f.startsWith("broken-"),
@@ -649,6 +684,16 @@ describe("update.sh failure ladders", () => {
     expect(existsSync(join(fx.snapshotDir, broken[0], "migrated-marker"))).toBe(
       true,
     );
+    expect(
+      readFileSync(
+        join(
+          fx.snapshotDir,
+          broken[0],
+          "opencode/profiles/shared/data/opencode/auth.json",
+        ),
+        "utf8",
+      ),
+    ).toBe("PROFILE_AUTH_CANARY_MIGRATED\n");
     expect(status().result).toBe("failed");
     // Rolled-back service is up: stop, start (fails ready), stop, start.
     const svcOps = stubCalls().filter((l) => / (stop|start) /.test(l));

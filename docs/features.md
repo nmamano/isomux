@@ -4,12 +4,13 @@ navTitle: Full feature list
 
 # Full feature list
 
-Isomux is a meta-harness: it sits one level above Claude Code and Codex and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration features, a mobile UI, and more.
+Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCode and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration features, a mobile UI, and more.
 
 ## Multi-provider
 
-- **Choose Claude or Codex** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list for an agent mixes Claude and Codex chats.
+- **Choose Claude, Codex, or OpenCode** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list mixes chats from all three engines.
 - **Codex ships bundled** - no separate install. The first time you message a Codex agent, isomux prompts you to sign in via a one-click terminal card. The unattended VPS installer includes the Claude Code CLI; source checkouts still install it separately.
+- **OpenCode ships bundled and pinned**. Choose from models connected to its providers. If a provider needs an API key, isomux gives you a login command for the shared OpenCode profile used by that environment.
 
 ## Multi-agent
 
@@ -118,6 +119,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Manual "Run now"** for any cron job, independent of the schedule.
 - **Agent alerts** - a cron job can message an agent that its creator can see. The message is labeled as coming from the scheduled job, not a person or peer agent.
 - Per cron job token usage rolled into `/isomux-usage` (for owners).
+- OpenCode scheduled runs can read and edit the project and run commands. They cannot ask follow-up questions, hand work to another agent, or use Isomux actions such as messaging agents or posting files.
 
 ### Apps
 

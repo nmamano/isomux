@@ -28,7 +28,8 @@ own agents die with the service they would be restoring.
 - **File name:** `isomux-YYYY-MM-DD.tar.gz`, the local date the run happened.
   A second successful run that day uses `-2`, then `-3`, and so on. A matching
   `.verified.json` marker records the final archive size and modification time.
-  The archive is not a backup unless that marker matches.
+  The archive and its marker are both mode `0600`. The archive is not a backup
+  unless that marker matches.
 - **Retention:** the 7 newest verified archive-marker pairs are kept. Pruning
   happens only after a new archive is fully verified and published. A failed,
   interrupted or invalid archive cannot take a slot or remove a good copy.
@@ -47,6 +48,18 @@ newest verified archive size plus the larger of 25% or 256 MiB. The first run
 needs 2 GiB because there is no prior size. A refusal deletes nothing and the
 hourly retry remains a cheap free-space check. A short write that still occurs
 stays under a hidden partial name and is removed after verification fails.
+
+Archives made before the restrictive archive mode was added can still be more
+widely readable. On an existing installation, the operator should tighten them:
+
+```sh
+chmod 600 ~/isomux-backups/isomux-*.tar.gz
+chmod 700 ~/isomux-backups
+```
+
+The second command is optional when other local users must traverse the backup
+directory. Use the destination reported by `GET /api/backup/status` when it is
+not `~/isomux-backups`.
 
 ### What is in the archive
 
@@ -68,6 +81,7 @@ Two things are silently absent:
   | --------------------------------------------------- | --------------- |
   | Claude, default `~/.claude` (transcripts in `projects/`) | No - outside the state root |
   | Codex, default `<state-root>/codex-home` (rollouts in `sessions/`) | **Yes** |
+  | OpenCode, managed profiles below `<state-root>/opencode/profiles` | **Yes**, including provider login state |
   | Any home redirected out of the state root by a per-user env file (`CLAUDE_CONFIG_DIR=...`, `CODEX_HOME=~/.isomux-users/<name>/.codex`) | No |
   | A `CLAUDE_CONFIG_DIR` pointed *inside* the state root | Yes |
 

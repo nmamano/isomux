@@ -33,8 +33,10 @@ interface Step {
 
 function deps(steps: Step[], availableBytes = 10_000) {
   const calls: string[][] = [];
+  const partialModesBeforeWrite: number[] = [];
   return {
     calls,
+    partialModesBeforeWrite,
     impl: {
       now: () => Date.UTC(2026, 7, 13, 12),
       availableBytes: () => availableBytes,
@@ -44,6 +46,7 @@ function deps(steps: Step[], availableBytes = 10_000) {
         if (!step) throw new Error(`unexpected spawn: ${argv.join(" ")}`);
         if (step.writeArchive) {
           const dest = argv[argv.indexOf("-czf") + 1];
+          partialModesBeforeWrite.push(fs.statSync(dest).mode & 0o777);
           fs.writeFileSync(dest, "complete archive bytes");
         }
         return {
@@ -81,6 +84,10 @@ describe("verified backup publication", () => {
 
     expect(file).toBe("isomux-2026-08-13.tar.gz");
     expect(finals(f.backupDir)).toEqual([file]);
+    expect(d.partialModesBeforeWrite).toEqual([0o600]);
+    expect(
+      fs.statSync(path.join(f.backupDir, file)).mode & 0o777,
+    ).toBe(0o600);
     expect(fs.existsSync(path.join(f.backupDir, `${file}.verified.json`))).toBe(
       true,
     );
@@ -88,6 +95,47 @@ describe("verified backup publication", () => {
       ["tar", "-czf"],
       ["tar", "-tzf"],
     ]);
+  });
+
+  test("round-trips a private OpenCode profile through a private archive", async () => {
+    const f = fixture();
+    const authPath = path.join(
+      f.state,
+      "opencode",
+      "profiles",
+      "shared",
+      "data",
+      "opencode",
+      "auth.json",
+    );
+    fs.mkdirSync(path.dirname(authPath), { recursive: true, mode: 0o700 });
+    fs.writeFileSync(authPath, "PROFILE_AUTH_CANARY\n", { mode: 0o600 });
+    const file = await runBackupOnceForTest(config(f), {
+      now: () => Date.UTC(2026, 7, 13, 12),
+      availableBytes: () => 10_000,
+      spawn: (argv) => Bun.spawn(argv, { stdout: "ignore", stderr: "pipe" }),
+    });
+    const archive = path.join(f.backupDir, file);
+    expect(fs.statSync(archive).mode & 0o777).toBe(0o600);
+
+    const restored = path.join(f.root, "restored");
+    fs.mkdirSync(restored);
+    const extracted = Bun.spawnSync(["tar", "-xzf", archive, "-C", restored]);
+    expect(extracted.exitCode).toBe(0);
+    const restoredAuth = path.join(
+      restored,
+      path.basename(f.state),
+      "opencode",
+      "profiles",
+      "shared",
+      "data",
+      "opencode",
+      "auth.json",
+    );
+    expect(fs.readFileSync(restoredAuth, "utf8")).toBe(
+      "PROFILE_AUTH_CANARY\n",
+    );
+    expect(fs.statSync(restoredAuth).mode & 0o777).toBe(0o600);
   });
 
   test("health is rebuilt from disk and a stale archive is not success", async () => {

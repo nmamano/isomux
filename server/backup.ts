@@ -15,6 +15,7 @@ import { basename, dirname, join } from "path";
 import { homedir } from "os";
 import {
   closeSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   openSync,
@@ -379,6 +380,10 @@ async function runBackup(
   const partial = partialPath(config.backupDir, now);
   const final = allocateFinalPath(config.backupDir, now);
   try {
+    // Reserve the target at its final privacy mode before tar writes. GNU tar
+    // truncates an existing file without changing its mode, so the archive is
+    // never group/world-readable during a long write. Rename preserves it.
+    closeSync(openSync(partial, "wx", 0o600));
     const created = await runTar(
       [
         "tar",
@@ -400,6 +405,7 @@ async function runBackup(
         "[backup] tar exit 1 (file changed during archive; verifying before publication)",
       );
     }
+    chmodSync(partial, 0o600);
     await verifyArchive(partial, deps);
     renameSync(partial, final);
     writeMarker(final);
