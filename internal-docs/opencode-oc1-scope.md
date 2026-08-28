@@ -492,6 +492,8 @@ seconds. The derived holds were 45.3 and 51.0 seconds respectively, so the
 | 8 | 603.0 MiB | 651.1 MiB | 679.1 MiB | 640.3 MiB |
 | 16 | 526.2 MiB | 569.9 MiB | 650.5 MiB | 564.2 MiB |
 
+The table shows one run per level; the N=0 and N=16 repeat ranges follow.
+
 At the barrier, generation had finished and every active session was parked in
 a Bash `sleep`. Core, `memory.current`, and PSS therefore describe parked
 sessions. Only `memory.peak` covers the generation phase as well.
@@ -499,12 +501,23 @@ sessions. Only `memory.peak` covers the generation phase as well.
 All four samples had stable cgroup PID sets, zero swap, and no `high`, `max`,
 OOM, `pgscan`, or `pgsteal` movement. Two added fresh repeats at N=0 measured
 core ranges of 448.3-513.3 MiB; two valid added N=16 repeats produced a combined
-526.2-632.2 MiB range across the three valid N=16 runs. The fixed-level ranges
-are comparable to the difference between levels, so these measurements do not
-resolve a concurrency effect in either direction and establish no per-session
-formula or production ceiling. One additional N=16 attempt aborted before its
-barrier on a provider connection error; it is retained as evidence and excluded
-from the ranges.
+526.2-632.2 MiB range across the three valid N=16 runs. Three valid fresh runs
+at each of N=0 and N=16 separate completely: every N=16 run exceeded every N=0
+run on core, on `memory.current`, and on `memory.peak`, with gaps of 12.9, 33.6,
+and 16.1 MiB. The runs interleaved in time rather than being blocked by level,
+and host MemAvailable held within 19.9-20.0 GiB at loadavg 1.36-2.72, so drift
+does not explain the separation. The direction is therefore established: 16
+concurrent sessions cost more than an idle server. The magnitude is not. The
+N=0 to N=16 core difference averages 92.0 MiB while the fixed-level ranges are
+65.0 MiB at N=0 and 106.0 MiB at N=16, so the uncertainty is comparable to the
+effect and no per-session figure or production ceiling follows. Ordering among
+the active levels is likewise unresolved: the single N=8 core reading of 603.0
+MiB falls inside the N=16 range. With three runs per level, complete separation
+is the strongest available result and carries an exact one-sided probability
+of 1/20 under exchangeability.
+
+One additional N=16 attempt aborted before its barrier on a provider connection
+error; it is retained as evidence and excluded from the ranges.
 
 `memory.current` is the charged total, while the table leads with anon plus
 kernel because file cache is reclaimable. The full cgroup counters, host
