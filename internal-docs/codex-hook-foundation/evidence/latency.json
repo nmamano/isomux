@@ -1,0 +1,25 @@
+{
+  "measuredAt": "2026-08-28T22:22:31.990Z",
+  "codexVersion": "0.144.6",
+  "conditions": {
+    "otherAgentsInFlight": 6,
+    "memoryLimit": "2G",
+    "host": "auntie"
+  },
+  "floor": {
+    "n": 200,
+    "concurrency": 8,
+    "p50Ms": 100.00513300000011,
+    "p95Ms": 187.07675000000017,
+    "p99Ms": 213.3549840000003,
+    "maxMs": 238.41581899999983
+  },
+  "representative": {
+    "n": 200,
+    "concurrency": 8,
+    "p50Ms": 252.3371760000009,
+    "p95Ms": 490.15213999999924,
+    "p99Ms": 602.4603360000001,
+    "maxMs": 649.2408350000005
+  }
+}

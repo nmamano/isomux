@@ -1,0 +1,49 @@
+{
+  "measuredAt": "2026-08-29",
+  "codexVersion": "0.144.6",
+  "measuredBy": "Isomux Reviewer 3",
+  "conditions": {
+    "otherAgentsInFlight": 6,
+    "host": "auntie"
+  },
+  "runs": [
+    {
+      "memoryLimit": "2G",
+      "floor": {
+        "n": 200,
+        "concurrency": 8,
+        "p50Ms": 124,
+        "p95Ms": 535,
+        "p99Ms": 928,
+        "maxMs": 958
+      },
+      "representative": {
+        "n": 200,
+        "concurrency": 8,
+        "p50Ms": 296,
+        "p95Ms": 789,
+        "p99Ms": 993,
+        "maxMs": 1097
+      }
+    },
+    {
+      "memoryLimit": null,
+      "floor": {
+        "n": 200,
+        "concurrency": 8,
+        "p50Ms": 81,
+        "p95Ms": 235,
+        "p99Ms": 337,
+        "maxMs": 384
+      },
+      "representative": {
+        "n": 200,
+        "concurrency": 8,
+        "p50Ms": 308,
+        "p95Ms": 666,
+        "p99Ms": 819,
+        "maxMs": 877
+      }
+    }
+  ]
+}
