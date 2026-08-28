@@ -155,7 +155,7 @@ Invite acceptance persists the invite-consumed flag **before** the session (`acc
 
 ### 5.7 Origin allowlist construction
 
-`buildPublicOrigin` resolves the public origin from the boot-frozen bind decision: when the process started loopback-only (no owner yet, or external access disabled), it forces the `http://localhost:${PORT}` fallback regardless of any configured value, so cookie attributes and origin checks match the actual bind. Otherwise it uses `office-config.json#publicOrigin`, falling back to localhost when unset. The server **never** infers the origin from `Host` or `X-Forwarded-Host` headers, defeating DNS rebinding and Host-header confusion. Malformed values are logged and ignored rather than poisoning the allowlist. The Access pane is the only configuration surface for this value (see "External access and public origin" in `docs/access-and-invites.md`).
+`buildPublicOrigin` resolves the public origin from boot-frozen reachability: before claim or while external access is disabled, it forces the `http://localhost:${PORT}` fallback regardless of any configured value. Otherwise it uses `office-config.json#publicOrigin`, falling back to localhost when unset. The listener bind is a separate boot-frozen decision: `office-config.json#networkBind` can keep it on loopback behind a local proxy without changing cookies, origin checks, invite URLs, or app hostnames. The server **never** infers the origin from `Host` or `X-Forwarded-Host` headers, defeating DNS rebinding and Host-header confusion. Malformed values are logged and ignored rather than poisoning the allowlist. See "External access and public origin" in `docs/access-and-invites.md`.
 
 ### 5.8 WebSocket upgrade gating
 
@@ -243,9 +243,9 @@ Neither endpoint has rate limiting. With 256-bit token entropy this is not an ac
 
 ### 7.2 Localhost fallback is plaintext but bind-confined
 
-The bind decision is coupled to the boot-frozen external-access state: a process serving the localhost fallback also binds `127.0.0.1`, so plaintext cookies never leave the host. A process that needs a public HTTPS origin binds to all interfaces. There is no configuration that produces an externally-bound listener on the localhost fallback.
+The reachability decision keeps a process serving the localhost fallback on `127.0.0.1`, so plaintext cookies never leave the host. A process with a public HTTPS origin can bind either loopback behind a local proxy or all interfaces for direct-port access. There is no configuration that produces an externally-bound listener on the localhost fallback.
 
-If an operator configures `publicOrigin` but disables the _External access_ toggle, the runtime still serves the localhost fallback - the toggle is the gate, and `buildPublicOrigin` returns localhost whenever the bind is loopback so cookie attributes match the actual connection.
+If an operator configures `publicOrigin` but disables the _External access_ toggle, the runtime still serves the localhost fallback - the toggle is the reachability gate, so cookie attributes match the actual connection.
 
 ### 7.3 Log hygiene
 

@@ -426,6 +426,7 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
     expect(loadServerConfig()).toEqual({
       publicOrigin: "https://office.example.com",
       externalAccess: true,
+      networkBind: "auto",
     });
     expect(loadOfficeConfig()).toEqual({
       prompt: "P",
@@ -449,6 +450,7 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
     expect(loadServerConfig()).toEqual({
       publicOrigin: "https://office.example.com",
       externalAccess: false,
+      networkBind: "auto",
     });
   });
 
@@ -470,7 +472,57 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
     expect(loadServerConfig()).toEqual({
       publicOrigin: null,
       externalAccess: null,
+      networkBind: "auto",
     });
+  });
+
+  it("reads networkBind without letting server config saves overwrite it", () => {
+    for (const networkBind of ["auto", "loopback", "all"] as const) {
+      seed("office-config.json", {
+        publicOrigin: "https://office.example.com",
+        externalAccess: true,
+        networkBind,
+      });
+      expect(loadServerConfig().networkBind).toBe(networkBind);
+
+      saveServerConfig({
+        publicOrigin: "https://changed.example.com",
+        externalAccess: false,
+      });
+      expect(
+        JSON.parse(readFileSync(stateFile("office-config.json"), "utf-8"))
+          .networkBind,
+      ).toBe(networkBind);
+    }
+  });
+
+  it("logs and ignores invalid networkBind values", () => {
+    const original = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    try {
+      for (const networkBind of ["loopbak", true, 7, ""]) {
+        seed("office-config.json", { networkBind });
+        expect(loadServerConfig().networkBind).toBe("auto");
+      }
+    } finally {
+      console.error = original;
+    }
+    expect(errors).toHaveLength(4);
+    expect(errors.every((line) => line.includes("networkBind"))).toBe(true);
+  });
+
+  it("treats a null networkBind as a silent unset", () => {
+    seed("office-config.json", { networkBind: null });
+    const original = console.error;
+    const errors: string[] = [];
+    console.error = (...args: unknown[]) => errors.push(args.join(" "));
+    try {
+      expect(loadServerConfig().networkBind).toBe("auto");
+    } finally {
+      console.error = original;
+    }
+    expect(errors).toEqual([]);
   });
 });
 

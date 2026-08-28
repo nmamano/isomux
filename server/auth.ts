@@ -1670,27 +1670,30 @@ function evaluateEnvOrigin(): string | null {
   return normalized;
 }
 
-// Captured once at boot via freezeBootState(). Two predicates derive from
+// Captured once at boot via freezeBootState(). Three predicates derive from
 // the captured values:
 //   isProcessPreClaim()     - true if this process started before any owner
 //                             existed. Drives the SSH -L banner and the
 //                             tokenless name-picker form.
-//   isProcessBoundLoopback() - true if the OS bind is loopback-only (the
-//                             pre-claim case OR the post-claim
-//                             external-access-disabled case). Drives the
-//                             public-origin policy: when bound loopback,
-//                             buildPublicOrigin returns the localhost
-//                             fallback regardless of env/JSON config so
-//                             cookie attributes match the connection.
-// The bind decision is locked at boot; widening the bind requires a
-// restart, so the policy that follows it stays stable for the lifetime
-// of the process even if hasOwner() flips after a successful claim.
+//   isOutsideReachabilityBlocked() - true before claim or while external
+//                             access is disabled. Drives public-origin,
+//                             cookie, invite-URL, and Access-pane policy.
+//   isProcessBoundLoopback() - true when outside reachability is blocked or
+//                             networkBind explicitly selects loopback. Drives
+//                             only the OS listener.
+// Both decisions are locked at boot. A restart applies access or bind changes,
+// and a successful claim cannot change either policy mid-process.
 let bootHadOwner: boolean | null = null;
 let bootExternalAccess: boolean | null = null;
+let bootNetworkBind: "auto" | "loopback" | "all" | null = null;
 
-export function freezeBootState(opts: { externalAccess: boolean }): void {
+export function freezeBootState(opts: {
+  externalAccess: boolean;
+  networkBind: "auto" | "loopback" | "all";
+}): void {
   bootHadOwner = hasOwner();
   bootExternalAccess = opts.externalAccess;
+  bootNetworkBind = opts.networkBind;
 }
 
 // Auto-init safety net: if freezeBootState() wasn't called (e.g. tests
@@ -1700,6 +1703,7 @@ export function freezeBootState(opts: { externalAccess: boolean }): void {
 function ensureBootCaptured(): void {
   if (bootHadOwner === null) bootHadOwner = hasOwner();
   if (bootExternalAccess === null) bootExternalAccess = false;
+  if (bootNetworkBind === null) bootNetworkBind = "loopback";
 }
 
 export function isProcessPreClaim(): boolean {
@@ -1708,6 +1712,10 @@ export function isProcessPreClaim(): boolean {
 }
 
 export function isProcessBoundLoopback(): boolean {
+  return isOutsideReachabilityBlocked() || bootNetworkBind === "loopback";
+}
+
+export function isOutsideReachabilityBlocked(): boolean {
   ensureBootCaptured();
   return bootHadOwner === false || bootExternalAccess !== true;
 }
@@ -1717,15 +1725,15 @@ export function buildPublicOrigin(): {
   isHttps: boolean;
   source: "env" | "config" | "localhost";
 } {
-  // Loopback-only bind (pre-claim, or post-claim with external access off):
-  // the configured public origin can't be reached anyway, and using it here
-  // would mismatch the bind: the cookie's Secure flag would be set
+  // Outside reachability blocked (pre-claim, or external access off): the
+  // configured public origin can't be reached anyway. Using it here would
+  // mismatch the connection: the cookie's Secure flag would be set
   // (configured origin is HTTPS) and the browser would reject the cookie on
   // the actual HTTP loopback connection. Force the localhost fallback so
-  // cookie attributes, allowed-origin checks, and minted URLs all match
-  // the bind. The env/JSON value re-engages on the next process boot
-  // (which is when external access can be turned on and the bind widens).
-  if (isProcessBoundLoopback()) {
+  // cookie attributes, allowed-origin checks, and minted URLs all match the
+  // connection. The env/JSON value re-engages on the next process boot when
+  // external access can be turned on. The listener bind is separate policy.
+  if (isOutsideReachabilityBlocked()) {
     const fallback = loopbackOrigin();
     return { origin: fallback, isHttps: false, source: "localhost" };
   }

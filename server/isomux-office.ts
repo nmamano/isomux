@@ -111,6 +111,7 @@ import {
   emitBrowserSessionDiagnostic,
   evictSessionsForUserId,
   freezeBootState,
+  isOutsideReachabilityBlocked,
   isProcessBoundLoopback,
   isProcessPreClaim,
   INVITE_TTL_MS,
@@ -264,9 +265,8 @@ function bootPrelude(): void {
 
   // Resolve access settings from office-config.json + the deprecated
   // ISOMUX_PUBLIC_ORIGIN env var, write any migration / backfill back to disk,
-  // then lock the boot-time state. Cookie attributes and origin policy are
-  // frozen from this point, so the bind decision can't disagree with the
-  // minted cookies if a claim flips hasOwner() mid-process.
+  // then lock the boot-time state. Cookie/origin policy and listener binding
+  // are frozen independently so a claim cannot change either mid-process.
   {
     let cfg = loadServerConfig();
     const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim();
@@ -327,7 +327,12 @@ function bootPrelude(): void {
     }
 
     setPublicOriginFallback(cfg.publicOrigin);
-    freezeBootState({ externalAccess });
+    freezeBootState({ externalAccess, networkBind: cfg.networkBind });
+    if (cfg.networkBind === "loopback") {
+      console.log(
+        '[network] networkBind="loopback": office listener uses 127.0.0.1. Set networkBind to "all" for direct-port access.',
+      );
+    }
   }
 
   // App hostnames ride the same freeze, and must come after it: they are
@@ -810,7 +815,9 @@ function computeAccessSettings(): AccessSettings {
     publicOrigin: cfg.publicOrigin,
     envOriginSet,
     envOrigin,
-    boundLoopback: isProcessBoundLoopback(),
+    // Kept for wire compatibility: this field reports whether outside access
+    // is blocked, not the listener's raw interface selection.
+    boundLoopback: isOutsideReachabilityBlocked(),
   };
 }
 
@@ -4577,10 +4584,9 @@ Policy: https://github.com/nmamano/isomux/security/policy
 // import.meta.main; tests via the in-process harness on an ephemeral port).
 // Body left at its prior indentation; prettier normalizes post-review.
 function buildServer(startOpts: StartServerOpts): Server<WsData> {
-  // Pre-claim OR post-claim-with-external-access-off, bind loopback only.
-  // External clients can't reach the server at all in either case; the
-  // Access pane's external-access toggle, paired with a restart, opens the
-  // bind to all interfaces.
+  // Pre-claim, external-access-off, or an explicit deployment setting keeps
+  // the office listener on loopback. A local proxy can still provide outside
+  // access without exposing this socket on every interface.
   const BIND_LOOPBACK_ONLY = isProcessBoundLoopback();
 
   return Bun.serve<WsData>({

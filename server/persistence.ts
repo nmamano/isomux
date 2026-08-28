@@ -1041,6 +1041,9 @@ export interface ServerConfig {
   // `ISOMUX_PUBLIC_ORIGIN` env var implies the operator was on a networked
   // install pre-redesign, so externalAccess should effectively be true.
   externalAccess: boolean | null;
+  // Operator/deployment-authored. The server reads this field but never writes
+  // it, so Access-pane saves preserve the deployment's bind choice.
+  networkBind: "auto" | "loopback" | "all";
 }
 
 // Re-read the raw JSON object so save paths can do a read-modify-write that
@@ -1097,7 +1100,22 @@ export function loadServerConfig(): ServerConfig {
       );
     }
   }
-  return { publicOrigin, externalAccess };
+  let networkBind: "auto" | "loopback" | "all" = "auto";
+  if ("networkBind" in raw) {
+    const candidate = raw.networkBind;
+    if (
+      candidate === "auto" ||
+      candidate === "loopback" ||
+      candidate === "all"
+    ) {
+      networkBind = candidate;
+    } else if (candidate !== null) {
+      console.error(
+        '[server-config] networkBind in office-config.json must be "auto", "loopback", or "all"; using auto',
+      );
+    }
+  }
+  return { publicOrigin, externalAccess, networkBind };
 }
 
 // Persist `publicOrigin` and `externalAccess` to office-config.json,
@@ -1105,7 +1123,9 @@ export function loadServerConfig(): ServerConfig {
 // rather than write a value the server would silently drop. externalAccess
 // is plain boolean storage; null means "remove the field" so loadServerConfig
 // returns to the unset state.
-export function saveServerConfig(config: ServerConfig) {
+export function saveServerConfig(
+  config: Pick<ServerConfig, "publicOrigin" | "externalAccess">,
+) {
   let nextOrigin: string | null;
   if (config.publicOrigin === null) {
     nextOrigin = null;

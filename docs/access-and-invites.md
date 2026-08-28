@@ -157,13 +157,14 @@ Post-claim, the **Access pane** in User Settings has an _External access_ sectio
 - **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/VPN.
 - **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://auntie.<your-tailnet>.ts.net`).
 
-Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the restart command: `systemctl --user restart isomux` for a user service, `sudo systemctl restart isomux` for a system one). Restart is intentional: changing the bind interface and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
+Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the restart command: `systemctl --user restart isomux` for a user service, `sudo systemctl restart isomux` for a system one). Restart is intentional: changing the reachability and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
+
+The same file can set `networkBind` to `"loopback"`, `"all"`, or `"auto"`. `"auto"` keeps today's rule: loopback before claim or while external access is off, and all interfaces otherwise. Remove the field to use the same runtime default while allowing the installer or updater to select `"loopback"` when it verifies a local proxy. An explicit `"auto"` opts out of that automatic installer change. The loopback listener uses IPv4 `127.0.0.1`; callers that use `localhost` fall back to it on dual-stack hosts.
 
 The tunnel-setup agent prompts above end at "report the public URL." The final step - telling the running office about that URL - is a paste into the Access pane, so the office's auth-state mutation goes through the same in-process mutex as every other settings change.
 
 The resolved value drives:
 
-- The bind interface (`0.0.0.0` when external access is on; `127.0.0.1` otherwise).
 - The Origin allowlist for WebSocket upgrades.
 - The Origin allowlist for state-changing HTTP requests.
 - Whether the session cookie's `Secure` attribute is set (set on `https://`, omitted on `http://localhost`).

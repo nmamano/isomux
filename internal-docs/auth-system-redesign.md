@@ -14,12 +14,13 @@ Implemented in the `auth-redesign` branch. The pre-implementation analysis (orig
 
 **Lost-session recovery**: `bun run server/index.ts owner-login --name "<owner>"` from a shell on the box prints a 15-minute one-time login URL. The CLI talks to the running server over a Unix-domain socket at `~/.isomux/admin.sock` (mode 0600). Filesystem permissions on the socket are the auth boundary: any UID that can already read the auth files in `~/.isomux/` can connect, so the socket adds no new authority. On a multi-user box where `~/.isomux/` is 0700, only the Isomux service user can mint recovery URLs.
 
-**Boot freeze**: cookie attributes and the public-origin policy are tied to the bind decision, which is captured at boot via `freezeBootState({externalAccess})`. Two predicates derive from the captured state:
+**Boot freeze**: cookie attributes, public-origin policy, and listener binding are captured at boot via `freezeBootState({externalAccess, networkBind})`. Three predicates derive from the captured state:
 
 - `isProcessPreClaim()` - drives the SSH -L banner.
-- `isProcessBoundLoopback()` - drives `buildPublicOrigin()`'s localhost fallback.
+- `isOutsideReachabilityBlocked()` - drives `buildPublicOrigin()`'s localhost fallback.
+- `isProcessBoundLoopback()` - drives the OS listener only.
 
-A successful claim mid-process doesn't change the cookie attributes for the rest of the process; the bind can't widen without a restart, so neither does the policy. This eliminates a class of bug where the very response that issues a new cookie would inherit Secure attributes from a configured (but unreachable) HTTPS public origin and be rejected by the browser on the HTTP loopback connection.
+A successful claim mid-process changes neither policy. This eliminates a class of bug where the response that issues a new cookie would inherit Secure attributes from a configured but unreachable HTTPS public origin and be rejected by the browser on the HTTP loopback connection. A proxy-fronted office can keep its listener on loopback without replacing its HTTPS origin.
 
 **Env var deprecation**: `ISOMUX_PUBLIC_ORIGIN` is honored at boot, then migrated into `office-config.json#publicOrigin` on first observation (with `externalAccess: true` written alongside, preserving the bind for pre-redesign networked installs). A deprecation message asks the operator to remove the env var. The migration is one-shot per upgrade - subsequent boots read the JSON value.
 

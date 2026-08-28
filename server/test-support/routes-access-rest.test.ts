@@ -16,8 +16,11 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { readFileSync, writeFileSync } from "fs";
+import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { loadServerConfig } from "../persistence.ts";
+import { STATE_ROOT } from "../config.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, InviteWire } from "../../shared/types.ts";
 import type { AccessSettings } from "../../shared/contract-shapes.ts";
@@ -97,6 +100,29 @@ async function spawnAgent(
 }
 
 describe("routes/office access REST: getAccess", () => {
+  it("reports outside reachability instead of the proxy-fronted socket bind", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    writeFileSync(
+      join(STATE_ROOT, "office-config.json"),
+      JSON.stringify({
+        externalAccess: true,
+        publicOrigin: "https://office.example",
+        networkBind: "loopback",
+      }),
+    );
+    const restarted = await srv.restart();
+    server = restarted;
+
+    const r = await api(restarted, "/api/office/access", {
+      rawSessionId: owner.rawSessionId,
+    });
+    const access = r.body as AccessSettings;
+    expect(access.externalAccess).toBe(true);
+    expect(access.boundLoopback).toBe(false);
+  });
+
   it("owner -> 200 with all five fields; member/agent -> 403; no identity -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -132,6 +158,28 @@ describe("routes/office access REST: getAccess", () => {
 });
 
 describe("routes/office access REST: setAccess", () => {
+  it("preserves the deployment-authored networkBind setting", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const configPath = join(STATE_ROOT, "office-config.json");
+    writeFileSync(
+      configPath,
+      JSON.stringify({ networkBind: "loopback" }, null, 2),
+    );
+
+    const r = await api(srv, "/api/office/access", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: { externalAccess: true, publicOrigin: "https://office.example" },
+    });
+
+    expect(r.status).toBe(200);
+    expect(JSON.parse(readFileSync(configPath, "utf-8")).networkBind).toBe(
+      "loopback",
+    );
+  });
+
   it("enable: 200 {signInUrl, restartRequired}, persists, mints owner self-invite, fans out invites_list", async () => {
     const srv = await startTestServer();
     server = srv;
