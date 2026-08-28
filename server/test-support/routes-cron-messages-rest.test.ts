@@ -209,13 +209,22 @@ describe("cron-run agent messaging", () => {
 
     const restarted = await srv.restart();
     server = restarted;
+    await waitFor(() =>
+      restarted.agentManager
+        .getAgentLogs(target.id)
+        .some(
+          (entry) =>
+            entry.kind === "user_message" && entry.content === "queued",
+        ),
+    );
     const replayed = restarted.agentManager
-      .getAllAgents()
-      .find((agent) => agent.id === target.id)!.queue[0];
-    expect(replayed.sender).toEqual({
-      kind: "cronjob",
-      cronjobId: owned.id,
-      cronjobName: owned.name,
+      .getAgentLogs(target.id)
+      .find(
+        (entry) => entry.kind === "user_message" && entry.content === "queued",
+      );
+    expect(replayed?.metadata).toMatchObject({
+      sender_cronjob_id: owned.id,
+      sender_cronjob_name: owned.name,
     });
   });
 });

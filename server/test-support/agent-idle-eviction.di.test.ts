@@ -392,7 +392,10 @@ describe("idle eviction - demote / dormant / wake", () => {
   });
 
   it("does NOT demote a Codex agent with no durable rollout (would wake context-less)", async () => {
-    const fake = makeFake();
+    const fake = new FakeBackend({
+      storedSessionState: "missing",
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+    });
     const mgr = makeManager(fake);
     const info = await mgr.spawn(
       "C",
@@ -420,7 +423,7 @@ describe("idle eviction - demote / dormant / wake", () => {
       () => isLiveAndDemotable(mgr, info.id),
       "codex live+demotable",
     );
-    // No durable rollout on disk → pickAutoResumeSessionId returns null → the
+    // No durable rollout in backend state → pickAutoResumeSessionId returns null → the
     // guard refuses to demote (demoting would lose context on wake). This is the
     // entire safety justification for including Codex in the sweep.
     expect(await mgr.demoteToLazy(info.id)).toBe(false);

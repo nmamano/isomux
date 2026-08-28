@@ -605,9 +605,10 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
   it("failed edit-fork rollback does NOT restore the parent snapshot when the parent session wasn't reinstalled (P1)", async () => {
     // The fork installs (snapshot reset to null), the fork TURN fails (onSend
     // throws on the edited text), and the rollback's createSession(PARENT_SID)
-    // fails because the parent file isn't seeded - so managed.session still
-    // points at the (broken) fork. Restoring the parent's committed snapshot
-    // there would mislabel the wrong conversation; the fix keeps it null.
+    // fails because the backend reports the parent session as non-resumable -
+    // so managed.session still points at the (broken) fork. Restoring the
+    // parent's committed snapshot there would mislabel the wrong conversation;
+    // the fix keeps it null.
     const PARENT_SID = "fake-session-1"; // deterministic: first createSession
     const FORK_SID = "forked-rollback-1";
     let mode: number | null = 55;
@@ -649,9 +650,14 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       expect(r.available).toBe(true);
       if (r.available) expect(r.percentage).toBe(55);
 
-      // Seed the FORK file (fork createSession preflight passes) but NOT the
-      // PARENT file (rollback createSession preflight fails).
+      // The backend-owned resumability check rejects the PARENT rollback. The
+      // FORK seed is inert under FakeBackend, which never reads session files;
+      // it is kept only for symmetry with the real-backend tests above.
       seedClaudeFile(claudeHome, mgr.getAgent(info.id)!.cwd, FORK_SID);
+      fake.setSessionResumableError(
+        PARENT_SID,
+        "parent session file is missing",
+      );
       // Live reads now return null so a GET can't refill via the live path.
       mode = null;
 

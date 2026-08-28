@@ -7,6 +7,8 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
@@ -65,12 +67,14 @@ async function spawnAgent(
 }
 
 describe("routes/backends.listModels REST", () => {
-  it("passes stable environment identity and revision into model discovery", async () => {
-    const source = await Bun.file(
-      new URL("../isomux-office.ts", import.meta.url),
-    ).text();
+  it("passes stable environment identity and revision into model discovery", () => {
+    const source = readFileSync(
+      join(import.meta.dir, "../isomux-office.ts"),
+      "utf8",
+    ).replaceAll(/\s/g, "");
+
     expect(source).toMatch(
-      /backend\.listModels\(\{[\s\S]*?cwd: resolveCwd\(input\.cwd\),[\s\S]*?env,[\s\S]*?environmentKey: agentManager\.environmentSourceKeyForUserId\(input\.userId\),[\s\S]*?environmentRevision:[\s\S]*?agentManager\.environmentSourceRevisionForUserId\(input\.userId\),[\s\S]*?includeHidden: input\.includeHidden/,
+      /backend\.listModels\(\{.*?cwd:resolveCwd\(input\.cwd\),.*?env,.*?environmentKey:agentManager\.environmentSourceKeyForUserId\(input\.userId\).*?environmentRevision:agentManager\.environmentSourceRevisionForUserId\(input\.userId,?\).*?includeHidden:input\.includeHidden/,
     );
   });
 
