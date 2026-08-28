@@ -17,7 +17,11 @@ import {
   reconcileAppUrls,
   type AppUrlReconcileDeps,
 } from "./app-url-reconcile.ts";
-import { appUrlEnvDirective } from "./app-supervisor.ts";
+import {
+  appHostEnvDirective,
+  appHostForUrl,
+  appUrlEnvDirective,
+} from "./app-supervisor.ts";
 import { appPublicUrl, deriveAppHostDomain } from "./app-domain.ts";
 import type { AppRecord, AppState } from "../shared/types.ts";
 
@@ -46,8 +50,10 @@ const record = (over: Partial<AppRecord> = {}): AppRecord => ({
 // builder so the fixture cannot drift from what the renderer emits.
 const unitFor = (app: AppRecord, domain: string | null): string => {
   const url = appPublicUrl(app.hostLabel, domain);
+  const host = appHostForUrl(url);
   const lines = ["[Service]", `Environment="PORT=${app.port}"`];
-  if (url !== null) lines.push(appUrlEnvDirective(url));
+  if (url !== null && host !== null)
+    lines.push(appUrlEnvDirective(url), appHostEnvDirective(host));
   return `${lines.join("\n")}\n`;
 };
 
@@ -179,6 +185,73 @@ describe("app-urls: convergence", () => {
     expect(w.calls).toEqual([]);
     expect(report.converged).toEqual([]);
     expect(report.restarted).toEqual([]);
+  });
+
+  it("does not disturb an existing app in an office without app hostnames", () => {
+    const app = record();
+    const w = oneApp({ wrote: null, domain: null });
+    w.units.set(app.name, `[Service]\nEnvironment="PORT=${app.port}"\n`);
+
+    const report = reconcileAppUrls(w.deps);
+
+    expect(w.calls).toEqual([]);
+    expect(report.converged).toEqual([]);
+    expect(report.restarted).toEqual([]);
+  });
+
+  it("adds the loopback bind to an existing hostname app", () => {
+    const app = record();
+    const w = oneApp({ wrote: DOMAIN, domain: DOMAIN });
+    w.units.set(
+      app.name,
+      `[Service]\nEnvironment="PORT=${app.port}"\n${appUrlEnvDirective(
+        appPublicUrl(app.hostLabel, DOMAIN)!,
+      )}\n`,
+    );
+
+    const report = reconcileAppUrls(w.deps);
+
+    expect(w.calls).toEqual(["regenerate:hello"]);
+    expect(w.units.get("hello")).toContain(
+      'Environment="ISOMUX_APP_HOST=127.0.0.1"',
+    );
+    expect(report.converged).toEqual(["hello"]);
+    expect(report.restarted).toEqual([]);
+  });
+
+  it("restarts a running app when its existing bind host changes", () => {
+    const app = record();
+    const w = oneApp({ wrote: DOMAIN, domain: DOMAIN });
+    w.units.set(
+      app.name,
+      `${unitFor(app, DOMAIN).replace(
+        appHostEnvDirective("127.0.0.1"),
+        appHostEnvDirective("192.0.2.1"),
+      )}`,
+    );
+
+    const report = reconcileAppUrls(w.deps);
+
+    expect(w.calls).toEqual(["regenerate:hello", "restart:hello"]);
+    expect(report.converged).toEqual(["hello"]);
+    expect(report.restarted).toEqual(["hello"]);
+  });
+
+  it("restarts a running app when its URL and bind host both drift", () => {
+    const app = record();
+    const w = oneApp({ wrote: "old.example", domain: DOMAIN });
+    w.units.set(
+      app.name,
+      `[Service]\nEnvironment="PORT=${app.port}"\n${appUrlEnvDirective(
+        appPublicUrl(app.hostLabel, "old.example")!,
+      )}\n`,
+    );
+
+    const report = reconcileAppUrls(w.deps);
+
+    expect(w.calls).toEqual(["regenerate:hello", "restart:hello"]);
+    expect(report.converged).toEqual(["hello"]);
+    expect(report.restarted).toEqual(["hello"]);
   });
 
   it("does nothing on the SECOND pass after a real convergence", () => {

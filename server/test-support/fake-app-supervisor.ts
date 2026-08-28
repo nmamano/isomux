@@ -20,6 +20,8 @@
 import {
   AppSupervisorError,
   UNKNOWN_RUNTIME,
+  appHostEnvDirective,
+  appHostForUrl,
   appUrlEnvDirective,
   unitNameFor,
   type AppRuntime,
@@ -92,8 +94,10 @@ export function createFakeAppSupervisor(
   // directive builder so the two can never disagree about the exact bytes.
   const unitText = (app: AppRecord): string => {
     const url = appPublicUrl(app.hostLabel, fake.appHostDomain());
+    const host = appHostForUrl(url);
     const lines = ["[Service]", `Environment="ISOMUX_APP_NAME=${app.name}"`];
-    if (url !== null) lines.push(appUrlEnvDirective(url));
+    if (url !== null && host !== null)
+      lines.push(appUrlEnvDirective(url), appHostEnvDirective(host));
     return `${lines.join("\n")}\n`;
   };
   const fake: FakeAppSupervisor = {

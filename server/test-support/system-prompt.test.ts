@@ -285,6 +285,18 @@ describe("buildSystemPrompt - task-board copy", () => {
   });
 });
 
+describe("buildSystemPrompt - app bind host", () => {
+  it("tells app authors how to bind in both deployment shapes", () => {
+    const p = build();
+    expect(p).toContain(
+      "pass ISOMUX_APP_HOST straight to its listen call as the bind host",
+    );
+    expect(p).toContain(
+      "isomux supplies 127.0.0.1 when it reaches the app over loopback and serves it at a hostname, and when the variable is absent the framework's own default applies",
+    );
+  });
+});
+
 describe("buildSystemPrompt - killed-agent discovery copy", () => {
   // Task 18fded2c: the log route answers for killed agents, so the prompt has to
   // say how their ids are found - the sentence Nil cut in ffb90761 was cut

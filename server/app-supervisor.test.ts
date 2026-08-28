@@ -25,11 +25,13 @@ import { join } from "path";
 import {
   APP_LOG_LINES_MAX,
   AppSupervisorError,
+  appHostEnvDirective,
   appUrlEnvDirective,
   computeAppPath,
   createAppSupervisor,
   createSystemdHost,
   parseSystemctlShow,
+  parseUnitAppHost,
   parseUnitAppUrl,
   renderLauncher,
   renderUnit,
@@ -228,10 +230,45 @@ describe("app-supervisor: unit generation", () => {
       'Environment="ISOMUX_APP_DATA_DIR=/state/apps/data/hello"',
       'Environment="PATH=/p:/q"',
       'Environment="ISOMUX_APP_URL=https://hello.office.example"',
+      'Environment="ISOMUX_APP_HOST=127.0.0.1"',
       'Environment="__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=hello.office.example"',
       // NOT quoted, for the same reason as WorkingDirectory - and the failure
       // mode is worse: a quoted path here is tolerated by the leading "-" and
       // the app silently runs with no token (measured on systemd 255).
+      "EnvironmentFile=-/launchers/hello.env",
+      'ExecStart=/bin/sh "/launchers/hello.sh"',
+      "Restart=on-failure",
+      "RestartSec=2",
+      "TimeoutStopSec=10",
+      "MemoryMax=512M",
+      "CPUQuota=100%",
+      "SyslogIdentifier=isomux-app-hello",
+      "[Install]",
+      "WantedBy=default.target",
+    ]);
+  });
+
+  it("renders no hostname-only directives when the app has no public URL", () => {
+    const unit = renderUnit(record(), {
+      launcherPath: "/launchers/hello.sh",
+      path: "/p:/q",
+      unitName: "isomux-app-hello.service",
+      tokenEnvPath: "/launchers/hello.env",
+      appUrl: null,
+    });
+    expect(directives(unit)).toEqual([
+      "[Unit]",
+      "Description=Isomux app hello",
+      "After=network.target",
+      "StartLimitIntervalSec=60",
+      "StartLimitBurst=5",
+      "[Service]",
+      "Type=simple",
+      "WorkingDirectory=/srv/hello",
+      'Environment="PORT=21000"',
+      'Environment="ISOMUX_APP_NAME=hello"',
+      'Environment="ISOMUX_APP_DATA_DIR=/state/apps/data/hello"',
+      'Environment="PATH=/p:/q"',
       "EnvironmentFile=-/launchers/hello.env",
       'ExecStart=/bin/sh "/launchers/hello.sh"',
       "Restart=on-failure",
@@ -382,6 +419,7 @@ describe("app-supervisor: ISOMUX_APP_URL in the unit", () => {
       with_.filter(
         (d) =>
           !d.includes("ISOMUX_APP_URL") &&
+          !d.includes("ISOMUX_APP_HOST") &&
           !d.includes("__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS"),
       ),
     ).toEqual(without);
@@ -522,6 +560,22 @@ describe("app-supervisor: reading the URL back out of a unit", () => {
     ).toEqual({
       unit: true,
       assignment: 'Environment="A=1" "ISOMUX_APP_URL=https://x.y"',
+    });
+  });
+});
+
+describe("app-supervisor: reading the bind host back out of a unit", () => {
+  const withLine = (line: string) => `[Service]\n${line}\n`;
+
+  it("distinguishes an absent assignment from the canonical loopback one", () => {
+    expect(parseUnitAppHost(withLine('Environment="PORT=21000"'))).toEqual({
+      unit: true,
+      assignment: null,
+    });
+    const line = appHostEnvDirective("127.0.0.1");
+    expect(parseUnitAppHost(withLine(line))).toEqual({
+      unit: true,
+      assignment: line,
     });
   });
 });

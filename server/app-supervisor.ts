@@ -87,6 +87,8 @@ export const APP_TOKEN_ENV_VAR = "ISOMUX_APP_TOKEN";
 // of "am I reachable at a hostname" - an empty value would answer that
 // question wrongly on every dev box.
 export const APP_URL_ENV_VAR = "ISOMUX_APP_URL";
+export const APP_HOST_ENV_VAR = "ISOMUX_APP_HOST";
+export const APP_LOOPBACK_HOST = "127.0.0.1";
 const VITE_ALLOWED_HOST_ENV_VAR = "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS";
 export const APP_CPU_QUOTA = "100%";
 // Only AUTOMATIC restarts wait; an explicit restart through the API does not.
@@ -387,29 +389,37 @@ export const tokenEnvDirective = (tokenEnvPath: string): string =>
 export const appUrlEnvDirective = (url: string): string =>
   `Environment=${unitQuoted(`${APP_URL_ENV_VAR}=${url}`, "the app's public URL")}`;
 
-// What an INSTALLED unit says about the app's URL. Three answers, kept apart on
-// purpose:
+export const appHostForUrl = (appUrl: string | null): string | null =>
+  appUrl === null ? null : APP_LOOPBACK_HOST;
+
+export const appHostEnvDirective = (host: string): string =>
+  `Environment=${unitQuoted(`${APP_HOST_ENV_VAR}=${host}`, "the app's bind host")}`;
+
+// What an INSTALLED unit says about one app environment assignment. Three
+// answers, kept apart on purpose:
 //   - no unit at all             -> { unit: false }
 //   - a unit with no assignment  -> { unit: true, assignment: null }
 //   - a unit that assigns it     -> { unit: true, assignment: "<the line>" }
 //
 // The third case returns the LINE, not a parsed value, and the caller compares
-// it against appUrlEnvDirective(expected). That is what keeps "absent" and
-// "present but empty" from collapsing into each other: `Environment=
-// "ISOMUX_APP_URL="` is an assignment (of the empty string, which is NOT what
-// an absent variable looks like to the app), so it can never compare equal to
-// "no assignment", and it is rewritten like any other wrong value.
+// it against the expected directive. That is what keeps "absent" and "present
+// but empty" from collapsing into each other: an empty assignment is visible
+// to the app, so it can never compare equal to "no assignment" and is rewritten
+// like any other wrong value.
 //
 // LAST assignment wins, which is systemd's own rule for a variable set twice.
 // The recognizer is deliberately broader than what this renderer emits - a
 // hand-written unquoted or multi-assignment line still counts - because the
 // safe direction here is to notice an assignment and rewrite the unit
-// canonically, never to miss one and leave a wrong URL live.
-export type InstalledAppUrl =
+// canonically, never to miss one and leave a wrong value live.
+export type InstalledAppEnvAssignment =
   | { unit: false }
   | { unit: true; assignment: string | null };
 
-export function parseUnitAppUrl(contents: string | null): InstalledAppUrl {
+function parseUnitEnvAssignment(
+  contents: string | null,
+  variable: string,
+): InstalledAppEnvAssignment {
   if (contents === null) return { unit: false };
   let assignment: string | null = null;
   for (const line of contents.split("\n")) {
@@ -418,11 +428,21 @@ export function parseUnitAppUrl(contents: string | null): InstalledAppUrl {
     const rest = trimmed.slice("Environment=".length);
     // A bare start, or one after whitespace or an opening quote: the three
     // places systemd can begin an assignment on this line.
-    if (!new RegExp(`(^|[\\s"])${APP_URL_ENV_VAR}=`).test(rest)) continue;
+    if (!new RegExp(`(^|[\\s"])${variable}=`).test(rest)) continue;
     assignment = trimmed;
   }
   return { unit: true, assignment };
 }
+
+export const parseUnitAppUrl = (
+  contents: string | null,
+): InstalledAppEnvAssignment =>
+  parseUnitEnvAssignment(contents, APP_URL_ENV_VAR);
+
+export const parseUnitAppHost = (
+  contents: string | null,
+): InstalledAppEnvAssignment =>
+  parseUnitEnvAssignment(contents, APP_HOST_ENV_VAR);
 
 export interface UnitRenderOpts {
   launcherPath: string;
@@ -446,6 +466,9 @@ export function renderUnit(app: AppRecord, opts: UnitRenderOpts): string {
   // No URL, no line at all - not an empty one. See APP_URL_ENV_VAR.
   const appUrlLine =
     opts.appUrl === null ? "" : `\n${appUrlEnvDirective(opts.appUrl)}`;
+  const appHost = appHostForUrl(opts.appUrl);
+  const appHostLine =
+    appHost === null ? "" : `\n${appHostEnvDirective(appHost)}`;
   // Vite gives this variable one additional allowed-host slot, not a list.
   // Spend it on the public app hostname; comma-joining a tailnet hostname too
   // would silently make one bogus entry. Other servers ignore this variable.
@@ -474,7 +497,7 @@ WorkingDirectory=${unitPathValue(app.cwd, "the app's working directory")}
 Environment=${unitQuoted(`PORT=${app.port}`, "the app's port")}
 Environment=${unitQuoted(`ISOMUX_APP_NAME=${app.name}`, "the app's name")}
 Environment=${unitQuoted(`ISOMUX_APP_DATA_DIR=${app.dataDir}`, "the app's data directory")}
-Environment=${unitQuoted(`PATH=${opts.path}`, "the app's PATH")}${appUrlLine}${viteAllowedHostLine}
+Environment=${unitQuoted(`PATH=${opts.path}`, "the app's PATH")}${appUrlLine}${appHostLine}${viteAllowedHostLine}
 # The app's isomux token, by reference. The leading "-" makes the file optional:
 # an app that has no token (one registered before tokens existed, or one whose
 # token could not be provisioned) starts normally without ISOMUX_APP_TOKEN set,
