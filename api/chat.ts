@@ -197,7 +197,7 @@ Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry
 - To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/access-and-invites walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety
-- Claude agents can run in bypassPermissions mode with safety hooks as guardrails; Codex agents have no equivalent (Codex 0.130 doesn't expose a programmatic hook surface).
+- Claude agents can run in bypassPermissions mode with safety hooks as guardrails; Codex agents have no equivalent.
 - Codex approvals: when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
 - Built-in pre-tool-use hooks block dangerous commands before they execute (Claude only):
   - Git safety: blocks destructive git commands (\`git reset --hard\`, force push, etc.)
@@ -205,6 +205,7 @@ Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry
   - Config protection: blocks writes to ~/.isomux/ (managed by the server)
   - Secrets protection: blocks reads of .env files, private keys, and credentials
   - Process safety: blocks killing processes created by others
+  - Tunnel safety: blocks recognized commands that open outbound tunnels. It's a guardrail, not complete prevention.
 - The embedded terminal is handy when you need to run a blocked command manually
 
 ### Notifications

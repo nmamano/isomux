@@ -90,7 +90,7 @@ Some features require a **secure context** (HTTPS or localhost):
 
 These work on `localhost` without setup. A public URL via Tailscale Funnel already provides HTTPS. For HTTPS over a private tailnet (no Funnel), enable Tailscale's built-in cert:
 
-Open the [DNS page](https://login.tailscale.com/admin/dns) of your Tailscale admin console. Turn on **MagicDNS** and **HTTPS Certificates**. Then on the server:
+Open the [DNS page](https://login.tailscale.com/admin/dns) of your Tailscale admin console. Turn on **MagicDNS** and **HTTPS Certificates**. Then run these commands yourself on the server. Claude agents refuse recognized tunnel commands.
 
 ```
 sudo tailscale set --operator=$USER

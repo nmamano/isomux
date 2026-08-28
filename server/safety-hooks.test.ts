@@ -61,6 +61,119 @@ async function decide(
 
 const bash = (command: string) => decide("Bash", { command });
 
+describe("outbound-tunnel guard", () => {
+  const denied = [
+    [
+      "cloudflared tunnel --url http://127.0.0.1:4000",
+      "cloudflared tunnel --url",
+    ],
+    [
+      "/home/nil/bin/cloudflared tunnel --url=http://127.0.0.1:4000",
+      "cloudflared tunnel --url",
+    ],
+    [
+      "cloudflared tunnel --config tunnel.yml run office",
+      "cloudflared tunnel run",
+    ],
+    ["ngrok http 4000", "ngrok http"],
+    ["ngrok --log stdout http 4000", "ngrok http"],
+    ["ngrok --config /tmp/n.yml http 4000", "ngrok http"],
+    ["ngrok tcp 22", "ngrok tcp"],
+    ["ngrok tls 443", "ngrok tls"],
+    ["ngrok start office", "ngrok start"],
+    ["ngrok service start", "ngrok service start"],
+    ["ngrok service restart", "ngrok service restart"],
+    ["npx --yes ngrok http 4000", "ngrok http"],
+    [
+      "bunx cloudflared tunnel --url http://127.0.0.1:4000",
+      "cloudflared tunnel --url",
+    ],
+    ["ssh -R 8080:localhost:4000 user@host", "ssh -R remote forwarding"],
+    ["ssh -R 8080 user@host", "ssh -R remote forwarding"],
+    ["ssh -R8080:localhost:4000 user@host", "ssh -R remote forwarding"],
+    ["ssh -fNR 80:localhost:4000 user@host", "ssh -R remote forwarding"],
+    ["ssh -NR 8080:127.0.0.1:4000 user@host", "ssh -R remote forwarding"],
+    ["ssh -o RemoteForward=8080:localhost:4000 user@host", "ssh RemoteForward"],
+    [
+      'ssh -o "RemoteForward 8080 localhost:4000" user@host',
+      "ssh RemoteForward",
+    ],
+    ["ssh -oRemoteForward=8080:localhost:4000 user@host", "ssh RemoteForward"],
+    ["tailscale serve --bg http://localhost:4000", "tailscale serve"],
+    [
+      "tailscale --socket /var/run/tailscale.sock serve --bg http://localhost:4000",
+      "tailscale serve",
+    ],
+    ["tailscale funnel --bg http://localhost:4000", "tailscale funnel"],
+    ["tailscale serve advertise svc:http", "tailscale serve"],
+    ["tailscale serve set-config config.json", "tailscale serve"],
+    [
+      "git clean -n && cloudflared tunnel --url http://127.0.0.1:4000",
+      "cloudflared tunnel --url",
+    ],
+    [
+      "bash -c 'cloudflared tunnel --url http://127.0.0.1:4000'",
+      "cloudflared tunnel --url",
+    ],
+  ] as const;
+
+  for (const [command, form] of denied) {
+    it(`denies ${command}`, async () => {
+      const decision = await bash(command);
+      expect(decision.denied).toBe(true);
+      expect(decision.reason).toContain(
+        `Refused: \`${form}\` (an agent may not open a tunnel).`,
+      );
+      expect(decision.reason).toContain(
+        "This text check covers recognized command forms only; a renamed binary or interpreter can bypass it.",
+      );
+      expect(decision.reason).toContain(`Command: ${command}`);
+      expect(decision.reason).toContain("have them run the command manually");
+    });
+  }
+
+  const allowed = [
+    "cloudflared tunnel list",
+    "cloudflared tunnel info office",
+    "cloudflared tunnel cleanup office",
+    "cloudflared tunnel delete office",
+    "cloudflared tunnel --help",
+    "ngrok config check",
+    "ngrok version",
+    "ngrok service stop",
+    "ssh user@host",
+    "ssh -L 4000:localhost:4000 user@box",
+    "ssh -fNL 4000:localhost:4000 user@box",
+    "ssh user@host ls -R /var/log",
+    "ssh user@host grep -R needle /etc",
+    "ssh -p 22 user@host ls -R /var/log",
+    "ssh -o StrictHostKeyChecking=no user@host grep -R needle /etc",
+    "tailscale serve status",
+    "tailscale funnel status --json",
+    "tailscale serve reset",
+    "tailscale funnel reset",
+    "tailscale serve get-config",
+    "tailscale serve drain svc",
+    "tailscale serve --https=443 off",
+    "tailscale funnel --https=443 http://localhost:4000 off",
+    "cloudflared-helper tunnel --url http://127.0.0.1:4000",
+    "echo 'cloudflared tunnel --url http://127.0.0.1:4000'",
+    "grep -R 'tailscale funnel --bg' docs",
+    "awk 'BEGIN { print \"ngrok http 4000\" }' README.md",
+    [
+      "jq -Rs '{text: .}' <<'EOF'",
+      "cloudflared tunnel --url http://127.0.0.1:4000",
+      "EOF",
+    ].join("\n"),
+  ];
+
+  for (const command of allowed) {
+    it(`allows ${command.split("\n")[0]}`, async () => {
+      expect((await bash(command)).denied).toBe(false);
+    });
+  }
+});
+
 describe("process-kill guard", () => {
   describe("denies name-pattern kills", () => {
     const denied = [

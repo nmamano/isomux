@@ -106,13 +106,15 @@ Steps:
    one pointing at isomux (default localhost:4000), list each by
    name and target. Stop and ask before continuing. For each
    extra mapping I need to choose one of: (a) confirm it's safe
-   to expose publicly, (b) move it to a different port and
-   update the Serve config, or (c) remove it. If moving to a
+   to expose publicly, (b) move it to a different port and update
+   the Serve config yourself, since Claude agents refuse recognized
+   tunnel commands, or (c) remove it. If moving to a
    different port, prefer a port outside Tailscale's
    Funnel-eligible list (avoid 443, 8443, 10000) so a future
    Funnel command can't accidentally expose it.
 
-5. Once port 443 carries only the isomux mapping, run:
+5. Once port 443 carries only the isomux mapping, ask me to run this command
+   myself, because Claude agents refuse recognized tunnel commands:
    `tailscale funnel --bg http://localhost:4000`
 
 6. Capture the public URL from `tailscale funnel status --json`

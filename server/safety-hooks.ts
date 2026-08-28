@@ -1,13 +1,14 @@
 /**
  * Safety hooks for isomux agents.
  *
- * Injected as PreToolUse hooks into every agent's SDK session. Five concerns:
+ * Injected as PreToolUse hooks into every agent's SDK session. Six concerns:
  *
  *   1. Git safety - block destructive git commands (checkout --, reset --hard, etc.)
  *   2. Filesystem safety - block rm -rf and similar
  *   3. Isomux config protection - block all writes to ~/.isomux/
  *   4. Secrets protection - block reads of .env, private keys, credentials, etc.
- *   5. Process safety - block killing processes by name pattern (pkill/killall)
+ *   5. Network safety - block recognized outbound tunnel launch commands
+ *   6. Process safety - block killing processes by name pattern (pkill/killall)
  *
  * Read operations on ~/.isomux/ are always allowed (agents need discovery/logs).
  */
@@ -801,6 +802,137 @@ function bashSensitiveReadTarget(command: string): string | null {
   return null;
 }
 
+// ---------------------------------------------------------------------------
+// 5. Outbound tunnel safety
+//
+// This is deliberately a text tripwire, not complete enforcement. It inspects
+// parsed command words so quoted prose, heredoc data, and ordinary arguments do
+// not trigger it. A renamed binary, a non-shell interpreter, a package runner
+// other than the direct npx/bunx forms below, or an indirect service start can
+// still bypass it.
+// ---------------------------------------------------------------------------
+
+type TunnelMatch = { form: string };
+
+function cloudflaredTunnel(cmd: EffectiveCommand): TunnelMatch | null {
+  if (cmd.name !== "cloudflared") return null;
+  const tunnel = cmd.args.findIndex((arg) => arg.text === "tunnel");
+  if (tunnel === -1) return null;
+  const rest = cmd.args.slice(tunnel + 1).map((arg) => arg.text);
+  if (rest.some((arg) => arg === "--url" || arg.startsWith("--url=")))
+    return { form: "cloudflared tunnel --url" };
+  if (rest.includes("run")) return { form: "cloudflared tunnel run" };
+  return null;
+}
+
+function firstOperandIndex(
+  cmd: EffectiveCommand,
+  grammar: FlagGrammar,
+): number {
+  for (let i = 0; i < cmd.args.length; i++) {
+    const arg = cmd.args[i].text;
+    if (arg === "--") return i + 1;
+    if (!arg.startsWith("-") || arg === "-") return i;
+    if (classifyFlag(arg, grammar) === "value") i++;
+  }
+  return -1;
+}
+
+function ngrokTunnel(cmd: EffectiveCommand): TunnelMatch | null {
+  if (cmd.name !== "ngrok") return null;
+  const index = firstOperandIndex(cmd, NGROK_FLAGS);
+  const subcommand = cmd.args[index]?.text;
+  if (["http", "tcp", "tls", "start"].includes(subcommand ?? ""))
+    return { form: `ngrok ${subcommand}` };
+  if (
+    subcommand === "service" &&
+    ["start", "restart"].includes(cmd.args[index + 1]?.text ?? "")
+  )
+    return { form: `ngrok service ${cmd.args[index + 1].text}` };
+  return null;
+}
+
+function looksLikeRemoteForward(value: string | undefined): boolean {
+  const listen = value?.trim().split(/\s+/, 1)[0];
+  return listen !== undefined && (/^\d+$/.test(listen) || listen.includes(":"));
+}
+
+function sshRemoteForward(cmd: EffectiveCommand): TunnelMatch | null {
+  if (cmd.name !== "ssh") return null;
+  for (let i = 0; i < cmd.args.length; i++) {
+    const arg = cmd.args[i].text;
+    if (arg === "--") return null;
+    if (!arg.startsWith("-") || arg === "-") return null;
+
+    if (arg === "-o") {
+      const option = cmd.args[i + 1]?.text ?? "";
+      const spec = /^RemoteForward(?:=|\s+)(.+)$/i.exec(option)?.[1];
+      if (looksLikeRemoteForward(spec)) return { form: "ssh RemoteForward" };
+    } else {
+      const option = /^-oRemoteForward(?:=|\s+)(.+)$/i.exec(arg)?.[1];
+      if (looksLikeRemoteForward(option)) return { form: "ssh RemoteForward" };
+    }
+
+    const remote = /^-([A-Za-z0-9]*)R(.*)$/.exec(arg);
+    if (
+      remote &&
+      [...remote[1]].every((flag) => SSH_FLAGS.boolean.has(`-${flag}`))
+    ) {
+      const spec = remote[2] || cmd.args[i + 1]?.text;
+      if (looksLikeRemoteForward(spec))
+        return { form: "ssh -R remote forwarding" };
+    }
+
+    if (classifyFlag(arg, SSH_FLAGS) === "value") i++;
+  }
+  return null;
+}
+
+const TAILSCALE_READ_OR_CLOSE = new Set([
+  "status",
+  "reset",
+  "get-config",
+  "drain",
+]);
+
+function tailscaleTunnel(cmd: EffectiveCommand): TunnelMatch | null {
+  if (cmd.name !== "tailscale") return null;
+  const index = firstOperandIndex(cmd, TAILSCALE_FLAGS);
+  const kind = cmd.args[index]?.text;
+  if (kind !== "funnel" && kind !== "serve") return null;
+  const rest = cmd.args.slice(index + 1).map((arg) => arg.text);
+  if (rest.length === 0 || rest.includes("--help") || rest.includes("-h"))
+    return null;
+  if (TAILSCALE_READ_OR_CLOSE.has(rest[0]) || rest.at(-1) === "off")
+    return null;
+  return { form: `tailscale ${kind}` };
+}
+
+function directPackageRunnerCommand(
+  cmd: EffectiveCommand,
+): EffectiveCommand | null {
+  if (cmd.name !== "npx" && cmd.name !== "bunx") return null;
+  let i = 0;
+  while (["-y", "--yes", "--no-install"].includes(cmd.args[i]?.text ?? "")) i++;
+  const name = cmd.args[i]?.text;
+  if (name !== "cloudflared" && name !== "ngrok") return null;
+  return { name, args: cmd.args.slice(i + 1) };
+}
+
+/** The first recognized command form that opens an outbound tunnel. */
+function checkOutboundTunnel(command: string): TunnelMatch | null {
+  for (const parsed of collectCommands(command)) {
+    const cmd = directPackageRunnerCommand(parsed) ?? parsed;
+    const match =
+      cloudflaredTunnel(cmd) ??
+      ngrokTunnel(cmd) ??
+      sshRemoteForward(cmd) ??
+      tailscaleTunnel(cmd);
+    if (match) return match;
+  }
+  return null;
+}
+
 /** Suffixes that indicate a template/example file, not real secrets */
 const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
 
@@ -828,7 +960,7 @@ function denySecretRead(target: string, tool: string): HookJSONOutput {
 }
 
 // ---------------------------------------------------------------------------
-// 5. Process safety - block killing processes by name pattern
+// 6. Process safety - block killing processes by name pattern
 //
 // Every agent backend on the box runs under a generic command line (`bun`,
 // `node`, `claude`). A pattern aimed at one project's dev server therefore
@@ -1005,6 +1137,71 @@ const WRAPPER_FLAGS: Record<string, FlagGrammar> = {
   command: { value: new Set(), boolean: new Set(["-p", "-v", "-V"]) },
   exec: { value: new Set(["-a"]), boolean: new Set(["-c", "-l"]) },
   nohup: { value: new Set(), boolean: new Set() },
+};
+
+// These grammars delimit each binary's own options from its first operand.
+// They are local to the tunnel guard and do not make the binaries wrappers for
+// the process-kill parser.
+const NGROK_FLAGS: FlagGrammar = {
+  value: new Set(["--config", "--log", "--log-format", "--log-level"]),
+  boolean: new Set(["--help", "--version"]),
+};
+
+const TAILSCALE_FLAGS: FlagGrammar = {
+  value: new Set(["--socket", "--timeout"]),
+  boolean: new Set(),
+};
+
+const SSH_FLAGS: FlagGrammar = {
+  value: new Set([
+    "-B",
+    "-b",
+    "-c",
+    "-D",
+    "-E",
+    "-e",
+    "-F",
+    "-I",
+    "-i",
+    "-J",
+    "-L",
+    "-l",
+    "-m",
+    "-O",
+    "-o",
+    "-P",
+    "-p",
+    "-Q",
+    "-R",
+    "-S",
+    "-W",
+    "-w",
+  ]),
+  boolean: new Set([
+    "-4",
+    "-6",
+    "-A",
+    "-a",
+    "-C",
+    "-f",
+    "-G",
+    "-g",
+    "-K",
+    "-k",
+    "-M",
+    "-N",
+    "-n",
+    "-q",
+    "-s",
+    "-T",
+    "-t",
+    "-V",
+    "-v",
+    "-X",
+    "-x",
+    "-Y",
+    "-y",
+  ]),
 };
 
 // Shells: `-c`'s value is the payload. shellPayloads() reads it separately, so
@@ -1546,6 +1743,18 @@ const checkBashSafety: HookCallback = async (input) => {
   // reach command position), which the blanket stripping above would defeat.
   const killReason = checkProcessKill(command);
   if (killReason) return denyMessage(killReason, command);
+
+  // This must stay before SAFE_PATTERNS. That legacy allowlist returns for the
+  // whole shell line when any safe fragment matches.
+  const tunnel = checkOutboundTunnel(command);
+  if (tunnel) {
+    return denyMessage(
+      `Refused: \`${tunnel.form}\` (an agent may not open a tunnel). ` +
+        `This text check covers recognized command forms only; a renamed binary ` +
+        `or interpreter can bypass it.`,
+      command,
+    );
+  }
 
   // Check sensitive file reads via shell commands (cat .env, grep KEY .env,
   // sed -n 1p id_rsa, ...). Runs on the RAW command, not `normalized`: the
