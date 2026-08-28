@@ -90,7 +90,7 @@ const TRAILING_NOTICE_BLOCK = new RegExp(
  *  carried attachments.
  *
  *  Attachments ride as their own text block after the user's text block (see
- *  buildClaudeUserMessage / buildCodexUserInput), and both backends'
+ *  buildClaudeUserMessage / buildCodexUserInput), and all three backends'
  *  getSessionMessages flatten content blocks by concatenation with NO
  *  separator. So a transcript entry reads
  *  `[Nil] here's the screenshot[Attachment: "image.png" (image/png, 527.0 KB)

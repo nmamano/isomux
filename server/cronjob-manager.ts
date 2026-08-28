@@ -5,8 +5,8 @@
 // in flight for the same cronjob, write a "skipped" row instead of firing.
 // Manual "Run now" bypasses the overlap rule.
 //
-// Each fire creates a fresh backend session (Claude or Codex, per the
-// cronjob's agentType), sends the prompt as the first user message,
+// Each fire creates a fresh session for the cronjob's selected backend, sends
+// the prompt as the first user message,
 // consumes the normalized event stream, and broadcasts log entries to the
 // UI via the existing event bus. The synthetic "stream id" used for log
 // routing is `cronjobRunStreamId(runId)` - this is also the agentId passed
@@ -1742,10 +1742,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
   // the new leaf and sends the edited text.
   //
   // The matching strategy (content + occurrence-index) operates on the
-  // backend-agnostic NormalizedMessage list so Claude and Codex transcripts
-  // look identical to this layer. Per-backend fork mechanics
-  // (Claude: SDK forkSession at predecessor; Codex: thread/fork +
-  // thread/rollback) hide behind backend.forkSessionBeforeMessage.
+  // backend-agnostic NormalizedMessage list so all three transcript shapes
+  // look identical to this layer. Per-backend fork mechanics (Claude: SDK
+  // forkSession at predecessor; Codex: thread/fork + thread/rollback;
+  // OpenCode: HTTP session fork) hide behind backend.forkSessionBeforeMessage.
   async function editRunMessage(
     jobId: string,
     runId: string,
@@ -1840,7 +1840,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
     // 2. Match the target to a position in the backend session's message list.
     //    Uses NormalizedMessage (role + text + uuid) so the matching is engine-
-    //    agnostic - Claude and Codex both surface user turns identically here.
+    //    agnostic - all three backends surface user turns identically here.
     let sessionMessages: Awaited<ReturnType<typeof backend.getSessionMessages>>;
     try {
       sessionMessages = await backend.getSessionMessages(

@@ -76,7 +76,7 @@ That is the full hands-free loop, already built, for Codex agents only. Claude C
 
 ## 5. Recommendation
 
-Build the loop ourselves in the browser, because it must work for both engines:
+Build the loop ourselves in the browser, because it must work for every backend:
 
 1. Auto-speak the streaming reply, sentence by sentence, through a server TTS proxy. This alone fixes the complaint about voice quality and removes most of the clicking.
 2. Add VAD endpointing and auto-send.

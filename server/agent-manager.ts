@@ -1098,16 +1098,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         topic: a.info.topic,
         cwd: a.info.cwd,
         modelFamily: a.info.modelFamily,
-        // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL,
-        // for Codex agents the value itself IS the codex model id (e.g. "gpt-5.5").
+        // Concrete model id: Claude families resolve via FAMILY_TO_MODEL;
+        // Codex and OpenCode already store their concrete model ids.
         model: isClaudeFamily(a.info.modelFamily)
           ? FAMILY_TO_MODEL[a.info.modelFamily]
           : a.info.modelFamily,
         effort: a.info.effort,
         permissionMode: a.info.permissionMode,
-        // Keep agentType out of this compact discovery shape: Claude and Codex
-        // permission enums are disjoint, so permissionMode already identifies
-        // which engine owns the adjacent sandbox field.
+        // Keep agentType out of the established compact discovery contract.
+        // The adjacent sandbox field remains Codex-only state.
         sandbox: a.info.codexSandbox ?? null,
         username: a.info.username,
       };
@@ -2888,7 +2887,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Fire-and-forget refresh, initiated from the (synchronous) normalized-event
-  // handler at turn boundaries (both engines) and on Codex's cumulative-usage
+  // handler at turn boundaries (all backends) and on Codex's cumulative-usage
   // notifications (a free cache read - freshness bonus, not a timing
   // guarantee). Claude pays one control-request RPC per turn_completed. The
   // capture-then-commit protocol makes the async resolution safe against
@@ -3361,9 +3360,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           });
         }
         // metadata.subagent marks a call the agent's SUBAGENT made rather than
-        // the agent itself - set by both backends (Claude: Agent/Task tool;
-        // Codex: collab child threads, task 245ce74c). Absent for the agent's
-        // own calls and for every entry written before this field existed.
+        // the agent itself - set by the backends that expose subagents (Claude:
+        // Agent/Task tool; Codex: collab child threads, task 245ce74c). Absent
+        // for the agent's own calls and for older entries.
         addLogEntry(agentId, "tool_call", ev.name, {
           toolId: ev.toolUseId,
           input: ev.input,
@@ -3417,7 +3416,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             );
           }
         }
-        // Context-fullness sample at the turn boundary (both engines, any turn
+        // Context-fullness sample at the turn boundary (all backends, any turn
         // status - the backend reading reflects whatever actually landed in
         // the transcript). Fire-and-forget: pendingTurn below still resolves
         // synchronously, so turn semantics don't change; the commit protocol
@@ -4744,7 +4743,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     // Server-side validation. Anything outside the backend's allowlist falls
     // back to a safe default; the wire shapes are permissive (union types over
-    // both backends), so a stale UI or hand-crafted client can't pin us to an
+    // all backend modes), so a stale UI or hand-crafted client can't pin us to an
     // invalid mode/model/effort. NOTE: the REST spawn dep (isomux-office.ts) rejects a
     // mismatched modelFamily with 422 invalid_model_family BEFORE this runs -
     // the coercion here is a last-resort default for internal callers (welcome

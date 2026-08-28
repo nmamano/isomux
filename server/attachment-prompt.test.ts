@@ -190,7 +190,7 @@ describe("quoteOneLine", () => {
 
 // Regression for task 1a3a0820: editing a message that carried attachments
 // failed with "Cannot edit: could not locate message in backend session."
-// Attachments ride as a second content block, and both backends'
+// Attachments ride as a second content block, and all three backends'
 // getSessionMessages flatten content blocks by concatenation with no
 // separator, so the transcript text is `<user text><notice block>` while the
 // isomux log entry only holds `<user text>`. agent-manager's editMessage

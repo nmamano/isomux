@@ -48,8 +48,9 @@ function EditIcon() {
 
 /**
  * Subagent origin of a tool_call / tool_result row, when the agent's SUBAGENT
- * made the call rather than the agent itself. Written by both backends (see
- * SubagentOrigin); absent on the agent's own calls and on older entries.
+ * made the call rather than the agent itself. Written by backends that expose
+ * subagents (see SubagentOrigin); absent on the agent's own calls and on older
+ * entries.
  */
 function subagentOf(entry: LogEntry): SubagentOrigin | undefined {
   const origin = entry.metadata?.subagent as SubagentOrigin | undefined;

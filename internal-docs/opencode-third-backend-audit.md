@@ -57,22 +57,22 @@ agents. This audit adds no invented OpenCode character styling.
 ## Prose sweep
 
 The code was three-backend aware in the deliberate branches above, but prose
-still contains old two-backend language.
+still contained old two-backend language.
 
-Two user-visible strings require Nil's copy decision:
+Nil approved two user-visible replacements:
 
-- `api/chat.ts` says plugins work "across Claude and Codex agents."
-- `ui/demo-entry.tsx` says "To connect real Claude and Codex agents."
+- `api/chat.ts` now says plugins add behavior "across agents."
+- `ui/demo-entry.tsx` now says "To connect real agents."
 
-Internal comments with the same stale assumption remain in
+Internal comments with the same stale assumption were corrected in
 `server/cronjob-manager.ts`, `server/agent-manager.ts`,
 `server/attachment-prompt.ts`, `shared/types.ts`,
 `ui/log-view/LogEntryCard.tsx`, and
-`internal-docs/context-fullness-visibility.md`. They do not change runtime
-behavior, but a later documentation pass should replace "both backends" or
-"both engines" only where the statement now applies to all three. The
-Postgres-engine references in `control-plane/roles.ts` and
-`control-plane/ssh.ts` are unrelated and must not be changed.
+`internal-docs/context-fullness-visibility.md`. Matching test and internal
+testing/voice documentation comments were corrected at the same time, after
+Nil approved the two customer-facing updates. The Postgres-engine references in
+`control-plane/roles.ts` and `control-plane/ssh.ts` are unrelated and were not
+changed.
 
 ## Gates
 

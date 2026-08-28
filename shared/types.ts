@@ -79,7 +79,7 @@ export type CodexSandboxMode =
   | "workspace-write"
   | "danger-full-access";
 
-// Union of both backends' permission/approval modes. UI uses agentType to
+// Union of all backend permission/approval modes. UI uses agentType to
 // pick which set is valid.
 export type AgentPermissionMode = ClaudePermissionMode | CodexApprovalPolicy;
 
@@ -409,14 +409,13 @@ export interface AgentInfo {
   outfit: AgentOutfit;
   // Backend-specific permission/approval mode. For Claude this is the
   // canonical 4-mode enum; for Codex this is the AskForApproval enum
-  // (untrusted/on-request/on-failure/never). Kept as a typed union that
-  // covers both backends - the spawn UX picks one backend at a time so
-  // we never need to combine them.
+  // (untrusted/on-request/on-failure/never); OpenCode uses "default". The
+  // spawn UX picks one backend at a time, so modes never need combining.
   permissionMode: AgentPermissionMode;
   // Backend-specific model identifier. For Claude this is a ModelFamily
   // ("opus"/"sonnet"/"haiku"); for Codex this is the GPT-5 family value
-  // ("gpt-5.5"/"gpt-5.6-sol"/"gpt-5.6-terra"/"gpt-5.6-luna"/...). Display
-  // logic narrows on agentType before rendering.
+  // ("gpt-5.5"/"gpt-5.6-sol"/"gpt-5.6-terra"/"gpt-5.6-luna"/...); OpenCode
+  // uses a composite provider/model id. Display logic narrows on agentType.
   modelFamily: string;
   effort: EffortLevel;
   state: AgentState;
@@ -890,9 +889,8 @@ export type Schedule =
 // `permissionMode: "auto"` get coerced to `bypassPermissions` on load.
 export type CronjobPermissionMode = "bypassPermissions" | "never";
 
-// modelFamily is typed as `string` to span both backends - Claude uses
-// ModelFamily slugs ("opus" / "sonnet" / "haiku") while Codex uses the
-// app-server-reported model ids ("gpt-5.5" etc, fetched via model/list).
+// modelFamily is typed as `string` across all backends: Claude uses ModelFamily
+// slugs, Codex uses app-server model ids, and OpenCode uses provider/model ids.
 // Validation happens server-side per agentType.
 export type CronjobModel = string;
 

@@ -1,7 +1,7 @@
 // Auth detection + login-instruction units (deterministic, zero LLM).
 //
 // Covers the deterministic half of the traceability row "Subscription auth
-// (works if CLI works)": env-detect + login-instructions for both backends. The
+// (works if CLI works)": env-detect + login-instructions for Claude and Codex.
 // actual interactive login stays a T3 manual step. Every input env is passed
 // explicitly (never process.env), so the host's ambient auth can't influence
 // the result: detectAuthError is pure regex, and the already-authed cases

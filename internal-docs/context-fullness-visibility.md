@@ -6,7 +6,7 @@ Design for board tasks 6e9d9d77 ("Agents should be able to see their own context
 
 Nil greenlit a REDUCED scope for the first batch - the server-side core only. **Landed:**
 
-- The per-agent in-memory snapshot with the race-safe commit protocol and the lifecycle matrix (§1 minus the WS broadcast, §4). Sampling at `turn_completed` (both engines) + Codex `usage_update`.
+- The per-agent in-memory snapshot with the race-safe commit protocol and the lifecycle matrix (§1 minus the WS broadcast, §4). Sampling at `turn_completed` (all backends) + Codex `usage_update`.
 - `GET /api/agents/:id/context` (§2's endpoint) and its system-prompt recipe.
 - **Task 50392514 (2026-07-18 batch 2)** - the injected 50%/75% auto-notices (§2's notice mechanics) + the outbound-envelope generalization (§2a). `contextSampleInFlight` now has its consumer: the pre-send notice step in `runAgentTurn` awaits it with a ~500ms bound. Added `ManagedAgent.firedAgentThresholds` (reset with the generation, restored on edit-fork rollback, preserved on model change). `stripPluginPrefix` → `stripOutboundEnvelope` (accepts `isomux:` and `plugin:` blocks; plugin-only transcripts strip identically). Notice text uses a plain hyphen, not an em dash (Nil's prose rule). The fired-set is mutated ONLY by the send path at send-accept time (after `session.send` resolves, so a failed/swapped send never burns a notice) - the commit path never touches it. The UI `firedUiThresholds` set is deliberately NOT added yet (belongs to task 27096236).
 
@@ -61,7 +61,7 @@ firedUiThresholds: Set<number>;      // UI chat-notice fired this generation (se
 
 **Sampling points** (initiated from `processNormalizedEvent`, `server/agent-manager.ts`):
 
-- On `turn_completed` (both engines, regardless of turn status - the backend reading reflects whatever landed in the transcript; the ownership guard below covers the pathological cases): start an async `getContextUsage()` refresh and stash its promise in `contextSampleInFlight`. `pendingTurn` still resolves synchronously - turn semantics don't change.
+- On `turn_completed` (all backends, regardless of turn status - the backend reading reflects whatever landed in the transcript; the ownership guard below covers the pathological cases): start an async `getContextUsage()` refresh and stash its promise in `contextSampleInFlight`. `pendingTurn` still resolves synchronously - turn semantics don't change.
 - On `usage_update` (Codex): also refresh - a free cache read. This is a freshness optimization only; notification timing relative to turn boundaries is not guaranteed by the event contract, so nothing may assume these arrive mid-turn (or at all).
 
 **Sample commit protocol** (fixes async ownership + ordering): `processNormalizedEvent` is synchronous, so a fire-and-forget refresh can resolve after `/clear`, `/resume`, edit-fork, or a newer sample. At initiation (before any await, on the event-loop turn) capture:
@@ -94,7 +94,7 @@ Payload:
 { "available": false, "reason": "no_session" | "not_yet_measured" }
 ```
 
-**Staleness semantics** (source-neutral, same story for both engines): the reading is the *latest backend sample* and may lag the in-flight turn - an agent calling this mid-turn (which is always, for its own turn) should treat it as "as of roughly the last turn boundary". We do NOT claim "live" anywhere. If implementation-time verification shows Claude's control request includes the active turn's growth, we can add a freshness marker later; the design doesn't depend on it.
+**Staleness semantics** (source-neutral, same story for every backend): the reading is the *latest backend sample* and may lag the in-flight turn - an agent calling this mid-turn (which is always, for its own turn) should treat it as "as of roughly the last turn boundary". We do NOT claim "live" anywhere. If implementation-time verification shows Claude's control request includes the active turn's growth, we can add a freshness marker later; the design doesn't depend on it.
 
 **Automatic notices (the motivating example).** "Start wrapping up past 200k" in a system prompt can't work if the agent never looks, and agents won't reliably poll. So the server tells them, via a built-in step in `runAgentTurn` (`server/plugin-hooks.ts`) - core coordination behavior, deliberately NOT a plugin (no enable/disable coupling, not in plugin discovery or failure accounting):
 
