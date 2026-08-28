@@ -6,6 +6,7 @@ import type {
 } from "../../shared/types.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
+import { alternateEngineOptions } from "../engine-options.ts";
 
 interface ContextMenuProps {
   x: number;
@@ -29,11 +30,9 @@ export function ContextMenu({
   const sessionsData = sessionsList.get(agent.id);
   const sessions = sessionsData?.sessions ?? [];
   const currentSessionId = sessionsData?.currentSessionId ?? null;
-  // The engine you can start a fresh conversation in without switching away from
-  // the current one. Switching engine always starts a new conversation.
-  const otherEngine: AgentBackendType =
-    agent.agentType === "codex" ? "claude" : "codex";
-  const otherEngineLabel = otherEngine === "codex" ? "Codex" : "Claude";
+  // Engines in which a fresh conversation can start without changing the
+  // current one. Switching engine always starts a new conversation.
+  const alternateEngines = alternateEngineOptions(agent.agentType);
 
   useEffect(() => {
     function handleDismiss(e: Event) {
@@ -146,14 +145,16 @@ export function ContextMenu({
           onClick={() => handleAction("new_conversation")}
         />
       )}
-      {features.sessions && (
-        <MenuItem
-          label={`New ${otherEngineLabel} Conversation`}
-          onClick={() =>
-            handleAction("new_conversation", undefined, otherEngine)
-          }
-        />
-      )}
+      {features.sessions &&
+        alternateEngines.map((option) => (
+          <MenuItem
+            key={option.agentType}
+            label={`New ${option.label} Conversation`}
+            onClick={() =>
+              handleAction("new_conversation", undefined, option.agentType)
+            }
+          />
+        ))}
 
       {features.sessions && sessions.length > 1 && (
         <>

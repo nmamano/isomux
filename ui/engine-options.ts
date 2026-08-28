@@ -31,3 +31,7 @@ export const ENGINE_ACCENT: Record<AgentBackendType, string> = {
   codex: "rgba(120,220,160,0.85)",
   opencode: "rgba(245,180,80,0.85)",
 };
+
+export function alternateEngineOptions(current: AgentBackendType) {
+  return ENGINE_OPTIONS.filter((option) => option.agentType !== current);
+}
