@@ -87,6 +87,7 @@ import type { ThreadRollbackParams } from "./_generated/v2/ThreadRollbackParams.
 import type { ThreadRollbackResponse } from "./_generated/v2/ThreadRollbackResponse.ts";
 import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/ThreadTokenUsageUpdatedNotification.ts";
 import type { AccountRateLimitsUpdatedNotification } from "./_generated/v2/AccountRateLimitsUpdatedNotification.ts";
+import type { ErrorNotification } from "./_generated/v2/ErrorNotification.ts";
 import type { GetAccountRateLimitsResponse } from "./_generated/v2/GetAccountRateLimitsResponse.ts";
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
@@ -1599,10 +1600,18 @@ export class CodexSession implements BackendSession {
       case "error": {
         // ErrorNotification carries the text at params.error.message (TurnError),
         // not params.message; the old read was always undefined and silently
-        // swallowed real errors. Same misread as the one-shot path below.
-        const err = params?.error as { message?: string } | undefined;
-        const message = err?.message;
-        if (message) this.enqueue({ kind: "error", message });
+        // swallowed real errors. A retryable stream error does not end the
+        // turn: keep it visible as a plain system entry, without rejecting the
+        // orchestrator's pending turn or involving the auth-error funnel.
+        const notification = params as ErrorNotification | null | undefined;
+        const message = notification?.error.message;
+        if (message) {
+          this.enqueue(
+            notification.willRetry === true
+              ? { kind: "system_text", text: message }
+              : { kind: "error", message },
+          );
+        }
         break;
       }
       // Warning/GuardianWarningNotification carry a ready `message`. Route it

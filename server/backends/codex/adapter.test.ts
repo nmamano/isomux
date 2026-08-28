@@ -784,6 +784,77 @@ describe("CodexSession misc notifications", () => {
     expect(ev.message).toBe("stream broke");
   });
 
+  it("error notification with no retry flag fails safe as terminal", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireNotification("error", {
+      error: { message: "future wire error" },
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "t1",
+    });
+    const ev = expectKind(await nextEvent(it, "error"), "error");
+    expect(ev.message).toBe("future wire error");
+  });
+
+  it("retryable error stays non-terminal while the same turn continues", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireNotification("turn/started", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-retrying" },
+    });
+    fake.fireNotification("error", {
+      error: { message: "Reconnecting... 2/5" },
+      willRetry: true,
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-retrying",
+    });
+    fireItem(
+      fake,
+      { type: "agentMessage", id: "after-retry", text: "Still running." },
+      FIXTURE_THREAD_ID,
+    );
+    fake.fireNotification("turn/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turn: { id: "turn-retrying", status: "completed" },
+    });
+
+    const retry = await nextEvent(it, "retry notice");
+    expect(retry.kind).not.toBe("error");
+    const notice = expectKind(retry, "system_text");
+    expect(notice.text).toBe("Reconnecting... 2/5");
+    expect(
+      expectKind(await nextEvent(it, "continued turn"), "assistant_text").text,
+    ).toBe("Still running.");
+    expect(
+      expectKind(await nextEvent(it, "turn completion"), "turn_completed")
+        .status,
+    ).toBe("completed");
+  });
+
+  it("terminal error still follows a retryable error on the same turn", async () => {
+    const { fake, it } = await bootstrapped();
+    const turn = {
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "turn-exhausted",
+    };
+    fake.fireNotification("error", {
+      ...turn,
+      error: { message: "Reconnecting... 5/5" },
+      willRetry: true,
+    });
+    fake.fireNotification("error", {
+      ...turn,
+      error: { message: "stream retry exhausted" },
+      willRetry: false,
+    });
+
+    expectKind(await nextEvent(it, "final retry notice"), "system_text");
+    const terminal = expectKind(
+      await nextEvent(it, "terminal stream error"),
+      "error",
+    );
+    expect(terminal.message).toBe("stream retry exhausted");
+  });
+
   it("warning-family notification -> tagged system_text", async () => {
     const { fake, it } = await bootstrapped();
     fake.fireNotification("warning", { message: "heads up" });
