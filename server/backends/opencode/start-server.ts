@@ -10,6 +10,11 @@ import {
 } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import {
+  linuxProcessIdentityMatches,
+  parseLinuxProcessState,
+  readLinuxProcessStartTicks,
+} from "./process-identity.ts";
 
 interface ServerRecord {
   pid: number;
@@ -19,6 +24,7 @@ interface ServerRecord {
   profileDir: string;
   environmentRevision: string;
   configRevision: string;
+  startTicks?: string;
 }
 
 const OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS = 2_000;
@@ -92,21 +98,31 @@ async function readRecord(): Promise<ServerRecord | null> {
 }
 
 async function stop(record: ServerRecord): Promise<void> {
+  if (!linuxProcessIdentityMatches(record.pid, record.startTicks)) {
+    process.stderr.write(
+      `Refusing to signal unverifiable OpenCode process ${record.pid}.\n`,
+    );
+    return;
+  }
   try {
     process.kill(record.pid, "SIGTERM");
   } catch {}
   for (let i = 0; i < 40; i++) {
     if (!(await running(record.pid))) return;
+    if (!linuxProcessIdentityMatches(record.pid, record.startTicks)) return;
     await Bun.sleep(25);
   }
   try {
-    process.kill(record.pid, "SIGKILL");
+    if (linuxProcessIdentityMatches(record.pid, record.startTicks))
+      process.kill(record.pid, "SIGKILL");
   } catch {}
 }
 
 async function running(pid: number): Promise<boolean> {
   try {
-    const state = (await readFile(`/proc/${pid}/stat`, "utf8")).split(" ")[2];
+    const state = parseLinuxProcessState(
+      await readFile(`/proc/${pid}/stat`, "utf8"),
+    );
     return state !== "Z";
   } catch {
     return false;
@@ -152,6 +168,16 @@ function bindFailure(stderr: string): boolean {
 
 await mkdir(profileDir, { recursive: true });
 if (prior && (await healthy(prior))) {
+  const startTicks = readLinuxProcessStartTicks(prior.pid);
+  if (!startTicks)
+    throw new Error(
+      "Healthy OpenCode server has no readable process identity.",
+    );
+  if (prior.startTicks !== startTicks) {
+    prior.startTicks = startTicks;
+    await writeFile(recordPath, `${JSON.stringify(prior)}\n`, { mode: 0o600 });
+    await chmod(recordPath, 0o600);
+  }
   process.stdout.write(
     JSON.stringify({ pid: prior.pid, port: prior.port, adopted: true }),
   );
@@ -209,6 +235,9 @@ for (let attempt = 0; attempt < 40; attempt++) {
   await Promise.all([stdout.close(), stderr.close()]);
   child.unref();
   if (child.pid && (await waitHealthy(child, port))) {
+    const startTicks = readLinuxProcessStartTicks(child.pid);
+    if (!startTicks)
+      throw new Error("OpenCode process identity is unreadable.");
     started = {
       pid: child.pid,
       port,
@@ -217,6 +246,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
       profileDir,
       environmentRevision,
       configRevision,
+      startTicks,
     };
     if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });
     break;
@@ -230,6 +260,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
       profileDir,
       environmentRevision,
       configRevision,
+      startTicks: readLinuxProcessStartTicks(child.pid) ?? undefined,
     });
   const startupError = await readFile(stderrPath, "utf8").catch(() => "");
   if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });

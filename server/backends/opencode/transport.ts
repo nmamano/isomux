@@ -9,6 +9,12 @@ import {
   type OpenCodeLease,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
+import {
+  openCodeAuthorityBroker,
+  type OpenCodeAuthorityBinding,
+  type OpenCodeAuthorityBroker,
+} from "./authority-broker.ts";
+import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
 
 export interface DiscoveredOpenCodeModel {
   id: string;
@@ -39,11 +45,20 @@ export async function discoverOpenCodeModels(
 export interface OpenCodeTransportOptions {
   cwd: string;
   model: string;
+  systemPrompt: string;
+  agentToken?: string;
+  agentId?: string;
+  authorityBroker?: OpenCodeAuthorityBroker;
   agent?: string;
   supervisor?: OpenCodeSupervisor;
   sessionId?: string;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
+}
+
+export interface OpenCodePromptPart {
+  type: "text";
+  text: string;
 }
 
 type EventSink = (event: NormalizedEvent) => void;
@@ -69,6 +84,10 @@ export class OpenCodeTransport {
   private readonly supervisor: OpenCodeSupervisor;
   private readonly cwd: string;
   private readonly model: string;
+  private readonly systemPrompt: string;
+  private readonly agentToken: string | undefined;
+  private readonly agentId: string | undefined;
+  private readonly authorityBroker: OpenCodeAuthorityBroker;
   private readonly agent: string | undefined;
   private readonly resumedSessionId?: string;
   private readonly contractShapeSink?: (shape: string) => void;
@@ -80,11 +99,16 @@ export class OpenCodeTransport {
   private abortRequested = false;
   private pendingPermission: { id: string; sessionId: string } | null = null;
   private closed = false;
+  private authorityBinding: OpenCodeAuthorityBinding | null = null;
 
   constructor(options: OpenCodeTransportOptions) {
     this.supervisor = options.supervisor ?? openCodeSupervisor;
     this.cwd = options.cwd;
     this.model = options.model;
+    this.systemPrompt = options.systemPrompt;
+    this.agentToken = options.agentToken;
+    this.agentId = options.agentId;
+    this.authorityBroker = options.authorityBroker ?? openCodeAuthorityBroker;
     this.agent = options.agent;
     this.resumedSessionId = options.sessionId;
     this.contractShapeSink = options.contractShapeSink;
@@ -106,23 +130,24 @@ export class OpenCodeTransport {
       this.sessionId = body.id;
     }
     sink({ kind: "system_init", sessionId: this.sessionId, model: this.model });
+    if (this.agentToken && this.agentId && !this.authorityBinding)
+      this.authorityBinding = this.authorityBroker.bind(
+        this.agentId,
+        this.agentToken,
+      );
     return this.sessionId;
   }
 
-  async send(text: string, sink: EventSink): Promise<void> {
+  async send(parts: OpenCodePromptPart[], sink: EventSink): Promise<void> {
     const sessionId = await this.initialize(sink);
     await this.lease!.beginTurn();
-    this.activeTurn = true;
-    this.abortRequested = false;
-    this.abortController = new AbortController();
-    const eventsReady = this.consumeEvents(
-      sessionId,
-      sink,
-      this.abortController.signal,
-    );
-    await eventsReady;
-    const [providerID, modelID] = splitModel(this.model);
     try {
+      const turnHandle = this.authorityBinding?.activate(this.lease!.pid);
+      this.activeTurn = true;
+      this.abortRequested = false;
+      this.abortController = new AbortController();
+      await this.consumeEvents(sessionId, sink, this.abortController.signal);
+      const [providerID, modelID] = splitModel(this.model);
       await this.request(
         `/session/${encodeURIComponent(sessionId)}/prompt_async`,
         {
@@ -130,14 +155,21 @@ export class OpenCodeTransport {
           body: JSON.stringify({
             model: { providerID, modelID },
             ...(this.agent ? { agent: this.agent } : {}),
-            parts: [{ type: "text", text }],
+            system: turnHandle
+              ? this.systemPrompt.replaceAll(
+                  OPENCODE_TURN_HANDLE_PLACEHOLDER,
+                  turnHandle,
+                )
+              : this.systemPrompt,
+            parts,
           }),
         },
       );
       this.contractShapeSink?.("http:prompt_async:success");
     } catch (error) {
-      this.abortController.abort();
+      this.abortController?.abort();
       this.activeTurn = false;
+      this.authorityBinding?.deactivate();
       this.lease!.endTurn();
       sink({
         kind: "turn_completed",
@@ -166,7 +198,7 @@ export class OpenCodeTransport {
     )
       return;
     if (decision.kind !== "allow_once" && decision.kind !== "deny") {
-      throw new Error("OpenCode supports Allow once and Deny in this slice.");
+      throw new Error("OpenCode supports Allow once and Deny.");
     }
     this.pendingPermission = null;
     await this.replyPermission(
@@ -212,6 +244,9 @@ export class OpenCodeTransport {
     if (this.activeTurn)
       void this.rejectPendingPermission().then(() => this.abort());
     this.abortController?.abort();
+    this.authorityBinding?.deactivate();
+    this.authorityBinding?.unbind();
+    this.authorityBinding = null;
     this.lease?.endTurn();
     this.lease?.release();
   }
@@ -240,6 +275,7 @@ export class OpenCodeTransport {
       settled = true;
       this.activeTurn = false;
       this.pendingPermission = null;
+      this.authorityBinding?.deactivate();
       this.lease?.endTurn();
       sink(event);
       this.abortController?.abort();
@@ -394,6 +430,7 @@ export class OpenCodeTransport {
               if (this.abortRequested) continue;
               settled = true;
               this.activeTurn = false;
+              this.authorityBinding?.deactivate();
               this.lease?.endTurn();
               this.safeErrorSink?.(event.error);
               const auth = await this.isAuthenticationError(event.error);

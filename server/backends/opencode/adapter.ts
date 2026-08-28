@@ -36,20 +36,32 @@ import {
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
 import { ensureOpenCodeLoginWrapper, quoteShellWord } from "./login-wrapper.ts";
+import { inspectOpenCodeStoredSession } from "./storage.ts";
+import {
+  formatAttachmentLines,
+  resolveAttachmentNotices,
+} from "../../attachment-prompt.ts";
 
 const AUTH_FAILURE = "OpenCode authentication is not configured.";
 
-function loginInstructions(environmentKey: string | undefined): {
+function loginInstructions(
+  environmentKey: string | undefined,
+  modelFamily: string | undefined,
+): {
   text: string;
   commands: string[];
 } {
   if (!environmentKey) {
     throw new Error("OpenCode session environment identity is required.");
   }
-  const wrapper = ensureOpenCodeLoginWrapper(environmentKey);
+  if (!modelFamily) {
+    throw new Error("OpenCode model is required for login recovery.");
+  }
+  const [provider] = splitModel(modelFamily);
+  const wrapper = ensureOpenCodeLoginWrapper(environmentKey, provider);
   return {
     text:
-      `OpenCode needs an OpenAI API key for this shared environment. Review and run ${wrapper}, ` +
+      `OpenCode needs a ${provider} credential for this shared environment. Review and run ${wrapper}, ` +
       "complete the masked prompt, and then use /clear. Browser OAuth is not certified.",
     commands: [quoteShellWord(wrapper)],
   };
@@ -105,6 +117,7 @@ class OpenCodeServerSession implements BackendSession {
   private wake: (() => void) | null = null;
   private ended = false;
   private readonly transport: OpenCodeTransport;
+  private readonly agentId: string;
 
   constructor(
     opts: CreateSessionOptions,
@@ -115,9 +128,13 @@ class OpenCodeServerSession implements BackendSession {
     safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void,
     private readonly onSessionId?: (sessionId: string) => void,
   ) {
+    this.agentId = opts.agentId;
     this.transport = new OpenCodeTransport({
       cwd: opts.cwd,
       model,
+      systemPrompt: opts.systemPrompt,
+      agentToken: opts.env?.ISOMUX_AGENT_TOKEN,
+      agentId: opts.agentId,
       agent:
         opts.permissionMode === "bypassPermissions"
           ? OPENCODE_CRON_AGENT
@@ -158,8 +175,11 @@ class OpenCodeServerSession implements BackendSession {
     return { kind: "unavailable" };
   }
 
-  async send(text: string, _attachments?: AttachmentSpec[]): Promise<void> {
-    await this.transport.send(text, this.push);
+  async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
+    await this.transport.send(
+      buildOpenCodePromptParts(text, attachments, this.agentId),
+      this.push,
+    );
   }
 
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
@@ -182,6 +202,21 @@ class OpenCodeServerSession implements BackendSession {
     this.wake = null;
     wake?.();
   }
+}
+
+export function buildOpenCodePromptParts(
+  text: string,
+  attachments: AttachmentSpec[] | undefined,
+  agentId: string,
+): Array<{ type: "text"; text: string }> {
+  const parts: Array<{ type: "text"; text: string }> = [];
+  if (text) parts.push({ type: "text", text });
+  const lines = formatAttachmentLines(
+    resolveAttachmentNotices(agentId, attachments ?? []),
+  );
+  if (lines.length > 0) parts.push({ type: "text", text: lines.join("\n") });
+  if (parts.length === 0) parts.push({ type: "text", text: "" });
+  return parts;
 }
 
 class OpenCodeTracerSession implements BackendSession {
@@ -246,7 +281,9 @@ class OpenCodeTracerSession implements BackendSession {
     _approvalId: string,
     _decision: ApprovalDecision,
   ): Promise<void> {
-    throw new Error("OpenCode permissions are not available in this slice.");
+    throw new Error(
+      "OpenCode permissions are not available in the tracer backend.",
+    );
   }
 
   async abort(): Promise<void> {}
@@ -328,7 +365,7 @@ export function createOpenCodeTracerBackend(
       _opts: OneShotOptions,
     ): Promise<string> {
       throw new Error(
-        "OpenCode one-shot prompts are not available in this slice.",
+        "OpenCode one-shot prompts are not available in the tracer backend.",
       );
     },
 
@@ -337,7 +374,7 @@ export function createOpenCodeTracerBackend(
     },
 
     getLoginInstructions(opts): { text: string; commands: string[] } {
-      return loginInstructions(opts?.environmentKey);
+      return loginInstructions(opts?.environmentKey, opts?.modelFamily);
     },
   };
 }
@@ -469,11 +506,18 @@ export function createOpenCodeBackend(
           }),
       );
     },
-    inspectStoredSession(): StoredSessionState {
-      return "durable";
+    inspectStoredSession(sessionId, opts): StoredSessionState {
+      return inspectOpenCodeStoredSession(sessionId, opts.environmentKey);
     },
-    checkSessionResumable(): string | null {
-      return null;
+    checkSessionResumable(sessionId, opts): string | null {
+      const state = inspectOpenCodeStoredSession(
+        sessionId,
+        opts.environmentKey,
+      );
+      if (state === "durable") return null;
+      return state === "empty"
+        ? `Cannot resume OpenCode session ${sessionId}: it has no stored messages.`
+        : `Cannot resume OpenCode session ${sessionId}: it is missing from the selected OpenCode profile.`;
     },
     async forkSessionBeforeMessage(
       sessionId: string,
@@ -509,14 +553,14 @@ export function createOpenCodeBackend(
     },
     async oneShotPrompt(): Promise<string> {
       throw new Error(
-        "OpenCode one-shot prompts are not available in this slice.",
+        "OpenCode one-shot prompts are not available in this backend.",
       );
     },
     detectAuthError(text: string): boolean {
       return text.includes(AUTH_FAILURE);
     },
     getLoginInstructions(opts): { text: string; commands: string[] } {
-      return loginInstructions(opts?.environmentKey);
+      return loginInstructions(opts?.environmentKey, opts?.modelFamily);
     },
   };
 }

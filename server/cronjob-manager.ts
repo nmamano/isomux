@@ -90,6 +90,7 @@ interface ActiveRun {
   runId: string;
   streamId: string;
   agentType: AgentBackendType;
+  modelFamily: string;
   session: BackendSession;
   sessionId: string | null; // assigned on first system_init event
   rootSessionId: string; // the run row's rootSessionId (placeholder until init)
@@ -769,6 +770,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
               "system",
               getBackend(active.agentType).getLoginInstructions({
                 env: bestEffortRunEnv(active),
+                modelFamily: active.modelFamily,
               }).text,
             );
           }
@@ -819,6 +821,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
             "system",
             getBackend(active.agentType).getLoginInstructions({
               env: bestEffortRunEnv(active),
+              modelFamily: active.modelFamily,
             }).text,
           );
         }
@@ -1153,6 +1156,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       runId,
       streamId,
       agentType: job.agentType,
+      modelFamily: job.modelFamily,
       session,
       sessionId: null,
       rootSessionId: placeholderSessionId,
@@ -1527,6 +1531,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       runId: run.id,
       streamId,
       agentType: run.agentTypeSnapshot,
+      modelFamily: run.modelFamilySnapshot,
       session,
       sessionId,
       rootSessionId: run.rootSessionId,
@@ -1733,6 +1738,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     return getBackend(run.agentTypeSnapshot).checkSessionResumable(leaf, {
       cwd: run.cwdSnapshot,
       env,
+      environmentKey: environmentSourceKeyForUserId(job?.userId ?? null),
     });
   }
 

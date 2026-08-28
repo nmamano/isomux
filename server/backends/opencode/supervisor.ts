@@ -18,6 +18,7 @@ interface ServerRecord {
   profileDir: string;
   environmentRevision: string;
   configRevision: string;
+  startTicks?: string;
 }
 
 export const OPENCODE_CRON_AGENT = "isomux-cron";
@@ -109,7 +110,7 @@ export class OpenCodeSupervisor {
       ...(options.config ?? DEFAULT_OPENCODE_CONFIG),
       autoupdate: false,
     };
-    this.configRevision = openCodeConfigRevision(this.config);
+    this.configRevision = this.computeConfigRevision(this.config);
     this.serverCwd = options.serverCwd ?? STATE_ROOT;
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
@@ -185,7 +186,7 @@ export class OpenCodeSupervisor {
 
   updateConfiguration(config: Record<string, unknown>): void {
     const next = { ...config, autoupdate: false };
-    const revision = openCodeConfigRevision(next);
+    const revision = this.computeConfigRevision(next);
     if (revision === this.configRevision) return;
     this.config = next;
     this.configRevision = revision;
@@ -273,11 +274,9 @@ export class OpenCodeSupervisor {
   private async ensureServer(): Promise<void> {
     await mkdir(this.profileDir, { recursive: true });
     const configPath = join(this.profileDir, "opencode.json");
-    await writeFile(
-      configPath,
-      `${JSON.stringify({ ...this.config, autoupdate: false })}\n`,
-      { mode: 0o600 },
-    );
+    await writeFile(configPath, `${JSON.stringify(this.config)}\n`, {
+      mode: 0o600,
+    });
     await chmod(configPath, 0o600);
     const password = randomBytes(32).toString("base64url");
     const helper = join(import.meta.dir, "start-server.ts");
@@ -323,6 +322,12 @@ export class OpenCodeSupervisor {
     this.record = await this.readRecord();
     if (!this.record)
       throw new Error("OpenCode startup did not write its server record.");
+  }
+
+  private computeConfigRevision(config: Record<string, unknown>): string {
+    return createHash("sha256")
+      .update(openCodeConfigRevision(config))
+      .digest("hex");
   }
 
   private async replaceServerIfRequested(): Promise<void> {

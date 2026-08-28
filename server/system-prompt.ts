@@ -16,6 +16,10 @@ import {
   type SupportedLanguageCode,
 } from "../shared/languages.ts";
 import { INSTALL_KIND, type InstallKind } from "./install-kind.ts";
+import {
+  OPENCODE_TURN_HANDLE_PLACEHOLDER,
+  openCodeAuthoritySocketPath,
+} from "./backends/opencode/office-proxy-shared.ts";
 
 const PORT = process.env.PORT || "4000";
 
@@ -239,6 +243,8 @@ Bounding: these act with your spawning boss's reach, scoped by ROOM ACCESS (not 
 
 You CANNOT (these are human-only and return 403): mint invites, revoke human login sessions, change office or per-user settings/access, or set the privileged flag on any agent (including yourself). If something needs one of those, ask a boss to do it in the UI.`;
   }
+  if (agentType === "opencode")
+    systemPrompt = rewriteOpenCodeOfficeCommands(systemPrompt);
   if (ownerUsername) {
     systemPrompt += `\n\n## Your Manager: "${ownerUsername}"
 
@@ -267,6 +273,30 @@ You are managed by the boss "${ownerUsername}". Your environment (including any 
   // obey. This framing shrinks the blast radius of a bad agent write.
   systemPrompt += memorySection(autoLoadedMemory);
   return systemPrompt;
+}
+
+export function rewriteOpenCodeOfficeCommands(prompt: string): string {
+  const proxyArgs = `--unix-socket ${openCodeAuthoritySocketPath()} -H "X-Isomux-Turn: ${OPENCODE_TURN_HANDLE_PLACEHOLDER}"`;
+  const rewritten = prompt
+    .split("\n")
+    .map((line) => {
+      if (line.includes("curl ") && line.includes("ISOMUX_APP_TOKEN"))
+        return "  The APP uses its server-side ISOMUX_APP_TOKEN for this route; do not send it through the OpenCode office proxy.";
+      if (!line.includes("ISOMUX_AGENT_TOKEN")) return line;
+      if (!line.includes("curl "))
+        return line
+          .replace(/\$ISOMUX_AGENT_TOKEN/g, "the OpenCode office proxy")
+          .replace(/bearer token/gi, "office proxy authorization");
+      return line
+        .replaceAll(`localhost:${PORT}`, "http://isomux")
+        .replace(
+          /-H ["']Authorization: Bearer \$ISOMUX_AGENT_TOKEN["']/g,
+          proxyArgs,
+        );
+    })
+    .join("\n")
+    .replaceAll(`localhost:${PORT}`, "http://isomux");
+  return `${rewritten}\n\nOpenCode office calls must run in the foreground. If the proxy refuses a call because process ancestry was lost, do not retry it in a loop; run the same curl command directly, without nohup, disown, a background job, or a daemon.`;
 }
 
 // The auto-loaded memory layer (heading + notes-not-policy framing + the rendered

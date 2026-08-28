@@ -35,13 +35,21 @@ export function openCodeProfilePaths(
   };
 }
 
-export function ensureOpenCodeLoginWrapper(environmentKey: string): string {
+export function ensureOpenCodeLoginWrapper(
+  environmentKey: string,
+  provider: string,
+): string {
   const paths = openCodeProfilePaths(environmentKey);
   const wrapperDir = join(STATE_ROOT, "bin");
   const profileName = paths.profileDir.slice(
     paths.profileDir.lastIndexOf("/") + 1,
   );
-  const wrapperPath = join(wrapperDir, `opencode-login-${profileName}`);
+  if (!/^[a-zA-Z0-9._-]+$/.test(provider))
+    throw new Error("OpenCode provider id is invalid.");
+  const wrapperPath = join(
+    wrapperDir,
+    `opencode-login-${profileName}-${provider}`,
+  );
   const lockPath = join(paths.profileDir, "auth.login.lock");
   const pendingPath = `${paths.profileDir}.auth-login-pending`;
   const runner = join(wrapperDir, "opencode-login-runner.ts");
@@ -51,7 +59,7 @@ profile=${quoteShellWord(paths.profileDir)}
 runner=${quoteShellWord(runner)}
 bun=${quoteShellWord(process.execPath)}
 binary=${quoteShellWord(resolveOpenCodeBinary())}
-provider=openai
+provider=${quoteShellWord(provider)}
 pending=${quoteShellWord(pendingPath)}
 mkdir -p "$profile"
 exec 9>${quoteShellWord(lockPath)}

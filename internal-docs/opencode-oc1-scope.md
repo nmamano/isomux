@@ -115,6 +115,35 @@ after this upgrade. An unchanged config continues to adopt the same process.
 This grouping preserves Isomux's existing environment selection. It does not
 make agents or conversations private to the spawning user.
 
+Interactive OpenCode agents keep the normal Isomux office affordances without
+putting an agent token in the shared server. Their prompt sends office API calls
+through an Isomux-owned Unix socket. The proxy accepts only an explicit set of
+Isomux routes, rebuilds requests against the local office origin, supplies the
+agent token in memory, caps request and response sizes, and never returns the
+token. Each turn gets a new handle that is invalidated when the turn ends. The
+proxy also requires an active lease and verifies the connecting process's full
+PID, parent-PID, and start-time chain back to the exact OpenCode server. It logs
+the resolved agent and verified chain for each call and limits calls per turn.
+
+This is authority control, not same-user isolation. OpenCode stores the current
+system prompt in its shared profile, so another same-uid agent can read a live
+turn handle and use the shared server to act as that agent while its lease is
+open. The handle expires at turn end, and the proxy never exposes the long-lived
+token. The worst case is therefore narrower than the existing Claude and Codex
+shell-environment exposure, where a token read during a tool run remains useful
+after that turn. A real isolation boundary requires a uid per agent or user and
+is a separate architectural project.
+
+The proxy avoids two rejected integrations measured on 2026-08-28. A second
+and third server in one profile added about 237 MiB and 224 MiB of proportional
+set size, which projects to about 3.5-3.7 GiB for 16 per-agent servers before
+session load. A stock OpenCode 1.18.23 server completed its first instance
+request without an external file plugin, but the same stock launch did not
+complete with a one-line no-op file plugin. JavaScript output and a bare
+absolute plugin path did not change the result. OpenCode 1.18.25 behaved the
+same in the stock no-op control. The proxy therefore keeps shared-server memory
+without depending on that plugin surface.
+
 All starts for one profile must be serialized. A permanent per-profile startup
 lock covers first use and any later CLI migration. The server is usable only
 after it reports healthy; another caller waits for that result instead of
@@ -570,8 +599,20 @@ credentials do not enter profile directory names.
 `ISOMUX_AGENT_TOKEN` is excluded from the shared server environment: it is a
 per-agent capability and cannot be inherited by a server shared across agents.
 The child first removes every inherited `OPENCODE_*` variable and then applies
-only the reviewed launch controls. S1b has tools disabled; S3 must add
-per-session tool authority at a narrower boundary.
+only the reviewed launch controls. A pinned profile plugin requests the token
+for the exact OpenCode session only while Isomux holds that session's active
+turn lease. The request uses a Unix socket in a `0700` directory. The broker
+checks the kernel's `SO_PEERCRED` pid, the process start ticks, the session id,
+and the active lease before it returns the token from memory. A missing or
+unknown session id returns no token. The plugin is rewritten and hash-checked
+immediately before each server spawn.
+
+This is an authority-confusion control, not OS isolation. All agents run as the
+same uid. An agent can read the shared server password and can ask that server
+to run a command in another OpenCode session. The active-lease check reduces
+cross-agent token acquisition to racing a genuine in-flight turn for that
+session. A real isolation boundary requires a uid per agent or per user, which
+is a separate project.
 
 The idle timer starts only when both the lease count and active-turn count are
 zero. The injected short-timeout tests prove both edges: an idle server is

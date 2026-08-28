@@ -327,6 +327,19 @@ describe("OpenCode shared server supervisor", () => {
     expect(adopted.pid).toBe(firstPid);
     adopted.release();
 
+    const legacyRecord = JSON.parse(
+      await readFile(first.recordPath, "utf8"),
+    ) as Record<string, unknown>;
+    delete legacyRecord.startTicks;
+    await writeFile(first.recordPath, `${JSON.stringify(legacyRecord)}\n`);
+    const legacyUpgrade = makeSupervisor(path, oldConfig, 1000);
+    const legacyLease = await legacyUpgrade.acquire();
+    expect(legacyLease.pid).toBe(firstPid);
+    expect(
+      typeof JSON.parse(await readFile(first.recordPath, "utf8")).startTicks,
+    ).toBe("string");
+    legacyLease.release();
+
     const record = JSON.parse(
       await readFile(first.recordPath, "utf8"),
     ) as Record<string, unknown>;
@@ -347,6 +360,32 @@ describe("OpenCode shared server supervisor", () => {
     expect(alive(firstPid)).toBe(false);
     replaced.release();
   }, 20_000);
+
+  it("never signals a process when the saved start ticks do not match", async () => {
+    const path = await root();
+    const profileDir = join(path, "profile");
+    await mkdir(profileDir, { recursive: true });
+    const recordPath = join(profileDir, "server.lock");
+    const unrelated = Bun.spawn(["sleep", "30"]);
+    await writeFile(
+      recordPath,
+      `${JSON.stringify({ pid: unrelated.pid, startTicks: "0" })}\n`,
+    );
+    const helper = join(import.meta.dir, "start-server.ts");
+    const stop = Bun.spawn([process.execPath, "run", helper], {
+      env: {
+        ...process.env,
+        OPENCODE_SERVER_ACTION: "stop",
+        OPENCODE_PROFILE_DIR: profileDir,
+        OPENCODE_SERVER_RECORD: recordPath,
+      },
+      stderr: "pipe",
+    });
+    expect(await stop.exited).toBe(0);
+    expect(alive(unrelated.pid)).toBe(true);
+    unrelated.kill();
+    await unrelated.exited;
+  });
 
   it("waits for an active turn before an environment replacement", async () => {
     const path = await root();

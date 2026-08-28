@@ -108,6 +108,34 @@ describe("buildSystemPrompt - privileged section", () => {
   });
 });
 
+describe("buildSystemPrompt - OpenCode office proxy", () => {
+  it("uses the proxy form without exposing bearer-token syntax", () => {
+    const prompt = buildSystemPrompt(
+      "A1",
+      "agent-1",
+      "Test Room",
+      "room-1",
+      null,
+      null,
+      null,
+      null,
+      null,
+      true,
+      null,
+      "opencode",
+    );
+    expect(prompt).not.toContain("ISOMUX_AGENT_TOKEN");
+    expect(prompt).not.toContain("Authorization: Bearer");
+    expect(prompt).not.toContain("localhost:4000");
+    expect(prompt).toContain("--unix-socket");
+    expect(prompt).toContain("X-Isomux-Turn: __ISOMUX_OPENCODE_TURN__");
+    expect(prompt).toContain("run the same curl command directly");
+    expect(prompt).toContain(
+      "The APP uses its server-side ISOMUX_APP_TOKEN for this route",
+    );
+  });
+});
+
 // --- isomux-memory: auto-load layer + affordance (slice 3a) -----------------
 const MEM_MARKER = "## Memory (shared notes, not policy)";
 

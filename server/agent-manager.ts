@@ -353,6 +353,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return getBackend(managed.info.agentType).getLoginInstructions({
       env,
       environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+      modelFamily: managed.info.modelFamily,
     });
   }
 
@@ -1417,6 +1418,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           getBackend(agentType).inspectStoredSession(p.lastSessionId, {
             cwd: p.cwd,
             env: restoreEnv,
+            environmentKey: environmentSourceKeyForUserId(userId),
           }) === "durable"
         ) {
           resumeSessionId = p.lastSessionId;
@@ -4547,6 +4549,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         getBackend(managed.info.agentType).inspectStoredSession(candidate, {
           cwd: managed.info.cwd,
           env,
+          environmentKey: environmentSourceKeyForUserId(managed.info.userId),
         }) !== "durable"
       ) {
         return null;
@@ -4643,16 +4646,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     // Compute env once for both the backend-owned resume preflight and the
     // session options.
-    const env =
-      managed.info.agentType === "opencode"
-        ? buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId)
-        : buildSessionEnv(managed);
+    const env = buildSessionEnv(managed);
     if (resumeSessionId) {
       const resumeError = getBackend(
         managed.info.agentType,
       ).checkSessionResumable(resumeSessionId, {
         cwd: managed.info.cwd,
         env,
+        environmentKey: environmentSourceKeyForUserId(managed.info.userId),
       });
       if (resumeError) {
         throw new Error(

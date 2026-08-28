@@ -1,14 +1,16 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { getBackend } from "../index.ts";
 import type { CreateSessionOptions, NormalizedEvent } from "../types.ts";
 import {
+  buildOpenCodePromptParts,
   createOpenCodeBackend,
   createOpenCodeTracerBackend,
 } from "./adapter.ts";
 import { OpenCodeSupervisor } from "./supervisor.ts";
+import { STATE_ROOT } from "../../config.ts";
 
 const cleanup: Array<() => Promise<void> | void> = [];
 
@@ -33,7 +35,7 @@ async function collect(
   return events;
 }
 
-describe("OpenCode Slice 1A tracer", () => {
+describe("OpenCode deterministic tracer", () => {
   it("is registered with only the capabilities this tracer proves", () => {
     const backend = getBackend("opencode");
     expect(backend.capabilities).toEqual({
@@ -46,7 +48,9 @@ describe("OpenCode Slice 1A tracer", () => {
       edit: true,
       mcp: false,
     });
-    expect(backend.inspectStoredSession("stored", opts)).toBe("durable");
+    expect(() => backend.inspectStoredSession("stored", opts)).toThrow(
+      "environment identity is required",
+    );
     expect(createOpenCodeTracerBackend().capabilities).toMatchObject({
       fork: false,
       edit: false,
@@ -85,14 +89,57 @@ describe("OpenCode Slice 1A tracer", () => {
     );
     const instructions = backend.getLoginInstructions({
       environmentKey: "default",
+      modelFamily: "anthropic/claude-sonnet",
     });
     expect(instructions.text).toContain("shared environment");
     expect(instructions.text).toContain("Browser OAuth is not certified");
+    expect(instructions.text).toContain("anthropic credential");
     expect(instructions.commands).toHaveLength(1);
   });
 });
 
-describe("OpenCode Slice 1B pinned transport", () => {
+describe("OpenCode pinned transport", () => {
+  it("uses the shared attachment notice contract and fails empty input safe", async () => {
+    const agentId = `opencode-attachment-${Date.now()}`;
+    const files = join(STATE_ROOT, "logs", agentId, "files");
+    await mkdir(files, { recursive: true });
+    await writeFile(join(files, "proof.txt"), "proof");
+    cleanup.push(() =>
+      rm(join(STATE_ROOT, "logs", agentId), { recursive: true, force: true }),
+    );
+    expect(
+      buildOpenCodePromptParts(
+        "inspect",
+        [
+          {
+            filename: "proof.txt",
+            originalName: "proof.txt",
+            mediaType: "text/plain",
+            size: 5,
+          },
+          {
+            filename: "missing.txt",
+            originalName: "missing.txt",
+            mediaType: "text/plain",
+            size: 1,
+          },
+        ],
+        agentId,
+      ),
+    ).toEqual([
+      { type: "text", text: "inspect" },
+      {
+        type: "text",
+        text: expect.stringContaining(
+          '[Attachment: "proof.txt" (text/plain, 5 B) saved at ',
+        ),
+      },
+    ]);
+    expect(buildOpenCodePromptParts("", undefined, agentId)).toEqual([
+      { type: "text", text: "" },
+    ]);
+  });
+
   it("refuses a production session without stable environment identity", () => {
     const backend = createOpenCodeBackend();
     expect(() =>
@@ -127,6 +174,8 @@ describe("OpenCode Slice 1B pinned transport", () => {
     let nextEvent = 0;
     const promptModels: unknown[] = [];
     const promptAgents: unknown[] = [];
+    const promptSystems: unknown[] = [];
+    const promptParts: unknown[] = [];
     const server = Bun.serve({
       hostname: "127.0.0.1",
       port: 0,
@@ -157,9 +206,13 @@ describe("OpenCode Slice 1B pinned transport", () => {
           const body = (await request.json()) as {
             model?: unknown;
             agent?: unknown;
+            system?: unknown;
+            parts?: unknown;
           };
           promptModels.push(body.model);
           promptAgents.push(body.agent);
+          promptSystems.push(body.system);
+          promptParts.push(body.parts);
           return Response.json(true);
         }
         return new Response("not found", { status: 404 });
@@ -193,10 +246,17 @@ describe("OpenCode Slice 1B pinned transport", () => {
       modelFamily: "beta/model-two",
       permissionMode: "bypassPermissions",
     });
+    const resumed = backend.resumeSession("session-3", {
+      ...opts,
+      systemPrompt: "updated after resume",
+      modelFamily: "gamma/model-three",
+    });
     const firstInit = first.stream()[Symbol.asyncIterator]().next();
     const secondInit = second.stream()[Symbol.asyncIterator]().next();
+    const resumedInit = resumed.stream()[Symbol.asyncIterator]().next();
     await first.send("first");
     await second.send("second");
+    await resumed.send("resumed");
     expect(await firstInit).toEqual({
       done: false,
       value: {
@@ -213,13 +273,29 @@ describe("OpenCode Slice 1B pinned transport", () => {
         model: "beta/model-two",
       },
     });
+    expect(await resumedInit).toEqual({
+      done: false,
+      value: {
+        kind: "system_init",
+        sessionId: "session-3",
+        model: "gamma/model-three",
+      },
+    });
     expect(promptModels).toEqual([
       { providerID: "alpha", modelID: "model-one" },
       { providerID: "beta", modelID: "model-two" },
+      { providerID: "gamma", modelID: "model-three" },
     ]);
-    expect(promptAgents).toEqual([undefined, "isomux-cron"]);
+    expect(promptAgents).toEqual([undefined, "isomux-cron", undefined]);
+    expect(promptSystems).toEqual(["test", "test", "updated after resume"]);
+    expect(promptParts).toEqual([
+      [{ type: "text", text: "first" }],
+      [{ type: "text", text: "second" }],
+      [{ type: "text", text: "resumed" }],
+    ]);
     first.close();
     second.close();
+    resumed.close();
   }, 10_000);
 
   it("returns one reply through the real OC1 HTTP and SSE contract", async () => {

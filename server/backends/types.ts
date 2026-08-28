@@ -494,6 +494,7 @@ export interface Backend {
     opts: {
       cwd: string;
       env?: { [key: string]: string | undefined };
+      environmentKey?: string;
     },
   ): StoredSessionState;
   checkSessionResumable(
@@ -501,6 +502,7 @@ export interface Backend {
     opts: {
       cwd: string;
       env?: { [key: string]: string | undefined };
+      environmentKey?: string;
     },
   ): string | null;
 
@@ -543,5 +545,6 @@ export interface Backend {
   getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
     environmentKey?: string;
+    modelFamily?: string;
   }): { text: string; commands?: string[] };
 }

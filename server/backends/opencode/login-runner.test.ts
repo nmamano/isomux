@@ -78,7 +78,7 @@ describe("OpenCode exact-profile authentication install", () => {
   });
 
   it("generates a locked readable wrapper with mode 0700", async () => {
-    const wrapper = ensureOpenCodeLoginWrapper("wrapper-test");
+    const wrapper = ensureOpenCodeLoginWrapper("wrapper-test", "anthropic");
     const source = await readFile(wrapper, "utf8");
     const runner = join(
       wrapper.slice(0, wrapper.lastIndexOf("/")),
@@ -86,7 +86,7 @@ describe("OpenCode exact-profile authentication install", () => {
     );
     expect(source).toContain("flock --exclusive");
     expect(source).toContain("login-runner.ts");
-    expect(source).toContain("provider=openai");
+    expect(source).toContain("provider='anthropic'");
     expect(source).toContain("OPENCODE_[A-Za-z0-9_]*");
     expect(source).toContain('unset "$name"');
     expect(source).toContain("--preserve");
