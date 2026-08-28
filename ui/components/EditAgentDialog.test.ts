@@ -8,6 +8,7 @@ import { describe, it, expect } from "bun:test";
 import {
   agentFormDirty,
   codexNewEngineDefaults,
+  openCodeModelSelectionReady,
   templateValuesAfterEngineSwitch,
   type AgentFormSnapshot,
 } from "./EditAgentDialog.tsx";
@@ -97,6 +98,51 @@ describe("Codex new-engine defaults", () => {
 });
 
 describe("template values after an engine switch", () => {
+  it("keeps an existing OpenCode agent editable when discovery fails", () => {
+    expect(
+      openCodeModelSelectionReady("gate/gate-model", false, true, []),
+    ).toBe(true);
+  });
+
+  it("requires a selection and rejects one absent from a loaded catalog", () => {
+    expect(openCodeModelSelectionReady("", false, false, null)).toBe(false);
+    expect(
+      openCodeModelSelectionReady("old/model", false, false, [
+        {
+          id: "gate/gate-model",
+          label: "Gate - Gate model",
+          supportedEfforts: [],
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("fetches runtime models on engine selection without a tracer fallback", async () => {
+    const source = await Bun.file(
+      new URL("./EditAgentDialog.tsx", import.meta.url),
+    ).text();
+    expect(source).toContain("}, [usesBackendModels, targetEngine]);");
+    expect(source).not.toContain("OPENCODE_TRACER_MODEL");
+  });
+
+  it("selects a discovered OpenCode model and keeps Ask mode", () => {
+    const template = AGENT_TEMPLATES[0];
+    const models: BackendModelWire[] = [
+      {
+        id: "gate/gate-model",
+        label: "Gate - Gate model",
+        supportedEfforts: [],
+      },
+    ];
+    expect(
+      templateValuesAfterEngineSwitch(template, "opencode", models, false),
+    ).toEqual({
+      modelFamily: "gate/gate-model",
+      effort: "high",
+      permissionMode: "default",
+    });
+  });
+
   it("resolves a spawn template from valid target-Codex defaults", () => {
     const template = AGENT_TEMPLATES.find(
       (candidate) => candidate.label === "Side Project Builder",

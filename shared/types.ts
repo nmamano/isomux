@@ -187,8 +187,8 @@ export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
 ];
 
-// Slice 1A's deterministic tracer model. Slice 1B replaces this entry with the
-// first certified provider/model pair from the pinned OC1 runtime.
+// Deterministic test-double model only. Production OpenCode agents must select
+// a connected provider/model ID from pinned-runtime discovery.
 export const OPENCODE_TRACER_MODEL = "opencode/fake";
 
 // Extract a display version from the exact model id: "claude-opus-4-8" -> "4.8",

@@ -62,22 +62,21 @@ export function validateModelFamily(
     return CODEX_MODELS[0].value;
   }
   if (agentType === "opencode") {
-    if (raw && typeof raw === "string" && raw.length > 0) return raw;
-    return OPENCODE_TRACER_MODEL;
+    return raw ?? "";
   }
   if (raw && isClaudeFamily(raw)) return raw;
   return MODEL_FAMILIES[0].family;
 }
 
 // Strict counterpart to validateModelFamily for INTERACTIVE spawn/edit input
-// (the REST dep closures in isomux-office.ts). Where validateModelFamily silently
-// coerces a mismatched value to the backend default - right for persisted-state
-// canonicalization at boot/revive, wrong for a live caller whose typo would
-// vanish - this returns a human-readable error string for a modelFamily that
-// cannot belong to the agentType, or null when the value is acceptable.
+// (the REST dep closures in isomux-office.ts). validateModelFamily preserves or
+// fills persisted state without rejecting the whole boot restore. This boundary
+// returns a human-readable error for live input that cannot belong to the
+// selected backend.
 //
 // Rules:
-// - absent/empty raw -> null (the caller gets the backend default; not an error)
+// - absent/empty raw -> backend-specific: OpenCode rejects it because discovery
+//   has no production fallback; the other backends use their defaults
 // - claude: anything outside the static Claude family set is an error (e.g. a
 //   Codex slug sent without agentType:"codex")
 // - codex: a Claude family name is an error (statically known to not be a Codex
@@ -92,16 +91,22 @@ export function modelFamilyMismatchError(
   // validateModelFamily's codex canonicalizer (any length>0 string is a
   // provided value). A whitespace-only string is therefore a PROVIDED value
   // and fails the family checks below rather than sliding to the default.
+  if (agentType === "opencode") {
+    if (raw === undefined || raw === "") {
+      return "OpenCode requires a connected provider/model selection.";
+    }
+    if (raw === OPENCODE_TRACER_MODEL) {
+      return "The OpenCode tracer model is not available for production agents. Select a connected model.";
+    }
+    if (!raw.includes("/")) {
+      return `"${raw}" is not an OpenCode provider/model ID (expected provider/model).`;
+    }
+    return null;
+  }
   if (raw === undefined || raw === "") return null;
   if (agentType === "codex") {
     if (isClaudeFamily(raw)) {
       return `"${raw}" is a Claude model family, not a Codex model. Pass a Codex model slug (e.g. "${CODEX_MODELS[0].value}"), or set agentType to "claude".`;
-    }
-    return null;
-  }
-  if (agentType === "opencode") {
-    if (!raw.includes("/")) {
-      return `"${raw}" is not an OpenCode provider/model ID (expected provider/model).`;
     }
     return null;
   }

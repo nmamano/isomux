@@ -303,6 +303,26 @@ describe("cronjob persistence round-trip (Phase 1.3)", () => {
     expect(loadCronjobs()).toEqual([job]);
   });
 
+  it("preserves an OpenCode composite model in cron definition and run snapshots", () => {
+    const openCodeJob: Cronjob = {
+      ...job,
+      id: "joboc001",
+      agentType: "opencode",
+      modelFamily: "gate/gate-model",
+    };
+    const openCodeRun: CronjobRun = {
+      ...run1,
+      id: "runoc001",
+      cronjobId: openCodeJob.id,
+      agentTypeSnapshot: "opencode",
+      modelFamilySnapshot: "gate/gate-model",
+    };
+    saveCronjobs([openCodeJob]);
+    saveRuns(openCodeJob.id, [openCodeRun]);
+    expect(loadCronjobs()).toEqual([openCodeJob]);
+    expect(loadRuns(openCodeJob.id)).toEqual([openCodeRun]);
+  });
+
   it("preserves CronjobRun[] through saveRuns -> loadRuns and supports append/update/find", () => {
     saveRuns(job.id, [run1, run2]);
     expect(loadRuns(job.id)).toEqual([run1, run2]);

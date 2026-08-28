@@ -78,12 +78,17 @@ async function setup(
   // What the FORMATTER returns (or throws). Topic generation, which shares
   // oneShotPrompt, always gets the plain fake reply.
   formatter: () => string = () => SLIDE_HTML,
+  agentType: "claude" | "opencode" = "claude",
 ) {
   // Record ONLY slide-formatter calls. Topic generation shares oneShotPrompt on
   // the same backend, so counting its prompt here would make "generated exactly
   // once" assertions meaningless; the system prompt tells the two apart.
   const prompts: string[] = [];
   const fake = new FakeBackend({
+    capabilities:
+      agentType === "opencode"
+        ? { ...new FakeBackend().capabilities, oneShot: false }
+        : undefined,
     oneShot: (prompt: string, opts: { systemPrompt?: string }) => {
       if (opts.systemPrompt !== SLIDE_SYSTEM_PROMPT) return SLIDE_HTML;
       prompts.push(prompt);
@@ -106,6 +111,11 @@ async function setup(
     undefined,
     undefined,
     "room-a",
+    undefined,
+    agentType === "opencode" ? "gate/gate-model" : undefined,
+    undefined,
+    undefined,
+    agentType,
   );
   const agentId = info!.id;
   cleanup = () => fake.sessionForAgent(agentId)?.close();
@@ -147,6 +157,25 @@ async function setup(
 }
 
 describe("Slide Mode lifecycle (DI integration)", () => {
+  it("does not start a slide job for OpenCode while one-shot is unavailable", async () => {
+    const h = await setup(
+      { onSend: (_t, _a, session) => session.completeTurn({ text: "answer" }) },
+      () => SLIDE_HTML,
+      "opencode",
+    );
+    h.mgr.enqueueMessage(h.agentId, {
+      sender: { kind: "user", username: "tester" },
+      text: "hello",
+    });
+    await waitUntil(() => h.userMsgIds().length === 1);
+    const anchor = h.userMsgIds()[0];
+    await settle();
+    expect(h.mgr.ensureSlide(h.agentId, anchor)).toEqual({
+      status: "unavailable",
+    });
+    expect(h.prompts).toEqual([]);
+  });
+
   it("BOOT: a settled tail with no in-flight turn is terminal - generates from the tail; next send is a new anchor", async () => {
     // onSend completes the turn -> user_message + text logged, turn_completed,
     // pendingTurn=null. That is exactly the post-boot / idle shape: no running

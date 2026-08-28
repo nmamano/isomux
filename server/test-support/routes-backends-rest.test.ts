@@ -65,6 +65,15 @@ async function spawnAgent(
 }
 
 describe("routes/backends.listModels REST", () => {
+  it("passes stable environment identity and revision into model discovery", async () => {
+    const source = await Bun.file(
+      new URL("../isomux-office.ts", import.meta.url),
+    ).text();
+    expect(source).toMatch(
+      /backend\.listModels\(\{[\s\S]*?cwd: resolveCwd\(input\.cwd\),[\s\S]*?env,[\s\S]*?environmentKey: agentManager\.environmentSourceKeyForUserId\(input\.userId\),[\s\S]*?environmentRevision:[\s\S]*?agentManager\.environmentSourceRevisionForUserId\(input\.userId\),[\s\S]*?includeHidden: input\.includeHidden/,
+    );
+  });
+
   it("owner + member -> 200 with the static claude family list; agent -> 403; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;

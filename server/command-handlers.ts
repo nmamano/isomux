@@ -604,6 +604,15 @@ export function createCommandHandling(deps: HandlerDeps) {
     async model(agentId, managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      if (managed.info.agentType === "opencode") {
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          "Open agent settings to select a connected OpenCode model.",
+        );
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
       const currentLabel = familyDisplayLabel(managed.info.modelFamily);
       const lines: string[] = [
         `Switch model (current: **${currentLabel}**):\n`,

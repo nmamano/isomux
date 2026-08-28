@@ -30,6 +30,11 @@ describe("modelLabelImpliesEngine", () => {
     expect(familyDisplayLabel("gpt-6-nova")).toBe("gpt-6-nova");
   });
 
+  it("keeps the OpenCode badge beside a composite provider/model id", () => {
+    expect(modelLabelImpliesEngine("gate/gate-model")).toBe(false);
+    expect(familyDisplayLabel("gate/gate-model")).toBe("gate/gate-model");
+  });
+
   it("agrees with familyDisplayLabel: implied exactly when the label is not the raw slug", () => {
     // The predicate must not drift from the label function it guards.
     for (const family of [

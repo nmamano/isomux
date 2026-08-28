@@ -1049,13 +1049,19 @@ async function listBackendModels(input: {
 > {
   try {
     const backend = getBackend(input.agentType as AgentBackendType);
-    const env = agentManager.buildEnvForUserId(input.userId);
+    const env =
+      input.agentType === "opencode"
+        ? agentManager.buildOpenCodeLaunchEnvironmentForUserId(input.userId)
+        : agentManager.buildEnvForUserId(input.userId);
     const models = await backend.listModels({
       // The codex subprocess's cwd must be a real directory or posix_spawn fails
       // with ENOENT before our error path can clean up - resolve `~` here the
       // same way agentManager.spawn does before persisting.
       cwd: resolveCwd(input.cwd),
       env,
+      environmentKey: agentManager.environmentSourceKeyForUserId(input.userId),
+      environmentRevision:
+        agentManager.environmentSourceRevisionForUserId(input.userId),
       includeHidden: input.includeHidden,
     });
     const wire: BackendModelWire[] = models.map((m) => ({

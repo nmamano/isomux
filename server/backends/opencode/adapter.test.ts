@@ -90,10 +90,127 @@ describe("OpenCode Slice 1A tracer", () => {
 describe("OpenCode Slice 1B pinned transport", () => {
   it("refuses a production session without stable environment identity", () => {
     const backend = createOpenCodeBackend();
-    expect(() => backend.createSession(opts)).toThrow(
+    expect(() =>
+      backend.createSession({ ...opts, modelFamily: "gate/gate-model" }),
+    ).toThrow(
       "OpenCode session environment identity is required.",
     );
   });
+
+  it("refuses model discovery without stable environment identity", async () => {
+    let failure: unknown;
+    try {
+      await createOpenCodeBackend().listModels({ cwd: "/tmp" });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      "OpenCode session environment identity is required.",
+    );
+  });
+
+  it("rejects a legacy tracer model with a repair instruction", () => {
+    const backend = createOpenCodeBackend({
+      supervisor: {} as OpenCodeSupervisor,
+    });
+    expect(() => backend.createSession(opts)).toThrow(
+      "Open agent settings and select a connected model",
+    );
+  });
+
+  it("keeps each session model in system init and the prompt wire body", async () => {
+    let nextSession = 0;
+    let nextEvent = 0;
+    const promptModels: unknown[] = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/session" && request.method === "POST") {
+          return Response.json({ id: `session-${++nextSession}` });
+        }
+        if (url.pathname === "/event") {
+          const sessionId = `session-${++nextEvent}`;
+          return new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    `data: ${JSON.stringify({ type: "session.idle", properties: { sessionID: sessionId } })}\n\n`,
+                  ),
+                );
+                controller.close();
+              },
+            }),
+            {
+            headers: { "content-type": "text/event-stream" },
+            },
+          );
+        }
+        if (url.pathname.endsWith("/prompt_async")) {
+          const body = (await request.json()) as { model?: unknown };
+          promptModels.push(body.model);
+          return Response.json(true);
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    cleanup.push(() => server.stop(true));
+    const lease = {
+      get pid() {
+        return 1;
+      },
+      get baseUrl() {
+        return `http://127.0.0.1:${server.port}`;
+      },
+      get authHeader() {
+        return "Basic test";
+      },
+      beginTurn: async () => {},
+      endTurn: () => {},
+      release: () => {},
+    };
+    const supervisor = {
+      acquire: async () => lease,
+    } as unknown as OpenCodeSupervisor;
+    const backend = createOpenCodeBackend({ supervisor });
+    const first = backend.createSession({
+      ...opts,
+      modelFamily: "alpha/model-one",
+    });
+    const second = backend.createSession({
+      ...opts,
+      modelFamily: "beta/model-two",
+    });
+    const firstInit = first.stream()[Symbol.asyncIterator]().next();
+    const secondInit = second.stream()[Symbol.asyncIterator]().next();
+    await first.send("first");
+    await second.send("second");
+    expect(await firstInit).toEqual({
+      done: false,
+      value: {
+        kind: "system_init",
+        sessionId: "session-1",
+        model: "alpha/model-one",
+      },
+    });
+    expect(await secondInit).toEqual({
+      done: false,
+      value: {
+        kind: "system_init",
+        sessionId: "session-2",
+        model: "beta/model-two",
+      },
+    });
+    expect(promptModels).toEqual([
+      { providerID: "alpha", modelID: "model-one" },
+      { providerID: "beta", modelID: "model-two" },
+    ]);
+    first.close();
+    second.close();
+  }, 10_000);
 
   it("returns one reply through the real OC1 HTTP and SSE contract", async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-adapter-"));
@@ -164,9 +281,21 @@ describe("OpenCode Slice 1B pinned transport", () => {
     const contractShapes: string[] = [];
     const backend = createOpenCodeBackend({
       supervisor,
-      model: "gate/gate-model",
       contractShapeSink: (shape) => contractShapes.push(shape),
     });
+    const discovered = await backend.listModels({ cwd: root });
+    expect(discovered).toContainEqual({
+      id: "gate/gate-model",
+      label: "Gate mock - Gate model",
+      supportedEfforts: [],
+    });
+    expect(discovered.some((model) => model.id.startsWith("offline/"))).toBe(
+      false,
+    );
+    expect(JSON.stringify(discovered)).not.toContain("test-only");
+    const discoveryLease = await supervisor.acquire();
+    const discoveryPid = discoveryLease.pid;
+    discoveryLease.release();
     const session = backend.createSession({ ...opts, cwd: root, modelFamily: "gate/gate-model" });
     const eventsPromise = (async () => {
       const events: NormalizedEvent[] = [];
@@ -188,6 +317,9 @@ describe("OpenCode Slice 1B pinned transport", () => {
       { kind: "assistant_text", text: "OpenCode real tracer reply." },
     ]);
     expect(events.at(-1)).toMatchObject({ kind: "turn_completed", status: "completed" });
+    const sessionLease = await supervisor.acquire();
+    expect(sessionLease.pid).toBe(discoveryPid);
+    sessionLease.release();
     expect([...new Set(contractShapes)].sort()).toEqual(
       await Bun.file(join(import.meta.dir, "fixtures", "s1b-text-contract.json")).json(),
     );
@@ -208,26 +340,37 @@ describe("OpenCode Slice 1B pinned transport", () => {
     const parentId = events[0].kind === "system_init" ? events[0].sessionId! : "";
     const reboundBackend = createOpenCodeBackend({
       supervisor,
-      model: "gate/gate-model",
     });
     expect(
       await reboundBackend.getSessionMessages(parentId, root, {
+        cwd: root,
+        modelFamily: "gate/gate-model",
         environmentKey: "rebound",
         environmentRevision: "rebound",
       }),
     ).toEqual(parentBefore);
     const target = parentBefore.filter((message) => message.role === "user")[1];
     if (!target) throw new Error("OpenCode parent did not record a second user turn");
-    const fork = await reboundBackend.forkSessionBeforeMessage(parentId, target.uuid);
+    const forkBackend = createOpenCodeBackend({ supervisor });
+    const fork = await forkBackend.forkSessionBeforeMessage(
+      parentId,
+      target.uuid,
+      {
+        cwd: root,
+        modelFamily: "gate/gate-model",
+        environmentKey: "rebound",
+        environmentRevision: "rebound",
+      },
+    );
     expect(fork.kind).toBe("fork");
     if (fork.kind !== "fork") throw new Error("OpenCode fork was not linked");
-    const childBefore = await reboundBackend.getSessionMessages(fork.sessionId, root);
+    const childBefore = await forkBackend.getSessionMessages(fork.sessionId, root);
     expect(childBefore.map((message) => message.text)).toEqual([
       "hello from Isomux",
       "OpenCode real tracer reply.",
     ]);
     session.close();
-    const child = reboundBackend.resumeSession(fork.sessionId, {
+    const child = forkBackend.resumeSession(fork.sessionId, {
       ...opts,
       cwd: root,
       modelFamily: "gate/gate-model",
@@ -240,9 +383,9 @@ describe("OpenCode Slice 1B pinned transport", () => {
     await child.send("edited second turn");
     await childTurn;
     child.close();
-    const parentAfter = await reboundBackend.getSessionMessages(parentId, root);
+    const parentAfter = await forkBackend.getSessionMessages(parentId, root);
     expect(parentAfter).toEqual(parentBefore);
-  }, 20_000);
+  }, 40_000);
 
   it("runs and denies controlled shell tools through the real OC1 permission route", async () => {
     const root = await mkdtemp(join(tmpdir(), "isomux-opencode-tools-"));
@@ -304,7 +447,7 @@ describe("OpenCode Slice 1B pinned transport", () => {
       },
     });
     cleanup.push(() => supervisor.shutdown());
-    const backend = createOpenCodeBackend({ supervisor, model: "gate/gate-model" });
+    const backend = createOpenCodeBackend({ supervisor });
     const run = async (
       text: string,
       allow: boolean,

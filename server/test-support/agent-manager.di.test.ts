@@ -235,7 +235,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         undefined,
         `room-edit-${edit}`,
         undefined,
-        "opencode/fake",
+        "gate/gate-model",
         "high",
         undefined,
         "opencode",
@@ -243,6 +243,87 @@ describe("AgentManager DI (temp-state isolated)", () => {
       expect(info?.capabilities.edit).toBe(edit);
       expect(info?.capabilities.fork).toBe(edit);
     }
+  });
+
+  it("keeps an OpenCode composite model and capabilities through kill and revive", async () => {
+    const fake = new FakeBackend({
+      capabilities: {
+        ...new FakeBackend().capabilities,
+        edit: true,
+        fork: true,
+        oneShot: false,
+      },
+    });
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-opencode-revive") }),
+      initialRooms: [],
+    });
+    const info = await mgr.spawn(
+      "Durable OpenCode",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-opencode-revive",
+      undefined,
+      "gate/gate-model",
+      "high",
+      undefined,
+      "opencode",
+    );
+    await mgr.kill(info!.id);
+    expect(mgr.getKilledAgentSummaries()).toContainEqual(
+      expect.objectContaining({
+        id: info!.id,
+        agentType: "opencode",
+      }),
+    );
+    const revived = await mgr.revive(info!.id, "room-opencode-revive", 0);
+    expect(revived).toMatchObject({
+      ok: true,
+      agent: {
+        agentType: "opencode",
+        modelFamily: "gate/gate-model",
+        capabilities: expect.objectContaining({
+          edit: true,
+          fork: true,
+          oneShot: false,
+        }),
+      },
+    });
+  });
+
+  it("routes OpenCode model changes to the connected-model settings control", async () => {
+    const fake = new FakeBackend();
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-opencode-model") }),
+      initialRooms: [],
+    });
+    const info = await mgr.spawn(
+      "OpenCode model",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-opencode-model",
+      undefined,
+      "gate/gate-model",
+      "high",
+      undefined,
+      "opencode",
+    );
+    await mgr.sendMessage(info!.id, "/model", "tester");
+    expect(
+      mgr
+        .getAgentLogs(info!.id)
+        .some(
+          (entry) =>
+            entry.content ===
+            "Open agent settings to select a connected OpenCode model.",
+        ),
+    ).toBe(true);
   });
 
   it("runs the OpenCode first-reply tracer through normal logs and persistence", async () => {
@@ -372,7 +453,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       },
     });
     try {
-      const backend = createOpenCodeBackend({ supervisor, model: "gate/gate-model" });
+      const backend = createOpenCodeBackend({ supervisor });
       const mgr = createAgentManager({
         resolveBackend: () => backend,
         officeState: new OfficeState({ rooms: rooms("room-opencode-real") }),
@@ -660,7 +741,6 @@ describe("AgentManager DI (temp-state isolated)", () => {
     try {
       const backend = createOpenCodeBackend({
         supervisor,
-        model: "openai/gpt-4o",
         safeErrorSink: (error) => safeErrors.push({ ...error }),
       });
       const mgr = createAgentManager({
@@ -767,7 +847,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       },
     });
     try {
-      const backend = createOpenCodeBackend({ supervisor, model: "gate/gate-model" });
+      const backend = createOpenCodeBackend({ supervisor });
       const mgr = createAgentManager({
         resolveBackend: () => backend,
         officeState: new OfficeState({ rooms: rooms("room-opencode-error") }),

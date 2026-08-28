@@ -40,6 +40,8 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
+import { createOpenCodeBackend } from "../backends/opencode/adapter.ts";
+import type { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { formatAgentSenderPrefix } from "../../shared/identity.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
@@ -110,7 +112,7 @@ async function spawnAgent(
     undefined,
     roomId,
     undefined,
-    undefined,
+    agentType === "opencode" ? "gate/gate-model" : undefined,
     undefined,
     undefined,
     agentType,
@@ -835,12 +837,11 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     ).toBe(true);
   });
 
-  it("observes the same quiescent signature on Codex and OpenCode without recovering it", async () => {
+  it("keeps OpenCode observe-only in the busy-turn watchdog", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
-    for (const agentType of ["codex", "opencode"] as const) {
-    const recv = await spawnAgent(server, `Receiver-${agentType}`, room.id, agentType);
-    const sender = await spawnAgent(server, `Sender-${agentType}`, room.id);
+    const recv = await spawnAgent(server, "Receiver-opencode", room.id, "opencode");
+    const sender = await spawnAgent(server, "Sender-opencode", room.id);
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     const session = server.fakeBackend.sessionForAgent(recv.id)!;
     await waitUntil(() => session.sent.length === 1, 3000, "kickoff sent");
@@ -872,7 +873,58 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     expect(queueOf(server, recv.id).length).toBe(1);
     // An observation must not spend the cooldown shared by real recovery.
     expect(server.agentManager._testLastForcedRecoveryAt(recv.id)).toBe(0);
-    }
+  });
+
+  it("surfaces one repair error for a legacy OpenCode tracer without watchdog recovery", async () => {
+    const fake = parkingBackend();
+    const openCode = createOpenCodeBackend({
+      supervisor: {} as OpenCodeSupervisor,
+    });
+    server = await startTestServer({
+      fakeBackend: fake,
+      startServer: {
+        resolveBackend: (agentType) =>
+          agentType === "opencode" ? openCode : fake,
+      },
+    });
+    const room = server.agentManager.getRooms()[0];
+    const receiver = await server.agentManager.spawn(
+      "Legacy tracer",
+      server.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      room.id,
+      undefined,
+      "opencode/fake",
+      undefined,
+      undefined,
+      "opencode",
+    );
+    if (!receiver) throw new Error("legacy OpenCode spawn failed");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    await postAgentMessage(server, receiver.id, sender.id, "wake legacy");
+    await waitUntil(
+      () =>
+        server!.agentManager
+          .getAgentLogs(receiver.id)
+          .some((entry) =>
+            entry.content.includes("Open agent settings and select a connected model"),
+          ),
+      3000,
+      "legacy repair error",
+    );
+    expect(stateOf(server, receiver.id)).toBe("error");
+    expect(server.agentManager.getAllAgents().some((agent) => agent.id === receiver.id)).toBe(true);
+    const errorCount = () =>
+      server!.agentManager
+        .getAgentLogs(receiver.id)
+        .filter((entry) => entry.content.includes("Open agent settings")).length;
+    expect(errorCount()).toBe(1);
+    expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
+    expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
+    expect(errorCount()).toBe(1);
+    expect(server.agentManager._testLastForcedRecoveryAt(receiver.id)).toBe(0);
   });
 
   it("forced path: attempts a session-replacement recovery once, then respects the cooldown (never force-clears flushInProgress)", async () => {

@@ -309,8 +309,8 @@ does not mean transport recovery.
    restart/resume, simultaneous repositories without crossover, and server
    replacement after environment/profile change. Prove fork at the selected
    message plus child history and first child turn, or keep fork and edit off.
-   Pin that OpenCode remains observe-only in the busy-turn watchdog; S3 did not
-   change that existing behavior.
+   S5 pins that OpenCode remains observe-only in the busy-turn watchdog; S3 and
+   S4 did not change that existing behavior.
 
 S4's 2026-08-28 pinned probes found that `messageID` is an exclusion boundary.
 Forking at the second user message retained the complete first turn, removed
@@ -340,6 +340,10 @@ agent's session id. The server-record revision design assumes one Isomux
 process owns one `STATE_ROOT`; two Isomux processes with different views of the
 same env files are unsupported.
 
+Fork and message inspection use the same lazy binding constructor. A binding
+holds cwd, supervisor, and the stored session model, so fork safety does not
+depend on the edit path reading messages first.
+
 Environment-file contents have a separate revision from profile identity. The
 revision hashes configured office and user env-file values only, never ambient
 process values, and is stored only in the mode-0600 server record. A changed
@@ -348,6 +352,65 @@ two-minute bounded drain. Durable session ids remain valid.
 6. **S5 - model and UI completion.** Add provider/model discovery, at most
    three first-release certified models, capability-shaped controls, and every
    killed/resumed-agent surface.
+
+S5 reads the pinned server's `/provider` route through the same shared
+environment profile as an agent turn. It accepts only providers in the
+server's `connected` set and flattens their models to `provider/model`. The
+browser receives only that composite id and a bounded provider/model label.
+Provider options, environment names, costs, limits, and unknown catalog fields
+are dropped at ingress. Credential-shaped or invalid labels fall back to the
+validated id.
+
+Opening spawn or edit on OpenCode can start the shared server for discovery.
+Discovery runs once when the selected engine becomes OpenCode, not on renders
+or cwd edits. Cancelling the dialog leaves that server under the existing
+ten-minute idle shutdown. This can retain the measured approximately 380 MiB
+idle server for that bound; S5 does not add a second idle timeout. Discovery
+against an already-live session must keep the same pid and cannot request a
+drain or replacement.
+
+One agent-manager helper authors the OpenCode launch environment for both
+discovery and sessions. It resolves the configured office and user env files
+from the same user id used for the environment key and revision. The
+`start-server.ts` spawn builder then removes inherited `OPENCODE_*`,
+`ISOMUX_OPENCODE_DEBUG`, and the per-agent `ISOMUX_AGENT_TOKEN` before exec.
+Discovery and session launch environments were already equal after that token
+filter on the pre-S5 tree; the new helper and its source-structure pin are the
+control that prevents two authors from drifting later.
+
+The selected composite id is the runtime model. It is stored in each session
+binding, emitted in `system_init`, and split into the prompt's `providerID` and
+`modelID`; the backend singleton has no production model constant. A stored
+model is never silently replaced during resume. A disconnected provider can
+produce the reviewed authentication recovery. A connected provider with a
+retired model id remains a generic model failure, not an authentication
+failure, and settings shows the stored id as unavailable until the user picks
+a connected model.
+
+`opencode/fake` remains only in the deterministic tracer. New production
+agents require an explicit discovered model. A legacy tracer record remains
+truthful in history, killed-agent, and revive projections, but production
+session creation gives one settings repair error and does not start, kill the
+agent, or spend watchdog recovery budget. The OpenCode `/model` command points
+to agent settings because its connected list is environment-specific.
+
+OpenCode keeps Ask-only permission mode and exposes no effort, sandbox, or
+one-shot controls. Slide Mode therefore returns no job instead of calling the
+unavailable OpenCode one-shot path with Codex's formatter model. Fresh offices
+still seed only the existing Claude and Codex welcome agents; S5 does not add a
+third welcome agent.
+
+The shared cron definition and run types already preserve OpenCode plus a
+composite model id, and S5 pins that serialization. S6 owns executable OpenCode
+cron sessions, unattended permissions, explicit model selection, and all
+three environment-key creation sites. It cannot rely on a model fallback.
+
+Real-provider certification remains parked when credentials are absent. The
+opt-in harness accepts at most three explicit connected models, enforces
+200,000 input-plus-output tokens per model, and records the stated $2 per-model
+intent without claiming that dollars can be measured during the run. The
+deterministic local gate provider proves the pinned binary contract but is not
+a certified real provider.
 7. **S6 - unattended run.** Run an OpenCode cronjob with standing allow rules.
    An unexpected permission or question fails visibly instead of parking.
 8. **S7 - release hardening.** Measure real-stream memory, prove update and
@@ -427,10 +490,10 @@ branch is knowingly not covered by a focused test.
 
 Residual two-backend assumptions recorded 2026-08-28:
 
-- S4 owns the regression test for OpenCode's existing observe-only busy-turn
-  watchdog behavior at `agent-manager.ts:4241`.
+- S5 pins OpenCode's existing observe-only busy-turn watchdog behavior at
+  `agent-manager.ts:4251`; this is a regression pin, not a behavior change.
 - S4 owns cwd-change classification at `agent-manager.ts:827`.
-- S5 owns slide model selection at `agent-manager.ts:2449`, welcome-agent
+- S5 closes slide model selection at `agent-manager.ts:2466`, welcome-agent
   naming at `isomux-office.ts:480-484`, LogView engine display at
   `ui/log-view/LogView.tsx:1914`, and template handling at
   `ui/agent-templates.ts:384,415`.

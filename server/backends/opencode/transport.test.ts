@@ -2,6 +2,8 @@ import { describe, expect, it } from "bun:test";
 import {
   interruptedToolResults,
   isAuthenticationError,
+  allowDiscoveredModels,
+  discoverOpenCodeModels,
   allowMessages,
   parseAllowedEvent,
 } from "./transport.ts";
@@ -10,8 +12,77 @@ import { join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
+import type { OpenCodeSupervisor } from "./supervisor.ts";
 
 describe("OpenCode OC1 raw-ingress allowlist", () => {
+  it("keeps only connected provider model labels and composite ids", () => {
+    const canary = "PROVIDER_OPTION_SECRET_CANARY";
+    const models = allowDiscoveredModels({
+      connected: ["gate", "safe"],
+      all: [
+        {
+          id: "gate",
+          name: "Gate provider",
+          options: { apiKey: canary },
+          models: {
+            "gate-model": { name: "Gate model", cost: canary },
+            "gate/gate-model": { name: "duplicate", metadata: canary },
+          },
+        },
+        {
+          id: "offline",
+          name: "Offline",
+          models: { hidden: { name: canary } },
+        },
+        {
+          id: "safe",
+          name: `API key ${canary}`,
+          models: { model: { name: `secret ${canary}` } },
+        },
+        { id: 7, models: [] },
+      ],
+    });
+    expect(models).toEqual([
+      { id: "gate/gate-model", label: "Gate provider - Gate model" },
+      { id: "safe/model", label: "safe - model" },
+    ]);
+    expect(JSON.stringify(models)).not.toContain(canary);
+  });
+
+  it("returns no models for malformed or empty connected discovery", () => {
+    expect(allowDiscoveredModels(null)).toEqual([]);
+    expect(
+      allowDiscoveredModels({
+        connected: [],
+        all: [{ id: "gate", models: { model: { name: "Model" } } }],
+      }),
+    ).toEqual([]);
+  });
+
+  it("releases the discovery lease when the provider request fails", async () => {
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => new Response("failed", { status: 500 }),
+    });
+    let releases = 0;
+    const supervisor = {
+      acquire: async () => ({
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        release: () => releases++,
+      }),
+    } as unknown as OpenCodeSupervisor;
+    try {
+      await expectRejection(
+        discoverOpenCodeModels(supervisor, "/tmp"),
+        /OpenCode HTTP 500/,
+      );
+      expect(releases).toBe(1);
+    } finally {
+      await server.stop(true);
+    }
+  });
   it("keeps only message ids, roles, and text for edit matching", () => {
     const canary = "HISTORY_PRIVATE_CANARY";
     expect(
@@ -170,6 +241,16 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         },
         "opencode/fake",
         ["opencode"],
+      ),
+    ).toBe(false);
+    expect(
+      isAuthenticationError(
+        {
+          name: "UnknownError",
+          message: "Model not found: openai/retired. Did you mean: current?",
+        },
+        "openai/retired",
+        ["openai"],
       ),
     ).toBe(false);
   });

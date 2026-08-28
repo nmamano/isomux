@@ -434,6 +434,21 @@ export function resolveTemplateModel(
     };
   }
 
+
+  if (engine === "opencode") {
+    if (modelsFailed || backendModels === null) return current;
+    const visible = backendModels.filter((model) => !model.hidden);
+    if (visible.length === 0) return current;
+    const chosen =
+      visible.find((model) => model.id === current.modelFamily) ??
+      visible.find((model) => model.isDefault) ??
+      visible[0];
+    return {
+      modelFamily: chosen.id,
+      effort: DEFAULT_EFFORT,
+    };
+  }
+
   if (modelsFailed || backendModels === null) return current;
   const visible = backendModels.filter((model) => !model.hidden);
   if (visible.length === 0) return current;

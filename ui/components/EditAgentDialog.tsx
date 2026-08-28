@@ -14,7 +14,6 @@ import {
   DEFAULT_EFFORT,
   modelVersionLabel,
   CODEX_MODELS,
-  OPENCODE_TRACER_MODEL,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
 } from "../../shared/types.ts";
@@ -72,6 +71,19 @@ export function codexNewEngineDefaults(): {
   return { permissionMode: "never", codexSandbox: "danger-full-access" };
 }
 
+export function openCodeModelSelectionReady(
+  modelFamily: string,
+  modelsLoading: boolean,
+  modelsFailed: boolean,
+  backendModels: BackendModelWire[] | null,
+): boolean {
+  if (!modelFamily) return false;
+  if (modelsLoading || modelsFailed || backendModels === null) return true;
+  return backendModels.some(
+    (model) => !model.hidden && model.id === modelFamily,
+  );
+}
+
 export function templateValuesAfterEngineSwitch(
   template: AgentTemplate,
   targetEngine: AgentBackendType,
@@ -90,7 +102,7 @@ export function templateValuesAfterEngineSwitch(
         }
       : targetEngine === "opencode"
         ? {
-            modelFamily: OPENCODE_TRACER_MODEL,
+            modelFamily: "",
             effort: DEFAULT_EFFORT,
             permissionMode: "default" as AgentInfo["permissionMode"],
           }
@@ -235,6 +247,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [targetEngine, setTargetEngine] = useState<AgentBackendType>(agentType);
   const isCodex = targetEngine === "codex";
   const isOpenCode = targetEngine === "opencode";
+  const usesBackendModels = isCodex || isOpenCode;
 
   const {
     recentCwds: allRecentCwds,
@@ -280,7 +293,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const defaultModel = isCodex
     ? CODEX_MODELS[0].value
     : isOpenCode
-      ? OPENCODE_TRACER_MODEL
+      ? ""
       : MODEL_FAMILIES[0].family;
   const [modelFamily, setModelFamily] = useState<string>(
     agent?.modelFamily ?? defaultModel,
@@ -347,7 +360,22 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     authError: boolean;
   } | null>(null);
   const templateModelsPending =
-    isCodex && backendModels === null && modelsError === null;
+    usesBackendModels && backendModels === null && modelsError === null;
+  const openCodeModelReady =
+    !isOpenCode ||
+    openCodeModelSelectionReady(
+      modelFamily,
+      modelsLoading,
+      modelsError !== null,
+      backendModels,
+    );
+  const openCodeCatalogRejectsSelection =
+    isOpenCode &&
+    !!modelFamily &&
+    !modelsLoading &&
+    modelsError === null &&
+    backendModels !== null &&
+    !openCodeModelReady;
 
   // What "unsaved" is measured against (task 5a20e3f0). Seeded from the same
   // values the form state above is seeded from, so on open the dialog is clean
@@ -553,7 +581,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpawn, agent?.id]);
 
-  // Fetch the auth-appropriate model list for Codex agents. Fires once when
+  // Fetch the auth-appropriate model list for dynamic-model backends. Fires once when
   // the dialog opens (spawn or edit). Re-fetches if `agentType` flips to
   // codex - though in practice the agentType picker is locked at spawn.
   // GET backends.listModels: a DOMAIN failure (auth/transport in the executor's
@@ -561,12 +589,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // NOT a thrown ApiError - so read r.error in .then(); only a real HTTP/network
   // failure reaches .catch().
   useEffect(() => {
-    if (!isCodex) return;
+    if (!usesBackendModels) return;
     let cancelled = false;
     // Seed loading flags synchronously so the dropdown shows the spinner.
     /* eslint-disable react-hooks/set-state-in-effect */
     setModelsLoading(true);
     setModelsError(null);
+    setBackendModels(null);
     /* eslint-enable react-hooks/set-state-in-effect */
     apiFetch<{
       models: BackendModelWire[];
@@ -613,10 +642,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           (isSpawn || targetEngine !== agentType) &&
           !templateAppliedRef.current
         ) {
-          const preferredModelId = CODEX_MODELS[0].value;
+          const preferredModelId = isCodex ? CODEX_MODELS[0].value : null;
           const visibleModels = r.models.filter((m) => !m.hidden);
           const def =
-            visibleModels.find((m) => m.id === preferredModelId) ??
+            (preferredModelId
+              ? visibleModels.find((m) => m.id === preferredModelId)
+              : undefined) ??
             visibleModels.find((m) => m.isDefault) ??
             visibleModels[0];
           if (def) {
@@ -650,9 +681,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // Intentionally not depending on cwd: re-fetching on every keystroke
     // would spawn a codex subprocess per character. The cwd inherited by
     // model/list rarely affects the result anyway (auth is global).
-    // Re-fetches when the dialog's selected engine flips to codex.
+    // Re-fetches when the dialog's selected engine flips to a dynamic backend.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCodex, targetEngine]);
+  }, [usesBackendModels, targetEngine]);
 
   // When the engine is switched in the dialog, re-seed model/effort/approval/
   // sandbox so the menus carry valid options for the newly selected engine (no
@@ -681,7 +712,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           (agentType === "codex"
             ? CODEX_MODELS[0].value
             : agentType === "opencode"
-              ? OPENCODE_TRACER_MODEL
+              ? ""
               : MODEL_FAMILIES[0].family),
         effort: agent?.effort ?? DEFAULT_EFFORT,
         permissionMode: initialPermissionMode,
@@ -696,7 +727,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       };
     } else if (targetEngine === "opencode") {
       seed = {
-        modelFamily: OPENCODE_TRACER_MODEL,
+        modelFamily: "",
         effort: DEFAULT_EFFORT,
         permissionMode: "default",
       };
@@ -746,6 +777,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // Save supersedes an in-flight discard prompt: the user picked Save over
     // Discard, so the stashed action must not be able to replay later.
     pendingDiscardActionRef.current = null;
+    if (!openCodeModelReady) {
+      setCwdError("Select a connected OpenCode model before saving.");
+      return;
+    }
     setConfirmDiscard(false);
     // name_taken routes under the Name input; everything else under cwd (the
     // prior agent_save_response.field === "name" routing, now keyed on the REST
@@ -1722,40 +1757,28 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 )}
 
                 <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
-                {isOpenCode ? (
-                  <select
-                    value={OPENCODE_TRACER_MODEL}
-                    onChange={() => {}}
-                    style={{
-                      ...inputStyle,
-                      appearance: "none",
-                      cursor: "default",
-                    }}
-                  >
-                    <option value={OPENCODE_TRACER_MODEL}>
-                      OpenCode tracer
-                    </option>
-                  </select>
-                ) : (() => {
+                {(() => {
                   // Codex model options come from the server (auth-aware via
                   // model/list). On fetch failure OR an empty list we fall back to the
                   // hardcoded CODEX_MODELS list so the dialog is still usable (an empty
                   // fetched list would otherwise render a zero-option select). Claude
                   // uses the static MODEL_FAMILIES list either way.
-                  const codexFetched =
-                    isCodex && backendModels && backendModels.length > 0;
-                  const codexVisible = codexFetched
+                  const backendFetched =
+                    usesBackendModels &&
+                    backendModels &&
+                    backendModels.length > 0;
+                  const backendVisible = backendFetched
                     ? backendModels.filter((m) => !m.hidden)
                     : null;
                   // Pin the stored model as an extra option whenever the rendered
                   // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
                   // editing never silently drops a value not offered on this login.
-                  const renderedModelIds = codexVisible
-                    ? codexVisible.map((m) => m.id)
+                  const renderedModelIds = backendVisible
+                    ? backendVisible.map((m) => m.id)
                     : CODEX_MODELS.map((m) => m.value);
                   const storedNotInList =
                     !isSpawn &&
-                    isCodex &&
+                    usesBackendModels &&
                     !renderedModelIds.includes(modelFamily);
                   return (
                     <select
@@ -1779,8 +1802,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           setEffort(DEFAULT_EFFORT);
                         // Codex: when the model changes, snap effort to the new
                         // model's default if the current effort isn't supported.
-                        if (isCodex && codexVisible) {
-                          const picked = codexVisible.find(
+                        if (isCodex && backendVisible) {
+                          const picked = backendVisible.find(
                             (m) => m.id === next,
                           );
                           if (picked) {
@@ -1801,21 +1824,23 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         appearance: "none",
                         cursor: "pointer",
                       }}
-                      disabled={isCodex && modelsLoading}
+                      disabled={usesBackendModels && modelsLoading}
                     >
-                      {isCodex ? (
+                      {usesBackendModels ? (
                         <>
-                          {codexVisible
-                            ? codexVisible.map((m) => (
+                          {backendVisible
+                            ? backendVisible.map((m) => (
                                 <option key={m.id} value={m.id}>
                                   {m.label}
                                 </option>
                               ))
-                            : CODEX_MODELS.map((m) => (
+                            : isCodex
+                              ? CODEX_MODELS.map((m) => (
                                 <option key={m.value} value={m.value}>
                                   {m.label}
                                 </option>
-                              ))}
+                                ))
+                              : null}
                           {storedNotInList && (
                             <option key={modelFamily} value={modelFamily}>
                               {modelFamily} (unavailable on current login)
@@ -1832,7 +1857,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     </select>
                   );
                 })()}
-                {isCodex && modelsLoading && (
+                {usesBackendModels && modelsLoading && (
                   <p
                     style={{
                       fontSize: 10,
@@ -1843,7 +1868,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     Loading available models…
                   </p>
                 )}
-                {isCodex && modelsError && !modelsLoading && (
+                {usesBackendModels && modelsError && !modelsLoading && (
                   <p
                     style={{
                       fontSize: 10,
@@ -1854,8 +1879,38 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     }}
                   >
                     {modelsError.authError
-                      ? "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then re-open this dialog. (Or set OPENAI_API_KEY in your env.)"
-                      : `Could not load model list (${modelsError.message}). Showing fallback list - some options may not work on your account.`}
+                      ? isOpenCode
+                        ? "OpenCode has no connected provider for this environment. Use an OpenCode agent's login card, then re-open this dialog."
+                        : "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then re-open this dialog. (Or set OPENAI_API_KEY in your env.)"
+                      : isOpenCode
+                        ? `Could not load OpenCode models (${modelsError.message}).`
+                        : `Could not load model list (${modelsError.message}). Showing fallback list - some options may not work on your account.`}
+                  </p>
+                )}
+                {isOpenCode &&
+                  !modelsLoading &&
+                  !modelsError &&
+                  backendModels?.filter((model) => !model.hidden).length ===
+                    0 && (
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "#ff6b6b",
+                        margin: "3px 0 0",
+                      }}
+                    >
+                      OpenCode has no connected provider models for this environment.
+                    </p>
+                  )}
+                {openCodeCatalogRejectsSelection && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: "#ff6b6b",
+                      margin: "3px 0 0",
+                    }}
+                  >
+                    Select a connected OpenCode model before saving.
                   </p>
                 )}
 
@@ -2156,7 +2211,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             >
               Cancel
             </button>
-            <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
+            <button
+              onClick={handleSave}
+              style={saveBtnStyle}
+              disabled={saving || !openCodeModelReady}
+            >
               {saving ? "Saving…" : isSpawn ? "Spawn" : "Save"}
             </button>
           </div>

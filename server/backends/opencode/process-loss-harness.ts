@@ -13,10 +13,7 @@ const supervisor = new OpenCodeSupervisor({
   config,
   environmentRevision: "s4-process-loss",
 });
-const backend = createOpenCodeBackend({
-  supervisor,
-  model: "gate/gate-model",
-});
+const backend = createOpenCodeBackend({ supervisor });
 const opts = {
   agentId: "s4-process-loss",
   cwd: root,

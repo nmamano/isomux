@@ -26,8 +26,12 @@ describe("resolveAgentEngineSettings", () => {
       permissionMode: "auto",
       codexSandbox: undefined,
     });
-    expect(resolveAgentEngineSettings("opencode", {})).toMatchObject({
-      modelFamily: "opencode/fake",
+    expect(
+      resolveAgentEngineSettings("opencode", {
+        modelFamily: "provider/model",
+      }),
+    ).toMatchObject({
+      modelFamily: "provider/model",
       effort: "high",
       permissionMode: "default",
       codexSandbox: undefined,
@@ -57,5 +61,15 @@ describe("OpenCode model validation", () => {
     expect(modelFamilyMismatchError("opencode", "opus")).toContain(
       "provider/model",
     );
+    expect(modelFamilyMismatchError("opencode", undefined)).toContain(
+      "requires",
+    );
+    expect(modelFamilyMismatchError("opencode", "opencode/fake")).toContain(
+      "not available",
+    );
+    expect(resolveAgentEngineSettings("opencode", {})).toMatchObject({
+      modelFamily: "",
+      permissionMode: "default",
+    });
   });
 });

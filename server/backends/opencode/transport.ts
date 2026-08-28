@@ -10,6 +10,32 @@ import {
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
 
+export interface DiscoveredOpenCodeModel {
+  id: string;
+  label: string;
+}
+
+export async function discoverOpenCodeModels(
+  supervisor: OpenCodeSupervisor,
+  cwd: string,
+): Promise<DiscoveredOpenCodeModel[]> {
+  const lease = await supervisor.acquire();
+  try {
+    const url = new URL("/provider", lease.baseUrl);
+    url.searchParams.set("directory", cwd);
+    const response = await fetch(url, {
+      headers: { authorization: lease.authHeader },
+    });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`OpenCode HTTP ${response.status} at /provider.`);
+    }
+    return allowDiscoveredModels(await response.json());
+  } finally {
+    lease.release();
+  }
+}
+
 export interface OpenCodeTransportOptions {
   cwd: string;
   model: string;
@@ -362,12 +388,75 @@ export class OpenCodeTransport {
   }
 }
 
-function splitModel(model: string): [string, string] {
+export function splitModel(model: string): [string, string] {
   const slash = model.indexOf("/");
   if (slash < 1 || slash === model.length - 1) {
     throw new Error("OpenCode model must use provider/model form.");
   }
   return [model.slice(0, slash), model.slice(slash + 1)];
+}
+
+export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
+  const body = asRecord(raw);
+  const connected = new Set(
+    Array.isArray(body.connected)
+      ? body.connected.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [],
+  );
+  const byId = new Map<string, DiscoveredOpenCodeModel>();
+  if (!Array.isArray(body.all)) return [];
+  for (const rawProvider of body.all) {
+    const provider = asRecord(rawProvider);
+    const providerId = stringField(provider, "id");
+    if (
+      !providerId ||
+      !safeCatalogId(providerId) ||
+      !connected.has(providerId)
+    )
+      continue;
+    const providerLabel = safeCatalogLabel(provider.name, providerId);
+    const models = asRecord(provider.models);
+    for (const [rawModelId, rawModel] of Object.entries(models)) {
+      if (!rawModelId) continue;
+      const modelId = rawModelId.startsWith(`${providerId}/`)
+        ? rawModelId.slice(providerId.length + 1)
+        : rawModelId;
+      if (!modelId || !safeCatalogId(modelId)) continue;
+      const id = `${providerId}/${modelId}`;
+      const modelLabel = safeCatalogLabel(asRecord(rawModel).name, modelId);
+      if (!byId.has(id)) {
+        byId.set(id, { id, label: `${providerLabel} - ${modelLabel}` });
+      }
+    }
+  }
+  return [...byId.values()].sort((left, right) => {
+    if (left.label !== right.label) return left.label < right.label ? -1 : 1;
+    if (left.id === right.id) return 0;
+    return left.id < right.id ? -1 : 1;
+  });
+}
+
+function safeCatalogId(value: string): boolean {
+  return value.length <= 128 && /^[a-zA-Z0-9._:-]+$/.test(value);
+}
+
+function safeCatalogLabel(value: unknown, fallback: string): string {
+  if (
+    typeof value !== "string" ||
+    value.length === 0 ||
+    value.length > 200 ||
+    [...value].some((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127;
+    }) ||
+    /(authorization|api[-_ ]?key|access[-_ ]?token|refresh[-_ ]?token|password|secret|bearer)/i.test(
+      value,
+    )
+  )
+    return fallback;
+  return value;
 }
 
 function allowSession(raw: unknown): { id: string } {

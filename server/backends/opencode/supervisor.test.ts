@@ -474,4 +474,22 @@ describe("OpenCode shared server supervisor", () => {
     }
     expect(launchers).toEqual(["start-server.ts"]);
   });
+
+  it("keeps one author for the OpenCode shared-process environment", async () => {
+    const manager = await Bun.file(
+      join(import.meta.dir, "..", "..", "agent-manager.ts"),
+    ).text();
+    const office = await Bun.file(
+      join(import.meta.dir, "..", "..", "isomux-office.ts"),
+    ).text();
+    expect(
+      manager.match(/buildOpenCodeLaunchEnvironmentForUserId/g),
+    ).toHaveLength(4);
+    expect(
+      office.match(/buildOpenCodeLaunchEnvironmentForUserId/g),
+    ).toHaveLength(1);
+    expect(manager).toMatch(
+      /function buildOpenCodeLaunchEnvironmentForUserId[\s\S]*?return buildEnvForUserId\(userId\);[\s\S]*?\n {2}}/,
+    );
+  });
 });

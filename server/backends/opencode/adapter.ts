@@ -18,12 +18,18 @@ import type {
   NormalizedMessage,
   OneShotOptions,
   PermissionModeOption,
+  SessionAccessOptions,
   SessionEnvironmentOptions,
   StoredSessionState,
   SubscriptionUsageResult,
 } from "../types.ts";
 import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
-import { OpenCodeTransport, type SafeOpenCodeError } from "./transport.ts";
+import {
+  discoverOpenCodeModels,
+  OpenCodeTransport,
+  splitModel,
+  type SafeOpenCodeError,
+} from "./transport.ts";
 import {
   openCodeSupervisorForEnvironment,
   type OpenCodeSupervisor,
@@ -65,7 +71,7 @@ const TRACER_CAPABILITIES: BackendCapabilities = {
   canUseTool: false,
 };
 
-const MODELS: ModelOption[] = [
+const TRACER_MODELS: ModelOption[] = [
   { value: OPENCODE_TRACER_MODEL, label: "OpenCode tracer" },
 ];
 
@@ -79,9 +85,18 @@ interface TracerOptions {
 
 export interface OpenCodeBackendOptions {
   supervisor?: OpenCodeSupervisor;
-  model?: string;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
+}
+
+function productionModel(model: string): string {
+  if (model === OPENCODE_TRACER_MODEL) {
+    throw new Error(
+      "This OpenCode agent uses the retired tracer model. Open agent settings and select a connected model.",
+    );
+  }
+  splitModel(model);
+  return model;
 }
 
 class OpenCodeServerSession implements BackendSession {
@@ -252,7 +267,7 @@ export function createOpenCodeTracerBackend(
     capabilities: TRACER_CAPABILITIES,
 
     getModelOptions(): ModelOption[] {
-      return MODELS;
+      return TRACER_MODELS;
     },
 
     getPermissionModes(): PermissionModeOption[] {
@@ -321,12 +336,11 @@ export function createOpenCodeTracerBackend(
 }
 
 export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Backend {
-  const model = options.model ?? OPENCODE_TRACER_MODEL;
   const bindings = new Map<
     string,
-    { cwd: string; supervisor: OpenCodeSupervisor }
+    { cwd: string; supervisor: OpenCodeSupervisor; model: string }
   >();
-  const supervisorFor = (opts: CreateSessionOptions): OpenCodeSupervisor => {
+  const supervisorFor = (opts: SessionEnvironmentOptions): OpenCodeSupervisor => {
     if (options.supervisor) return options.supervisor;
     if (!opts.environmentKey) {
       throw new Error("OpenCode session environment identity is required.");
@@ -346,21 +360,47 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
     }
     return new OpenCodeTransport({
       cwd: binding.cwd,
-      model,
+      model: binding.model,
       supervisor: binding.supervisor,
       sessionId,
       contractShapeSink: options.contractShapeSink,
       safeErrorSink: options.safeErrorSink,
     });
   };
+  const bindSession = (
+    sessionId: string,
+    cwd: string,
+    access: SessionAccessOptions | undefined,
+  ): { cwd: string; supervisor: OpenCodeSupervisor; model: string } => {
+    const existing = bindings.get(sessionId);
+    if (existing) return existing;
+    if (!access) {
+      throw new Error(
+        "OpenCode session access requires its model and environment identity.",
+      );
+    }
+    const binding = {
+      cwd,
+      supervisor: supervisorFor(access),
+      model: productionModel(access.modelFamily),
+    };
+    bindings.set(sessionId, binding);
+    return binding;
+  };
   return {
     capabilities: CAPABILITIES,
-    getModelOptions: () => MODELS,
+    getModelOptions: () => [],
     getPermissionModes: () => PERMISSION_MODES,
-    async listModels(): Promise<BackendModel[]> {
-      return [{ id: model, label: "OpenCode tracer", isDefault: true, supportedEfforts: [] }];
+    async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
+      const supervisor = supervisorFor(opts);
+      const models = await discoverOpenCodeModels(supervisor, opts.cwd);
+      return models.map((entry) => ({
+        ...entry,
+        supportedEfforts: [],
+      }));
     },
     createSession(opts: CreateSessionOptions): BackendSession {
+      const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
       return new OpenCodeServerSession(
         opts,
@@ -369,12 +409,14 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
         undefined,
         options.contractShapeSink,
         options.safeErrorSink,
-        (sessionId) => bindings.set(sessionId, { cwd: opts.cwd, supervisor }),
+        (sessionId) =>
+          bindings.set(sessionId, { cwd: opts.cwd, supervisor, model }),
       );
     },
     resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
+      const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
-      bindings.set(sessionId, { cwd: opts.cwd, supervisor });
+      bindings.set(sessionId, { cwd: opts.cwd, supervisor, model });
       return new OpenCodeServerSession(
         opts,
         model,
@@ -383,7 +425,7 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
         options.contractShapeSink,
         options.safeErrorSink,
         (resolvedSessionId) =>
-          bindings.set(resolvedSessionId, { cwd: opts.cwd, supervisor }),
+          bindings.set(resolvedSessionId, { cwd: opts.cwd, supervisor, model }),
       );
     },
     inspectStoredSession(): StoredSessionState {
@@ -395,13 +437,9 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
     async forkSessionBeforeMessage(
       sessionId: string,
       targetMessageId: string,
+      access?: SessionAccessOptions,
     ): Promise<ForkSessionBeforeMessageResult> {
-      const parent = bindings.get(sessionId);
-      if (!parent) {
-        throw new Error(
-          "OpenCode parent session is not bound to this Isomux process.",
-        );
-      }
+      const parent = bindSession(sessionId, access?.cwd ?? "", access);
       const transport = transportForSession(sessionId);
       try {
         const childId = await transport.forkAtMessage(targetMessageId);
@@ -418,22 +456,9 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
     async getSessionMessages(
       sessionId: string,
       cwd: string,
-      environment?: SessionEnvironmentOptions,
+      access?: SessionAccessOptions,
     ): Promise<NormalizedMessage[]> {
-      if (!bindings.has(sessionId)) {
-        const supervisor = supervisorFor({
-          agentId: "opencode-session-access",
-          cwd,
-          systemPrompt: "",
-          modelFamily: model,
-          effort: "",
-          permissionMode: "default",
-          env: environment?.env,
-          environmentKey: environment?.environmentKey,
-          environmentRevision: environment?.environmentRevision,
-        });
-        bindings.set(sessionId, { cwd, supervisor });
-      }
+      bindSession(sessionId, cwd, access);
       const transport = transportForSession(sessionId);
       try {
         return await transport.getSessionMessages();

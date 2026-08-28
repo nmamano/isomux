@@ -116,7 +116,7 @@ async function spawnAgent(srv: TestServer, name: string, roomId: string, agentTy
     undefined,
     roomId,
     undefined,
-    undefined,
+    agentType === "opencode" ? "gate/gate-model" : undefined,
     undefined,
     undefined,
     agentType,

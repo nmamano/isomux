@@ -73,6 +73,11 @@ export interface SessionEnvironmentOptions {
   environmentRevision?: string;
 }
 
+export interface SessionAccessOptions extends SessionEnvironmentOptions {
+  cwd: string;
+  modelFamily: string;
+}
+
 // ---------------------------------------------------------------------------
 // Token usage
 // ---------------------------------------------------------------------------
@@ -416,6 +421,8 @@ export interface OneShotOptions {
 export interface ListModelsOptions {
   cwd: string;
   env?: { [key: string]: string | undefined };
+  environmentKey?: string;
+  environmentRevision?: string;
   includeHidden?: boolean;
 }
 
@@ -497,11 +504,12 @@ export interface Backend {
   forkSessionBeforeMessage(
     sessionId: string,
     targetMessageId: string,
+    access?: SessionAccessOptions,
   ): Promise<ForkSessionBeforeMessageResult>;
   getSessionMessages(
     sessionId: string,
     cwd: string,
-    environment?: SessionEnvironmentOptions,
+    access?: SessionAccessOptions,
   ): Promise<NormalizedMessage[]>;
 
   // Single-prompt operation used by topic generation. Returns the assistant

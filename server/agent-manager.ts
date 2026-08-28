@@ -1393,8 +1393,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const p = opts.persisted;
     const agentType = p.agentType ?? "claude";
     const userId = resolveAgentUserId(p);
-    // Same validators as spawn/edit - canonicalizes persisted values
-    // (e.g. codex 0.130 deprecated "on-failure" → "on-request").
+    // Canonicalize persisted values without making one malformed agent stop the
+    // boot restore. Interactive spawn/edit applies the stricter mismatch guard.
     const { modelFamily, permissionMode, effort, codexSandbox } =
       resolveAgentEngineSettings(agentType, p);
     // Tag any pre-feature sessions (no stored engine) with this agent's current
@@ -2571,6 +2571,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): SlideJobContext | null {
     const managed = agents.get(agentId);
     if (!managed?.sessionId) return null;
+    if (!getBackend(managed.info.agentType).capabilities.oneShot) return null;
     const rootSessionId = getRootSessionId(agentId);
     if (!rootSessionId) return null;
     const turns = buildDeckTurns(logCache.get(agentId) ?? []);
@@ -4478,6 +4479,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ...(base ?? process.env), ISOMUX_AGENT_TOKEN: token };
   }
 
+  // The only author of the environment used to launch a shared OpenCode
+  // server. Discovery and agent sessions both call this boundary, so whichever
+  // one reaches a cold profile first supplies identical process input. The
+  // start-server spawn builder applies the final OPENCODE_* and agent-token
+  // stripping before exec.
+  function buildOpenCodeLaunchEnvironmentForUserId(
+    userId: string | null | undefined,
+  ): { [key: string]: string | undefined } | undefined {
+    return buildEnvForUserId(userId);
+  }
+
   // Error-path env build for diagnostic hints. Resume preflights deliberately
   // fail loudly on a broken envFile (an agent expecting custom creds must not
   // silently fall through to host creds). Hint generators are different: they
@@ -4620,7 +4632,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     // Compute env once for both the backend-owned resume preflight and the
     // session options.
-    const env = buildSessionEnv(managed);
+    const env =
+      managed.info.agentType === "opencode"
+        ? buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId)
+        : buildSessionEnv(managed);
     if (resumeSessionId) {
       const resumeError = getBackend(
         managed.info.agentType,
@@ -7700,17 +7715,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       //    raw command (e.g. "/grill") but the SDK received the expanded prompt;
       //    `metadata.sdkText` captures that expanded form for matching.
       const backend = getBackend(managed.info.agentType);
-      const editEnv = buildSessionEnv(managed);
+      const editEnv =
+        managed.info.agentType === "opencode"
+          ? buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId)
+          : buildSessionEnv(managed);
+      const sessionAccess = {
+        cwd: managed.info.cwd,
+        modelFamily: managed.info.modelFamily,
+        env: editEnv,
+        environmentKey: environmentSourceKeyForUserId(managed.info.userId),
+        environmentRevision: environmentSourceRevisionForUserId(
+          managed.info.userId,
+        ),
+      };
       const backendMessages = await backend.getSessionMessages(
         oldSessionId,
         managed.info.cwd,
-        {
-          env: editEnv,
-          environmentKey: environmentSourceKeyForUserId(managed.info.userId),
-          environmentRevision: environmentSourceRevisionForUserId(
-            managed.info.userId,
-          ),
-        },
+        sessionAccess,
       );
       const targetUsername = targetEntry.metadata?.username as
         | string
@@ -7811,6 +7832,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const forkResult = await backend.forkSessionBeforeMessage(
         oldSessionId,
         targetUuid,
+        sessionAccess,
       );
       const isFreshSession = forkResult.kind === "fresh";
       const newSessionId =
@@ -8330,6 +8352,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     resolveEditorPathForAgent,
     validateCwd,
     buildEnvForUserId,
+    buildOpenCodeLaunchEnvironmentForUserId,
+    environmentSourceKeyForUserId,
+    environmentSourceRevisionForUserId,
   };
 }
 

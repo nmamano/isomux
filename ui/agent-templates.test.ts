@@ -205,6 +205,23 @@ describe("resolveTemplateModel", () => {
     ).toEqual(current);
   });
 
+  it("uses connected OpenCode models without Codex preferences or effort", () => {
+    const result = resolveTemplateModel(
+      template,
+      "opencode",
+      { modelFamily: "missing/model", effort: "low" },
+      [
+        model("hidden/model", [], { hidden: true }),
+        model("gate/gate-model", []),
+      ],
+      false,
+    );
+    expect(result).toEqual({
+      modelFamily: "gate/gate-model",
+      effort: "high",
+    });
+  });
+
   it("clamps a Claude max recommendation through effortLevelsFor", () => {
     const changed = {
       ...template,

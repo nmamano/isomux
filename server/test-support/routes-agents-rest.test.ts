@@ -580,7 +580,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(agent?.modelFamily).toBe("gpt-5.5");
   });
 
-  it("spawns a dormant OpenCode tracer through the REST boundary", async () => {
+  it("spawns a dormant OpenCode agent with a composite model through REST", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -589,7 +589,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
       body: {
         ...spawnBody(srv, "OpenCode tracer", roomId, 0),
         agentType: "opencode",
-        modelFamily: "opencode/fake",
+        modelFamily: "gate/gate-model",
       },
       rawSessionId: owner.rawSessionId,
     });
