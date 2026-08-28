@@ -107,7 +107,10 @@ export function reconcileAppUrls(
       const previous = deps.readUnitFile(app.name);
       const installed = parseUnitAppUrl(previous);
       const installedHost = parseUnitAppHost(previous);
-      if (!installed.unit || previous === null) {
+      // Both parses read the SAME file, so `unit` agrees between them by
+      // construction - but only the compiler needs telling, since narrowing
+      // one union says nothing about the other.
+      if (previous === null || !installed.unit || !installedHost.unit) {
         report.noUnit.push(app.name);
         continue;
       }
