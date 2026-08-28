@@ -114,7 +114,14 @@ function buildFixture(opts: {
   const stateRoot = join(base, "state", ".isomux");
   mkdirSync(stateRoot, { recursive: true });
   writeFileSync(join(stateRoot, "users.json"), '{"u1":{"name":"Boss"}}\n');
-  const profile = join(stateRoot, "opencode", "profiles", "shared", "data", "opencode");
+  const profile = join(
+    stateRoot,
+    "opencode",
+    "profiles",
+    "shared",
+    "data",
+    "opencode",
+  );
   mkdirSync(profile, { recursive: true });
   writeFileSync(join(profile, "auth.json"), "PROFILE_AUTH_CANARY_BEFORE\n", {
     mode: 0o600,
@@ -308,9 +315,7 @@ describe("update.sh happy path", () => {
       f.startsWith("pre-update-"),
     );
     expect(snaps.length).toBe(1);
-    expect(
-      statMode(join(fx.snapshotDir, snaps[0])),
-    ).toBe(0o600);
+    expect(statMode(join(fx.snapshotDir, snaps[0]))).toBe(0o600);
     const listing = sh(
       fx.snapshotDir,
       `tar -tzf ${join(fx.snapshotDir, snaps[0])}`,
@@ -321,10 +326,7 @@ describe("update.sh happy path", () => {
     );
     expect(
       readFileSync(
-        join(
-          fx.stateRoot,
-          "opencode/profiles/shared/data/opencode/auth.json",
-        ),
+        join(fx.stateRoot, "opencode/profiles/shared/data/opencode/auth.json"),
         "utf8",
       ),
     ).toBe("PROFILE_AUTH_CANARY_BEFORE\n");
@@ -669,10 +671,7 @@ describe("update.sh failure ladders", () => {
     expect(existsSync(join(fx.stateRoot, "migrated-marker"))).toBe(false);
     expect(
       readFileSync(
-        join(
-          fx.stateRoot,
-          "opencode/profiles/shared/data/opencode/auth.json",
-        ),
+        join(fx.stateRoot, "opencode/profiles/shared/data/opencode/auth.json"),
         "utf8",
       ),
     ).toBe("PROFILE_AUTH_CANARY_BEFORE\n");

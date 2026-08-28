@@ -10,9 +10,18 @@ export type CredentialCanaryHit = {
 
 export const OC1_CREDENTIAL_CANARIES: CredentialCanary[] = [
   { className: "provider credential", value: "GATE_PROVIDER_SENTINEL" },
-  { className: "V1 server password", value: "GATE_SERVER_PASSWORD_V1_SENTINEL" },
-  { className: "V2 server password", value: "GATE_SERVER_PASSWORD_V2_SENTINEL" },
-  { className: "provider response header", value: "GATE_HEADER_SECRET_SENTINEL" },
+  {
+    className: "V1 server password",
+    value: "GATE_SERVER_PASSWORD_V1_SENTINEL",
+  },
+  {
+    className: "V2 server password",
+    value: "GATE_SERVER_PASSWORD_V2_SENTINEL",
+  },
+  {
+    className: "provider response header",
+    value: "GATE_HEADER_SECRET_SENTINEL",
+  },
 ];
 
 export function scanCredentialCanaries(

@@ -64,11 +64,14 @@ async function runLoginCardThroughPty(
   cwd: string,
   apiKey: string,
 ): Promise<void> {
-  const sidecar = Bun.spawn(["/usr/bin/node", join(import.meta.dir, "..", "pty-sidecar.cjs")], {
-    stdin: "pipe",
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  const sidecar = Bun.spawn(
+    ["/usr/bin/node", join(import.meta.dir, "..", "pty-sidecar.cjs")],
+    {
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
   const write = (message: Record<string, unknown>) =>
     sidecar.stdin.write(`${JSON.stringify(message)}\n`);
   await write({
@@ -327,7 +330,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
   });
 
   it("runs the OpenCode first-reply tracer through normal logs and persistence", async () => {
-    const { calls, resolveBackend } = spyResolver(createOpenCodeTracerBackend());
+    const { calls, resolveBackend } = spyResolver(
+      createOpenCodeTracerBackend(),
+    );
     const { events, sink } = capture();
     const mgr = createAgentManager({
       resolveBackend,
@@ -397,7 +402,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
       fetch(request) {
         const url = new URL(request.url);
         if (url.pathname === "/v1/models") {
-          return Response.json({ object: "list", data: [{ id: "gate-model", object: "model" }] });
+          return Response.json({
+            object: "list",
+            data: [{ id: "gate-model", object: "model" }],
+          });
         }
         if (url.pathname !== "/v1/chat/completions") {
           return new Response("not found", { status: 404 });
@@ -405,13 +413,24 @@ describe("AgentManager DI (temp-state isolated)", () => {
         const stream = new ReadableStream({
           start(controller) {
             const send = (value: unknown) =>
-              controller.enqueue(`data: ${typeof value === "string" ? value : JSON.stringify(value)}\n\n`);
+              controller.enqueue(
+                `data: ${typeof value === "string" ? value : JSON.stringify(value)}\n\n`,
+              );
             send({
               id: "gate",
               object: "chat.completion.chunk",
               created: 1,
               model: "gate-model",
-              choices: [{ index: 0, delta: { role: "assistant", content: "OpenCode real tracer reply." }, finish_reason: null }],
+              choices: [
+                {
+                  index: 0,
+                  delta: {
+                    role: "assistant",
+                    content: "OpenCode real tracer reply.",
+                  },
+                  finish_reason: null,
+                },
+              ],
             });
             send({
               id: "gate",
@@ -424,7 +443,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
             controller.close();
           },
         });
-        return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+        return new Response(stream, {
+          headers: { "content-type": "text/event-stream" },
+        });
       },
     });
     const supervisor = new OpenCodeSupervisor({
@@ -447,7 +468,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
                 cost: { input: 0, output: 0 },
               },
             },
-            options: { apiKey: "test-only", baseURL: `http://127.0.0.1:${mock.port}/v1` },
+            options: {
+              apiKey: "test-only",
+              baseURL: `http://127.0.0.1:${mock.port}/v1`,
+            },
           },
         },
       },
@@ -622,8 +646,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       mgr
         .getAgentLogs(info!.id)
         .some(
-          (entry) =>
-            entry.kind === "error" && entry.content.includes(remedy),
+          (entry) => entry.kind === "error" && entry.content.includes(remedy),
         ),
     ).toBe(true);
   });
@@ -663,7 +686,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const logs = mgr.getAgentLogs(info!.id);
-    expect(logs.some((entry) => entry.content.includes("shared environment"))).toBe(true);
+    expect(
+      logs.some((entry) => entry.content.includes("shared environment")),
+    ).toBe(true);
     const cards = logs.filter((entry) => entry.kind === "terminal-command");
     expect(cards).toHaveLength(1);
     expect(cards[0].terminal?.command).toContain("opencode-login-");
@@ -681,12 +706,21 @@ describe("AgentManager DI (temp-state isolated)", () => {
         const url = new URL(request.url);
         requestPaths.push(url.pathname);
         if (url.pathname === "/v1/models") {
-          return Response.json({ object: "list", data: [{ id: "gate-model", object: "model" }] });
+          return Response.json({
+            object: "list",
+            data: [{ id: "gate-model", object: "model" }],
+          });
         }
-        if (url.pathname !== "/v1/responses") return new Response("not found", { status: 404 });
+        if (url.pathname !== "/v1/responses")
+          return new Response("not found", { status: 404 });
         if (request.headers.get("authorization") !== `Bearer ${apiKey}`) {
           return Response.json(
-            { error: { message: "invalid credential", type: "authentication_error" } },
+            {
+              error: {
+                message: "invalid credential",
+                type: "authentication_error",
+              },
+            },
             { status: 401, headers: { "x-provider-private": apiKey } },
           );
         }
@@ -702,7 +736,13 @@ describe("AgentManager DI (temp-state isolated)", () => {
               type: "message",
               status: "completed",
               role: "assistant",
-              content: [{ type: "output_text", text: "Recovered after login.", annotations: [] }],
+              content: [
+                {
+                  type: "output_text",
+                  text: "Recovered after login.",
+                  annotations: [],
+                },
+              ],
             },
           ],
           usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
@@ -710,19 +750,65 @@ describe("AgentManager DI (temp-state isolated)", () => {
         const stream = new ReadableStream({
           start(controller) {
             const send = (type: string, data: unknown) =>
-              controller.enqueue(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
-            send("response.created", { type: "response.created", response: { ...response, status: "in_progress", output: [] } });
-            send("response.output_item.added", { type: "response.output_item.added", output_index: 0, item: { ...response.output[0], status: "in_progress", content: [] } });
-            send("response.content_part.added", { type: "response.content_part.added", item_id: "msg_gate", output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } });
-            send("response.output_text.delta", { type: "response.output_text.delta", item_id: "msg_gate", output_index: 0, content_index: 0, delta: "Recovered after login." });
-            send("response.output_text.done", { type: "response.output_text.done", item_id: "msg_gate", output_index: 0, content_index: 0, text: "Recovered after login." });
-            send("response.content_part.done", { type: "response.content_part.done", item_id: "msg_gate", output_index: 0, content_index: 0, part: response.output[0].content[0] });
-            send("response.output_item.done", { type: "response.output_item.done", output_index: 0, item: response.output[0] });
-            send("response.completed", { type: "response.completed", response });
+              controller.enqueue(
+                `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`,
+              );
+            send("response.created", {
+              type: "response.created",
+              response: { ...response, status: "in_progress", output: [] },
+            });
+            send("response.output_item.added", {
+              type: "response.output_item.added",
+              output_index: 0,
+              item: {
+                ...response.output[0],
+                status: "in_progress",
+                content: [],
+              },
+            });
+            send("response.content_part.added", {
+              type: "response.content_part.added",
+              item_id: "msg_gate",
+              output_index: 0,
+              content_index: 0,
+              part: { type: "output_text", text: "", annotations: [] },
+            });
+            send("response.output_text.delta", {
+              type: "response.output_text.delta",
+              item_id: "msg_gate",
+              output_index: 0,
+              content_index: 0,
+              delta: "Recovered after login.",
+            });
+            send("response.output_text.done", {
+              type: "response.output_text.done",
+              item_id: "msg_gate",
+              output_index: 0,
+              content_index: 0,
+              text: "Recovered after login.",
+            });
+            send("response.content_part.done", {
+              type: "response.content_part.done",
+              item_id: "msg_gate",
+              output_index: 0,
+              content_index: 0,
+              part: response.output[0].content[0],
+            });
+            send("response.output_item.done", {
+              type: "response.output_item.done",
+              output_index: 0,
+              item: response.output[0],
+            });
+            send("response.completed", {
+              type: "response.completed",
+              response,
+            });
             controller.close();
           },
         });
-        return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+        return new Response(stream, {
+          headers: { "content-type": "text/event-stream" },
+        });
       },
     });
     const profile = openCodeProfilePaths("default");
@@ -745,7 +831,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
       });
       const mgr = createAgentManager({
         resolveBackend: () => backend,
-        officeState: new OfficeState({ rooms: rooms("room-opencode-recovery") }),
+        officeState: new OfficeState({
+          rooms: rooms("room-opencode-recovery"),
+        }),
         initialRooms: [],
       });
       mgr.configurePluginHooksDeps();
@@ -768,32 +856,50 @@ describe("AgentManager DI (temp-state isolated)", () => {
       });
       const authDeadline = Date.now() + 30_000;
       while (
-        !mgr.getAgentLogs(info!.id).some((entry) => entry.kind === "terminal-command") &&
+        !mgr
+          .getAgentLogs(info!.id)
+          .some((entry) => entry.kind === "terminal-command") &&
         Date.now() < authDeadline
-      ) await Bun.sleep(10);
-      const card = mgr.getAgentLogs(info!.id).find((entry) => entry.kind === "terminal-command");
+      )
+        await Bun.sleep(10);
+      const card = mgr
+        .getAgentLogs(info!.id)
+        .find((entry) => entry.kind === "terminal-command");
       expect(card?.terminal?.command).toContain("opencode-login-");
 
-      const globalAuth = join(STATE_ROOT, "global-data", "opencode", "auth.json");
+      const globalAuth = join(
+        STATE_ROOT,
+        "global-data",
+        "opencode",
+        "auth.json",
+      );
       expect(await Bun.file(globalAuth).exists()).toBe(false);
       await runLoginCardThroughPty(card!.terminal!.command, STATE_ROOT, apiKey);
       expect(await Bun.file(globalAuth).exists()).toBe(false);
-      expect((await stat(join(profile.dataHome, "opencode", "auth.json"))).mode & 0o777).toBe(0o600);
+      expect(
+        (await stat(join(profile.dataHome, "opencode", "auth.json"))).mode &
+          0o777,
+      ).toBe(0o600);
 
       await mgr.sendMessage(info!.id, "/clear", "tester");
       await mgr.sendMessage(info!.id, "reply after login", "tester");
       const replyDeadline = Date.now() + 15_000;
       while (
-        !mgr.getAgentLogs(info!.id).some((entry) => entry.content === "Recovered after login.") &&
+        !mgr
+          .getAgentLogs(info!.id)
+          .some((entry) => entry.content === "Recovered after login.") &&
         Date.now() < replyDeadline
-      ) await Bun.sleep(10);
+      )
+        await Bun.sleep(10);
       const serialized = JSON.stringify(mgr.getAgentLogs(info!.id));
       expect(safeErrors.slice(1)).toEqual([]);
       expect(requestPaths).toContain("/v1/responses");
       expect(serialized).toContain("Recovered after login.");
       expect(serialized).not.toContain(apiKey);
       for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
-        expect(await Bun.file(join(STATE_ROOT, path)).text()).not.toContain(apiKey);
+        expect(await Bun.file(join(STATE_ROOT, path)).text()).not.toContain(
+          apiKey,
+        );
       }
       await mgr.kill(info!.id);
     } finally {
@@ -810,7 +916,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
       fetch(request) {
         const url = new URL(request.url);
         if (url.pathname === "/v1/models") {
-          return Response.json({ object: "list", data: [{ id: "gate-model", object: "model" }] });
+          return Response.json({
+            object: "list",
+            data: [{ id: "gate-model", object: "model" }],
+          });
         }
         if (url.pathname === "/v1/chat/completions") {
           return Response.json(
@@ -841,7 +950,10 @@ describe("AgentManager DI (temp-state isolated)", () => {
                 cost: { input: 0, output: 0 },
               },
             },
-            options: { apiKey: "invalid-test-key", baseURL: `http://127.0.0.1:${mock.port}/v1` },
+            options: {
+              apiKey: "invalid-test-key",
+              baseURL: `http://127.0.0.1:${mock.port}/v1`,
+            },
           },
         },
       },
@@ -875,7 +987,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
       while (
         !mgr
           .getAgentLogs(info!.id)
-          .some((entry) => entry.content.includes("provider or transport error")) &&
+          .some((entry) =>
+            entry.content.includes("provider or transport error"),
+          ) &&
         Date.now() < deadline
       ) {
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -883,13 +997,21 @@ describe("AgentManager DI (temp-state isolated)", () => {
       const normalized = JSON.stringify(mgr.getAgentLogs(info!.id));
       expect(normalized).not.toContain(canary);
       expect(normalized).toContain("provider or transport error");
-      expect(mgr.getAgentLogs(info!.id).some((entry) => entry.kind === "terminal-command")).toBe(false);
+      expect(
+        mgr
+          .getAgentLogs(info!.id)
+          .some((entry) => entry.kind === "terminal-command"),
+      ).toBe(false);
       for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
-        expect(await Bun.file(`${STATE_ROOT}/${path}`).text()).not.toContain(canary);
+        expect(await Bun.file(`${STATE_ROOT}/${path}`).text()).not.toContain(
+          canary,
+        );
       }
       for (const name of ["server.stdout.log", "server.stderr.log"]) {
         const file = Bun.file(`${supervisor.profileDir}/${name}`);
-        expect((await file.exists()) ? await file.text() : "").not.toContain(canary);
+        expect((await file.exists()) ? await file.text() : "").not.toContain(
+          canary,
+        );
       }
       await mgr.kill(info!.id);
     } finally {

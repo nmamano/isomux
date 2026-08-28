@@ -31,7 +31,10 @@ if (phase === "first") {
   const sessionId = systemSessionId(events);
   await writeFile(
     resultPath,
-    JSON.stringify({ sessionId, serverPid: JSON.parse(await readFile(supervisor.recordPath, "utf8")).pid }),
+    JSON.stringify({
+      sessionId,
+      serverPid: JSON.parse(await readFile(supervisor.recordPath, "utf8")).pid,
+    }),
   );
   process.kill(process.pid, "SIGKILL");
 } else if (phase === "resume") {
@@ -42,18 +45,18 @@ if (phase === "first") {
   const session = backend.resumeSession(prior.sessionId, opts);
   const events = await oneTurn(session, "GATE_RECALL");
   const text = events
-    .filter((event): event is Extract<NormalizedEvent, { kind: "assistant_text" }> =>
-      event.kind === "assistant_text",
+    .filter(
+      (event): event is Extract<NormalizedEvent, { kind: "assistant_text" }> =>
+        event.kind === "assistant_text",
     )
     .map((event) => event.text)
     .join("");
   session.close();
-  const adoptedPid = JSON.parse(await readFile(supervisor.recordPath, "utf8")).pid;
+  const adoptedPid = JSON.parse(
+    await readFile(supervisor.recordPath, "utf8"),
+  ).pid;
   await supervisor.shutdown();
-  await writeFile(
-    resultPath,
-    JSON.stringify({ ...prior, adoptedPid, text }),
-  );
+  await writeFile(resultPath, JSON.stringify({ ...prior, adoptedPid, text }));
 } else {
   throw new Error("S4_PHASE must be first or resume");
 }
@@ -79,7 +82,8 @@ function systemSessionId(events: NormalizedEvent[]): string {
     (value): value is Extract<NormalizedEvent, { kind: "system_init" }> =>
       value.kind === "system_init" && Boolean(value.sessionId),
   );
-  if (!event?.sessionId) throw new Error("OpenCode did not report a session id");
+  if (!event?.sessionId)
+    throw new Error("OpenCode did not report a session id");
   return event.sessionId;
 }
 

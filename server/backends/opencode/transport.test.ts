@@ -122,7 +122,12 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         type: "message.part.updated",
         properties: {
           sessionID: "session-1",
-          part: { type: "text", id: "part-1", messageID: "message-1", text: "safe" },
+          part: {
+            type: "text",
+            id: "part-1",
+            messageID: "message-1",
+            text: "safe",
+          },
           responseHeaders: { "x-provider-secret": canary },
         },
       }),
@@ -177,26 +182,108 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     const events = [
       {
         type: "message.part.updated",
-        properties: { sessionID: "s", part: { type: "reasoning", id: "r", messageID: "m", text: "why", time: { start: 10, end: 14 }, metadata: canary } },
+        properties: {
+          sessionID: "s",
+          part: {
+            type: "reasoning",
+            id: "r",
+            messageID: "m",
+            text: "why",
+            time: { start: 10, end: 14 },
+            metadata: canary,
+          },
+        },
       },
       {
         type: "message.part.updated",
-        properties: { sessionID: "s", part: { type: "tool", id: "p", messageID: "m", tool: "bash", callID: "call", state: { status: "error", input: { command: "false" }, error: "exit 1", time: { start: 20, end: 25 }, metadata: { exit: 1, private: canary } } } },
+        properties: {
+          sessionID: "s",
+          part: {
+            type: "tool",
+            id: "p",
+            messageID: "m",
+            tool: "bash",
+            callID: "call",
+            state: {
+              status: "error",
+              input: { command: "false" },
+              error: "exit 1",
+              time: { start: 20, end: 25 },
+              metadata: { exit: 1, private: canary },
+            },
+          },
+        },
       },
       {
         type: "permission.asked",
-        properties: { sessionID: "s", id: "perm", permission: "bash", patterns: ["false"], metadata: canary, always: [canary] },
+        properties: {
+          sessionID: "s",
+          id: "perm",
+          permission: "bash",
+          patterns: ["false"],
+          metadata: canary,
+          always: [canary],
+        },
       },
       {
         type: "message.part.updated",
-        properties: { sessionID: "s", part: { type: "step-finish", id: "f", messageID: "m", tokens: { input: 9, output: 4, cache: { read: 2, write: 1 }, provider: canary }, cost: 0, snapshot: canary } },
+        properties: {
+          sessionID: "s",
+          part: {
+            type: "step-finish",
+            id: "f",
+            messageID: "m",
+            tokens: {
+              input: 9,
+              output: 4,
+              cache: { read: 2, write: 1 },
+              provider: canary,
+            },
+            cost: 0,
+            snapshot: canary,
+          },
+        },
       },
     ].map((event) => parseAllowedEvent(JSON.stringify(event)));
     expect(events).toEqual([
-      { kind: "reasoning", sessionId: "s", messageId: "m", partId: "r", text: "why", durationMs: 4 },
-      { kind: "tool", sessionId: "s", partId: "p", callId: "call", name: "bash", status: "error", input: { command: "false" }, error: "exit 1", exitCode: 1, durationMs: 5 },
-      { kind: "permission", sessionId: "s", id: "perm", permission: "bash", patterns: ["false"] },
-      { kind: "step_finish", sessionId: "s", usage: { inputTokens: 9, outputTokens: 4, cacheReadInputTokens: 2, cacheCreationInputTokens: 1 }, cost: 0 },
+      {
+        kind: "reasoning",
+        sessionId: "s",
+        messageId: "m",
+        partId: "r",
+        text: "why",
+        durationMs: 4,
+      },
+      {
+        kind: "tool",
+        sessionId: "s",
+        partId: "p",
+        callId: "call",
+        name: "bash",
+        status: "error",
+        input: { command: "false" },
+        error: "exit 1",
+        exitCode: 1,
+        durationMs: 5,
+      },
+      {
+        kind: "permission",
+        sessionId: "s",
+        id: "perm",
+        permission: "bash",
+        patterns: ["false"],
+      },
+      {
+        kind: "step_finish",
+        sessionId: "s",
+        usage: {
+          inputTokens: 9,
+          outputTokens: 4,
+          cacheReadInputTokens: 2,
+          cacheCreationInputTokens: 1,
+        },
+        cost: 0,
+      },
     ]);
     expect(JSON.stringify(events)).not.toContain(canary);
   });
@@ -226,7 +313,12 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
   it("classifies only observed structured authentication failures", () => {
     expect(
       isAuthenticationError(
-        { name: "APIError", message: "invalid credential", statusCode: 401, isRetryable: false },
+        {
+          name: "APIError",
+          message: "invalid credential",
+          statusCode: 401,
+          isRetryable: false,
+        },
         "openai/gpt-4o",
         [],
       ),
@@ -235,7 +327,8 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       isAuthenticationError(
         {
           name: "UnknownError",
-          message: "Model not found: openai/gpt-4o. Did you mean: gpt-4o, gpt-4o-mini?",
+          message:
+            "Model not found: openai/gpt-4o. Did you mean: gpt-4o, gpt-4o-mini?",
         },
         "openai/gpt-4o",
         [],
@@ -243,14 +336,22 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     ).toBe(true);
     expect(
       isAuthenticationError(
-        { name: "UnknownError", message: "Model not found: openai/typo. Did you mean: gpt-4o?" },
+        {
+          name: "UnknownError",
+          message: "Model not found: openai/typo. Did you mean: gpt-4o?",
+        },
         "openai/gpt-4o",
         [],
       ),
     ).toBe(false);
     expect(
       isAuthenticationError(
-        { name: "APIError", message: "provider unavailable", statusCode: 500, isRetryable: true },
+        {
+          name: "APIError",
+          message: "provider unavailable",
+          statusCode: 500,
+          isRetryable: true,
+        },
         "openai/gpt-4o",
         [],
       ),
@@ -289,7 +390,9 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
   });
 
   it("keeps committed OC1 fixtures free of credential-shaped values", async () => {
-    for await (const name of new Bun.Glob("fixtures/**/*").scan(import.meta.dir)) {
+    for await (const name of new Bun.Glob("fixtures/**/*").scan(
+      import.meta.dir,
+    )) {
       const text = await Bun.file(join(import.meta.dir, name)).text();
       expect(text).not.toMatch(
         /(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|bearer\s+[a-z0-9._~-]+)/i,

@@ -115,18 +115,25 @@ export class OpenCodeTransport {
     this.activeTurn = true;
     this.abortRequested = false;
     this.abortController = new AbortController();
-    const eventsReady = this.consumeEvents(sessionId, sink, this.abortController.signal);
+    const eventsReady = this.consumeEvents(
+      sessionId,
+      sink,
+      this.abortController.signal,
+    );
     await eventsReady;
     const [providerID, modelID] = splitModel(this.model);
     try {
-      await this.request(`/session/${encodeURIComponent(sessionId)}/prompt_async`, {
-        method: "POST",
-        body: JSON.stringify({
-          model: { providerID, modelID },
-          ...(this.agent ? { agent: this.agent } : {}),
-          parts: [{ type: "text", text }],
-        }),
-      });
+      await this.request(
+        `/session/${encodeURIComponent(sessionId)}/prompt_async`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            model: { providerID, modelID },
+            ...(this.agent ? { agent: this.agent } : {}),
+            parts: [{ type: "text", text }],
+          }),
+        },
+      );
       this.contractShapeSink?.("http:prompt_async:success");
     } catch (error) {
       this.abortController.abort();
@@ -135,7 +142,8 @@ export class OpenCodeTransport {
       sink({
         kind: "turn_completed",
         status: "failed",
-        error: error instanceof Error ? error.message : "OpenCode request failed.",
+        error:
+          error instanceof Error ? error.message : "OpenCode request failed.",
       });
     }
   }
@@ -151,12 +159,20 @@ export class OpenCodeTransport {
 
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
     const pending = this.pendingPermission;
-    if (!pending || pending.id !== approvalId || pending.sessionId !== this.sessionId) return;
+    if (
+      !pending ||
+      pending.id !== approvalId ||
+      pending.sessionId !== this.sessionId
+    )
+      return;
     if (decision.kind !== "allow_once" && decision.kind !== "deny") {
       throw new Error("OpenCode supports Allow once and Deny in this slice.");
     }
     this.pendingPermission = null;
-    await this.replyPermission(approvalId, decision.kind === "allow_once" ? "once" : "reject");
+    await this.replyPermission(
+      approvalId,
+      decision.kind === "allow_once" ? "once" : "reject",
+    );
   }
 
   async getSessionMessages(): Promise<NormalizedMessage[]> {
@@ -193,7 +209,8 @@ export class OpenCodeTransport {
     // release() only drops the supervisor reference count. It must keep this
     // lease's endpoint fields usable until this close-time reject and abort
     // chain finishes.
-    if (this.activeTurn) void this.rejectPendingPermission().then(() => this.abort());
+    if (this.activeTurn)
+      void this.rejectPendingPermission().then(() => this.abort());
     this.abortController?.abort();
     this.lease?.endTurn();
     this.lease?.release();
@@ -211,7 +228,10 @@ export class OpenCodeTransport {
     const assistantMessages = new Set<string>();
     const textByPart = new Map<string, string>();
     const reasoningByPart = new Map<string, string>();
-    const tools = new Map<string, { callId: string; name: string; terminal: boolean }>();
+    const tools = new Map<
+      string,
+      { callId: string; name: string; terminal: boolean }
+    >();
     const seenPermissions = new Set<string>();
     let stepFinish: { usage?: TokenUsage; cost?: number } | null = null;
     let settled = false;
@@ -230,10 +250,11 @@ export class OpenCodeTransport {
         while (!signal.aborted) {
           const { done, value } = await reader.read();
           if (done) break;
-          buffer = `${buffer}${decoder.decode(value, { stream: true })}`.replaceAll(
-            "\r\n",
-            "\n",
-          );
+          buffer =
+            `${buffer}${decoder.decode(value, { stream: true })}`.replaceAll(
+              "\r\n",
+              "\n",
+            );
           let boundary: number;
           while ((boundary = buffer.indexOf("\n\n")) >= 0) {
             const frame = buffer.slice(0, boundary);
@@ -247,8 +268,12 @@ export class OpenCodeTransport {
             const event = parseAllowedEvent(data);
             if (!event || event.sessionId !== sessionId) continue;
             this.contractShapeSink?.(`sse:${event.kind}`);
-            if (event.kind === "assistant") assistantMessages.add(event.messageId);
-            if (event.kind === "text" && assistantMessages.has(event.messageId)) {
+            if (event.kind === "assistant")
+              assistantMessages.add(event.messageId);
+            if (
+              event.kind === "text" &&
+              assistantMessages.has(event.messageId)
+            ) {
               const prior = textByPart.get(event.partId) ?? "";
               if (event.text.startsWith(prior)) {
                 const delta = event.text.slice(prior.length);
@@ -256,32 +281,82 @@ export class OpenCodeTransport {
               }
               textByPart.set(event.partId, event.text);
             }
-            if (event.kind === "reasoning" && assistantMessages.has(event.messageId)) {
+            if (
+              event.kind === "reasoning" &&
+              assistantMessages.has(event.messageId)
+            ) {
               const prior = reasoningByPart.get(event.partId) ?? "";
               if (event.text.startsWith(prior)) {
                 const delta = event.text.slice(prior.length);
-                if (delta) sink({ kind: "thinking", text: delta, ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}) });
-                else if (event.durationMs !== undefined) sink({ kind: "thinking", text: "", durationMs: event.durationMs });
+                if (delta)
+                  sink({
+                    kind: "thinking",
+                    text: delta,
+                    ...(event.durationMs !== undefined
+                      ? { durationMs: event.durationMs }
+                      : {}),
+                  });
+                else if (event.durationMs !== undefined)
+                  sink({
+                    kind: "thinking",
+                    text: "",
+                    durationMs: event.durationMs,
+                  });
               }
               reasoningByPart.set(event.partId, event.text);
             }
             if (event.kind === "tool") {
               const prior = tools.get(event.partId);
               if (!prior) {
-                tools.set(event.partId, { callId: event.callId, name: event.name, terminal: false });
-                sink({ kind: "tool_call", toolUseId: event.callId, name: event.name, input: event.input });
+                tools.set(event.partId, {
+                  callId: event.callId,
+                  name: event.name,
+                  terminal: false,
+                });
+                sink({
+                  kind: "tool_call",
+                  toolUseId: event.callId,
+                  name: event.name,
+                  input: event.input,
+                });
               }
               const tracked = tools.get(event.partId);
-              if (tracked && !tracked.terminal && (event.status === "completed" || event.status === "error")) {
+              if (
+                tracked &&
+                !tracked.terminal &&
+                (event.status === "completed" || event.status === "error")
+              ) {
                 tracked.terminal = true;
-                sink({ kind: "tool_result", toolUseId: tracked.callId, content: event.output ?? event.error ?? "", ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}), ...(event.status === "error" || (event.exitCode !== undefined && event.exitCode !== 0) ? { isError: true } : {}) });
+                sink({
+                  kind: "tool_result",
+                  toolUseId: tracked.callId,
+                  content: event.output ?? event.error ?? "",
+                  ...(event.durationMs !== undefined
+                    ? { durationMs: event.durationMs }
+                    : {}),
+                  ...(event.status === "error" ||
+                  (event.exitCode !== undefined && event.exitCode !== 0)
+                    ? { isError: true }
+                    : {}),
+                });
               }
             }
             if (event.kind === "permission") {
               if (seenPermissions.has(event.id)) continue;
               seenPermissions.add(event.id);
-              this.pendingPermission = { id: event.id, sessionId: event.sessionId };
-              sink({ kind: "approval_request", approvalId: event.id, toolName: event.permission, input: event.patterns.length ? { patterns: event.patterns } : {}, title: `OpenCode wants to use ${event.permission}` });
+              this.pendingPermission = {
+                id: event.id,
+                sessionId: event.sessionId,
+              };
+              sink({
+                kind: "approval_request",
+                approvalId: event.id,
+                toolName: event.permission,
+                input: event.patterns.length
+                  ? { patterns: event.patterns }
+                  : {},
+                title: `OpenCode wants to use ${event.permission}`,
+              });
             }
             if (event.kind === "question") {
               sink({
@@ -290,15 +365,28 @@ export class OpenCodeTransport {
                 requestId: event.id,
               });
             }
-            if (event.kind === "step_finish") stepFinish = { usage: event.usage, cost: event.cost };
+            if (event.kind === "step_finish")
+              stepFinish = { usage: event.usage, cost: event.cost };
             if (event.kind === "idle") {
               if (this.abortRequested) {
-                for (const result of interruptedToolResults(tools.values())) sink(result);
+                for (const result of interruptedToolResults(tools.values()))
+                  sink(result);
                 settle({ kind: "turn_completed", status: "interrupted" });
               } else if (stepFinish) {
-                settle({ kind: "turn_completed", status: "completed", ...(stepFinish.usage ? { usage: stepFinish.usage } : {}), ...(stepFinish.cost !== undefined ? { cost: stepFinish.cost } : {}) });
+                settle({
+                  kind: "turn_completed",
+                  status: "completed",
+                  ...(stepFinish.usage ? { usage: stepFinish.usage } : {}),
+                  ...(stepFinish.cost !== undefined
+                    ? { cost: stepFinish.cost }
+                    : {}),
+                });
               } else {
-                settle({ kind: "turn_completed", status: "failed", error: "OpenCode became idle without a recorded completion." });
+                settle({
+                  kind: "turn_completed",
+                  status: "failed",
+                  error: "OpenCode became idle without a recorded completion.",
+                });
               }
               return;
             }
@@ -314,17 +402,20 @@ export class OpenCodeTransport {
                 try {
                   await this.supervisor.prepareForAuthentication();
                 } catch (error) {
-                  recoveryError = error instanceof Error
-                    ? error.message
-                    : "OpenCode login could not prepare the shared server.";
+                  recoveryError =
+                    error instanceof Error
+                      ? error.message
+                      : "OpenCode login could not prepare the shared server.";
                 }
               }
               sink({
                 kind: "turn_completed",
                 status: "failed",
-                error: recoveryError ?? (auth
-                  ? "OpenCode authentication is not configured."
-                  : "OpenCode reported a provider or transport error."),
+                error:
+                  recoveryError ??
+                  (auth
+                    ? "OpenCode authentication is not configured."
+                    : "OpenCode reported a provider or transport error."),
               });
               this.abortController?.abort();
               return;
@@ -350,7 +441,10 @@ export class OpenCodeTransport {
     })();
   }
 
-  private async replyPermission(id: string, reply: "once" | "reject"): Promise<void> {
+  private async replyPermission(
+    id: string,
+    reply: "once" | "reject",
+  ): Promise<void> {
     await this.request(`/permission/${encodeURIComponent(id)}/reply`, {
       method: "POST",
       body: JSON.stringify({ reply }),
@@ -364,7 +458,10 @@ export class OpenCodeTransport {
     await this.replyPermission(pending.id, "reject").catch(() => undefined);
   }
 
-  private async request(path: string, init: RequestInit = {}): Promise<Response> {
+  private async request(
+    path: string,
+    init: RequestInit = {},
+  ): Promise<Response> {
     if (!this.lease) throw new Error("OpenCode transport is not initialized.");
     const url = new URL(path, this.lease.baseUrl);
     url.searchParams.set("directory", this.cwd);
@@ -383,12 +480,17 @@ export class OpenCodeTransport {
     return response;
   }
 
-  private async isAuthenticationError(error: SafeOpenCodeError): Promise<boolean> {
+  private async isAuthenticationError(
+    error: SafeOpenCodeError,
+  ): Promise<boolean> {
     if (error.statusCode === 401 || error.statusCode === 403) return true;
     if (
       error.name !== "UnknownError" ||
-      !error.message?.startsWith(`Model not found: ${this.model}. Did you mean:`)
-    ) return false;
+      !error.message?.startsWith(
+        `Model not found: ${this.model}. Did you mean:`,
+      )
+    )
+      return false;
     try {
       const response = await this.request("/provider");
       const connected = allowConnectedProviders(await response.json());
@@ -421,11 +523,7 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
   for (const rawProvider of body.all) {
     const provider = asRecord(rawProvider);
     const providerId = stringField(provider, "id");
-    if (
-      !providerId ||
-      !safeCatalogId(providerId) ||
-      !connected.has(providerId)
-    )
+    if (!providerId || !safeCatalogId(providerId) || !connected.has(providerId))
       continue;
     const providerLabel = safeCatalogLabel(provider.name, providerId);
     const models = asRecord(provider.models);
@@ -471,7 +569,11 @@ function safeCatalogLabel(value: unknown, fallback: string): string {
 }
 
 function allowSession(raw: unknown): { id: string } {
-  if (!raw || typeof raw !== "object" || typeof (raw as { id?: unknown }).id !== "string") {
+  if (
+    !raw ||
+    typeof raw !== "object" ||
+    typeof (raw as { id?: unknown }).id !== "string"
+  ) {
     throw new Error("OpenCode returned an invalid session shape.");
   }
   return { id: (raw as { id: string }).id };
@@ -507,12 +609,48 @@ export function allowMessages(raw: unknown): NormalizedMessage[] {
 
 type AllowedEvent =
   | { kind: "assistant"; sessionId: string; messageId: string }
-  | { kind: "text"; sessionId: string; messageId: string; partId: string; text: string }
-  | { kind: "reasoning"; sessionId: string; messageId: string; partId: string; text: string; durationMs?: number }
-  | { kind: "tool"; sessionId: string; partId: string; callId: string; name: string; status: "pending" | "running" | "completed" | "error"; input: Record<string, unknown>; output?: string; error?: string; exitCode?: number; durationMs?: number }
-  | { kind: "permission"; sessionId: string; id: string; permission: string; patterns: string[] }
+  | {
+      kind: "text";
+      sessionId: string;
+      messageId: string;
+      partId: string;
+      text: string;
+    }
+  | {
+      kind: "reasoning";
+      sessionId: string;
+      messageId: string;
+      partId: string;
+      text: string;
+      durationMs?: number;
+    }
+  | {
+      kind: "tool";
+      sessionId: string;
+      partId: string;
+      callId: string;
+      name: string;
+      status: "pending" | "running" | "completed" | "error";
+      input: Record<string, unknown>;
+      output?: string;
+      error?: string;
+      exitCode?: number;
+      durationMs?: number;
+    }
+  | {
+      kind: "permission";
+      sessionId: string;
+      id: string;
+      permission: string;
+      patterns: string[];
+    }
   | { kind: "question"; sessionId: string; id: string }
-  | { kind: "step_finish"; sessionId: string; usage?: TokenUsage; cost?: number }
+  | {
+      kind: "step_finish";
+      sessionId: string;
+      usage?: TokenUsage;
+      cost?: number;
+    }
   | { kind: "idle"; sessionId: string }
   | { kind: "error"; sessionId: string; error: SafeOpenCodeError };
 
@@ -543,7 +681,9 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
     const permission = stringField(properties, "permission");
     if (!id || !permission) return null;
     const patterns = Array.isArray(properties.patterns)
-      ? properties.patterns.filter((value): value is string => typeof value === "string")
+      ? properties.patterns.filter(
+          (value): value is string => typeof value === "string",
+        )
       : [];
     return { kind: "permission", sessionId, id, permission, patterns };
   }
@@ -571,7 +711,16 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
       const time = asRecord(part.time);
       const start = numberField(time, "start");
       const end = numberField(time, "end");
-      return { kind: "reasoning", sessionId, messageId, partId, text, ...(start !== null && end !== null ? { durationMs: Math.max(0, end - start) } : {}) };
+      return {
+        kind: "reasoning",
+        sessionId,
+        messageId,
+        partId,
+        text,
+        ...(start !== null && end !== null
+          ? { durationMs: Math.max(0, end - start) }
+          : {}),
+      };
     }
     if (part.type === "tool" && partId) {
       const state = asRecord(part.state);
@@ -584,12 +733,21 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
       const start = numberField(time, "start");
       const end = numberField(time, "end");
       return {
-        kind: "tool", sessionId, partId, callId, name, status,
+        kind: "tool",
+        sessionId,
+        partId,
+        callId,
+        name,
+        status,
         input: asRecord(state.input),
         ...(typeof state.output === "string" ? { output: state.output } : {}),
         ...(typeof state.error === "string" ? { error: state.error } : {}),
-        ...(numberField(metadata, "exit") !== null ? { exitCode: numberField(metadata, "exit")! } : {}),
-        ...(start !== null && end !== null ? { durationMs: Math.max(0, end - start) } : {}),
+        ...(numberField(metadata, "exit") !== null
+          ? { exitCode: numberField(metadata, "exit")! }
+          : {}),
+        ...(start !== null && end !== null
+          ? { durationMs: Math.max(0, end - start) }
+          : {}),
       };
     }
     if (part.type === "step-finish") {
@@ -598,14 +756,22 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
       const input = numberField(tokens, "input");
       const output = numberField(tokens, "output");
       if (!partId) return null;
-      const usage = input !== null && output !== null ? {
-        inputTokens: input,
-        outputTokens: output,
-        cacheReadInputTokens: numberField(cache, "read") ?? 0,
-        cacheCreationInputTokens: numberField(cache, "write") ?? 0,
-      } : undefined;
+      const usage =
+        input !== null && output !== null
+          ? {
+              inputTokens: input,
+              outputTokens: output,
+              cacheReadInputTokens: numberField(cache, "read") ?? 0,
+              cacheCreationInputTokens: numberField(cache, "write") ?? 0,
+            }
+          : undefined;
       const cost = numberField(part, "cost");
-      return { kind: "step_finish", sessionId, ...(usage ? { usage } : {}), ...(cost !== null ? { cost } : {}) };
+      return {
+        kind: "step_finish",
+        sessionId,
+        ...(usage ? { usage } : {}),
+        ...(cost !== null ? { cost } : {}),
+      };
     }
   }
   return null;
@@ -617,8 +783,12 @@ function allowError(value: unknown): SafeOpenCodeError {
   return {
     ...(typeof error.name === "string" ? { name: error.name } : {}),
     ...(typeof data.message === "string" ? { message: data.message } : {}),
-    ...(typeof data.statusCode === "number" ? { statusCode: data.statusCode } : {}),
-    ...(typeof data.isRetryable === "boolean" ? { isRetryable: data.isRetryable } : {}),
+    ...(typeof data.statusCode === "number"
+      ? { statusCode: data.statusCode }
+      : {}),
+    ...(typeof data.isRetryable === "boolean"
+      ? { isRetryable: data.isRetryable }
+      : {}),
   };
 }
 
@@ -631,8 +801,9 @@ export function isAuthenticationError(
   if (error.name !== "UnknownError" || !error.message) return false;
   const providerID = splitModel(selectedModel)[0];
   return (
-    error.message.startsWith(`Model not found: ${selectedModel}. Did you mean:`) &&
-    !connectedProviders.includes(providerID)
+    error.message.startsWith(
+      `Model not found: ${selectedModel}. Did you mean:`,
+    ) && !connectedProviders.includes(providerID)
   );
 }
 
@@ -644,17 +815,34 @@ function allowConnectedProviders(raw: unknown): string[] {
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
-function stringField(value: Record<string, unknown>, key: string): string | null {
+function stringField(
+  value: Record<string, unknown>,
+  key: string,
+): string | null {
   return typeof value[key] === "string" ? value[key] : null;
 }
 
-function numberField(value: Record<string, unknown>, key: string): number | null {
-  return typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] : null;
+function numberField(
+  value: Record<string, unknown>,
+  key: string,
+): number | null {
+  return typeof value[key] === "number" && Number.isFinite(value[key])
+    ? value[key]
+    : null;
 }
 
-function isToolStatus(value: unknown): value is "pending" | "running" | "completed" | "error" {
-  return value === "pending" || value === "running" || value === "completed" || value === "error";
+function isToolStatus(
+  value: unknown,
+): value is "pending" | "running" | "completed" | "error" {
+  return (
+    value === "pending" ||
+    value === "running" ||
+    value === "completed" ||
+    value === "error"
+  );
 }

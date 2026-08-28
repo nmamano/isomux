@@ -122,12 +122,8 @@ describe("FakeBackend - Backend contract", () => {
     const fake = new FakeBackend({
       storedSessionState: (id) => (id === "ready" ? "durable" : "empty"),
     });
-    expect(fake.inspectStoredSession("ready", { cwd: "/tmp" })).toBe(
-      "durable",
-    );
-    expect(fake.inspectStoredSession("header", { cwd: "/tmp" })).toBe(
-      "empty",
-    );
+    expect(fake.inspectStoredSession("ready", { cwd: "/tmp" })).toBe("durable");
+    expect(fake.inspectStoredSession("header", { cwd: "/tmp" })).toBe("empty");
   });
 });
 

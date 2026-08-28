@@ -849,8 +849,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // OC1 probe showed that a repo-B request against a repo-A session still
     // ran its tool in repo A. Both therefore start fresh after a cwd edit.
     const fixedCwdChange =
-      cwdChanging &&
-      backendSessionHasFixedCwd(managed.info.agentType);
+      cwdChanging && backendSessionHasFixedCwd(managed.info.agentType);
     // A cwd change retargets the session. If a live backend process exists it
     // must be replaced (a process's cwd is fixed at spawn); if not, relocating the
     // on-disk session file + restamping its cwd is enough - the next message
@@ -3606,7 +3605,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (ev.description) lines.push(ev.description);
         lines.push("");
         lines.push("Reply:");
-        if (ev.allowPersistentLabel) lines.push(`  1. ${ev.allowPersistentLabel}`);
+        if (ev.allowPersistentLabel)
+          lines.push(`  1. ${ev.allowPersistentLabel}`);
         lines.push("  2. Allow - just this time");
         lines.push("  3. Deny");
         // Offered only when the backend proposed a broader rule than "this

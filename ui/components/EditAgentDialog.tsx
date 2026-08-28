@@ -95,11 +95,11 @@ export function templateValuesAfterEngineSwitch(
             effort: DEFAULT_EFFORT,
             permissionMode: "default" as AgentInfo["permissionMode"],
           }
-      : {
-          modelFamily: MODEL_FAMILIES[0].family,
-          effort: DEFAULT_EFFORT,
-          permissionMode: "auto" as AgentInfo["permissionMode"],
-        };
+        : {
+            modelFamily: MODEL_FAMILIES[0].family,
+            effort: DEFAULT_EFFORT,
+            permissionMode: "auto" as AgentInfo["permissionMode"],
+          };
   return templateEngineValues(
     template,
     targetEngine,
@@ -1109,8 +1109,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       Switching to{" "}
                       {ENGINE_OPTIONS.find(
                         (option) => option.agentType === targetEngine,
-                      )?.label ?? targetEngine} starts a new conversation. The
-                      current one stays in this agent's resume history.
+                      )?.label ?? targetEngine}{" "}
+                      starts a new conversation. The current one stays in this
+                      agent's resume history.
                     </p>
                   )}
                 </section>
@@ -1825,9 +1826,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                               ))
                             : isCodex
                               ? CODEX_MODELS.map((m) => (
-                                <option key={m.value} value={m.value}>
-                                  {m.label}
-                                </option>
+                                  <option key={m.value} value={m.value}>
+                                    {m.label}
+                                  </option>
                                 ))
                               : null}
                           {storedNotInList && (
@@ -1888,7 +1889,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         margin: "3px 0 0",
                       }}
                     >
-                      OpenCode has no connected provider models for this environment.
+                      OpenCode has no connected provider models for this
+                      environment.
                     </p>
                   )}
                 {openCodeCatalogRejectsSelection && (
@@ -1909,67 +1911,71 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       Thinking Effort
                     </label>
                     {(() => {
-                  // For Codex we use the selected model's supportedReasoningEfforts
-                  // when available; otherwise we fall back to the global EFFORT_LEVELS
-                  // with the same backend/family filter we used pre-fetch.
-                  let effortLevels: { level: string; label: string }[];
-                  if (isCodex && backendModels) {
-                    const picked = backendModels.find(
-                      (m) => m.id === modelFamily,
-                    );
-                    if (picked && picked.supportedEfforts.length > 0) {
-                      // Map Codex effort enum strings to friendly labels using the
-                      // shared EFFORT_LEVELS table when present, falling back to the
-                      // raw enum value capitalized.
-                      effortLevels = picked.supportedEfforts.map((o) => {
-                        const match = EFFORT_LEVELS.find(
-                          (e) => e.level === o.level,
+                      // For Codex we use the selected model's supportedReasoningEfforts
+                      // when available; otherwise we fall back to the global EFFORT_LEVELS
+                      // with the same backend/family filter we used pre-fetch.
+                      let effortLevels: { level: string; label: string }[];
+                      if (isCodex && backendModels) {
+                        const picked = backendModels.find(
+                          (m) => m.id === modelFamily,
                         );
-                        return {
-                          level: o.level,
-                          label: match
-                            ? match.label
-                            : o.level.charAt(0).toUpperCase() +
-                              o.level.slice(1),
-                        };
-                      });
-                    } else {
-                      // Codex model with no supportedEfforts reported: fall back to
-                      // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
-                      // across Codex models - e.g. luna lacks ultra; the dynamic
-                      // per-model list is the real source when available).
-                      effortLevels = EFFORT_LEVELS.filter(
-                        (opt) => opt.level !== "max" && opt.level !== "ultra",
-                      ).map((o) => ({ level: o.level, label: o.label }));
-                    }
-                  } else {
-                    effortLevels = EFFORT_LEVELS.filter((opt) => {
-                      if (opt.level === "max")
-                        return (
-                          !isCodex && claudeFamilySupportsMaxEffort(modelFamily)
-                        );
-                      if (opt.level === "minimal") return isCodex;
-                      if (opt.level === "ultra") return false; // per-model Codex list only
-                      return true;
-                    }).map((o) => ({ level: o.level, label: o.label }));
-                  }
-                  return (
-                    <select
-                      value={effort}
-                      onChange={(e) => setEffort(e.target.value as EffortLevel)}
-                      style={{
-                        ...inputStyle,
-                        appearance: "none",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {effortLevels.map((opt) => (
-                        <option key={opt.level} value={opt.level}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  );
+                        if (picked && picked.supportedEfforts.length > 0) {
+                          // Map Codex effort enum strings to friendly labels using the
+                          // shared EFFORT_LEVELS table when present, falling back to the
+                          // raw enum value capitalized.
+                          effortLevels = picked.supportedEfforts.map((o) => {
+                            const match = EFFORT_LEVELS.find(
+                              (e) => e.level === o.level,
+                            );
+                            return {
+                              level: o.level,
+                              label: match
+                                ? match.label
+                                : o.level.charAt(0).toUpperCase() +
+                                  o.level.slice(1),
+                            };
+                          });
+                        } else {
+                          // Codex model with no supportedEfforts reported: fall back to
+                          // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
+                          // across Codex models - e.g. luna lacks ultra; the dynamic
+                          // per-model list is the real source when available).
+                          effortLevels = EFFORT_LEVELS.filter(
+                            (opt) =>
+                              opt.level !== "max" && opt.level !== "ultra",
+                          ).map((o) => ({ level: o.level, label: o.label }));
+                        }
+                      } else {
+                        effortLevels = EFFORT_LEVELS.filter((opt) => {
+                          if (opt.level === "max")
+                            return (
+                              !isCodex &&
+                              claudeFamilySupportsMaxEffort(modelFamily)
+                            );
+                          if (opt.level === "minimal") return isCodex;
+                          if (opt.level === "ultra") return false; // per-model Codex list only
+                          return true;
+                        }).map((o) => ({ level: o.level, label: o.label }));
+                      }
+                      return (
+                        <select
+                          value={effort}
+                          onChange={(e) =>
+                            setEffort(e.target.value as EffortLevel)
+                          }
+                          style={{
+                            ...inputStyle,
+                            appearance: "none",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {effortLevels.map((opt) => (
+                            <option key={opt.level} value={opt.level}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      );
                     })()}
                   </>
                 )}

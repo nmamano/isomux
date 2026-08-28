@@ -1060,8 +1060,9 @@ async function listBackendModels(input: {
       cwd: resolveCwd(input.cwd),
       env,
       environmentKey: agentManager.environmentSourceKeyForUserId(input.userId),
-      environmentRevision:
-        agentManager.environmentSourceRevisionForUserId(input.userId),
+      environmentRevision: agentManager.environmentSourceRevisionForUserId(
+        input.userId,
+      ),
       includeHidden: input.includeHidden,
     });
     const wire: BackendModelWire[] = models.map((m) => ({

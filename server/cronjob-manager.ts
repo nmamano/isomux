@@ -1495,11 +1495,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       job?.userId ?? null,
     );
     if (run.agentTypeSnapshot !== "opencode") {
-      const runToken = mintRunToken(
-        run.cronjobId,
-        run.id,
-        job?.userId ?? null,
-      );
+      const runToken = mintRunToken(run.cronjobId, run.id, job?.userId ?? null);
       environment.env = {
         ...(environment.env ?? process.env),
         ISOMUX_AGENT_TOKEN: runToken,

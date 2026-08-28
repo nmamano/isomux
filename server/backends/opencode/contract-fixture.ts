@@ -9,7 +9,9 @@ export async function writeSafeContractFixture(
 ): Promise<void> {
   const serialized = `${JSON.stringify(shapes, null, 2)}\n`;
   if (CREDENTIAL_SHAPE.test(serialized)) {
-    throw new Error("Refusing to write an OpenCode contract fixture with a credential-shaped value.");
+    throw new Error(
+      "Refusing to write an OpenCode contract fixture with a credential-shaped value.",
+    );
   }
   await writeFile(path, serialized, { mode: 0o600 });
 }

@@ -329,10 +329,7 @@ export class FakeBackend implements Backend {
     return undefined;
   }
 
-  setStoredSessionState(
-    sessionId: string,
-    state: StoredSessionState,
-  ): void {
+  setStoredSessionState(sessionId: string, state: StoredSessionState): void {
     this.storedSessionOverrides.set(sessionId, state);
   }
 

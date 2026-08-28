@@ -844,52 +844,60 @@ export function CronjobDialog({
                 Thinking Effort
               </label>
               {(() => {
-            // Codex: per-model supportedEfforts from model/list when available.
-            // Claude: family-level rules (max only for opus).
-            let effortOptions: { level: string; label: string }[];
-            if (isCodex) {
-              const picked = backendModels?.find((m) => m.id === modelFamily);
-              if (picked && picked.supportedEfforts.length > 0) {
-                effortOptions = picked.supportedEfforts.map((o) => {
-                  const match = EFFORT_LEVELS.find((e) => e.level === o.level);
-                  return {
-                    level: o.level,
-                    label: match
-                      ? match.label
-                      : o.level.charAt(0).toUpperCase() + o.level.slice(1),
-                  };
-                });
-              } else {
-                // No supportedEfforts reported (or list not yet loaded): fall
-                // back to the static list minus "max"/"ultra" (not universal
-                // across Codex models - e.g. luna lacks ultra; the dynamic
-                // per-model list is the real source when available).
-                effortOptions = EFFORT_LEVELS.filter(
-                  (opt) => opt.level !== "max" && opt.level !== "ultra",
-                ).map((o) => ({ level: o.level, label: o.label }));
-              }
-            } else {
-              effortOptions = EFFORT_LEVELS.filter((opt) => {
-                if (opt.level === "max")
-                  return claudeFamilySupportsMaxEffort(modelFamily);
-                if (opt.level === "minimal") return false; // Codex-only
-                if (opt.level === "ultra") return false; // Codex-only
-                return true;
-              }).map((o) => ({ level: o.level, label: o.label }));
-            }
-            return (
-              <select
-                value={effort}
-                onChange={(e) => setEffort(e.target.value as EffortLevel)}
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-              >
-                {effortOptions.map((opt) => (
-                  <option key={opt.level} value={opt.level}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-            );
+                // Codex: per-model supportedEfforts from model/list when available.
+                // Claude: family-level rules (max only for opus).
+                let effortOptions: { level: string; label: string }[];
+                if (isCodex) {
+                  const picked = backendModels?.find(
+                    (m) => m.id === modelFamily,
+                  );
+                  if (picked && picked.supportedEfforts.length > 0) {
+                    effortOptions = picked.supportedEfforts.map((o) => {
+                      const match = EFFORT_LEVELS.find(
+                        (e) => e.level === o.level,
+                      );
+                      return {
+                        level: o.level,
+                        label: match
+                          ? match.label
+                          : o.level.charAt(0).toUpperCase() + o.level.slice(1),
+                      };
+                    });
+                  } else {
+                    // No supportedEfforts reported (or list not yet loaded): fall
+                    // back to the static list minus "max"/"ultra" (not universal
+                    // across Codex models - e.g. luna lacks ultra; the dynamic
+                    // per-model list is the real source when available).
+                    effortOptions = EFFORT_LEVELS.filter(
+                      (opt) => opt.level !== "max" && opt.level !== "ultra",
+                    ).map((o) => ({ level: o.level, label: o.label }));
+                  }
+                } else {
+                  effortOptions = EFFORT_LEVELS.filter((opt) => {
+                    if (opt.level === "max")
+                      return claudeFamilySupportsMaxEffort(modelFamily);
+                    if (opt.level === "minimal") return false; // Codex-only
+                    if (opt.level === "ultra") return false; // Codex-only
+                    return true;
+                  }).map((o) => ({ level: o.level, label: o.label }));
+                }
+                return (
+                  <select
+                    value={effort}
+                    onChange={(e) => setEffort(e.target.value as EffortLevel)}
+                    style={{
+                      ...inputStyle,
+                      appearance: "none",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {effortOptions.map((opt) => (
+                      <option key={opt.level} value={opt.level}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                );
               })()}
             </>
           )}

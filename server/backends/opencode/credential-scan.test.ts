@@ -16,12 +16,21 @@ async function committedArtifacts() {
   const files: Array<{ path: string; text: string }> = [];
   for (const root of committedArtifactRoots) {
     if (!root.endsWith("fixtures") && !root.endsWith("evidence")) {
-      files.push({ path: relative(repoRoot, root), text: await Bun.file(root).text() });
+      files.push({
+        path: relative(repoRoot, root),
+        text: await Bun.file(root).text(),
+      });
       continue;
     }
-    for await (const name of new Bun.Glob("**/*").scan({ cwd: root, onlyFiles: true })) {
+    for await (const name of new Bun.Glob("**/*").scan({
+      cwd: root,
+      onlyFiles: true,
+    })) {
       const path = join(root, name);
-      files.push({ path: relative(repoRoot, path), text: await Bun.file(path).text() });
+      files.push({
+        path: relative(repoRoot, path),
+        text: await Bun.file(path).text(),
+      });
     }
   }
   return files;
@@ -29,7 +38,10 @@ async function committedArtifacts() {
 
 describe("OpenCode committed credential scan", () => {
   it("detects a direct synthetic control and keeps committed persistence surfaces clean", async () => {
-    const control = { className: "synthetic control", value: "SYNTHETIC_OC1_CONTROL_VALUE" };
+    const control = {
+      className: "synthetic control",
+      value: "SYNTHETIC_OC1_CONTROL_VALUE",
+    };
     expect(
       scanCredentialCanaries(
         [{ path: "direct-input", text: control.value }],
@@ -61,8 +73,9 @@ describe("OpenCode committed credential scan", () => {
       .sort((a, b) =>
         `${a.path}:${a.className}`.localeCompare(`${b.path}:${b.className}`),
       );
-    const hits = scanCredentialCanaries(await committedArtifacts()).sort((a, b) =>
-      `${a.path}:${a.className}`.localeCompare(`${b.path}:${b.className}`),
+    const hits = scanCredentialCanaries(await committedArtifacts()).sort(
+      (a, b) =>
+        `${a.path}:${a.className}`.localeCompare(`${b.path}:${b.className}`),
     );
     expect(hits).toEqual(expectedHits);
   });

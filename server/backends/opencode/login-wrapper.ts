@@ -1,23 +1,29 @@
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { createHash } from "node:crypto"
-import { join } from "node:path"
-import { STATE_ROOT } from "../../config.ts"
-import { resolveOpenCodeBinary } from "./runtime.ts"
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join } from "node:path";
+import { STATE_ROOT } from "../../config.ts";
+import { resolveOpenCodeBinary } from "./runtime.ts";
 
 export interface OpenCodeProfilePaths {
-  profileDir: string
-  configPath: string
-  home: string
-  configHome: string
-  dataHome: string
-  stateHome: string
-  cacheHome: string
+  profileDir: string;
+  configPath: string;
+  home: string;
+  configHome: string;
+  dataHome: string;
+  stateHome: string;
+  cacheHome: string;
 }
 
-export function openCodeProfilePaths(environmentKey: string): OpenCodeProfilePaths {
-  if (!environmentKey) throw new Error("OpenCode session environment identity is required.")
-  const key = createHash("sha256").update(environmentKey).digest("hex").slice(0, 16)
-  const profileDir = join(STATE_ROOT, "opencode", "profiles", key)
+export function openCodeProfilePaths(
+  environmentKey: string,
+): OpenCodeProfilePaths {
+  if (!environmentKey)
+    throw new Error("OpenCode session environment identity is required.");
+  const key = createHash("sha256")
+    .update(environmentKey)
+    .digest("hex")
+    .slice(0, 16);
+  const profileDir = join(STATE_ROOT, "opencode", "profiles", key);
   return {
     profileDir,
     configPath: join(profileDir, "opencode.json"),
@@ -26,17 +32,19 @@ export function openCodeProfilePaths(environmentKey: string): OpenCodeProfilePat
     dataHome: join(profileDir, "data"),
     stateHome: join(profileDir, "state"),
     cacheHome: join(profileDir, "cache"),
-  }
+  };
 }
 
 export function ensureOpenCodeLoginWrapper(environmentKey: string): string {
-  const paths = openCodeProfilePaths(environmentKey)
-  const wrapperDir = join(STATE_ROOT, "bin")
-  const profileName = paths.profileDir.slice(paths.profileDir.lastIndexOf("/") + 1)
-  const wrapperPath = join(wrapperDir, `opencode-login-${profileName}`)
-  const lockPath = join(paths.profileDir, "auth.login.lock")
-  const pendingPath = `${paths.profileDir}.auth-login-pending`
-  const runner = join(wrapperDir, "opencode-login-runner.ts")
+  const paths = openCodeProfilePaths(environmentKey);
+  const wrapperDir = join(STATE_ROOT, "bin");
+  const profileName = paths.profileDir.slice(
+    paths.profileDir.lastIndexOf("/") + 1,
+  );
+  const wrapperPath = join(wrapperDir, `opencode-login-${profileName}`);
+  const lockPath = join(paths.profileDir, "auth.login.lock");
+  const pendingPath = `${paths.profileDir}.auth-login-pending`;
+  const runner = join(wrapperDir, "opencode-login-runner.ts");
   const source = `#!/bin/sh
 set -eu
 profile=${quoteShellWord(paths.profileDir)}
@@ -76,16 +84,20 @@ cd "$profile"
 "$bun" run "$runner" --assert-stopped "$profile"
 "$binary" auth login --provider "$provider" --method "Manually enter API Key"
 "$bun" run "$runner" --preserve "$profile" "$before" "$provider"
-`
-  mkdirSync(wrapperDir, { recursive: true })
-  mkdirSync(paths.profileDir, { recursive: true })
-  writeFileSync(runner, readFileSync(join(import.meta.dir, "login-runner.ts")), { mode: 0o700 })
-  chmodSync(runner, 0o700)
-  writeFileSync(wrapperPath, source, { mode: 0o700 })
-  chmodSync(wrapperPath, 0o700)
-  return wrapperPath
+`;
+  mkdirSync(wrapperDir, { recursive: true });
+  mkdirSync(paths.profileDir, { recursive: true });
+  writeFileSync(
+    runner,
+    readFileSync(join(import.meta.dir, "login-runner.ts")),
+    { mode: 0o700 },
+  );
+  chmodSync(runner, 0o700);
+  writeFileSync(wrapperPath, source, { mode: 0o700 });
+  chmodSync(wrapperPath, 0o700);
+  return wrapperPath;
 }
 
 export function quoteShellWord(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

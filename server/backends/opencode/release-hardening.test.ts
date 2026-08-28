@@ -13,7 +13,9 @@ describe("OpenCode release pin", () => {
     );
 
     const packageRoot = dirname(dirname(resolveOpenCodeBinary()));
-    const selectedPackage = await Bun.file(join(packageRoot, "package.json")).json();
+    const selectedPackage = await Bun.file(
+      join(packageRoot, "package.json"),
+    ).json();
     expect(selectedPackage.version).toBe(OPENCODE_CLI_VERSION);
 
     const lock = await readFile(join(repoRoot, "bun.lock"), "utf8");

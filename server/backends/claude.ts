@@ -720,7 +720,8 @@ export class ClaudeSession implements BackendSession {
         input,
         title: callOpts.title ?? `Claude wants to use ${toolName}`,
         description: callOpts.description ?? callOpts.decisionReason,
-        allowPersistentLabel: "Allow - and don't ask again for similar calls this session",
+        allowPersistentLabel:
+          "Allow - and don't ask again for similar calls this session",
       });
       callOpts.signal.addEventListener(
         "abort",

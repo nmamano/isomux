@@ -107,7 +107,12 @@ function parkingBackend(abortInPlace = false): FakeBackend {
   });
 }
 
-async function spawnAgent(srv: TestServer, name: string, roomId: string, agentType: "claude" | "opencode" = "claude") {
+async function spawnAgent(
+  srv: TestServer,
+  name: string,
+  roomId: string,
+  agentType: "claude" | "opencode" = "claude",
+) {
   const info = await srv.agentManager.spawn(
     name,
     srv.stateRoot,
@@ -798,7 +803,12 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
   it("does not accept persistent option 1 when the request did not offer it", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner();
-    const agent = await spawnAgent(server, "Once-only", firstRoomId(server), "opencode");
+    const agent = await spawnAgent(
+      server,
+      "Once-only",
+      firstRoomId(server),
+      "opencode",
+    );
     await parkOnPermission(server, owner.rawSessionId, agent.id);
     await sendHuman(server, owner.rawSessionId, agent.id, "1");
     const session = server.fakeBackend.sessionForAgent(agent.id)!;
@@ -924,7 +934,12 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
   it("abort denies the pending prompt and unparks the agent", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend(true) });
     const owner = await server.seedOwner();
-    const a = await spawnAgent(server, "Parked", firstRoomId(server), "opencode");
+    const a = await spawnAgent(
+      server,
+      "Parked",
+      firstRoomId(server),
+      "opencode",
+    );
     await parkOnPermission(server, owner.rawSessionId, a.id);
 
     const session = server.fakeBackend.sessionForAgent(a.id)!;
@@ -956,17 +971,34 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
   it("stops an OpenCode tool through the in-place abort path", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend(true) });
     const owner = await server.seedOwner();
-    const agent = await spawnAgent(server, "ToolStop", firstRoomId(server), "opencode");
+    const agent = await spawnAgent(
+      server,
+      "ToolStop",
+      firstRoomId(server),
+      "opencode",
+    );
     await sendHuman(server, owner.rawSessionId, agent.id, "run tool");
     const session = server.fakeBackend.sessionForAgent(agent.id)!;
-    session.push({ kind: "tool_call", toolUseId: "tool-1", name: "Bash", input: {} });
-    await waitUntil(() => agentOf(server!, agent.id).state === "tool_executing");
+    session.push({
+      kind: "tool_call",
+      toolUseId: "tool-1",
+      name: "Bash",
+      input: {},
+    });
+    await waitUntil(
+      () => agentOf(server!, agent.id).state === "tool_executing",
+    );
     const response = server.http(`/api/agents/${agent.id}/abort`, {
       method: "POST",
       rawSessionId: owner.rawSessionId,
     });
     await waitUntil(() => session.abortCount === 1);
-    session.push({ kind: "tool_result", toolUseId: "tool-1", content: "Tool interrupted.", isError: true });
+    session.push({
+      kind: "tool_result",
+      toolUseId: "tool-1",
+      content: "Tool interrupted.",
+      isError: true,
+    });
     session.push({ kind: "turn_completed", status: "interrupted" });
     expect((await response).status).toBe(204);
     expect(session.abortCount).toBe(1);
@@ -1075,11 +1107,7 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     server.fakeBackend.sessionForAgent(a.id)!.approveError = new Error(
       "backend refused the decision",
     );
-    const sessionId = (await sessionIdsOf(
-      server,
-      owner.rawSessionId,
-      a.id,
-    ))[0];
+    const sessionId = (await sessionIdsOf(server, owner.rawSessionId, a.id))[0];
     server.fakeBackend.setSessionResumableError(
       sessionId,
       "The stored fake session is missing.",

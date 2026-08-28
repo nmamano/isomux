@@ -327,7 +327,9 @@ export function createOpenCodeTracerBackend(
       _prompt: string,
       _opts: OneShotOptions,
     ): Promise<string> {
-      throw new Error("OpenCode one-shot prompts are not available in this slice.");
+      throw new Error(
+        "OpenCode one-shot prompts are not available in this slice.",
+      );
     },
 
     detectAuthError(text: string): boolean {
@@ -340,7 +342,9 @@ export function createOpenCodeTracerBackend(
   };
 }
 
-export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Backend {
+export function createOpenCodeBackend(
+  options: OpenCodeBackendOptions = {},
+): Backend {
   const bindings = new Map<
     string,
     {
@@ -350,7 +354,9 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
       agent?: string;
     }
   >();
-  const supervisorFor = (opts: SessionEnvironmentOptions): OpenCodeSupervisor => {
+  const supervisorFor = (
+    opts: SessionEnvironmentOptions,
+  ): OpenCodeSupervisor => {
     if (options.supervisor) return options.supervisor;
     if (!opts.environmentKey) {
       throw new Error("OpenCode session environment identity is required.");
@@ -436,7 +442,10 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
           bindings.set(sessionId, { cwd: opts.cwd, supervisor, model, agent }),
       );
     },
-    resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
+    resumeSession(
+      sessionId: string,
+      opts: CreateSessionOptions,
+    ): BackendSession {
       const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
       const agent =
@@ -499,7 +508,9 @@ export function createOpenCodeBackend(options: OpenCodeBackendOptions = {}): Bac
       }
     },
     async oneShotPrompt(): Promise<string> {
-      throw new Error("OpenCode one-shot prompts are not available in this slice.");
+      throw new Error(
+        "OpenCode one-shot prompts are not available in this slice.",
+      );
     },
     detectAuthError(text: string): boolean {
       return text.includes(AUTH_FAILURE);

@@ -37,71 +37,67 @@ afterAll(async () => {
 });
 
 describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
-  it(
-    "certifies at most three explicit connected models within the token budget",
-    async () => {
-      if (requestedModels.length === 0) {
-        throw new Error(
-          "Set ISOMUX_OPENCODE_CERT_MODELS to one to three provider/model IDs.",
-        );
-      }
-      if (requestedModels.length > 3) {
-        throw new Error("OpenCode certification accepts at most three models.");
-      }
-      root = await mkdtemp(join(tmpdir(), "isomux-opencode-s5-live-"));
-      const repo = join(root, "repo");
-      await mkdir(repo);
-      await Bun.write(join(repo, ".keep"), "OC1 S5 live scratch repo\n");
-      supervisor = new OpenCodeSupervisor({
-        profileDir: join(root, "profile"),
-        serverCwd: repo,
-        launchEnv: { ...process.env },
+  it("certifies at most three explicit connected models within the token budget", async () => {
+    if (requestedModels.length === 0) {
+      throw new Error(
+        "Set ISOMUX_OPENCODE_CERT_MODELS to one to three provider/model IDs.",
+      );
+    }
+    if (requestedModels.length > 3) {
+      throw new Error("OpenCode certification accepts at most three models.");
+    }
+    root = await mkdtemp(join(tmpdir(), "isomux-opencode-s5-live-"));
+    const repo = join(root, "repo");
+    await mkdir(repo);
+    await Bun.write(join(repo, ".keep"), "OC1 S5 live scratch repo\n");
+    supervisor = new OpenCodeSupervisor({
+      profileDir: join(root, "profile"),
+      serverCwd: repo,
+      launchEnv: { ...process.env },
+    });
+    const backend = createOpenCodeBackend({ supervisor });
+    const discovered = await backend.listModels({ cwd: repo });
+    const connected = new Set(discovered.map((model) => model.id));
+    for (const model of requestedModels) {
+      expect(connected.has(model)).toBe(true);
+    }
+    for (const model of requestedModels) {
+      const session = backend.createSession({
+        agentId: `live-${model.replaceAll(/[^a-zA-Z0-9]/g, "-")}`,
+        cwd: repo,
+        systemPrompt: "Reply briefly and do not use tools.",
+        modelFamily: model,
+        effort: "high",
+        permissionMode: "default",
       });
-      const backend = createOpenCodeBackend({ supervisor });
-      const discovered = await backend.listModels({ cwd: repo });
-      const connected = new Set(discovered.map((model) => model.id));
-      for (const model of requestedModels) {
-        expect(connected.has(model)).toBe(true);
-      }
-      for (const model of requestedModels) {
-        const session = backend.createSession({
-          agentId: `live-${model.replaceAll(/[^a-zA-Z0-9]/g, "-")}`,
-          cwd: repo,
-          systemPrompt: "Reply briefly and do not use tools.",
-          modelFamily: model,
-          effort: "high",
-          permissionMode: "default",
-        });
-        const events: NormalizedEvent[] = [];
-        const complete = (async () => {
-          for await (const event of session.stream()) {
-            events.push(event);
-            if (event.kind === "turn_completed") return event;
-          }
-          throw new Error("OpenCode live stream ended before completion.");
-        })();
-        await session.send("Reply with exactly OC1_S5_OK.");
-        const terminal = await Promise.race([
-          complete,
-          Bun.sleep(120_000).then(() => {
-            throw new Error("OpenCode live certification timed out.");
-          }),
-        ]);
-        session.close();
-        expect(terminal.status).toBe("completed");
-        expect(
-          events
-            .filter((event) => event.kind === "assistant_text")
-            .map((event) => event.text)
-            .join(""),
-        ).toContain("OC1_S5_OK");
-        const billedTokens =
-          (terminal.usage?.inputTokens ?? 0) +
-          (terminal.usage?.outputTokens ?? 0);
-        expect(billedTokens).toBeGreaterThan(0);
-        expect(billedTokens).toBeLessThanOrEqual(TOKEN_LIMIT_PER_MODEL);
-      }
-    },
-    400_000,
-  );
+      const events: NormalizedEvent[] = [];
+      const complete = (async () => {
+        for await (const event of session.stream()) {
+          events.push(event);
+          if (event.kind === "turn_completed") return event;
+        }
+        throw new Error("OpenCode live stream ended before completion.");
+      })();
+      await session.send("Reply with exactly OC1_S5_OK.");
+      const terminal = await Promise.race([
+        complete,
+        Bun.sleep(120_000).then(() => {
+          throw new Error("OpenCode live certification timed out.");
+        }),
+      ]);
+      session.close();
+      expect(terminal.status).toBe("completed");
+      expect(
+        events
+          .filter((event) => event.kind === "assistant_text")
+          .map((event) => event.text)
+          .join(""),
+      ).toContain("OC1_S5_OK");
+      const billedTokens =
+        (terminal.usage?.inputTokens ?? 0) +
+        (terminal.usage?.outputTokens ?? 0);
+      expect(billedTokens).toBeGreaterThan(0);
+      expect(billedTokens).toBeLessThanOrEqual(TOKEN_LIMIT_PER_MODEL);
+    }
+  }, 400_000);
 });

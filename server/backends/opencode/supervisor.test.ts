@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmod, mkdtemp, mkdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -15,9 +23,13 @@ const scratch: string[] = [];
 const mocks: ReturnType<typeof Bun.serve>[] = [];
 
 afterEach(async () => {
-  await Promise.all(supervisors.splice(0).map((supervisor) => supervisor.shutdown()));
+  await Promise.all(
+    supervisors.splice(0).map((supervisor) => supervisor.shutdown()),
+  );
   for (const mock of mocks.splice(0)) await mock.stop(true);
-  await Promise.all(scratch.splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(
+    scratch.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  );
 });
 
 async function root(): Promise<string> {
@@ -33,20 +45,35 @@ function mockProvider(delayMs = 0) {
     async fetch(request) {
       const url = new URL(request.url);
       if (url.pathname === "/v1/models") {
-        return Response.json({ object: "list", data: [{ id: "gate-model", object: "model" }] });
+        return Response.json({
+          object: "list",
+          data: [{ id: "gate-model", object: "model" }],
+        });
       }
-      if (url.pathname !== "/v1/chat/completions") return new Response("not found", { status: 404 });
+      if (url.pathname !== "/v1/chat/completions")
+        return new Response("not found", { status: 404 });
       if (delayMs) await Bun.sleep(delayMs);
       const stream = new ReadableStream({
         start(controller) {
           const send = (value: unknown) =>
-            controller.enqueue(`data: ${typeof value === "string" ? value : JSON.stringify(value)}\n\n`);
+            controller.enqueue(
+              `data: ${typeof value === "string" ? value : JSON.stringify(value)}\n\n`,
+            );
           send({
             id: "gate",
             object: "chat.completion.chunk",
             created: 1,
             model: "gate-model",
-            choices: [{ index: 0, delta: { role: "assistant", content: "OpenCode real tracer reply." }, finish_reason: null }],
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  role: "assistant",
+                  content: "OpenCode real tracer reply.",
+                },
+                finish_reason: null,
+              },
+            ],
           });
           send({
             id: "gate",
@@ -59,14 +86,18 @@ function mockProvider(delayMs = 0) {
           controller.close();
         },
       });
-      return new Response(stream, { headers: { "content-type": "text/event-stream" } });
+      return new Response(stream, {
+        headers: { "content-type": "text/event-stream" },
+      });
     },
   });
   mocks.push(mock);
   return mock;
 }
 
-function gateConfig(mock: ReturnType<typeof Bun.serve>): Record<string, unknown> {
+function gateConfig(
+  mock: ReturnType<typeof Bun.serve>,
+): Record<string, unknown> {
   return {
     autoupdate: false,
     model: "gate/gate-model",
@@ -84,7 +115,10 @@ function gateConfig(mock: ReturnType<typeof Bun.serve>): Record<string, unknown>
             cost: { input: 0, output: 0 },
           },
         },
-        options: { apiKey: "test-only", baseURL: `http://127.0.0.1:${mock.port}/v1` },
+        options: {
+          apiKey: "test-only",
+          baseURL: `http://127.0.0.1:${mock.port}/v1`,
+        },
       },
     },
   };
@@ -123,7 +157,9 @@ async function binaryProcessCount(): Promise<number> {
   let count = 0;
   for await (const name of new Bun.Glob("[0-9]*/cmdline").scan("/proc")) {
     try {
-      const argv0 = (await readFile(join("/proc", name))).toString().split("\0", 1)[0];
+      const argv0 = (await readFile(join("/proc", name)))
+        .toString()
+        .split("\0", 1)[0];
       if (argv0 === binary) count++;
     } catch {}
   }
@@ -187,7 +223,10 @@ describe("OpenCode shared server supervisor", () => {
     };
     const first = makeSupervisor(path, config, 1000, hostileAmbient);
     const second = makeSupervisor(path, config, 1000, hostileAmbient);
-    const [leaseA, leaseB] = await Promise.all([first.acquire(), second.acquire()]);
+    const [leaseA, leaseB] = await Promise.all([
+      first.acquire(),
+      second.acquire(),
+    ]);
     expect(leaseA.pid).toBe(leaseB.pid);
     expect(await binaryProcessCount()).toBe(baseline + 1);
     const childEnv = (await readFile(`/proc/${leaseA.pid}/environ`))
@@ -288,10 +327,9 @@ describe("OpenCode shared server supervisor", () => {
     expect(adopted.pid).toBe(firstPid);
     adopted.release();
 
-    const record = JSON.parse(await readFile(first.recordPath, "utf8")) as Record<
-      string,
-      unknown
-    >;
+    const record = JSON.parse(
+      await readFile(first.recordPath, "utf8"),
+    ) as Record<string, unknown>;
     delete record.configRevision;
     await writeFile(first.recordPath, `${JSON.stringify(record)}\n`);
     const changedConfig = {
@@ -434,7 +472,13 @@ describe("OpenCode shared server supervisor", () => {
 
   it("fails the authentication drain loudly when an active turn does not finish", async () => {
     const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()), 1000, {}, 30);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      30,
+    );
     const lease = await supervisor.acquire();
     await lease.beginTurn();
     await expectRejection(
@@ -442,18 +486,32 @@ describe("OpenCode shared server supervisor", () => {
       /Send your message again to retry/,
     );
     expect(alive(lease.pid)).toBe(true);
-    expect(await Bun.file(`${supervisor.profileDir}.auth-login-pending`).exists()).toBe(false);
+    expect(
+      await Bun.file(`${supervisor.profileDir}.auth-login-pending`).exists(),
+    ).toBe(false);
     lease.endTurn();
     lease.release();
   }, 20_000);
 
   it("fails a requested replacement loudly when an active turn does not finish", async () => {
     const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()), 1000, {}, 30);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      1000,
+      {},
+      30,
+    );
     const lease = await supervisor.acquire();
     await lease.beginTurn();
-    await writeFile(join(supervisor.profileDir, "server.replace"), "authentication changed\n");
-    await expectRejection(supervisor.acquire(), /Send your message again to retry/);
+    await writeFile(
+      join(supervisor.profileDir, "server.replace"),
+      "authentication changed\n",
+    );
+    await expectRejection(
+      supervisor.acquire(),
+      /Send your message again to retry/,
+    );
     expect(alive(lease.pid)).toBe(true);
     lease.endTurn();
     lease.release();
@@ -487,18 +545,31 @@ describe("OpenCode shared server supervisor", () => {
     const markers = join(path, "markers");
     await mkdir(join(repo, ".opencode", "plugin"), { recursive: true });
     const skillCanary = "hostile-compat-marker-oc1";
-    await mkdir(join(repo, ".claude", "skills", skillCanary), { recursive: true });
+    await mkdir(join(repo, ".claude", "skills", skillCanary), {
+      recursive: true,
+    });
     await mkdir(markers, { recursive: true });
     const pluginMarker = join(markers, "plugin");
     const mcpMarker = join(markers, "mcp");
-    await writeFile(join(repo, ".opencode", "plugin", "gate.js"), `Bun.write(${JSON.stringify(pluginMarker)}, "executed"); export const Gate = async () => ({});`);
+    await writeFile(
+      join(repo, ".opencode", "plugin", "gate.js"),
+      `Bun.write(${JSON.stringify(pluginMarker)}, "executed"); export const Gate = async () => ({});`,
+    );
     await writeFile(
       join(repo, ".claude", "skills", skillCanary, "SKILL.md"),
       `---\nname: ${skillCanary}\ndescription: marker\n---\nmarker\n`,
     );
     await writeFile(
       join(repo, "opencode.json"),
-      JSON.stringify({ mcp: { gate: { type: "local", command: ["/bin/sh", "-c", `printf x > ${mcpMarker}`], enabled: true } } }),
+      JSON.stringify({
+        mcp: {
+          gate: {
+            type: "local",
+            command: ["/bin/sh", "-c", `printf x > ${mcpMarker}`],
+            enabled: true,
+          },
+        },
+      }),
     );
     const supervisor = new OpenCodeSupervisor({
       profileDir: join(path, "profile"),
@@ -510,7 +581,10 @@ describe("OpenCode shared server supervisor", () => {
     const lease = await supervisor.acquire();
     const headers = { authorization: lease.authHeader };
     for (const route of ["/config", "/mcp"]) {
-      await fetch(`${lease.baseUrl}${route}?directory=${encodeURIComponent(repo)}`, { headers });
+      await fetch(
+        `${lease.baseUrl}${route}?directory=${encodeURIComponent(repo)}`,
+        { headers },
+      );
     }
     const skills = await fetch(
       `${lease.baseUrl}/skill?directory=${encodeURIComponent(repo)}`,
@@ -524,12 +598,15 @@ describe("OpenCode shared server supervisor", () => {
   }, 20_000);
 
   it("keeps binary launch in the one reviewed builder", async () => {
-    const files = await Array.fromAsync(new Bun.Glob("*.ts").scan(import.meta.dir));
+    const files = await Array.fromAsync(
+      new Bun.Glob("*.ts").scan(import.meta.dir),
+    );
     const launchers: string[] = [];
     for (const file of files) {
       if (file.endsWith(".test.ts")) continue;
       const text = await Bun.file(join(import.meta.dir, file)).text();
-      if (text.includes('"serve"') && text.includes("OPENCODE_BINARY")) launchers.push(file);
+      if (text.includes('"serve"') && text.includes("OPENCODE_BINARY"))
+        launchers.push(file);
     }
     expect(launchers).toEqual(["start-server.ts"]);
   });

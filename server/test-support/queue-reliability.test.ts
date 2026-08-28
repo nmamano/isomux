@@ -840,7 +840,12 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
   it("keeps OpenCode observe-only in the busy-turn watchdog", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
-    const recv = await spawnAgent(server, "Receiver-opencode", room.id, "opencode");
+    const recv = await spawnAgent(
+      server,
+      "Receiver-opencode",
+      room.id,
+      "opencode",
+    );
     const sender = await spawnAgent(server, "Sender-opencode", room.id);
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     const session = server.fakeBackend.sessionForAgent(recv.id)!;
@@ -909,17 +914,24 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
         server!.agentManager
           .getAgentLogs(receiver.id)
           .some((entry) =>
-            entry.content.includes("Open agent settings and select a connected model"),
+            entry.content.includes(
+              "Open agent settings and select a connected model",
+            ),
           ),
       3000,
       "legacy repair error",
     );
     expect(stateOf(server, receiver.id)).toBe("error");
-    expect(server.agentManager.getAllAgents().some((agent) => agent.id === receiver.id)).toBe(true);
+    expect(
+      server.agentManager
+        .getAllAgents()
+        .some((agent) => agent.id === receiver.id),
+    ).toBe(true);
     const errorCount = () =>
       server!.agentManager
         .getAgentLogs(receiver.id)
-        .filter((entry) => entry.content.includes("Open agent settings")).length;
+        .filter((entry) => entry.content.includes("Open agent settings"))
+        .length;
     expect(errorCount()).toBe(1);
     expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);
     expect(await server.agentManager.sweepStuckFlushes(0)).toBe(0);

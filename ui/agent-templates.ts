@@ -434,7 +434,6 @@ export function resolveTemplateModel(
     };
   }
 
-
   if (engine === "opencode") {
     if (modelsFailed || backendModels === null) return current;
     const visible = backendModels.filter((model) => !model.hidden);

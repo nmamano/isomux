@@ -609,7 +609,10 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
   });
 
   it("rejects an OpenCode cron model at create and update boundaries", async () => {
-    const modelFamilyError = (agentType: Cronjob["agentType"], model: string | undefined) =>
+    const modelFamilyError = (
+      agentType: Cronjob["agentType"],
+      model: string | undefined,
+    ) =>
       agentType === "opencode" && model === "opencode/fake"
         ? "Select a connected OpenCode model."
         : null;

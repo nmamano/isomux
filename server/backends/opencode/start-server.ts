@@ -66,11 +66,17 @@ async function healthy(record: ServerRecord): Promise<boolean> {
     return false;
   try {
     process.kill(record.pid, 0);
-    const response = await fetch(`http://127.0.0.1:${record.port}/global/health`, {
-      headers: { authorization: authHeader(record.password) },
-      signal: AbortSignal.timeout(OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS),
-    });
-    const body = (await response.json()) as { healthy?: boolean; version?: string };
+    const response = await fetch(
+      `http://127.0.0.1:${record.port}/global/health`,
+      {
+        headers: { authorization: authHeader(record.password) },
+        signal: AbortSignal.timeout(OPENCODE_ADOPTION_HEALTH_TIMEOUT_MS),
+      },
+    );
+    const body = (await response.json()) as {
+      healthy?: boolean;
+      version?: string;
+    };
     return response.ok && body.healthy === true && body.version === "1.18.23";
   } catch {
     return false;
@@ -107,7 +113,10 @@ async function running(pid: number): Promise<boolean> {
   }
 }
 
-async function waitHealthy(child: ChildProcess, port: number): Promise<boolean> {
+async function waitHealthy(
+  child: ChildProcess,
+  port: number,
+): Promise<boolean> {
   for (let attempt = 0; attempt < 160; attempt++) {
     if (child.exitCode !== null || !child.pid) return false;
     try {
@@ -116,8 +125,12 @@ async function waitHealthy(child: ChildProcess, port: number): Promise<boolean> 
         headers: { authorization: authHeader(password) },
         signal: AbortSignal.timeout(300),
       });
-      const body = (await response.json()) as { healthy?: boolean; version?: string };
-      if (response.ok && body.healthy && body.version === "1.18.23") return true;
+      const body = (await response.json()) as {
+        healthy?: boolean;
+        version?: string;
+      };
+      if (response.ok && body.healthy && body.version === "1.18.23")
+        return true;
     } catch {}
     await Bun.sleep(50);
   }
@@ -127,7 +140,8 @@ async function waitHealthy(child: ChildProcess, port: number): Promise<boolean> 
 function sanitizedChildEnvironment(): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.entries(process.env).filter(
-      ([name]) => !name.startsWith("OPENCODE_") && name !== "ISOMUX_OPENCODE_DEBUG",
+      ([name]) =>
+        !name.startsWith("OPENCODE_") && name !== "ISOMUX_OPENCODE_DEBUG",
     ),
   );
 }
@@ -138,7 +152,9 @@ function bindFailure(stderr: string): boolean {
 
 await mkdir(profileDir, { recursive: true });
 if (prior && (await healthy(prior))) {
-  process.stdout.write(JSON.stringify({ pid: prior.pid, port: prior.port, adopted: true }));
+  process.stdout.write(
+    JSON.stringify({ pid: prior.pid, port: prior.port, adopted: true }),
+  );
   process.exit(0);
 }
 if (prior) await stop(prior);
@@ -221,10 +237,17 @@ for (let attempt = 0; attempt < 40; attempt++) {
     const debugAdvice = keepDebugOutput
       ? ` Debug output is in ${debugDir}.`
       : " Set ISOMUX_OPENCODE_DEBUG=1 to keep private startup output under /tmp.";
-    throw new Error(`Pinned OpenCode server failed during startup.${debugAdvice}`);
+    throw new Error(
+      `Pinned OpenCode server failed during startup.${debugAdvice}`,
+    );
   }
 }
-if (!started) throw new Error("Pinned OpenCode server did not start in the reserved port range 22000-22999.");
+if (!started)
+  throw new Error(
+    "Pinned OpenCode server did not start in the reserved port range 22000-22999.",
+  );
 await writeFile(recordPath, `${JSON.stringify(started)}\n`, { mode: 0o600 });
 await chmod(recordPath, 0o600);
-process.stdout.write(JSON.stringify({ pid: started.pid, port: started.port, adopted: false }));
+process.stdout.write(
+  JSON.stringify({ pid: started.pid, port: started.port, adopted: false }),
+);

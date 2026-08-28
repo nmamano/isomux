@@ -50,7 +50,9 @@ function stableConfigValue(value: unknown): unknown {
   );
 }
 
-export function openCodeConfigRevision(config: Record<string, unknown>): string {
+export function openCodeConfigRevision(
+  config: Record<string, unknown>,
+): string {
   return createHash("sha256")
     .update(JSON.stringify(stableConfigValue(config)))
     .digest("hex");
@@ -99,7 +101,8 @@ export class OpenCodeSupervisor {
   private replacementRequested = false;
 
   constructor(options: OpenCodeSupervisorOptions = {}) {
-    this.profileDir = options.profileDir ?? join(STATE_ROOT, "opencode", "profiles", "default");
+    this.profileDir =
+      options.profileDir ?? join(STATE_ROOT, "opencode", "profiles", "default");
     this.recordPath = join(this.profileDir, "server.lock");
     this.binary = options.binary ?? resolveOpenCodeBinary();
     this.config = {
@@ -111,14 +114,18 @@ export class OpenCodeSupervisor {
     this.idleShutdownMs = options.idleShutdownMs ?? OPENCODE_IDLE_SHUTDOWN_MS;
     this.launchEnv = options.launchEnv ?? {};
     this.environmentRevision = options.environmentRevision ?? "default";
-    this.replacementDrainMs = options.replacementDrainMs ?? OPENCODE_REPLACEMENT_DRAIN_MS;
-    this.pendingLoginTtlMs = options.pendingLoginTtlMs ?? OPENCODE_AUTH_LOGIN_PENDING_TTL_MS;
+    this.replacementDrainMs =
+      options.replacementDrainMs ?? OPENCODE_REPLACEMENT_DRAIN_MS;
+    this.pendingLoginTtlMs =
+      options.pendingLoginTtlMs ?? OPENCODE_AUTH_LOGIN_PENDING_TTL_MS;
     this.clearPendingLogin();
   }
 
   async acquire(): Promise<OpenCodeLease> {
     if (this.hasActivePendingLogin()) {
-      throw new Error("OpenCode login is in progress for this shared environment.");
+      throw new Error(
+        "OpenCode login is in progress for this shared environment.",
+      );
     }
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
@@ -212,18 +219,23 @@ export class OpenCodeSupervisor {
     try {
       unlinkSync(`${this.profileDir}.auth-login-pending`);
     } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      if (
+        !(error instanceof Error && "code" in error && error.code === "ENOENT")
+      )
+        throw error;
     }
   }
 
   private hasActivePendingLogin(): boolean {
     const pending = `${this.profileDir}.auth-login-pending`;
     try {
-      if (Date.now() - statSync(pending).mtimeMs < this.pendingLoginTtlMs) return true;
+      if (Date.now() - statSync(pending).mtimeMs < this.pendingLoginTtlMs)
+        return true;
       unlinkSync(pending);
       return false;
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+      if (error instanceof Error && "code" in error && error.code === "ENOENT")
+        return false;
       throw error;
     }
   }
@@ -234,7 +246,14 @@ export class OpenCodeSupervisor {
     await mkdir(this.profileDir, { recursive: true });
     const helper = join(import.meta.dir, "start-server.ts");
     const proc = Bun.spawn(
-      ["flock", "--exclusive", this.recordPath, process.execPath, "run", helper],
+      [
+        "flock",
+        "--exclusive",
+        this.recordPath,
+        process.execPath,
+        "run",
+        helper,
+      ],
       {
         env: {
           ...process.env,
@@ -254,12 +273,23 @@ export class OpenCodeSupervisor {
   private async ensureServer(): Promise<void> {
     await mkdir(this.profileDir, { recursive: true });
     const configPath = join(this.profileDir, "opencode.json");
-    await writeFile(configPath, `${JSON.stringify({ ...this.config, autoupdate: false })}\n`, { mode: 0o600 });
+    await writeFile(
+      configPath,
+      `${JSON.stringify({ ...this.config, autoupdate: false })}\n`,
+      { mode: 0o600 },
+    );
     await chmod(configPath, 0o600);
     const password = randomBytes(32).toString("base64url");
     const helper = join(import.meta.dir, "start-server.ts");
     const proc = Bun.spawn(
-      ["flock", "--exclusive", this.recordPath, process.execPath, "run", helper],
+      [
+        "flock",
+        "--exclusive",
+        this.recordPath,
+        process.execPath,
+        "run",
+        helper,
+      ],
       {
         cwd: this.serverCwd,
         env: {
@@ -287,10 +317,12 @@ export class OpenCodeSupervisor {
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
-    if (exitCode !== 0) throw new Error(`OpenCode startup failed: ${stderr.trim()}`);
+    if (exitCode !== 0)
+      throw new Error(`OpenCode startup failed: ${stderr.trim()}`);
     JSON.parse(stdout);
     this.record = await this.readRecord();
-    if (!this.record) throw new Error("OpenCode startup did not write its server record.");
+    if (!this.record)
+      throw new Error("OpenCode startup did not write its server record.");
   }
 
   private async replaceServerIfRequested(): Promise<void> {
@@ -299,7 +331,8 @@ export class OpenCodeSupervisor {
     if (!this.replacementPromise) {
       this.replacementPromise = (async () => {
         const deadline = Date.now() + this.replacementDrainMs;
-        while (this.activeTurns > 0 && Date.now() < deadline) await Bun.sleep(25);
+        while (this.activeTurns > 0 && Date.now() < deadline)
+          await Bun.sleep(25);
         if (this.activeTurns > 0) {
           throw new Error(
             "OpenCode configuration changed, but active turns did not drain in time. Send your message again to retry.",
@@ -317,7 +350,9 @@ export class OpenCodeSupervisor {
 
   private async readRecord(): Promise<ServerRecord | null> {
     try {
-      return JSON.parse(await readFile(this.recordPath, "utf8")) as ServerRecord;
+      return JSON.parse(
+        await readFile(this.recordPath, "utf8"),
+      ) as ServerRecord;
     } catch {
       return null;
     }
@@ -325,7 +360,10 @@ export class OpenCodeSupervisor {
 
   private armIdleReap(): void {
     if (this.leases > 0 || this.activeTurns > 0 || this.idleTimer) return;
-    this.idleTimer = setTimeout(() => void this.shutdown(), this.idleShutdownMs);
+    this.idleTimer = setTimeout(
+      () => void this.shutdown(),
+      this.idleShutdownMs,
+    );
   }
 }
 
@@ -374,7 +412,9 @@ function reapAtSignal(signal: "SIGINT" | "SIGTERM"): void {
   shuttingDown = true;
   void Promise.all([
     openCodeSupervisor.shutdown(),
-    ...[...environmentSupervisors.values()].map((supervisor) => supervisor.shutdown()),
+    ...[...environmentSupervisors.values()].map((supervisor) =>
+      supervisor.shutdown(),
+    ),
   ]).finally(() => {
     process.off(signal, signal === "SIGINT" ? onSigint : onSigterm);
     process.kill(process.pid, signal);

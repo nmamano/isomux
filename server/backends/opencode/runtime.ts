@@ -5,7 +5,9 @@ export const OPENCODE_CLI_VERSION = "1.18.23";
 
 export function resolveOpenCodeBinary(): string {
   if (process.platform !== "linux") {
-    throw new Error(`OpenCode ${OPENCODE_CLI_VERSION} is not packaged for ${process.platform}.`);
+    throw new Error(
+      `OpenCode ${OPENCODE_CLI_VERSION} is not packaged for ${process.platform}.`,
+    );
   }
   const arch = process.arch === "arm64" ? "arm64" : "x64";
   const base = `opencode-linux-${arch}`;

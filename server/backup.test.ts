@@ -85,9 +85,7 @@ describe("verified backup publication", () => {
     expect(file).toBe("isomux-2026-08-13.tar.gz");
     expect(finals(f.backupDir)).toEqual([file]);
     expect(d.partialModesBeforeWrite).toEqual([0o600]);
-    expect(
-      fs.statSync(path.join(f.backupDir, file)).mode & 0o777,
-    ).toBe(0o600);
+    expect(fs.statSync(path.join(f.backupDir, file)).mode & 0o777).toBe(0o600);
     expect(fs.existsSync(path.join(f.backupDir, `${file}.verified.json`))).toBe(
       true,
     );
@@ -132,9 +130,7 @@ describe("verified backup publication", () => {
       "opencode",
       "auth.json",
     );
-    expect(fs.readFileSync(restoredAuth, "utf8")).toBe(
-      "PROFILE_AUTH_CANARY\n",
-    );
+    expect(fs.readFileSync(restoredAuth, "utf8")).toBe("PROFILE_AUTH_CANARY\n");
     expect(fs.statSync(restoredAuth).mode & 0o777).toBe(0o600);
   });
 
