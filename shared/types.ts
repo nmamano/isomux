@@ -56,7 +56,7 @@ export interface AgentOutfit {
 // and starting a new conversation can target a different one. The edit dialog
 // shows the current engine read-only; switching happens via resume / new
 // conversation, not by editing this field.
-export type AgentBackendType = "claude" | "codex";
+export type AgentBackendType = "claude" | "codex" | "opencode";
 
 // Claude's 4-mode permission enum.
 export type ClaudePermissionMode =
@@ -187,6 +187,10 @@ export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
 ];
 
+// Slice 1A's deterministic tracer model. Slice 1B replaces this entry with the
+// first certified provider/model pair from the pinned OC1 runtime.
+export const OPENCODE_TRACER_MODEL = "opencode/fake";
+
 // Extract a display version from the exact model id: "claude-opus-4-8" -> "4.8",
 // "claude-fable-5" -> "5". Matches one or two numeric components after the
 // family prefix and stops before trailing date stamps
@@ -260,6 +264,7 @@ export function effortLevelsFor(
   modelFamily: string,
 ): { level: EffortLevel; label: string }[] {
   if (agentType === "codex") return EFFORT_LEVELS;
+  if (agentType === "opencode") return [];
   return EFFORT_LEVELS.filter((e) => {
     if (e.level === "minimal" || e.level === "ultra") return false;
     if (e.level === "max") return claudeFamilySupportsMaxEffort(modelFamily);

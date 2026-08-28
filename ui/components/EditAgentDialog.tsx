@@ -14,6 +14,7 @@ import {
   DEFAULT_EFFORT,
   modelVersionLabel,
   CODEX_MODELS,
+  OPENCODE_TRACER_MODEL,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
 } from "../../shared/types.ts";
@@ -87,6 +88,12 @@ export function templateValuesAfterEngineSwitch(
           effort: DEFAULT_EFFORT,
           permissionMode: codexNewEngineDefaults().permissionMode,
         }
+      : targetEngine === "opencode"
+        ? {
+            modelFamily: OPENCODE_TRACER_MODEL,
+            effort: DEFAULT_EFFORT,
+            permissionMode: "default" as AgentInfo["permissionMode"],
+          }
       : {
           modelFamily: MODEL_FAMILIES[0].family,
           effort: DEFAULT_EFFORT,
@@ -227,6 +234,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // targetEngine === agentType there and behavior is unchanged.
   const [targetEngine, setTargetEngine] = useState<AgentBackendType>(agentType);
   const isCodex = targetEngine === "codex";
+  const isOpenCode = targetEngine === "opencode";
 
   const {
     recentCwds: allRecentCwds,
@@ -271,7 +279,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const mem = useMemoryEditor("agent", agent?.id ?? null, !!agent?.id);
   const defaultModel = isCodex
     ? CODEX_MODELS[0].value
-    : MODEL_FAMILIES[0].family;
+    : isOpenCode
+      ? OPENCODE_TRACER_MODEL
+      : MODEL_FAMILIES[0].family;
   const [modelFamily, setModelFamily] = useState<string>(
     agent?.modelFamily ?? defaultModel,
   );
@@ -294,7 +304,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     codexNewEngineDefault.permissionMode;
   const initialPermissionMode: AgentInfo["permissionMode"] = isCodex
     ? codexDefaultMode
-    : claudeDefaultMode;
+    : isOpenCode
+      ? "default"
+      : claudeDefaultMode;
   const [permissionMode, setPermissionMode] = useState<
     AgentInfo["permissionMode"]
   >(initialPermissionMode);
@@ -668,7 +680,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           agent?.modelFamily ??
           (agentType === "codex"
             ? CODEX_MODELS[0].value
-            : MODEL_FAMILIES[0].family),
+            : agentType === "opencode"
+              ? OPENCODE_TRACER_MODEL
+              : MODEL_FAMILIES[0].family),
         effort: agent?.effort ?? DEFAULT_EFFORT,
         permissionMode: initialPermissionMode,
         codexSandbox: agent?.codexSandbox ?? "workspace-write",
@@ -679,6 +693,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         modelFamily: CODEX_MODELS[0].value,
         effort: DEFAULT_EFFORT,
         ...codexDefault,
+      };
+    } else if (targetEngine === "opencode") {
+      seed = {
+        modelFamily: OPENCODE_TRACER_MODEL,
+        effort: DEFAULT_EFFORT,
+        permissionMode: "default",
       };
     } else {
       const claudeDefault = MODEL_FAMILIES[0].family;
@@ -1047,8 +1067,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       cursor: "pointer",
                     }}
                   >
-                    <option value="claude">Claude</option>
-                    <option value="codex">Codex</option>
+                    {ENGINE_OPTIONS.map((option) => (
+                      <option key={option.agentType} value={option.agentType}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                   {targetEngine !== agentType && (
                     <p
@@ -1060,9 +1083,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       }}
                     >
                       Switching to{" "}
-                      {targetEngine === "codex" ? "Codex" : "Claude"} starts a
-                      new conversation. The current one stays in this agent's
-                      resume history.
+                      {ENGINE_OPTIONS.find(
+                        (option) => option.agentType === targetEngine,
+                      )?.label ?? targetEngine} starts a new conversation. The
+                      current one stays in this agent's resume history.
                     </p>
                   )}
                 </section>
@@ -1634,7 +1658,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     cursor: "pointer",
                   }}
                 >
-                  {isCodex ? (
+                  {isOpenCode ? (
+                    <option value="default">Ask</option>
+                  ) : isCodex ? (
                     <>
                       <option value="untrusted">
                         Untrusted (ask on every tool)
@@ -1696,7 +1722,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 )}
 
                 <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
-                {(() => {
+                {isOpenCode ? (
+                  <select
+                    value={OPENCODE_TRACER_MODEL}
+                    onChange={() => {}}
+                    style={{
+                      ...inputStyle,
+                      appearance: "none",
+                      cursor: "default",
+                    }}
+                  >
+                    <option value={OPENCODE_TRACER_MODEL}>
+                      OpenCode tracer
+                    </option>
+                  </select>
+                ) : (() => {
                   // Codex model options come from the server (auth-aware via
                   // model/list). On fetch failure OR an empty list we fall back to the
                   // hardcoded CODEX_MODELS list so the dialog is still usable (an empty
@@ -1819,10 +1859,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   </p>
                 )}
 
-                <label style={{ ...labelStyle, marginTop: 12 }}>
-                  Thinking Effort
-                </label>
-                {(() => {
+                {!isOpenCode && (
+                  <>
+                    <label style={{ ...labelStyle, marginTop: 12 }}>
+                      Thinking Effort
+                    </label>
+                    {(() => {
                   // For Codex we use the selected model's supportedReasoningEfforts
                   // when available; otherwise we fall back to the global EFFORT_LEVELS
                   // with the same backend/family filter we used pre-fetch.
@@ -1884,7 +1926,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       ))}
                     </select>
                   );
-                })()}
+                    })()}
+                  </>
+                )}
               </div>
               <label style={{ ...labelStyle, marginTop: 14 }}>
                 Custom Instructions{" "}

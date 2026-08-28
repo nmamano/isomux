@@ -206,6 +206,7 @@ function stubClaudeSession(srv: TestServer, sessionId: string): void {
   );
   mkdirSync(projectDir, { recursive: true });
   writeFileSync(join(projectDir, `${sessionId}.jsonl`), "");
+  srv.fakeBackend.setStoredSessionState(sessionId, "durable");
 }
 
 // A backend that parks each turn in "thinking" on send (no turn_completed).
@@ -215,6 +216,7 @@ function parkingBackend(extra?: {
   abortInPlace?: boolean;
 }): FakeBackend {
   return new FakeBackend({
+    storedSessionState: "missing",
     session: {
       onSend: (_t, _a, s) => s.push({ kind: "assistant_text", text: "..." }),
       ...extra,

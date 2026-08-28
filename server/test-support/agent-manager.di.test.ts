@@ -21,9 +21,11 @@ import { describe, it, expect } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
-import type { PersistedAgent } from "../persistence.ts";
+import { loadAgents, type PersistedAgent } from "../persistence.ts";
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
+import { getBackend } from "../backends/index.ts";
+import { createOpenCodeTracerBackend } from "../backends/opencode/adapter.ts";
 import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 import {
@@ -108,6 +110,243 @@ describe("AgentManager DI (disk-free seam)", () => {
 });
 
 describe("AgentManager DI (temp-state isolated)", () => {
+  it("runs the OpenCode first-reply tracer through normal logs and persistence", async () => {
+    const { calls, resolveBackend } = spyResolver(getBackend("opencode"));
+    const { events, sink } = capture();
+    const mgr = createAgentManager({
+      resolveBackend,
+      officeState: new OfficeState({ rooms: rooms("room-opencode") }),
+      initialRooms: [],
+      eventSink: sink,
+    });
+    mgr.configurePluginHooksDeps();
+    const info = await mgr.spawn(
+      "OpenCode tracer",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-opencode",
+      undefined,
+      "opencode/fake",
+      "high",
+      undefined,
+      "opencode",
+    );
+    expect(info?.agentType).toBe("opencode");
+    expect(info?.dormant).toBe(true);
+    expect(calls).toContain("opencode");
+
+    const queued = mgr.enqueueMessage(info!.id, {
+      sender: { kind: "user", username: "tester" },
+      text: "hello",
+    });
+    expect(queued.ok).toBe(true);
+    const deadline = Date.now() + 2000;
+    while (
+      !mgr
+        .getAgentLogs(info!.id)
+        .some((entry) => entry.content === "OpenCode tracer reply.") &&
+      Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    expect(
+      mgr
+        .getAgentLogs(info!.id)
+        .some((entry) => entry.content === "OpenCode tracer reply."),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "log_entry" &&
+          event.entry.agentId === info!.id &&
+          event.entry.content === "OpenCode tracer reply.",
+      ),
+    ).toBe(true);
+    expect(mgr.listSessions(info!.id)[0]?.agentType).toBe("opencode");
+    expect(
+      loadAgents()
+        .flatMap((room) => room.agents)
+        .find((agent) => agent.id === info!.id)?.agentType,
+    ).toBe("opencode");
+    expect(await mgr.demoteToLazy(info!.id)).toBe(true);
+  });
+
+  it("uses the selected backend's stored-session fact for silent restore", async () => {
+    const persisted = {
+      id: "agent-opencode-empty",
+      name: "OpenCode empty",
+      desk: 0,
+      cwd: STATE_ROOT,
+      outfit: {
+        hat: "none",
+        color: "#000000",
+        hair: "#000000",
+        hairStyle: "short",
+        skin: "#ffffff",
+        beard: "none",
+        accessory: null,
+      },
+      permissionMode: "default",
+      modelFamily: "opencode/fake",
+      effort: "high",
+      agentType: "opencode",
+      lastSessionId: "header-only",
+      topic: null,
+      customInstructions: null,
+      userId: null,
+      username: null,
+    } as unknown as PersistedAgent;
+    const fake = new FakeBackend({ storedSessionState: "empty" });
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-opencode-restore") }),
+      initialRooms: [
+        {
+          id: "room-opencode-restore",
+          name: "room-opencode-restore",
+          prompt: null,
+          agents: [persisted],
+        },
+      ],
+    });
+
+    await mgr.restoreAgents();
+    expect(mgr.getCurrentSessionId(persisted.id)).toBeNull();
+  });
+
+  for (const state of ["missing", "durable"] as const) {
+    it(`uses the selected backend's ${state} fact for automatic recovery`, async () => {
+      const fake = new FakeBackend({
+        storedSessionState: state,
+        session: {
+          onSend: (_text, _attachments, session) =>
+            session.completeTurn({ status: "failed", error: "test failure" }),
+        },
+      });
+      const mgr = createAgentManager({
+        resolveBackend: () => fake,
+        officeState: new OfficeState({ rooms: rooms(`room-${state}`) }),
+        initialRooms: [],
+      });
+      const info = await mgr.spawn(
+        `${state} recovery`,
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        `room-${state}`,
+        undefined,
+        "opencode/fake",
+        "high",
+        undefined,
+        "opencode",
+      );
+      mgr.enqueueMessage(info!.id, {
+        sender: { kind: "user", username: "tester" },
+        text: "first",
+      });
+      const errorDeadline = Date.now() + 2000;
+      while (
+        mgr.getAgent(info!.id)?.state !== "error" &&
+        Date.now() < errorDeadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      const recovery = mgr.enqueueMessage(info!.id, {
+        sender: { kind: "user", username: "tester" },
+        text: "recover",
+      });
+      const recoveryDeadline = Date.now() + 2000;
+      while (
+        state === "durable" &&
+        fake.createSessionCount + fake.resumeSessionCount < 2 &&
+        Date.now() < recoveryDeadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(recovery.ok).toBe(state === "durable");
+      expect(fake.createSessionCount).toBe(1);
+      expect(fake.resumeSessionCount).toBe(state === "durable" ? 1 : 0);
+      fake.lastSession?.close();
+    });
+  }
+
+  it("keeps the selected backend's remedy in strict resume failures", async () => {
+    const remedy = "Move the stored session into the new project directory.";
+    const fake = new FakeBackend({ sessionResumableError: remedy });
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-remedy") }),
+      initialRooms: [],
+    });
+    const info = await mgr.spawn(
+      "Resume remedy",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-remedy",
+    );
+
+    await mgr.resume(info!.id, "missing-session");
+    expect(
+      mgr
+        .getAgentLogs(info!.id)
+        .some(
+          (entry) =>
+            entry.kind === "error" && entry.content.includes(remedy),
+        ),
+    ).toBe(true);
+  });
+
+  it("surfaces OpenCode missing auth as text without a terminal card", async () => {
+    const backend = createOpenCodeTracerBackend({ failAuth: true });
+    const mgr = createAgentManager({
+      resolveBackend: () => backend,
+      officeState: new OfficeState({ rooms: rooms("room-opencode-auth") }),
+      initialRooms: [],
+    });
+    mgr.configurePluginHooksDeps();
+    const info = await mgr.spawn(
+      "OpenCode auth tracer",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-opencode-auth",
+      undefined,
+      "opencode/fake",
+      "high",
+      undefined,
+      "opencode",
+    );
+    mgr.enqueueMessage(info!.id, {
+      sender: { kind: "user", username: "tester" },
+      text: "hello",
+    });
+    const deadline = Date.now() + 2000;
+    while (
+      !mgr
+        .getAgentLogs(info!.id)
+        .some((entry) => entry.content.includes("Login instructions")) &&
+      Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    const logs = mgr.getAgentLogs(info!.id);
+    expect(
+      logs.some((entry) =>
+        entry.content.includes("Login instructions are not available"),
+      ),
+    ).toBe(true);
+    expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(false);
+    expect(await mgr.demoteToLazy(info!.id)).toBe(true);
+  });
+
   it("restore/revive install path fills absent Codex permission defaults", async () => {
     const persisted = {
       id: "agent-codex-restore",

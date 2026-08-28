@@ -580,6 +580,34 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(agent?.modelFamily).toBe("gpt-5.5");
   });
 
+  it("spawns a dormant OpenCode tracer through the REST boundary", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        ...spawnBody(srv, "OpenCode tracer", roomId, 0),
+        agentType: "opencode",
+        modelFamily: "opencode/fake",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    const agent = (
+      res.body as {
+        agent: {
+          agentType: string;
+          dormant: boolean;
+        };
+      }
+    ).agent;
+    expect(agent).toMatchObject({
+      agentType: "opencode",
+      dormant: true,
+    });
+  });
+
   it("Codex spawn without permission fields gets the agent defaults", async () => {
     const srv = await startTestServer();
     server = srv;

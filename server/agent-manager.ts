@@ -84,10 +84,6 @@ import {
   validateCwd,
   claudeSessionFileExists,
   claudeSessionInterruptedByShutdown,
-  claudeProjectDir,
-  codexRolloutFileExists,
-  codexRolloutHasHistory,
-  codexSessionsDir,
   moveClaudeSessionFile,
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
@@ -706,7 +702,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // strand an engine switch half-applied" (routes-agents-rest.test.ts).
     // Task a7a60fba.
     if (
-      (changes.agentType === "claude" || changes.agentType === "codex") &&
+      (changes.agentType === "claude" ||
+        changes.agentType === "codex" ||
+        changes.agentType === "opencode") &&
       changes.agentType !== managed.info.agentType
     ) {
       const meta: Parameters<typeof officeState.editAgent>[1] = {};
@@ -1394,20 +1392,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       permissionMode,
       codexSandbox,
     });
-    // Codex auto-resume policy: thread must have on-disk history to resume.
-    // Claude trusts lastSessionId (createSession surfaces a missing-file error).
+    // Silent restore policy: each backend classifies its own stored session;
+    // this caller decides that only durable sessions auto-resume.
     let resumeSessionId: string | null = null;
     if (p.lastSessionId) {
-      if (agentType === "codex") {
-        try {
-          const restoreEnv = buildEnvForUserId(userId);
-          if (codexRolloutHasHistory(p.lastSessionId, restoreEnv)) {
-            resumeSessionId = p.lastSessionId;
-          }
-        } catch {
+      try {
+        const restoreEnv = buildEnvForUserId(userId);
+        if (
+          getBackend(agentType).inspectStoredSession(p.lastSessionId, {
+            cwd: p.cwd,
+            env: restoreEnv,
+          }) === "durable"
+        ) {
           resumeSessionId = p.lastSessionId;
         }
-      } else {
+      } catch {
+        // Preserve the previous indeterminate rule: let the backend attempt
+        // the resume and surface a precise error instead of silently dropping.
         resumeSessionId = p.lastSessionId;
       }
     }
@@ -2400,7 +2401,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Generate a short topic description for an agent's conversation
   async function generateTopic(agentId: string) {
     const managed = agents.get(agentId);
-    if (!managed || managed.topicGenerating) return;
+    if (
+      !managed ||
+      managed.topicGenerating ||
+      !managed.info.capabilities.topicGen
+    )
+      return;
     managed.topicGenerating = true;
     for (const event of officeState.updateAgent(agentId, {
       topic: "...",
@@ -4490,13 +4496,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // the recorded `managed.sessionId` can't safely be resumed and the caller
   // should start fresh instead. Applies the "auto-resume policy":
   //
-  //   - Codex threads that never wrote a durable rollout (no file in
-  //     $CODEX_HOME/sessions, or header-only) are not resumable across process
-  //     restarts. Without this filter, every startup attempt would surface a
-  //     "Codex bootstrap failed: no rollout found" error.
-  //   - Claude is passed through unchanged. createSession's claudeSessionFileExists
-  //     check still throws if the .jsonl is gone - that's the existing behavior
-  //     and only applies on cwd moves, which warrant the explicit error.
+  // The backend owns the storage fact; this caller owns the silent policy. A
+  // missing or empty stored session starts fresh, while an inspection failure
+  // keeps the id so the backend can surface the more precise error.
   //
   // Pure: does NOT mutate managed or logCache. The call site decides when to
   // clear stale UI state (logCache, managed.sessionId) in tandem with the
@@ -4507,9 +4509,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function pickAutoResumeSessionId(managed: ManagedAgent): string | null {
     const candidate = managed.sessionId;
     if (!candidate) return null;
-    if (managed.info.agentType === "codex") {
+    try {
       const env = buildSessionEnv(managed);
-      if (!codexRolloutHasHistory(candidate, env)) return null;
+      if (
+        getBackend(managed.info.agentType).inspectStoredSession(candidate, {
+          cwd: managed.info.cwd,
+          env,
+        }) !== "durable"
+      ) {
+        return null;
+      }
+    } catch {
+      return candidate;
     }
     return candidate;
   }
@@ -4598,36 +4609,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         { cause: err },
       );
     }
-    // Compute env once - both the resume preflight (Claude sessions dir lookup
-    // honors CLAUDE_CONFIG_DIR; Codex sessions dir lookup honors CODEX_HOME)
-    // and the session opts use it.
+    // Compute env once for both the backend-owned resume preflight and the
+    // session options.
     const env = buildSessionEnv(managed);
-    if (
-      resumeSessionId &&
-      managed.info.agentType === "claude" &&
-      !claudeSessionFileExists(managed.info.cwd, resumeSessionId, env)
-    ) {
-      throw new Error(
-        `Cannot resume session ${resumeSessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(managed.info.cwd, env)}. ` +
-          `Most commonly this happens after the agent's cwd was moved or renamed - the Claude CLI stores sessions under a path derived from cwd. ` +
-          `Use /resume to pick a different session, or move the session .jsonl into the new project dir.`,
-      );
-    }
-    if (
-      resumeSessionId &&
-      managed.info.agentType === "codex" &&
-      !codexRolloutFileExists(resumeSessionId, env)
-    ) {
-      // Strict (explicit-resume) paths: only block on missing-file. Header-only
-      // and corrupt rollouts will fail at Codex's thread/resume with a more
-      // specific message ("no rollout found", parse errors, etc.). Letting
-      // Codex surface those preserves precision for the fork/edit/rollback
-      // cases where the on-disk state may legitimately be in transition.
-      throw new Error(
-        `Cannot resume Codex thread ${resumeSessionId.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(env)}. ` +
-          `This usually means the thread was started but never received a user turn before its process exited. ` +
-          `Use /resume to pick another session, or start a new conversation.`,
-      );
+    if (resumeSessionId) {
+      const resumeError = getBackend(
+        managed.info.agentType,
+      ).checkSessionResumable(resumeSessionId, {
+        cwd: managed.info.cwd,
+        env,
+      });
+      if (resumeError) {
+        throw new Error(
+          `${resumeError} Use /resume to pick another session, or start a new conversation.`,
+        );
+      }
     }
     // Phase 3c: a live agent's roomId always resolves to a real room; roomById
     // logs loud and we fail fast (vs silently building a prompt for room 0).

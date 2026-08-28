@@ -1379,11 +1379,18 @@ export function createClaudeBackend(
       );
     },
 
+    inspectStoredSession(): "durable" {
+      // Preserve Claude's existing silent auto-resume policy: a stored id is
+      // trusted and the SDK surfaces any missing-file error when it starts.
+      return "durable";
+    },
+
     checkSessionResumable(sessionId, opts): string | null {
       if (!claudeSessionFileExists(opts.cwd, sessionId, opts.env)) {
         return (
           `Cannot resume session ${sessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(opts.cwd, opts.env)}. ` +
-          `Most commonly this happens after the cwd was moved or renamed - the Claude CLI stores sessions under a path derived from cwd.`
+          `Most commonly this happens after the cwd was moved or renamed - the Claude CLI stores sessions under a path derived from cwd. ` +
+          `Move the session .jsonl into the new project directory to recover it.`
         );
       }
       return null;

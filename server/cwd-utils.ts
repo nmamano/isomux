@@ -193,31 +193,27 @@ export function codexRolloutFileExists(
   return findCodexRolloutPath(threadId, env) !== null;
 }
 
-// Returns true if a durable, resumable Codex rollout exists for `threadId`.
-//
 // "Durable" means the rollout file is present under `${CODEX_HOME}/sessions/`
 // AND contains at least one non-session_meta line. A file that contains only
 // the session_meta header is not resumable by Codex's app-server
-// (stored_thread_to_initial_history requires actual history items), so we
-// treat header-only the same as missing.
+// (stored_thread_to_initial_history requires actual history items), so it maps
+// to `empty` rather than `missing`.
 //
 // Errors during the filesystem walk or line scan are treated as
 // "indeterminate, assume durable" - same rationale as the dir cap above.
 //
-// Used by the auto-resume policy. Explicit-resume paths use the lighter
-// `codexRolloutFileExists` because Codex's own error wording is more
-// informative for the header-only/corrupt edge cases.
-export function codexRolloutHasHistory(
+// Backend-facing storage fact used by both silent auto-resume and strict
+// resume preflights. The empty-string sentinel means the directory scan hit
+// its cap, so preserve the existing "assume durable" rule here instead of
+// making callers invent a fourth policy state.
+export function inspectCodexStoredSession(
   threadId: string,
   env?: { [key: string]: string | undefined },
-): boolean {
+): "missing" | "empty" | "durable" {
   const path = findCodexRolloutPath(threadId, env);
-  if (path === null) return false;
-  // findCodexRolloutPath uses the same dir cap and treats hits-at-cap as
-  // "indeterminate, assume durable" (returns a sentinel). Distinguish that
-  // here by returning true without the line scan.
-  if (path === "") return true;
-  return rolloutFileHasNonMetaLine(path);
+  if (path === null) return "missing";
+  if (path === "") return "durable";
+  return rolloutFileHasNonMetaLine(path) ? "durable" : "empty";
 }
 
 // Returns the path to the rollout file for `threadId`, or null if not found.

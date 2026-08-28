@@ -14,6 +14,7 @@ import {
   DEFAULT_EFFORT,
   EFFORT_LEVELS,
   MODEL_FAMILIES,
+  OPENCODE_TRACER_MODEL,
   claudeFamilySupportsMaxEffort,
   isClaudeFamily,
   type AgentBackendType,
@@ -35,6 +36,7 @@ export function validatePermissionMode(
       return raw;
     return "never";
   }
+  if (agentType === "opencode") return "default";
   if (
     raw === "default" ||
     raw === "acceptEdits" ||
@@ -58,6 +60,10 @@ export function validateModelFamily(
     // hint already points the user back at settings).
     if (raw && typeof raw === "string" && raw.length > 0) return raw;
     return CODEX_MODELS[0].value;
+  }
+  if (agentType === "opencode") {
+    if (raw && typeof raw === "string" && raw.length > 0) return raw;
+    return OPENCODE_TRACER_MODEL;
   }
   if (raw && isClaudeFamily(raw)) return raw;
   return MODEL_FAMILIES[0].family;
@@ -90,6 +96,12 @@ export function modelFamilyMismatchError(
   if (agentType === "codex") {
     if (isClaudeFamily(raw)) {
       return `"${raw}" is a Claude model family, not a Codex model. Pass a Codex model slug (e.g. "${CODEX_MODELS[0].value}"), or set agentType to "claude".`;
+    }
+    return null;
+  }
+  if (agentType === "opencode") {
+    if (!raw.includes("/")) {
+      return `"${raw}" is not an OpenCode provider/model ID (expected provider/model).`;
     }
     return null;
   }
@@ -146,6 +158,7 @@ export function validateEffort(
     if (raw && typeof raw === "string" && raw.length > 0) return raw;
     return DEFAULT_EFFORT;
   }
+  if (agentType === "opencode") return DEFAULT_EFFORT;
   if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw))
     return DEFAULT_EFFORT;
   // Claude family-level rules: "minimal" and "ultra" are Codex-only; "max"

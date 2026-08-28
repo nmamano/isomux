@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  modelFamilyMismatchError,
   resolveAgentEngineSettings,
   validateCodexSandbox,
 } from "./agent-validators.ts";
@@ -25,6 +26,12 @@ describe("resolveAgentEngineSettings", () => {
       permissionMode: "auto",
       codexSandbox: undefined,
     });
+    expect(resolveAgentEngineSettings("opencode", {})).toMatchObject({
+      modelFamily: "opencode/fake",
+      effort: "high",
+      permissionMode: "default",
+      codexSandbox: undefined,
+    });
   });
 
   it("preserves an explicit valid Codex choice and fills only absent values", () => {
@@ -41,5 +48,14 @@ describe("resolveAgentEngineSettings", () => {
   it("is idempotent", () => {
     const once = resolveAgentEngineSettings("codex", {});
     expect(resolveAgentEngineSettings("codex", once)).toEqual(once);
+  });
+});
+
+describe("OpenCode model validation", () => {
+  it("accepts composite provider/model IDs and rejects other families", () => {
+    expect(modelFamilyMismatchError("opencode", "provider/model")).toBeNull();
+    expect(modelFamilyMismatchError("opencode", "opus")).toContain(
+      "provider/model",
+    );
   });
 });

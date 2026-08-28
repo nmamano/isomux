@@ -2828,7 +2828,9 @@ function buildExecutorDeps(
             };
           }
           const targetType =
-            changes.agentType === "claude" || changes.agentType === "codex"
+            changes.agentType === "claude" ||
+            changes.agentType === "codex" ||
+            changes.agentType === "opencode"
               ? changes.agentType
               : current.agentType;
           const familyErr = modelFamilyMismatchError(

@@ -511,7 +511,9 @@ export function conversationHandlers(
       // Narrow to the known engines; ignore anything else so a stale/hand-crafted
       // client can't push an unknown agentType into the switch.
       const agentType =
-        b.agentType === "claude" || b.agentType === "codex"
+        b.agentType === "claude" ||
+        b.agentType === "codex" ||
+        b.agentType === "opencode"
           ? b.agentType
           : undefined;
       deps.newConversation(ctx.params.id, agentType);

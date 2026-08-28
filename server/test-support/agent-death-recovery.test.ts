@@ -77,6 +77,8 @@ function stubClaudeSession(srv: TestServer, cwd: string, sessionId: string) {
   );
   mkdirSync(projectDir, { recursive: true });
   writeFileSync(join(projectDir, `${sessionId}.jsonl`), "");
+  srv.fakeBackend.setStoredSessionState(sessionId, "durable");
+  srv.fakeBackend.setSessionResumableError(sessionId, null);
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -534,6 +536,10 @@ describe("dead-backend recovery delivers the queue (5dcb0a02)", () => {
     const sessionId = (
       await sessionIdsOf(server, owner.rawSessionId, target.id)
     )[0];
+    server.fakeBackend.setSessionResumableError(
+      sessionId,
+      "The stored fake session is missing.",
+    );
     server.fakeBackend.sessionForAgent(target.id)!.endStream();
     await waitUntil(() => agentOf(server!, target.id).state === "error");
     expect(agentOf(server, target.id).queue).toHaveLength(1);
@@ -696,6 +702,13 @@ describe("inbound messages auto-resume an errored agent (64b36bee)", () => {
     const target = await spawnAgent(server, "FailedRecovery", roomId);
     const sender = await spawnAgent(server, "Sender", roomId);
     await killBackendMidTurn(server, owner.rawSessionId, target.id);
+    const sessionId = (
+      await sessionIdsOf(server, owner.rawSessionId, target.id)
+    )[0];
+    server.fakeBackend.setSessionResumableError(
+      sessionId,
+      "The stored fake session is missing.",
+    );
 
     const sent = await postAgentMessage(
       server,
@@ -1025,6 +1038,15 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     // the pendingTurn path.
     server.fakeBackend.sessionForAgent(a.id)!.approveError = new Error(
       "backend refused the decision",
+    );
+    const sessionId = (await sessionIdsOf(
+      server,
+      owner.rawSessionId,
+      a.id,
+    ))[0];
+    server.fakeBackend.setSessionResumableError(
+      sessionId,
+      "The stored fake session is missing.",
     );
 
     const res = await server.http(`/api/agents/${a.id}/abort`, {

@@ -38,7 +38,11 @@ import { markdownInlineCode } from "../../../shared/format-human.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import type { SubagentOrigin } from "../../../shared/types.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
-import { codexRolloutFileExists, codexSessionsDir } from "../../cwd-utils.ts";
+import {
+  codexRolloutFileExists,
+  codexSessionsDir,
+  inspectCodexStoredSession,
+} from "../../cwd-utils.ts";
 
 import type {
   ApprovalDecision,
@@ -2592,6 +2596,10 @@ export const codexBackend: Backend = {
       env: opts.env,
       resumeThreadId: sessionId,
     });
+  },
+
+  inspectStoredSession(sessionId, opts) {
+    return inspectCodexStoredSession(sessionId, opts.env);
   },
 
   checkSessionResumable(sessionId, opts): string | null {

@@ -65,6 +65,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // test can hold an agent busy and release it explicitly via completeTurn().
 function parkingBackend(): FakeBackend {
   return new FakeBackend({
+    storedSessionState: "missing",
     session: {
       onSend: (_t, _a, s) => s.push({ kind: "assistant_text", text: "..." }),
     },

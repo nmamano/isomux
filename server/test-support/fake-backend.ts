@@ -32,6 +32,7 @@ import type {
   OneShotOptions,
   ForkSessionBeforeMessageResult,
   SubscriptionUsageResult,
+  StoredSessionState,
   TokenUsage,
 } from "../backends/types.ts";
 import { DEFAULT_AGENT_CAPABILITIES } from "../../shared/types.ts";
@@ -277,6 +278,10 @@ export interface FakeBackendConfig {
   oneShot?: string | ((prompt: string, opts: OneShotOptions) => string);
   forkResult?: ForkSessionBeforeMessageResult;
   sessionMessages?: NormalizedMessage[];
+  storedSessionState?:
+    | StoredSessionState
+    | ((sessionId: string) => StoredSessionState);
+  sessionResumableError?: string | ((sessionId: string) => string | null);
   // Per-session defaults applied to every created/resumed FakeSession.
   session?: FakeSessionConfig;
 }
@@ -295,6 +300,14 @@ export class FakeBackend implements Backend {
   forkCount = 0;
 
   private readonly cfg: FakeBackendConfig;
+  private readonly storedSessionOverrides = new Map<
+    string,
+    StoredSessionState
+  >();
+  private readonly sessionResumableErrorOverrides = new Map<
+    string,
+    string | null
+  >();
   private sessionCounter = 0;
 
   constructor(cfg: FakeBackendConfig = {}) {
@@ -314,6 +327,17 @@ export class FakeBackend implements Backend {
       if (this.sessions[i].opts.agentId === agentId) return this.sessions[i];
     }
     return undefined;
+  }
+
+  setStoredSessionState(
+    sessionId: string,
+    state: StoredSessionState,
+  ): void {
+    this.storedSessionOverrides.set(sessionId, state);
+  }
+
+  setSessionResumableError(sessionId: string, error: string | null): void {
+    this.sessionResumableErrorOverrides.set(sessionId, error);
   }
 
   // --- Backend contract ---
@@ -351,13 +375,30 @@ export class FakeBackend implements Backend {
   }
 
   checkSessionResumable(
-    _sessionId: string,
+    sessionId: string,
     _opts: {
       cwd: string;
       env?: { [key: string]: string | undefined };
     },
   ): string | null {
-    return null;
+    if (this.sessionResumableErrorOverrides.has(sessionId)) {
+      return this.sessionResumableErrorOverrides.get(sessionId) ?? null;
+    }
+    const error = this.cfg.sessionResumableError;
+    return typeof error === "function" ? error(sessionId) : (error ?? null);
+  }
+
+  inspectStoredSession(
+    sessionId: string,
+    _opts?: {
+      cwd: string;
+      env?: { [key: string]: string | undefined };
+    },
+  ): StoredSessionState {
+    const override = this.storedSessionOverrides.get(sessionId);
+    if (override) return override;
+    const state = this.cfg.storedSessionState ?? "durable";
+    return typeof state === "function" ? state(sessionId) : state;
   }
 
   async forkSessionBeforeMessage(

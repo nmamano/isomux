@@ -402,6 +402,11 @@ export interface ListModelsOptions {
   includeHidden?: boolean;
 }
 
+// Backend-owned fact about a stored conversation. Callers decide whether a
+// missing or empty conversation should start fresh or fail loudly; backends
+// own the storage rules needed to classify it.
+export type StoredSessionState = "missing" | "empty" | "durable";
+
 // Per-model effort option as reported by the backend. Codex's
 // ReasoningEffortOption maps directly; backends that don't expose
 // per-model efforts can return an empty array.
@@ -451,6 +456,13 @@ export interface Backend {
 
   createSession(opts: CreateSessionOptions): BackendSession;
   resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession;
+  inspectStoredSession(
+    sessionId: string,
+    opts: {
+      cwd: string;
+      env?: { [key: string]: string | undefined };
+    },
+  ): StoredSessionState;
   checkSessionResumable(
     sessionId: string,
     opts: {

@@ -40,8 +40,9 @@ describe("FakeBackend - Backend contract", () => {
   it("is assignable to a Backend resolver", () => {
     const fake = new FakeBackend();
     // Type-level: the managers' resolveBackend dep is (agentType) => Backend.
-    const resolveBackend: (agentType: "claude" | "codex") => Backend = () =>
-      fake;
+    const resolveBackend: (
+      agentType: "claude" | "codex" | "opencode",
+    ) => Backend = () => fake;
     expect(resolveBackend("claude")).toBe(fake);
   });
 
@@ -115,6 +116,18 @@ describe("FakeBackend - Backend contract", () => {
     expect(fake.lastSession?.opts.agentId).toBe("a2");
     expect(fake.sessionForAgent("a1")?.opts.agentId).toBe("a1");
     expect(fake.sessionForAgent("nope")).toBeUndefined();
+  });
+
+  it("reports the configured backend-owned stored-session fact", () => {
+    const fake = new FakeBackend({
+      storedSessionState: (id) => (id === "ready" ? "durable" : "empty"),
+    });
+    expect(fake.inspectStoredSession("ready", { cwd: "/tmp" })).toBe(
+      "durable",
+    );
+    expect(fake.inspectStoredSession("header", { cwd: "/tmp" })).toBe(
+      "empty",
+    );
   });
 });
 

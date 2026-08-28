@@ -229,34 +229,96 @@ review the gate, 2-3 days to replace the transport and fixtures, and 1-2 days
 for regression and live certification. A failed V2 gate pauses migration; it
 does not invalidate the OC1 product work.
 
-## Provisional implementation slices
+## Approved tracer slices
 
-This is the original layer-oriented cut. It is not yet approved as the slice
-loop because its early items are not end-to-end demoable. Phase 1 must recut it
-into small user-visible tracer slices and define the exact gates before Phase 2
-or implementation starts.
+Each slice keeps one complete user path working. The branch stays in its
+worktree until the backend works; partial slices do not merge to main or reach
+the running office.
 
-1. **Contract proof and supervisor, 3-5 days.** Pin CLI 1.18.23, add the
-   version-scoped fixture client and shared-server lifecycle, enforce every launch
-   control, and resolve fork capability first.
-2. **Adapter and normalization, 4-6 days.** Implement sessions, event mapping,
-   default-deny error redaction, tool identity, completion, abort, permissions,
-   compaction, and fixture tests.
-3. **Persistence and orchestration, 3-4 days.** Add the backend discriminator,
-   immutable profile ownership, resume, capability-gated fork/edit, migrations,
-   and update-state placement.
-4. **UI and HTTP contracts, 2-3 days.** Add OpenCode and make model, effort,
-   sandbox, and permission controls follow backend capabilities.
-5. **Cron, authentication, and models, 3-4 days.** Integrate with the cron seam,
-   standing unattended rules, safe interaction failure, profile-scoped login,
-   model discovery, and typed auth failures.
-6. **Hardening and release, 4-6 days.** Test crashes, idle shutdown, profile and
-   environment/profile routing, real-load memory, certified models, update/rollback,
-   and every documentation surface listed in `documentation.md`.
+1. **S1a - first reply through a deterministic transport.** Add the OpenCode
+   discriminator, spawn choice, dormant agent, minimal adapter events,
+   persistence, and one reply in normal chat. Move automatic stored-session
+   inspection behind the backend contract, closing task `00cae917`. Missing
+   authentication is plain text with no runnable command. Fork, edit, tools,
+   one-shot prompts, and topic generation stay capability-disabled.
+2. **S1b - the same reply through pinned OC1.** Replace only the deterministic
+   transport with CLI 1.18.23, the shared supervisor, serialized startup,
+   profile under `STATE_ROOT`, all launch controls, loopback authentication,
+   raw-ingress redaction, and the ten-minute idle shutdown. The timeout is a
+   named constant with a test-only injected duration.
+3. **S2 - authentication recovery.** Prove missing login -> exact
+   profile-scoped terminal card -> manual API-key login -> `/clear` -> a
+   successful reply. Browser OAuth remains uncertified until tested.
+4. **S3 - controlled work.** Add streaming text and reasoning, shell and edit
+   tools, allow-once and deny replies, failed-tool recovery, abort, and exact
+   completion ordering.
+5. **S4 - durable conversations.** Prove process loss, isolated Isomux
+   restart/resume, simultaneous repositories without crossover, and server
+   replacement after environment/profile change. Prove fork at the selected
+   message plus child history and first child turn, or keep fork and edit off.
+6. **S5 - model and UI completion.** Add provider/model discovery, at most
+   three first-release certified models, capability-shaped controls, and every
+   killed/resumed-agent surface.
+7. **S6 - unattended run.** Run an OpenCode cronjob with standing allow rules.
+   An unexpected permission or question fails visibly instead of parking.
+8. **S7 - release hardening.** Measure real-stream memory, prove update and
+   rollback with the pinned binary/profile, scan for secrets, run final
+   regression, and update every surface in `documentation.md`.
+
+## Slice gates and rails
+
+Every slice runs focused tests, its deterministic end-to-end path, ESLint on
+touched files, and `build:ui` when UI changes. A slice that changes a backend
+union or switch also runs `tsc --noEmit`. S1b and later compare HTTP and SSE
+shape from the real pinned binary against the recorded contract through the
+local deterministic provider. S1b also has a repository scan that refuses any
+binary launch outside the supervisor spawn builder.
+
+Every process started from this worktree sets `ISOMUX_HOME` to a scratch path
+under `/tmp` before importing a server module. Tests and demos record that path
+and prove the live `~/.isomux/agents.json` did not change. Live provider checks
+use scratch repositories only. Restart tests use a separate process, port, and
+state root; they never restart the live office or repoint `~/isomux-active`.
+
+OpenCode-spawning tests run in a memory-limited user scope and reap every child.
+The limit is named per test: two competing startup attempts fit under 2 GiB;
+larger concurrency probes use 4 GiB or another measured bound rather than
+turning a cgroup kill into a false startup-lock failure.
+
+Live scripts refuse to run without `ISOMUX_TEST_LIVE=1`. The stated budget is
+$2 or 200,000 billed input-plus-output tokens for an ordinary slice, and $2 per
+model for at most three certification models. The script enforces the token
+limit; the dollar figure is intent because providers do not report billed cost
+during the run. When no credential exists, a slice can commit in the worktree
+after cheap gates, but its acceptance says the real-provider tracer is
+unproved and parks the exact live command for Nil.
+
+Stop immediately for a launch-control bypass, provider data reaching logs or
+the browser, competing processes for one profile, cross-session event/file
+mixing, or real-binary contract drift. Re-cut a slice after two failed focused
+repairs of one invariant, one focused day without its tracer, or three focused
+days in that slice. There is no separate whole-project deadline.
 
 Expected OC1 implementation: 4-6 engineer-weeks. Fork failure reduces the
-shipped capability; contract drift or a security-boundary failure stops and
-re-cuts the affected slice.
+shipped capability; a failed security or isolation rail blocks release.
+
+S1a intentionally treats an environment-file read failure during silent
+automatic recovery as indeterminate and lets strict resume rebuild the
+environment and surface the backend's more precise error. The Codex directory
+scan-cap sentinel follows the same assume-durable rule; that impractical cap
+branch is knowingly not covered by a focused test.
+
+Residual two-backend assumptions recorded 2026-08-28:
+
+- S3 owns permission-copy wording at `agent-manager.ts:3481` and the busy-turn
+  watchdog at `agent-manager.ts:4241`.
+- S4 owns cwd-change classification at `agent-manager.ts:827`.
+- S5 owns slide model selection at `agent-manager.ts:2449`, welcome-agent
+  naming at `isomux-office.ts:480-484`, LogView engine display at
+  `ui/log-view/LogView.tsx:1914`, and template handling at
+  `ui/agent-templates.ts:384,415`.
+- S6 owns cron permission defaults and UI at `agent-validators.ts:185`,
+  `cronjob-manager.ts:352,430`, and `ui/components/CronjobDialog.tsx`.
 
 ## Open questions
 
@@ -268,5 +330,3 @@ re-cuts the affected slice.
 - Which small provider/model set is certified first?
 - Which provider login methods, beyond a manual API key, are certified in the
   first release?
-- What are the exact always-run and paid live gates for each tracer slice?
-- What wall-clock and repeated-failure conditions stop the implementation loop?

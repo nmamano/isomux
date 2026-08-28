@@ -18,9 +18,16 @@ export const ENGINE_OPTIONS: Array<{
     blurb: "Works with your ChatGPT login.",
     accent: "rgba(120,220,160,0.85)",
   },
+  {
+    agentType: "opencode",
+    label: "OpenCode",
+    blurb: "Works with models configured through OpenCode.",
+    accent: "rgba(245,180,80,0.85)",
+  },
 ];
 
 export const ENGINE_ACCENT: Record<AgentBackendType, string> = {
   claude: "rgba(100,160,255,0.85)",
   codex: "rgba(120,220,160,0.85)",
+  opencode: "rgba(245,180,80,0.85)",
 };

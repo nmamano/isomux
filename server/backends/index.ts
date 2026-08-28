@@ -8,6 +8,7 @@ import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "./types.ts";
 import { claudeBackend } from "./claude.ts";
 import { codexBackend } from "./codex/adapter.ts";
+import { opencodeBackend } from "./opencode/adapter.ts";
 
 export function getBackend(agentType: AgentBackendType): Backend {
   switch (agentType) {
@@ -15,6 +16,8 @@ export function getBackend(agentType: AgentBackendType): Backend {
       return claudeBackend;
     case "codex":
       return codexBackend;
+    case "opencode":
+      return opencodeBackend;
     default: {
       const _exhaustive: never = agentType;
       throw new Error(`Unknown agentType: ${JSON.stringify(_exhaustive)}`);

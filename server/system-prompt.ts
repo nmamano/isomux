@@ -52,7 +52,7 @@ export function buildSystemPrompt(
   ownerMemberPrompt?: string | null,
   privileged: boolean = false,
   autoLoadedMemory?: string | null,
-  agentType?: "claude" | "codex" | null,
+  agentType?: "claude" | "codex" | "opencode" | null,
   // The manager boss's language preference (task e80c39c4). null/absent, or
   // English, adds nothing - agents already answer in English, so the clause
   // only exists to ask for something else.
@@ -69,7 +69,7 @@ export function buildSystemPrompt(
       ? ""
       : `\nThe office UI for humans is at ${publicOrigin.origin} - use that origin for links you give bosses to open in a browser. Your own API calls below stay on localhost:${PORT}.\n`;
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
-Isomux is a meta-harness: it runs Claude Code and Codex side by side and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
+Isomux is a meta-harness: it runs Claude Code, Codex, and OpenCode agents and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
 Your goal is to help the office bosses, who talk to you in this chat.
 Messages are prefixed with the boss's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
 ${humanUrlNote}${hostedNote}
