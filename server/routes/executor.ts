@@ -49,7 +49,7 @@ export type HandlerResult =
   | { kind: "json"; status?: number; body: unknown }
   | {
       kind: "bytes";
-      body: Uint8Array;
+      body: Uint8Array<ArrayBuffer>;
       contentType: string;
       headers?: Record<string, string>;
     }
@@ -85,7 +85,7 @@ export const created = (body: unknown): HandlerResult => ({
 });
 export const noContent = (): HandlerResult => ({ kind: "noContent" });
 export const bytes = (
-  body: Uint8Array,
+  body: Uint8Array<ArrayBuffer>,
   contentType: string,
   headers?: Record<string, string>,
 ): HandlerResult => ({ kind: "bytes", body, contentType, headers });

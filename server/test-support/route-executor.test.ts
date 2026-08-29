@@ -8,6 +8,7 @@ import {
   ok,
   created,
   noContent,
+  bytes,
   fail,
   type ExecutorDeps,
   type RouteHandler,
@@ -221,6 +222,30 @@ describe("executor: result rendering", () => {
     expect(await res.json()).toEqual({
       error: { code: "not_found", message: "no such task" },
     });
+  });
+
+  it("renders byte results without changing the PNG body", async () => {
+    const png = Uint8Array.from([0x89, 0x50, 0x4e, 0x47]);
+    const r = route(
+      "app.preview",
+      "POST",
+      "/api/apps/x/preview",
+      capAuth("app:read"),
+    );
+    const deps = makeDeps({
+      "app.preview": () =>
+        bytes(png, "image/png", { "Cache-Control": "no-store" }),
+    });
+    const res = await executeRoute(
+      match(r),
+      req("POST", "/api/apps/x/preview"),
+      userIdentity("member"),
+      deps,
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(png);
   });
 
   it("unparseable JSON body -> 400 before authorization", async () => {

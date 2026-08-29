@@ -55,7 +55,7 @@ export interface PreviewFailure {
 
 export interface PreviewSuccess {
   ok: true;
-  png: Buffer;
+  png: Buffer<ArrayBuffer>;
   /** Sanitized provenance for the chat card: origin + pathname, query stripped. */
   caption: string;
   /** Generated attachment name - host/port/path only, never the query string. */
@@ -564,8 +564,11 @@ export async function capturePreview(
     }
 
     // outcome.kind === "captured": a complete PNG is on disk.
-    let png: Buffer;
+    let png: Buffer<ArrayBuffer>;
     try {
+      // fs.readFile allocates a process-owned ArrayBuffer, never a
+      // SharedArrayBuffer. Keep that true backing type through the preview
+      // result instead of widening it to Buffer<ArrayBufferLike>.
       png = await readFile(outPath);
     } catch (err) {
       return fail(

@@ -4,8 +4,10 @@ import { capturePreview, type PreviewFailure } from "./preview-capture.ts";
 export const APP_PREVIEW_CACHE_TTL_MS = 5 * 60 * 1000;
 export const APP_PREVIEW_VIEWPORT = { width: 800, height: 500 } as const;
 
-type CachedPreview = { png: Buffer; expiresAt: number };
-export type AppPreviewResult = { ok: true; png: Buffer } | PreviewFailure;
+type CachedPreview = { png: Buffer<ArrayBuffer>; expiresAt: number };
+export type AppPreviewResult =
+  | { ok: true; png: Buffer<ArrayBuffer> }
+  | PreviewFailure;
 
 export function createAppPreviewCapture(
   capture: typeof capturePreview = capturePreview,
