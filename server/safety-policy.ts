@@ -36,7 +36,9 @@ export type ProposedAction =
   | { kind: "shell"; command: unknown }
   | { kind: "read-files"; toolName: string; input: unknown }
   | { kind: "write-files"; toolName: string; input: unknown }
-  | { kind: "read-and-write-files"; toolName: string; input: unknown };
+  | { kind: "read-and-write-files"; toolName: string; input: unknown }
+  | { kind: "patch-files"; toolName: string; patch: unknown }
+  | { kind: "uncovered-tool"; toolName: string; input: unknown };
 
 const ALLOW: PolicyDecision = Object.freeze({ decision: "allow" });
 
@@ -1733,6 +1735,57 @@ function denyUnverifiablePath(toolName: string, rule: string): PolicyDecision {
   );
 }
 
+/**
+ * Paths named by Codex's apply_patch envelope.
+ *
+ * Patch content is data, not shell text. Only control headers at the start of
+ * a line name files. A move touches both its Update source and destination.
+ * Null means the envelope does not identify a complete, supported path set;
+ * the caller denies that as unverifiable rather than treating it as a runtime
+ * checker fault.
+ */
+export function extractApplyPatchPaths(patch: unknown): string[] | null {
+  if (typeof patch !== "string") return null;
+  const lines = patch.split("\n");
+  if (lines[0] !== "*** Begin Patch") return null;
+  if (lines.at(-1) !== "*** End Patch") return null;
+  const paths: string[] = [];
+  let section: "add" | "delete" | "update" | null = null;
+  let movedCurrentUpdate = false;
+  for (const line of lines.slice(1, -1)) {
+    const header = line.match(/^\*\*\* (Add|Delete|Update) File: (.+)$/);
+    if (header) {
+      const path = header[2].trim();
+      if (!path || path.includes("\0")) return null;
+      const operation = header[1];
+      if (operation === "Add") section = "add";
+      else if (operation === "Delete") section = "delete";
+      else if (operation === "Update") section = "update";
+      else return null;
+      movedCurrentUpdate = false;
+      paths.push(path);
+      continue;
+    }
+    const move = line.match(/^\*\*\* Move to: (.+)$/);
+    if (move) {
+      const path = move[1].trim();
+      if (
+        section !== "update" ||
+        movedCurrentUpdate ||
+        !path ||
+        path.includes("\0")
+      ) {
+        return null;
+      }
+      movedCurrentUpdate = true;
+      paths.push(path);
+      continue;
+    }
+    if (line.startsWith("*** ") && line !== "*** End of File") return null;
+  }
+  return paths.length > 0 ? paths : null;
+}
+
 // ---------------------------------------------------------------------------
 // Hook callbacks
 // ---------------------------------------------------------------------------
@@ -1801,14 +1854,10 @@ function checkBashSafety(commandValue: unknown): PolicyDecision {
   return allow();
 }
 
-function checkWriteEditSafety(
+function checkWritePaths(
   toolName: string,
-  toolInput: unknown,
+  filePaths: string[],
 ): PolicyDecision {
-  const filePaths = collectToolPaths(toolName, toolInput);
-  if (filePaths === null)
-    return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-
   for (const filePath of filePaths) {
     const resolved = resolvePath(filePath);
     if (resolved === ISOMUX_DIR || resolved.startsWith(ISOMUX_DIR + "/")) {
@@ -1823,6 +1872,23 @@ function checkWriteEditSafety(
   }
 
   return allow();
+}
+
+function checkWriteEditSafety(
+  toolName: string,
+  toolInput: unknown,
+): PolicyDecision {
+  const filePaths = collectToolPaths(toolName, toolInput);
+  if (filePaths === null)
+    return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
+  return checkWritePaths(toolName, filePaths);
+}
+
+function checkPatchSafety(toolName: string, patch: unknown): PolicyDecision {
+  const filePaths = extractApplyPatchPaths(patch);
+  if (filePaths === null)
+    return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
+  return checkWritePaths(toolName, filePaths);
 }
 
 function checkSensitiveFileRead(
@@ -1862,5 +1928,9 @@ export function evaluateProposedAction(action: ProposedAction): PolicyDecision {
         ? writeDecision
         : checkSensitiveFileRead(action.toolName, action.input);
     }
+    case "patch-files":
+      return checkPatchSafety(action.toolName, action.patch);
+    case "uncovered-tool":
+      return allow();
   }
 }

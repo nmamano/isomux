@@ -12,8 +12,11 @@ import {
 } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { extractApplyPatchPaths } from "../../safety-policy.ts";
 import { JsonRpcLiteClient, PASS } from "./client.ts";
 import { copyScratchAuth } from "./hook-probe-fixture.ts";
+
+export { extractApplyPatchPaths };
 
 type Json = Record<string, unknown>;
 type HookEvent = "PreToolUse" | "PermissionRequest";
@@ -37,45 +40,6 @@ interface ContractCase {
   approvalPolicy?: "never" | "on-request" | "untrusted";
   sandbox?: "danger-full-access" | "read-only";
   bashCommand?: (marker: string) => string;
-}
-
-/** Candidate Slice-3 extractor, measured here before production policy uses it. */
-export function extractApplyPatchPaths(patch: unknown): string[] | null {
-  if (typeof patch !== "string") return null;
-  const lines = patch.split("\n");
-  if (lines[0] !== "*** Begin Patch") return null;
-  if (lines.at(-1) !== "*** End Patch") return null;
-  const paths: string[] = [];
-  let section: "add" | "delete" | "update" | null = null;
-  let movedCurrentUpdate = false;
-  for (const line of lines.slice(1, -1)) {
-    const header = line.match(/^\*\*\* (Add|Delete|Update) File: (.+)$/);
-    if (header) {
-      const path = header[2].trim();
-      if (!path || path.includes("\0")) return null;
-      section = header[1].toLowerCase() as typeof section;
-      movedCurrentUpdate = false;
-      paths.push(path);
-      continue;
-    }
-    const move = line.match(/^\*\*\* Move to: (.+)$/);
-    if (move) {
-      const path = move[1].trim();
-      if (
-        section !== "update" ||
-        movedCurrentUpdate ||
-        !path ||
-        path.includes("\0")
-      ) {
-        return null;
-      }
-      movedCurrentUpdate = true;
-      paths.push(path);
-      continue;
-    }
-    if (line.startsWith("*** ") && line !== "*** End of File") return null;
-  }
-  return paths.length > 0 ? paths : null;
 }
 
 const authHome = process.env.ISOMUX_TEST_CODEX_AUTH_HOME;

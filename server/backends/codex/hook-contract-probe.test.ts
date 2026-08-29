@@ -62,6 +62,10 @@ describe("Codex apply_patch path extraction candidate", () => {
       "*** Begin Patch\n*** Move to: b.ts\n*** End Patch",
     ],
     ["unknown header", "*** Begin Patch\n*** Copy File: a.ts\n*** End Patch"],
+    [
+      "wrong-case header",
+      "*** Begin Patch\n*** update File: a.ts\n*** End Patch",
+    ],
   ] as const) {
     it(`returns null for ${name}`, () => {
       expect(extractApplyPatchPaths(patch)).toBeNull();

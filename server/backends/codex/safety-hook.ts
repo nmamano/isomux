@@ -1,0 +1,109 @@
+/** Standalone Codex PreToolUse adapter for the isomux safety policy. */
+
+import {
+  evaluateProposedAction,
+  type PolicyDecision,
+  type ProposedAction,
+} from "../../safety-policy.ts";
+
+declare const ISOMUX_SAFETY_HOOK_SOURCE_SHA256: string | undefined;
+
+export const SAFETY_WARNING =
+  "ISOMUX SAFETY WARNING: Safety checks failed for this tool call. " +
+  "Isomux allowed it without guard enforcement. Tell the office owner and " +
+  "check the isomux service logs.";
+
+export const EMBEDDED_SOURCE_SHA256 =
+  typeof ISOMUX_SAFETY_HOOK_SOURCE_SHA256 === "string"
+    ? ISOMUX_SAFETY_HOOK_SOURCE_SHA256
+    : "development-uncompiled";
+
+interface CodexHookEnvelope {
+  hook_event_name: "PreToolUse";
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+}
+
+export type CodexHookOutput =
+  | Record<string, never>
+  | { systemMessage: string }
+  | {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse";
+        permissionDecision: "deny";
+        permissionDecisionReason: string;
+      };
+    };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseEnvelope(value: unknown): CodexHookEnvelope {
+  if (!isRecord(value)) throw new Error("hook input must be a JSON object");
+  if (value.hook_event_name !== "PreToolUse") {
+    throw new Error("hook event must be PreToolUse");
+  }
+  if (typeof value.tool_name !== "string" || !value.tool_name) {
+    throw new Error("hook tool_name must be a non-empty string");
+  }
+  if (!isRecord(value.tool_input)) {
+    throw new Error("hook tool_input must be a JSON object");
+  }
+  return value as unknown as CodexHookEnvelope;
+}
+
+export function codexEnvelopeToAction(value: unknown): ProposedAction {
+  const input = parseEnvelope(value);
+  if (input.tool_name === "Bash") {
+    return { kind: "shell", command: input.tool_input.command };
+  }
+  if (input.tool_name === "apply_patch") {
+    return {
+      kind: "patch-files",
+      toolName: input.tool_name,
+      patch: input.tool_input.command,
+    };
+  }
+  return {
+    kind: "uncovered-tool",
+    toolName: input.tool_name,
+    input: input.tool_input,
+  };
+}
+
+export function policyDecisionToCodexOutput(
+  decision: PolicyDecision,
+): CodexHookOutput {
+  if (decision.decision === "allow") return {};
+  return {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "deny",
+      permissionDecisionReason: decision.reason,
+    },
+  };
+}
+
+export function evaluateCodexHookEnvelope(value: unknown): CodexHookOutput {
+  return policyDecisionToCodexOutput(
+    evaluateProposedAction(codexEnvelopeToAction(value)),
+  );
+}
+
+export function handleCodexHookInput(input: string): CodexHookOutput {
+  try {
+    return evaluateCodexHookEnvelope(JSON.parse(input));
+  } catch {
+    return { systemMessage: SAFETY_WARNING };
+  }
+}
+
+if (import.meta.main) {
+  if (process.argv[2] === "--source-hash") {
+    process.stdout.write(`${EMBEDDED_SOURCE_SHA256}\n`);
+  } else {
+    const input = await Bun.stdin.text();
+    process.stdout.write(`${JSON.stringify(handleCodexHookInput(input))}\n`);
+  }
+}
