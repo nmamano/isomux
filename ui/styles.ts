@@ -47,7 +47,9 @@ ${emitThemesCss()}
 
   body { background: var(--bg-base); overflow:hidden; font-family: 'DM Sans', sans-serif; }
   html, body { max-width: 100vw; overflow-x: hidden; }
-  input, select, textarea, button { font-family: inherit; }
+  /* Editable controls need one visible glyph per character. Disable calt too;
+     select and button share this rule harmlessly so typography stays centralized. */
+  input, select, textarea, button { font-family: inherit; font-variant-ligatures: none; }
 
   /* Markdown content styles */
   .md-content { font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
