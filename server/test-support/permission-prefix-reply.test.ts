@@ -1,41 +1,154 @@
-// T0 unit tier: the permission prompt's option-4 reply parser.
-//
-// The prompt is answered in plain chat, and every reply that isn't a
-// recognized option is treated as a DENIAL with that text as the reason. So
-// the boundary here is load-bearing in both directions: "4 rg --files" must be
-// read as an allow (denying it would be baffling), and near-misses like "42"
-// or "4x" must NOT be, or a typo would silently widen what an agent may run.
+// Permission replies are a safety boundary in both directions: every number
+// shown must resolve to its label, while malformed and unshown numbers must
+// fall through to denial instead of silently widening what the agent may run.
 import { describe, expect, it } from "bun:test";
 
-import { parsePrefixAllowReply } from "../agent-manager.ts";
+import {
+  permissionOptions,
+  permissionPromptLines,
+  resolvePermissionReply,
+} from "../agent-manager.ts";
 
-describe("parsePrefixAllowReply", () => {
-  it("bare 4 means 'take the rule the backend proposed'", () => {
-    expect(parsePrefixAllowReply("4")).toEqual({ prefixText: "" });
+describe("permission options", () => {
+  function renderedChoices(
+    allowPersistentLabel?: string,
+    allowPrefixLabel?: string,
+  ): Array<{ label: string; decision: string }> {
+    const options = permissionOptions(allowPersistentLabel, allowPrefixLabel);
+    const lines = permissionPromptLines({
+      toolName: "Bash",
+      allowPersistentLabel,
+      allowPrefixLabel,
+    });
+    return lines
+      .map((line) => /^ {2}(\d+)\. (.*)$/.exec(line))
+      .filter((match): match is RegExpExecArray => match !== null)
+      .map((match) => ({
+        label: match[2],
+        decision:
+          resolvePermissionReply(match[1], options)?.kind ?? "deny_reason",
+      }));
+  }
+
+  it("round-trips every rendered option through the same ordered choices", () => {
+    expect(renderedChoices("Allow always")).toEqual([
+      { label: "Allow always", decision: "allow_persistent" },
+      { label: "Allow - just this time", decision: "allow_once" },
+      { label: "Deny", decision: "deny" },
+    ]);
+    expect(renderedChoices()).toEqual([
+      { label: "Allow - just this time", decision: "allow_once" },
+      { label: "Deny", decision: "deny" },
+    ]);
+    expect(renderedChoices("Allow always", "rg --files")).toEqual([
+      { label: "Allow always", decision: "allow_persistent" },
+      { label: "Allow - just this time", decision: "allow_once" },
+      { label: "Deny", decision: "deny" },
+      {
+        label:
+          "Allow - and don't ask again this session for any command starting with `rg --files`",
+        decision: "allow_prefix",
+      },
+    ]);
+    expect(renderedChoices(undefined, "rg --files")).toEqual([
+      { label: "Allow - just this time", decision: "allow_once" },
+      { label: "Deny", decision: "deny" },
+      {
+        label:
+          "Allow - and don't ask again this session for any command starting with `rg --files`",
+        decision: "allow_prefix",
+      },
+    ]);
   });
 
-  it("4 <prefix> carries the user's own choice as raw text", () => {
-    expect(parsePrefixAllowReply("4 rg --files")).toEqual({
-      prefixText: "rg --files",
+  it("maps the persistent three-option menu", () => {
+    const options = permissionOptions("Allow always");
+    expect(resolvePermissionReply("1", options)).toEqual({
+      kind: "allow_persistent",
     });
-    // Ragged spacing is a human typing in a chat box, not a different intent.
-    expect(parsePrefixAllowReply("4   cargo   test  ")).toEqual({
-      prefixText: "cargo   test",
+    expect(resolvePermissionReply("2", options)).toEqual({
+      kind: "allow_once",
     });
+    expect(resolvePermissionReply("3", options)).toEqual({ kind: "deny" });
   });
 
-  it("anything that isn't option 4 is left to the other branches", () => {
-    for (const reply of [
-      "42",
-      "4x",
-      "-4",
-      "44 rg",
-      "3",
-      "",
-      "no",
-      "please allow 4",
-    ]) {
-      expect(parsePrefixAllowReply(reply)).toBeNull();
+  it("maps the OpenCode two-option menu and never allows an absent number", () => {
+    const options = permissionOptions();
+    expect(resolvePermissionReply("1", options)).toEqual({
+      kind: "allow_once",
+    });
+    expect(resolvePermissionReply("2", options)).toEqual({ kind: "deny" });
+    expect(resolvePermissionReply("3", options)).toBeNull();
+  });
+
+  it("renumbers prefix replies with and without a persistent choice", () => {
+    const four = permissionOptions("Allow always", "rg --files");
+    expect(resolvePermissionReply("4 rg", four)).toEqual({
+      kind: "allow_prefix",
+      prefixText: "rg",
+    });
+    const three = permissionOptions(undefined, "rg --files");
+    expect(resolvePermissionReply("3 rg", three)).toEqual({
+      kind: "allow_prefix",
+      prefixText: "rg",
+    });
+    expect(resolvePermissionReply("4", three)).toBeNull();
+  });
+
+  it("rejects numeric near-misses for every offered menu shape", () => {
+    const shapes = [
+      permissionOptions("Allow always"),
+      permissionOptions(),
+      permissionOptions("Allow always", "rg --files"),
+      permissionOptions(undefined, "rg --files"),
+    ];
+    for (const options of shapes) {
+      for (const reply of [
+        "42",
+        "4x",
+        "-4",
+        "44 rg",
+        "01",
+        "001",
+        "02",
+        "",
+        "no",
+        "please allow 4",
+      ]) {
+        expect(resolvePermissionReply(reply, options)).toBeNull();
+      }
     }
+    expect(resolvePermissionReply("3", shapes[0])).toEqual({ kind: "deny" });
+    expect(resolvePermissionReply("3", shapes[1])).toBeNull();
+    expect(resolvePermissionReply("3", shapes[2])).toEqual({ kind: "deny" });
+    expect(resolvePermissionReply("3", shapes[3])).toEqual({
+      kind: "allow_prefix",
+    });
+  });
+
+  it("keeps Claude and Codex prompt bytes and starts OpenCode at one", () => {
+    expect(
+      permissionPromptLines({
+        toolName: "Bash",
+        allowPersistentLabel:
+          "Allow - and don't ask again for similar calls this session",
+      }).join("\n"),
+    ).toBe(
+      "**Wants to use Bash**\n\nReply:\n  1. Allow - and don't ask again for similar calls this session\n  2. Allow - just this time\n  3. Deny\n\nOr type any other message to deny with that as the reason.",
+    );
+    expect(
+      permissionPromptLines({
+        toolName: "Bash",
+        allowPersistentLabel:
+          "Allow - and don't ask again for this exact command this session",
+        allowPrefixLabel: "rg --files",
+        allowPrefixExample: "rg",
+      }).join("\n"),
+    ).toBe(
+      "**Wants to use Bash**\n\nReply:\n  1. Allow - and don't ask again for this exact command this session\n  2. Allow - just this time\n  3. Deny\n  4. Allow - and don't ask again this session for any command starting with `rg --files`\n     Reply `4 <prefix>` to choose how much to allow, e.g. `4 rg`.\n\nOr type any other message to deny with that as the reason.",
+    );
+    expect(permissionPromptLines({ toolName: "bash" }).join("\n")).toBe(
+      "**Wants to use bash**\n\nReply:\n  1. Allow - just this time\n  2. Deny\n\nOr type any other message to deny with that as the reason.",
+    );
   });
 });

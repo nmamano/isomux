@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   interruptedToolResults,
+  toolUpdateEvents,
   isAuthenticationError,
   allowDiscoveredModels,
   discoverOpenCodeModels,
@@ -15,6 +16,11 @@ import { tmpdir } from "node:os";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import type { OpenCodeSupervisor } from "./supervisor.ts";
 import type { NormalizedEvent } from "../types.ts";
+import toolInputSequences from "./fixtures/tool-input-sequences.json";
+
+type ToolUpdate = Parameters<typeof toolUpdateEvents>[1];
+const capturedArgument = toolInputSequences.argument as ToolUpdate[];
+const capturedInterrupted = toolInputSequences.interrupted as ToolUpdate[];
 
 describe("OpenCode OC1 raw-ingress allowlist", () => {
   it("fails closed if an administrative transport is asked to send", async () => {
@@ -143,18 +149,134 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     ).toEqual([{ uuid: "m1", role: "user", text: "safe" }]);
   });
 
-  it("closes only non-terminal tools when an abort reaches idle", () => {
+  it("synthetically flushes a deferred call before its interrupted result", () => {
+    const pending = {
+      callId: "running",
+      name: "bash",
+      input: {},
+      callEmitted: false,
+      terminal: false,
+    };
     expect(
       interruptedToolResults([
-        { callId: "running", terminal: false },
-        { callId: "done", terminal: true },
+        pending,
+        {
+          callId: "done",
+          name: "read",
+          input: { path: "README.md" },
+          callEmitted: true,
+          terminal: true,
+        },
       ]),
     ).toEqual([
+      {
+        kind: "tool_call",
+        toolUseId: "running",
+        name: "bash",
+        input: {},
+      },
       {
         kind: "tool_result",
         toolUseId: "running",
         content: "Tool interrupted.",
         isError: true,
+      },
+    ]);
+    expect(pending.callEmitted).toBe(true);
+    expect(toolUpdateEvents(pending, { status: "running", input: {} })).toEqual(
+      [],
+    );
+  });
+
+  it("replays captured argument input, then a synthetic completion", () => {
+    const tool = {
+      callId: "call",
+      name: "bash",
+      input: {},
+      callEmitted: false,
+      terminal: false,
+    };
+    expect(toolInputSequences.provenance).toEqual({
+      server: "pinned OpenCode server",
+      model: "mimo-v2.5-free",
+      captured: "2026-08-29",
+    });
+    expect(toolUpdateEvents(tool, capturedArgument[0])).toEqual([]);
+    expect(toolUpdateEvents(tool, capturedArgument[1])).toEqual([
+      {
+        kind: "tool_call",
+        toolUseId: "call",
+        name: "bash",
+        input: { command: "printf opencode-capture-argument" },
+      },
+    ]);
+    expect(
+      // The live capture ended after running; completion is a synthetic step
+      // that verifies the later terminal event adds only the paired result.
+      toolUpdateEvents(tool, {
+        status: "completed",
+        input: { command: "printf opencode-capture-argument" },
+        output: "captured",
+      }),
+    ).toEqual([
+      {
+        kind: "tool_result",
+        toolUseId: "call",
+        content: "captured",
+      },
+    ]);
+  });
+
+  it("replays the captured ordinary interrupt after the call emitted", () => {
+    const tool = {
+      callId: "interrupted",
+      name: "bash",
+      input: {},
+      callEmitted: false,
+      terminal: false,
+    };
+    expect(toolUpdateEvents(tool, capturedInterrupted[0])).toEqual([]);
+    expect(toolUpdateEvents(tool, capturedInterrupted[1])).toEqual([
+      {
+        kind: "tool_call",
+        toolUseId: "interrupted",
+        name: "bash",
+        input: { command: "sleep 30" },
+      },
+    ]);
+    expect(interruptedToolResults([tool])).toEqual([
+      {
+        kind: "tool_result",
+        toolUseId: "interrupted",
+        content: "Tool interrupted.",
+        isError: true,
+      },
+    ]);
+  });
+
+  it("synthetically pairs a terminal part whose input never populated", () => {
+    // The pinned tool catalog has no legitimate zero-argument tool. This
+    // synthetic boundary covers a terminal provider event that still has {}.
+    const tool = {
+      callId: "empty",
+      name: "empty-tool",
+      input: {},
+      callEmitted: false,
+      terminal: false,
+    };
+    expect(
+      toolUpdateEvents(tool, { status: "completed", input: {}, output: "ok" }),
+    ).toEqual([
+      {
+        kind: "tool_call",
+        toolUseId: "empty",
+        name: "empty-tool",
+        input: {},
+      },
+      {
+        kind: "tool_result",
+        toolUseId: "empty",
+        content: "ok",
       },
     ]);
   });

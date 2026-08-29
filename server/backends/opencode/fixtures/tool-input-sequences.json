@@ -1,0 +1,18 @@
+{
+  "provenance": {
+    "server": "pinned OpenCode server",
+    "model": "mimo-v2.5-free",
+    "captured": "2026-08-29"
+  },
+  "argument": [
+    { "status": "pending", "input": {} },
+    {
+      "status": "running",
+      "input": { "command": "printf opencode-capture-argument" }
+    }
+  ],
+  "interrupted": [
+    { "status": "pending", "input": {} },
+    { "status": "running", "input": { "command": "sleep 30" } }
+  ]
+}

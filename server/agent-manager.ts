@@ -246,22 +246,75 @@ export function backendSessionHasFixedCwd(
 // hand-written interface.)
 export type AgentManager = ReturnType<typeof createAgentManager>;
 
-// Read a reply to option 4 of the permission prompt: bare "4" (take the rule
-// the backend proposed) or "4 <prefix>" (cover this much of the command
-// instead). Anything else returns null and is handled by the other branches -
-// notably "4x" or "42", which are NOT option 4.
-//
-// The prefix is returned as the raw text the user typed. Splitting it into
-// command tokens is the backend's job: it owns what a token is, and it is the
-// one that checks the prefix against the command actually being approved.
-// Exported for tests.
-export function parsePrefixAllowReply(
+type PermissionOption = {
+  kind: ApprovalDecision["kind"];
+  label: string;
+};
+
+export function permissionOptions(
+  allowPersistentLabel?: string,
+  allowPrefixLabel?: string,
+): PermissionOption[] {
+  // Keep the broad prefix allow after Deny. A habitual reply must not become
+  // the broadest permission when a backend offers a different set of choices.
+  // Building this list once also lets requests without a persistent choice
+  // start at 1 without giving render and resolution separate number tables.
+  const options: PermissionOption[] = [];
+  if (allowPersistentLabel)
+    options.push({ kind: "allow_persistent", label: allowPersistentLabel });
+  options.push({ kind: "allow_once", label: "Allow - just this time" });
+  options.push({ kind: "deny", label: "Deny" });
+  if (allowPrefixLabel)
+    options.push({
+      kind: "allow_prefix",
+      label: `Allow - and don't ask again this session for any command starting with \`${allowPrefixLabel}\``,
+    });
+  return options;
+}
+
+export function resolvePermissionReply(
   trimmed: string,
-): { prefixText: string } | null {
-  if (trimmed === "4") return { prefixText: "" };
-  const m = /^4\s+(\S.*)$/.exec(trimmed);
-  if (!m) return null;
-  return { prefixText: m[1].trim() };
+  options: PermissionOption[],
+): ApprovalDecision | null {
+  const match = /^([1-9]\d*)(?:\s+(\S.*))?$/.exec(trimmed);
+  if (!match) return null;
+  const option = options[Number(match[1]) - 1];
+  if (!option) return null;
+  if (option.kind === "allow_prefix") {
+    return {
+      kind: "allow_prefix",
+      ...(match[2] ? { prefixText: match[2].trim() } : {}),
+    };
+  }
+  if (match[2]) return null;
+  return { kind: option.kind };
+}
+
+export function permissionPromptLines(request: {
+  toolName: string;
+  title?: string;
+  description?: string;
+  allowPersistentLabel?: string;
+  allowPrefixLabel?: string;
+  allowPrefixExample?: string;
+}): string[] {
+  const lines = [`**${request.title ?? `Wants to use ${request.toolName}`}**`];
+  if (request.description) lines.push(request.description);
+  lines.push("", "Reply:");
+  const options = permissionOptions(
+    request.allowPersistentLabel,
+    request.allowPrefixLabel,
+  );
+  for (const [index, option] of options.entries()) {
+    lines.push(`  ${index + 1}. ${option.label}`);
+    if (option.kind === "allow_prefix" && request.allowPrefixExample) {
+      lines.push(
+        `     Reply \`${index + 1} <prefix>\` to choose how much to allow, e.g. \`${index + 1} ${request.allowPrefixExample}\`.`,
+      );
+    }
+  }
+  lines.push("", "Or type any other message to deny with that as the reason.");
+  return lines;
 }
 
 export function createAgentManager(deps: ManagerDeps) {
@@ -3600,45 +3653,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (!managed) break;
         // Build the /resolve prompt. The backend owns the SDK resolver and
         // states per request which persistent choices it can represent.
-        const lines: string[] = [
-          `**${ev.title ?? `Wants to use ${ev.toolName}`}**`,
-        ];
-        if (ev.description) lines.push(ev.description);
-        lines.push("");
-        lines.push("Reply:");
-        if (ev.allowPersistentLabel)
-          lines.push(`  1. ${ev.allowPersistentLabel}`);
-        lines.push("  2. Allow - just this time");
-        lines.push("  3. Deny");
-        // Offered only when the backend proposed a broader rule than "this
-        // exact call" (Codex attaches one to most command approvals). Last in
-        // the list on purpose: 1/2/3 have meant the same three things since
-        // the prompt shipped, and a habitual "3" must never turn into an allow.
-        //
-        // The follow-up line matters more than it looks: codex proposes the
-        // WHOLE command as its rule, so plain "4" mostly covers re-runs with
-        // extra arguments. Typing a shorter prefix is what actually ends the
-        // "approve `rg --files <dir>` again and again" loop.
-        if (ev.allowPrefixLabel) {
-          // "any command starting with", not "this command again": the rule
-          // really does cover every later command whose first tokens match,
-          // and a suggestion can be broad on its own (`sudo`, `env`, `sh -c`).
-          // The wording has to let the user see that before they accept it.
-          lines.push(
-            `  4. Allow - and don't ask again this session for any command starting with \`${ev.allowPrefixLabel}\``,
-          );
-          // The example comes ready-made from the backend; re-splitting the
-          // label here would be this layer guessing at command tokens.
-          if (ev.allowPrefixExample) {
-            lines.push(
-              `     Reply \`4 <prefix>\` to choose how much to allow, e.g. \`4 ${ev.allowPrefixExample}\`.`,
-            );
-          }
-        }
-        lines.push("");
-        lines.push(
-          "Or type any other message to deny with that as the reason.",
-        );
+        const lines = permissionPromptLines(ev);
         emitEphemeralLog(agentId, "system", lines.join("\n"));
         managed.pendingPermission = {
           approvalId: ev.approvalId,
@@ -6125,13 +6140,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
         return;
       }
-      // "4", or "4 <prefix>" to say how much of the command to cover. Parsed
-      // before the branches below so a reply of "4 rg --files" isn't read as
-      // free text (which would deny with that as the reason).
-      const prefixReply = parsePrefixAllowReply(trimmed);
+      const options = permissionOptions(
+        // Only presence controls this reconstructed option. The backend keeps
+        // the real label; resolution needs the same list shape that was shown.
+        pending.allowPersistent ? "persistent" : undefined,
+        pending.allowPrefixLabel,
+      );
+      const resolved = resolvePermissionReply(trimmed, options);
       let decision: ApprovalDecision;
       let resumeState: AgentState;
-      if (trimmed === "1" && pending.allowPersistent) {
+      if (resolved?.kind === "allow_persistent") {
         emitEphemeralLog(
           agentId,
           "system",
@@ -6139,26 +6157,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
         decision = { kind: "allow_persistent" };
         resumeState = "tool_executing";
-      } else if (trimmed === "2") {
+      } else if (resolved?.kind === "allow_once") {
         emitEphemeralLog(agentId, "system", "Permission granted (once).");
         decision = { kind: "allow_once" };
         resumeState = "tool_executing";
-      } else if (prefixReply && pending.allowPrefixLabel) {
-        // Guarded on allowPrefixLabel: when no 4th option was offered, "4" is
-        // not a choice the user could have read, so it falls through to the
-        // deny-with-reason branch like any other unrecognized reply.
-        //
+      } else if (resolved?.kind === "allow_prefix") {
         // No confirmation line here on purpose - the backend owns the rule and
         // emits one message saying what it actually remembered, including the
         // case where a typed prefix is refused for not matching the command.
         decision = {
           kind: "allow_prefix",
-          ...(prefixReply.prefixText
-            ? { prefixText: prefixReply.prefixText }
-            : {}),
+          ...(resolved.prefixText ? { prefixText: resolved.prefixText } : {}),
         };
         resumeState = "tool_executing";
-      } else if (trimmed === "3") {
+      } else if (resolved?.kind === "deny") {
         emitEphemeralLog(agentId, "system", "Permission denied.");
         decision = { kind: "deny" };
         resumeState = "thinking";

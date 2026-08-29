@@ -707,6 +707,12 @@ export function ChoiceInteractionCard({
   );
 }
 
+export function showAgentUsageIndicators(
+  agentType: AgentInfo["agentType"],
+): boolean {
+  return agentType !== "opencode";
+}
+
 export function LogView({
   agent,
   logs,
@@ -2214,15 +2220,19 @@ export function LogView({
               gap: 10,
             }}
           >
-            <SubscriptionPill
-              // Remount on agent/engine change so the pinned-limit state is
-              // re-read for the new identity instead of being synced.
-              key={`${agent.id}:${agent.agentType}`}
-              usage={agent.subscriptionUsage}
-              agentId={agent.id}
-              provider={agent.agentType}
-            />
-            <ContextBattery usage={agent.contextUsage} />
+            {showAgentUsageIndicators(agent.agentType) && (
+              <>
+                <SubscriptionPill
+                  // Remount on agent/engine change so the pinned-limit state is
+                  // re-read for the new identity instead of being synced.
+                  key={`${agent.id}:${agent.agentType}`}
+                  usage={agent.subscriptionUsage}
+                  agentId={agent.id}
+                  provider={agent.agentType}
+                />
+                <ContextBattery usage={agent.contextUsage} />
+              </>
+            )}
             {/* Reads and flips the PREF, not the gated `slideView`: inside this
                 branch the gate is on so the two agree, but a toggle driven by
                 the derived value would write a gate-forced false back over the
@@ -2330,14 +2340,18 @@ export function LogView({
                   {agent.pendingPrompt && !interaction && (
                     <PendingPromptLabel kind={agent.pendingPrompt} />
                   )}
-                  <SubscriptionPill
-                    key={`${agent.id}:${agent.agentType}`}
-                    usage={agent.subscriptionUsage}
-                    agentId={agent.id}
-                    provider={agent.agentType}
-                    isMobile
-                  />
-                  <ContextBattery usage={agent.contextUsage} isMobile />
+                  {showAgentUsageIndicators(agent.agentType) && (
+                    <>
+                      <SubscriptionPill
+                        key={`${agent.id}:${agent.agentType}`}
+                        usage={agent.subscriptionUsage}
+                        agentId={agent.id}
+                        provider={agent.agentType}
+                        isMobile
+                      />
+                      <ContextBattery usage={agent.contextUsage} isMobile />
+                    </>
+                  )}
                   {slideModeEnabled && (
                     <SlideToggleButton
                       active={slideViewPref}

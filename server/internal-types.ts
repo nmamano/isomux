@@ -279,11 +279,10 @@ export interface ManagedAgent {
     approvalId: string;
     toolName: string;
     allowPersistent: boolean;
-    // Human-readable form of the broader session rule the backend offered as
-    // option 4, when it offered one. Display + gate only: the rule itself
-    // stays inside the backend, which applies it on an "allow_prefix"
-    // decision. Undefined means no 4th option was shown, and a "4" reply is
-    // treated as any other unrecognized text (deny with that as the reason).
+    // Human-readable form of the broader session rule the backend offered.
+    // Display + gate only: the rule itself stays inside the backend, which
+    // applies it on an "allow_prefix" decision. Undefined means no prefix
+    // option was shown, so an unmatched number denies with that as the reason.
     allowPrefixLabel?: string;
   } | null;
   // Terminal PTY sidecar (spawned on demand via Node.js)

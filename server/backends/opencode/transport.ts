@@ -65,12 +65,33 @@ export interface OpenCodePromptPart {
 
 type EventSink = (event: NormalizedEvent) => void;
 
+interface TrackedTool {
+  callId: string;
+  name: string;
+  input: Record<string, unknown>;
+  callEmitted: boolean;
+  terminal: boolean;
+}
+
+function toolCall(tool: TrackedTool): NormalizedEvent {
+  return {
+    kind: "tool_call",
+    toolUseId: tool.callId,
+    name: tool.name,
+    input: tool.input,
+  };
+}
+
 export function interruptedToolResults(
-  tools: Iterable<{ callId: string; terminal: boolean }>,
+  tools: Iterable<TrackedTool>,
 ): NormalizedEvent[] {
   const results: NormalizedEvent[] = [];
   for (const tool of tools) {
     if (!tool.terminal) {
+      if (!tool.callEmitted) {
+        tool.callEmitted = true;
+        results.push(toolCall(tool));
+      }
       results.push({
         kind: "tool_result",
         toolUseId: tool.callId,
@@ -80,6 +101,42 @@ export function interruptedToolResults(
     }
   }
   return results;
+}
+
+export function toolUpdateEvents(
+  tool: TrackedTool,
+  update: {
+    status: "pending" | "running" | "completed" | "error";
+    input: Record<string, unknown>;
+    output?: string;
+    error?: string;
+    exitCode?: number;
+    durationMs?: number;
+  },
+): NormalizedEvent[] {
+  tool.input = update.input;
+  const events: NormalizedEvent[] = [];
+  const terminal = update.status === "completed" || update.status === "error";
+  if (!tool.callEmitted && (Object.keys(update.input).length > 0 || terminal)) {
+    tool.callEmitted = true;
+    events.push(toolCall(tool));
+  }
+  if (!tool.terminal && terminal) {
+    tool.terminal = true;
+    events.push({
+      kind: "tool_result",
+      toolUseId: tool.callId,
+      content: update.output ?? update.error ?? "",
+      ...(update.durationMs !== undefined
+        ? { durationMs: update.durationMs }
+        : {}),
+      ...(update.status === "error" ||
+      (update.exitCode !== undefined && update.exitCode !== 0)
+        ? { isError: true }
+        : {}),
+    });
+  }
+  return events;
 }
 
 export class OpenCodeTransport {
@@ -273,10 +330,7 @@ export class OpenCodeTransport {
     const assistantMessages = new Set<string>();
     const textByPart = new Map<string, string>();
     const reasoningByPart = new Map<string, string>();
-    const tools = new Map<
-      string,
-      { callId: string; name: string; terminal: boolean }
-    >();
+    const tools = new Map<string, TrackedTool>();
     const seenPermissions = new Set<string>();
     let stepFinish: { usage?: TokenUsage; cost?: number } | null = null;
     let settled = false;
@@ -357,35 +411,15 @@ export class OpenCodeTransport {
                 tools.set(event.partId, {
                   callId: event.callId,
                   name: event.name,
-                  terminal: false,
-                });
-                sink({
-                  kind: "tool_call",
-                  toolUseId: event.callId,
-                  name: event.name,
                   input: event.input,
+                  callEmitted: false,
+                  terminal: false,
                 });
               }
               const tracked = tools.get(event.partId);
-              if (
-                tracked &&
-                !tracked.terminal &&
-                (event.status === "completed" || event.status === "error")
-              ) {
-                tracked.terminal = true;
-                sink({
-                  kind: "tool_result",
-                  toolUseId: tracked.callId,
-                  content: event.output ?? event.error ?? "",
-                  ...(event.durationMs !== undefined
-                    ? { durationMs: event.durationMs }
-                    : {}),
-                  ...(event.status === "error" ||
-                  (event.exitCode !== undefined && event.exitCode !== 0)
-                    ? { isError: true }
-                    : {}),
-                });
-              }
+              if (tracked)
+                for (const normalized of toolUpdateEvents(tracked, event))
+                  sink(normalized);
             }
             if (event.kind === "permission") {
               if (seenPermissions.has(event.id)) continue;
