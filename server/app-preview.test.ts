@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { AppRecord } from "../shared/types.ts";
-import { createAppPreviewCapture } from "./app-preview.ts";
+import {
+  APP_PREVIEW_CACHE_TTL_MS,
+  createAppPreviewCapture,
+} from "./app-preview.ts";
 
 const app: AppRecord = {
   name: "hello",
@@ -41,7 +44,7 @@ describe("app preview capture", () => {
       },
     ]);
 
-    now += 5 * 60 * 1000;
+    now += APP_PREVIEW_CACHE_TTL_MS;
     await previews.capture(app);
     expect(calls).toHaveLength(2);
   });
