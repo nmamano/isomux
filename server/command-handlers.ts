@@ -647,6 +647,15 @@ export function createCommandHandling(deps: HandlerDeps) {
     async effort(agentId, managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      if (managed.info.agentType === "opencode") {
+        deps.emitEphemeralLog(
+          agentId,
+          "system",
+          "OpenCode does not expose thinking effort controls.",
+        );
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
       const currentLabel = effortDisplayLabel(managed.info.effort);
       const lines: string[] = [
         `Switch thinking effort (current: **${currentLabel}**):\n`,

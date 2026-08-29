@@ -186,6 +186,48 @@ describe("CronjobManager DI (disk-free seam)", () => {
     expect(updated?.codexSandbox).toBeUndefined();
   });
 
+  it("switches a Codex cronjob to OpenCode and removes its sandbox", () => {
+    const mgr = createCronjobManager(baseDeps());
+    const job = mgr.addCronjob({
+      ...intervalInput("SwitchToOpenCode"),
+      agentType: "codex",
+      modelFamily: "gpt-test-cron",
+      effort: "high",
+      permissionMode: "never",
+      codexSandbox: "read-only",
+    });
+
+    const updated = mgr.updateCronjob(job.id, {
+      agentType: "opencode",
+      modelFamily: "provider/model",
+      permissionMode: "bypassPermissions",
+    });
+
+    expect(updated).toMatchObject({
+      agentType: "opencode",
+      modelFamily: "provider/model",
+      permissionMode: "bypassPermissions",
+    });
+    expect(updated?.codexSandbox).toBeUndefined();
+  });
+
+  it("does not persist a Codex sandbox on an OpenCode cronjob", () => {
+    const mgr = createCronjobManager(baseDeps());
+    const job = mgr.addCronjob({
+      ...intervalInput("OpenCodeSandbox"),
+      agentType: "opencode",
+      modelFamily: "provider/model",
+      permissionMode: "bypassPermissions",
+    });
+
+    const updated = mgr.updateCronjob(job.id, {
+      codexSandbox: "danger-full-access",
+    });
+
+    expect(updated?.agentType).toBe("opencode");
+    expect(updated?.codexSandbox).toBeUndefined();
+  });
+
   it("ignores an unknown engine instead of persisting it", () => {
     const mgr = createCronjobManager(baseDeps());
     const job = mgr.addCronjob(intervalInput("InvalidEngine"));

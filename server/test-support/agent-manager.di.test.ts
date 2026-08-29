@@ -329,6 +329,52 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).toBe(true);
   });
 
+  it("does not park OpenCode on an empty effort interaction", async () => {
+    const fake = new FakeBackend();
+    const { events, sink } = capture();
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-opencode-effort") }),
+      initialRooms: [],
+      eventSink: sink,
+    });
+    const info = await mgr.spawn(
+      "OpenCode effort",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-opencode-effort",
+      undefined,
+      "gate/gate-model",
+      "high",
+      undefined,
+      "opencode",
+    );
+
+    await mgr.sendMessage(info!.id, "/effort", "tester");
+
+    expect(
+      mgr
+        .getAgentLogs(info!.id)
+        .some(
+          (entry) =>
+            entry.content ===
+            "OpenCode does not expose thinking effort controls.",
+        ),
+    ).toBe(true);
+    expect(
+      events.some(
+        (event) => (event as { type: string }).type === "interaction_added",
+      ),
+    ).toBe(false);
+    const getPendingInteractions = (
+      mgr as unknown as { getPendingInteractions?: () => unknown[] }
+    ).getPendingInteractions;
+    expect(getPendingInteractions?.call(mgr) ?? []).toEqual([]);
+    expect(mgr.pendingPrompt(info!.id)).toBeNull();
+  });
+
   it("runs the OpenCode first-reply tracer through normal logs and persistence", async () => {
     const { calls, resolveBackend } = spyResolver(
       createOpenCodeTracerBackend(),

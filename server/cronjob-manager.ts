@@ -416,7 +416,9 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const prev = cronjobs[idx];
     const next: Cronjob = { ...prev };
     const agentType =
-      changes.agentType === "claude" || changes.agentType === "codex"
+      changes.agentType === "claude" ||
+      changes.agentType === "codex" ||
+      changes.agentType === "opencode"
         ? changes.agentType
         : prev.agentType;
     const engineChanged = agentType !== prev.agentType;
@@ -446,8 +448,8 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
           (engineChanged ? undefined : prev.permissionMode),
       );
     }
-    if (agentType === "claude") {
-      if (engineChanged) delete next.codexSandbox;
+    if (agentType !== "codex") {
+      delete next.codexSandbox;
     } else if (changes.codexSandbox !== undefined) {
       const sandbox = validateCodexSandbox(changes.codexSandbox);
       if (sandbox) next.codexSandbox = sandbox;

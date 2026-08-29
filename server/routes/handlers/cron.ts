@@ -180,13 +180,13 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         if (cwdErr) return fail(400, "invalid_cwd", cwdErr);
         deps.saveRecentCwd(body.cwd);
       }
-      if (body.modelFamily !== undefined) {
+      if (body.modelFamily !== undefined || body.agentType !== undefined) {
         const existing = deps
           .listCronjobs()
           .find((cronjob) => cronjob.id === ctx.params.id);
         if (!existing) return fail(404, "not_found");
         const familyErr = deps.modelFamilyError(
-          existing.agentType,
+          body.agentType ?? existing.agentType,
           body.modelFamily,
         );
         if (familyErr) return fail(422, "invalid_model_family", familyErr);

@@ -20,7 +20,11 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { getUserByName } from "../users.ts";
-import { saveRuns, appendRunLog } from "../cronjob-persistence.ts";
+import {
+  saveRuns,
+  appendRunLog,
+  loadCronjobs,
+} from "../cronjob-persistence.ts";
 import type { Cronjob, CronjobRun, LogEntry } from "../../shared/types.ts";
 
 // AddCronjobInput is a factory-local interface; derive it from the method.
@@ -273,6 +277,61 @@ describe("routes/cron REST: ownership tightening", () => {
       effort: "high",
       permissionMode: "never",
       codexSandbox: "workspace-write",
+    });
+  });
+
+  it("changes a cronjob engine to OpenCode and persists no Codex sandbox", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const job = seedJob(srv, "Boss", "OpenCodeSwitch");
+
+    const result = await api(srv, `/api/cronjobs/${job.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        agentType: "opencode",
+        modelFamily: "provider/model",
+        effort: "medium",
+        permissionMode: "bypassPermissions",
+      },
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body as Cronjob).toMatchObject({
+      agentType: "opencode",
+      modelFamily: "provider/model",
+      permissionMode: "bypassPermissions",
+    });
+    expect((result.body as Cronjob).codexSandbox).toBeUndefined();
+    expect(loadCronjobs().find((saved) => saved.id === job.id)).toMatchObject({
+      agentType: "opencode",
+      modelFamily: "provider/model",
+    });
+    expect(
+      loadCronjobs().find((saved) => saved.id === job.id)?.codexSandbox,
+    ).toBeUndefined();
+  });
+
+  it("rejects an OpenCode engine switch without a provider/model", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const job = seedJob(srv, "Boss", "OpenCodeWithoutModel");
+
+    const result = await api(srv, `/api/cronjobs/${job.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { agentType: "opencode" },
+    });
+
+    expect(result.status).toBe(422);
+    expect(result.body).toMatchObject({
+      error: { code: "invalid_model_family" },
+    });
+    expect(loadCronjobs().find((saved) => saved.id === job.id)).toMatchObject({
+      agentType: "claude",
+      modelFamily: "opus",
     });
   });
 

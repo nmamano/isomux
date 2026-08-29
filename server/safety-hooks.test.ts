@@ -581,11 +581,8 @@ describe("NotebookEdit coverage", () => {
     expect(reason).toContain("may contain secrets");
   });
 
-  // Isomux causes both of these files to exist, and until 2026-08-29 neither
-  // was covered: an agent could read the login for its own backend and nothing
-  // fired. Found by Isomux Reviewer 3 for Codex; the Claude half is the reason
-  // an exact basename match is not enough, since SENSITIVE_EXACT holds
-  // "credentials.json" and the real file has a leading dot.
+  // Isomux causes all three files to exist. A bare auth.json stays allowed:
+  // only the exact backend-owned locations are credentials.
   it("denies reading the Claude login", async () => {
     const { denied, reason } = await decide("Read", {
       file_path: "/home/someone/.claude/.credentials.json",
@@ -604,11 +601,32 @@ describe("NotebookEdit coverage", () => {
     }
   });
 
+  it("denies reading the default and per-user OpenCode logins", async () => {
+    for (const file_path of [
+      "/home/someone/.isomux/opencode/profiles/0123456789abcdef/data/opencode/auth.json",
+      "/srv/isomux-user/opencode/profiles/fedcba9876543210/data/opencode/auth.json",
+    ]) {
+      const { denied } = await decide("Read", { file_path });
+      expect({ file_path, denied }).toEqual({ file_path, denied: true });
+    }
+  });
+
+  it("denies reading the native OpenCode login", async () => {
+    const { denied, reason } = await decide("Read", {
+      file_path: "/home/someone/.local/share/opencode/auth.json",
+    });
+    expect(denied).toBe(true);
+    expect(reason).toContain("may contain secrets");
+  });
+
   it("still allows an unrelated auth.json, which is too generic to block", async () => {
-    expect(
-      (await decide("Read", { file_path: "/tmp/some-project/auth.json" }))
-        .denied,
-    ).toBe(false);
+    for (const file_path of [
+      "/tmp/some-project/auth.json",
+      "/tmp/some-project/opencode/auth.json",
+    ]) {
+      const { denied } = await decide("Read", { file_path });
+      expect({ file_path, denied }).toEqual({ file_path, denied: false });
+    }
   });
 
   it("denies a NotebookRead of a sensitive file", async () => {

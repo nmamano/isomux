@@ -657,14 +657,14 @@ describe("OpenCode shared server supervisor", () => {
     const office = await Bun.file(
       join(import.meta.dir, "..", "..", "isomux-office.ts"),
     ).text();
-    expect(
-      manager.match(/buildOpenCodeLaunchEnvironmentForUserId/g),
-    ).toHaveLength(4);
-    expect(
-      office.match(/buildOpenCodeLaunchEnvironmentForUserId/g),
-    ).toHaveLength(1);
     expect(manager).toMatch(
       /function buildOpenCodeLaunchEnvironmentForUserId[\s\S]*?return buildEnvForUserId\(userId\);[\s\S]*?\n {2}}/,
+    );
+    expect(manager).toMatch(
+      /managed\.info\.agentType === "opencode"\s*\? buildOpenCodeLaunchEnvironmentForUserId\(managed\.info\.userId\)/,
+    );
+    expect(office).toMatch(
+      /input\.agentType === "opencode"\s*\? agentManager\.buildOpenCodeLaunchEnvironmentForUserId\(input\.userId\)/,
     );
   });
 });

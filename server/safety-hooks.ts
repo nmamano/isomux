@@ -936,16 +936,18 @@ function checkOutboundTunnel(command: string): TunnelMatch | null {
 /** Suffixes that indicate a template/example file, not real secrets */
 const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
 
-// The two backends' own logins. Isomux causes these files to exist, so they
+// The three backends' own logins. Isomux causes these files to exist, so they
 // are the one class of secret we can name by location rather than by a guessed
 // filename. `auth.json` is far too generic to sit in SENSITIVE_EXACT - plenty
 // of projects have one and none of them are this - so it counts only inside a
-// codex home. `.credentials.json` is specific enough to match anywhere, and
-// note it is NOT covered by the `credentials.json` entry above: the match is
-// exact and the leading dot defeats it.
+// Codex home or an Isomux OpenCode profile. `.credentials.json` is specific
+// enough to match anywhere, and note it is NOT covered by the `credentials.json`
+// entry above: the match is exact and the leading dot defeats it.
 const BACKEND_CREDENTIAL_PATHS: RegExp[] = [
   /(^|\/)\.credentials\.json$/, // Claude Code
   /(^|\/)(\.codex|codex-home)\/auth\.json$/, // Codex, default and per-user homes
+  /(^|\/)\.local\/share\/opencode\/auth\.json$/, // OpenCode native home
+  /(^|\/)opencode\/profiles\/[^/]+\/data\/opencode\/auth\.json$/, // OpenCode profiles
 ];
 
 function isSensitiveFile(filePath: string): boolean {
