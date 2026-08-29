@@ -421,43 +421,6 @@ export function AppPreview({
   );
 }
 
-export function AppPreviewsOffNotice({ onEnable }: { onEnable: () => void }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 12,
-        marginBottom: 10,
-        padding: "10px 12px",
-        border: "1px solid var(--border)",
-        borderRadius: 8,
-        background: "var(--bg-subtle)",
-        color: "var(--text-secondary)",
-        fontSize: 12,
-      }}
-    >
-      <span>App previews are off.</span>
-      <button
-        type="button"
-        onClick={onEnable}
-        style={{
-          padding: "4px 9px",
-          border: "1px solid var(--border)",
-          borderRadius: 5,
-          background: "var(--btn-surface)",
-          color: "var(--text-secondary)",
-          fontSize: 11,
-          cursor: "pointer",
-        }}
-      >
-        Turn on previews
-      </button>
-    </div>
-  );
-}
-
 function Meta({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <span style={{ whiteSpace: "nowrap" }}>
@@ -800,14 +763,6 @@ export function AppsView({
       )}
 
       <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? 12 : 20 }}>
-        {features.liveAppPreviews && !previewsEnabled && (
-          <AppPreviewsOffNotice
-            onEnable={() => {
-              setPreviewsEnabled(true);
-              setAppPreviews(true);
-            }}
-          />
-        )}
         {!appsLoaded ? null : sorted.length === 0 ? (
           <div
             style={{

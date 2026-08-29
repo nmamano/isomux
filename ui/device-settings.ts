@@ -41,11 +41,12 @@ export function setDevice(label: string | null): void {
   else localStorage.removeItem(KEY_DEVICE);
 }
 
-// App previews are off until this device opts in. A cold, serialized fill of a
-// large Apps page can take tens of seconds.
+// App previews are on unless this device opts out (Nil's ruling 2026-08-29,
+// made once screenshot capture was proven to work). A cold, serialized fill
+// of a large Apps page can take tens of seconds; the toggle remains the out.
 export function getAppPreviews(): boolean {
   if (typeof localStorage === "undefined") return false;
-  return localStorage.getItem(KEY_APP_PREVIEWS) === "on";
+  return localStorage.getItem(KEY_APP_PREVIEWS) !== "off";
 }
 
 export function setAppPreviews(enabled: boolean): void {
