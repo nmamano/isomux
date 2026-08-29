@@ -581,6 +581,36 @@ describe("NotebookEdit coverage", () => {
     expect(reason).toContain("may contain secrets");
   });
 
+  // Isomux causes both of these files to exist, and until 2026-08-29 neither
+  // was covered: an agent could read the login for its own backend and nothing
+  // fired. Found by Isomux Reviewer 3 for Codex; the Claude half is the reason
+  // an exact basename match is not enough, since SENSITIVE_EXACT holds
+  // "credentials.json" and the real file has a leading dot.
+  it("denies reading the Claude login", async () => {
+    const { denied, reason } = await decide("Read", {
+      file_path: "/home/someone/.claude/.credentials.json",
+    });
+    expect(denied).toBe(true);
+    expect(reason).toContain("may contain secrets");
+  });
+
+  it("denies reading the Codex login, in the default and per-user homes", async () => {
+    for (const file_path of [
+      "/home/someone/.isomux/codex-home/auth.json",
+      "/home/someone/.codex/auth.json",
+    ]) {
+      const { denied } = await decide("Read", { file_path });
+      expect({ file_path, denied }).toEqual({ file_path, denied: true });
+    }
+  });
+
+  it("still allows an unrelated auth.json, which is too generic to block", async () => {
+    expect(
+      (await decide("Read", { file_path: "/tmp/some-project/auth.json" }))
+        .denied,
+    ).toBe(false);
+  });
+
   it("denies a NotebookRead of a sensitive file", async () => {
     const { denied, reason } = await decide("NotebookRead", {
       notebook_path: "/tmp/isomux-safety-probe/id_rsa",
