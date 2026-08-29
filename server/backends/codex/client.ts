@@ -32,6 +32,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { errMessage } from "../../../shared/errors.ts";
 import { resolveCodexLauncherPath, withIsomuxCodexHome } from "./native-bin.ts";
+import {
+  ensureCodexSafetyHook,
+  type CodexSafetyPreflightResult,
+} from "./safety-hook-install.ts";
 
 // Surfaced verbatim into chat by sendMessage's BackendNotConfiguredError
 // handling when the bundled launcher can't be spawned. Since codex now ships
@@ -95,6 +99,10 @@ export interface JsonRpcLiteClientOptions {
   // Override the args. Defaults to ["app-server", "--listen", "stdio://"]
   // (the launcher path is prepended automatically when codexBin is not set).
   args?: string[];
+  // Test/probe-only escape hatch for fixtures that intentionally install
+  // malformed, missing, or untrusted hooks. Production callers must never set
+  // this; the default keeps every new spawn site protected by construction.
+  skipSafetyPreflightForTestProbe?: boolean;
 }
 
 export type NotificationHandler = (notification: JsonRpcNotification) => void;
@@ -125,6 +133,8 @@ export class JsonRpcLiteClient {
   private pending = new Map<JsonRpcId, Pending>();
   private stdoutBuffer = "";
   private closed = false;
+  private closedReason: Error | null = null;
+  private starting = false;
   // Guards the OS-process kill in close(), tracked separately from `closed`
   // (which the error/exit handlers set while the process may still be alive).
   private killed = false;
@@ -151,12 +161,21 @@ export class JsonRpcLiteClient {
   // -------------------------------------------------------------------------
 
   // Spawn the subprocess. Idempotent - calling start() twice throws.
-  start(): void {
-    if (this.child) {
+  async start(): Promise<CodexSafetyPreflightResult> {
+    if (this.child || this.starting) {
       throw new Error("JsonRpcLiteClient.start() called twice");
     }
     if (this.closed) {
       throw new Error("JsonRpcLiteClient is closed");
+    }
+    this.starting = true;
+    const effectiveEnv = withIsomuxCodexHome(this.opts.env);
+    let safety: CodexSafetyPreflightResult = {
+      warning: null,
+      hookIdentity: null,
+    };
+    if (!this.opts.skipSafetyPreflightForTestProbe) {
+      safety = await ensureCodexSafetyHook(effectiveEnv.CODEX_HOME!);
     }
     const codexArgs = this.opts.args ?? ["app-server", "--listen", "stdio://"];
     let bin: string;
@@ -178,20 +197,24 @@ export class JsonRpcLiteClient {
     // all spawn with the same effective env. withIsomuxCodexHome honors a
     // caller-set CODEX_HOME verbatim (per-user envFile billing isolation, see
     // server/backends/codex/native-bin.ts).
-    this.child = spawn(bin, spawnArgs, {
-      cwd: this.opts.cwd,
-      env: withIsomuxCodexHome(this.opts.env),
-      stdio: ["pipe", "pipe", "pipe"],
-      // Make the launcher its own process-group leader so close() can signal
-      // the whole group (`process.kill(-pid)`) and reap the native codex
-      // grandchild too - the launcher does not forward signals, so without this
-      // a SIGTERM/SIGKILL to the launcher alone leaks the native child. The
-      // native does not setsid away, so it stays in this group. Safe because
-      // the group is the launcher's own, never isomux's. Note: detached only
-      // changes the POSIX process group, not cgroup membership, so a systemd
-      // service restart still reaps the subtree via the cgroup.
-      detached: true,
-    });
+    try {
+      this.child = spawn(bin, spawnArgs, {
+        cwd: this.opts.cwd,
+        env: effectiveEnv,
+        stdio: ["pipe", "pipe", "pipe"],
+        // Make the launcher its own process-group leader so close() can signal
+        // the whole group (`process.kill(-pid)`) and reap the native codex
+        // grandchild too - the launcher does not forward signals, so without this
+        // a SIGTERM/SIGKILL to the launcher alone leaks the native child. The
+        // native does not setsid away, so it stays in this group. Safe because
+        // the group is the launcher's own, never isomux's. Note: detached only
+        // changes the POSIX process group, not cgroup membership, so a systemd
+        // service restart still reaps the subtree via the cgroup.
+        detached: true,
+      });
+    } finally {
+      this.starting = false;
+    }
 
     this.child.stdout.setEncoding("utf8");
     this.child.stderr.setEncoding("utf8");
@@ -212,23 +235,26 @@ export class JsonRpcLiteClient {
       // `this.closed` guard in request() instead of writing to a dead process.
       this.closed = true;
       if (err.code === "ENOENT") {
-        this.failAllPending(new Error(CODEX_LAUNCH_FAILED_MESSAGE));
+        this.closedReason = new Error(CODEX_LAUNCH_FAILED_MESSAGE);
+        this.failAllPending(this.closedReason);
       } else {
-        this.failAllPending(`codex subprocess error: ${err.message}`);
+        this.closedReason = new Error(`codex subprocess error: ${err.message}`);
+        this.failAllPending(this.closedReason);
       }
     });
     this.child.on("exit", (code, signal) => {
       this.exitInfo = { code, signal };
       this.closed = true;
+      this.closedReason = new Error(
+        `codex subprocess exited${code != null ? ` with code ${code}` : ""}${signal ? ` (signal ${signal})` : ""}`,
+      );
       // The process is gone; cancel any pending SIGKILL escalation so a dangling
       // timer can't fire against a recycled pid.
       if (this.killTimer) {
         clearTimeout(this.killTimer);
         this.killTimer = null;
       }
-      this.failAllPending(
-        `codex subprocess exited${code != null ? ` with code ${code}` : ""}${signal ? ` (signal ${signal})` : ""}`,
-      );
+      this.failAllPending(this.closedReason);
       for (const h of this.exitHandlers) {
         try {
           h(code, signal);
@@ -240,6 +266,7 @@ export class JsonRpcLiteClient {
         } catch {}
       }
     });
+    return safety;
   }
 
   // Send the JSON-RPC `initialize` handshake. Caller is responsible for
@@ -317,7 +344,10 @@ export class JsonRpcLiteClient {
   // server error response.
   async request<T = unknown>(method: string, params?: unknown): Promise<T> {
     if (this.closed || !this.child) {
-      throw new Error(`cannot send ${method}: client is closed`);
+      throw (
+        this.closedReason ??
+        new Error(`cannot send ${method}: client is closed`)
+      );
     }
     const id = this.nextRequestId++;
     const frame: JsonRpcRequest = {

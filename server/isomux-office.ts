@@ -24,6 +24,7 @@ import type { AgentEvent, UserSendAcceptance } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { setProcessName } from "./process-name.ts";
 import { startAgentOomStamping } from "./oom-stamp.ts";
+import { prepareCodexSafetyHookArtifact } from "./backends/codex/safety-hook-install.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
 import type { AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
@@ -5789,6 +5790,14 @@ export async function runOfficeMain(): Promise<void> {
   // inherited by the in-process test harness - and it stamps whatever is
   // already running, so it can start before the server does.
   startAgentOomStamping();
+  try {
+    await prepareCodexSafetyHookArtifact();
+  } catch (err) {
+    // Codex preflight is deliberately fail-open. Keep the office available;
+    // every later Codex spawn retries preparation and emits the loud safety
+    // warning if the artifact is still unavailable.
+    console.error("[codex safety] artifact unavailable at boot:", err);
+  }
   const handle = await startServer();
   // Idle-eviction sweep: every minute, demote agents idle past the threshold to
   // lazy so they release their ~165MB subprocess. (Boot already lazy-restores

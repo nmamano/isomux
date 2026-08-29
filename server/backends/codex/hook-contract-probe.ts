@@ -137,8 +137,9 @@ async function trustFixture(
   const client = new JsonRpcLiteClient({
     cwd,
     env: { ...process.env, CODEX_HOME: fixture.home },
+    skipSafetyPreflightForTestProbe: true,
   });
-  client.start();
+  await client.start();
   try {
     await client.initialize(initializeParams());
     const hooks = await listHooks(client, cwd);
@@ -229,6 +230,7 @@ async function runCase(testCase: ContractCase): Promise<Json> {
     client = new JsonRpcLiteClient({
       cwd,
       env: { ...process.env, CODEX_HOME: fixture.home },
+      skipSafetyPreflightForTestProbe: true,
     });
     const events: Json[] = [];
     const clientStderr: string[] = [];
@@ -247,7 +249,7 @@ async function runCase(testCase: ContractCase): Promise<Json> {
       }
       return PASS;
     });
-    client.start();
+    await client.start();
     await client.initialize(initializeParams());
     const approvalPolicy = testCase.approvalPolicy ?? "never";
     const sandbox = testCase.sandbox ?? "danger-full-access";

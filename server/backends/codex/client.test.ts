@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "os";
 import { join } from "path";
 import { JsonRpcLiteClient } from "./client.ts";
+import { SAFETY_WARNING } from "./safety-hook.ts";
 
 const tmpDirs: string[] = [];
 
@@ -89,6 +90,7 @@ function makeClient(args: string[]): {
     // Full env so the script finds bash/sleep on PATH; GC_PIDFILE tells the
     // fake where to report its grandchild pid.
     env: { ...process.env, GC_PIDFILE: pidFile },
+    skipSafetyPreflightForTestProbe: true,
   });
   return { client, pidFile };
 }
@@ -106,9 +108,31 @@ async function readGrandchildPid(pidFile: string): Promise<number> {
 }
 
 describe("JsonRpcLiteClient.close - real process reaping", () => {
+  it("starts the subprocess and returns the warning when safety preflight fails", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "codex-client-preflight-test-"));
+    tmpDirs.push(dir);
+    const invalidHome = join(dir, "not-a-directory");
+    writeFileSync(invalidHome, "x");
+    const pidFile = join(dir, "grandchild.pid");
+    const client = new JsonRpcLiteClient({
+      codexBin: writeFakeLauncher(dir),
+      args: ["default"],
+      cwd: dir,
+      env: {
+        ...process.env,
+        CODEX_HOME: invalidHome,
+        GC_PIDFILE: pidFile,
+      },
+    });
+    const result = await client.start();
+    expect(result.warning).toBe(SAFETY_WARNING);
+    expect(client.pid()).toBeDefined();
+    await client.close();
+  }, 15000);
+
   it("SIGKILL-escalates a SIGTERM-ignoring child AND reaps the native grandchild", async () => {
     const { client, pidFile } = makeClient(["ignore"]);
-    client.start();
+    await client.start();
     const launcherPid = client.pid();
     expect(launcherPid).toBeDefined();
     const grandchildPid = await readGrandchildPid(pidFile);
@@ -130,7 +154,7 @@ describe("JsonRpcLiteClient.close - real process reaping", () => {
 
   it("reaps a well-behaved child (and grandchild) on SIGTERM, before the SIGKILL grace elapses", async () => {
     const { client, pidFile } = makeClient(["default"]);
-    client.start();
+    await client.start();
     const launcherPid = client.pid();
     const grandchildPid = await readGrandchildPid(pidFile);
     expect(isAlive(launcherPid!)).toBe(true);
@@ -187,8 +211,9 @@ describe("JsonRpcLiteClient.request - spawn failure", () => {
         // Explicit CODEX_HOME so withIsomuxCodexHome() doesn't create state
         // under the real ~/.isomux while tests run.
         env: { ...process.env, CODEX_HOME: dir },
+        skipSafetyPreflightForTestProbe: true,
       });
-      client.start();
+      await client.start();
 
       // The caller sees a normal rejection carrying the actionable hint.
       let rejection: unknown = null;

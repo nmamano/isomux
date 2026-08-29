@@ -236,8 +236,9 @@ async function prepareTrust(
   const discovery = new JsonRpcLiteClient({
     cwd,
     env: { ...process.env, CODEX_HOME: home },
+    skipSafetyPreflightForTestProbe: true,
   });
-  discovery.start();
+  await discovery.start();
   try {
     await discovery.initialize(initializeParams());
     const hook = await listHook(discovery, cwd);
@@ -265,6 +266,7 @@ function managedClient(cwd: string, home: string, managedEtc: string) {
     cwd,
     env: { ...process.env, CODEX_HOME: home },
     codexBin: "/usr/bin/bwrap",
+    skipSafetyPreflightForTestProbe: true,
     args: [
       "--ro-bind",
       "/",
@@ -393,6 +395,7 @@ async function runReading(
     client = new JsonRpcLiteClient({
       cwd,
       env: { ...process.env, CODEX_HOME: home },
+      skipSafetyPreflightForTestProbe: true,
     });
     const events: Json[] = [];
     client.onServerRequest(async (request) => {
@@ -403,7 +406,7 @@ async function runReading(
         success: true,
       };
     });
-    client.start();
+    await client.start();
     await client.initialize(initializeParams());
     let thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
@@ -525,7 +528,7 @@ async function runManagedReading(behavior: "allow" | "deny"): Promise<Reading> {
     const fixture = prepareManaged(root, home, behavior);
     client = managedClient(cwd, home, fixture.managedEtc);
     const events: Json[] = [];
-    client.start();
+    await client.start();
     await client.initialize(initializeParams());
     const hookListing = await listHook(client, cwd);
     const thread = await client.request<{ thread: { id: string } }>(
@@ -609,9 +612,10 @@ async function runOneShotReading(
     client = new JsonRpcLiteClient({
       cwd,
       env: { ...process.env, CODEX_HOME: home },
+      skipSafetyPreflightForTestProbe: true,
     });
     const events: Json[] = [];
-    client.start();
+    await client.start();
     await client.initialize(initializeParams());
     const thread = await client.request<{ thread: { id: string } }>(
       "thread/start",
@@ -726,8 +730,9 @@ async function runMidSessionReload(
     client = new JsonRpcLiteClient({
       cwd,
       env: { ...process.env, CODEX_HOME: home },
+      skipSafetyPreflightForTestProbe: true,
     });
-    client.start();
+    await client.start();
     await client.initialize(initializeParams());
     const thread = await client.request<{ thread: { id: string } }>(
       "thread/start",

@@ -76,6 +76,11 @@ import {
   type NotificationHandler,
   type ServerRequestHandler,
 } from "./client.ts";
+import { SAFETY_WARNING } from "./safety-hook.ts";
+import type {
+  CodexSafetyHookIdentity,
+  CodexSafetyPreflightResult,
+} from "./safety-hook-install.ts";
 import {
   codexWrapperCommandForShell,
   getCodexLoginCommands,
@@ -566,7 +571,7 @@ interface PendingApproval {
 // injected). Keep this session-scoped and free of test-only helpers - fixture
 // driving lives on the fake in codex/adapter.test.ts, not here.
 export interface CodexTransport {
-  start(): void;
+  start(): Promise<CodexSafetyPreflightResult>;
   initialize(params: InitializeParams): Promise<InitializeResponse>;
   request<T = unknown>(method: string, params?: unknown): Promise<T>;
   respondWithError(
@@ -719,6 +724,10 @@ export class CodexSession implements BackendSession {
   // error state THEN - matches Claude's lazy-auth UX where the agent
   // looks idle from spawn until the user actually messages it.
   private bootstrapError: Error | null = null;
+  // Exact hooks.json source and matcher position installed for this process.
+  // hook/completed does not include the command, so both fields are required
+  // to distinguish Isomux's run from a user hook in the same file.
+  private safetyHookIdentity: CodexSafetyHookIdentity | null = null;
 
   constructor(private readonly opts: CodexSessionInitOpts) {
     // JsonRpcLiteClient.start() applies the isomux CODEX_HOME default so
@@ -745,8 +754,10 @@ export class CodexSession implements BackendSession {
   // -------------------------------------------------------------------------
 
   private async bootstrap(): Promise<void> {
+    let safety: CodexSafetyPreflightResult | null = null;
     try {
-      this.client.start();
+      safety = await this.client.start();
+      this.safetyHookIdentity = safety.hookIdentity;
       const initParams: InitializeParams = {
         clientInfo: {
           name: CLIENT_INFO_NAME,
@@ -798,6 +809,9 @@ export class CodexSession implements BackendSession {
         slashCommands: [],
         model: this.opts.modelFamily,
       });
+      if (safety.warning) {
+        this.enqueue({ kind: "system_text", text: safety.warning });
+      }
     } catch (err) {
       // Defer the error to send(): we want this agent to look idle from
       // spawn so the desk indicator doesn't go red before the user has
@@ -813,6 +827,9 @@ export class CodexSession implements BackendSession {
         slashCommands: [],
         model: this.opts.modelFamily,
       });
+      if (safety?.warning) {
+        this.enqueue({ kind: "system_text", text: safety.warning });
+      }
       this.markEnded();
     }
   }
@@ -1615,6 +1632,37 @@ export class CodexSession implements BackendSession {
               ? { kind: "system_text", text: message }
               : { kind: "error", message },
           );
+        }
+        break;
+      }
+      case "hook/completed": {
+        const run = params?.run as
+          | {
+              sourcePath?: unknown;
+              displayOrder?: unknown;
+              status?: unknown;
+              entries?: unknown;
+            }
+          | undefined;
+        const identity = this.safetyHookIdentity;
+        const isIsomuxRun =
+          !!identity &&
+          run?.sourcePath === identity.sourcePath &&
+          Number(run?.displayOrder) === identity.displayOrder;
+        if (!isIsomuxRun) break;
+        const entries = Array.isArray(run?.entries)
+          ? (run.entries as Array<{ kind?: unknown; text?: unknown }>)
+          : [];
+        const caughtFault = entries.some(
+          (entry) => entry.text === SAFETY_WARNING,
+        );
+        const executionFailure =
+          run?.status === "failed" ||
+          entries.some(
+            (entry) => entry.kind === "error" || entry.kind === "warning",
+          );
+        if (caughtFault || executionFailure) {
+          this.enqueue({ kind: "system_text", text: SAFETY_WARNING });
         }
         break;
       }
@@ -2533,7 +2581,7 @@ export const codexBackend: Backend = {
     // nextCursor === null. ~1-2s end-to-end including subprocess spawn.
     const client = new JsonRpcLiteClient({ cwd: opts.cwd, env: opts.env });
     try {
-      client.start();
+      await client.start();
       await client.initialize({
         clientInfo: {
           name: CLIENT_INFO_NAME,
@@ -2638,7 +2686,7 @@ export const codexBackend: Backend = {
     // still as a fork, so /resume shows the parent as the original branch).
     const client = new JsonRpcLiteClient();
     try {
-      client.start();
+      await client.start();
       await client.initialize({
         clientInfo: {
           name: CLIENT_INFO_NAME,
@@ -2711,7 +2759,7 @@ export const codexBackend: Backend = {
     // user messages by content + occurrence index.
     const client = new JsonRpcLiteClient();
     try {
-      client.start();
+      await client.start();
       await client.initialize({
         clientInfo: {
           name: CLIENT_INFO_NAME,
@@ -2773,7 +2821,7 @@ export const codexBackend: Backend = {
     // one-shot prompt flow.
     const client = new JsonRpcLiteClient({ cwd: opts.cwd, env: opts.env });
     try {
-      client.start();
+      await client.start();
       await client.initialize({
         clientInfo: {
           name: CLIENT_INFO_NAME,

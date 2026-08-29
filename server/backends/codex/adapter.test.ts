@@ -43,6 +43,8 @@ import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 import type { NormalizedEvent } from "../types.ts";
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
+import type { CodexSafetyPreflightResult } from "./safety-hook-install.ts";
+import { SAFETY_WARNING } from "./safety-hook.ts";
 
 const FIXTURE_THREAD_ID = "thread-fixture-1";
 
@@ -77,6 +79,10 @@ class FakeCodexTransport implements CodexTransport {
     code: number;
     message: string;
   }[] = [];
+  startResult: CodexSafetyPreflightResult = {
+    warning: null,
+    hookIdentity: null,
+  };
 
   private notificationHandler: NotificationHandler | null = null;
   private serverRequestHandler: ServerRequestHandler | null = null;
@@ -86,8 +92,9 @@ class FakeCodexTransport implements CodexTransport {
     | null = null;
 
   // ----- CodexTransport (production surface) -----
-  start(): void {
+  start(): Promise<CodexSafetyPreflightResult> {
     this.started = true;
+    return Promise.resolve(this.startResult);
   }
 
   initialize(_params: InitializeParams): Promise<InitializeResponse> {
@@ -879,6 +886,86 @@ describe("CodexSession misc notifications", () => {
       "system_text",
     );
     expect(next.text).toBe("[warning] after hook");
+  });
+
+  it("surfaces the exact pre-spawn safety warning after system_init", async () => {
+    const fake = new FakeCodexTransport();
+    fake.startResult = { warning: SAFETY_WARNING, hookIdentity: null };
+    const { it } = start(fake);
+    expectKind(await nextEvent(it, "system init"), "system_init");
+    expect(
+      expectKind(await nextEvent(it, "safety warning"), "system_text").text,
+    ).toBe(SAFETY_WARNING);
+  });
+
+  it("keeps the pre-spawn safety warning visible when bootstrap also fails", async () => {
+    const fake = new FakeCodexTransport();
+    fake.startResult = { warning: SAFETY_WARNING, hookIdentity: null };
+    fake.bootstrapError = new Error("thread start failed");
+    const { it } = start(fake);
+    expectKind(await nextEvent(it, "failed system init"), "system_init");
+    expect(
+      expectKind(await nextEvent(it, "safety warning"), "system_text").text,
+    ).toBe(SAFETY_WARNING);
+  });
+
+  it("warns only for the installed Isomux hook/completed identity", async () => {
+    const fake = new FakeCodexTransport();
+    fake.startResult = {
+      warning: null,
+      hookIdentity: { sourcePath: "/tmp/codex/hooks.json", displayOrder: 1 },
+    };
+    const { it } = await bootstrapped(fake);
+    fake.fireNotification("hook/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "t-user-hook",
+      run: {
+        sourcePath: "/tmp/codex/hooks.json",
+        displayOrder: 0,
+        status: "failed",
+        entries: [{ kind: "error", text: "user hook exited 17" }],
+      },
+    });
+    fake.fireNotification("warning", { message: "after user hook" });
+    expect(
+      expectKind(await nextEvent(it, "ordinary warning"), "system_text").text,
+    ).toBe("[warning] after user hook");
+
+    fake.fireNotification("hook/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "t-isomux-hook",
+      run: {
+        sourcePath: "/tmp/codex/hooks.json",
+        displayOrder: 1,
+        status: "failed",
+        entries: [{ kind: "error", text: "hook exited 127" }],
+      },
+    });
+    expect(
+      expectKind(await nextEvent(it, "Isomux safety warning"), "system_text")
+        .text,
+    ).toBe(SAFETY_WARNING);
+  });
+
+  it("surfaces the checker caught-fault systemMessage for its owned run", async () => {
+    const fake = new FakeCodexTransport();
+    fake.startResult = {
+      warning: null,
+      hookIdentity: { sourcePath: "/tmp/codex/hooks.json", displayOrder: 2 },
+    };
+    const { it } = await bootstrapped(fake);
+    fake.fireNotification("hook/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      run: {
+        sourcePath: "/tmp/codex/hooks.json",
+        displayOrder: 2,
+        status: "completed",
+        entries: [{ kind: "warning", text: SAFETY_WARNING }],
+      },
+    });
+    expect(
+      expectKind(await nextEvent(it, "caught fault"), "system_text").text,
+    ).toBe(SAFETY_WARNING);
   });
 
   it("model/rerouted -> system_text built from fromModel/toModel/reason (5acf4941)", async () => {
