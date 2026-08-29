@@ -779,6 +779,7 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["GET", "/api/apps", "List apps"],
   ["POST", "/api/apps", "Register app"],
   ["GET", "/api/apps/*", "Read app"],
+  ["POST", "/api/apps/*/preview", "Capture app preview"],
   ["PATCH", "/api/apps/*", "Update app"],
   ["DELETE", "/api/apps/*", "Delete app"],
   ["GET", "/api/apps/*/logs", "Read app logs"],

@@ -136,12 +136,12 @@ Then open `http://localhost:5173`.
 - If you've hand-edited a package's config file - `/etc/caddy/Caddyfile` is the likely one - the installer and `isomux-update` keep your version when the package ships a new one, and name the files they kept. The package's version is parked beside each as `<file>.dpkg-dist`; reconciling the two is up to you.
 - The service is system-level: restart with `systemctl restart isomux` as root. An office on [your own hardware](#your-own-hardware) runs a user-level service instead, where the commands are `systemctl --user`.
 - SSH hardening is skipped, loudly, if the box has no SSH key on it yet: turning off password logins there would lock you out. Add your key, then run `sudo isomux-harden-ssh`.
-- Chrome backs only the page-preview cards. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
+- Chrome backs page-preview cards and app screenshot previews. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
 - Authenticated users effectively have shell access to the server (agents run commands as the `isomux` user). Only invite people you trust; see [access and invites](access-and-invites.md).
 
 ## Your own hardware
 
-A Mac mini, a spare Linux machine, anything always-on. The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 20+, which the embedded terminal runs on. Optional: a Chrome-family browser on the host enables browser preview cards (agents screenshot web pages straight into the chat).
+A Mac mini, a spare Linux machine, anything always-on. The host needs the same prerequisites as a local install: Bun (v1.2+) and Node.js 20+, which the embedded terminal runs on. Optional: a Chrome-family browser on the host enables browser preview cards and app screenshot previews.
 
 ### Keep the server running
 

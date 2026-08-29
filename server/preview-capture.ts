@@ -118,8 +118,10 @@ export const BROWSER_ABSOLUTE_PATHS = [
   "/snap/bin/chromium",
 ];
 
-// Each Chrome is briefly ~150MB RSS; no queueing so the deadline never hides
-// unbounded wait time - a busy slot is an immediate 429 and agents retry.
+// A full Chrome process tree peaked at 188-208 MiB for typical pages and 403 MiB
+// for the heaviest measured page on 2026-08-29. These cgroup memory.peak values
+// include page cache, so they are upper bounds. There is no server queue: the
+// deadline never hides unbounded wait, and a busy slot is an immediate 429.
 let activeCaptures = 0;
 
 function fail(

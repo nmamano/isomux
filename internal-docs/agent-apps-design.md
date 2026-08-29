@@ -84,7 +84,7 @@ whatever they put there survives logout and reboot exactly like a registered app
 does. Enforcing the sentence would take a separate Unix identity for the
 supervisor, which the user-unit transport does not have.
 
-Surface: an Apps tab beside Cronjobs - name, state, restart count, logs, stop and
+Surface: an Apps tab beside Cronjobs - name, state, restart count, screenshot preview, logs, stop and
 delete. Cronjobs are the precedent for "a thing isomux runs that is not an
 agent"; apps are the second one.
 

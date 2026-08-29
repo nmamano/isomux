@@ -226,7 +226,7 @@ Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry
 
 ### Apps
 - Agents can build a web app and register it with the office; isomux runs it from then on, so it keeps running after the session ends.
-- The Apps tab lists every app available to you with its state, restart count, and recent output, and lets you start, stop, restart, or delete it.
+- The Apps tab lists every app available to you with its state, restart count, recent output, and screenshot preview, and lets you start, stop, restart, or delete it.
 - On an office with its own domain and wildcard DNS, each app can get its own address, like hello.your-office.com (see isomux.com/docs/self-hosted).
 - Only people signed in to the office can open an app's address.
 - An app can message the agent that built it, so it can report an event and have an agent act on it.

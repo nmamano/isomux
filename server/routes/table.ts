@@ -1049,6 +1049,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("app:read", appOwnerOrOfficeOwner("name")),
     emits: [],
   }),
+  defineRoute<void, Uint8Array>({
+    opId: "apps.preview",
+    method: "POST",
+    path: "/api/apps/:name/preview",
+    auth: cap("app:read", authenticated),
+    emits: [],
+  }),
   defineRoute<AppRegisterReq, AppWire>({
     opId: "apps.register",
     method: "POST",

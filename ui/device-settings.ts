@@ -41,11 +41,11 @@ export function setDevice(label: string | null): void {
   else localStorage.removeItem(KEY_DEVICE);
 }
 
-// App previews are on unless this device opted out. They can run several app
-// front ends, so a phone and a laptop keep independent choices.
+// App previews are off until this device opts in. A cold, serialized fill of a
+// large Apps page can take tens of seconds.
 export function getAppPreviews(): boolean {
-  if (typeof localStorage === "undefined") return true;
-  return localStorage.getItem(KEY_APP_PREVIEWS) !== "off";
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(KEY_APP_PREVIEWS) === "on";
 }
 
 export function setAppPreviews(enabled: boolean): void {

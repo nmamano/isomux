@@ -17,20 +17,18 @@ import { useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import {
-  APP_PREVIEW_OPEN_TTL_MS,
-  getAppPreviewOpenedAt,
-  getAppPreviews,
-  markAppPreviewOpened,
-  pruneAppPreviewOpens,
-  setAppPreviews,
-} from "../device-settings.ts";
+  appPreviewQueue,
+  type PreviewQueueCancel,
+} from "../app-preview-queue.ts";
+import { getAppPreviews, setAppPreviews } from "../device-settings.ts";
 import type { AppListWire, AppState, AppWire } from "../../shared/types.ts";
 
 // How often the open tab re-asks for the list. The server caches app state for
 // 1500ms behind the supervisor seam, so several open tabs cost at most one
 // systemd read per cache window rather than one per tab per tick.
 const POLL_MS = 5000;
-const BACKGROUND_OPEN_FALLBACK_MS = 1500;
+export const APP_PREVIEW_CLIENT_TIMEOUT_MS = 25_000;
+const APP_PREVIEW_BUSY_RETRIES = 3;
 
 /**
  * Should a response that has just come back be allowed to write to the shared
@@ -136,23 +134,6 @@ export function appCanPreview(app: Pick<AppWire, "url" | "state">): boolean {
   );
 }
 
-export type AppPreviewPhase = "open-prompt" | "loading" | "frame";
-
-export function appPreviewPhase(
-  openedAt: number | null,
-  now: number,
-  visible: boolean,
-  waitingForReturn: boolean,
-  framesAllowed: boolean,
-): AppPreviewPhase {
-  if (!framesAllowed) return "open-prompt";
-  if (openedAt === null || now - openedAt >= APP_PREVIEW_OPEN_TTL_MS) {
-    return "open-prompt";
-  }
-  if (!visible || waitingForReturn) return "loading";
-  return "frame";
-}
-
 const STATE_COLOR: Record<AppState, string> = {
   running: "var(--green)",
   starting: "var(--orange, #d29922)",
@@ -204,153 +185,153 @@ function OpenIcon() {
   );
 }
 
-function AppPreview({
+export function AppPreview({
   app,
-  href,
-  linkHref,
   isMobile,
-  framesAllowed,
 }: {
   app: Pick<AppWire, "name">;
-  href: string;
-  linkHref: string;
   isMobile: boolean;
-  framesAllowed: boolean;
 }) {
-  const hostRef = useRef<HTMLElement>(null);
-  const [visible, setVisible] = useState(
-    () => !("IntersectionObserver" in window),
-  );
-  const [openedAt, setOpenedAt] = useState(() => getAppPreviewOpenedAt(href));
-  const [now, setNow] = useState(Date.now);
-  const [waitingForReturn, setWaitingForReturn] = useState(false);
-  const phase = appPreviewPhase(
-    openedAt,
-    now,
-    visible,
-    waitingForReturn,
-    framesAllowed,
-  );
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [phase, setPhase] = useState<
+    | { kind: "queued" }
+    | { kind: "loading" }
+    | { kind: "busy" }
+    | { kind: "success"; url: string }
+    | { kind: "error"; code: string }
+  >({ kind: "queued" });
+  const requestRef = useRef(0);
+  const imageUrlRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const queueCancelRef = useRef<PreviewQueueCancel | null>(null);
+  const startedRef = useRef(false);
 
+  /* eslint-disable react-hooks/exhaustive-deps -- this effect owns one mount's
+     observer and queue ticket; rebuilding it would violate once-per-mount. */
   useEffect(() => {
     const host = hostRef.current;
-    if (host === null) return;
-    if (!("IntersectionObserver" in window)) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        setVisible(true);
-        observer.disconnect();
-      },
-      { rootMargin: "120px" },
-    );
-    observer.observe(host);
-    return () => observer.disconnect();
-  }, []);
+    if (!host) return;
+    let visible = !("IntersectionObserver" in window);
 
-  useEffect(() => {
-    if (!waitingForReturn) return;
-    const returned = () => {
-      setNow(Date.now());
-      setWaitingForReturn(false);
+    const startQueuedCapture = () => {
+      if (startedRef.current || queueCancelRef.current) return;
+      setPhase({ kind: "queued" });
+      queueCancelRef.current = appPreviewQueue.enqueue(async () => {
+        queueCancelRef.current = null;
+        if (!visible) return;
+        startedRef.current = true;
+        await capture();
+      });
     };
-    const fallback = setTimeout(returned, BACKGROUND_OPEN_FALLBACK_MS);
-    window.addEventListener("focus", returned);
+
+    const observer =
+      "IntersectionObserver" in window
+        ? new IntersectionObserver(
+            (entries) => {
+              visible = entries.some((entry) => entry.isIntersecting);
+              if (visible) startQueuedCapture();
+              else if (!startedRef.current) {
+                queueCancelRef.current?.();
+                queueCancelRef.current = null;
+              }
+            },
+            { rootMargin: "120px" },
+          )
+        : null;
+    if (observer) observer.observe(host);
+    else startQueuedCapture();
+
     return () => {
-      clearTimeout(fallback);
-      window.removeEventListener("focus", returned);
+      requestRef.current++;
+      queueCancelRef.current?.();
+      abortRef.current?.abort();
+      if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+      observer?.disconnect();
     };
-  }, [waitingForReturn]);
+  }, []);
+  /* eslint-enable react-hooks/exhaustive-deps */
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setOpenedAt(getAppPreviewOpenedAt(href));
-  }, [href]);
+  async function capture() {
+    const request = ++requestRef.current;
+    abortRef.current?.abort();
+    if (imageUrlRef.current) {
+      URL.revokeObjectURL(imageUrlRef.current);
+      imageUrlRef.current = null;
+    }
+    setPhase({ kind: "loading" });
+    let busyRetries = 0;
+    while (request === requestRef.current) {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const timer = setTimeout(
+        () => controller.abort(),
+        APP_PREVIEW_CLIENT_TIMEOUT_MS,
+      );
+      try {
+        const response = await fetch(
+          `/api/apps/${encodeURIComponent(app.name)}/preview`,
+          { method: "POST", signal: controller.signal },
+        );
+        if (request !== requestRef.current) return;
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as {
+            error?: { code?: string };
+          } | null;
+          const code = body?.error?.code ?? "capture_failed";
+          if (code === "capture_busy") {
+            if (busyRetries >= APP_PREVIEW_BUSY_RETRIES) {
+              setPhase({ kind: "error", code });
+              return;
+            }
+            busyRetries++;
+            setPhase({ kind: "busy" });
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            continue;
+          }
+          setPhase({ kind: "error", code });
+          return;
+        }
+        const url = URL.createObjectURL(await response.blob());
+        if (request !== requestRef.current) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        imageUrlRef.current = url;
+        setPhase({ kind: "success", url });
+        return;
+      } catch (err) {
+        if (request !== requestRef.current) return;
+        setPhase({
+          kind: "error",
+          code:
+            err instanceof DOMException && err.name === "AbortError"
+              ? "capture_timeout"
+              : "capture_failed",
+        });
+        return;
+      } finally {
+        clearTimeout(timer);
+        if (abortRef.current === controller) abortRef.current = null;
+      }
+    }
+  }
 
-  useEffect(() => {
-    if (openedAt === null) return;
-    const remaining = openedAt + APP_PREVIEW_OPEN_TTL_MS - Date.now();
-    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, remaining));
-    return () => clearTimeout(timer);
-  }, [openedAt]);
-
-  const recordOpen = () => {
-    const opened = Date.now();
-    markAppPreviewOpened(href, opened);
-    setOpenedAt(opened);
-    setNow(opened);
-    setWaitingForReturn(true);
-  };
-
-  const content = (
-    <>
-      {phase === "open-prompt" ? (
-        <span
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "grid",
-            placeItems: "center",
-            fontSize: 12,
-          }}
-        >
-          {framesAllowed ? "Open app to enable preview" : "Open demo app"}
-        </span>
-      ) : phase === "loading" ? (
-        <span
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "grid",
-            placeItems: "center",
-            fontSize: 12,
-          }}
-        >
-          Loading preview…
-        </span>
-      ) : (
-        <iframe
-          src={href}
-          title={`${app.name} preview`}
-          // Scripts and same-origin access are what let a real app render. The
-          // sandbox still blocks forms, popups, downloads and top navigation;
-          // it is not a security boundary around the app's own front end.
-          sandbox="allow-scripts allow-same-origin"
-          tabIndex={-1}
-          // The two tabindex values remove the wrapper and iframe elements
-          // from the office's tab order. Focus inside a cross-origin framed
-          // document cannot be controlled from here.
-          style={{
-            display: "block",
-            width: "100%",
-            height: "100%",
-            border: 0,
-            pointerEvents: "none",
-          }}
-        />
-      )}
-      {phase !== "open-prompt" && (
-        <span
-          style={{
-            position: "absolute",
-            right: 6,
-            bottom: 6,
-            padding: "2px 6px",
-            borderRadius: 4,
-            background: "var(--bg-overlay)",
-            color: "var(--text-secondary)",
-            fontSize: 10,
-            boxShadow: "0 1px 4px var(--shadow-heavy)",
-          }}
-        >
-          live preview
-        </span>
-      )}
-    </>
-  );
+  const message =
+    phase.kind !== "error"
+      ? null
+      : phase.code === "app_not_running"
+        ? "Preview unavailable: app is not running."
+        : phase.code === "no_browser"
+          ? "Preview unavailable: Chrome is not installed."
+          : phase.code === "unreachable"
+            ? "Preview unavailable: the app is not responding."
+            : phase.code === "capture_busy"
+              ? "Preview is busy. Try again."
+              : "Preview could not be captured.";
   const style: React.CSSProperties = {
     position: "relative",
-    display: "block",
+    display: "grid",
+    placeItems: "center",
     width: "100%",
     height: isMobile ? 150 : 210,
     marginTop: 10,
@@ -360,45 +341,120 @@ function AppPreview({
     borderRadius: 6,
     background: "var(--bg-code, var(--bg-base))",
     color: "var(--text-muted)",
-    textDecoration: "none",
+  };
+  const actionStyle: React.CSSProperties = {
+    padding: "4px 9px",
+    border: "1px solid var(--border)",
+    borderRadius: 5,
+    background: "var(--btn-surface)",
+    color: "var(--text-secondary)",
+    fontSize: 11,
     cursor: "pointer",
   };
 
-  if (!framesAllowed) {
-    return (
-      <a
-        ref={(node) => {
-          hostRef.current = node;
-        }}
-        href={linkHref}
-        target="_blank"
-        rel="noreferrer"
-        title={`Open ${app.name}`}
-        style={style}
-      >
-        {content}
-      </a>
-    );
-  }
-
   return (
-    <a
-      ref={(node) => {
-        hostRef.current = node;
+    <div ref={hostRef} style={style}>
+      {phase.kind === "success" ? (
+        <img
+          src={phase.url}
+          alt="Screenshot preview"
+          style={{
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            objectPosition: "top",
+          }}
+        />
+      ) : (
+        <div
+          style={{
+            textAlign: "center",
+            fontSize: 12,
+            padding: 16,
+            color: "var(--text-secondary)",
+          }}
+        >
+          <div>
+            {phase.kind === "queued"
+              ? "Preview queued…"
+              : phase.kind === "loading"
+                ? "Capturing preview…"
+                : phase.kind === "busy"
+                  ? "Preview is busy. Retrying…"
+                  : message}
+          </div>
+          {phase.kind === "error" && (
+            <button
+              type="button"
+              onClick={() => {
+                setPhase({ kind: "queued" });
+                queueCancelRef.current = appPreviewQueue.enqueue(async () => {
+                  queueCancelRef.current = null;
+                  await capture();
+                });
+              }}
+              style={{ ...actionStyle, marginTop: 9 }}
+            >
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+      {phase.kind === "success" && (
+        <span
+          style={{
+            position: "absolute",
+            left: 6,
+            bottom: 6,
+            padding: "3px 7px",
+            borderRadius: 5,
+            background: "var(--bg-overlay)",
+            color: "var(--text-secondary)",
+            fontSize: 10,
+            boxShadow: "0 1px 4px var(--shadow-heavy)",
+          }}
+        >
+          Screenshot preview
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function AppPreviewsOffNotice({ onEnable }: { onEnable: () => void }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        marginBottom: 10,
+        padding: "10px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        background: "var(--bg-subtle)",
+        color: "var(--text-secondary)",
+        fontSize: 12,
       }}
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      title={`Open ${app.name}`}
-      tabIndex={-1}
-      onClick={recordOpen}
-      onAuxClick={(event) => {
-        if (event.button === 1) recordOpen();
-      }}
-      style={style}
     >
-      {content}
-    </a>
+      <span>App previews are off.</span>
+      <button
+        type="button"
+        onClick={onEnable}
+        style={{
+          padding: "4px 9px",
+          border: "1px solid var(--border)",
+          borderRadius: 5,
+          background: "var(--btn-surface)",
+          color: "var(--text-secondary)",
+          fontSize: 11,
+          cursor: "pointer",
+        }}
+      >
+        Turn on previews
+      </button>
+    </div>
   );
 }
 
@@ -650,15 +706,6 @@ export function AppsView({
 
   const sorted = [...apps].sort((a, b) => a.name.localeCompare(b.name));
 
-  useEffect(() => {
-    if (!appsLoaded) return;
-    pruneAppPreviewOpens(
-      apps.flatMap((app) =>
-        typeof app.url === "string" && app.url !== "" ? [app.url] : [],
-      ),
-    );
-  }, [apps, appsLoaded]);
-
   return (
     <div
       style={{
@@ -753,6 +800,14 @@ export function AppsView({
       )}
 
       <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? 12 : 20 }}>
+        {features.liveAppPreviews && !previewsEnabled && (
+          <AppPreviewsOffNotice
+            onEnable={() => {
+              setPreviewsEnabled(true);
+              setAppPreviews(true);
+            }}
+          />
+        )}
         {!appsLoaded ? null : sorted.length === 0 ? (
           <div
             style={{
@@ -767,7 +822,6 @@ export function AppsView({
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {sorted.map((app) => {
               const isBusy = busy?.startsWith(`${app.name}:`) ?? false;
-              const liveHref = appHref(app, window.location.hostname);
               const linkHref = appLinkHref(
                 app,
                 window.location.hostname,
@@ -845,13 +899,7 @@ export function AppsView({
                   </div>
 
                   {previewsEnabled && appCanPreview(app) && (
-                    <AppPreview
-                      app={app}
-                      href={liveHref}
-                      linkHref={linkHref}
-                      isMobile={isMobile}
-                      framesAllowed={features.liveAppPreviews}
-                    />
+                    <AppPreview app={app} isMobile={isMobile} />
                   )}
 
                   {app.description && (

@@ -124,7 +124,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 ### Apps
 
 - **Your personal app suite** - apps agents make for you or for other members of the office, available 24/7 from any device that can access the office. Room visibility decides which apps you see: share a room, share the apps.
-- **Apps tab**: see all your apps in one place.
+- **Apps tab**: see all your apps and their screenshot previews in one place.
 - **Its own web address** - on an office with its own domain and wildcard DNS, an app can get an address like `myapp.myoffice.com`, so it opens from any device ([setup](self-hosted.md#app-hostnames)). When running locally, each app runs in a port.
 - **Behind your sign-in** - only people signed in to your office can open an app's address.
 - **Apps can message the agent that built them**, so an app can report an event and have an agent act on it.

@@ -47,6 +47,12 @@ export type HandlerErrorStatus =
   | 500;
 export type HandlerResult =
   | { kind: "json"; status?: number; body: unknown }
+  | {
+      kind: "bytes";
+      body: Uint8Array;
+      contentType: string;
+      headers?: Record<string, string>;
+    }
   | { kind: "noContent" }
   | {
       kind: "file";
@@ -78,6 +84,11 @@ export const created = (body: unknown): HandlerResult => ({
   status: 201,
 });
 export const noContent = (): HandlerResult => ({ kind: "noContent" });
+export const bytes = (
+  body: Uint8Array,
+  contentType: string,
+  headers?: Record<string, string>,
+): HandlerResult => ({ kind: "bytes", body, contentType, headers });
 // Byte/stream response (agents.getFile). The executor renders it via Bun.file();
 // the handler stays out of the Response-building business, same as the JSON ones.
 export const file = (
@@ -153,6 +164,14 @@ function render(result: HandlerResult): Response {
       });
     case "noContent":
       return new Response(null, { status: 204 });
+    case "bytes":
+      return new Response(result.body, {
+        status: 200,
+        headers: {
+          "Content-Type": result.contentType,
+          ...(result.headers ?? {}),
+        },
+      });
     case "error":
       return new Response(
         JSON.stringify({

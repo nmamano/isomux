@@ -41,6 +41,7 @@
 
 import {
   ok,
+  bytes,
   created,
   noContent,
   fail,
@@ -60,6 +61,7 @@ import {
 } from "../../app-message-limits.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { AppRecord } from "../../../shared/types.ts";
+import type { AppPreviewResult } from "../../app-preview.ts";
 import type {
   AppErrorCode,
   AppListWire,
@@ -111,6 +113,9 @@ export interface AppsDeps {
   // Derived on every read from the boot-frozen domain and the app's label -
   // the same value its unit injects as ISOMUX_APP_URL.
   publicUrl(app: AppRecord): string | null;
+  canAccess(app: AppRecord, userId: string): boolean;
+  capturePreview(app: AppRecord): Promise<AppPreviewResult>;
+  invalidatePreview(name: string): void;
 
   // --- the wire seam -------------------------------------------------------
   // Tell every socket that may see this app about it. Called with the SAME wire
@@ -270,6 +275,27 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
       } catch (err) {
         return renderRegistryError(err);
       }
+    },
+    "apps.preview": async (ctx) => {
+      const app = deps.get(ctx.params.name);
+      const userId = ctx.identity.userId;
+      if (!app || !userId || !deps.canAccess(app, userId)) {
+        return fail(404, "not_found", "not found");
+      }
+      const before = deps.states([app.name]).get(app.name) ?? UNKNOWN_RUNTIME;
+      if (before.state !== "running") {
+        deps.invalidatePreview(app.name);
+        return fail(409, "app_not_running", "app is not running");
+      }
+
+      const result = await deps.capturePreview(app);
+      const after = deps.states([app.name]).get(app.name) ?? UNKNOWN_RUNTIME;
+      if (after.state !== "running") {
+        deps.invalidatePreview(app.name);
+        return fail(409, "app_not_running", "app is not running");
+      }
+      if (!result.ok) return fail(result.status, result.code, result.error);
+      return bytes(result.png, "image/png", { "Cache-Control": "no-store" });
     },
 
     "apps.register": (ctx) => {
@@ -503,6 +529,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         // removal committed and non-throwing, because forgetting a rate limit
         // is not worth failing a delete that already happened.
         deps.limiter.forget(record.name);
+        deps.invalidatePreview(record.name);
         // AFTER the removal committed, and from the record read before teardown:
         // the registry no longer holds an owner to project the audience from.
         announced(record.name, () => deps.announceRemoved(record));
@@ -700,6 +727,7 @@ function actionHandler(
       // A throw here escapes to renderRegistryError, so nothing is announced -
       // a verb that failed changed nothing to tell anyone about.
       act(record.name);
+      deps.invalidatePreview(record.name);
       const wire = toWire(
         record,
         deps.states([record.name]).get(record.name),

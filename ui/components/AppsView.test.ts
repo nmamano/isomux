@@ -13,7 +13,6 @@ import { DEMO_FEATURES, PRODUCTION_FEATURES } from "../../shared/features.ts";
 import {
   appCanPreview,
   appLinkHref,
-  appPreviewPhase,
   appHref,
   appLinkLabel,
   initialAppPreviews,
@@ -58,31 +57,6 @@ describe("appCanPreview", () => {
         appCanPreview({ state, url: "https://habits.office.example" }),
       ).toBe(false);
     }
-  });
-});
-
-describe("appPreviewPhase", () => {
-  it("prompts until this device has opened the exact app URL", () => {
-    expect(appPreviewPhase(null, 1000, true, false, true)).toBe("open-prompt");
-  });
-
-  it("loads while offscreen or while the opened app has focus", () => {
-    expect(appPreviewPhase(1000, 1001, false, false, true)).toBe("loading");
-    expect(appPreviewPhase(1000, 1001, true, true, true)).toBe("loading");
-  });
-
-  it("frames a recently opened app after the browser returns", () => {
-    expect(appPreviewPhase(1000, 1001, true, false, true)).toBe("frame");
-  });
-
-  it("keeps synthetic demo app URLs on the open prompt", () => {
-    expect(appPreviewPhase(1000, 1001, true, false, false)).toBe("open-prompt");
-  });
-
-  it("prompts again when the app session lifetime has elapsed", () => {
-    expect(
-      appPreviewPhase(1000, 1000 + 12 * 60 * 60 * 1000, true, false, true),
-    ).toBe("open-prompt");
   });
 });
 

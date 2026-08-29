@@ -381,6 +381,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Apps tab exists.
   "apps.list": { caps: ["app:read"], emits: [] },
   "apps.get": { caps: ["app:read"], emits: [] },
+  "apps.preview": { caps: ["app:read"], emits: [] },
   "apps.register": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.update": { caps: ["app:write"], emits: ["app_upserted"] },
   "apps.delete": { caps: ["app:write"], emits: ["app_deleted"] },

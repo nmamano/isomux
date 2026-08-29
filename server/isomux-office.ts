@@ -162,6 +162,7 @@ import {
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { appsHandlers } from "./routes/handlers/apps.ts";
 import { appRegistry, appRegistrationGeneration } from "./app-registry.ts";
+import { appPreviewCapture } from "./app-preview.ts";
 import { handleAppHostRequest } from "./app-hosts.ts";
 import {
   appHostDomain,
@@ -1819,6 +1820,9 @@ function buildExecutorDeps(
       },
       limiter: appMessageLimiter,
       publicUrl: (app) => appPublicUrl(app.hostLabel, appHostDomain()),
+      canAccess: canUserAccessApp,
+      capturePreview: (app) => appPreviewCapture.capture(app),
+      invalidatePreview: (name) => appPreviewCapture.invalidate(name),
       install: (record) => appSupervisor.install(record),
       reinstall: (record) => appSupervisor.reinstall(record),
       teardown: (name) => appSupervisor.teardown(name),

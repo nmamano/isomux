@@ -49,8 +49,8 @@ const {
 describe("app previews", () => {
   beforeEach(() => store.clear());
 
-  it("defaults on and round-trips this device's choice", () => {
-    expect(getAppPreviews()).toBe(true);
+  it("defaults off and round-trips this device's choice", () => {
+    expect(getAppPreviews()).toBe(false);
     setAppPreviews(false);
     expect(getAppPreviews()).toBe(false);
     setAppPreviews(true);
