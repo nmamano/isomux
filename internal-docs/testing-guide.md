@@ -10,6 +10,7 @@ The maintained reference for Isomux's test suite: the tiers, how to run them, th
 - `bun run test:systemd` - `ISOMUX_TEST_SYSTEMD=1 bun test server/app-supervisor.live.test.ts`. The one test that drives real systemd: installs a unit, starts an app, kills it, reads the restart count, and removes everything it made. Its own gate rather than `test:live`'s, because that flag means "spend model credits" and this test spends none - conflating them would make one half cost money and the other half create unit files.
 - `bun run test:install-fetch` - `ISOMUX_TEST_INSTALL_FETCH=1 bun test deploy/install-docs.test.ts`. Fetches the documented installer over the network and proves the complete staged file parses. It has its own gate because it spends no model credits and the default suite stays network-free.
 - `bun run lint` (ESLint) and `bun run format:check` (Prettier) round out the pre-review checks.
+- If a run reports a test timeout, run the affected file alone before you attribute later failures in that file. As measured 2026-08-29, Bun 1.3.11, 1.3.14, and 1.4.0 do not stop a timed-out test body. It can continue to change shared state after teardown and make later tests fail.
 
 ## Tiers (LLM-call policy)
 

@@ -12,6 +12,11 @@ For UI changes, run `bun run build:ui`. Outputs to `ui/dist/`, which the server 
 
 On a fresh checkout or worktree, run `bun run build:ui` before `bun test`. Tests that serve the app shell or PWA assets need the built files.
 
+If a run reports a test timeout, run the affected file alone before you
+attribute later failures in that file. As measured 2026-08-29, Bun 1.3.11,
+1.3.14, and 1.4.0 do not stop a timed-out test body. It can continue to change
+shared state after teardown and make later tests fail.
+
 Proactively remind the user of what steps they need to take to do what they want: e.g., to test a front-end only change, or a server change in main, or a change in a worktree. Offer to do the steps yourself. After completing a feature or batch of fixes, offer to the user to commit.
 
 If an action runs into permission issues because it's a destructive action, let the user know and give them the command they need to run to do it themselves.

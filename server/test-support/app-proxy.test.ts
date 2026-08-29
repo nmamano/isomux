@@ -198,7 +198,7 @@ function startUpstream(port = 0, defaultBody = "ok"): Upstream {
             async start(controller) {
               req.signal.addEventListener("abort", () => aborted.push(path));
               try {
-                for (let i = 0; i < 50; i++) {
+                for (let i = 0; i < 100; i++) {
                   controller.enqueue(
                     new TextEncoder().encode(`data: ${i}\n\n`),
                   );
@@ -805,20 +805,36 @@ describe("relay: failures", () => {
 
   it("does not cut a stream off at the header deadline", async () => {
     // The TTFB timer is cleared when headers arrive: an SSE stream running long
-    // past it is the feature, not a timeout. Several chunks are read, not one -
-    // the first can come out of the stream's own queue and would survive an
-    // abort that killed everything behind it.
+    // past it is the feature, not a timeout. Keep reading until well after the
+    // deadline: the first chunk can come out of the stream's own queue and
+    // would survive an abort that killed everything behind it.
+    const ttfbMs = 1500;
+    const mustStreamPastMs = ttfbMs + 250;
+    const started = performance.now();
     up = startUpstream();
     const res = await relay(get("/sse"), {
       app: appRecord(up.port),
-      ttfbMs: 100,
+      ttfbMs,
     });
+    const headersAtMs = performance.now() - started;
+    expect(res.status).toBe(200);
+    expect(headersAtMs).toBeLessThan(ttfbMs / 2);
     const reader = res.body!.getReader();
-    await Bun.sleep(300);
-    for (let i = 0; i < 4; i++) {
-      const chunk = await reader.read();
-      expect({ i, done: chunk.done }).toEqual({ i, done: false });
+    let chunksRead = 0;
+    while (performance.now() - started < mustStreamPastMs) {
+      let readError: string | undefined;
+      const chunk = await reader.read().catch((error: unknown) => {
+        readError = String(error);
+        return { done: true, value: undefined };
+      });
+      expect({ done: chunk.done, error: readError }).toEqual({
+        done: false,
+        error: undefined,
+      });
+      chunksRead++;
     }
+    expect(chunksRead).toBeGreaterThan(0);
+    expect(performance.now() - started).toBeGreaterThan(ttfbMs);
     await reader.cancel();
   });
 
