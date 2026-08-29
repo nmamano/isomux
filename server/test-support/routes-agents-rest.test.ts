@@ -608,6 +608,26 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     });
   });
 
+  it("preserves an explicit OpenCode bypass mode through REST spawn", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        ...spawnBody(srv, "OpenCode bypass", roomId, 0),
+        agentType: "opencode",
+        modelFamily: "gate/gate-model",
+        permissionMode: "bypassPermissions",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    expect(
+      (res.body as { agent: { permissionMode: string } }).agent.permissionMode,
+    ).toBe("bypassPermissions");
+  });
+
   it("Codex spawn without permission fields gets the agent defaults", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -669,6 +689,32 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
       "Renamed",
     );
     expect(srv.agentManager.getAgent(x.id)?.name).toBe("Renamed");
+  });
+
+  it("PATCH flips a dormant OpenCode agent from bypass back to default", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const spawned = await req(srv, "POST", "/api/agents", {
+      body: {
+        name: "OpenCode flip",
+        cwd: srv.stateRoot,
+        roomId,
+        desk: 0,
+        agentType: "opencode",
+        modelFamily: "gate/gate-model",
+        permissionMode: "bypassPermissions",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    const agentId = (spawned.body as { agent: { id: string } }).agent.id;
+    const patched = await req(srv, "PATCH", `/api/agents/${agentId}`, {
+      body: { permissionMode: "default" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(patched.status).toBe(200);
+    expect(srv.agentManager.getAgent(agentId)?.permissionMode).toBe("default");
   });
 
   it("invalid cwd -> 400 invalid_cwd", async () => {

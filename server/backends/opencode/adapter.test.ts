@@ -8,6 +8,7 @@ import {
   buildOpenCodePromptParts,
   createOpenCodeBackend,
   createOpenCodeTracerBackend,
+  permissionAgent,
 } from "./adapter.ts";
 import { OpenCodeSupervisor } from "./supervisor.ts";
 import { STATE_ROOT } from "../../config.ts";
@@ -26,6 +27,35 @@ const opts: CreateSessionOptions = {
   effort: "high",
   permissionMode: "default",
 };
+
+describe("OpenCode permission profile selection", () => {
+  it("keeps a default live session on the asking profile", () => {
+    expect(
+      permissionAgent({ permissionMode: "default", interactive: true }),
+    ).toBe(undefined);
+  });
+
+  it("selects the interactive bypass profile only for an explicit interactive caller", () => {
+    expect(
+      permissionAgent({
+        permissionMode: "bypassPermissions",
+        interactive: true,
+      }),
+    ).toBe("isomux-interactive-bypass");
+  });
+
+  it("keeps an unattended bypass caller on the narrower cron profile", () => {
+    expect(permissionAgent({ permissionMode: "bypassPermissions" })).toBe(
+      "isomux-cron",
+    );
+    expect(
+      permissionAgent({
+        permissionMode: "bypassPermissions",
+        interactive: false,
+      }),
+    ).toBe("isomux-cron");
+  });
+});
 
 async function collect(
   stream: AsyncIterable<NormalizedEvent>,
@@ -245,6 +275,7 @@ describe("OpenCode pinned transport", () => {
       ...opts,
       modelFamily: "beta/model-two",
       permissionMode: "bypassPermissions",
+      interactive: true,
     });
     const resumed = backend.resumeSession("session-3", {
       ...opts,
@@ -286,7 +317,11 @@ describe("OpenCode pinned transport", () => {
       { providerID: "beta", modelID: "model-two" },
       { providerID: "gamma", modelID: "model-three" },
     ]);
-    expect(promptAgents).toEqual([undefined, "isomux-cron", undefined]);
+    expect(promptAgents).toEqual([
+      undefined,
+      "isomux-interactive-bypass",
+      undefined,
+    ]);
     expect(promptSystems).toEqual(["test", "test", "updated after resume"]);
     expect(promptParts).toEqual([
       [{ type: "text", text: "first" }],
@@ -358,6 +393,17 @@ describe("OpenCode pinned transport", () => {
       model: "gate/gate-model",
       small_model: "gate/gate-model",
       share: "disabled",
+      agent: {
+        "isomux-interactive-bypass": {
+          mode: "primary",
+          permission: {
+            bash: "allow",
+            edit: "allow",
+            task: "allow",
+            question: "deny",
+          },
+        },
+      },
       provider: {
         gate: {
           name: "Gate mock",
@@ -385,9 +431,12 @@ describe("OpenCode pinned transport", () => {
     });
     cleanup.push(() => supervisor.shutdown());
     const contractShapes: string[] = [];
+    const bindingAgents: Array<{ sessionId: string; agent?: string }> = [];
     const backend = createOpenCodeBackend({
       supervisor,
       contractShapeSink: (shape) => contractShapes.push(shape),
+      bindingAgentSink: (sessionId, agent) =>
+        bindingAgents.push({ sessionId, agent }),
     });
     const discovered = await backend.listModels({ cwd: root });
     expect(discovered).toContainEqual({
@@ -406,6 +455,8 @@ describe("OpenCode pinned transport", () => {
       ...opts,
       cwd: root,
       modelFamily: "gate/gate-model",
+      permissionMode: "bypassPermissions",
+      interactive: true,
     });
     const eventsPromise = (async () => {
       const events: NormalizedEvent[] = [];
@@ -457,14 +508,20 @@ describe("OpenCode pinned transport", () => {
     );
     const parentId =
       events[0].kind === "system_init" ? events[0].sessionId! : "";
-    const reboundBackend = createOpenCodeBackend({
-      supervisor,
+    const defaultReplacement = backend.resumeSession(parentId, {
+      ...opts,
+      cwd: root,
+      modelFamily: "gate/gate-model",
+      permissionMode: "default",
+      interactive: true,
     });
+    defaultReplacement.close();
     expect(
-      await reboundBackend.getSessionMessages(parentId, root, {
+      await backend.getSessionMessages(parentId, root, {
         cwd: root,
         modelFamily: "gate/gate-model",
         permissionMode: "default",
+        interactive: true,
         environmentKey: "rebound",
         environmentRevision: "rebound",
       }),
@@ -472,30 +529,33 @@ describe("OpenCode pinned transport", () => {
     const target = parentBefore.filter((message) => message.role === "user")[1];
     if (!target)
       throw new Error("OpenCode parent did not record a second user turn");
-    const forkBackend = createOpenCodeBackend({ supervisor });
-    const fork = await forkBackend.forkSessionBeforeMessage(
-      parentId,
-      target.uuid,
-      {
-        cwd: root,
-        modelFamily: "gate/gate-model",
-        permissionMode: "default",
-        environmentKey: "rebound",
-        environmentRevision: "rebound",
-      },
-    );
+    const fork = await backend.forkSessionBeforeMessage(parentId, target.uuid, {
+      cwd: root,
+      modelFamily: "gate/gate-model",
+      permissionMode: "default",
+      interactive: true,
+      environmentKey: "rebound",
+      environmentRevision: "rebound",
+    });
     expect(fork.kind).toBe("fork");
     if (fork.kind !== "fork") throw new Error("OpenCode fork was not linked");
-    const childBefore = await forkBackend.getSessionMessages(
-      fork.sessionId,
-      root,
-    );
+    expect(
+      bindingAgents.findLast((binding) => binding.sessionId === parentId),
+    ).toEqual({ sessionId: parentId, agent: undefined });
+    expect(
+      bindingAgents.findLast((binding) => binding.sessionId === fork.sessionId),
+    ).toEqual({ sessionId: fork.sessionId, agent: undefined });
+    expect(bindingAgents).not.toContainEqual({
+      sessionId: fork.sessionId,
+      agent: "isomux-interactive-bypass",
+    });
+    const childBefore = await backend.getSessionMessages(fork.sessionId, root);
     expect(childBefore.map((message) => message.text)).toEqual([
       "hello from Isomux",
       "OpenCode real tracer reply.",
     ]);
     session.close();
-    const child = forkBackend.resumeSession(fork.sessionId, {
+    const child = backend.resumeSession(fork.sessionId, {
       ...opts,
       cwd: root,
       modelFamily: "gate/gate-model",
@@ -508,7 +568,7 @@ describe("OpenCode pinned transport", () => {
     await child.send("edited second turn");
     await childTurn;
     child.close();
-    const parentAfter = await forkBackend.getSessionMessages(parentId, root);
+    const parentAfter = await backend.getSessionMessages(parentId, root);
     expect(parentAfter).toEqual(parentBefore);
   }, 40_000);
 

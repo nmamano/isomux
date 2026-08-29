@@ -36,7 +36,10 @@ export function validatePermissionMode(
       return raw;
     return "never";
   }
-  if (agentType === "opencode") return "default";
+  if (agentType === "opencode") {
+    if (raw === "default" || raw === "bypassPermissions") return raw;
+    return "default";
+  }
   if (
     raw === "default" ||
     raw === "acceptEdits" ||

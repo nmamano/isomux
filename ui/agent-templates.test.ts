@@ -253,6 +253,13 @@ describe("resolveTemplatePermission", () => {
     expect(
       resolveTemplatePermission("codex", "gpt-5.6-sol", "on-request"),
     ).toBe("on-request");
+    expect(
+      resolveTemplatePermission(
+        "opencode",
+        "gate/gate-model",
+        "bypassPermissions",
+      ),
+    ).toBe("bypassPermissions");
   });
 });
 

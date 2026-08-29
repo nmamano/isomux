@@ -53,6 +53,10 @@ export interface CreateSessionOptions {
   modelFamily: string;
   effort: string;
   permissionMode: string;
+  // Internal caller classification for OpenCode permission profiles. Only an
+  // explicit true may select the interactive profile; unattended callers
+  // omit it and retain the narrower cron profile.
+  interactive?: boolean;
   // Codex-only: SandboxMode string ("read-only" / "workspace-write" /
   // "danger-full-access"). Claude backend ignores. Undefined falls back to
   // the backend's default ("workspace-write" for Codex).
@@ -77,6 +81,7 @@ export interface SessionAccessOptions extends SessionEnvironmentOptions {
   cwd: string;
   modelFamily: string;
   permissionMode: string;
+  interactive?: boolean;
 }
 
 // ---------------------------------------------------------------------------

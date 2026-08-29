@@ -1684,7 +1684,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   }}
                 >
                   {isOpenCode ? (
-                    <option value="default">Ask</option>
+                    <>
+                      <option value="default">Ask</option>
+                      <option value="bypassPermissions">
+                        Bypass all permissions
+                      </option>
+                    </>
                   ) : isCodex ? (
                     <>
                       <option value="untrusted">

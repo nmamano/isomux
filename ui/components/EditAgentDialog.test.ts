@@ -125,6 +125,14 @@ describe("template values after an engine switch", () => {
     expect(source).not.toContain("OPENCODE_TRACER_MODEL");
   });
 
+  it("offers both OpenCode permission modes with established copy", async () => {
+    const source = await Bun.file(
+      new URL("./EditAgentDialog.tsx", import.meta.url),
+    ).text();
+    expect(source).toContain('<option value="default">Ask</option>');
+    expect(source).toContain("Bypass all permissions");
+  });
+
   it("selects a discovered OpenCode model and keeps Ask mode", () => {
     const template = AGENT_TEMPLATES[0];
     const models: BackendModelWire[] = [

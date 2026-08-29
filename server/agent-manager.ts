@@ -4700,6 +4700,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       modelFamily: managed.info.modelFamily,
       effort: managed.info.effort,
       permissionMode: managed.info.permissionMode,
+      interactive: true,
       // Codex-only sandbox; Claude backend ignores. Undefined falls back to
       // the Codex adapter's "workspace-write" default.
       sandbox: managed.info.codexSandbox,
@@ -7735,6 +7736,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         cwd: managed.info.cwd,
         modelFamily: managed.info.modelFamily,
         permissionMode: managed.info.permissionMode,
+        interactive: true,
         env: editEnv,
         environmentKey: environmentSourceKeyForUserId(managed.info.userId),
         environmentRevision: environmentSourceRevisionForUserId(

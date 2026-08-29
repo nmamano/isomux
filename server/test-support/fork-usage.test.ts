@@ -687,6 +687,24 @@ describe("B2 editMessage -> persistSessionFork base accounting (Phase 1.4a)", ()
     return e.id;
   }
 
+  it("marks edit-message history and fork access as interactive", async () => {
+    wireClaudeConfigDir();
+    const fake = editFake();
+    const { sink } = capture();
+    const mgr = makeManager(fake, sink);
+    const info = await seedTwoTurnAgent(mgr, fake);
+    seedClaudeSession(info.cwd, FORK_SID);
+
+    await mgr.editMessage(
+      info.id,
+      userMsgId(info.id, "second"),
+      "edited second",
+    );
+
+    expect(fake.lastMessagesAccess?.interactive).toBe(true);
+    expect(fake.lastForkAccess?.interactive).toBe(true);
+  });
+
   it("omits forkBaseUsage for a first-user-message edit (child starts from empty context)", async () => {
     wireClaudeConfigDir();
     const fake = editFake();

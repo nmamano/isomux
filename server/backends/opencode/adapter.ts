@@ -32,6 +32,7 @@ import {
 } from "./transport.ts";
 import {
   OPENCODE_CRON_AGENT,
+  OPENCODE_INTERACTIVE_BYPASS_AGENT,
   openCodeSupervisorForEnvironment,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
@@ -90,7 +91,19 @@ const TRACER_MODELS: ModelOption[] = [
 
 const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "default", label: "Ask" },
+  { value: "bypassPermissions", label: "Bypass all permissions" },
 ];
+
+export function permissionAgent(
+  opts: Pick<CreateSessionOptions, "permissionMode" | "interactive">,
+): string | undefined {
+  if (opts.permissionMode === "bypassPermissions") {
+    return opts.interactive === true
+      ? OPENCODE_INTERACTIVE_BYPASS_AGENT
+      : OPENCODE_CRON_AGENT;
+  }
+  return undefined;
+}
 
 interface TracerOptions {
   failAuth?: boolean;
@@ -100,6 +113,7 @@ export interface OpenCodeBackendOptions {
   supervisor?: OpenCodeSupervisor;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
+  bindingAgentSink?: (sessionId: string, agent: string | undefined) => void;
 }
 
 function productionModel(model: string): string {
@@ -135,10 +149,7 @@ class OpenCodeServerSession implements BackendSession {
       systemPrompt: opts.systemPrompt,
       agentToken: opts.env?.ISOMUX_AGENT_TOKEN,
       agentId: opts.agentId,
-      agent:
-        opts.permissionMode === "bypassPermissions"
-          ? OPENCODE_CRON_AGENT
-          : undefined,
+      agent: permissionAgent(opts),
       supervisor,
       sessionId,
       contractShapeSink,
@@ -391,6 +402,18 @@ export function createOpenCodeBackend(
       agent?: string;
     }
   >();
+  const setBinding = (
+    sessionId: string,
+    binding: {
+      cwd: string;
+      supervisor: OpenCodeSupervisor;
+      model: string;
+      agent?: string;
+    },
+  ) => {
+    bindings.set(sessionId, binding);
+    options.bindingAgentSink?.(sessionId, binding.agent);
+  };
   const supervisorFor = (
     opts: SessionEnvironmentOptions,
   ): OpenCodeSupervisor => {
@@ -438,15 +461,14 @@ export function createOpenCodeBackend(
         "OpenCode session access requires its model and environment identity.",
       );
     }
+    const agent = permissionAgent(access);
     const binding = {
       cwd,
       supervisor: supervisorFor(access),
       model: productionModel(access.modelFamily),
-      ...(access.permissionMode === "bypassPermissions"
-        ? { agent: OPENCODE_CRON_AGENT }
-        : {}),
+      ...(agent ? { agent } : {}),
     };
-    bindings.set(sessionId, binding);
+    setBinding(sessionId, binding);
     return binding;
   };
   return {
@@ -464,10 +486,7 @@ export function createOpenCodeBackend(
     createSession(opts: CreateSessionOptions): BackendSession {
       const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
-      const agent =
-        opts.permissionMode === "bypassPermissions"
-          ? OPENCODE_CRON_AGENT
-          : undefined;
+      const agent = permissionAgent(opts);
       return new OpenCodeServerSession(
         opts,
         model,
@@ -476,7 +495,7 @@ export function createOpenCodeBackend(
         options.contractShapeSink,
         options.safeErrorSink,
         (sessionId) =>
-          bindings.set(sessionId, { cwd: opts.cwd, supervisor, model, agent }),
+          setBinding(sessionId, { cwd: opts.cwd, supervisor, model, agent }),
       );
     },
     resumeSession(
@@ -485,11 +504,8 @@ export function createOpenCodeBackend(
     ): BackendSession {
       const model = productionModel(opts.modelFamily);
       const supervisor = supervisorFor(opts);
-      const agent =
-        opts.permissionMode === "bypassPermissions"
-          ? OPENCODE_CRON_AGENT
-          : undefined;
-      bindings.set(sessionId, { cwd: opts.cwd, supervisor, model, agent });
+      const agent = permissionAgent(opts);
+      setBinding(sessionId, { cwd: opts.cwd, supervisor, model, agent });
       return new OpenCodeServerSession(
         opts,
         model,
@@ -498,7 +514,7 @@ export function createOpenCodeBackend(
         options.contractShapeSink,
         options.safeErrorSink,
         (resolvedSessionId) =>
-          bindings.set(resolvedSessionId, {
+          setBinding(resolvedSessionId, {
             cwd: opts.cwd,
             supervisor,
             model,
@@ -528,7 +544,7 @@ export function createOpenCodeBackend(
       const transport = transportForSession(sessionId);
       try {
         const childId = await transport.forkAtMessage(targetMessageId);
-        bindings.set(childId, parent);
+        setBinding(childId, parent);
         return {
           kind: "fork",
           sessionId: childId,

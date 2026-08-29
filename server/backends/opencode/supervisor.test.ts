@@ -200,6 +200,15 @@ describe("OpenCode shared server supervisor", () => {
       edit: "ask",
       question: "deny",
     });
+    expect(config.agent?.["isomux-interactive-bypass"]).toMatchObject({
+      mode: "primary",
+      permission: {
+        bash: "allow",
+        edit: "allow",
+        task: "allow",
+        question: "deny",
+      },
+    });
     expect(config.agent?.["isomux-cron"]).toMatchObject({
       mode: "primary",
       permission: {

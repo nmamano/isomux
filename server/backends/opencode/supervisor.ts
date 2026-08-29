@@ -22,12 +22,23 @@ interface ServerRecord {
 }
 
 export const OPENCODE_CRON_AGENT = "isomux-cron";
+export const OPENCODE_INTERACTIVE_BYPASS_AGENT = "isomux-interactive-bypass";
 
 const DEFAULT_OPENCODE_CONFIG: Record<string, unknown> = {
   autoupdate: false,
   share: "disabled",
   permission: { bash: "ask", edit: "ask", question: "deny" },
   agent: {
+    [OPENCODE_INTERACTIVE_BYPASS_AGENT]: {
+      description: "Isomux interactive non-asking agent",
+      mode: "primary",
+      permission: {
+        bash: "allow",
+        edit: "allow",
+        task: "allow",
+        question: "deny",
+      },
+    },
     [OPENCODE_CRON_AGENT]: {
       description: "Isomux unattended cron run",
       mode: "primary",

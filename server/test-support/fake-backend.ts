@@ -33,6 +33,7 @@ import type {
   ForkSessionBeforeMessageResult,
   SubscriptionUsageResult,
   StoredSessionState,
+  SessionAccessOptions,
   TokenUsage,
 } from "../backends/types.ts";
 import { DEFAULT_AGENT_CAPABILITIES } from "../../shared/types.ts";
@@ -298,6 +299,8 @@ export class FakeBackend implements Backend {
   oneShotCount = 0;
   listModelsCount = 0;
   forkCount = 0;
+  lastForkAccess?: SessionAccessOptions;
+  lastMessagesAccess?: SessionAccessOptions;
 
   private readonly cfg: FakeBackendConfig;
   private readonly storedSessionOverrides = new Map<
@@ -401,15 +404,19 @@ export class FakeBackend implements Backend {
   async forkSessionBeforeMessage(
     _sessionId: string,
     _targetMessageId: string,
+    access?: SessionAccessOptions,
   ): Promise<ForkSessionBeforeMessageResult> {
     this.forkCount++;
+    this.lastForkAccess = access;
     return this.cfg.forkResult ?? { kind: "fresh" };
   }
 
   async getSessionMessages(
     _sessionId: string,
     _cwd: string,
+    access?: SessionAccessOptions,
   ): Promise<NormalizedMessage[]> {
+    this.lastMessagesAccess = access;
     return this.cfg.sessionMessages ?? [];
   }
 

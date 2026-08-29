@@ -4,6 +4,7 @@ import {
   resolveAgentEngineSettings,
   validateCodexSandbox,
   validateCronjobPermissionMode,
+  validatePermissionMode,
 } from "./agent-validators.ts";
 
 describe("validateCodexSandbox", () => {
@@ -72,6 +73,19 @@ describe("OpenCode model validation", () => {
       modelFamily: "",
       permissionMode: "default",
     });
+  });
+});
+
+describe("OpenCode permission validation", () => {
+  it("keeps default persisted records in asking mode", () => {
+    expect(validatePermissionMode("opencode", "default")).toBe("default");
+    expect(validatePermissionMode("opencode", "never")).toBe("default");
+  });
+
+  it("preserves the explicit interactive bypass mode", () => {
+    expect(validatePermissionMode("opencode", "bypassPermissions")).toBe(
+      "bypassPermissions",
+    );
   });
 });
 
