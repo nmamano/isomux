@@ -41,10 +41,10 @@ ran these controls:
 2. Deny: the action emitted and the side effect was absent.
 3. Untrusted: the action emitted, no hook ran, and the side effect was present.
 
-The raw result records each wall time and the full hook payload. It is 3,229
-lines, so it is kept out of the repository at
-`~/nil/scoping-reports/codex-hook-foundation/live-matrix.json`. Re-generate it
-by running the probe; the counts above are what it supports.
+The raw result records each wall time and the full hook payload. It sits at
+`evidence/live-matrix.json`, gitignored because it is 3,229 lines of JSON that
+nobody reads in a diff. Re-generate it by running the probe; the counts above
+are what it supports.
 
 ## Action coverage
 

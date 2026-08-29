@@ -23,3 +23,7 @@ internal-docs/private/
 # next-env.d.ts are committed; node_modules is covered above.
 control-plane/web/.next/
 control-plane/web/*.tsbuildinfo
+
+# Raw probe evidence: regenerable, and thousands of lines of JSON that nobody
+# reads in a diff. The report beside it carries the counts that matter.
+internal-docs/codex-hook-foundation/evidence/live-matrix.json
