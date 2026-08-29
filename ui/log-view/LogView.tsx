@@ -2034,10 +2034,9 @@ export function LogView({
                 >
                   {familyDisplayLabel(agent.modelFamily)}
                 </span>
-                {/* Only when the model name doesn't already give the engine
-                    away - "GPT-5.6 Sol · codex" says codex twice (task
-                    176a5085). An unrecognized Codex slug still gets the badge,
-                    since the raw slug alone doesn't identify the backend. */}
+                {/* Only when the formatted model name doesn't already give the
+                    engine away - "GPT-5.6 Sol · codex" says codex twice (task
+                    176a5085). */}
                 {agent.agentType !== "claude" &&
                   !modelLabelImpliesEngine(agent.modelFamily) && (
                     <>

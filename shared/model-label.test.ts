@@ -22,30 +22,27 @@ describe("modelLabelImpliesEngine", () => {
     }
   });
 
-  it("keeps the badge for a Codex slug the table doesn't carry", () => {
-    // The Codex model list is fetched live, so an agent can sit on a slug that
-    // CODEX_MODELS predates. familyDisplayLabel falls back to the raw slug,
-    // which names no engine - the badge is the only signal left.
-    expect(modelLabelImpliesEngine("gpt-6-nova")).toBe(false);
-    expect(familyDisplayLabel("gpt-6-nova")).toBe("gpt-6-nova");
+  it("pretty-prints a Codex slug the table doesn't carry", () => {
+    expect(modelLabelImpliesEngine("gpt-6-nova")).toBe(true);
+    expect(familyDisplayLabel("gpt-6-nova")).toBe("GPT-6 Nova");
   });
 
-  it("keeps the OpenCode badge beside a composite provider/model id", () => {
+  it("pretty-prints a composite provider/model id", () => {
     expect(modelLabelImpliesEngine("gate/gate-model")).toBe(false);
-    expect(familyDisplayLabel("gate/gate-model")).toBe("gate/gate-model");
+    expect(familyDisplayLabel("gate/gate-model")).toBe("Gate - Gate Model");
+    expect(familyDisplayLabel("opencode/mimo-v2.5-free")).toBe(
+      "OpenCode - MiMo V2.5 Free",
+    );
   });
 
-  it("agrees with familyDisplayLabel: implied exactly when the label is not the raw slug", () => {
-    // The predicate must not drift from the label function it guards.
-    for (const family of [
-      ...CODEX_MODELS.map((m) => m.value),
-      ...MODEL_FAMILIES.map((m) => m.family),
-      "gpt-6-nova",
-      "some-future-slug",
+  it("keeps the OpenCode badge for models from recognizable providers", () => {
+    for (const model of [
+      "anthropic/claude-sonnet-4-5",
+      "openai/gpt-5",
+      "github-copilot/gpt-4.1",
+      "opencode/mimo-v2.5-free",
     ]) {
-      expect(modelLabelImpliesEngine(family)).toBe(
-        familyDisplayLabel(family) !== family,
-      );
+      expect(modelLabelImpliesEngine(model)).toBe(false);
     }
   });
 });

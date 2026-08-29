@@ -207,8 +207,8 @@ export function isClaudeFamily(s: string): s is ModelFamily {
   return s === "opus" || s === "fable" || s === "sonnet" || s === "haiku";
 }
 
-// "Opus 4.8" for Claude families; "GPT-5 mini" etc for Codex. Falls back to
-// the raw value for unknown strings.
+// "Opus 4.8" for Claude families and readable labels for model IDs from every
+// backend. This is shared by the model picker and the log header.
 export function familyDisplayLabel(family: string): string {
   if (isClaudeFamily(family)) {
     const base =
@@ -217,21 +217,38 @@ export function familyDisplayLabel(family: string): string {
   }
   const codex = CODEX_MODELS.find((m) => m.value === family);
   if (codex) return codex.label;
+  const [provider, model, ...rest] = family.split("/");
+  if (model && rest.length === 0) {
+    return `${slugDisplayLabel(provider)} - ${slugDisplayLabel(model)}`;
+  }
+  if (/^gpt-/i.test(family)) return slugDisplayLabel(family);
   return family;
+}
+
+function slugDisplayLabel(value: string): string {
+  const parts = value
+    .split("-")
+    .filter(Boolean)
+    .map((part) => {
+      if (/^opencode$/i.test(part)) return "OpenCode";
+      if (/^mimo$/i.test(part)) return "MiMo";
+      if (/^gpt$/i.test(part)) return "GPT";
+      if (/^v\d/i.test(part)) return `V${part.slice(1)}`;
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    });
+  if (parts[0] === "GPT" && parts.length > 1) {
+    return `GPT-${parts.slice(1).join(" ")}`;
+  }
+  return parts.join(" ");
 }
 
 // True when familyDisplayLabel's output already tells you which engine the
 // agent runs on, so rendering the engine next to it would just repeat it
-// ("GPT-5.6 Sol · codex"). Every Claude family reads as "Opus 5"/"Haiku 4.5",
-// and every KNOWN Codex model reads as "GPT-…" - both unmistakable.
-//
-// The exception is a Codex slug missing from CODEX_MODELS: the model list is
-// fetched live from the Codex app-server, so an agent can end up on a slug
-// this table doesn't carry. familyDisplayLabel then falls back to the raw
-// slug, which says nothing about the backend on its own - there the engine is
-// the only signal, so callers should still show it.
+// ("GPT-5.6 Sol · codex"). A provider/model label does not identify the
+// harness engine: an OpenCode agent can use Anthropic, OpenAI, or other model
+// providers, so those labels keep the explicit OpenCode badge.
 export function modelLabelImpliesEngine(family: string): boolean {
-  return isClaudeFamily(family) || CODEX_MODELS.some((m) => m.value === family);
+  return isClaudeFamily(family) || /^gpt-/i.test(family);
 }
 
 // Migrate a legacy exact model ID (e.g. "claude-opus-4-6") to a family.

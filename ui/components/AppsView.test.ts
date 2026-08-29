@@ -12,6 +12,7 @@ import { describe, it, expect } from "bun:test";
 import { DEMO_FEATURES, PRODUCTION_FEATURES } from "../../shared/features.ts";
 import {
   appCanPreview,
+  appPreviewCacheKey,
   appLinkHref,
   appHref,
   appLinkLabel,
@@ -20,6 +21,20 @@ import {
   resolveCreatorAgentId,
   shouldCommit,
 } from "./AppsView.tsx";
+
+describe("appPreviewCacheKey", () => {
+  it("separates apps and later registrations that reuse a name", () => {
+    const first = { name: "alpha", createdAt: 100 };
+    const reused = { name: "alpha", createdAt: 200 };
+    expect(appPreviewCacheKey(first)).toBe("alpha:100");
+    expect(appPreviewCacheKey(reused)).toBe("alpha:200");
+    expect(appPreviewCacheKey(reused)).not.toBe(appPreviewCacheKey(first));
+  });
+
+  it("disables persistent caching without a viewer-visible incarnation", () => {
+    expect(appPreviewCacheKey({ name: "alpha" })).toBeNull();
+  });
+});
 
 describe("initialAppPreviews", () => {
   it("starts off when the build does not support live previews", () => {

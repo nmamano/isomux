@@ -135,7 +135,7 @@ describe("template values after an engine switch", () => {
       new URL("./EditAgentDialog.tsx", import.meta.url),
     ).text();
     expect(source).toContain("MODEL_FAMILIES.map((m) => (");
-    expect(source).toContain('<optgroup label="Connect a provider">');
+    expect(source).toMatch(/<optgroup\s+label="Connect a provider"[^>]*>/);
     expect(source).toContain("partitionBackendModelsForPicker(");
     expect(source).toContain("isOpenCode,");
   });
@@ -171,8 +171,12 @@ describe("template values after an engine switch", () => {
     const source = await Bun.file(
       new URL("./EditAgentDialog.tsx", import.meta.url),
     ).text();
-    expect(source).toContain('<option value="default">Ask</option>');
-    expect(source).toContain("Bypass all permissions");
+    expect(source).toMatch(
+      /<option\s+value="default"[^>]*>\s*Ask\s*<\/option>/,
+    );
+    expect(source).toMatch(
+      /<option\s+value="bypassPermissions"[^>]*>\s*Bypass all permissions\s*<\/option>/,
+    );
   });
 
   it("selects a discovered OpenCode model and keeps Ask mode", () => {

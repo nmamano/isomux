@@ -353,6 +353,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   } | null>(null);
   const templateModelsPending =
     usesBackendModels && backendModels === null && modelsError === null;
+  const pendingTemplateRef = useRef<AgentTemplate | null>(null);
   const openCodeModelReady =
     !isOpenCode ||
     openCodeModelSelectionReady(
@@ -412,6 +413,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   function applyTemplate(template: AgentTemplate) {
     templateAppliedRef.current = true;
     setSelectedTemplateKey(template.key);
+    const deferModel = templateModelsPending;
     const values = templateFormValues(
       template,
       targetEngine,
@@ -422,12 +424,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     setName(values.name);
     setCustomInstructions(values.customInstructions);
     setOutfit(values.outfit);
-    setModelFamily(values.modelFamily);
-    setEffort(values.effort);
-    setPermissionMode(values.permissionMode);
+    pendingTemplateRef.current = deferModel ? template : null;
+    if (!deferModel) {
+      setModelFamily(values.modelFamily);
+      setEffort(values.effort);
+      setPermissionMode(values.permissionMode);
+    }
   }
 
   function applyBlankTemplate() {
+    pendingTemplateRef.current = null;
     templateAppliedRef.current = false;
     setSelectedTemplateKey(null);
     // baselineRef follows Codex's machine-selected live default. Restoring its
@@ -442,6 +448,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     setModelFamily(values.modelFamily);
     setEffort(values.effort);
     setPermissionMode(values.permissionMode);
+  }
+
+  function cancelPendingTemplateModelResolution() {
+    pendingTemplateRef.current = null;
   }
 
   function isDirty(): boolean {
@@ -605,9 +615,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           return;
         }
         setBackendModels(r.models);
-        const selectedTemplate = AGENT_TEMPLATES.find(
-          (template) => template.key === selectedTemplateKey,
-        );
+        const selectedTemplate = pendingTemplateRef.current;
         if (selectedTemplate) {
           const values = templateValuesAfterEngineSwitch(
             selectedTemplate,
@@ -618,6 +626,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           setModelFamily(values.modelFamily);
           setEffort(values.effort);
           setPermissionMode(values.permissionMode);
+          pendingTemplateRef.current = null;
           baselineRef.current!.modelFamily = values.modelFamily;
           baselineRef.current!.effort = values.effort;
           baselineRef.current!.permissionMode = values.permissionMode;
@@ -736,7 +745,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     const selectedTemplate = AGENT_TEMPLATES.find(
       (template) => template.key === selectedTemplateKey,
     );
-    if (selectedTemplate && targetEngine === "claude") {
+    if (selectedTemplate && usesBackendModels) {
+      pendingTemplateRef.current = selectedTemplate;
+    } else if (selectedTemplate && targetEngine === "claude") {
       const values = templateValuesAfterEngineSwitch(
         selectedTemplate,
         targetEngine,
@@ -1095,7 +1106,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     }}
                   >
                     {ENGINE_OPTIONS.map((option) => (
-                      <option key={option.agentType} value={option.agentType}>
+                      <option
+                        key={option.agentType}
+                        value={option.agentType}
+                        style={modelOptionStyle}
+                      >
                         {option.label}
                       </option>
                     ))}
@@ -1167,12 +1182,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         <button
                           key={template.key}
                           type="button"
-                          disabled={templateModelsPending}
                           onClick={() => applyTemplate(template)}
                           aria-pressed={selected}
                           style={templateCardStyle(
                             selected,
-                            templateModelsPending,
+                            false,
                             template.group,
                           )}
                         >
@@ -1196,17 +1210,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       );
                     })}
                   </div>
-                  {templateModelsPending && (
-                    <p
-                      style={{
-                        fontSize: 10,
-                        color: "var(--text-muted)",
-                        margin: "6px 0 0",
-                      }}
-                    >
-                      Loading models before templates can be applied…
-                    </p>
-                  )}
                 </section>
               )}
 
@@ -1375,7 +1378,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       style={selectStyle}
                     >
                       {HAIR_STYLES.map((s) => (
-                        <option key={s} value={s}>
+                        <option key={s} value={s} style={modelOptionStyle}>
                           {HAIR_STYLE_LABELS[s]}
                         </option>
                       ))}
@@ -1402,7 +1405,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       style={selectStyle}
                     >
                       {HATS.map((h) => (
-                        <option key={h} value={h}>
+                        <option key={h} value={h} style={modelOptionStyle}>
                           {HAT_LABELS[h]}
                         </option>
                       ))}
@@ -1433,7 +1436,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       style={selectStyle}
                     >
                       {BEARDS.map((b) => (
-                        <option key={b} value={b}>
+                        <option key={b} value={b} style={modelOptionStyle}>
                           {BEARD_LABELS[b]}
                         </option>
                       ))}
@@ -1463,7 +1466,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       style={selectStyle}
                     >
                       {ACCESSORIES.map((a) => (
-                        <option key={a ?? "none"} value={a ?? "none"}>
+                        <option
+                          key={a ?? "none"}
+                          value={a ?? "none"}
+                          style={modelOptionStyle}
+                        >
                           {ACCESSORY_LABELS[a ?? "none"]}
                         </option>
                       ))}
@@ -1675,11 +1682,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 </label>
                 <select
                   value={permissionMode}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    cancelPendingTemplateModelResolution();
                     setPermissionMode(
                       e.target.value as AgentInfo["permissionMode"],
-                    )
-                  }
+                    );
+                  }}
                   style={{
                     ...inputStyle,
                     appearance: "none",
@@ -1688,37 +1696,45 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 >
                   {isOpenCode ? (
                     <>
-                      <option value="default">Ask</option>
-                      <option value="bypassPermissions">
+                      <option value="default" style={modelOptionStyle}>
+                        Ask
+                      </option>
+                      <option
+                        value="bypassPermissions"
+                        style={modelOptionStyle}
+                      >
                         Bypass all permissions
                       </option>
                     </>
                   ) : isCodex ? (
                     <>
-                      <option value="untrusted">
+                      <option value="untrusted" style={modelOptionStyle}>
                         Untrusted (ask on every tool)
                       </option>
-                      <option value="on-request">
+                      <option value="on-request" style={modelOptionStyle}>
                         On request (model asks when needed)
                       </option>
-                      <option value="never">
+                      <option value="never" style={modelOptionStyle}>
                         Never ask (use sandbox-only)
                       </option>
                     </>
                   ) : (
                     <>
                       {claudeFamilySupportsAutoPermission(modelFamily) && (
-                        <option value="auto">
+                        <option value="auto" style={modelOptionStyle}>
                           Auto (classifier auto-approves safe actions)
                         </option>
                       )}
-                      <option value="default">
+                      <option value="default" style={modelOptionStyle}>
                         Default (ask for everything)
                       </option>
-                      <option value="acceptEdits">
+                      <option value="acceptEdits" style={modelOptionStyle}>
                         Accept Edits (auto-approve file changes)
                       </option>
-                      <option value="bypassPermissions">
+                      <option
+                        value="bypassPermissions"
+                        style={modelOptionStyle}
+                      >
                         Bypass (auto-approve all)
                       </option>
                     </>
@@ -1741,13 +1757,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         cursor: "pointer",
                       }}
                     >
-                      <option value="read-only">
+                      <option value="read-only" style={modelOptionStyle}>
                         Read-only (model can read, never write)
                       </option>
-                      <option value="workspace-write">
+                      <option value="workspace-write" style={modelOptionStyle}>
                         Workspace write (write inside cwd only)
                       </option>
-                      <option value="danger-full-access">
+                      <option
+                        value="danger-full-access"
+                        style={modelOptionStyle}
+                      >
                         Danger: full access (no sandbox)
                       </option>
                     </select>
@@ -1788,6 +1807,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     <select
                       value={modelFamily}
                       onChange={(e) => {
+                        cancelPendingTemplateModelResolution();
                         const next = e.target.value;
                         setModelFamily(next);
                         if (
@@ -1834,35 +1854,58 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         <>
                           {pickerModels
                             ? pickerModels.available.map((m) => (
-                                <option key={m.id} value={m.id}>
+                                <option
+                                  key={m.id}
+                                  value={m.id}
+                                  style={modelOptionStyle}
+                                >
                                   {m.label}
                                 </option>
                               ))
                             : isCodex
                               ? CODEX_MODELS.map((m) => (
-                                  <option key={m.value} value={m.value}>
+                                  <option
+                                    key={m.value}
+                                    value={m.value}
+                                    style={modelOptionStyle}
+                                  >
                                     {m.label}
                                   </option>
                                 ))
                               : null}
                           {pickerModels && pickerModels.connect.length > 0 && (
-                            <optgroup label="Connect a provider">
+                            <optgroup
+                              label="Connect a provider"
+                              style={modelOptionStyle}
+                            >
                               {pickerModels.connect.map((m) => (
-                                <option key={m.id} value={m.id}>
+                                <option
+                                  key={m.id}
+                                  value={m.id}
+                                  style={modelOptionStyle}
+                                >
                                   Connect {m.label}
                                 </option>
                               ))}
                             </optgroup>
                           )}
                           {storedNotInList && (
-                            <option key={modelFamily} value={modelFamily}>
+                            <option
+                              key={modelFamily}
+                              value={modelFamily}
+                              style={modelOptionStyle}
+                            >
                               {modelFamily} (unavailable on current login)
                             </option>
                           )}
                         </>
                       ) : (
                         MODEL_FAMILIES.map((m) => (
-                          <option key={m.family} value={m.family}>
+                          <option
+                            key={m.family}
+                            value={m.family}
+                            style={modelOptionStyle}
+                          >
                             {m.label} ({modelVersionLabel(m.family)})
                           </option>
                         ))
@@ -1873,8 +1916,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 {usesBackendModels && modelsLoading && (
                   <p
                     style={{
-                      fontSize: 10,
-                      color: "var(--text-ghost)",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "var(--orange)",
                       margin: "3px 0 0",
                     }}
                   >
@@ -1983,9 +2027,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       return (
                         <select
                           value={effort}
-                          onChange={(e) =>
-                            setEffort(e.target.value as EffortLevel)
-                          }
+                          onChange={(e) => {
+                            cancelPendingTemplateModelResolution();
+                            setEffort(e.target.value as EffortLevel);
+                          }}
                           style={{
                             ...inputStyle,
                             appearance: "none",
@@ -1993,7 +2038,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           }}
                         >
                           {effortLevels.map((opt) => (
-                            <option key={opt.level} value={opt.level}>
+                            <option
+                              key={opt.level}
+                              value={opt.level}
+                              style={modelOptionStyle}
+                            >
                               {opt.label}
                             </option>
                           ))}
@@ -2245,7 +2294,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
 const labelStyle: React.CSSProperties = dialogLabel;
 const inputStyle: React.CSSProperties = dialogInput;
-
+const modelOptionStyle: React.CSSProperties = {
+  background: "var(--bg-base)",
+  color: "var(--text-primary)",
+};
 const selectStyle: React.CSSProperties = {
   ...inputStyle,
   appearance: "none",

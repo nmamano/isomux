@@ -30,6 +30,16 @@ const POLL_MS = 5000;
 export const APP_PREVIEW_CLIENT_TIMEOUT_MS = 25_000;
 const APP_PREVIEW_BUSY_RETRIES = 3;
 
+const appPreviewImageCache = new Map<string, string>();
+
+export function appPreviewCacheKey(app: {
+  name: string;
+  createdAt?: number;
+}): string | null {
+  if (app.createdAt === undefined) return null;
+  return `${app.name}:${app.createdAt}`;
+}
+
 /**
  * Should a response that has just come back be allowed to write to the shared
  * state it was fetched for? Extracted and exported because the UI has no React
@@ -189,19 +199,27 @@ export function AppPreview({
   app,
   isMobile,
 }: {
-  app: Pick<AppWire, "name">;
+  app: { name: string; createdAt?: number };
   isMobile: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const cacheKey = appPreviewCacheKey(app);
+  const cachedImageUrl = cacheKey
+    ? (appPreviewImageCache.get(cacheKey) ?? null)
+    : null;
   const [phase, setPhase] = useState<
     | { kind: "queued" }
     | { kind: "loading" }
     | { kind: "busy" }
     | { kind: "success"; url: string }
     | { kind: "error"; code: string }
-  >({ kind: "queued" });
+  >(
+    cachedImageUrl
+      ? { kind: "success", url: cachedImageUrl }
+      : { kind: "queued" },
+  );
   const requestRef = useRef(0);
-  const imageUrlRef = useRef<string | null>(null);
+  const imageUrlRef = useRef<string | null>(cachedImageUrl);
   const abortRef = useRef<AbortController | null>(null);
   const queueCancelRef = useRef<PreviewQueueCancel | null>(null);
   const startedRef = useRef(false);
@@ -245,7 +263,9 @@ export function AppPreview({
       requestRef.current++;
       queueCancelRef.current?.();
       abortRef.current?.abort();
-      if (imageUrlRef.current) URL.revokeObjectURL(imageUrlRef.current);
+      if (!cacheKey && imageUrlRef.current) {
+        URL.revokeObjectURL(imageUrlRef.current);
+      }
       observer?.disconnect();
     };
   }, []);
@@ -254,11 +274,7 @@ export function AppPreview({
   async function capture() {
     const request = ++requestRef.current;
     abortRef.current?.abort();
-    if (imageUrlRef.current) {
-      URL.revokeObjectURL(imageUrlRef.current);
-      imageUrlRef.current = null;
-    }
-    setPhase({ kind: "loading" });
+    if (!imageUrlRef.current) setPhase({ kind: "loading" });
     let busyRetries = 0;
     while (request === requestRef.current) {
       const controller = new AbortController();
@@ -284,10 +300,11 @@ export function AppPreview({
               return;
             }
             busyRetries++;
-            setPhase({ kind: "busy" });
+            if (!imageUrlRef.current) setPhase({ kind: "busy" });
             await new Promise((resolve) => setTimeout(resolve, 1000));
             continue;
           }
+          if (imageUrlRef.current) return;
           setPhase({ kind: "error", code });
           return;
         }
@@ -296,11 +313,26 @@ export function AppPreview({
           URL.revokeObjectURL(url);
           return;
         }
+        if (cacheKey) {
+          const previousUrl = appPreviewImageCache.get(cacheKey);
+          for (const [key, staleUrl] of appPreviewImageCache) {
+            if (key !== cacheKey && key.startsWith(`${app.name}:`)) {
+              appPreviewImageCache.delete(key);
+              URL.revokeObjectURL(staleUrl);
+            }
+          }
+          appPreviewImageCache.set(cacheKey, url);
+          if (previousUrl && previousUrl !== url)
+            URL.revokeObjectURL(previousUrl);
+        } else if (imageUrlRef.current) {
+          URL.revokeObjectURL(imageUrlRef.current);
+        }
         imageUrlRef.current = url;
         setPhase({ kind: "success", url });
         return;
       } catch (err) {
         if (request !== requestRef.current) return;
+        if (imageUrlRef.current) return;
         setPhase({
           kind: "error",
           code:
