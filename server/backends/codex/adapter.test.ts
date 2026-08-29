@@ -862,6 +862,25 @@ describe("CodexSession misc notifications", () => {
     expect(ev.text).toBe("[warning] heads up");
   });
 
+  it("hook/completed reaches the adapter but is not surfaced", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireNotification("hook/completed", {
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "t-hook",
+      run: {
+        eventName: "preToolUse",
+        status: "failed",
+        entries: [{ kind: "error", text: "hook exited with code 127" }],
+      },
+    });
+    fake.fireNotification("warning", { message: "after hook" });
+    const next = expectKind(
+      await nextEvent(it, "first surfaced event"),
+      "system_text",
+    );
+    expect(next.text).toBe("[warning] after hook");
+  });
+
   it("model/rerouted -> system_text built from fromModel/toModel/reason (5acf4941)", async () => {
     const { fake, it } = await bootstrapped();
     fake.fireNotification("model/rerouted", {

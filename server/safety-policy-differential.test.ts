@@ -1,0 +1,346 @@
+import { afterAll, describe, expect, it } from "bun:test";
+import type {
+  HookCallback,
+  HookCallbackMatcher,
+  HookJSONOutput,
+} from "@anthropic-ai/claude-agent-sdk";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+import { createSafetyHooks } from "./safety-hooks.ts";
+
+const BASELINE_COMMIT = "b6a2e52";
+const BASELINE_BLOB = "7cce10438f6a66cbb2b03b23211c73aac5f28366";
+const BASELINE_SHA256 =
+  "553e6f1e3b7ea9e704f33e03619b1a413fcc9cbf1195126bdedef5fd80fff53b";
+
+type Hooks = Partial<Record<string, HookCallbackMatcher[]>>;
+type HookFactory = () => Hooks;
+type Case = {
+  name: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+};
+type Decision = { denied: boolean; reason: string };
+
+const scratch = mkdtempSync(join(tmpdir(), "isomux-policy-differential-"));
+afterAll(() => rmSync(scratch, { recursive: true, force: true }));
+
+function git(...args: string[]): string {
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd: join(import.meta.dir, ".."),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    throw new Error(new TextDecoder().decode(result.stderr));
+  }
+  return new TextDecoder().decode(result.stdout);
+}
+
+function sha256(source: string): string {
+  const hasher = new Bun.CryptoHasher("sha256");
+  hasher.update(source);
+  return hasher.digest("hex");
+}
+
+async function decide(factory: HookFactory, testCase: Case): Promise<Decision> {
+  const matchers = factory().PreToolUse ?? [];
+  const hooks = matchers
+    .filter((matcher) => matcher.matcher === testCase.toolName)
+    .flatMap((matcher) => matcher.hooks);
+  const input = {
+    hook_event_name: "PreToolUse",
+    tool_name: testCase.toolName,
+    tool_input: testCase.toolInput,
+  } as unknown as Parameters<HookCallback>[0];
+
+  for (const hook of hooks) {
+    const output: HookJSONOutput = await hook(input, undefined, {
+      signal: new AbortController().signal,
+    });
+    const specific = (
+      output as {
+        hookSpecificOutput?: Record<string, unknown>;
+      }
+    ).hookSpecificOutput;
+    if (specific?.permissionDecision === "deny") {
+      return {
+        denied: true,
+        reason: String(specific.permissionDecisionReason),
+      };
+    }
+  }
+  return { denied: false, reason: "" };
+}
+
+async function baselineFactory(): Promise<HookFactory> {
+  expect(
+    git("rev-parse", `${BASELINE_COMMIT}:server/safety-hooks.ts`).trim(),
+  ).toBe(BASELINE_BLOB);
+  const source = git("cat-file", "blob", BASELINE_BLOB);
+  expect(sha256(source)).toBe(BASELINE_SHA256);
+
+  // This is the only mechanical change to the git-derived bytes: the scratch
+  // module needs the production config import resolved back into this checkout.
+  const configUrl = new URL("./config.ts", import.meta.url).href;
+  const importable = source.replace(
+    'from "./config.ts"',
+    `from ${JSON.stringify(configUrl)}`,
+  );
+  expect(importable).not.toBe(source);
+  expect(
+    importable.replace(
+      `from ${JSON.stringify(configUrl)}`,
+      'from "./config.ts"',
+    ),
+  ).toBe(source);
+  const path = join(scratch, "baseline-safety-hooks.ts");
+  writeFileSync(path, importable);
+  const module = (await import(path)) as { createSafetyHooks: HookFactory };
+  return module.createSafetyHooks;
+}
+
+async function mutantFactory(
+  name: string,
+  mutatePolicy: (source: string) => string = (source) => source,
+  mutateAdapter: (source: string) => string = (source) => source,
+): Promise<HookFactory> {
+  const policySource = readFileSync(
+    join(import.meta.dir, "safety-policy.ts"),
+    "utf8",
+  );
+  const adapterSource = readFileSync(
+    join(import.meta.dir, "safety-hooks.ts"),
+    "utf8",
+  );
+  const configUrl = new URL("./config.ts", import.meta.url).href;
+  const policyPath = join(scratch, `${name}-policy.ts`);
+  const adapterPath = join(scratch, `${name}-hooks.ts`);
+  const importablePolicy = policySource.replace(
+    'from "./config.ts"',
+    `from ${JSON.stringify(configUrl)}`,
+  );
+  const importableAdapter = adapterSource.replace(
+    'from "./safety-policy.ts"',
+    `from "./${name}-policy.ts"`,
+  );
+  const policy = mutatePolicy(importablePolicy);
+  const adapter = mutateAdapter(importableAdapter);
+  expect(
+    policy !== importablePolicy || adapter !== importableAdapter,
+    `${name} mutation changed no bytes`,
+  ).toBe(true);
+  writeFileSync(policyPath, policy);
+  writeFileSync(adapterPath, adapter);
+  const module = (await import(adapterPath)) as {
+    createSafetyHooks: HookFactory;
+  };
+  return module.createSafetyHooks;
+}
+
+const shell = (name: string, command: string): Case => ({
+  name,
+  toolName: "Bash",
+  toolInput: { command },
+});
+const tool = (
+  name: string,
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): Case => ({ name, toolName, toolInput });
+
+// Each rule family has a deny and an allow control. The mixed safe/destructive
+// and safe/tunnel cases detect ordering changes that ordinary examples cannot.
+const corpus: Case[] = [
+  shell("ordinary allow", "git status --short"),
+  shell("checkout path deny", "git checkout -- README.md"),
+  shell("checkout ref path deny", "git checkout HEAD -- README.md"),
+  shell("restore deny", "git restore README.md"),
+  shell("restore worktree deny", "git restore --worktree README.md"),
+  shell("reset hard deny", "git reset --hard HEAD"),
+  shell("reset merge deny", "git reset --merge HEAD"),
+  shell("git clean force deny", "git clean -f"),
+  shell("git push force deny", "git push origin main --force"),
+  shell("git push short force deny", "git push origin main -f"),
+  shell("branch force delete deny", "git branch -D topic"),
+  shell("rm root deny", "rm -rf /"),
+  shell("rm separate flags deny", "rm -r -f ./build"),
+  shell("rm long flags deny", "rm --recursive --force ./build"),
+  shell("stash drop deny", "git stash drop"),
+  shell("stash clear deny", "git stash clear"),
+  shell("safe checkout allow", "git checkout -b topic"),
+  shell("safe restore allow", "git restore --staged README.md"),
+  shell("safe clean allow", "git clean -n"),
+  shell("safe temp rm allow", "rm -rf /tmp/isomux-probe"),
+  shell(
+    "safe fragment short-circuits destructive fragment",
+    "git clean -n; git reset --hard HEAD",
+  ),
+  shell("tunnel precedes safe fragment", "git clean -n; ngrok http 4000"),
+  shell("quoted shell reader deny", 'bash -c "cat ~/.env"'),
+  shell("quoted shell kill deny", 'bash -c "pkill -f bun"'),
+  shell("quoted prose allow", 'echo "cat ~/.env; pkill -f bun"'),
+  shell("protected command write deny", "tee ~/.isomux/agents.json"),
+  tool("read sensitive deny", "Read", { file_path: "/tmp/probe/.env" }),
+  tool("read ordinary allow", "Read", { file_path: "/tmp/probe/README.md" }),
+  tool("write unknown shape deny", "Write", { content: "x" }),
+  tool("write ordinary allow", "Write", { file_path: "/tmp/probe/out.txt" }),
+  tool("notebook sensitive read deny", "NotebookEdit", {
+    notebook_path: "/tmp/probe/.env",
+  }),
+  tool("notebook ordinary allow", "NotebookEdit", {
+    notebook_path: "/tmp/probe/analysis.ipynb",
+  }),
+  tool("OpenCode native credential deny", "Read", {
+    file_path: "/home/probe/.local/share/opencode/auth.json",
+  }),
+  tool("OpenCode profile credential deny", "Read", {
+    file_path: "/tmp/state/opencode/profiles/default/data/opencode/auth.json",
+  }),
+  tool("OpenCode nested profile path allow", "Read", {
+    file_path: "/tmp/state/opencode/profiles/a/b/data/opencode/auth.json",
+  }),
+  tool("OpenCode project auth location allow", "Read", {
+    file_path: "/tmp/some-project/opencode/auth.json",
+  }),
+  tool("generic project auth location allow", "Read", {
+    file_path: "/tmp/some-project/auth.json",
+  }),
+];
+
+const tripwires = {
+  M1: corpus.find((entry) => entry.name === "quoted shell reader deny")!,
+  M3: corpus.find(
+    (entry) =>
+      entry.name === "safe fragment short-circuits destructive fragment",
+  )!,
+  M4: corpus.find((entry) => entry.name === "write unknown shape deny")!,
+  M5: corpus.find((entry) => entry.name === "notebook sensitive read deny")!,
+  M6: corpus.find((entry) => entry.name === "tunnel precedes safe fragment")!,
+  native: corpus.find(
+    (entry) => entry.name === "OpenCode native credential deny",
+  )!,
+  profile: corpus.find(
+    (entry) => entry.name === "OpenCode profile credential deny",
+  )!,
+  nestedProfile: corpus.find(
+    (entry) => entry.name === "OpenCode nested profile path allow",
+  )!,
+};
+
+describe("provider-neutral safety-policy extraction", () => {
+  it("rejects a mutant whose replacement changes no bytes", async () => {
+    let caught: unknown;
+    try {
+      await mutantFactory("no-op");
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(String(caught)).toContain("no-op mutation changed no bytes");
+  });
+
+  it("matches the git-derived pre-extraction policy on decision and deny text", async () => {
+    const baseline = await baselineFactory();
+    for (const testCase of corpus) {
+      expect(await decide(createSafetyHooks, testCase), testCase.name).toEqual(
+        await decide(baseline, testCase),
+      );
+    }
+  });
+
+  it("proves each claimed tripwire fails against its wrong implementation", async () => {
+    const baseline = await baselineFactory();
+    const mutants: Array<[string, HookFactory, Case]> = [
+      [
+        "M1 raw command replaced by stripped command",
+        await mutantFactory("m1", (source) =>
+          source
+            .replace("checkProcessKill(command)", "checkProcessKill(stripped)")
+            .replace(
+              "bashSensitiveReadTarget(command)",
+              "bashSensitiveReadTarget(stripped)",
+            ),
+        ),
+        tripwires.M1,
+      ],
+      [
+        "M3 destructive rules moved before safe rules",
+        await mutantFactory("m3", (source) =>
+          source.replace(
+            "for (const pattern of SAFE_PATTERNS) {\n    if (pattern.test(normalized)) return allow();\n  }\n\n  // Check destructive patterns (blocklist)\n  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(normalized)) {\n      return denyMessage(reason, command);\n    }\n  }",
+            "for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(normalized)) return denyMessage(reason, command);\n  }\n  for (const pattern of SAFE_PATTERNS) {\n    if (pattern.test(normalized)) return allow();\n  }",
+          ),
+        ),
+        tripwires.M3,
+      ],
+      [
+        "M4 unknown path shape allowed",
+        await mutantFactory("m4", (source) =>
+          source.replace(
+            "return spec?.targetOptional ? [] : null;",
+            "return [];",
+          ),
+        ),
+        tripwires.M4,
+      ],
+      [
+        "M5 read check dropped from read-and-write action",
+        await mutantFactory("m5", undefined, (source) =>
+          source.replace(
+            '{ matcher: "NotebookEdit", hooks: [readAndWriteFiles] }',
+            '{ matcher: "NotebookEdit", hooks: [writeFiles] }',
+          ),
+        ),
+        tripwires.M5,
+      ],
+      [
+        "M6 tunnel moved behind safe allowlist",
+        await mutantFactory("m6", (source) =>
+          source.replace(
+            "if (tunnel) {",
+            "if (tunnel && !SAFE_PATTERNS.some((pattern) => pattern.test(normalized))) {",
+          ),
+        ),
+        tripwires.M6,
+      ],
+      [
+        "OpenCode native credential arm dropped",
+        await mutantFactory("native", (source) =>
+          source.replace(
+            "  /(^|\\/)\\.local\\/share\\/opencode\\/auth\\.json$/, // OpenCode native home\n",
+            "",
+          ),
+        ),
+        tripwires.native,
+      ],
+      [
+        "OpenCode profile credential arm dropped",
+        await mutantFactory("profile", (source) =>
+          source.replace(
+            "  /(^|\\/)opencode\\/profiles\\/[^/]+\\/data\\/opencode\\/auth\\.json$/, // OpenCode profiles\n",
+            "",
+          ),
+        ),
+        tripwires.profile,
+      ],
+      [
+        "OpenCode profile segment loosened",
+        await mutantFactory("profile-segment", (source) =>
+          source.replace(
+            "opencode\\/profiles\\/[^/]+\\/data",
+            "opencode\\/profiles\\/.+\\/data",
+          ),
+        ),
+        tripwires.nestedProfile,
+      ],
+    ];
+
+    for (const [name, mutant, testCase] of mutants) {
+      expect(await decide(mutant, testCase), name).not.toEqual(
+        await decide(baseline, testCase),
+      );
+    }
+  });
+});
