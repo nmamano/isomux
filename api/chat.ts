@@ -198,15 +198,17 @@ Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry
 - To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/access-and-invites walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety
-- Claude agents can run in bypassPermissions mode with safety hooks as guardrails; Codex agents have no equivalent.
+- Claude and Codex apply the same built-in pre-tool safety policy through backend-specific hooks. The guards block recognized dangerous actions before they run.
 - Codex approvals: when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
-- Built-in pre-tool-use hooks block dangerous commands before they execute (Claude only):
+- Built-in pre-tool-use hooks block dangerous commands before they execute (Claude and Codex):
   - Git safety: blocks destructive git commands (\`git reset --hard\`, force push, etc.)
   - Filesystem safety: blocks \`rm -rf\` on root/home paths (allows it on temp directories)
-  - Config protection: blocks writes to ~/.isomux/ (managed by the server)
+  - Config protection: blocks writes to absolute paths under ~/.isomux/ (managed by the server); the safety-hooks page documents the relative-path limit
   - Secrets protection: blocks reads of .env files, private keys, and credentials
   - Process safety: blocks killing processes created by others
   - Tunnel safety: blocks recognized commands that open outbound tunnels. It's a guardrail, not complete prevention.
+- These guards are an honest-agent safety layer, not OS isolation. A filesystem-capable MCP can still reach protected Isomux state, backend login files, and the Codex checker executable.
+- For the measured coverage, proof limits, and remaining routes, point readers to isomux.com/docs/safety-hooks.
 - The embedded terminal is handy when you need to run a blocked command manually
 
 ### Notifications
