@@ -297,6 +297,23 @@ function get(path: string, init: RequestInit = {}): Request {
 }
 
 let up: Upstream | null = null;
+const RELAY_RELEASE_DEADLINE_MS = 1_000;
+
+async function waitForRelayInFlight(expected: {
+  total: number;
+  perApp: number;
+}): Promise<void> {
+  const deadline = Date.now() + RELAY_RELEASE_DEADLINE_MS;
+  while (Date.now() < deadline) {
+    const actual = _testRelayInFlight();
+    if (actual.total === expected.total && actual.perApp === expected.perApp) {
+      return;
+    }
+    await Bun.sleep(5);
+  }
+  expect(_testRelayInFlight()).toEqual(expected);
+}
+
 afterEach(async () => {
   await up?.stop();
   up = null;
@@ -949,25 +966,33 @@ describe("relay: concurrency permits", () => {
   it("refuses over the per-app cap and admits again once one finishes", async () => {
     up = startUpstream();
     const app = appRecord(up.port);
-    const open: ReadableStreamDefaultReader<Uint8Array>[] = [];
-    for (let i = 0; i < APP_RELAY_MAX_CONCURRENT_PER_APP; i++) {
-      const res = await relay(get("/sse"), { app });
-      const reader = res.body!.getReader();
-      await reader.read();
-      open.push(reader);
-    }
+    const open = await Promise.all(
+      Array.from({ length: APP_RELAY_MAX_CONCURRENT_PER_APP }, async () => {
+        const res = await relay(get("/sse"), { app });
+        const reader = res.body!.getReader();
+        await reader.read();
+        return reader;
+      }),
+    );
     expect(_testRelayInFlight().perApp).toBe(APP_RELAY_MAX_CONCURRENT_PER_APP);
     const refused = await relay(get("/plain"), { app });
     expect(refused.status).toBe(429);
     expect(await refused.text()).toBe(APP_BUSY_BODY);
 
     await open.pop()!.cancel();
-    await Bun.sleep(50);
+    await waitForRelayInFlight({
+      total: APP_RELAY_MAX_CONCURRENT_PER_APP - 1,
+      perApp: APP_RELAY_MAX_CONCURRENT_PER_APP - 1,
+    });
+    expect(_testRelayInFlight()).toEqual({
+      total: APP_RELAY_MAX_CONCURRENT_PER_APP - 1,
+      perApp: APP_RELAY_MAX_CONCURRENT_PER_APP - 1,
+    });
     const admitted = await relay(get("/plain"), { app });
     expect(admitted.status).toBe(200);
     await admitted.text();
-    for (const reader of open) await reader.cancel();
-    await Bun.sleep(50);
+    await Promise.all(open.map((reader) => reader.cancel()));
+    await waitForRelayInFlight({ total: 0, perApp: 0 });
     expect(_testRelayInFlight().total).toBe(0);
   });
 
