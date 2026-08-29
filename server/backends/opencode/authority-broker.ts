@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname } from "node:path";
-import { dlopen, FFIType, ptr } from "bun:ffi";
+import { dlopen, ptr } from "bun:ffi";
 import { openCodeAuthoritySocketPath } from "./office-proxy-shared.ts";
 
 interface TurnBinding {
@@ -150,7 +150,8 @@ export class OpenCodeAuthorityBroker {
       },
       socket: {
         open: (socket) => {
-          const peer = readPeerCredentials(socket.fd);
+          const fd = socketFileDescriptor(socket);
+          const peer = fd === null ? null : readPeerCredentials(fd);
           socket.data = {
             peerPid: peer?.pid ?? null,
             peerUid: peer?.uid ?? null,
@@ -274,7 +275,7 @@ export class OpenCodeAuthorityBroker {
     return httpResponse(
       response.status,
       scrubToken(body, turn.token),
-      response.headers.get("content-type"),
+      response.headers.get("content-type") ?? undefined,
     );
   }
 }
@@ -407,11 +408,24 @@ function readProcessHop(pid: number): ProcessHop | null {
   }
 }
 
-let libc: ReturnType<typeof dlopen> | null = null;
+const LIBC_SYMBOLS = {
+  getsockopt: {
+    args: ["i32", "i32", "i32", "ptr", "ptr"],
+    returns: "i32",
+  },
+} as const;
+
+function openLibc(candidate: string) {
+  return dlopen(candidate, LIBC_SYMBOLS);
+}
+
+type LibcLibrary = ReturnType<typeof openLibc>;
+
+let libc: LibcLibrary | null = null;
 let libcLoadAttempted = false;
 let libcLoadFailureLogged = false;
 
-function loadLibc(): ReturnType<typeof dlopen> | null {
+function loadLibc(): LibcLibrary | null {
   if (libcLoadAttempted) return libc;
   libcLoadAttempted = true;
   const candidates = [
@@ -422,18 +436,7 @@ function loadLibc(): ReturnType<typeof dlopen> | null {
   ];
   for (const candidate of candidates) {
     try {
-      libc = dlopen(candidate, {
-        getsockopt: {
-          args: [
-            FFIType.i32,
-            FFIType.i32,
-            FFIType.i32,
-            FFIType.ptr,
-            FFIType.ptr,
-          ],
-          returns: FFIType.i32,
-        },
-      });
+      libc = openLibc(candidate);
       return libc;
     } catch {}
   }
@@ -444,6 +447,15 @@ function loadLibc(): ReturnType<typeof dlopen> | null {
     );
   }
   return null;
+}
+
+function socketFileDescriptor(
+  socket: Bun.Socket<ConnectionData>,
+): number | null {
+  // Bun's Socket type omits fd; the runtime exposes a number, verified
+  // 2026-08-29. Read it as unknown and fail closed if that shape changes.
+  const fd: unknown = Reflect.get(socket, "fd");
+  return typeof fd === "number" && Number.isInteger(fd) && fd >= 0 ? fd : null;
 }
 
 function readPeerCredentials(

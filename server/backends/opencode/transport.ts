@@ -45,7 +45,9 @@ export async function discoverOpenCodeModels(
 export interface OpenCodeTransportOptions {
   cwd: string;
   model: string;
-  systemPrompt: string;
+  // Administrative transports used only for history/fork operations have no
+  // prompt. Any transport that sends a turn must provide one.
+  systemPrompt?: string;
   agentToken?: string;
   agentId?: string;
   authorityBroker?: OpenCodeAuthorityBroker;
@@ -84,7 +86,7 @@ export class OpenCodeTransport {
   private readonly supervisor: OpenCodeSupervisor;
   private readonly cwd: string;
   private readonly model: string;
-  private readonly systemPrompt: string;
+  private readonly systemPrompt: string | undefined;
   private readonly agentToken: string | undefined;
   private readonly agentId: string | undefined;
   private readonly authorityBroker: OpenCodeAuthorityBroker;
@@ -139,6 +141,14 @@ export class OpenCodeTransport {
   }
 
   async send(parts: OpenCodePromptPart[], sink: EventSink): Promise<void> {
+    if (this.systemPrompt === undefined) {
+      sink({
+        kind: "turn_completed",
+        status: "failed",
+        error: "OpenCode cannot send a turn without an Isomux system prompt.",
+      });
+      return;
+    }
     const sessionId = await this.initialize(sink);
     await this.lease!.beginTurn();
     try {

@@ -5,6 +5,7 @@ import {
   allowDiscoveredModels,
   discoverOpenCodeModels,
   allowMessages,
+  OpenCodeTransport,
   parseAllowedEvent,
 } from "./transport.ts";
 import { writeSafeContractFixture } from "./contract-fixture.ts";
@@ -13,8 +14,51 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import type { OpenCodeSupervisor } from "./supervisor.ts";
+import type { NormalizedEvent } from "../types.ts";
 
 describe("OpenCode OC1 raw-ingress allowlist", () => {
+  it("fails closed if an administrative transport is asked to send", async () => {
+    let leasesAcquired = 0;
+    let turnsStarted = 0;
+    let turnsEnded = 0;
+    const supervisor = {
+      acquire: async () => {
+        leasesAcquired++;
+        return {
+          pid: process.pid,
+          baseUrl: "http://127.0.0.1:1",
+          authHeader: "Basic test",
+          beginTurn: async () => {
+            turnsStarted++;
+          },
+          endTurn: () => turnsEnded++,
+          release: () => {},
+        };
+      },
+    } as unknown as OpenCodeSupervisor;
+    const transport = new OpenCodeTransport({
+      cwd: "/tmp",
+      model: "provider/model",
+      supervisor,
+      sessionId: "session-1",
+    });
+    const events: NormalizedEvent[] = [];
+
+    await transport.send([{ type: "text", text: "must not send" }], (event) =>
+      events.push(event),
+    );
+
+    expect(events).toContainEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: "OpenCode cannot send a turn without an Isomux system prompt.",
+    });
+    expect(leasesAcquired).toBe(0);
+    expect(turnsStarted).toBe(0);
+    expect(turnsEnded).toBe(0);
+    transport.close();
+  });
+
   it("keeps only connected provider model labels and composite ids", () => {
     const canary = "PROVIDER_OPTION_SECRET_CANARY";
     const models = allowDiscoveredModels({
