@@ -800,7 +800,10 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     );
   }
 
-  it("does not accept persistent option 1 when the request did not offer it", async () => {
+  // The menu renumbers when no persistent option exists ("1. Allow - just
+  // this time"), so a typed "1" grants exactly what that menu line says -
+  // one-time approval - and a persistent grant must stay unreachable.
+  it("maps reply 1 to a one-time allow, never persistent, when persistence was not offered", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner();
     const agent = await spawnAgent(
@@ -814,7 +817,7 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     const session = server.fakeBackend.sessionForAgent(agent.id)!;
     await waitUntil(() => session.approvals.length === 1);
     expect(session.approvals).toEqual([
-      { approvalId: "ap-1", decision: { kind: "deny", reason: "1" } },
+      { approvalId: "ap-1", decision: { kind: "allow_once" } },
     ]);
   });
 
