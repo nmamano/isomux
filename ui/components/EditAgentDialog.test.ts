@@ -12,6 +12,7 @@ import {
   templateValuesAfterEngineSwitch,
   type AgentFormSnapshot,
 } from "./EditAgentDialog.tsx";
+import { partitionBackendModelsForPicker } from "../backend-model-selection.ts";
 import { AGENT_TEMPLATES } from "../agent-templates.ts";
 import type { BackendModelWire } from "../../shared/types.ts";
 
@@ -98,6 +99,47 @@ describe("Codex new-engine defaults", () => {
 });
 
 describe("template values after an engine switch", () => {
+  it("groups OpenCode connect entries after available models", () => {
+    const available: BackendModelWire = {
+      id: "opencode/model",
+      label: "OpenCode - Model",
+      supportedEfforts: [],
+    };
+    const connect: BackendModelWire = {
+      id: "anthropic/claude-sonnet-4-6",
+      label: "Anthropic",
+      requiresConnection: true,
+      supportedEfforts: [],
+    };
+    expect(partitionBackendModelsForPicker([available, connect], true)).toEqual(
+      { available: [available], connect: [connect] },
+    );
+  });
+
+  it("leaves Codex models in their original picker list", () => {
+    const models: BackendModelWire[] = [
+      {
+        id: "gpt-5.6-terra",
+        label: "GPT-5.6 Terra",
+        supportedEfforts: [],
+      },
+    ];
+    expect(partitionBackendModelsForPicker(models, false)).toEqual({
+      available: models,
+      connect: [],
+    });
+  });
+
+  it("keeps Claude on its static picker and confines connect copy to OpenCode", async () => {
+    const source = await Bun.file(
+      new URL("./EditAgentDialog.tsx", import.meta.url),
+    ).text();
+    expect(source).toContain("MODEL_FAMILIES.map((m) => (");
+    expect(source).toContain('<optgroup label="Connect a provider">');
+    expect(source).toContain("partitionBackendModelsForPicker(");
+    expect(source).toContain("isOpenCode,");
+  });
+
   it("keeps an existing OpenCode agent editable when discovery fails", () => {
     expect(
       openCodeModelSelectionReady("gate/gate-model", false, true, []),

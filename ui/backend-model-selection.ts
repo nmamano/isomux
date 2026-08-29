@@ -12,3 +12,14 @@ export function openCodeModelSelectionReady(
     (model) => !model.hidden && model.id === modelFamily,
   );
 }
+
+export function partitionBackendModelsForPicker(
+  models: BackendModelWire[],
+  isOpenCode: boolean,
+): { available: BackendModelWire[]; connect: BackendModelWire[] } {
+  if (!isOpenCode) return { available: models, connect: [] };
+  return {
+    available: models.filter((model) => !model.requiresConnection),
+    connect: models.filter((model) => model.requiresConnection),
+  };
+}

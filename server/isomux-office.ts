@@ -1072,6 +1072,7 @@ async function listBackendModels(input: {
       description: m.description,
       isDefault: m.isDefault,
       hidden: m.hidden,
+      requiresConnection: m.requiresConnection,
       supportedEfforts: m.supportedEfforts,
       defaultEffort: m.defaultEffort,
     }));

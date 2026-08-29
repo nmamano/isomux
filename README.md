@@ -89,7 +89,7 @@ Visit **http://localhost:4000** in your browser.
 
 - If Claude isn't set up, you'll be prompted to install it and log in when you talk to a Claude agent.
 - Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
-- OpenCode is bundled with isomux. Choose a connected model when you create the agent; if its provider needs a key, isomux gives you a profile-specific login command.
+- OpenCode is bundled with isomux. Choose a connected model, or connect Anthropic or OpenAI from the model picker; isomux gives you a profile-specific login command when needed.
 
 Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md) - your own hardware, or an unattended VPS install for a fresh server.
 

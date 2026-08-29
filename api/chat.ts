@@ -55,7 +55,7 @@ Free · open source · no cloud · no account.
 The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we're more used to coordinating humans than terminals.
 
 - **Multi-provider**: spawn Claude Code, Codex, and OpenCode agents in the same office, side-by-side.
-- Claude can use your existing Claude Code login. Codex ships bundled and authenticates on first use. OpenCode also ships bundled; you select a connected model and log its provider into the shared environment profile when needed.
+- Claude can use your existing Claude Code login. Codex ships bundled and authenticates on first use. OpenCode also ships bundled; you select a connected model or connect Anthropic or OpenAI from the model picker, and then log its provider into the shared environment profile when needed.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. No bundler, no database, minimal deps.
 - GitHub: github.com/nmamano/isomux
 - Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install, access and invites, backup/restore, security audit)
@@ -64,7 +64,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we
 - Community and support: Discord: https://discord.gg/FrjEYyNvYs (questions, setup help, bug reports, and Hosted Isomux support)
 
 ## Getting Started
-1. Install Bun (v1.2+) and Node.js 20+ (the embedded terminal runs on Node.js; Bun can't replace it). For Claude agents, also install the Claude Code CLI (\`npm install -g @anthropic-ai/claude-code\`, then \`claude\` and \`/login\`). Codex and OpenCode ship bundled. Codex prompts for sign-in on first use; OpenCode lists connected models and gives you a provider login command when needed. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step.
+1. Install Bun (v1.2+) and Node.js 20+ (the embedded terminal runs on Node.js; Bun can't replace it). For Claude agents, also install the Claude Code CLI (\`npm install -g @anthropic-ai/claude-code\`, then \`claude\` and \`/login\`). Codex and OpenCode ship bundled. Codex prompts for sign-in on first use; OpenCode lists connected models, offers Anthropic and OpenAI connections, and gives you a provider login command when needed. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step.
 2. \`git clone https://github.com/nmamano/isomux.git && cd isomux && bun install && bun run dev\`
 3. Open http://localhost:4000. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit, then click an empty desk to pick an engine and spawn your first agent.
 

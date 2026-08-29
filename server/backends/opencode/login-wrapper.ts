@@ -14,6 +14,19 @@ export interface OpenCodeProfilePaths {
   cacheHome: string;
 }
 
+export const OPENCODE_MANUAL_API_KEY_METHOD = "Manually enter API Key";
+
+// Measured 2026-08-29 against pinned OpenCode 1.18.23. Anthropic accepted
+// OPENCODE_MANUAL_API_KEY_METHOD and rendered its masked key prompt. OpenAI's
+// explicit method list included OPENCODE_MANUAL_API_KEY_METHOD. Add a provider
+// only after the fixed method is accepted and its runtime default reports both
+// capabilities.input.text and capabilities.toolcall in the same /provider
+// response.
+export const OPENCODE_MANUAL_API_KEY_PROVIDERS = [
+  "anthropic",
+  "openai",
+] as const;
+
 export function openCodeProfilePaths(
   environmentKey: string,
 ): OpenCodeProfilePaths {
@@ -90,7 +103,7 @@ export OPENCODE_DISABLE_PROJECT_CONFIG=1
 export OPENCODE_DISABLE_CLAUDE_CODE=1
 cd "$profile"
 "$bun" run "$runner" --assert-stopped "$profile"
-"$binary" auth login --provider "$provider" --method "Manually enter API Key"
+"$binary" auth login --provider "$provider" --method ${quoteShellWord(OPENCODE_MANUAL_API_KEY_METHOD)}
 "$bun" run "$runner" --preserve "$profile" "$before" "$provider"
 `;
   mkdirSync(wrapperDir, { recursive: true });

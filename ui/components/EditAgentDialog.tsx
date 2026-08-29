@@ -59,7 +59,10 @@ import {
   type AgentTemplate,
 } from "../agent-templates.ts";
 import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
-import { openCodeModelSelectionReady } from "../backend-model-selection.ts";
+import {
+  openCodeModelSelectionReady,
+  partitionBackendModelsForPicker,
+} from "../backend-model-selection.ts";
 export { openCodeModelSelectionReady } from "../backend-model-selection.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
@@ -1765,6 +1768,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   const backendVisible = backendFetched
                     ? backendModels.filter((m) => !m.hidden)
                     : null;
+                  const pickerModels = backendVisible
+                    ? partitionBackendModelsForPicker(
+                        backendVisible,
+                        isOpenCode,
+                      )
+                    : null;
                   // Pin the stored model as an extra option whenever the rendered
                   // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
                   // editing never silently drops a value not offered on this login.
@@ -1823,8 +1832,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     >
                       {usesBackendModels ? (
                         <>
-                          {backendVisible
-                            ? backendVisible.map((m) => (
+                          {pickerModels
+                            ? pickerModels.available.map((m) => (
                                 <option key={m.id} value={m.id}>
                                   {m.label}
                                 </option>
@@ -1836,6 +1845,15 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                                   </option>
                                 ))
                               : null}
+                          {pickerModels && pickerModels.connect.length > 0 && (
+                            <optgroup label="Connect a provider">
+                              {pickerModels.connect.map((m) => (
+                                <option key={m.id} value={m.id}>
+                                  Connect {m.label}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
                           {storedNotInList && (
                             <option key={modelFamily} value={modelFamily}>
                               {modelFamily} (unavailable on current login)

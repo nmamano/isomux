@@ -109,6 +109,57 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     ).toEqual([]);
   });
 
+  it("keeps connected models first and offers only measured provider defaults", () => {
+    const models = allowDiscoveredModels({
+      connected: ["z-connected"],
+      default: {
+        anthropic: "claude-sonnet-4-6",
+        openai: "gpt-5.3-chat-latest",
+        "github-copilot": "gpt-5",
+      },
+      all: [
+        {
+          id: "anthropic",
+          name: "Anthropic",
+          models: {
+            "claude-sonnet-4-6": { name: "Claude Sonnet 4.6" },
+          },
+        },
+        {
+          id: "z-connected",
+          name: "Zed",
+          models: { model: { name: "Model" } },
+        },
+        {
+          id: "github-copilot",
+          name: "GitHub Copilot",
+          models: { "gpt-5": { name: "GPT-5" } },
+        },
+        {
+          id: "openai",
+          name: "OpenAI",
+          models: {
+            "gpt-5.3-chat-latest": { name: "GPT-5.3 Chat" },
+          },
+        },
+      ],
+    });
+
+    expect(models).toEqual([
+      { id: "z-connected/model", label: "Zed - Model" },
+      {
+        id: "anthropic/claude-sonnet-4-6",
+        label: "Anthropic",
+        requiresConnection: true,
+      },
+      {
+        id: "openai/gpt-5.3-chat-latest",
+        label: "OpenAI",
+        requiresConnection: true,
+      },
+    ]);
+  });
+
   it("releases the discovery lease when the provider request fails", async () => {
     const server = Bun.serve({
       hostname: "127.0.0.1",

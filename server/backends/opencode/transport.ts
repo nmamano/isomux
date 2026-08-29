@@ -15,10 +15,12 @@ import {
   type OpenCodeAuthorityBroker,
 } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
+import { OPENCODE_MANUAL_API_KEY_PROVIDERS } from "./login-wrapper.ts";
 
 export interface DiscoveredOpenCodeModel {
   id: string;
   label: string;
+  requiresConnection?: boolean;
 }
 
 export async function discoverOpenCodeModels(
@@ -600,14 +602,31 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
       : [],
   );
   const byId = new Map<string, DiscoveredOpenCodeModel>();
+  const connectById = new Map<string, DiscoveredOpenCodeModel>();
   if (!Array.isArray(body.all)) return [];
   for (const rawProvider of body.all) {
     const provider = asRecord(rawProvider);
     const providerId = stringField(provider, "id");
-    if (!providerId || !safeCatalogId(providerId) || !connected.has(providerId))
-      continue;
+    if (!providerId || !safeCatalogId(providerId)) continue;
     const providerLabel = safeCatalogLabel(provider.name, providerId);
     const models = asRecord(provider.models);
+    if (!connected.has(providerId)) {
+      if (
+        !OPENCODE_MANUAL_API_KEY_PROVIDERS.includes(
+          providerId as (typeof OPENCODE_MANUAL_API_KEY_PROVIDERS)[number],
+        )
+      )
+        continue;
+      const picked = pickConnectModel(providerId, models, body.default);
+      if (picked) {
+        connectById.set(picked, {
+          id: picked,
+          label: providerLabel,
+          requiresConnection: true,
+        });
+      }
+      continue;
+    }
     for (const [rawModelId, rawModel] of Object.entries(models)) {
       if (!rawModelId) continue;
       const modelId = rawModelId.startsWith(`${providerId}/`)
@@ -621,11 +640,31 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
       }
     }
   }
-  return [...byId.values()].sort((left, right) => {
+  const compare = (
+    left: DiscoveredOpenCodeModel,
+    right: DiscoveredOpenCodeModel,
+  ) => {
     if (left.label !== right.label) return left.label < right.label ? -1 : 1;
     if (left.id === right.id) return 0;
     return left.id < right.id ? -1 : 1;
-  });
+  };
+  return [
+    ...[...byId.values()].sort(compare),
+    ...[...connectById.values()].sort(compare),
+  ];
+}
+
+function pickConnectModel(
+  providerId: string,
+  models: Record<string, unknown>,
+  rawDefaults: unknown,
+): string | null {
+  const defaults = asRecord(rawDefaults);
+  const defaultId = stringField(defaults, providerId);
+  if (!defaultId || !safeCatalogId(defaultId)) return null;
+  if (!(defaultId in models) && !(`${providerId}/${defaultId}` in models))
+    return null;
+  return `${providerId}/${defaultId}`;
 }
 
 function safeCatalogId(value: string): boolean {
