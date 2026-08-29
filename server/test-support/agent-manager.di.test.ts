@@ -34,6 +34,7 @@ import { STATE_ROOT } from "../config.ts";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { openCodeProfilePaths } from "../backends/opencode/login-wrapper.ts";
+import { environmentSourceKeyForUserId } from "../env-loader.ts";
 import {
   createAgentManager,
   createProductionAgentManager,
@@ -524,8 +525,16 @@ describe("AgentManager DI (temp-state isolated)", () => {
     });
     try {
       const backend = createOpenCodeBackend({ supervisor });
+      let reportStoredSessionAsDurable = false;
+      const backendWithControlledStorage: Backend = {
+        ...backend,
+        inspectStoredSession: (sessionId, opts) =>
+          reportStoredSessionAsDurable
+            ? "durable"
+            : backend.inspectStoredSession(sessionId, opts),
+      };
       const mgr = createAgentManager({
-        resolveBackend: () => backend,
+        resolveBackend: () => backendWithControlledStorage,
         officeState: new OfficeState({ rooms: rooms("room-opencode-real") }),
         initialRooms: [],
       });
@@ -562,6 +571,17 @@ describe("AgentManager DI (temp-state isolated)", () => {
           .some((entry) => entry.content === "OpenCode real tracer reply."),
       ).toBe(true);
       expect(mgr.listSessions(info!.id)[0]?.agentType).toBe("opencode");
+      expect(mgr.getAgent(info!.id)?.state).toBe("waiting_for_response");
+      expect(supervisor.profileDir).not.toBe(
+        openCodeProfilePaths(environmentSourceKeyForUserId(null)).profileDir,
+      );
+      // This test creates the session in an injected supervisor profile, while
+      // demotion checks durability in dataHome derived from the environment-key
+      // profile. That test-only mismatch makes the session non-demotable.
+      expect(await mgr.demoteToLazy(info!.id)).toBe(false);
+      // Change only that storage fact. The same quiescent agent must now
+      // demote, which proves the mismatch caused the false result above.
+      reportStoredSessionAsDurable = true;
       expect(await mgr.demoteToLazy(info!.id)).toBe(true);
     } finally {
       await supervisor.shutdown();
