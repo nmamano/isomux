@@ -38,6 +38,8 @@ import { FakeBackend } from "./fake-backend.ts";
 import { _testSetPlugins } from "../plugins.ts";
 import type { IsomuxPlugin } from "../../shared/plugin-types.ts";
 import { getAgentTokenRaw, mintRunToken } from "../identity/tokens.ts";
+import { listAgentSessions, loadSessionsMap } from "../persistence.ts";
+import { STATE_ROOT } from "../config.ts";
 import {
   formatPrefix,
   formatAgentSenderPrefix,
@@ -95,6 +97,24 @@ function queueOf(srv: TestServer, id: string): AgentInfo["queue"] {
 
 function stateOf(srv: TestServer, id: string): string {
   return agentOf(srv, id).state;
+}
+
+function fallbackFor(srv: TestServer, agentId: string): string {
+  return (
+    srv.agentManager
+      .getAgentLogs(agentId)
+      .findLast((entry) => entry.metadata?.interactionFallback === true)
+      ?.content ?? ""
+  );
+}
+
+function expectFallbackMatchesChoices(
+  fallback: string,
+  choices: { label: string }[],
+): void {
+  for (let index = 0; index < choices.length; index++) {
+    expect(fallback).toContain(`  ${index + 1}. ${choices[index].label}`);
+  }
 }
 
 async function spawnAgent(
@@ -307,6 +327,143 @@ describe("structured choice interactions", () => {
     );
     expect(stale.status).toBe(200);
     expect(stale.body.status).toBe("settled");
+  });
+
+  it("maps every displayed choice position to the typed choice value", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+
+    for (let index = 0; index < 4; index++) {
+      const agent = await spawnAgent(server, `Receiver ${index}`, room.id);
+      await sendHuman(server, owner.rawSessionId, agent.id, "/model");
+      const interaction = server.agentManager
+        .getPendingInteractions()
+        .find((item) => item.agentId === agent.id);
+      if (!interaction) throw new Error("model interaction missing");
+      expect(interaction.choices).toHaveLength(4);
+
+      const displayedNumber = String(index + 1);
+      const displayedChoice = interaction.choices[index];
+      await sendHuman(server, owner.rawSessionId, agent.id, displayedNumber);
+
+      expect(agentOf(server, agent.id).modelFamily).toBe(displayedChoice.value);
+    }
+  });
+
+  it("derives all three fallback numberings from the choice order", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+
+    for (const command of ["/model", "/effort"]) {
+      const agent = await spawnAgent(
+        server,
+        command.slice(1),
+        room.id,
+        "codex",
+      );
+      await sendHuman(server, owner.rawSessionId, agent.id, command);
+      const interaction = server.agentManager
+        .getPendingInteractions()
+        .find((item) => item.agentId === agent.id);
+      if (!interaction) throw new Error(`${command} interaction missing`);
+      expectFallbackMatchesChoices(
+        fallbackFor(server, agent.id),
+        interaction.choices,
+      );
+    }
+
+    const agent = await spawnAgent(server, "resume", room.id);
+    const baseTime = Date.now();
+    try {
+      setSystemTime(new Date(baseTime));
+      await sendHuman(server, owner.rawSessionId, agent.id, "Old session");
+      server.fakeBackend.sessionForAgent(agent.id)!.completeTurn();
+      await waitUntil(
+        () => stateOf(server!, agent.id) === "waiting_for_response",
+      );
+
+      setSystemTime(new Date(baseTime + 3_000));
+      await sendHuman(server, owner.rawSessionId, agent.id, "/clear");
+      await sendHuman(server, owner.rawSessionId, agent.id, "Newest session");
+      server.fakeBackend.sessionForAgent(agent.id)!.completeTurn();
+      await waitUntil(
+        () => stateOf(server!, agent.id) === "waiting_for_response",
+      );
+
+      setSystemTime(new Date(baseTime + 2_000));
+      await sendHuman(server, owner.rawSessionId, agent.id, "/clear");
+      const currentSessionId = server.agentManager.getCurrentSessionId(
+        agent.id,
+      );
+      if (!currentSessionId) throw new Error("current session missing");
+      await sendHuman(
+        server,
+        owner.rawSessionId,
+        agent.id,
+        "Middle current session",
+      );
+      server.fakeBackend.sessionForAgent(agent.id)!.completeTurn();
+      await waitUntil(
+        () => stateOf(server!, agent.id) === "waiting_for_response",
+      );
+      const sessionsMap = loadSessionsMap(agent.id);
+      const otherSessionIds = Object.keys(sessionsMap).filter(
+        (sessionId) => sessionId !== currentSessionId,
+      );
+      expect(otherSessionIds).toHaveLength(2);
+      sessionsMap[otherSessionIds[0]].lastModified = baseTime + 3_000;
+      sessionsMap[otherSessionIds[0]].topic = "Newest saved session";
+      sessionsMap[currentSessionId].lastModified = baseTime + 2_000;
+      sessionsMap[currentSessionId].topic = "Middle current session";
+      sessionsMap[otherSessionIds[1]].lastModified = baseTime + 1_000;
+      sessionsMap[otherSessionIds[1]].topic = "Oldest saved session";
+      writeFileSync(
+        join(STATE_ROOT, "logs", agent.id, "sessions.json"),
+        JSON.stringify(sessionsMap, null, 2),
+      );
+      await sendHuman(server, owner.rawSessionId, agent.id, "/resume");
+
+      const interaction = server.agentManager
+        .getPendingInteractions()
+        .find((item) => item.agentId === agent.id);
+      if (!interaction) throw new Error("resume interaction missing");
+      const sessions = listAgentSessions(agent.id).slice(0, 20);
+      const currentIndex = sessions.findIndex(
+        (session) => session.sessionId === currentSessionId,
+      );
+      expect(currentIndex).toBeGreaterThan(0);
+      expect(currentIndex).toBeLessThan(sessions.length - 1);
+
+      const fallbackLines = fallbackFor(server, agent.id).split("\n");
+      let choiceIndex = 0;
+      let previousLineIndex = -1;
+      for (const session of sessions) {
+        const sessionLabel =
+          session.topic || `${session.sessionId.slice(0, 8)}...`;
+        const lineIndex = fallbackLines.findIndex((line) =>
+          line.includes(sessionLabel),
+        );
+        expect(lineIndex).toBeGreaterThan(previousLineIndex);
+        previousLineIndex = lineIndex;
+        const line = fallbackLines[lineIndex];
+        if (session.sessionId === currentSessionId) {
+          expect(line).toContain("●");
+          expect(line).not.toMatch(/^\s+\d+\./);
+        } else {
+          expect(interaction.choices[choiceIndex].value).toBe(
+            session.sessionId,
+          );
+          expect(line).toContain(
+            `  ${choiceIndex + 1}. ${interaction.choices[choiceIndex].label}`,
+          );
+          choiceIndex++;
+        }
+      }
+    } finally {
+      setSystemTime();
+    }
   });
 
   it("applies a typed menu pick even when the agent becomes busy again", async () => {

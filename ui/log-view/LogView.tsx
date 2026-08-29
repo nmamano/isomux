@@ -586,7 +586,7 @@ function HeaderTimer({
   );
 }
 
-function ChoiceInteractionCard({
+export function ChoiceInteractionCard({
   interaction,
 }: {
   interaction: AgentChoiceInteraction;
@@ -633,7 +633,7 @@ function ChoiceInteractionCard({
         {interaction.title}
       </div>
       <div style={{ display: "grid", gap: 8 }}>
-        {interaction.choices.map((choice) => (
+        {interaction.choices.map((choice, index) => (
           <button
             key={choice.value}
             type="button"
@@ -661,7 +661,7 @@ function ChoiceInteractionCard({
           >
             <span>
               <span style={{ display: "block", fontWeight: 600 }}>
-                {choice.label}
+                {index + 1}. {choice.label}
               </span>
               {choice.description && (
                 <span

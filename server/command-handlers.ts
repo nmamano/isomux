@@ -536,7 +536,6 @@ export function createCommandHandling(deps: HandlerDeps) {
         return true;
       }
       const lines: string[] = ["Resume a past conversation:\n"];
-      let num = 1;
       const pickable: typeof sessions = [];
       for (const s of sessions.slice(0, 20)) {
         const date = new Date(s.lastModified);
@@ -556,9 +555,10 @@ export function createCommandHandling(deps: HandlerDeps) {
         if (s.sessionId === managed.sessionId) {
           lines.push(`  ● ${label}  ${dateStr}${cwdStr}  (current)`);
         } else {
-          lines.push(`  ${num}. ${label}  ${dateStr}${cwdStr}${suffix}`);
+          lines.push(
+            `  ${pickable.length + 1}. ${label}  ${dateStr}${cwdStr}${suffix}`,
+          );
           pickable.push(s);
-          num++;
         }
       }
       if (pickable.length === 0) {
@@ -608,12 +608,17 @@ export function createCommandHandling(deps: HandlerDeps) {
       const lines: string[] = [
         `Switch model (current: **${currentLabel}**):\n`,
       ];
-      for (let i = 0; i < MODEL_FAMILIES.length; i++) {
-        const m = MODEL_FAMILIES[i];
-        const marker =
-          m.family === managed.info.modelFamily ? " (current)" : "";
-        lines.push(`  ${i + 1}. ${familyDisplayLabel(m.family)}${marker}`);
-      }
+      const choices = MODEL_FAMILIES.map((model) => ({
+        value: model.family,
+        label: familyDisplayLabel(model.family),
+        current: model.family === managed.info.modelFamily,
+      }));
+      lines.push(
+        ...choices.map(
+          (choice, index) =>
+            `  ${index + 1}. ${choice.label}${choice.current ? " (current)" : ""}`,
+        ),
+      );
       const instruction = choiceInstruction("model");
       lines.push(instruction);
       deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
@@ -624,11 +629,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         "model",
         "Switch model",
         instruction,
-        MODEL_FAMILIES.map((model) => ({
-          value: model.family,
-          label: familyDisplayLabel(model.family),
-          current: model.family === managed.info.modelFamily,
-        })),
+        choices,
       );
       deps.updateState(agentId, "waiting_for_response");
       return true;
@@ -647,11 +648,17 @@ export function createCommandHandling(deps: HandlerDeps) {
         managed.info.agentType,
         managed.info.modelFamily,
       );
-      for (let i = 0; i < levels.length; i++) {
-        const e = levels[i];
-        const marker = e.level === managed.info.effort ? " (current)" : "";
-        lines.push(`  ${i + 1}. ${effortDisplayLabel(e.level)}${marker}`);
-      }
+      const choices = levels.map((effort) => ({
+        value: effort.level,
+        label: effortDisplayLabel(effort.level),
+        current: effort.level === managed.info.effort,
+      }));
+      lines.push(
+        ...choices.map(
+          (choice, index) =>
+            `  ${index + 1}. ${choice.label}${choice.current ? " (current)" : ""}`,
+        ),
+      );
       const instruction = choiceInstruction("effort");
       lines.push(instruction);
       deps.emitEphemeralLog(agentId, "system", lines.join("\n"), {
@@ -662,11 +669,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         "effort",
         "Switch thinking effort",
         instruction,
-        levels.map((effort) => ({
-          value: effort.level,
-          label: effortDisplayLabel(effort.level),
-          current: effort.level === managed.info.effort,
-        })),
+        choices,
       );
       deps.updateState(agentId, "waiting_for_response");
       return true;

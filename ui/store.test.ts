@@ -9,7 +9,10 @@
 // nor duplicated. (cron.getRun's REST shape + 404 are covered server-side.)
 
 import { describe, it, expect } from "bun:test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { reducer, initialState } from "./store.tsx";
+import { ChoiceInteractionCard } from "./log-view/LogView.tsx";
 import type {
   AppWire,
   LogEntry,
@@ -630,6 +633,23 @@ describe("reducer: structured choice interactions", () => {
       interactions: undefined as never,
     });
     expect(state.interactions).toEqual([]);
+  });
+
+  it("renders each received choice with its typed position", () => {
+    const choices = [
+      { value: "opus", label: "Opus" },
+      { value: "fable", label: "Fable", current: true },
+      { value: "sonnet", label: "Sonnet" },
+    ];
+    const html = renderToStaticMarkup(
+      createElement(ChoiceInteractionCard, {
+        interaction: { ...interaction, choices },
+      }),
+    );
+
+    for (let index = 0; index < choices.length; index++) {
+      expect(html).toContain(`${index + 1}. ${choices[index].label}`);
+    }
   });
 });
 
