@@ -439,9 +439,13 @@ describe("OpenCode pinned transport", () => {
         bindingAgents.push({ sessionId, agent }),
     });
     const discovered = await backend.listModels({ cwd: root });
+    // The mock declares cost {input: 0, output: 0}, so free detection must
+    // mark it - a discovery result WITHOUT isFree here would mean the
+    // measured-cost predicate silently stopped reading the payload.
     expect(discovered).toContainEqual({
       id: "gate/gate-model",
       label: "Gate mock - Gate model",
+      isFree: true,
       supportedEfforts: [],
     });
     expect(discovered.some((model) => model.id.startsWith("offline/"))).toBe(
