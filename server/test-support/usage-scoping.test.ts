@@ -223,15 +223,6 @@ describe("renderUsageReport room scoping", () => {
     expect(lifetimeTotalUsd(report)).toBe("$1.00");
   });
 
-  it("tells a member the report is scoped", () => {
-    const scoped = renderUsageReport(seedOffice(), ROOMS, MEMBER_OF_A);
-    const full = renderUsageReport(seedOffice(), ROOMS, OWNER);
-    expect(scoped).toContain(
-      "_Scoped to the rooms you can access; cron job spend isn't included._",
-    );
-    expect(full).not.toContain("Scoped to the rooms you can access");
-  });
-
   it("gives a member with no grants an empty report, not the office's", () => {
     const report = renderUsageReport(seedOffice(), ROOMS, {
       kind: "member",

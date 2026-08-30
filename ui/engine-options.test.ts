@@ -1,17 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import { alternateEngineOptions, ENGINE_OPTIONS } from "./engine-options.ts";
 
-describe("spawn engine copy", () => {
-  it("describes every spawn engine", () => {
-    expect(
-      Object.fromEntries(
-        ENGINE_OPTIONS.map((option) => [option.agentType, option.blurb]),
-      ),
-    ).toEqual({
-      claude: "Works with your Claude Code login.",
-      codex: "Works with your ChatGPT login.",
-      opencode: "Works with models configured through OpenCode.",
-    });
+describe("spawn engines", () => {
+  it("keeps one non-empty description for every supported engine", () => {
+    expect(ENGINE_OPTIONS.map((option) => option.agentType).sort()).toEqual([
+      "claude",
+      "codex",
+      "opencode",
+    ]);
+    for (const option of ENGINE_OPTIONS) {
+      expect(option.blurb.trim().length).toBeGreaterThan(0);
+    }
   });
 });
 

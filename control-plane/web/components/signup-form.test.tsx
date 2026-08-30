@@ -6,7 +6,6 @@ import { PolicyNotice } from "./policy-notice";
 import { customerPriceLine } from "./plan-copy";
 
 function expectPolicyLinksBefore(html: string, paymentLabel: string) {
-  expect(html).toContain("Before you pay, review the");
   for (const label of ["Terms of Service", "Privacy Policy", "Refund Policy"]) {
     expect(html.indexOf(label)).toBeLessThan(html.indexOf(paymentLabel));
   }

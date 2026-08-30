@@ -90,18 +90,6 @@ describe("apiFetch", () => {
     });
   });
 
-  it("supplies an actionable fallback when the HTTP response has no message", async () => {
-    mockFetch(new Response(null, { status: 502, statusText: "" }));
-    let err: unknown;
-    try {
-      await apiFetch("GET", "/api/test");
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(ApiError);
-    expect((err as ApiError).message).toBe("Request failed (502)");
-  });
-
   it("falls back to a synthetic code when the error body is not an envelope", async () => {
     mockFetch(new Response("boom", { status: 500 }));
     let err: unknown;

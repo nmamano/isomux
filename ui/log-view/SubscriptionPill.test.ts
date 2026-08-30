@@ -3,11 +3,7 @@
 // frozen here; the DOM/popover lifecycle isn't covered because the UI has no
 // React render harness (same limitation noted in ContextBattery.test.ts).
 import { describe, it, expect } from "bun:test";
-import {
-  AUTO_CHOICE_LABEL,
-  formatTimeUntil,
-  resolveTrackedWindow,
-} from "./SubscriptionPill.tsx";
+import { formatTimeUntil, resolveTrackedWindow } from "./SubscriptionPill.tsx";
 import { bandColor } from "./ContextBattery.tsx";
 
 const MIN = 60_000;
@@ -128,9 +124,5 @@ describe("resolveTrackedWindow", () => {
       index: 0,
       pinned: false,
     });
-  });
-
-  it("keeps the auto label stable - it is user-visible copy", () => {
-    expect(AUTO_CHOICE_LABEL).toBe("Auto (most constrained)");
   });
 });

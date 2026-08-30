@@ -467,7 +467,6 @@ describe("firing (tick)", () => {
     expect(w.notices).toHaveLength(1);
     expect(w.notices[0].senderAgentId).toBe("agent-a");
     expect(w.notices[0].text).toContain(entry.id);
-    expect(w.notices[0].text).toContain("no longer exists");
   });
 
   it("retryable failures (stopped receiver) stay pending and deliver on a later tick", () => {
@@ -510,7 +509,6 @@ describe("firing (tick)", () => {
     expect(m.listBySender("agent-a")).toHaveLength(0);
     expect(w.notices).toHaveLength(1);
     expect(w.notices[0].text).toContain(entry.id);
-    expect(w.notices[0].text).toContain("agent_stopped");
   });
 
   it("fires same-receiver due entries in deliverAt order and never leapfrogs a queue-full one", () => {

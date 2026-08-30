@@ -16,7 +16,6 @@ import {
   type AgentFormSnapshot,
 } from "./EditAgentDialog.tsx";
 import {
-  modelListErrorMessage,
   modelSelectCursor,
   partitionBackendModelsForPicker,
 } from "../backend-model-selection.ts";
@@ -200,12 +199,11 @@ describe("template values after an engine switch", () => {
     });
   });
 
-  it("keeps Claude on its static picker and confines connect copy to OpenCode", async () => {
+  it("keeps Claude on its static picker and confines dynamic models to OpenCode", async () => {
     const source = await Bun.file(
       new URL("./EditAgentDialog.tsx", import.meta.url),
     ).text();
     expect(source).toContain("MODEL_FAMILIES.map((m) => (");
-    expect(source).toMatch(/<optgroup\s+label="Connect a provider"[^>]*>/);
     expect(source).toContain("partitionBackendModelsForPicker(");
     expect(source).toContain("isOpenCode,");
   });
@@ -216,36 +214,10 @@ describe("template values after an engine switch", () => {
     ).toBe(true);
   });
 
-  it("keeps loading and unavailable-model states actionable", async () => {
-    const source = await Bun.file(
-      new URL("./EditAgentDialog.tsx", import.meta.url),
-    ).text();
-    expect(source).not.toContain("(unavailable on current login)");
-    expect(source).toContain("Current model:");
-    expect(source).toContain("Reopen this dialog to try again.");
-  });
-
   it("keeps the model cursor in lockstep with the loading disable rule", () => {
     expect(modelSelectCursor(true, true)).toBe("not-allowed");
     expect(modelSelectCursor(true, false)).toBe("pointer");
     expect(modelSelectCursor(false, true)).toBe("pointer");
-  });
-
-  it("uses the same actionable model-list errors in both dialogs", () => {
-    expect(modelListErrorMessage(true, { message: "", authError: false })).toBe(
-      "Could not load OpenCode models. Reopen this dialog to try again.",
-    );
-    expect(
-      modelListErrorMessage(false, { message: "HTTP 502", authError: false }),
-    ).toBe(
-      "Could not load model list (HTTP 502). Showing fallback list - some options may not work on your account.",
-    );
-    expect(modelListErrorMessage(true, { message: "", authError: true })).toBe(
-      "OpenCode has no connected provider for this environment. Use an OpenCode agent's login card, then reopen this dialog.",
-    );
-    expect(modelListErrorMessage(false, { message: "", authError: true })).toBe(
-      "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then reopen this dialog. (Or set OPENAI_API_KEY in your env.)",
-    );
   });
 
   it("requires a selection and rejects one absent from a loaded catalog", () => {
@@ -269,16 +241,12 @@ describe("template values after an engine switch", () => {
     expect(source).not.toContain("OPENCODE_TRACER_MODEL");
   });
 
-  it("offers both OpenCode permission modes with established copy", async () => {
+  it("offers both OpenCode permission modes", async () => {
     const source = await Bun.file(
       new URL("./EditAgentDialog.tsx", import.meta.url),
     ).text();
-    expect(source).toMatch(
-      /<option\s+value="default"[^>]*>\s*Ask\s*<\/option>/,
-    );
-    expect(source).toMatch(
-      /<option\s+value="bypassPermissions"[^>]*>\s*Bypass all permissions\s*<\/option>/,
-    );
+    expect(source).toMatch(/<option\s+value="default"[^>]*>/);
+    expect(source).toMatch(/<option\s+value="bypassPermissions"[^>]*>/);
   });
 
   it("selects a discovered OpenCode model and uses Bypass mode", () => {

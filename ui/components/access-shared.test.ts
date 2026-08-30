@@ -2,7 +2,7 @@
 // harness, so SessionsTable delegates the two secondary lines to this helper.
 
 import { describe, expect, it } from "bun:test";
-import { sessionExpiryLines } from "./access-shared.tsx";
+import { SESSION_EXPIRY_LABELS, sessionExpiryLines } from "./access-shared.tsx";
 
 describe("sessionExpiryLines", () => {
   it("shows both session deadlines with the approved provisional labels", () => {
@@ -13,11 +13,11 @@ describe("sessionExpiryLines", () => {
       }),
     ).toEqual([
       {
-        label: "Expires after inactivity",
+        label: SESSION_EXPIRY_LABELS.inactivity,
         value: "2026-01-02 15:04 local",
       },
       {
-        label: "Expires at the latest",
+        label: SESSION_EXPIRY_LABELS.latest,
         value: "2027-11-12 08:09 local",
       },
     ]);

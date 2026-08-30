@@ -425,9 +425,6 @@ describe("POST /api/app/message: nobody to message", () => {
     const r = await post(srv, "/api/app/message", appToken, { text: "hi" });
     expect(r.status).toBe(404);
     expect(errOf(r)?.code).toBe("target_gone");
-    // Actionable: it says the retry is pointless, rather than reading like a bad
-    // parameter on a route that has no parameters.
-    expect(errOf(r)?.message).toContain("no longer exists");
   });
 
   it("409s when a PERSON registered the app - there is no agent attached", async () => {

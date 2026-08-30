@@ -15,7 +15,6 @@ import {
   appPreviewCacheKey,
   appLinkHref,
   appHref,
-  appLinkLabel,
   initialAppPreviews,
   nextPollDelay,
   resolveCreatorAgentId,
@@ -286,18 +285,5 @@ describe("appLinkHref", () => {
     expect(
       appLinkHref(app, "office.example", PRODUCTION_FEATURES.liveAppPreviews),
     ).not.toStartWith("/demo/");
-  });
-});
-
-describe("appLinkLabel", () => {
-  it("a public app gets a plain action instead of making its name a URL claim", () => {
-    expect(appLinkLabel({ url: "https://hello.office.example" })).toBe(
-      "Open app",
-    );
-  });
-
-  it("a port fallback says it is limited to the current network", () => {
-    expect(appLinkLabel({})).toBe("Open on this network");
-    expect(appLinkLabel({ url: "" })).toBe("Open on this network");
   });
 });

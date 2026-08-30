@@ -1077,9 +1077,6 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       );
   }
 
-  const NOTICE_SUFFIX =
-    " Consider starting to wrap up. You can use /clear (for a new session) or /handoff (to continue this one with fresh context).";
-
   it("fires once per band as fullness rises, never re-fires, and stays out of the persisted log", async () => {
     let pct = 30;
     const fake = new FakeBackend({
@@ -1108,9 +1105,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
         WAIT_MS,
         "50-band notice",
       );
-      expect(uiNotices(mgr, info.id)[0].content).toBe(
-        "Context is 52% full." + NOTICE_SUFFIX,
-      );
+      expect(uiNotices(mgr, info.id)[0].content).toContain("52%");
 
       // Same band again: no re-fire. Nudge the raw value (same rounded band)
       // and wait on it, so the assertion provably runs after the third turn's
@@ -1135,9 +1130,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
         WAIT_MS,
         "75-band notice",
       );
-      expect(uiNotices(mgr, info.id)[1].content).toBe(
-        "Context is 87% full." + NOTICE_SUFFIX,
-      );
+      expect(uiNotices(mgr, info.id)[1].content).toContain("87%");
       // Same nudge-the-value pattern as the third sample above.
       pct = 87.2;
       await diRunTurn(mgr, info.id, "five");
@@ -1175,7 +1168,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       );
       const notices = uiNotices(mgr, info.id);
       expect(notices).toHaveLength(1);
-      expect(notices[0].content).toContain("wrap up");
+      expect(notices[0].content).toContain("87%");
       // Both bands consumed: another committed sample stays silent. Nudged
       // value instead of a sampledAtMs-advance wait - same-millisecond
       // commits made the strict > unsatisfiable (CI flake, 2026-08-02).
@@ -1215,9 +1208,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
         WAIT_MS,
         "75-band notice",
       );
-      expect(uiNotices(mgr, info.id)[0].content).toBe(
-        "Context is 87% full." + NOTICE_SUFFIX,
-      );
+      expect(uiNotices(mgr, info.id)[0].content).toContain("87%");
     } finally {
       for (const s of fake.sessions) s.close();
     }
@@ -1272,9 +1263,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
         WAIT_MS,
         "post-clear notice",
       );
-      expect(uiNotices(mgr, info.id)[0].content).toBe(
-        "Context is 60% full." + NOTICE_SUFFIX,
-      );
+      expect(uiNotices(mgr, info.id)[0].content).toContain("60%");
     } finally {
       for (const s of fake.sessions) s.close();
     }

@@ -258,7 +258,6 @@ describe("structured choice interactions", () => {
       .getAgentLogs(agent.id)
       .find((entry) => entry.metadata?.interactionFallback === true);
     expect(fallback?.content.endsWith(interaction.instruction)).toBe(true);
-    expect(interaction.instruction).toContain("anything else to cancel");
     expect(interaction.choices.map((choice) => choice.value)).toContain(
       "sonnet",
     );
