@@ -62,8 +62,8 @@ function loginInstructions(
   const wrapper = ensureOpenCodeLoginWrapper(environmentKey, provider);
   return {
     text:
-      `OpenCode needs a ${provider} credential for this shared environment. Review and run ${wrapper}, ` +
-      "complete the masked prompt, and then use /clear. Browser OAuth is not certified.",
+      `OpenCode needs a ${provider} API key. Review and run ${wrapper}, ` +
+      "paste your key at the masked prompt, and then use /clear.",
     commands: [quoteShellWord(wrapper)],
   };
 }

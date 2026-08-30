@@ -121,9 +121,9 @@ describe("OpenCode deterministic tracer", () => {
       environmentKey: "default",
       modelFamily: "anthropic/claude-sonnet",
     });
-    expect(instructions.text).toContain("shared environment");
-    expect(instructions.text).toContain("Browser OAuth is not certified");
-    expect(instructions.text).toContain("anthropic credential");
+    expect(instructions.text).toContain("anthropic API key");
+    expect(instructions.text).toContain("masked prompt");
+    expect(instructions.text).not.toContain("Browser OAuth");
     expect(instructions.commands).toHaveLength(1);
   });
 });
