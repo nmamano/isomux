@@ -40,6 +40,21 @@ export function appPreviewCacheKey(app: {
   return `${app.name}:${app.createdAt}`;
 }
 
+export function evictDeletedAppPreviews(
+  apps: ReadonlyArray<{ name: string; createdAt?: number }>,
+  cache: Map<string, string> = appPreviewImageCache,
+  revoke: (url: string) => void = (url) => URL.revokeObjectURL(url),
+): void {
+  const liveKeys = new Set(
+    apps.map(appPreviewCacheKey).filter((key): key is string => key !== null),
+  );
+  for (const [key, url] of cache) {
+    if (liveKeys.has(key)) continue;
+    cache.delete(key);
+    revoke(url);
+  }
+}
+
 /**
  * Should a response that has just come back be allowed to write to the shared
  * state it was fetched for? Extracted and exported because the UI has no React
@@ -197,9 +212,11 @@ function OpenIcon() {
 
 export function AppPreview({
   app,
+  href,
   isMobile,
 }: {
   app: { name: string; createdAt?: number };
+  href: string;
   isMobile: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -263,8 +280,12 @@ export function AppPreview({
       requestRef.current++;
       queueCancelRef.current?.();
       abortRef.current?.abort();
-      if (!cacheKey && imageUrlRef.current) {
-        URL.revokeObjectURL(imageUrlRef.current);
+      const imageUrl = imageUrlRef.current;
+      if (
+        imageUrl &&
+        (!cacheKey || appPreviewImageCache.get(cacheKey) !== imageUrl)
+      ) {
+        URL.revokeObjectURL(imageUrl);
       }
       observer?.disconnect();
     };
@@ -387,16 +408,7 @@ export function AppPreview({
   return (
     <div ref={hostRef} style={style}>
       {phase.kind === "success" ? (
-        <img
-          src={phase.url}
-          alt="Screenshot preview"
-          style={{
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            objectPosition: "top",
-          }}
-        />
+        <AppPreviewImage href={href} url={phase.url} />
       ) : (
         <div
           style={{
@@ -450,6 +462,29 @@ export function AppPreview({
         </span>
       )}
     </div>
+  );
+}
+
+export function AppPreviewImage({ href, url }: { href: string; url: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      title="Open app"
+      style={{ width: "100%", height: "100%" }}
+    >
+      <img
+        src={url}
+        alt="Screenshot preview"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          objectPosition: "top",
+        }}
+      />
+    </a>
   );
 }
 
@@ -701,6 +736,10 @@ export function AppsView({
 
   const sorted = [...apps].sort((a, b) => a.name.localeCompare(b.name));
 
+  useEffect(() => {
+    if (appsLoaded) evictDeletedAppPreviews(apps);
+  }, [apps, appsLoaded]);
+
   return (
     <div
       style={{
@@ -886,7 +925,7 @@ export function AppsView({
                   </div>
 
                   {previewsEnabled && appCanPreview(app) && (
-                    <AppPreview app={app} isMobile={isMobile} />
+                    <AppPreview app={app} href={linkHref} isMobile={isMobile} />
                   )}
 
                   {app.description && (

@@ -9,10 +9,14 @@
 // Pure T0: no DOM, no server, no LLM.
 
 import { describe, it, expect } from "bun:test";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
 import { DEMO_FEATURES, PRODUCTION_FEATURES } from "../../shared/features.ts";
 import {
   appCanPreview,
   appPreviewCacheKey,
+  AppPreviewImage,
+  evictDeletedAppPreviews,
   appLinkHref,
   appHref,
   initialAppPreviews,
@@ -32,6 +36,36 @@ describe("appPreviewCacheKey", () => {
 
   it("disables persistent caching without a viewer-visible incarnation", () => {
     expect(appPreviewCacheKey({ name: "alpha" })).toBeNull();
+  });
+});
+
+describe("evictDeletedAppPreviews", () => {
+  it("revokes deleted registrations and keeps every live incarnation", () => {
+    const cache = new Map([
+      ["alpha:100", "blob:alpha"],
+      ["beta:200", "blob:beta"],
+    ]);
+    const revoked: string[] = [];
+
+    evictDeletedAppPreviews([{ name: "beta", createdAt: 200 }], cache, (url) =>
+      revoked.push(url),
+    );
+
+    expect([...cache]).toEqual([["beta:200", "blob:beta"]]);
+    expect(revoked).toEqual(["blob:alpha"]);
+  });
+});
+
+describe("AppPreviewImage", () => {
+  it("opens the app when its screenshot is clicked", () => {
+    const html = renderToStaticMarkup(
+      createElement(AppPreviewImage, {
+        href: "https://habits.office.example/",
+        url: "blob:preview",
+      }),
+    );
+    expect(html).toContain('<a href="https://habits.office.example/"');
+    expect(html).toContain('<img src="blob:preview"');
   });
 });
 
