@@ -357,6 +357,7 @@ describe("relay: the app's bytes", () => {
       }),
       { app: appRecord(up.port) },
     );
+    expect(res.status).toBe(200);
     expect(await res.text()).toBe(payload);
     expect(up.seen[0].headers["content-length"]).toBe(String(payload.length));
     expect(up.seen[0].headers["transfer-encoding"]).toBeUndefined();
@@ -374,6 +375,7 @@ describe("relay: the app's bytes", () => {
     const res = await relay(get("/echo", { method: "POST", body }), {
       app: appRecord(up.port),
     });
+    expect(res.status).toBe(200);
     expect(await res.text()).toBe("chunk-one;chunk-two");
     expect(up.seen[0].headers["transfer-encoding"]).toBe("chunked");
     expect(up.seen[0].headers["content-length"]).toBeUndefined();
@@ -411,6 +413,7 @@ describe("relay: the app's bytes", () => {
   it("streams incrementally rather than buffering", async () => {
     up = startUpstream();
     const res = await relay(get("/sse"), { app: appRecord(up.port) });
+    expect(res.status).toBe(200);
     const reader = res.body!.getReader();
     const started = Date.now();
     const first = await reader.read();
@@ -575,6 +578,7 @@ describe("relay: content encoding", () => {
   it("drops the encoding headers Bun's fetch has already made untrue", async () => {
     up = startUpstream();
     const res = await relay(get("/gzip"), { app: appRecord(up.port) });
+    expect(res.status).toBe(200);
     // Bun decompressed on the way in: forwarding `gzip` plus the COMPRESSED
     // length would hand the browser a lie and a wrong framing.
     expect(res.headers.get("content-encoding")).toBeNull();
@@ -585,6 +589,7 @@ describe("relay: content encoding", () => {
   it("does the same for brotli", async () => {
     up = startUpstream();
     const res = await relay(get("/brotli"), { app: appRecord(up.port) });
+    expect(res.status).toBe(200);
     expect(res.headers.get("content-encoding")).toBeNull();
     expect(res.headers.get("content-length")).toBeNull();
     expect(await res.text()).toBe(GZIP_TEXT);
@@ -593,6 +598,7 @@ describe("relay: content encoding", () => {
   it("leaves an encoding it did not decode completely alone", async () => {
     up = startUpstream();
     const res = await relay(get("/opaque-coding"), { app: appRecord(up.port) });
+    expect(res.status).toBe(200);
     expect(res.headers.get("content-encoding")).toBe("foo");
     expect(res.headers.get("content-length")).toBe("8");
     expect(await res.text()).toBe("rawbytes");
@@ -606,6 +612,7 @@ describe("relay: content encoding", () => {
     // saying so.
     up = startUpstream();
     const res = await relay(get("/shouty-gzip"), { app: appRecord(up.port) });
+    expect(res.status).toBe(200);
     expect(res.headers.get("content-encoding")).toBe("GZIP");
     const bytes = new Uint8Array(await res.arrayBuffer());
     expect(Buffer.from(bytes).equals(gzipSync(Buffer.from(GZIP_TEXT)))).toBe(
@@ -687,6 +694,7 @@ describe("relay: content encoding", () => {
     const res = await relay(get("/head-gzip", { method: "HEAD" }), {
       app: appRecord(up.port),
     });
+    expect(res.status).toBe(200);
     expect({
       encoding: res.headers.get("content-encoding"),
       length: res.headers.get("content-length"),
@@ -848,6 +856,7 @@ describe("relay: failures", () => {
       app: appRecord(up.port),
       stallMs: 150,
     });
+    expect(res.status).toBe(200);
     // Nothing is read for several times the stall window.
     await Bun.sleep(600);
     expect(up.aborted).toEqual([]);
@@ -868,6 +877,7 @@ describe("relay: failures", () => {
       app: appRecord(up.port),
       stallMs: 200,
     });
+    expect(res.status).toBe(200);
     const reader = res.body!.getReader();
     const first = await reader.read();
     expect(new TextDecoder().decode(first.value)).toBe("first\n");
@@ -882,6 +892,7 @@ describe("relay: the client going away", () => {
   it("reaches the app when the client cancels the response", async () => {
     up = startUpstream();
     const res = await relay(get("/sse"), { app: appRecord(up.port) });
+    expect(res.status).toBe(200);
     const reader = res.body!.getReader();
     await reader.read();
     await reader.cancel();
@@ -916,6 +927,7 @@ describe("relay: the client going away", () => {
       new Request(`https://${APP_HOST}/sse`, { signal: ac.signal }),
       { app: appRecord(up.port) },
     );
+    expect(res.status).toBe(200);
     const reader = res.body!.getReader();
     await reader.read();
     ac.abort();
@@ -931,7 +943,9 @@ describe("relay: concurrency permits", () => {
     up = startUpstream();
     const app = appRecord(up.port);
     // Normal EOF.
-    await (await relay(get("/plain"), { app })).text();
+    const normal = await relay(get("/plain"), { app });
+    expect(normal.status).toBe(200);
+    await normal.text();
     expect(_testRelayInFlight().total).toBe(0);
     // A null-body response releases without waiting for a stream that will
     // never come.
@@ -947,6 +961,7 @@ describe("relay: concurrency permits", () => {
   it("holds exactly one permit while a stream is open", async () => {
     up = startUpstream();
     const res = await relay(get("/sse"), { app: appRecord(up.port) });
+    expect(res.status).toBe(200);
     const reader = res.body!.getReader();
     await reader.read();
     expect(_testRelayInFlight()).toEqual({ total: 1, perApp: 1 });
@@ -963,6 +978,7 @@ describe("relay: concurrency permits", () => {
     const readers: ReadableStreamDefaultReader<Uint8Array>[] = [];
     for (const app of [a, b]) {
       const res = await relay(get("/sse"), { app, ...limits });
+      expect(res.status).toBe(200);
       const reader = res.body!.getReader();
       await reader.read();
       readers.push(reader);
@@ -985,6 +1001,7 @@ describe("relay: concurrency permits", () => {
     const open = await Promise.all(
       Array.from({ length: APP_RELAY_MAX_CONCURRENT_PER_APP }, async () => {
         const res = await relay(get("/sse"), { app });
+        expect(res.status).toBe(200);
         const reader = res.body!.getReader();
         await reader.read();
         return reader;
@@ -1022,9 +1039,11 @@ describe("relay: concurrency permits", () => {
     const gen2 = appRecord(up.port);
     _testSetAppRegistrationGeneration(gen2, 2);
     const first = await relay(get("/sse"), { app: gen1 });
+    expect(first.status).toBe(200);
     const firstReader = first.body!.getReader();
     await firstReader.read();
     const second = await relay(get("/sse"), { app: gen2 });
+    expect(second.status).toBe(200);
     const secondReader = second.body!.getReader();
     await secondReader.read();
     expect(_testRelayInFlight()).toEqual({ total: 2, perApp: 1 });
@@ -1041,6 +1060,7 @@ describe("relay: concurrency permits", () => {
     const port = up.port;
     const retired = appRecord(port);
     const oldResponse = await relay(get("/sse"), { app: retired });
+    expect(oldResponse.status).toBe(200);
     const oldReader = oldResponse.body!.getReader();
     expect((await oldReader.read()).done).toBe(false);
     expect(_testActiveAppLifecycles(retired)).toBe(1);
@@ -1055,6 +1075,7 @@ describe("relay: concurrency permits", () => {
     const replacementResponse = await relay(get("/plain"), {
       app: replacement,
     });
+    expect(replacementResponse.status).toBe(200);
     expect(await replacementResponse.text()).toBe("replacement");
     expect(up.seen.map((request) => request.path)).toEqual(["/plain"]);
 
