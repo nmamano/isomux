@@ -45,6 +45,7 @@ import {
   formatAgentSenderPrefix,
 } from "../../shared/identity.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
+import { blockAtomicFileReplacement } from "./temp-state.ts";
 
 let server: TestServer | null = null;
 const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
@@ -1934,8 +1935,7 @@ describe("queue: steer flag on agent send (task 80b2bb08)", () => {
     // atomicWriteFileSync renames onto the store path, which cannot succeed
     // while it is a non-empty directory (same trick as queue-reliability).
     const store = join(server.stateRoot, "message-queues.json");
-    mkdirSync(store);
-    writeFileSync(join(store, "keep"), "x");
+    blockAtomicFileReplacement(store);
     const failed = await postAgentMessage(
       server,
       recv.id,

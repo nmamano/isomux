@@ -9,7 +9,7 @@
 // Not imported by any production path.
 
 import { homedir, tmpdir } from "os";
-import { existsSync, realpathSync, rmSync } from "fs";
+import { existsSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { dirname, join, resolve, sep } from "path";
 
 // Canonicalize a path that may not exist yet: realpath the nearest existing
@@ -60,4 +60,12 @@ export function assertSafeToDelete(target: string): void {
 export function removeStateDir(target: string): void {
   assertSafeToDelete(target);
   rmSync(target, { recursive: true, force: true });
+}
+
+// Replace a file target with a non-empty directory so an atomic rename onto it
+// fails. Persist-failure tests use this after their server is already running.
+export function blockAtomicFileReplacement(target: string): void {
+  removeStateDir(target);
+  mkdirSync(target);
+  writeFileSync(join(target, "keep"), "x");
 }

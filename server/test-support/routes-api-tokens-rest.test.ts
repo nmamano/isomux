@@ -2,13 +2,14 @@
 // off-office message attribution. All requests drive the real HTTP server.
 
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { mintApiToken } from "../api-tokens.ts";
 import { getUserByName, setUserRoleById } from "../users.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
+import { blockAtomicFileReplacement } from "./temp-state.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -166,8 +167,7 @@ describe("personal API tokens", () => {
     );
 
     const store = join(srv.stateRoot, "message-queues.json");
-    mkdirSync(store);
-    writeFileSync(join(store, "keep"), "x");
+    blockAtomicFileReplacement(store);
     const persistFailed = await send("cannot persist");
     expect(persistFailed.status).toBe(500);
     expect((await persistFailed.json()).error.code).toBe("persist_failed");

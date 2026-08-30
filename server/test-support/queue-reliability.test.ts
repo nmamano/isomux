@@ -43,6 +43,7 @@ import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { createOpenCodeBackend } from "../backends/opencode/adapter.ts";
 import type { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { blockAtomicFileReplacement } from "./temp-state.ts";
 import { formatAgentSenderPrefix } from "../../shared/identity.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 
@@ -1314,8 +1315,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
     // Make the durable write fail: atomicWriteFileSync renames onto the store
     // path, which cannot succeed while it is a non-empty DIRECTORY.
     const path = join(server.stateRoot, "message-queues.json");
-    mkdirSync(path);
-    writeFileSync(join(path, "keep"), "x");
+    blockAtomicFileReplacement(path);
 
     const failed = await postAgentMessage(
       server,
@@ -1369,8 +1369,7 @@ describe("queue reliability: durable queues (9870b472)", () => {
 
     // Block the disk; A's acceptance fails and rolls back.
     const path = join(server.stateRoot, "message-queues.json");
-    mkdirSync(path);
-    writeFileSync(join(path, "keep"), "x");
+    blockAtomicFileReplacement(path);
     const failed = await postAgentMessage(
       server,
       recvA.id,

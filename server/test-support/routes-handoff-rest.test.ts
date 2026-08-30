@@ -19,12 +19,13 @@
 // routes-privileged-auth.test.ts.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { rmSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend, type FakeSession } from "./fake-backend.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo } from "../../shared/types.ts";
+import { blockAtomicFileReplacement } from "./temp-state.ts";
 
 let server: TestServer | null = null;
 
@@ -422,8 +423,7 @@ describe("agents.handoff REST - concurrency and failure honesty", () => {
     // onto message-queues.json, which can't succeed while it's a non-empty
     // DIRECTORY (same lever as queue-reliability's persist-failure test).
     const storePath = join(srv.stateRoot, "message-queues.json");
-    mkdirSync(storePath);
-    writeFileSync(join(storePath, "keep"), "x");
+    blockAtomicFileReplacement(storePath);
 
     const res = await call(
       srv,
