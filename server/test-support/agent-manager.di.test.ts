@@ -40,6 +40,7 @@ import {
   createProductionAgentManager,
   backendSessionHasFixedCwd,
 } from "../agent-manager.ts";
+import { resolveRealNode } from "../terminal.ts";
 
 // STATE_ROOT is a temp dir (the bun test preload preset ISOMUX_HOME before
 // config.ts was imported), so the disk-touching assertions below run in-suite
@@ -65,8 +66,15 @@ async function runLoginCardThroughPty(
   cwd: string,
   apiKey: string,
 ): Promise<void> {
+  const nodePath = resolveRealNode();
+  if (!nodePath) {
+    throw new Error(
+      "Cannot run the login card through a PTY: no real Node.js binary found after searching ISOMUX_NODE_PATH, known absolute install paths, and bare node on " +
+        `PATH (${process.env.PATH ?? "unset"}); Bun's node-compat is rejected.`,
+    );
+  }
   const sidecar = Bun.spawn(
-    ["/usr/bin/node", join(import.meta.dir, "..", "pty-sidecar.cjs")],
+    [nodePath, join(import.meta.dir, "..", "pty-sidecar.cjs")],
     {
       stdin: "pipe",
       stdout: "pipe",

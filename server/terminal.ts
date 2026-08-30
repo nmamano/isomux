@@ -54,7 +54,7 @@ function probeRealNode(candidate: string): boolean {
   return result.status === 0;
 }
 
-function resolveRealNode(): string | null {
+export function resolveRealNode(): string | null {
   if (cachedNodePath !== undefined) return cachedNodePath;
   const override = process.env.ISOMUX_NODE_PATH;
   if (override) {
