@@ -8,13 +8,19 @@ import { describe, it, expect } from "bun:test";
 import {
   agentFormDirty,
   codexNewEngineDefaults,
+  initialPermissionModeFor,
   openCodeModelSelectionReady,
+  permissionModeChangeForEdit,
   templateValuesAfterEngineSwitch,
   type AgentFormSnapshot,
 } from "./EditAgentDialog.tsx";
-import { partitionBackendModelsForPicker } from "../backend-model-selection.ts";
+import {
+  modelListErrorMessage,
+  modelSelectCursor,
+  partitionBackendModelsForPicker,
+} from "../backend-model-selection.ts";
 import { AGENT_TEMPLATES } from "../agent-templates.ts";
-import type { BackendModelWire } from "../../shared/types.ts";
+import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
 
 const BASE: AgentFormSnapshot = {
   name: "Dwight",
@@ -98,6 +104,46 @@ describe("Codex new-engine defaults", () => {
   });
 });
 
+describe("initial permission mode", () => {
+  const openCodeAgent = (
+    permissionMode: AgentInfo["permissionMode"],
+  ): AgentInfo =>
+    ({
+      agentType: "opencode",
+      modelFamily: "opencode/big-pickle",
+      permissionMode,
+    }) as AgentInfo;
+
+  it("reopens a persisted OpenCode bypass mode as Bypass", () => {
+    expect(
+      initialPermissionModeFor(openCodeAgent("bypassPermissions"), "opencode"),
+    ).toBe("bypassPermissions");
+  });
+
+  it("reopens a persisted OpenCode default mode as Ask", () => {
+    expect(initialPermissionModeFor(openCodeAgent("default"), "opencode")).toBe(
+      "default",
+    );
+  });
+
+  it("keeps Ask as the OpenCode spawn default", () => {
+    expect(initialPermissionModeFor(undefined, "opencode")).toBe("default");
+  });
+
+  it("does not silently revert persisted Bypass during an unrelated save", () => {
+    const shown = initialPermissionModeFor(
+      openCodeAgent("bypassPermissions"),
+      "opencode",
+    );
+    const changes = {
+      name: "Renamed agent",
+      ...permissionModeChangeForEdit("bypassPermissions", shown),
+    };
+    expect(changes).toEqual({ name: "Renamed agent" });
+    expect(changes).not.toHaveProperty("permissionMode");
+  });
+});
+
 describe("template values after an engine switch", () => {
   it("groups OpenCode connect entries after available models", () => {
     const available: BackendModelWire = {
@@ -112,8 +158,28 @@ describe("template values after an engine switch", () => {
       supportedEfforts: [],
     };
     expect(partitionBackendModelsForPicker([available, connect], true)).toEqual(
-      { available: [available], connect: [connect] },
+      { available: [available], free: [], connect: [connect] },
     );
+  });
+
+  it("omits an empty normal remainder when all connected models are free", () => {
+    const free: BackendModelWire = {
+      id: "opencode/big-pickle",
+      label: "OpenCode Zen - Big Pickle",
+      isFree: true,
+      supportedEfforts: [],
+    };
+    const connect: BackendModelWire = {
+      id: "anthropic/claude-sonnet-4-6",
+      label: "Anthropic",
+      requiresConnection: true,
+      supportedEfforts: [],
+    };
+    expect(partitionBackendModelsForPicker([free, connect], true)).toEqual({
+      available: [],
+      free: [free],
+      connect: [connect],
+    });
   });
 
   it("leaves Codex models in their original picker list", () => {
@@ -126,6 +192,7 @@ describe("template values after an engine switch", () => {
     ];
     expect(partitionBackendModelsForPicker(models, false)).toEqual({
       available: models,
+      free: [],
       connect: [],
     });
   });
@@ -144,6 +211,38 @@ describe("template values after an engine switch", () => {
     expect(
       openCodeModelSelectionReady("gate/gate-model", false, true, []),
     ).toBe(true);
+  });
+
+  it("keeps loading and unavailable-model states actionable", async () => {
+    const source = await Bun.file(
+      new URL("./EditAgentDialog.tsx", import.meta.url),
+    ).text();
+    expect(source).not.toContain("(unavailable on current login)");
+    expect(source).toContain("Current model:");
+    expect(source).toContain("Reopen this dialog to try again.");
+  });
+
+  it("keeps the model cursor in lockstep with the loading disable rule", () => {
+    expect(modelSelectCursor(true, true)).toBe("not-allowed");
+    expect(modelSelectCursor(true, false)).toBe("pointer");
+    expect(modelSelectCursor(false, true)).toBe("pointer");
+  });
+
+  it("uses the same actionable model-list errors in both dialogs", () => {
+    expect(modelListErrorMessage(true, { message: "", authError: false })).toBe(
+      "Could not load OpenCode models. Reopen this dialog to try again.",
+    );
+    expect(
+      modelListErrorMessage(false, { message: "HTTP 502", authError: false }),
+    ).toBe(
+      "Could not load model list (HTTP 502). Showing fallback list - some options may not work on your account.",
+    );
+    expect(modelListErrorMessage(true, { message: "", authError: true })).toBe(
+      "OpenCode has no connected provider for this environment. Use an OpenCode agent's login card, then reopen this dialog.",
+    );
+    expect(modelListErrorMessage(false, { message: "", authError: true })).toBe(
+      "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then reopen this dialog. (Or set OPENAI_API_KEY in your env.)",
+    );
   });
 
   it("requires a selection and rejects one absent from a loaded catalog", () => {

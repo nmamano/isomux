@@ -16,6 +16,7 @@ import {
   CODEX_MODELS,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
+  familyDisplayLabel,
 } from "../../shared/types.ts";
 import { DESK_COUNT } from "../../shared/desks.ts";
 import {
@@ -62,6 +63,8 @@ import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
 import {
   openCodeModelSelectionReady,
   partitionBackendModelsForPicker,
+  modelListErrorMessage,
+  modelSelectCursor,
 } from "../backend-model-selection.ts";
 export { openCodeModelSelectionReady } from "../backend-model-selection.ts";
 
@@ -74,6 +77,32 @@ export function codexNewEngineDefaults(): {
   codexSandbox: CodexSandboxMode;
 } {
   return { permissionMode: "never", codexSandbox: "danger-full-access" };
+}
+
+export function initialPermissionModeFor(
+  agent: AgentInfo | undefined,
+  engine: AgentBackendType,
+): AgentInfo["permissionMode"] {
+  if (engine === "codex") {
+    return agent?.permissionMode ?? codexNewEngineDefaults().permissionMode;
+  }
+  if (engine === "opencode") return agent?.permissionMode ?? "default";
+  if (
+    agent?.permissionMode === "auto" &&
+    !claudeFamilySupportsAutoPermission(
+      agent.modelFamily ?? MODEL_FAMILIES[0].family,
+    )
+  ) {
+    return "bypassPermissions";
+  }
+  return agent?.permissionMode ?? "auto";
+}
+
+export function permissionModeChangeForEdit(
+  persisted: AgentInfo["permissionMode"],
+  current: AgentInfo["permissionMode"],
+): Pick<EditAgentReq, "permissionMode"> {
+  return persisted === current ? {} : { permissionMode: current };
 }
 
 export function templateValuesAfterEngineSwitch(
@@ -297,21 +326,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
     agent?.codexSandbox ?? codexNewEngineDefault.codexSandbox,
   );
-  const claudeDefaultMode: AgentInfo["permissionMode"] =
-    agent?.permissionMode === "auto" &&
-    !claudeFamilySupportsAutoPermission(
-      agent?.modelFamily ?? MODEL_FAMILIES[0].family,
-    )
-      ? "bypassPermissions"
-      : (agent?.permissionMode ?? "auto");
-  const codexDefaultMode: AgentInfo["permissionMode"] =
-    (agent?.permissionMode as AgentInfo["permissionMode"]) ??
-    codexNewEngineDefault.permissionMode;
-  const initialPermissionMode: AgentInfo["permissionMode"] = isCodex
-    ? codexDefaultMode
-    : isOpenCode
-      ? "default"
-      : claudeDefaultMode;
+  const initialPermissionMode = initialPermissionModeFor(agent, targetEngine);
   const [permissionMode, setPermissionMode] = useState<
     AgentInfo["permissionMode"]
   >(initialPermissionMode);
@@ -867,8 +882,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         if (modelFamily !== agent!.modelFamily)
           changes.modelFamily = modelFamily;
         if (effort !== agent!.effort) changes.effort = effort;
-        if (permissionMode !== agent!.permissionMode)
-          changes.permissionMode = permissionMode;
+        Object.assign(
+          changes,
+          permissionModeChangeForEdit(agent!.permissionMode, permissionMode),
+        );
         if (
           isCodex &&
           codexSandbox !== (agent!.codexSandbox ?? "workspace-write")
@@ -1804,113 +1821,146 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     usesBackendModels &&
                     !renderedModelIds.includes(modelFamily);
                   return (
-                    <select
-                      value={modelFamily}
-                      onChange={(e) => {
-                        cancelPendingTemplateModelResolution();
-                        const next = e.target.value;
-                        setModelFamily(next);
-                        if (
-                          !isCodex &&
-                          !claudeFamilySupportsAutoPermission(next) &&
-                          permissionMode === "auto"
-                        )
-                          setPermissionMode("bypassPermissions");
-                        if (
-                          !isCodex &&
-                          !claudeFamilySupportsMaxEffort(next) &&
-                          effort === "max"
-                        )
-                          // Same coercion target the server's validateEffort uses
-                          // for an invalid Claude "max".
-                          setEffort(DEFAULT_EFFORT);
-                        // Codex: when the model changes, snap effort to the new
-                        // model's default if the current effort isn't supported.
-                        if (isCodex && backendVisible) {
-                          const picked = backendVisible.find(
-                            (m) => m.id === next,
-                          );
-                          if (picked) {
-                            const supported = new Set(
-                              picked.supportedEfforts.map((o) => o.level),
+                    <>
+                      <select
+                        value={modelFamily}
+                        onChange={(e) => {
+                          cancelPendingTemplateModelResolution();
+                          const next = e.target.value;
+                          setModelFamily(next);
+                          if (
+                            !isCodex &&
+                            !claudeFamilySupportsAutoPermission(next) &&
+                            permissionMode === "auto"
+                          )
+                            setPermissionMode("bypassPermissions");
+                          if (
+                            !isCodex &&
+                            !claudeFamilySupportsMaxEffort(next) &&
+                            effort === "max"
+                          )
+                            // Same coercion target the server's validateEffort uses
+                            // for an invalid Claude "max".
+                            setEffort(DEFAULT_EFFORT);
+                          // Codex: when the model changes, snap effort to the new
+                          // model's default if the current effort isn't supported.
+                          if (isCodex && backendVisible) {
+                            const picked = backendVisible.find(
+                              (m) => m.id === next,
                             );
-                            if (
-                              !supported.has(effort) &&
-                              picked.defaultEffort
-                            ) {
-                              setEffort(picked.defaultEffort as EffortLevel);
+                            if (picked) {
+                              const supported = new Set(
+                                picked.supportedEfforts.map((o) => o.level),
+                              );
+                              if (
+                                !supported.has(effort) &&
+                                picked.defaultEffort
+                              ) {
+                                setEffort(picked.defaultEffort as EffortLevel);
+                              }
                             }
                           }
-                        }
-                      }}
-                      style={{
-                        ...inputStyle,
-                        appearance: "none",
-                        cursor: "pointer",
-                      }}
-                      disabled={usesBackendModels && modelsLoading}
-                    >
-                      {usesBackendModels ? (
-                        <>
-                          {pickerModels
-                            ? pickerModels.available.map((m) => (
-                                <option
-                                  key={m.id}
-                                  value={m.id}
-                                  style={modelOptionStyle}
-                                >
-                                  {m.label}
-                                </option>
-                              ))
-                            : isCodex
-                              ? CODEX_MODELS.map((m) => (
+                        }}
+                        style={{
+                          ...inputStyle,
+                          appearance: "none",
+                          cursor: modelSelectCursor(
+                            usesBackendModels,
+                            modelsLoading,
+                          ),
+                        }}
+                        disabled={usesBackendModels && modelsLoading}
+                      >
+                        {usesBackendModels ? (
+                          <>
+                            {pickerModels
+                              ? pickerModels.available.map((m) => (
                                   <option
-                                    key={m.value}
-                                    value={m.value}
+                                    key={m.id}
+                                    value={m.id}
                                     style={modelOptionStyle}
                                   >
                                     {m.label}
                                   </option>
                                 ))
-                              : null}
-                          {pickerModels && pickerModels.connect.length > 0 && (
-                            <optgroup
-                              label="Connect a provider"
-                              style={modelOptionStyle}
-                            >
-                              {pickerModels.connect.map((m) => (
-                                <option
-                                  key={m.id}
-                                  value={m.id}
+                              : isCodex
+                                ? CODEX_MODELS.map((m) => (
+                                    <option
+                                      key={m.value}
+                                      value={m.value}
+                                      style={modelOptionStyle}
+                                    >
+                                      {m.label}
+                                    </option>
+                                  ))
+                                : null}
+                            {pickerModels && pickerModels.free.length > 0 && (
+                              <optgroup label="Free" style={modelOptionStyle}>
+                                {pickerModels.free.map((m) => (
+                                  <option
+                                    key={m.id}
+                                    value={m.id}
+                                    style={modelOptionStyle}
+                                  >
+                                    {m.label}
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {pickerModels &&
+                              pickerModels.connect.length > 0 && (
+                                <optgroup
+                                  label="Connect a provider"
                                   style={modelOptionStyle}
                                 >
-                                  Connect {m.label}
-                                </option>
-                              ))}
-                            </optgroup>
-                          )}
-                          {storedNotInList && (
+                                  {pickerModels.connect.map((m) => (
+                                    <option
+                                      key={m.id}
+                                      value={m.id}
+                                      style={modelOptionStyle}
+                                    >
+                                      Connect {m.label}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              )}
+                            {storedNotInList && (
+                              <option
+                                key={modelFamily}
+                                value={modelFamily}
+                                style={modelOptionStyle}
+                              >
+                                Current model
+                              </option>
+                            )}
+                          </>
+                        ) : (
+                          MODEL_FAMILIES.map((m) => (
                             <option
-                              key={modelFamily}
-                              value={modelFamily}
+                              key={m.family}
+                              value={m.family}
                               style={modelOptionStyle}
                             >
-                              {modelFamily} (unavailable on current login)
+                              {m.label} ({modelVersionLabel(m.family)})
                             </option>
-                          )}
-                        </>
-                      ) : (
-                        MODEL_FAMILIES.map((m) => (
-                          <option
-                            key={m.family}
-                            value={m.family}
-                            style={modelOptionStyle}
-                          >
-                            {m.label} ({modelVersionLabel(m.family)})
-                          </option>
-                        ))
+                          ))
+                        )}
+                      </select>
+                      {!isSpawn && usesBackendModels && storedNotInList && (
+                        <p
+                          style={{
+                            fontSize: 10,
+                            color: "#ff6b6b",
+                            margin: "3px 0 0",
+                          }}
+                        >
+                          Current model: {familyDisplayLabel(modelFamily)}.{" "}
+                          {modelsError
+                            ? "The available models could not be checked. Reopen this dialog to try again."
+                            : "This login does not offer it. Choose an available model."}
+                        </p>
                       )}
-                    </select>
+                    </>
                   );
                 })()}
                 {usesBackendModels && modelsLoading && (
@@ -1929,19 +1979,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   <p
                     style={{
                       fontSize: 10,
-                      color: modelsError.authError
-                        ? "#ff6b6b"
-                        : "var(--text-ghost)",
+                      color: "#ff6b6b",
                       margin: "3px 0 0",
                     }}
                   >
-                    {modelsError.authError
-                      ? isOpenCode
-                        ? "OpenCode has no connected provider for this environment. Use an OpenCode agent's login card, then re-open this dialog."
-                        : "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then re-open this dialog. (Or set OPENAI_API_KEY in your env.)"
-                      : isOpenCode
-                        ? `Could not load OpenCode models (${modelsError.message}).`
-                        : `Could not load model list (${modelsError.message}). Showing fallback list - some options may not work on your account.`}
+                    {modelListErrorMessage(isOpenCode, modelsError)}
                   </p>
                 )}
                 {isOpenCode &&

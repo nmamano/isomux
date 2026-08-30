@@ -29,9 +29,12 @@ describe("modelLabelImpliesEngine", () => {
 
   it("pretty-prints a composite provider/model id", () => {
     expect(modelLabelImpliesEngine("gate/gate-model")).toBe(false);
-    expect(familyDisplayLabel("gate/gate-model")).toBe("Gate - Gate Model");
+    expect(familyDisplayLabel("gate/gate-model")).toBe("Gate Model");
     expect(familyDisplayLabel("opencode/mimo-v2.5-free")).toBe(
-      "OpenCode - MiMo V2.5 Free",
+      "MiMo V2.5 Free",
+    );
+    expect(familyDisplayLabel("opencode/muse-spark-1.2-contributor-free")).toBe(
+      "Muse Spark 1.2 Free",
     );
   });
 
@@ -44,5 +47,18 @@ describe("modelLabelImpliesEngine", () => {
     ]) {
       expect(modelLabelImpliesEngine(model)).toBe(false);
     }
+  });
+
+  it("renders concise header labels for each engine", () => {
+    expect(familyDisplayLabel("opus")).toBe("Opus 5");
+    expect(familyDisplayLabel("gpt-5.6-sol")).toBe("GPT-5.6 Sol");
+    expect(familyDisplayLabel("opencode/muse-spark-1.2-contributor-free")).toBe(
+      "Muse Spark 1.2 Free",
+    );
+    expect(modelLabelImpliesEngine("opus")).toBe(true);
+    expect(modelLabelImpliesEngine("gpt-5.6-sol")).toBe(true);
+    expect(
+      modelLabelImpliesEngine("opencode/muse-spark-1.2-contributor-free"),
+    ).toBe(false);
   });
 });

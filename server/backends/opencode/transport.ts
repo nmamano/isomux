@@ -21,6 +21,25 @@ export interface DiscoveredOpenCodeModel {
   id: string;
   label: string;
   requiresConnection?: boolean;
+  isFree?: boolean;
+}
+
+export function openCodeModelIsFree(rawCost: unknown): boolean {
+  const cost = asRecord(rawCost);
+  const cache = asRecord(cost.cache);
+  const values: unknown[] = [];
+  for (const [record, field] of [
+    [cost, "input"],
+    [cost, "output"],
+    [cache, "read"],
+    [cache, "write"],
+  ] as const) {
+    if (field in record) values.push(record[field]);
+  }
+  return (
+    values.length > 0 &&
+    values.every((value) => typeof value === "number" && value === 0)
+  );
 }
 
 export async function discoverOpenCodeModels(
@@ -634,9 +653,14 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
         : rawModelId;
       if (!modelId || !safeCatalogId(modelId)) continue;
       const id = `${providerId}/${modelId}`;
-      const modelLabel = safeCatalogLabel(asRecord(rawModel).name, modelId);
+      const model = asRecord(rawModel);
+      const modelLabel = safeCatalogLabel(model.name, modelId);
       if (!byId.has(id)) {
-        byId.set(id, { id, label: `${providerLabel} - ${modelLabel}` });
+        byId.set(id, {
+          id,
+          label: `${providerLabel} - ${modelLabel}`,
+          ...(openCodeModelIsFree(model.cost) ? { isFree: true } : {}),
+        });
       }
     }
   }

@@ -8,6 +8,7 @@ import {
   allowMessages,
   OpenCodeTransport,
   parseAllowedEvent,
+  openCodeModelIsFree,
 } from "./transport.ts";
 import { writeSafeContractFixture } from "./contract-fixture.ts";
 import { join } from "node:path";
@@ -23,6 +24,17 @@ const capturedArgument = toolInputSequences.argument as ToolUpdate[];
 const capturedInterrupted = toolInputSequences.interrupted as ToolUpdate[];
 
 describe("OpenCode OC1 raw-ingress allowlist", () => {
+  it("classifies free models only from measured zero cost fields", () => {
+    expect(
+      openCodeModelIsFree({
+        input: 0,
+        output: 0,
+        cache: { read: 0, write: 0 },
+      }),
+    ).toBe(true);
+    expect(openCodeModelIsFree({ input: 0, output: 1 })).toBe(false);
+    expect(openCodeModelIsFree(undefined)).toBe(false);
+  });
   it("fails closed if an administrative transport is asked to send", async () => {
     let leasesAcquired = 0;
     let turnsStarted = 0;

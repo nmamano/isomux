@@ -90,7 +90,7 @@ export async function apiFetch<T = unknown>(
       | undefined;
     const code = env?.error?.code ?? `http_${res.status}`;
     const message =
-      env?.error?.message ?? res.statusText ?? `Request failed (${res.status})`;
+      env?.error?.message || res.statusText || `Request failed (${res.status})`;
     // Carry the full error object as `detail` so structured failures (e.g. the
     // editor's 409 { code:"stale", currentMtime }) reach the call site.
     throw new ApiError(res.status, code, message, env?.error);

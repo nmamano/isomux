@@ -120,4 +120,13 @@ describe("OpenCode cron model selection", () => {
       openCodeModelSelectionReady("retired/model", false, true, null),
     ).toBe(true);
   });
+
+  it("matches the agent dialog's loading and unavailable-model treatment", async () => {
+    const source = await Bun.file(
+      new URL("./CronjobDialog.tsx", import.meta.url),
+    ).text();
+    expect(source).not.toContain("(unavailable on current login)");
+    expect(source).toContain("Current model:");
+    expect(source).toContain("Reopen this dialog to try again.");
+  });
 });

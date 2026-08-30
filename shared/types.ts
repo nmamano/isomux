@@ -217,9 +217,9 @@ export function familyDisplayLabel(family: string): string {
   }
   const codex = CODEX_MODELS.find((m) => m.value === family);
   if (codex) return codex.label;
-  const [provider, model, ...rest] = family.split("/");
+  const [, model, ...rest] = family.split("/");
   if (model && rest.length === 0) {
-    return `${slugDisplayLabel(provider)} - ${slugDisplayLabel(model)}`;
+    return slugDisplayLabel(model);
   }
   if (/^gpt-/i.test(family)) return slugDisplayLabel(family);
   return family;
@@ -229,6 +229,7 @@ function slugDisplayLabel(value: string): string {
   const parts = value
     .split("-")
     .filter(Boolean)
+    .filter((part) => !/^contributor$/i.test(part))
     .map((part) => {
       if (/^opencode$/i.test(part)) return "OpenCode";
       if (/^mimo$/i.test(part)) return "MiMo";
@@ -1308,6 +1309,7 @@ export interface BackendModelWire {
   isDefault?: boolean;
   hidden?: boolean;
   requiresConnection?: boolean;
+  isFree?: boolean;
   supportedEfforts: BackendEffortOptionWire[];
   defaultEffort?: string;
 }

@@ -1074,6 +1074,7 @@ async function listBackendModels(input: {
       isDefault: m.isDefault,
       hidden: m.hidden,
       requiresConnection: m.requiresConnection,
+      isFree: m.isFree,
       supportedEfforts: m.supportedEfforts,
       defaultEffort: m.defaultEffort,
     }));

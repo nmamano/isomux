@@ -12,6 +12,7 @@ import {
   CODEX_MODELS,
   modelVersionLabel,
   claudeFamilySupportsMaxEffort,
+  familyDisplayLabel,
   type AgentBackendType,
   type BackendModelWire,
   type CodexSandboxMode,
@@ -28,7 +29,11 @@ import {
   dialogChip,
 } from "./dialog-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
-import { openCodeModelSelectionReady } from "../backend-model-selection.ts";
+import {
+  modelListErrorMessage,
+  modelSelectCursor,
+  openCodeModelSelectionReady,
+} from "../backend-model-selection.ts";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -720,69 +725,89 @@ export function CronjobDialog({
               usesBackendModels &&
               !renderedModelIds.includes(modelFamily);
             return (
-              <select
-                value={modelFamily}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setModelFamily(next);
-                  // Claude family-level interlock: "max" effort is top-tier
-                  // only. (The "auto" permission mode interlock is gone now
-                  // that cron's only Claude permission option is
-                  // bypassPermissions.)
-                  if (
-                    !isCodex &&
-                    !claudeFamilySupportsMaxEffort(next) &&
-                    effort === "max"
-                  )
-                    // Same coercion target the server's validateEffort uses
-                    // for an invalid Claude "max".
-                    setEffort(DEFAULT_EFFORT);
-                  // Codex: snap effort to the new model's default if the
-                  // current effort isn't in its supportedEfforts list.
-                  if (isCodex && backendVisible) {
-                    const picked = backendVisible.find((m) => m.id === next);
-                    if (picked) {
-                      const supported = new Set(
-                        picked.supportedEfforts.map((o) => o.level),
-                      );
-                      if (!supported.has(effort) && picked.defaultEffort) {
-                        setEffort(picked.defaultEffort as EffortLevel);
+              <>
+                <select
+                  value={modelFamily}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setModelFamily(next);
+                    // Claude family-level interlock: "max" effort is top-tier
+                    // only. (The "auto" permission mode interlock is gone now
+                    // that cron's only Claude permission option is
+                    // bypassPermissions.)
+                    if (
+                      !isCodex &&
+                      !claudeFamilySupportsMaxEffort(next) &&
+                      effort === "max"
+                    )
+                      // Same coercion target the server's validateEffort uses
+                      // for an invalid Claude "max".
+                      setEffort(DEFAULT_EFFORT);
+                    // Codex: snap effort to the new model's default if the
+                    // current effort isn't in its supportedEfforts list.
+                    if (isCodex && backendVisible) {
+                      const picked = backendVisible.find((m) => m.id === next);
+                      if (picked) {
+                        const supported = new Set(
+                          picked.supportedEfforts.map((o) => o.level),
+                        );
+                        if (!supported.has(effort) && picked.defaultEffort) {
+                          setEffort(picked.defaultEffort as EffortLevel);
+                        }
                       }
                     }
-                  }
-                }}
-                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-                disabled={usesBackendModels && modelsLoading}
-              >
-                {usesBackendModels ? (
-                  <>
-                    {backendVisible
-                      ? backendVisible.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.label}
-                          </option>
-                        ))
-                      : isCodex
-                        ? CODEX_MODELS.map((m) => (
-                            <option key={m.value} value={m.value}>
+                  }}
+                  style={{
+                    ...inputStyle,
+                    appearance: "none",
+                    cursor: modelSelectCursor(usesBackendModels, modelsLoading),
+                  }}
+                  disabled={usesBackendModels && modelsLoading}
+                >
+                  {usesBackendModels ? (
+                    <>
+                      {backendVisible
+                        ? backendVisible.map((m) => (
+                            <option key={m.id} value={m.id}>
                               {m.label}
                             </option>
                           ))
-                        : null}
-                    {storedNotInList && (
-                      <option key={modelFamily} value={modelFamily}>
-                        {modelFamily} (unavailable on current login)
+                        : isCodex
+                          ? CODEX_MODELS.map((m) => (
+                              <option key={m.value} value={m.value}>
+                                {m.label}
+                              </option>
+                            ))
+                          : null}
+                      {storedNotInList && (
+                        <option key={modelFamily} value={modelFamily}>
+                          Current model
+                        </option>
+                      )}
+                    </>
+                  ) : (
+                    MODEL_FAMILIES.map((m) => (
+                      <option key={m.family} value={m.family}>
+                        {m.label} ({modelVersionLabel(m.family)})
                       </option>
-                    )}
-                  </>
-                ) : (
-                  MODEL_FAMILIES.map((m) => (
-                    <option key={m.family} value={m.family}>
-                      {m.label} ({modelVersionLabel(m.family)})
-                    </option>
-                  ))
+                    ))
+                  )}
+                </select>
+                {isEdit && usesBackendModels && storedNotInList && (
+                  <p
+                    style={{
+                      fontSize: 10,
+                      color: "#ff6b6b",
+                      margin: "3px 0 0",
+                    }}
+                  >
+                    Current model: {familyDisplayLabel(modelFamily)}.{" "}
+                    {modelsError
+                      ? "The available models could not be checked. Reopen this dialog to try again."
+                      : "This login does not offer it. Choose an available model."}
+                  </p>
                 )}
-              </select>
+              </>
             );
           })()}
           {usesBackendModels && modelsLoading && (
@@ -804,12 +829,7 @@ export function CronjobDialog({
                 margin: "3px 0 0",
               }}
             >
-              {modelsError.message}
-              {modelsError.authError
-                ? isOpenCode
-                  ? " - use an OpenCode agent's login card."
-                  : " - sign in via the card a Codex agent emits."
-                : ""}
+              {modelListErrorMessage(isOpenCode, modelsError)}
             </p>
           )}
           {isOpenCode &&
