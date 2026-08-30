@@ -88,8 +88,20 @@ export interface AppsDeps {
   // the app is gone.
   update(
     name: string,
-    patch: { command?: string; cwd?: string; description?: string | null },
+    patch: {
+      command?: string;
+      cwd?: string;
+      description?: string | null;
+      messageTargetAgentId?: string;
+    },
   ): AppRecord | null;
+  // Resolve a proposed message target against the APP OWNER's access, not the
+  // caller's. An office owner managing somebody else's app must not widen what
+  // that app token can reach.
+  resolveMessageTarget(
+    ownerUserId: string | null,
+    agentId: string,
+  ): "ok" | "invalid_id" | "unavailable";
   // Token-derived attribution, shared with the task board: createdBy is the
   // caller's display identity (agent name, or the human's name), username the
   // token's owning user.
@@ -437,17 +449,48 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             "description must be a string, or null to remove it",
           );
         }
+        if (
+          body.messageTargetAgentId !== undefined &&
+          typeof body.messageTargetAgentId !== "string"
+        ) {
+          return fail(
+            400,
+            "invalid_request",
+            "messageTargetAgentId must be a valid agent id",
+          );
+        }
+        if (typeof body.messageTargetAgentId === "string") {
+          const target = deps.resolveMessageTarget(
+            before.userId,
+            body.messageTargetAgentId,
+          );
+          if (target === "invalid_id") {
+            return fail(
+              400,
+              "invalid_request",
+              "messageTargetAgentId must be a valid agent id",
+            );
+          }
+          if (target === "unavailable") {
+            return fail(
+              403,
+              "forbidden",
+              "messageTargetAgentId must name a live agent the app owner can access",
+            );
+          }
+        }
         // An empty patch is a caller mistake, not a no-op: answering 200 to a
         // request that asked for nothing hides whatever built it.
         if (
           body.command === undefined &&
           body.cwd === undefined &&
-          body.description === undefined
+          body.description === undefined &&
+          body.messageTargetAgentId === undefined
         ) {
           return fail(
             400,
             "invalid_request",
-            "nothing to update: send at least one of command, cwd, description",
+            "nothing to update: send at least one of command, cwd, description, messageTargetAgentId",
           );
         }
 
@@ -465,6 +508,9 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
           ...(cwd !== undefined ? { cwd } : {}),
           ...(body.description !== undefined
             ? { description: body.description }
+            : {}),
+          ...(body.messageTargetAgentId !== undefined
+            ? { messageTargetAgentId: body.messageTargetAgentId }
             : {}),
         });
         // Deleted between the read and the write. Nothing was updated, so this
@@ -549,7 +595,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
     "apps.stop": actionHandler(deps, (name) => deps.stop(name)),
     "apps.restart": actionHandler(deps, (name) => deps.restart(name)),
 
-    // The loop closed: an app messaging the agent that built it. The only route
+    // The loop closed: an app messaging its configured agent. The only route
     // an app token reaches, and the only handler here whose caller is the app
     // rather than its owner.
     //
@@ -606,23 +652,20 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
         if (!record) {
           return fail(404, "not_found", "this app is no longer registered");
         }
-        // Apps registered by a PERSON have no agent attached. Nothing to do
-        // about it from here: naming a different target would be exactly the
-        // body-supplied recipient this route refuses to have.
-        if (!record.createdByAgentId) {
+        // The target is configured by the app owner, never supplied by the app
+        // message. Old records fall back to their creator for compatibility.
+        const targetAgentId =
+          record.messageTargetAgentId ?? record.createdByAgentId;
+        if (!targetAgentId) {
           return fail(
             409,
             "no_target",
             "this app was not registered by an agent, so there is no agent to message",
           );
         }
-        const sent = deps.sendAsApp(
-          appName,
-          record.createdByAgentId,
-          body.text,
-        );
+        const sent = deps.sendAsApp(appName, targetAgentId, body.text);
         if (!sent.ok) {
-          // The agent that built the app is gone. Reported as its own code with
+          // The configured agent is gone. Reported as its own code with
           // an answer to "so what do I do", because the raw delivery error
           // ("agent not found") reads like a bad parameter - and there is no
           // parameter.
@@ -630,7 +673,7 @@ export function appsHandlers(deps: AppsDeps): Record<string, RouteHandler> {
             return fail(
               404,
               "target_gone",
-              "the agent that registered this app no longer exists, so there is nobody to message; pointing an app at a different agent is not supported yet",
+              "this app's message target no longer exists; its owner must point it at a live agent",
             );
           }
           return fail(sent.status, sent.code, sent.message);

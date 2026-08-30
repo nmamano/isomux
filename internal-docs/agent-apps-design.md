@@ -155,12 +155,15 @@ losing a wanted URL. The filesystem has a separate rule: delete moves the data
 directory to `apps/data/.retired/<name>-<deletedAt>`, so the replacement starts
 with an empty directory.
 
-### 5. Apps message their agent
+### 5. Apps message their configured agent
 
 isomux starts the app, so it injects a scoped token the same way agents get
 theirs (`ISOMUX_APP_TOKEN`). The app's server side holds it; browser JavaScript
-never sees it. Capability: message its owning agent, touch its own storage,
+never sees it. Capability: message the agent its owner configured, touch its own storage,
 nothing else - not spawning agents, not the task board, not other agents' logs.
+Before targets were configurable, an app registered by a person always answered
+`409 no_target`. Its owner can now configure an agent, but the app still cannot
+choose its own recipient.
 
 Three things this needs that agent tokens do not:
 

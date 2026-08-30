@@ -108,7 +108,7 @@ How to run a web app for the boss (only when they ask for one): register it with
   curl -s -X POST localhost:${PORT}/api/apps -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
     -d '{"name":"habits","command":"bun run start","cwd":"~/habits","description":"Habit tracker"}'   # register; the response carries the port and the data dir
   curl -s localhost:${PORT}/api/apps -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                  # list; add /<name> for one
-  curl -s -X PATCH localhost:${PORT}/api/apps/<name> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"command":"..."}'   # command, cwd or description
+  curl -s -X PATCH localhost:${PORT}/api/apps/<name> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"command":"..."}'   # command, cwd, description or messageTargetAgentId
   curl -s -X POST localhost:${PORT}/api/apps/<name>/restart -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'   # also /start and /stop
   curl -s "localhost:${PORT}/api/apps/<name>/logs?lines=50" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"           # recent output
   curl -s -X DELETE localhost:${PORT}/api/apps/<name> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                 # stops it and frees the name

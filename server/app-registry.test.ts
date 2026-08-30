@@ -1156,6 +1156,17 @@ describe("app-registry: update", () => {
     expect("description" in make().get("hello")!).toBe(false);
   });
 
+  it("defaults message delivery to the creator and persists reassignment", () => {
+    const reg = make();
+    const created = reg.register(
+      registerInput("hello", { createdByAgentId: "agent-creator" }),
+    );
+    expect(created.messageTargetAgentId).toBe("agent-creator");
+
+    reg.update("hello", { messageTargetAgentId: "agent-target" });
+    expect(make().get("hello")!.messageTargetAgentId).toBe("agent-target");
+  });
+
   it("refuses to update on a corrupt registry rather than writing over it", () => {
     const reg = make();
     reg.register(registerInput("hello"));

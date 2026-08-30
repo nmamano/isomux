@@ -1641,6 +1641,10 @@ function viewerAppWire(app: AppWire): AppListWire | null {
     userId: app.userId,
     username: app.username,
     createdByAgentId: app.createdByAgentId,
+    createdAt: app.createdAt,
+    // Do not expose messageTargetAgentId here. createdByAgentId is the creator
+    // whose room grants this viewer access; the message target can be in a room
+    // the viewer cannot see.
     state: app.state,
     restartCount: app.restartCount,
     ...(app.url !== undefined ? { url: app.url } : {}),
@@ -1760,6 +1764,15 @@ function buildExecutorDeps(
       register: (input) => appRegistry.register(input),
       remove: (name) => appRegistry.remove(name),
       update: (name, patch) => appRegistry.update(name, patch),
+      resolveMessageTarget: (ownerUserId, agentId) => {
+        if (!isSafeScopeId(agentId)) return "invalid_id";
+        const owner = ownerUserId ? getUserById(ownerUserId) : null;
+        const target = agentManager.getAgent(agentId);
+        if (!owner || !target) return "unavailable";
+        return accessibleRoomIdsFor(owner).has(target.roomId)
+          ? "ok"
+          : "unavailable";
+      },
       // The token and its environment file, written together. A failure to
       // write the file takes the hash back, so an app either has a usable
       // token or has none - never a hash whose plaintext was lost, which is

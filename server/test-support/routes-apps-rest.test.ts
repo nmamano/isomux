@@ -85,8 +85,11 @@ async function api(
 const errCode = (r: Res): string | undefined =>
   (r.body as { error?: { code?: string } } | null)?.error?.code;
 
-async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
-  const roomId = srv.agentManager.getRooms()[0].id;
+async function spawnAgent(
+  srv: TestServer,
+  name: string,
+  roomId = srv.agentManager.getRooms()[0].id,
+): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
     srv.stateRoot,
@@ -842,6 +845,7 @@ describe("routes/apps REST: who can see and delete an app", () => {
       expect.objectContaining({
         name: "alice-app",
         createdByAgentId: bot.id,
+        createdAt: expect.any(Number),
         canManage: false,
       }),
     ]);
@@ -1165,6 +1169,93 @@ describe("routes/apps REST: updating an app", () => {
     const r = await patch(srv, "hello", {}, token);
     expect(r.status).toBe(400);
     expect(errCode(r)).toBe("invalid_request");
+  });
+
+  it("reassigns messages only to a live agent the app owner can access", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const officeOwner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const aliceId = getUserByName("Alice")!.id;
+    const creator = await spawnAgent(srv, "Creator");
+    expect(updateUserById(aliceId, { allowedRooms: [creator.roomId] }).ok).toBe(
+      true,
+    );
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: mintAgentToken(creator.id, aliceId),
+      body: body(srv, "alice-alerts"),
+    });
+
+    const hiddenRoomId = srv.agentManager.createRoom("Hidden target room");
+    const hiddenTarget = await spawnAgent(srv, "HiddenTarget", hiddenRoomId);
+    const denied = await api(srv, "/api/apps/alice-alerts", {
+      method: "PATCH",
+      rawSessionId: officeOwner.rawSessionId,
+      body: { messageTargetAgentId: hiddenTarget.id },
+    });
+    expect(denied.status).toBe(403);
+    expect(errCode(denied)).toBe("forbidden");
+
+    expect(
+      updateUserById(aliceId, { allowedRooms: [creator.roomId, hiddenRoomId] })
+        .ok,
+    ).toBe(true);
+    const allowed = await api(srv, "/api/apps/alice-alerts", {
+      method: "PATCH",
+      rawSessionId: alice.rawSessionId,
+      body: { messageTargetAgentId: hiddenTarget.id },
+    });
+    expect(allowed.status).toBe(200);
+    expect((allowed.body as AppWire).messageTargetAgentId).toBe(
+      hiddenTarget.id,
+    );
+
+    for (const messageTargetAgentId of ["", "../agent", null, 7]) {
+      const invalid = await api(srv, "/api/apps/alice-alerts", {
+        method: "PATCH",
+        rawSessionId: alice.rawSessionId,
+        body: { messageTargetAgentId },
+      });
+      expect(invalid.status).toBe(400);
+    }
+  });
+
+  it("retargeting does not move the app's viewer set", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const viewer = await srv.seedMember("Viewer");
+    const ownerId = getUserByName("Boss")!.id;
+    const viewerId = getUserByName("Viewer")!.id;
+    const creator = await spawnAgent(srv, "Creator");
+    expect(
+      updateUserById(viewerId, { allowedRooms: [creator.roomId] }).ok,
+    ).toBe(true);
+    await api(srv, "/api/apps", {
+      method: "POST",
+      bearer: mintAgentToken(creator.id, ownerId),
+      body: body(srv, "visible-alerts"),
+    });
+    const otherRoomId = srv.agentManager.createRoom("Other room");
+    const target = await spawnAgent(srv, "Target", otherRoomId);
+
+    const retargeted = await api(srv, "/api/apps/visible-alerts", {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { messageTargetAgentId: target.id },
+    });
+    expect(retargeted.status).toBe(200);
+
+    const viewerList = await api(srv, "/api/apps", {
+      rawSessionId: viewer.rawSessionId,
+    });
+    expect((viewerList.body as AppListWire[]).map((app) => app.name)).toEqual([
+      "visible-alerts",
+    ]);
+    expect(
+      (viewerList.body as Record<string, unknown>[])[0],
+    ).not.toHaveProperty("messageTargetAgentId");
   });
 
   it("applies register's validation to the fields it changes", async () => {
@@ -2082,6 +2173,7 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     register: () => record,
     remove: () => record,
     update: () => record,
+    resolveMessageTarget: () => "ok",
     attributionFor: () => ({ createdBy: "Agent1", username: "alice" }),
     validateCwd: (cwd) => ({ ok: true, resolved: cwd }),
     isOfficeOwner: () => true,

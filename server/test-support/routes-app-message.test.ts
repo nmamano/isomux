@@ -291,6 +291,41 @@ describe("POST /api/app/message: an app messages the agent that built it", () =>
   });
 });
 
+describe("POST /api/app/message: an app messages its configured target", () => {
+  it("delivers to the reassigned agent instead of the creator", async () => {
+    const srv = await startTestServer({ fakeBackend: parkingBackend() });
+    server = srv;
+    const { agent, appToken, agentToken } = await seedApp(srv, "alerts");
+    const target = await spawnAgent(srv, "AlertOwner");
+
+    const patched = await srv.http("/api/apps/alerts", {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${agentToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ messageTargetAgentId: target.id }),
+    });
+    expect(patched.status).toBe(200);
+
+    const sent = await post(srv, "/api/app/message", appToken, {
+      text: "production alert",
+    });
+    expect(sent.status).toBe(200);
+    await waitUntil(
+      () =>
+        promptsFor(srv, target.id).some((text) =>
+          text.includes("production alert"),
+        ),
+      3000,
+      "target delivery",
+    );
+    expect(promptsFor(srv, agent.id)).not.toContainEqual(
+      expect.stringContaining("production alert"),
+    );
+  });
+});
+
 // --- who may call it --------------------------------------------------------
 
 describe("POST /api/app/message: the token is the app, and nothing else reaches it", () => {
@@ -503,6 +538,7 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     register: () => record,
     remove: () => record,
     update: () => record,
+    resolveMessageTarget: () => "ok",
     attributionFor: () => ({ createdBy: "AppBot", username: "alice" }),
     validateCwd: (cwd: string) => ({ ok: true as const, resolved: cwd }),
     isOfficeOwner: () => false,

@@ -802,10 +802,13 @@ export interface AppRecord {
   // app survives the agent, so ownership can never be the agent.
   userId: string | null;
   username: string | null; // display snapshot of the owner (can go stale)
-  // Attribution only: who registered it. createdByAgentId is also the default
-  // message target once apps can message their agent.
+  // Attribution only: who registered it. Older app records also use
+  // createdByAgentId as the message target when messageTargetAgentId is absent.
   createdBy: string;
   createdByAgentId?: string;
+  // Where POST /api/app/message delivers. Older records omit this and fall
+  // back to createdByAgentId, so the first deployment needs no migration.
+  messageTargetAgentId?: string;
   createdAt: number;
 }
 
@@ -871,6 +874,7 @@ export interface AppViewerWire {
   userId: string | null;
   username: string | null;
   createdByAgentId: string;
+  createdAt: number;
   state: AppState;
   restartCount: number;
   url?: string;

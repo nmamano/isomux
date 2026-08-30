@@ -418,6 +418,7 @@ function isLegacyPersistedApp(value: unknown): value is LegacyPersistedApp {
     username,
     createdBy,
     createdByAgentId,
+    messageTargetAgentId,
     createdAt,
   } = value;
   return (
@@ -445,6 +446,7 @@ function isLegacyPersistedApp(value: unknown): value is LegacyPersistedApp {
     isNullableString(username) &&
     typeof createdBy === "string" &&
     isOptionalString(createdByAgentId, 200) &&
+    isOptionalString(messageTargetAgentId, 200) &&
     isFiniteNumber(createdAt)
   );
 }
@@ -760,6 +762,7 @@ export interface UpdateAppInput {
   command?: string;
   cwd?: string;
   description?: string | null;
+  messageTargetAgentId?: string;
 }
 
 export interface AppRegistry {
@@ -935,6 +938,9 @@ export function createAppRegistry(
         ...(input.createdByAgentId
           ? { createdByAgentId: input.createdByAgentId }
           : {}),
+        ...(input.createdByAgentId
+          ? { messageTargetAgentId: input.createdByAgentId }
+          : {}),
         createdAt: at,
         registrationGen,
       };
@@ -972,7 +978,7 @@ export function createAppRegistry(
     // The cure for a typo that would otherwise cost the app its address.
     // Everything that makes the app THE app - name, port, data directory,
     // ownership, creation attribution - is untouched by construction: only the
-    // three patchable fields are ever copied over, and the record keeps its
+    // patchable fields are ever copied over, and the record keeps its
     // position in the file so registration order still reads as registration
     // order.
     update(name, patch) {
@@ -994,6 +1000,9 @@ export function createAppRegistry(
         ...apps[index],
         ...(patch.command !== undefined ? { command: patch.command } : {}),
         ...(patch.cwd !== undefined ? { cwd: patch.cwd } : {}),
+        ...(patch.messageTargetAgentId !== undefined
+          ? { messageTargetAgentId: patch.messageTargetAgentId }
+          : {}),
       };
       withRegistrationGeneration(
         updated,

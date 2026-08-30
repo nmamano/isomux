@@ -770,6 +770,7 @@ export interface AppUpdateReq {
   command?: string;
   cwd?: string;
   description?: string | null;
+  messageTargetAgentId?: string;
 }
 
 // The `error.code` values the app routes answer with, as a closed union so the
