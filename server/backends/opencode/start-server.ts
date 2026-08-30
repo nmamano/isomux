@@ -169,19 +169,19 @@ function bindFailure(stderr: string): boolean {
 await mkdir(profileDir, { recursive: true });
 if (prior && (await healthy(prior))) {
   const startTicks = readLinuxProcessStartTicks(prior.pid);
-  if (!startTicks)
-    throw new Error(
-      "Healthy OpenCode server has no readable process identity.",
+  if (startTicks) {
+    if (prior.startTicks !== startTicks) {
+      prior.startTicks = startTicks;
+      await writeFile(recordPath, `${JSON.stringify(prior)}\n`, {
+        mode: 0o600,
+      });
+      await chmod(recordPath, 0o600);
+    }
+    process.stdout.write(
+      JSON.stringify({ pid: prior.pid, port: prior.port, adopted: true }),
     );
-  if (prior.startTicks !== startTicks) {
-    prior.startTicks = startTicks;
-    await writeFile(recordPath, `${JSON.stringify(prior)}\n`, { mode: 0o600 });
-    await chmod(recordPath, 0o600);
+    process.exit(0);
   }
-  process.stdout.write(
-    JSON.stringify({ pid: prior.pid, port: prior.port, adopted: true }),
-  );
-  process.exit(0);
 }
 if (prior) await stop(prior);
 
@@ -234,22 +234,25 @@ for (let attempt = 0; attempt < 40; attempt++) {
   child.on("error", () => {});
   await Promise.all([stdout.close(), stderr.close()]);
   child.unref();
+  let identityLostAfterHealth = false;
   if (child.pid && (await waitHealthy(child, port))) {
     const startTicks = readLinuxProcessStartTicks(child.pid);
-    if (!startTicks)
-      throw new Error("OpenCode process identity is unreadable.");
-    started = {
-      pid: child.pid,
-      port,
-      password,
-      binary,
-      profileDir,
-      environmentRevision,
-      configRevision,
-      startTicks,
-    };
-    if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });
-    break;
+    if (startTicks) {
+      started = {
+        pid: child.pid,
+        port,
+        password,
+        binary,
+        profileDir,
+        environmentRevision,
+        configRevision,
+        startTicks,
+      };
+      if (!keepDebugOutput)
+        await rm(debugDir, { recursive: true, force: true });
+      break;
+    }
+    identityLostAfterHealth = true;
   }
   if (child.pid)
     await stop({
@@ -264,6 +267,7 @@ for (let attempt = 0; attempt < 40; attempt++) {
     });
   const startupError = await readFile(stderrPath, "utf8").catch(() => "");
   if (!keepDebugOutput) await rm(debugDir, { recursive: true, force: true });
+  if (identityLostAfterHealth) continue;
   if (!bindFailure(startupError)) {
     const debugAdvice = keepDebugOutput
       ? ` Debug output is in ${debugDir}.`

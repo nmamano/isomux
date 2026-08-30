@@ -17,6 +17,7 @@ import {
 } from "./supervisor.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
+import { readLinuxProcessStartTicks } from "./process-identity.ts";
 
 const supervisors: OpenCodeSupervisor[] = [];
 const scratch: string[] = [];
@@ -262,6 +263,41 @@ describe("OpenCode shared server supervisor", () => {
     leaseB.release();
     await second.shutdown();
     expect(alive(leaseA.pid)).toBe(false);
+  }, 20_000);
+
+  // This starts and replaces a real pinned server. Under full-suite CPU load it
+  // can red during startup near its 20s budget, then pass when run alone.
+  it("replaces an adoptee that exits after its health response", async () => {
+    const path = await root();
+    const config = gateConfig(mockProvider());
+    const first = makeSupervisor(path, config);
+    const firstLease = await first.acquire();
+    const firstPid = firstLease.pid;
+    firstLease.release();
+    let killerHits = 0;
+    const killer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch() {
+        killerHits++;
+        process.kill(firstPid, "SIGKILL");
+        while (readLinuxProcessStartTicks(firstPid)) await Bun.sleep(5);
+        return Response.json({ healthy: true, version: "1.18.23" });
+      },
+    });
+    mocks.push(killer);
+    const record = JSON.parse(
+      await readFile(first.recordPath, "utf8"),
+    ) as Record<string, unknown>;
+    record.port = killer.port;
+    await writeFile(first.recordPath, `${JSON.stringify(record)}\n`);
+
+    const second = makeSupervisor(path, config);
+    const replacement = await second.acquire();
+    expect(killerHits).toBeGreaterThan(0);
+    expect(replacement.pid).not.toBe(firstPid);
+    expect(alive(replacement.pid)).toBe(true);
+    replacement.release();
   }, 20_000);
 
   it("replaces changed environment contents and refreshes retained leases", async () => {
@@ -586,6 +622,61 @@ describe("OpenCode shared server supervisor", () => {
     expect(Date.now() - startedAt).toBeLessThan(3000);
     expect(await readFile(marker, "utf8")).toBe("x");
   }, 10_000);
+
+  it("retries when a fresh healthy child exits before identity capture", async () => {
+    const path = await root();
+    const marker = join(path, "identity-loss-attempts");
+    const binary = join(path, "identity-loss-opencode");
+    await writeFile(
+      binary,
+      `#!/usr/bin/env bun
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+const marker = ${JSON.stringify(marker)};
+if (!existsSync(marker)) {
+  appendFileSync(marker, \`first:\${process.pid}\\n\`);
+  const parentPid = process.pid;
+  const child = spawn(process.execPath, ["-e", \`
+    import { readFileSync } from "node:fs";
+    const parentPid = \${parentPid};
+    const server = Bun.serve({ hostname: "127.0.0.1", port: \${port}, async fetch() {
+      process.kill(parentPid, "SIGKILL");
+      while (true) {
+        try { readFileSync("/proc/" + parentPid + "/stat"); await Bun.sleep(5); }
+        catch { break; }
+      }
+      const response = Response.json({ healthy: true, version: "1.18.23" });
+      void server.stop().then(() => process.exit(0));
+      return response;
+    }});
+    await new Promise(() => {});
+  \`], { detached: true, stdio: "ignore" });
+  child.unref();
+  await new Promise(() => {});
+}
+appendFileSync(marker, \`second:\${process.pid}\\n\`);
+Bun.serve({ hostname: "127.0.0.1", port, fetch() {
+  return Response.json({ healthy: true, version: "1.18.23" });
+}});
+await new Promise(() => {});
+`,
+    );
+    await chmod(binary, 0o700);
+    const supervisor = new OpenCodeSupervisor({
+      profileDir: join(path, "profile"),
+      serverCwd: path,
+      binary,
+      idleShutdownMs: 1000,
+    });
+    supervisors.push(supervisor);
+    const lease = await supervisor.acquire();
+    const attempts = (await readFile(marker, "utf8")).trim().split("\n");
+    expect(attempts.length).toBeGreaterThanOrEqual(2);
+    expect(attempts[0]).toStartWith("first:");
+    expect(attempts.at(-1)).toBe(`second:${lease.pid}`);
+    lease.release();
+  }, 20_000);
 
   it("the Isomux launch builder blocks project plugin, MCP, and Claude compatibility loading", async () => {
     const path = await root();
