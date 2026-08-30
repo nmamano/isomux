@@ -53,6 +53,7 @@ import {
 } from "./internal-types.ts";
 import { runAgentTurn } from "./plugin-hooks.ts";
 import { buildPublicOrigin } from "./auth.ts";
+import { modelListingLabel } from "./model-listing-label.ts";
 
 type HandlerFn = (
   agentId: string,
@@ -720,7 +721,10 @@ export function createCommandHandling(deps: HandlerDeps) {
 
         for (const a of roomAgents) {
           const selfTag = a.info.id === agentId ? "  **(me)**" : "";
-          const modelLabel = familyDisplayLabel(a.info.modelFamily);
+          const modelLabel = modelListingLabel(
+            a.info.agentType,
+            a.info.modelFamily,
+          );
           const topic = a.info.topic;
           const hasTopic = topic && topic !== "...";
           const header = `**${a.info.name}** (desk ${a.info.desk + 1})${selfTag} - ${modelLabel} - \`${a.info.cwd}\``;

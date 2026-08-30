@@ -1895,7 +1895,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                                   ))
                                 : null}
                             {pickerModels && pickerModels.free.length > 0 && (
-                              <optgroup label="Free" style={modelOptionStyle}>
+                              <optgroup
+                                label="Free (the provider may use traffic for training)"
+                                style={modelOptionStyle}
+                              >
                                 {pickerModels.free.map((m) => (
                                   <option
                                     key={m.id}
