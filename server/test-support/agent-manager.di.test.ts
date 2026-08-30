@@ -752,9 +752,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const logs = mgr.getAgentLogs(info!.id);
-    expect(
-      logs.some((entry) => entry.content.includes("shared environment")),
-    ).toBe(true);
+    expect(logs.some((entry) => entry.content.includes("masked prompt"))).toBe(
+      true,
+    );
     const cards = logs.filter((entry) => entry.kind === "terminal-command");
     expect(cards).toHaveLength(1);
     expect(cards[0].terminal?.command).toContain("opencode-login-");
