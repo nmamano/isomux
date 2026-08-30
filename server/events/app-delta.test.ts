@@ -26,6 +26,7 @@ const viewerApp = {
   userId: "owner",
   username: "Owner",
   createdByAgentId: "agent-1",
+  createdAt: 1,
   state: "running",
   restartCount: 0,
   canManage: false,
