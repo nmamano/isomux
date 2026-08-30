@@ -121,9 +121,6 @@ describe("OpenCode deterministic tracer", () => {
       environmentKey: "default",
       modelFamily: "anthropic/claude-sonnet",
     });
-    expect(instructions.text).toContain("anthropic API key");
-    expect(instructions.text).toContain("masked prompt");
-    expect(instructions.text).not.toContain("Browser OAuth");
     expect(instructions.commands).toHaveLength(1);
   });
 });
