@@ -61,6 +61,15 @@ function capture() {
   return { events, sink };
 }
 
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function runLoginCardThroughPty(
   command: string,
   cwd: string,
@@ -560,6 +569,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
         undefined,
         "opencode",
       );
+      const warmLease = await supervisor.acquire();
+      const warmPid = warmLease.pid;
+      expect(alive(warmPid)).toBe(true);
       mgr.enqueueMessage(info!.id, {
         sender: { kind: "user", username: "tester" },
         text: "hello through OC1",
@@ -578,6 +590,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
           .getAgentLogs(info!.id)
           .some((entry) => entry.content === "OpenCode real tracer reply."),
       ).toBe(true);
+      expect(warmLease.pid).toBe(warmPid);
+      expect(alive(warmPid)).toBe(true);
+      warmLease.release();
       expect(mgr.listSessions(info!.id)[0]?.agentType).toBe("opencode");
       expect(mgr.getAgent(info!.id)?.state).toBe("waiting_for_response");
       expect(supervisor.profileDir).not.toBe(
@@ -1050,6 +1065,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
         undefined,
         "opencode",
       );
+      const warmLease = await supervisor.acquire();
+      const warmPid = warmLease.pid;
+      expect(alive(warmPid)).toBe(true);
       mgr.enqueueMessage(info!.id, {
         sender: { kind: "user", username: "tester" },
         text: "trigger provider error",
@@ -1066,6 +1084,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
       const normalized = JSON.stringify(mgr.getAgentLogs(info!.id));
+      expect(warmLease.pid).toBe(warmPid);
+      expect(alive(warmPid)).toBe(true);
+      warmLease.release();
       expect(normalized).not.toContain(canary);
       expect(normalized).toContain("provider or transport error");
       expect(

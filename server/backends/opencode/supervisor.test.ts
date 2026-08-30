@@ -131,6 +131,7 @@ function makeSupervisor(
   idleShutdownMs = 1000,
   launchEnv: Record<string, string | undefined> = {},
   replacementDrainMs = 5000,
+  binary?: string,
 ) {
   const supervisor = new OpenCodeSupervisor({
     profileDir: join(path, "profile"),
@@ -139,9 +140,31 @@ function makeSupervisor(
     idleShutdownMs,
     launchEnv,
     replacementDrainMs,
+    binary,
   });
   supervisors.push(supervisor);
   return supervisor;
+}
+
+async function makeHealthOnlyBinary(path: string) {
+  const binary = join(path, "health-only-opencode");
+  const healthMarker = join(path, "health-only-requests");
+  await writeFile(
+    binary,
+    `#!/usr/bin/env bun
+import { appendFileSync } from "node:fs";
+const port = Number(process.argv[process.argv.indexOf("--port") + 1]);
+Bun.serve({ hostname: "127.0.0.1", port, fetch(request) {
+  if (new URL(request.url).pathname !== "/global/health")
+    return new Response("not found", { status: 404 });
+  appendFileSync(${JSON.stringify(healthMarker)}, "hit\\n");
+  return Response.json({ healthy: true, version: "1.18.23" });
+}});
+await new Promise(() => {});
+`,
+  );
+  await chmod(binary, 0o700);
+  return { binary, healthMarker };
 }
 
 function alive(pid: number): boolean {
@@ -265,12 +288,11 @@ describe("OpenCode shared server supervisor", () => {
     expect(alive(leaseA.pid)).toBe(false);
   }, 20_000);
 
-  // This starts and replaces a real pinned server. Under full-suite CPU load it
-  // can red during startup near its 20s budget, then pass when run alone.
   it("replaces an adoptee that exits after its health response", async () => {
     const path = await root();
     const config = gateConfig(mockProvider());
-    const first = makeSupervisor(path, config);
+    const { binary, healthMarker } = await makeHealthOnlyBinary(path);
+    const first = makeSupervisor(path, config, 1000, {}, 5000, binary);
     const firstLease = await first.acquire();
     const firstPid = firstLease.pid;
     firstLease.release();
@@ -292,9 +314,10 @@ describe("OpenCode shared server supervisor", () => {
     record.port = killer.port;
     await writeFile(first.recordPath, `${JSON.stringify(record)}\n`);
 
-    const second = makeSupervisor(path, config);
+    const second = makeSupervisor(path, config, 1000, {}, 5000, binary);
     const replacement = await second.acquire();
     expect(killerHits).toBeGreaterThan(0);
+    expect((await readFile(healthMarker, "utf8")).length).toBeGreaterThan(0);
     expect(replacement.pid).not.toBe(firstPid);
     expect(alive(replacement.pid)).toBe(true);
     replacement.release();
@@ -362,12 +385,13 @@ describe("OpenCode shared server supervisor", () => {
   it("adopts an unchanged config but replaces a pre-revision config record", async () => {
     const path = await root();
     const oldConfig = gateConfig(mockProvider());
-    const first = makeSupervisor(path, oldConfig, 1000);
+    const { binary, healthMarker } = await makeHealthOnlyBinary(path);
+    const first = makeSupervisor(path, oldConfig, 1000, {}, 5000, binary);
     const initial = await first.acquire();
     const firstPid = initial.pid;
     initial.release();
 
-    const unchanged = makeSupervisor(path, oldConfig, 1000);
+    const unchanged = makeSupervisor(path, oldConfig, 1000, {}, 5000, binary);
     const adopted = await unchanged.acquire();
     expect(adopted.pid).toBe(firstPid);
     adopted.release();
@@ -377,7 +401,14 @@ describe("OpenCode shared server supervisor", () => {
     ) as Record<string, unknown>;
     delete legacyRecord.startTicks;
     await writeFile(first.recordPath, `${JSON.stringify(legacyRecord)}\n`);
-    const legacyUpgrade = makeSupervisor(path, oldConfig, 1000);
+    const legacyUpgrade = makeSupervisor(
+      path,
+      oldConfig,
+      1000,
+      {},
+      5000,
+      binary,
+    );
     const legacyLease = await legacyUpgrade.acquire();
     expect(legacyLease.pid).toBe(firstPid);
     expect(
@@ -399,10 +430,18 @@ describe("OpenCode shared server supervisor", () => {
         },
       },
     };
-    const upgraded = makeSupervisor(path, changedConfig, 1000);
+    const upgraded = makeSupervisor(
+      path,
+      changedConfig,
+      1000,
+      {},
+      5000,
+      binary,
+    );
     const replaced = await upgraded.acquire();
     expect(replaced.pid).not.toBe(firstPid);
     expect(alive(firstPid)).toBe(false);
+    expect((await readFile(healthMarker, "utf8")).length).toBeGreaterThan(0);
     replaced.release();
   }, 20_000);
 
@@ -497,7 +536,15 @@ describe("OpenCode shared server supervisor", () => {
 
   it("waits for an idle shutdown before granting a new healthy lease", async () => {
     const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()), 20);
+    const { binary, healthMarker } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      gateConfig(mockProvider()),
+      20,
+      {},
+      5000,
+      binary,
+    );
     const first = await supervisor.acquire();
     first.release();
     await Bun.sleep(30);
@@ -507,6 +554,7 @@ describe("OpenCode shared server supervisor", () => {
       headers: { authorization: next.authHeader },
     });
     expect(response.ok).toBe(true);
+    expect((await readFile(healthMarker, "utf8")).length).toBeGreaterThan(0);
     next.release();
   }, 20_000);
 
