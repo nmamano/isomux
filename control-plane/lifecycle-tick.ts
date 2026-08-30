@@ -10,6 +10,7 @@
 // week, and once at the retention deadline. Everything else is a read.
 
 import { clearAttentionIn, raiseAttentionIn } from "./attention.ts";
+import { LIVENESS_REASON } from "./liveness-watch.ts";
 import { deadlinesFor } from "./operations.ts";
 import { decideLifecycle, type LifecyclePhase } from "./lifecycle.ts";
 import type { Store } from "./store.ts";
@@ -201,6 +202,20 @@ export async function lifecycleTick(
             outcome: "succeeded",
             detail: decision.note,
           });
+          // A live office can raise this during its grace week. Power-off then
+          // stops future probes, so provider-proven teardown is the last point
+          // that can resolve the stale measurement. Match the whole durable
+          // identity: the empty source sentinel is shared by other conditions.
+          for (const open of await store.openReasons(instance.id)) {
+            if (open.source_op_id !== "" || open.reason !== LIVENESS_REASON)
+              continue;
+            await clearAttentionIn(
+              store,
+              instance.id,
+              open.id,
+              LIFECYCLE_TICK_ACTOR,
+            );
+          }
           finished = true;
         }
 

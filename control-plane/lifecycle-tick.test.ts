@@ -17,6 +17,9 @@ import {
   RETENTION_MS,
 } from "./lifecycle.ts";
 import { lifecycleTick } from "./lifecycle-tick.ts";
+import { raiseAttentionIn } from "./attention.ts";
+import { CERTIFICATE_CONTACT_REASON } from "./certificate-credentials.ts";
+import { LIVENESS_REASON } from "./liveness-watch.ts";
 import { Store } from "./store.ts";
 import {
   openTestStore,
@@ -408,12 +411,35 @@ describe("the walk, on seeded dates", () => {
     );
 
     // Provider truth is what ends it.
+    await store.tx(async () => {
+      await raiseAttentionIn(store, {
+        instanceId: "inst-1",
+        reasonClass: "operation_condition",
+        reason: LIVENESS_REASON,
+        severity: "critical",
+      });
+      await raiseAttentionIn(store, {
+        instanceId: "inst-1",
+        reasonClass: "operation_condition",
+        reason: CERTIFICATE_CONTACT_REASON,
+        severity: "warning",
+      });
+    });
     const asset = (await store.assetForInstance("inst-1"))!;
     await store.casAsset(asset.id, asset.version, { asset_state: "cancelled" });
     expect(await lifecycleTick(store, c.now())).toMatchObject({ finished: 1 });
     expect((await store.getInstance("inst-1"))!.service_state).toBe(
       "deprovisioned",
     );
+    expect(await store.getInstance("inst-1")).toMatchObject({
+      goal: "live",
+      attention_state: "needs_operator",
+      attention_reason: CERTIFICATE_CONTACT_REASON,
+    });
+    const open = await store.openReasons("inst-1");
+    expect(open.map((reason) => reason.reason)).toEqual([
+      CERTIFICATE_CONTACT_REASON,
+    ]);
     expect(
       (await store.auditEvents()).filter((e) => e.action === "data_end"),
     ).toHaveLength(1);
@@ -431,6 +457,45 @@ describe("the walk, on seeded dates", () => {
       opened: 0,
       finished: 0,
     });
+    await store.close();
+  });
+
+  test("a liveness alarm stays open while the provider asset is present", async () => {
+    const c = clock(GRACE_END + RETENTION_MS);
+    const store = await tempStore(c.now);
+    await seed(store);
+    await store.tx(() =>
+      raiseAttentionIn(store, {
+        instanceId: "inst-1",
+        reasonClass: "operation_condition",
+        reason: LIVENESS_REASON,
+        severity: "critical",
+      }),
+    );
+
+    await lifecycleTick(store, c.now());
+
+    expect(await store.getInstance("inst-1")).toMatchObject({
+      service_state: "live",
+      attention_state: "needs_operator",
+      attention_reason: LIVENESS_REASON,
+    });
+    expect(
+      (await store.openReasons("inst-1")).map((row) => row.reason),
+    ).toEqual([LIVENESS_REASON]);
+    await store.close();
+  });
+
+  test("a terminal cancellation with no asset row does not deprovision", async () => {
+    const c = clock(GRACE_END + RETENTION_MS);
+    const store = await tempStore(c.now);
+    await seed(store);
+    await store.sqlRun("delete from provider_assets where instance_id = $1", [
+      "inst-1",
+    ]);
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ finished: 0 });
+    expect((await store.getInstance("inst-1"))!.service_state).toBe("live");
     await store.close();
   });
 
