@@ -18,7 +18,7 @@ Protected write targets resolve against the agent working directory. When a hook
 
 An unresolvable directory-change operand denies any later relative write, while an absent envelope working directory denies only a protected-path candidate. This asymmetry is deliberate: a dynamic `cd` states an intent to relocate, so the old working directory is not a safe fallback. The denial tells the agent to use an absolute write target.
 
-Relative paths that resolve under the literal `~/.isomux` are mapped to the configured state root before the boundary check. This is an identity in a default install. With a non-default state root, it also denies writes to the literal `~/.isomux` path.
+Relative paths that resolve under the literal `~/.isomux` are mapped to the configured state root before the boundary check. This is an identity in a default install. With a non-default state root, it also denies writes to the literal `~/.isomux` path. The missing-cwd candidate rule recognizes the literal `.isomux` segment only, so under a non-default state root it does not recognize that root's own basename - a third-order fail-open needing both a missing working directory and a non-default root.
 
 ## Measured coverage
 
