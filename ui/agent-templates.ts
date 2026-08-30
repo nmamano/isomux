@@ -8,6 +8,7 @@ import type {
 import {
   DEFAULT_EFFORT,
   MODEL_FAMILIES,
+  OPENCODE_DEFAULT_MODEL,
   claudeFamilySupportsAutoPermission,
   effortLevelsFor,
 } from "../shared/types.ts";
@@ -440,6 +441,7 @@ export function resolveTemplateModel(
     if (visible.length === 0) return current;
     const chosen =
       visible.find((model) => model.id === current.modelFamily) ??
+      visible.find((model) => model.id === OPENCODE_DEFAULT_MODEL) ??
       visible.find((model) => model.isDefault) ??
       visible[0];
     return {

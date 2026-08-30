@@ -1630,7 +1630,9 @@ export async function demoApi(
       const result = state.spawn({
         name: b.name,
         cwd: b.cwd,
-        permissionMode: b.permissionMode ?? "default",
+        permissionMode:
+          b.permissionMode ??
+          (b.agentType === "opencode" ? "bypassPermissions" : "default"),
         desk: b.desk,
         roomId: b.roomId,
         customInstructions: b.customInstructions,

@@ -19,7 +19,7 @@ describe("validateCodexSandbox", () => {
 });
 
 describe("resolveAgentEngineSettings", () => {
-  it("applies backend defaults without giving Claude a sandbox", () => {
+  it("defaults an omitted OpenCode permission to bypass without widening explicit Ask", () => {
     expect(resolveAgentEngineSettings("codex", {})).toMatchObject({
       permissionMode: "never",
       codexSandbox: "danger-full-access",
@@ -35,9 +35,15 @@ describe("resolveAgentEngineSettings", () => {
     ).toMatchObject({
       modelFamily: "provider/model",
       effort: "high",
-      permissionMode: "default",
+      permissionMode: "bypassPermissions",
       codexSandbox: undefined,
     });
+    expect(
+      resolveAgentEngineSettings("opencode", {
+        modelFamily: "provider/model",
+        permissionMode: "default",
+      }).permissionMode,
+    ).toBe("default");
   });
 
   it("preserves an explicit valid Codex choice and fills only absent values", () => {
@@ -71,15 +77,17 @@ describe("OpenCode model validation", () => {
     );
     expect(resolveAgentEngineSettings("opencode", {})).toMatchObject({
       modelFamily: "",
-      permissionMode: "default",
+      permissionMode: "bypassPermissions",
     });
   });
 });
 
 describe("OpenCode permission validation", () => {
-  it("keeps default persisted records in asking mode", () => {
+  it("keeps explicit Ask while invalid input takes the new default", () => {
     expect(validatePermissionMode("opencode", "default")).toBe("default");
-    expect(validatePermissionMode("opencode", "never")).toBe("default");
+    expect(validatePermissionMode("opencode", "never")).toBe(
+      "bypassPermissions",
+    );
   });
 
   it("preserves the explicit interactive bypass mode", () => {

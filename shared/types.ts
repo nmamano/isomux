@@ -168,6 +168,9 @@ export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
 // coercion target when validateEffort rejects a value.
 export const DEFAULT_EFFORT: EffortLevel = "high";
 
+export const OPENCODE_DEFAULT_MODEL =
+  "opencode/muse-spark-1.2-contributor-free";
+
 export function effortDisplayLabel(level: EffortLevel): string {
   return EFFORT_LEVELS.find((e) => e.level === level)?.label ?? level;
 }

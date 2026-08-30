@@ -197,6 +197,20 @@ describe("demo fixture data", () => {
       },
     });
 
+    const demoRoom = (await demoApi("POST", "/api/rooms", {
+      name: "OpenCode defaults",
+    })) as { room: { id: string } };
+    const openCode = (await demoApi("POST", "/api/agents", {
+      name: "OpenCode Demo Default",
+      cwd: "~/demo-opencode",
+      desk: 0,
+      roomId: demoRoom.room.id,
+      modelFamily: "opencode/muse-spark-1.2-contributor-free",
+      effort: "high",
+      agentType: "opencode",
+    })) as { agent: { permissionMode: string } };
+    expect(openCode.agent.permissionMode).toBe("bypassPermissions");
+
     const created = (await demoApi("POST", "/api/cronjobs", {
       name: "Party planning reminder",
       schedule: { type: "weekly", weekday: 5, hour: 16, minute: 0 },

@@ -2730,7 +2730,9 @@ function buildExecutorDeps(
           const spawned = await agentManager.spawn(
             input.name,
             input.cwd,
-            input.permissionMode ?? "default",
+            input.agentType === "opencode"
+              ? input.permissionMode
+              : (input.permissionMode ?? "default"),
             input.desk,
             input.customInstructions,
             input.roomId,

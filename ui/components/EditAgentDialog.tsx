@@ -14,6 +14,7 @@ import {
   DEFAULT_EFFORT,
   modelVersionLabel,
   CODEX_MODELS,
+  OPENCODE_DEFAULT_MODEL,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
   familyDisplayLabel,
@@ -86,7 +87,8 @@ export function initialPermissionModeFor(
   if (engine === "codex") {
     return agent?.permissionMode ?? codexNewEngineDefaults().permissionMode;
   }
-  if (engine === "opencode") return agent?.permissionMode ?? "default";
+  if (engine === "opencode")
+    return agent?.permissionMode ?? "bypassPermissions";
   if (
     agent?.permissionMode === "auto" &&
     !claudeFamilySupportsAutoPermission(
@@ -103,6 +105,21 @@ export function permissionModeChangeForEdit(
   current: AgentInfo["permissionMode"],
 ): Pick<EditAgentReq, "permissionMode"> {
   return persisted === current ? {} : { permissionMode: current };
+}
+
+export function defaultBackendModel(
+  models: BackendModelWire[],
+  isCodex: boolean,
+): BackendModelWire | undefined {
+  const visibleModels = models.filter((model) => !model.hidden);
+  const preferredModelId = isCodex
+    ? CODEX_MODELS[0].value
+    : OPENCODE_DEFAULT_MODEL;
+  return (
+    visibleModels.find((model) => model.id === preferredModelId) ??
+    visibleModels.find((model) => model.isDefault) ??
+    visibleModels[0]
+  );
 }
 
 export function templateValuesAfterEngineSwitch(
@@ -125,7 +142,7 @@ export function templateValuesAfterEngineSwitch(
         ? {
             modelFamily: "",
             effort: DEFAULT_EFFORT,
-            permissionMode: "default" as AgentInfo["permissionMode"],
+            permissionMode: "bypassPermissions" as AgentInfo["permissionMode"],
           }
         : {
             modelFamily: MODEL_FAMILIES[0].family,
@@ -658,14 +675,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           (isSpawn || targetEngine !== agentType) &&
           !templateAppliedRef.current
         ) {
-          const preferredModelId = isCodex ? CODEX_MODELS[0].value : null;
-          const visibleModels = r.models.filter((m) => !m.hidden);
-          const def =
-            (preferredModelId
-              ? visibleModels.find((m) => m.id === preferredModelId)
-              : undefined) ??
-            visibleModels.find((m) => m.isDefault) ??
-            visibleModels[0];
+          const def = defaultBackendModel(r.models, isCodex);
           if (def) {
             setModelFamily(def.id);
             // A machine-chosen default, not an edit - move the unsaved-changes
@@ -745,7 +755,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       seed = {
         modelFamily: "",
         effort: DEFAULT_EFFORT,
-        permissionMode: "default",
+        permissionMode: initialPermissionModeFor(undefined, "opencode"),
       };
     } else {
       const claudeDefault = MODEL_FAMILIES[0].family;

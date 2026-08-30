@@ -365,6 +365,66 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     ).toBe(true);
   });
 
+  it("agent-driven OpenCode spawn defaults to Bypass while explicit Ask round-trips", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerRecord = getUserByName(owner.username);
+    if (!ownerRecord) throw new Error("seeded owner record missing");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const operator = await srv.agentManager.spawn(
+      "Operator",
+      srv.stateRoot,
+      "default",
+      0,
+      undefined,
+      r1,
+      undefined,
+      "sonnet",
+      undefined,
+      owner.username,
+      "claude",
+      undefined,
+      ownerRecord.id,
+    );
+    if (!operator) throw new Error("operator spawn failed");
+    expect(operator.userId).toBe(ownerRecord.id);
+    await srv.agentManager.setPrivileged(operator.id, true);
+    const bearer = getAgentTokenRaw(operator.id);
+    if (!bearer) throw new Error("operator token missing");
+    const base = {
+      cwd: srv.stateRoot,
+      roomId: r1,
+      modelFamily: "provider/model",
+      effort: "high" as const,
+      agentType: "opencode" as const,
+    };
+
+    const omitted = await req(srv, "POST", "/api/agents", {
+      bearer,
+      body: { ...base, name: "BypassDefault", desk: 1 },
+    });
+    expect(omitted.status).toBe(201);
+    expect(
+      (omitted.body as { agent: { permissionMode: string } }).agent
+        .permissionMode,
+    ).toBe("bypassPermissions");
+
+    const ask = await req(srv, "POST", "/api/agents", {
+      bearer,
+      body: {
+        ...base,
+        name: "ExplicitAsk",
+        desk: 2,
+        permissionMode: "default",
+      },
+    });
+    expect(ask.status).toBe(201);
+    expect(
+      (ask.body as { agent: { permissionMode: string } }).agent.permissionMode,
+    ).toBe("default");
+  });
+
   it("duplicate name -> 409 name_taken (field hint for the dialog)", async () => {
     const srv = await startTestServer();
     server = srv;

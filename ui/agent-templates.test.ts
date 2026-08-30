@@ -222,6 +222,35 @@ describe("resolveTemplateModel", () => {
     });
   });
 
+  it("prefers Muse Spark for an OpenCode template and falls back when absent", () => {
+    const current = { modelFamily: "missing/model", effort: "low" } as const;
+    const first = model("first/model", []);
+    const reported = model("reported/model", [], { isDefault: true });
+    const muse = model("opencode/muse-spark-1.2-contributor-free", []);
+    expect(
+      resolveTemplateModel(
+        template,
+        "opencode",
+        current,
+        [first, reported, muse],
+        false,
+      ).modelFamily,
+    ).toBe(muse.id);
+    expect(
+      resolveTemplateModel(
+        template,
+        "opencode",
+        current,
+        [first, reported],
+        false,
+      ).modelFamily,
+    ).toBe(reported.id);
+    expect(
+      resolveTemplateModel(template, "opencode", current, [first], false)
+        .modelFamily,
+    ).toBe(first.id);
+  });
+
   it("clamps a Claude max recommendation through effortLevelsFor", () => {
     const changed = {
       ...template,

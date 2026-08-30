@@ -8,6 +8,7 @@ import { describe, it, expect } from "bun:test";
 import {
   agentFormDirty,
   codexNewEngineDefaults,
+  defaultBackendModel,
   initialPermissionModeFor,
   openCodeModelSelectionReady,
   permissionModeChangeForEdit,
@@ -126,8 +127,10 @@ describe("initial permission mode", () => {
     );
   });
 
-  it("keeps Ask as the OpenCode spawn default", () => {
-    expect(initialPermissionModeFor(undefined, "opencode")).toBe("default");
+  it("uses Bypass for a new OpenCode spawn", () => {
+    expect(initialPermissionModeFor(undefined, "opencode")).toBe(
+      "bypassPermissions",
+    );
   });
 
   it("does not silently revert persisted Bypass during an unrelated save", () => {
@@ -278,7 +281,7 @@ describe("template values after an engine switch", () => {
     );
   });
 
-  it("selects a discovered OpenCode model and keeps Ask mode", () => {
+  it("selects a discovered OpenCode model and uses Bypass mode", () => {
     const template = AGENT_TEMPLATES[0];
     const models: BackendModelWire[] = [
       {
@@ -292,8 +295,36 @@ describe("template values after an engine switch", () => {
     ).toEqual({
       modelFamily: "gate/gate-model",
       effort: "high",
-      permissionMode: "default",
+      permissionMode: "bypassPermissions",
     });
+  });
+
+  it("prefers Muse Spark in the dialog and falls back for a login without it", () => {
+    const first: BackendModelWire = {
+      id: "first/model",
+      label: "First",
+      supportedEfforts: [],
+    };
+    const reported: BackendModelWire = {
+      id: "reported/model",
+      label: "Reported",
+      isDefault: true,
+      supportedEfforts: [],
+    };
+    const muse: BackendModelWire = {
+      id: "opencode/muse-spark-1.2-contributor-free",
+      label: "Muse Spark 1.2 Free",
+      supportedEfforts: [],
+    };
+    expect(defaultBackendModel([first, reported, muse], false)?.id).toBe(
+      muse.id,
+    );
+    expect(defaultBackendModel([first, reported], false)?.id).toBe(reported.id);
+    expect(defaultBackendModel([first], false)?.id).toBe(first.id);
+  });
+
+  it("blocks an empty OpenCode seed from reaching save", () => {
+    expect(openCodeModelSelectionReady("", false, false, null)).toBe(false);
   });
 
   it("resolves a spawn template from valid target-Codex defaults", () => {

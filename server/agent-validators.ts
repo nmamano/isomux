@@ -38,7 +38,7 @@ export function validatePermissionMode(
   }
   if (agentType === "opencode") {
     if (raw === "default" || raw === "bypassPermissions") return raw;
-    return "default";
+    return "bypassPermissions";
   }
   if (
     raw === "default" ||
