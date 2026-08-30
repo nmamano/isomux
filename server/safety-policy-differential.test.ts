@@ -7,6 +7,7 @@ import type {
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { STATE_ROOT } from "./config.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 
 const BASELINE_COMMIT = "b6a2e52";
@@ -20,6 +21,8 @@ type Case = {
   name: string;
   toolName: string;
   toolInput: Record<string, unknown>;
+  cwd?: unknown;
+  intendedDivergence?: { baselineDenied: boolean; currentDenied: boolean };
 };
 type Decision = { denied: boolean; reason: string };
 
@@ -53,6 +56,7 @@ async function decide(factory: HookFactory, testCase: Case): Promise<Decision> {
     hook_event_name: "PreToolUse",
     tool_name: testCase.toolName,
     tool_input: testCase.toolInput,
+    cwd: testCase.cwd === undefined ? "/tmp/probe" : testCase.cwd,
   } as unknown as Parameters<HookCallback>[0];
 
   for (const hook of hooks) {
@@ -150,6 +154,15 @@ const tool = (
   toolInput: Record<string, unknown>,
 ): Case => ({ name, toolName, toolInput });
 
+const divergence = (
+  testCase: Case,
+  baselineDenied: boolean,
+  currentDenied: boolean,
+): Case => ({
+  ...testCase,
+  intendedDivergence: { baselineDenied, currentDenied },
+});
+
 // Each rule family has a deny and an allow control. The mixed safe/destructive
 // and safe/tunnel cases detect ordering changes that ordinary examples cannot.
 const corpus: Case[] = [
@@ -182,10 +195,91 @@ const corpus: Case[] = [
   shell("quoted shell kill deny", 'bash -c "pkill -f bun"'),
   shell("quoted prose allow", 'echo "cat ~/.env; pkill -f bun"'),
   shell("protected command write deny", "tee ~/.isomux/agents.json"),
+  divergence(
+    shell(
+      "relative protected redirect now denies",
+      "cd ~ && echo x > .isomux/agents.json",
+    ),
+    false,
+    true,
+  ),
+  divergence(
+    shell(
+      "unresolved cd now denies relative write",
+      "cd $HOME && echo x > .isomux/agents.json",
+    ),
+    false,
+    true,
+  ),
+  divergence(
+    shell(
+      "dynamic cd now denies any relative write",
+      'cd "$D" && echo x > out.txt',
+    ),
+    false,
+    true,
+  ),
+  divergence(
+    shell(
+      "literal protected cd now denies later relative write",
+      "cd ~/.isomux && echo x > agents.json",
+    ),
+    false,
+    true,
+  ),
+  divergence(
+    shell(
+      "relative protected copy now denies",
+      "cd ~ && cp /tmp/evil .isomux/agents.json",
+    ),
+    false,
+    true,
+  ),
+  shell(
+    "state-root true child remains denied",
+    `echo x > ${join(STATE_ROOT, "logs/marker")}`,
+  ),
+  divergence(
+    shell(
+      "state-root workspace sibling now allows",
+      `echo x > ${STATE_ROOT}-workspace/marker`,
+    ),
+    true,
+    false,
+  ),
+  divergence(
+    shell(
+      "state-root homely sibling now allows",
+      `echo x > ${STATE_ROOT}ly/marker`,
+    ),
+    true,
+    false,
+  ),
   tool("read sensitive deny", "Read", { file_path: "/tmp/probe/.env" }),
   tool("read ordinary allow", "Read", { file_path: "/tmp/probe/README.md" }),
   tool("write unknown shape deny", "Write", { content: "x" }),
   tool("write ordinary allow", "Write", { file_path: "/tmp/probe/out.txt" }),
+  tool("write relative ordinary allow", "Write", { file_path: "out.txt" }),
+  divergence(
+    {
+      ...tool("agent-cwd relative protected write now denies", "Write", {
+        file_path: "agents.json",
+      }),
+      cwd: join(STATE_ROOT, "logs"),
+    },
+    false,
+    true,
+  ),
+  divergence(
+    {
+      ...tool("missing cwd protected candidate now denies", "Write", {
+        file_path: ".isomux/agents.json",
+      }),
+      cwd: null,
+    },
+    false,
+    true,
+  ),
   tool("notebook sensitive read deny", "NotebookEdit", {
     notebook_path: "/tmp/probe/.env",
   }),
@@ -227,7 +321,51 @@ const tripwires = {
   nestedProfile: corpus.find(
     (entry) => entry.name === "OpenCode nested profile path allow",
   )!,
+  relativeAllow: corpus.find(
+    (entry) => entry.name === "write relative ordinary allow",
+  )!,
+  cwdProtected: corpus.find(
+    (entry) => entry.name === "agent-cwd relative protected write now denies",
+  )!,
+  sibling: corpus.find(
+    (entry) => entry.name === "state-root workspace sibling now allows",
+  )!,
+  child: corpus.find(
+    (entry) => entry.name === "state-root true child remains denied",
+  )!,
+  missingCwd: corpus.find(
+    (entry) => entry.name === "missing cwd protected candidate now denies",
+  )!,
+  unresolvedCd: corpus.find(
+    (entry) => entry.name === "unresolved cd now denies relative write",
+  )!,
+  dynamicCd: corpus.find(
+    (entry) => entry.name === "dynamic cd now denies any relative write",
+  )!,
+  literalProtectedCd: corpus.find(
+    (entry) =>
+      entry.name === "literal protected cd now denies later relative write",
+  )!,
 };
+
+async function expectCaseAgainstBaseline(
+  currentFactory: HookFactory,
+  baseline: HookFactory,
+  testCase: Case,
+): Promise<void> {
+  const current = await decide(currentFactory, testCase);
+  const original = await decide(baseline, testCase);
+  if (testCase.intendedDivergence) {
+    expect(original.denied, `${testCase.name}: baseline`).toBe(
+      testCase.intendedDivergence.baselineDenied,
+    );
+    expect(current.denied, `${testCase.name}: current`).toBe(
+      testCase.intendedDivergence.currentDenied,
+    );
+  } else {
+    expect(current, testCase.name).toEqual(original);
+  }
+}
 
 describe("provider-neutral safety-policy extraction", () => {
   it("rejects a mutant whose replacement changes no bytes", async () => {
@@ -244,9 +382,7 @@ describe("provider-neutral safety-policy extraction", () => {
   it("matches the git-derived pre-extraction policy on decision and deny text", async () => {
     const baseline = await baselineFactory();
     for (const testCase of corpus) {
-      expect(await decide(createSafetyHooks, testCase), testCase.name).toEqual(
-        await decide(baseline, testCase),
-      );
+      await expectCaseAgainstBaseline(createSafetyHooks, baseline, testCase);
     }
   });
 
@@ -342,5 +478,131 @@ describe("provider-neutral safety-policy extraction", () => {
         await decide(baseline, testCase),
       );
     }
+  });
+
+  it("kills cwd and protected-boundary mutants on their assigned properties", async () => {
+    const mutants: Array<[string, HookFactory, Case]> = [
+      [
+        "adapter forwards no cwd",
+        await mutantFactory("cwd-missing", undefined, (source) =>
+          source.replace(
+            "cwd: (input as PreToolUseHookInput).cwd",
+            "cwd: undefined",
+          ),
+        ),
+        tripwires.cwdProtected,
+      ],
+      [
+        "adapter forwards constant /tmp cwd",
+        await mutantFactory("cwd-constant", undefined, (source) =>
+          source.replace(
+            "cwd: (input as PreToolUseHookInput).cwd",
+            'cwd: "/tmp"',
+          ),
+        ),
+        tripwires.cwdProtected,
+      ],
+      [
+        "state-root helper reverts to substring matching",
+        await mutantFactory("boundary-substring", (source) =>
+          source.replace(
+            'return filePath === root || filePath.startsWith(root + "/");',
+            "return filePath.includes(root);",
+          ),
+        ),
+        tripwires.sibling,
+      ],
+      [
+        "state-root helper drops the child arm",
+        await mutantFactory("boundary-exact", (source) =>
+          source.replace(
+            'return filePath === root || filePath.startsWith(root + "/");',
+            "return filePath === root;",
+          ),
+        ),
+        tripwires.child,
+      ],
+      [
+        "missing cwd falls back to process cwd",
+        await mutantFactory("cwd-fallback", (source) =>
+          source.replace(
+            "if (!base) return null;",
+            "if (!base) return resolve(filePath);",
+          ),
+        ),
+        tripwires.missingCwd,
+      ],
+      [
+        "unresolved cd keeps the previous cwd",
+        await mutantFactory("cwd-stale", (source) =>
+          source.replace(
+            "if (uncertainControl || dynamicDirectoryTarget(target)) {\n          effectiveCwd = null;\n          directoryChangeMadeCwdUnknown = true;",
+            "if (uncertainControl || dynamicDirectoryTarget(target)) {\n          effectiveCwd = policyCwd(initialCwd);\n          directoryChangeMadeCwdUnknown = false;",
+          ),
+        ),
+        tripwires.unresolvedCd,
+      ],
+      [
+        "redirect-only command list is skipped",
+        await mutantFactory("redirect-only-skipped", (source) =>
+          source.replace("if (candidates.length === 0) {", "if (false) {"),
+        ),
+        {
+          ...shell(
+            "redirect-only mutation probe",
+            `> ${join(STATE_ROOT, "agents.json")}`,
+          ),
+        },
+      ],
+      [
+        "literal protected cd operand is not checked",
+        await mutantFactory("literal-cd-skipped", (source) =>
+          source.replace(
+            "effectiveCwd = resolvePath(target!.text, effectiveCwd);",
+            "effectiveCwd = policyCwd(initialCwd);",
+          ),
+        ),
+        tripwires.literalProtectedCd,
+      ],
+      [
+        "dynamic cd with a relative write is allowed",
+        await mutantFactory("dynamic-cd-allowed", (source) =>
+          source.replace(
+            "effectiveCwd = null;\n          directoryChangeMadeCwdUnknown = true;\n        } else {",
+            "effectiveCwd = null;\n          directoryChangeMadeCwdUnknown = false;\n        } else {",
+          ),
+        ),
+        tripwires.dynamicCd,
+      ],
+    ];
+
+    for (const [name, factory, testCase] of mutants) {
+      expect(await decide(factory, testCase), name).not.toEqual(
+        await decide(createSafetyHooks, testCase),
+      );
+    }
+  });
+
+  it("fails when a listed divergence stops diverging", async () => {
+    const baseline = await baselineFactory();
+    const reverted = await mutantFactory(
+      "listed-divergence-reverted",
+      (source) =>
+        source.replaceAll(
+          "if (isAtOrBelowStateRoot(resolved)) {",
+          "if (false) {",
+        ),
+    );
+    let caught: unknown;
+    try {
+      await expectCaseAgainstBaseline(
+        reverted,
+        baseline,
+        tripwires.cwdProtected,
+      );
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
   });
 });

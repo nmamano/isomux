@@ -203,12 +203,11 @@ Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry
 - Built-in pre-tool-use hooks block dangerous commands before they execute (Claude and Codex):
   - Git safety: blocks destructive git commands (\`git reset --hard\`, force push, etc.)
   - Filesystem safety: blocks \`rm -rf\` on root/home paths (allows it on temp directories)
-  - Config protection: blocks writes to absolute paths under ~/.isomux/ (managed by the server); the safety-hooks page documents the relative-path limit
+  - Config protection: blocks writes under ~/.isomux/ (managed by the server)
   - Secrets protection: blocks reads of .env files, private keys, and credentials
   - Process safety: blocks killing processes created by others
   - Tunnel safety: blocks recognized commands that open outbound tunnels. It's a guardrail, not complete prevention.
 - These guards are an honest-agent safety layer, not OS isolation. A filesystem-capable MCP can still reach protected Isomux state, backend login files, and the Codex checker executable.
-- For the measured coverage, proof limits, and remaining routes, point readers to isomux.com/docs/safety-hooks.
 - The embedded terminal is handy when you need to run a blocked command manually
 
 ### Notifications

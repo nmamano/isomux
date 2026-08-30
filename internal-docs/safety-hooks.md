@@ -1,10 +1,3 @@
----
-title: Agent safety hooks
-description: Scope, evidence, and limits of Isomux safety hooks for Claude and Codex agents.
-order: 2.5
-navTitle: Safety hooks
----
-
 # Agent safety hooks
 
 Isomux applies the same safety policy before recognized tool calls from Claude and Codex agents. The policy blocks recognized destructive commands, protected-path writes, secret-bearing reads, cross-agent process kills, and commands that open outbound tunnels.
@@ -19,9 +12,13 @@ A filesystem-capable MCP remains a concrete route around the built-in tool mappi
 
 Before each Codex spawn, Isomux hashes the installed checker bytes and repairs missing or changed content from a verified build artifact. However, a replacement at the same path can affect the next tool call in an already running session. The pre-spawn repair therefore limits a replaced checker to the remainder of the current session; it does not protect that live session.
 
-## Protected paths
+## Protected paths and limits
 
-Protected-path enforcement covers absolute paths. Relative paths are a known pre-existing limitation because the policy resolves them from the server's working directory, not the agent's working directory. This matters more for Codex than for Claude because Codex `apply_patch` normally uses relative paths, while Claude's built-in write and edit tools supply absolute paths.
+Protected write targets resolve against the agent working directory. When a hook input has no non-empty absolute working directory, a relative target with a bounded `.isomux` path segment denies, while an ordinary relative target remains allowed. The residue is that an ordinary relative target can fail open if the provider stops sending the working directory and the agent is already working inside the state root. Codex emits a transcript warning on every tool call with a missing or invalid working directory, so this reduced coverage is visible rather than silent; the parser test does not prove that a future Codex version will keep sending the field.
+
+An unresolvable directory-change operand denies any later relative write, while an absent envelope working directory denies only a protected-path candidate. This asymmetry is deliberate: a dynamic `cd` states an intent to relocate, so the old working directory is not a safe fallback. The denial tells the agent to use an absolute write target.
+
+Relative paths that resolve under the literal `~/.isomux` are mapped to the configured state root before the boundary check. This is an identity in a default install. With a non-default state root, it also denies writes to the literal `~/.isomux` path.
 
 ## Measured coverage
 

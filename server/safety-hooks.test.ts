@@ -36,11 +36,13 @@ function hooksFor(toolName: string): HookCallback[] {
 async function decide(
   toolName: string,
   toolInput: Record<string, unknown>,
+  cwd: unknown = "/tmp/probe",
 ): Promise<{ denied: boolean; reason: string }> {
   const input = {
     hook_event_name: "PreToolUse",
     tool_name: toolName,
     tool_input: toolInput,
+    cwd,
   } as unknown as Parameters<HookCallback>[0];
 
   for (const hook of hooksFor(toolName)) {
@@ -60,6 +62,117 @@ async function decide(
 }
 
 const bash = (command: string) => decide("Bash", { command });
+
+describe("protected-path resolution", () => {
+  it("denies the exact relative shell repros", async () => {
+    for (const command of [
+      "cd ~ && echo x > .isomux/agents.json",
+      "echo x > ../.isomux/agents.json",
+      "cd ~ && cp /tmp/evil .isomux/agents.json",
+    ]) {
+      expect(
+        (await decide("Bash", { command }, join(homedir(), "workspace")))
+          .denied,
+      ).toBe(true);
+    }
+  });
+
+  it("allows state-root siblings and denies a true child", async () => {
+    expect((await bash(`echo x > ${STATE_ROOT}-workspace/marker`)).denied).toBe(
+      false,
+    );
+    expect((await bash(`echo x > ${STATE_ROOT}ly/marker`)).denied).toBe(false);
+    expect(
+      (await bash(`echo x > ${join(STATE_ROOT, "logs/marker")}`)).denied,
+    ).toBe(true);
+  });
+
+  it("checks every output redirect even when a command list has no command word", async () => {
+    const cases = [
+      `> ${join(STATE_ROOT, "agents.json")}`,
+      `>> ${join(STATE_ROOT, "agents.json")}`,
+      `echo x &> ${join(STATE_ROOT, "agents.json")}`,
+      `echo x &>> ${join(STATE_ROOT, "agents.json")}`,
+      `echo ok; > ${join(STATE_ROOT, "agents.json")}`,
+      " > .isomux/agents.json",
+    ];
+    for (const command of cases) {
+      expect(
+        (await decide("Bash", { command }, homedir())).denied,
+        command,
+      ).toBe(true);
+    }
+  });
+
+  it("uses the agent cwd to resolve a path with no protected text", async () => {
+    const result = await decide(
+      "Write",
+      { file_path: "agents.json", content: "x" },
+      join(STATE_ROOT, "logs"),
+    );
+    expect(result.denied).toBe(true);
+  });
+
+  it("allows an ordinary relative write when cwd is valid", async () => {
+    expect(
+      (
+        await decide(
+          "Write",
+          { file_path: "out.txt", content: "x" },
+          "/tmp/probe",
+        )
+      ).denied,
+    ).toBe(false);
+  });
+
+  it("names a missing or invalid cwd for a protected relative candidate", async () => {
+    for (const cwd of [null, "", "relative/cwd"]) {
+      const result = await decide(
+        "Write",
+        { file_path: ".isomux/agents.json", content: "x" },
+        cwd,
+      );
+      expect(result.denied).toBe(true);
+      expect(result.reason).toContain("missing or invalid cwd");
+    }
+    expect(
+      (
+        await decide(
+          "Write",
+          { file_path: ".isomux-backup/out.txt", content: "x" },
+          null,
+        )
+      ).denied,
+    ).toBe(false);
+    expect(
+      (await decide("Write", { file_path: "out.txt", content: "x" }, null))
+        .denied,
+    ).toBe(false);
+  });
+
+  it("makes unresolved directory changes unknown instead of keeping stale cwd", async () => {
+    for (const command of [
+      "cd $HOME && echo x > .isomux/agents.json",
+      'cd "$D" && echo x > out.txt',
+      "cd - && echo x > out.txt",
+      "pushd /tmp && echo x > out.txt",
+      "popd && echo x > out.txt",
+      "(cd ~) && echo x > out.txt",
+      "cd ~ || true; echo x > out.txt",
+      "cd ~ & echo x > out.txt",
+      'bash -c "cd ~ && echo x > .isomux/agents.json"',
+    ]) {
+      const result = await decide("Bash", { command }, "/tmp/probe");
+      expect(result.denied, command).toBe(true);
+    }
+    const remedy = await decide(
+      "Bash",
+      { command: 'cd "$D" && echo x > out.txt' },
+      "/tmp/probe",
+    );
+    expect(remedy.reason).toContain("use an absolute write target");
+  });
+});
 
 describe("outbound-tunnel guard", () => {
   const denied = [

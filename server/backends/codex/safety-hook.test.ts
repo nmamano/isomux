@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
-import { tmpdir } from "os";
+import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { STATE_ROOT } from "../../config.ts";
 import { evaluateProposedAction } from "../../safety-policy.ts";
@@ -12,6 +12,7 @@ import {
   codexEnvelopeToAction,
   evaluateCodexHookEnvelope,
   handleCodexHookInput,
+  MISSING_CWD_WARNING,
   policyDecisionToCodexOutput,
   SAFETY_WARNING,
   type CodexHookOutput,
@@ -21,6 +22,7 @@ type Envelope = {
   hook_event_name: "PreToolUse";
   tool_name: string;
   tool_input: Record<string, unknown>;
+  cwd?: unknown;
 };
 
 type HookModule = {
@@ -45,6 +47,7 @@ function envelope(
     hook_event_name: "PreToolUse",
     tool_name: toolName,
     tool_input: toolInput,
+    cwd: "/tmp/probe",
   };
 }
 
@@ -69,7 +72,7 @@ async function runExecutable(input: string): Promise<{
 
 function coreOutput(input: Envelope): CodexHookOutput {
   return policyDecisionToCodexOutput(
-    evaluateProposedAction(codexEnvelopeToAction(input)),
+    evaluateProposedAction(codexEnvelopeToAction(input), { cwd: input.cwd }),
   );
 }
 
@@ -218,6 +221,137 @@ describe("standalone Codex safety hook", () => {
     }
   });
 
+  it("uses the envelope cwd for relative apply_patch paths", async () => {
+    const relativeProtected = envelope("apply_patch", {
+      command:
+        "*** Begin Patch\n*** Update File: agents.json\n@@\n-old\n+new\n*** End Patch",
+    });
+    relativeProtected.cwd = join(STATE_ROOT, "logs");
+    expect(evaluateCodexHookEnvelope(relativeProtected)).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
+
+    const relativeSafe = envelope("apply_patch", {
+      command: "*** Begin Patch\n*** Add File: out.txt\n+x\n*** End Patch",
+    });
+    relativeSafe.cwd = "/tmp/probe";
+    expect(evaluateCodexHookEnvelope(relativeSafe)).toEqual({});
+  });
+
+  it("denies the exact relative apply_patch repro", () => {
+    const input = envelope("apply_patch", {
+      command:
+        "*** Begin Patch\n*** Update File: .isomux/agents.json\n@@\n-old\n+new\n*** End Patch",
+    });
+    input.cwd = homedir();
+    expect(evaluateCodexHookEnvelope(input)).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
+  });
+
+  it("diagnoses a missing or invalid envelope cwd", () => {
+    for (const cwd of [undefined, "", "relative/cwd"]) {
+      const input = envelope("apply_patch", {
+        command: "*** Begin Patch\n*** Add File: out.txt\n+x\n*** End Patch",
+      });
+      input.cwd = cwd;
+      const output = evaluateCodexHookEnvelope(input);
+      expect(output).toEqual({ systemMessage: MISSING_CWD_WARNING });
+    }
+  });
+
+  it("warns about missing cwd on every Codex tool surface", () => {
+    const input = envelope("future_tool", { value: "x" });
+    input.cwd = undefined;
+    expect(evaluateCodexHookEnvelope(input)).toEqual({
+      systemMessage: MISSING_CWD_WARNING,
+    });
+
+    const denied = envelope("apply_patch", {
+      command:
+        "*** Begin Patch\n*** Update File: .isomux/agents.json\n@@\n-old\n+new\n*** End Patch",
+    });
+    denied.cwd = undefined;
+    const deniedOutput = evaluateCodexHookEnvelope(denied);
+    expect(deniedOutput).not.toHaveProperty("systemMessage");
+    expect(JSON.stringify(deniedOutput)).toContain(MISSING_CWD_WARNING);
+  });
+
+  it("kills Codex cwd-forwarding and relative-resolution mutants", async () => {
+    const safe = envelope("apply_patch", {
+      command: "*** Begin Patch\n*** Add File: out.txt\n+x\n*** End Patch",
+    });
+    safe.cwd = "/tmp/probe";
+    const protectedByCwd = envelope("apply_patch", {
+      command:
+        "*** Begin Patch\n*** Update File: agents.json\n@@\n-old\n+new\n*** End Patch",
+    });
+    protectedByCwd.cwd = join(STATE_ROOT, "logs");
+    const relativeRepro = envelope("apply_patch", {
+      command:
+        "*** Begin Patch\n*** Update File: .isomux/agents.json\n@@\n-old\n+new\n*** End Patch",
+    });
+    relativeRepro.cwd = homedir();
+
+    const warningDropped = await mutantHook(
+      "codex-cwd-warning-dropped",
+      undefined,
+      (source) =>
+        source.replace(
+          "cwdValid ? undefined : MISSING_CWD_WARNING",
+          "undefined",
+        ),
+    );
+    const warningDenied = envelope("apply_patch", {
+      command:
+        "*** Begin Patch\n*** Update File: .isomux/agents.json\n@@\n-old\n+new\n*** End Patch",
+    });
+    warningDenied.cwd = undefined;
+
+    const mutants: Array<[string, HookModule, Envelope]> = [
+      [
+        "Codex adapter forwards no cwd",
+        await mutantHook("codex-cwd-missing", undefined, (source) =>
+          source.replace("{ cwd: input.cwd }", "{ cwd: undefined }"),
+        ),
+        protectedByCwd,
+      ],
+      [
+        "Codex adapter forwards constant /tmp cwd",
+        await mutantHook("codex-cwd-constant", undefined, (source) =>
+          source.replace("{ cwd: input.cwd }", '{ cwd: "/tmp" }'),
+        ),
+        protectedByCwd,
+      ],
+      [
+        "relative apply_patch target skips resolution",
+        await mutantHook("patch-relative-unresolved", (source) =>
+          source.replace(
+            "const resolved = resolvePath(filePath, cwd);",
+            "const resolved = filePath;",
+          ),
+        ),
+        relativeRepro,
+      ],
+      [
+        "missing-cwd Codex allow warning is dropped",
+        warningDropped,
+        { ...safe, cwd: undefined },
+      ],
+      [
+        "missing-cwd Codex deny warning is dropped",
+        warningDropped,
+        warningDenied,
+      ],
+    ];
+
+    for (const [name, module, input] of mutants) {
+      expect(module.evaluateCodexHookEnvelope(input), name).not.toEqual(
+        evaluateCodexHookEnvelope(input),
+      );
+    }
+  });
+
   it("allows and warns on malformed technical input", async () => {
     expect(handleCodexHookInput("not json")).toEqual({
       systemMessage: SAFETY_WARNING,
@@ -266,7 +400,7 @@ describe("standalone Codex safety hook", () => {
     }
 
     const deepInput =
-      '{"hook_event_name":"PreToolUse","tool_name":"future_tool","tool_input":' +
+      '{"hook_event_name":"PreToolUse","cwd":"/tmp/probe","tool_name":"future_tool","tool_input":' +
       '{"nested":'.repeat(10_000) +
       "null" +
       "}".repeat(10_000) +
@@ -376,7 +510,7 @@ describe("standalone Codex safety hook", () => {
         name: "patch-files allowed",
         module: await mutantHook("patch-allowed", (source) =>
           source.replace(
-            '    case "patch-files":\n      return checkPatchSafety(action.toolName, action.patch);',
+            '    case "patch-files":\n      return checkPatchSafety(action.toolName, action.patch, context.cwd);',
             '    case "patch-files":\n      return allow();',
           ),
         ),

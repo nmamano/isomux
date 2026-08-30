@@ -1,5 +1,6 @@
 /** Standalone Codex PreToolUse adapter for the isomux safety policy. */
 
+import { isAbsolute } from "path";
 import {
   evaluateProposedAction,
   type PolicyDecision,
@@ -18,10 +19,16 @@ export const EMBEDDED_SOURCE_SHA256 =
     ? ISOMUX_SAFETY_HOOK_SOURCE_SHA256
     : "development-uncompiled";
 
+export const MISSING_CWD_WARNING =
+  "ISOMUX SAFETY WARNING: This Codex tool call did not include a non-empty " +
+  "absolute cwd. Guard coverage for relative paths is reduced; tell the " +
+  "office owner.";
+
 interface CodexHookEnvelope {
   hook_event_name: "PreToolUse";
   tool_name: string;
   tool_input: Record<string, unknown>;
+  cwd?: unknown;
 }
 
 export type CodexHookOutput =
@@ -74,20 +81,31 @@ export function codexEnvelopeToAction(value: unknown): ProposedAction {
 
 export function policyDecisionToCodexOutput(
   decision: PolicyDecision,
+  systemMessage?: string,
 ): CodexHookOutput {
-  if (decision.decision === "allow") return {};
+  if (decision.decision === "allow") {
+    return systemMessage ? { systemMessage } : {};
+  }
   return {
     hookSpecificOutput: {
       hookEventName: "PreToolUse",
       permissionDecision: "deny",
-      permissionDecisionReason: decision.reason,
+      permissionDecisionReason: systemMessage
+        ? `${decision.reason}\n\n${systemMessage}`
+        : decision.reason,
     },
   };
 }
 
 export function evaluateCodexHookEnvelope(value: unknown): CodexHookOutput {
+  const input = parseEnvelope(value);
+  const cwdValid =
+    typeof input.cwd === "string" &&
+    input.cwd.length > 0 &&
+    isAbsolute(input.cwd);
   return policyDecisionToCodexOutput(
-    evaluateProposedAction(codexEnvelopeToAction(value)),
+    evaluateProposedAction(codexEnvelopeToAction(input), { cwd: input.cwd }),
+    cwdValid ? undefined : MISSING_CWD_WARNING,
   );
 }
 

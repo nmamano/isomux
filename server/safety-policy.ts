@@ -14,7 +14,7 @@
  */
 
 import { homedir } from "os";
-import { basename, resolve } from "path";
+import { basename, isAbsolute, normalize, resolve } from "path";
 import { STATE_ROOT } from "./config.ts";
 
 // The write-protection root follows the active state root, so a test that
@@ -39,6 +39,8 @@ export type ProposedAction =
   | { kind: "read-and-write-files"; toolName: string; input: unknown }
   | { kind: "patch-files"; toolName: string; patch: unknown }
   | { kind: "uncovered-tool"; toolName: string; input: unknown };
+
+export type PolicyContext = { cwd?: unknown };
 
 const ALLOW: PolicyDecision = Object.freeze({ decision: "allow" });
 
@@ -422,37 +424,6 @@ const WRITE_COMMANDS = [
   "node",
   "bun",
 ];
-
-function commandWritesToIsomux(command: string): boolean {
-  // Check 1: Redirection (> or >>) targeting ~/.isomux/
-  // Match: > ~/.isomux/ or >> ~/.isomux/ or > /home/user/.isomux/
-  const redirectPattern = new RegExp(
-    `>>?\\s*(?:~\\/\\.isomux|${ISOMUX_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
-  );
-  if (redirectPattern.test(command)) return true;
-
-  // Check 2: Write commands with ~/.isomux/ as an argument
-  // Split on pipe/semicolon/&&/|| to get individual sub-commands
-  const subCommands = command.split(/[|;&]+/).map((s) => s.trim());
-  for (const sub of subCommands) {
-    if (!sub.includes(ISOMUX_DIR) && !sub.includes("~/.isomux")) continue;
-    const firstToken = sub.split(/\s+/)[0]?.replace(/^.*\//, "") ?? "";
-    if (!WRITE_COMMANDS.includes(firstToken)) continue;
-
-    // For copy-like commands, only the destination (last arg) is a write target.
-    // Reading *from* ~/.isomux/ is fine - only block if writing *to* it.
-    if (COPY_COMMANDS.includes(firstToken)) {
-      const args = sub.split(/\s+/).filter((a) => !a.startsWith("-"));
-      const dest = args[args.length - 1] ?? "";
-      if (dest.includes(ISOMUX_DIR) || dest.includes("~/.isomux")) return true;
-      continue;
-    }
-
-    return true;
-  }
-
-  return false;
-}
 
 // ---------------------------------------------------------------------------
 // 4. Secrets protection - block reads of sensitive files
@@ -1277,7 +1248,11 @@ const PATTERN_KILL_REASON =
  *  file the command READS but never a positional operand. Only produced when a
  *  caller opts in (see parseCommands' `keepInputTargets`); the process-kill
  *  guard has no use for it and keeps the default. */
-type ShellWord = { text: string; quoted: boolean; redirect?: true };
+type ShellWord = {
+  text: string;
+  quoted: boolean;
+  redirect?: "input" | "output";
+};
 
 /** A resolved command: the program being run, and the words after it. */
 type EffectiveCommand = { name: string; args: ShellWord[] };
@@ -1307,19 +1282,23 @@ function matchParen(cmd: string, open: number): number {
  * whole. The substitution leaves a `$()` placeholder in the surrounding word so
  * it still reads as "not a literal PID".
  */
-function parseCommands(cmd: string, keepInputTargets = false): ShellWord[][] {
+function parseCommands(
+  cmd: string,
+  keepInputTargets = false,
+  keepOutputTargets = false,
+): ShellWord[][] {
   const commands: ShellWord[][] = [];
   let words: ShellWord[] = [];
   let cur = "";
   let curQuoted = false;
   let dropWord = false; // set after a redirection operator: its target is noise
-  let keepAsRedirect = false; // ...unless the caller wants `< file` targets
+  let keepAsRedirect: false | "input" | "output" = false;
 
   const endWord = () => {
     if (!cur) return;
     if (!dropWord) words.push({ text: cur, quoted: curQuoted });
     else if (keepAsRedirect)
-      words.push({ text: cur, quoted: curQuoted, redirect: true });
+      words.push({ text: cur, quoted: curQuoted, redirect: keepAsRedirect });
     dropWord = false;
     keepAsRedirect = false;
     cur = "";
@@ -1337,7 +1316,13 @@ function parseCommands(cmd: string, keepInputTargets = false): ShellWord[][] {
 
     if (ch === "$" && cmd[i + 1] === "(") {
       const end = matchParen(cmd, i + 1);
-      commands.push(...parseCommands(cmd.slice(i + 2, end), keepInputTargets));
+      commands.push(
+        ...parseCommands(
+          cmd.slice(i + 2, end),
+          keepInputTargets,
+          keepOutputTargets,
+        ),
+      );
       cur += "$()";
       i = end + 1;
       continue;
@@ -1345,7 +1330,13 @@ function parseCommands(cmd: string, keepInputTargets = false): ShellWord[][] {
     if (ch === "`") {
       const end = cmd.indexOf("`", i + 1);
       const stop = end === -1 ? cmd.length : end;
-      commands.push(...parseCommands(cmd.slice(i + 1, stop), keepInputTargets));
+      commands.push(
+        ...parseCommands(
+          cmd.slice(i + 1, stop),
+          keepInputTargets,
+          keepOutputTargets,
+        ),
+      );
       cur += "``";
       i = stop + 1;
       continue;
@@ -1372,7 +1363,11 @@ function parseCommands(cmd: string, keepInputTargets = false): ShellWord[][] {
         if (cmd[i] === "$" && cmd[i + 1] === "(") {
           const end = matchParen(cmd, i + 1);
           commands.push(
-            ...parseCommands(cmd.slice(i + 2, end), keepInputTargets),
+            ...parseCommands(
+              cmd.slice(i + 2, end),
+              keepInputTargets,
+              keepOutputTargets,
+            ),
           );
           cur += "$()";
           i = end + 1;
@@ -1382,7 +1377,11 @@ function parseCommands(cmd: string, keepInputTargets = false): ShellWord[][] {
           const end = cmd.indexOf("`", i + 1);
           const stop = end === -1 ? cmd.length : end;
           commands.push(
-            ...parseCommands(cmd.slice(i + 1, stop), keepInputTargets),
+            ...parseCommands(
+              cmd.slice(i + 1, stop),
+              keepInputTargets,
+              keepOutputTargets,
+            ),
           );
           cur += "``";
           i = stop + 1;
@@ -1420,7 +1419,11 @@ function parseCommands(cmd: string, keepInputTargets = false): ShellWord[][] {
       }
       dropWord = true;
       keepAsRedirect =
-        keepInputTargets && ch === "<" && run === 1 && !toDescriptor;
+        keepInputTargets && ch === "<" && run === 1 && !toDescriptor
+          ? "input"
+          : keepOutputTargets && ch === ">" && !toDescriptor
+            ? "output"
+            : false;
       continue;
     }
     if (ch === ";" || ch === "|" || ch === "&" || ch === "\n") {
@@ -1579,9 +1582,9 @@ function killsOnlyLiteralPids(cmd: EffectiveCommand): boolean {
  * that asks parseCommands for redirect targets at all.
  */
 function candidatesWithRedirects(words: ShellWord[]): EffectiveCommand[] {
-  const redirects = words.filter((w) => w.redirect);
+  const redirects = words.filter((w) => w.redirect === "input");
   if (redirects.length === 0) return commandCandidates(words);
-  const rest = words.filter((w) => !w.redirect);
+  const rest = words.filter((w) => w.redirect !== "input");
   // `2<.env cat` leaves the descriptor number as a word of its own, in command
   // position. Only stripped ahead of a redirect, so an ordinary operand that
   // happens to be a number is untouched.
@@ -1718,11 +1721,56 @@ function collectToolPaths(
   return spec?.targetOptional ? [] : null;
 }
 
-/** Resolve ~ and relative paths to an absolute path. */
-function resolvePath(filePath: string): string {
+function policyCwd(value: unknown): string | null {
+  if (typeof value !== "string" || !value || !isAbsolute(value)) return null;
+  return resolve(value);
+}
+
+/** Resolve ~ and absolute paths without cwd; relative paths require agent cwd. */
+function resolvePath(filePath: string, cwd: unknown): string | null {
+  if (filePath === "~/.isomux") return ISOMUX_DIR;
+  if (filePath.startsWith("~/.isomux/")) {
+    return resolve(ISOMUX_DIR, filePath.slice("~/.isomux/".length));
+  }
   if (filePath.startsWith("~/")) return resolve(homedir(), filePath.slice(2));
   if (filePath === "~") return homedir();
-  return resolve(filePath);
+  if (isAbsolute(filePath)) return resolve(filePath);
+  const base = policyCwd(cwd);
+  if (!base) return null;
+  const resolvedPath = resolve(base, filePath);
+  const literalStateRoot = resolve(homedir(), ".isomux");
+  if (isAtOrBelow(resolvedPath, literalStateRoot)) {
+    return resolve(ISOMUX_DIR, resolvedPath.slice(literalStateRoot.length + 1));
+  }
+  return resolvedPath;
+}
+
+function isAtOrBelow(filePath: string, root: string): boolean {
+  return filePath === root || filePath.startsWith(root + "/");
+}
+
+function isAtOrBelowStateRoot(filePath: string): boolean {
+  return isAtOrBelow(filePath, ISOMUX_DIR);
+}
+
+function isProtectedRelativeCandidate(filePath: string): boolean {
+  if (isAbsolute(filePath) || filePath.startsWith("~/") || filePath === "~") {
+    return false;
+  }
+  return normalize(filePath)
+    .split("/")
+    .some((segment) => segment === ".isomux");
+}
+
+function denyMissingCwd(toolName: string, filePath: string): PolicyDecision {
+  return deny(
+    `BLOCKED by isomux safety hooks\n\n` +
+      `Reason: isomux could not resolve the relative path because the tool call ` +
+      `did not include a non-empty absolute agent cwd.\n\n` +
+      `${toolName} target: ${filePath}\n\n` +
+      `Tell the user that the safety hook received a missing or invalid cwd, ` +
+      `and use an absolute write target.`,
+  );
 }
 
 function denyUnverifiablePath(toolName: string, rule: string): PolicyDecision {
@@ -1790,7 +1838,118 @@ export function extractApplyPatchPaths(patch: unknown): string[] | null {
 // Hook callbacks
 // ---------------------------------------------------------------------------
 
-function checkBashSafety(commandValue: unknown): PolicyDecision {
+function writeTargets(command: EffectiveCommand): ShellWord[] {
+  const redirects = command.args.filter((word) => word.redirect === "output");
+  const args = command.args.filter((word) => !word.redirect);
+  if (COPY_COMMANDS.includes(command.name)) {
+    const operands = args.filter((word) => !word.text.startsWith("-"));
+    return [...redirects, ...(operands.length ? [operands.at(-1)!] : [])];
+  }
+  if (!WRITE_COMMANDS.includes(command.name)) return redirects;
+  return [...redirects, ...args.filter((word) => !word.text.startsWith("-"))];
+}
+
+function dynamicDirectoryTarget(target: ShellWord | undefined): boolean {
+  return (
+    !target ||
+    target.text === "-" ||
+    target.text.includes("$") ||
+    target.text.includes("``")
+  );
+}
+
+function shellWriteDecision(
+  command: string,
+  initialCwd: unknown,
+  depth = 0,
+): PolicyDecision | null {
+  let effectiveCwd = policyCwd(initialCwd);
+  let directoryChangeMadeCwdUnknown = false;
+  const uncertainControl =
+    /(?:^|[;&|()\s])(?:cd|pushd|popd)(?:\s|$)/.test(command) &&
+    /\|\||(^|[^&])&([^&]|$)|[()]/.test(command);
+  if (uncertainControl) {
+    effectiveCwd = null;
+    directoryChangeMadeCwdUnknown = true;
+  }
+
+  const commandWords = parseCommands(stripHeredocBodies(command), false, true);
+  for (const words of commandWords) {
+    const redirects = words.filter((word) => word.redirect === "output");
+    const candidates = commandCandidates(
+      words.filter((word) => word.redirect !== "output"),
+    );
+    if (candidates.length === 0) {
+      for (const target of redirects) {
+        const resolved = resolvePath(target.text, effectiveCwd);
+        if (
+          resolved === null &&
+          (directoryChangeMadeCwdUnknown ||
+            isProtectedRelativeCandidate(target.text))
+        ) {
+          return denyMissingCwd("Bash", target.text);
+        }
+        if (resolved !== null && isAtOrBelowStateRoot(resolved)) {
+          return denyMessage(
+            "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
+              "Read operations (cat, ls, grep, etc.) are permitted.",
+            command,
+          );
+        }
+      }
+    }
+    for (const candidate of candidates) {
+      const commandWithRedirects = {
+        ...candidate,
+        args: [...candidate.args, ...redirects],
+      };
+      for (const target of writeTargets(commandWithRedirects)) {
+        const resolved = resolvePath(target.text, effectiveCwd);
+        if (
+          resolved === null &&
+          (directoryChangeMadeCwdUnknown ||
+            isProtectedRelativeCandidate(target.text))
+        ) {
+          return denyMissingCwd("Bash", target.text);
+        }
+        if (resolved === null) continue;
+        if (isAtOrBelowStateRoot(resolved)) {
+          return denyMessage(
+            "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
+              "Read operations (cat, ls, grep, etc.) are permitted.",
+            command,
+          );
+        }
+      }
+
+      if (candidate.name === "popd" || candidate.name === "pushd") {
+        effectiveCwd = null;
+        directoryChangeMadeCwdUnknown = true;
+      } else if (candidate.name === "cd") {
+        const target = candidate.args.find(
+          (word) => !word.text.startsWith("-"),
+        );
+        if (uncertainControl || dynamicDirectoryTarget(target)) {
+          effectiveCwd = null;
+          directoryChangeMadeCwdUnknown = true;
+        } else {
+          effectiveCwd = resolvePath(target!.text, effectiveCwd);
+          directoryChangeMadeCwdUnknown = effectiveCwd === null;
+        }
+      }
+
+      if (depth < 4) {
+        for (const payload of shellPayloads(candidate)) {
+          const nested = shellWriteDecision(payload, effectiveCwd, depth + 1);
+          if (nested) return nested;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
   const command = commandValue;
   if (typeof command !== "string" || !command) return allow();
 
@@ -1799,13 +1958,8 @@ function checkBashSafety(commandValue: unknown): PolicyDecision {
   const normalized = normalizeAbsolutePaths(stripped);
 
   // Check ~/.isomux/ write protection first
-  if (commandWritesToIsomux(stripped)) {
-    return denyMessage(
-      "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
-        "Read operations (cat, ls, grep, etc.) are permitted.",
-      command,
-    );
-  }
+  const protectedWrite = shellWriteDecision(command, cwd);
+  if (protectedWrite) return protectedWrite;
 
   // Check process kills. This one gets the raw command: it does its own
   // quote handling (quoted payloads hide a command word, quoted prose does not
@@ -1857,10 +2011,17 @@ function checkBashSafety(commandValue: unknown): PolicyDecision {
 function checkWritePaths(
   toolName: string,
   filePaths: string[],
+  cwd: unknown,
 ): PolicyDecision {
   for (const filePath of filePaths) {
-    const resolved = resolvePath(filePath);
-    if (resolved === ISOMUX_DIR || resolved.startsWith(ISOMUX_DIR + "/")) {
+    const resolved = resolvePath(filePath, cwd);
+    if (resolved === null) {
+      if (isProtectedRelativeCandidate(filePath)) {
+        return denyMissingCwd(toolName, filePath);
+      }
+      continue;
+    }
+    if (isAtOrBelowStateRoot(resolved)) {
       return deny(
         `BLOCKED by isomux safety hooks\n\n` +
           `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server.\n\n` +
@@ -1877,18 +2038,23 @@ function checkWritePaths(
 function checkWriteEditSafety(
   toolName: string,
   toolInput: unknown,
+  cwd: unknown,
 ): PolicyDecision {
   const filePaths = collectToolPaths(toolName, toolInput);
   if (filePaths === null)
     return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-  return checkWritePaths(toolName, filePaths);
+  return checkWritePaths(toolName, filePaths, cwd);
 }
 
-function checkPatchSafety(toolName: string, patch: unknown): PolicyDecision {
+function checkPatchSafety(
+  toolName: string,
+  patch: unknown,
+  cwd: unknown,
+): PolicyDecision {
   const filePaths = extractApplyPatchPaths(patch);
   if (filePaths === null)
     return denyUnverifiablePath(toolName, "the protected ~/.isomux/ directory");
-  return checkWritePaths(toolName, filePaths);
+  return checkWritePaths(toolName, filePaths, cwd);
 }
 
 function checkSensitiveFileRead(
@@ -1914,22 +2080,29 @@ function checkSensitiveFileRead(
 // action kinds; the core owns which policy checks each kind runs.
 // ---------------------------------------------------------------------------
 
-export function evaluateProposedAction(action: ProposedAction): PolicyDecision {
+export function evaluateProposedAction(
+  action: ProposedAction,
+  context: PolicyContext = {},
+): PolicyDecision {
   switch (action.kind) {
     case "shell":
-      return checkBashSafety(action.command);
+      return checkBashSafety(action.command, context.cwd);
     case "read-files":
       return checkSensitiveFileRead(action.toolName, action.input);
     case "write-files":
-      return checkWriteEditSafety(action.toolName, action.input);
+      return checkWriteEditSafety(action.toolName, action.input, context.cwd);
     case "read-and-write-files": {
-      const writeDecision = checkWriteEditSafety(action.toolName, action.input);
+      const writeDecision = checkWriteEditSafety(
+        action.toolName,
+        action.input,
+        context.cwd,
+      );
       return writeDecision.decision === "deny"
         ? writeDecision
         : checkSensitiveFileRead(action.toolName, action.input);
     }
     case "patch-files":
-      return checkPatchSafety(action.toolName, action.patch);
+      return checkPatchSafety(action.toolName, action.patch, context.cwd);
     case "uncovered-tool":
       return allow();
   }

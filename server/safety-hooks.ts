@@ -29,7 +29,9 @@ function callbackFor(
 ): HookCallback {
   return async (input) =>
     toClaudeDecision(
-      evaluateProposedAction(toAction(input as PreToolUseHookInput)),
+      evaluateProposedAction(toAction(input as PreToolUseHookInput), {
+        cwd: (input as PreToolUseHookInput).cwd,
+      }),
     );
 }
 

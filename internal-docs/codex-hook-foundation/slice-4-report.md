@@ -52,7 +52,7 @@ The model declined to issue the protected command in the Slice 4 deny cell. Ther
 
 This is an honest-agent safety layer, not an operating-system boundary. Same-user file permissions do not isolate the checker from the agents it checks. Task `01f5038c`, **OS isolation: dedicated isomux Linux user**, tracks moving the service away from the owner's user ID so office processes cannot read the owner's personal files by default.
 
-Protected-path decisions cover absolute paths. Relative paths resolve from the server working directory because the policy does not receive the agent working directory. This is materially sharper for Codex because `apply_patch` normally uses relative paths. Task `aed42180`, **safety-policy path matching broken both ways**, tracks passing the agent working directory into the policy and correcting the related state-root sibling over-match.
+Task `aed42180`, **safety-policy path matching broken both ways**, corrected the measured relative-path under-match and state-root sibling over-match by passing the agent working directory into the policy.
 
 A filesystem-capable MCP remains outside the mapped shell and patch action kinds. On 2026-08-30, Reviewer 3 measured that such an MCP action could write `~/.isomux/agents.json`, read `~/.isomux/codex-home/auth.json`, and replace `~/.isomux/bin/isomux-codex-safety-hook`. Mapping `apply_patch` closed one route, not the class.
 
