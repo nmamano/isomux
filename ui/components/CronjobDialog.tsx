@@ -784,20 +784,27 @@ export function CronjobDialog({
                     ))
                   )}
                 </select>
-                {isEdit && usesBackendModels && storedNotInList && (
-                  <p
-                    style={{
-                      fontSize: 10,
-                      color: "#ff6b6b",
-                      margin: "3px 0 0",
-                    }}
-                  >
-                    Current model: {familyDisplayLabel(modelFamily)}.{" "}
-                    {modelsError
-                      ? "The available models could not be checked. Reopen this dialog to try again."
-                      : "This login does not offer it. Choose an available model."}
-                  </p>
-                )}
+                {/* Only claim the login lacks the model once the check has
+                    settled - while the list loads, the fallback list is wrong
+                    for backend-model logins and the message flashes. */}
+                {isEdit &&
+                  usesBackendModels &&
+                  storedNotInList &&
+                  !modelsLoading &&
+                  (backendVisible !== null || modelsError !== null) && (
+                    <p
+                      style={{
+                        fontSize: 10,
+                        color: "#ff6b6b",
+                        margin: "3px 0 0",
+                      }}
+                    >
+                      Current model: {familyDisplayLabel(modelFamily)}.{" "}
+                      {modelsError
+                        ? "The available models could not be checked. Reopen this dialog to try again."
+                        : "This login does not offer it. Choose an available model."}
+                    </p>
+                  )}
               </>
             );
           })()}
