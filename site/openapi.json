@@ -58,6 +58,11 @@
           "pageContext": {
             "type": "string",
             "description": "Optional documentation context. The server uses at most the first 20,000 characters."
+          },
+          "page": {
+            "type": "string",
+            "enum": ["main", "hosted"],
+            "description": "Page where the visitor opened the chat widget."
           }
         },
         "additionalProperties": false

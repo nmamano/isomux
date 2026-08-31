@@ -16,6 +16,9 @@
   // landing has no such variable and pageContext stays empty.
   const pageContext =
     typeof window.__docContext === "string" ? window.__docContext.trim() : "";
+  const page = window.location.pathname.startsWith("/hosted")
+    ? "hosted"
+    : "main";
 
   const starters = pageContext
     ? [
@@ -134,6 +137,7 @@
     try {
       const body = {
         messages: messages.map((m) => ({ role: m.role, content: m.content })),
+        page,
       };
       if (pageContext) body.pageContext = pageContext;
 

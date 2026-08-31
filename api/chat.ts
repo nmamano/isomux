@@ -85,6 +85,7 @@ Setup:
 
 ## Hosted Isomux
 Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry has 4 vCPU, 8 GB RAM, and a 100 GB SSD for 8 EUR/month. Poweruser has 8 vCPU, 24 GB RAM, and a 300 GB SSD for 17 EUR/month. Sign up at cloud.isomux.com. Details are at isomux.com/hosted. Do not quote prices, provisioning times, launch dates, or promises beyond what those pages say.
+Hosted customers sign in at the Hosted Isomux dashboard and open their office from there.
 
 ## Full Feature List
 
@@ -251,6 +252,17 @@ Pick a name and get an always-on Isomux office at \`yourname.isomux.app\`. Entry
 - When answering about limits (e.g. number of agents), use only the information above - don't speculate.
 - NEVER recommend putting secrets (API keys, tokens, passwords) in custom instructions, system prompts, or chat messages. Prompt text ends up in conversation logs, and custom instructions don't set environment variables anyway - they're instructions to the model, not shell configuration. When someone asks how to give an agent a secret, point them to the env file feature: put the variable in an env file on the server and set that file in your user settings (or the office settings for office-wide values); agents spawned after that get it in their environment.`;
 
+export function buildSystemPrompt(
+  page: unknown,
+  hasPageContext = false,
+): string {
+  if (page === "hosted") {
+    return `${SYSTEM_PROMPT}\n\nThe user is interested in Hosted Isomux. Answer for someone who wants a managed Isomux office.`;
+  }
+  if (hasPageContext) return SYSTEM_PROMPT;
+  return `${SYSTEM_PROMPT}\n\nAnswer for the Isomux option that fits the user's question. Do not assume they are self-hosting.`;
+}
+
 // --- SSE parsing helpers ---
 
 async function* parseAnthropicStream(
@@ -323,9 +335,10 @@ export default async function handler(req: Request) {
       "Send a JSON object with a messages array.",
     );
   }
-  const { messages, pageContext } = body as {
+  const { messages, pageContext, page } = body as {
     messages: { role: string; content: string }[];
     pageContext?: string;
+    page?: unknown;
   };
   if (!Array.isArray(messages)) {
     return jsonError(
@@ -362,9 +375,11 @@ export default async function handler(req: Request) {
 
   // Per-page context: docs pages embed their markdown and pass it through.
   // Cap at 20k chars so a runaway page can't blow the system-prompt budget.
-  let system = SYSTEM_PROMPT;
-  if (typeof pageContext === "string" && pageContext.trim()) {
-    const trimmed = pageContext.slice(0, 20_000);
+  const hasPageContext =
+    typeof pageContext === "string" && Boolean(pageContext.trim());
+  let system = buildSystemPrompt(page, hasPageContext);
+  if (hasPageContext) {
+    const trimmed = pageContext!.slice(0, 20_000);
     system += `\n\n---\n## Current docs page\n\nThe user is reading this specific docs page. Use it as authoritative context when they ask about its contents. Quote it directly when answering specifics.\n\n<page-content>\n${trimmed}\n</page-content>`;
   }
 
