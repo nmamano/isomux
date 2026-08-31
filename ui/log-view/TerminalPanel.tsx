@@ -120,6 +120,12 @@ type SoftKey = {
   action?: "paste";
 };
 
+export function resetTerminalForRespawn(
+  terminal: Pick<Terminal, "reset">,
+): void {
+  terminal.reset();
+}
+
 // Mobile input proxy: a real (invisible) textarea that owns input on mobile.
 // We listen to compositionend (swipe-typing on Android, IME on iOS), input,
 // and beforeinput so deletes and line breaks reach the PTY no matter which
@@ -667,7 +673,7 @@ export function TerminalPanel({
     setExited(null);
     setOwner(null);
     setCommandIssue(null);
-    termRef.current?.clear();
+    if (termRef.current) resetTerminalForRespawn(termRef.current);
     send({ type: "terminal_restart", agentId });
   }
 
