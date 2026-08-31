@@ -221,7 +221,14 @@ import { readUpdateConf } from "./update-conf.ts";
 import { viewHandlers } from "./routes/handlers/view.ts";
 import { preferencesHandlers } from "./routes/handlers/preferences.ts";
 import { apiTokenHandlers } from "./routes/handlers/api-tokens.ts";
-import { listApiTokens, mintApiToken, revokeApiToken } from "./api-tokens.ts";
+import {
+  drainApiTokenInbox,
+  enqueueApiTokenInboxMessage,
+  isLiveApiTokenOwnedBy,
+  listApiTokens,
+  mintApiToken,
+  revokeApiToken,
+} from "./api-tokens.ts";
 import { roomsHandlers } from "./routes/handlers/rooms.ts";
 import { agentsHandlers } from "./routes/handlers/agents.ts";
 import { conversationHandlers } from "./routes/handlers/conversation.ts";
@@ -1564,13 +1571,18 @@ function attributionFor(identity: Identity): {
 // the retired loopback /tasks surface. Same empty set for a token whose user is
 // gone.
 function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
-  // Only a human and an agent inherit a user's rooms. Written as an allowlist
+  // Humans, their agents, and their remote-boss API tokens inherit the user's
+  // rooms. Written as an allowlist
   // rather than "everything except cron-run": an APP identity also carries a
   // userId (the app's owner), so the fallthrough would have handed a registered
   // app every room its owner can reach - and with it every room-gated read.
   // A scope that should see no rooms must be the default, not an exception
   // somebody remembers to add.
-  if (identity.scope !== "user" && identity.scope !== "agent") {
+  if (
+    identity.scope !== "user" &&
+    identity.scope !== "agent" &&
+    identity.scope !== "api"
+  ) {
     return new Set<string>();
   }
   const user = identity.userId ? getUserById(identity.userId) : null;
@@ -3220,6 +3232,15 @@ function buildExecutorDeps(
     // precondition is the explicit, audit-pinned record of that structural bind.
     return null;
   });
+  preconditions.set("apiTokenInboxTargetAvailable", (ctx) => {
+    const senderAgentId = ctx.identity.agentId;
+    const userId = senderAgentId
+      ? agentManager.getAgent(senderAgentId)?.userId
+      : null;
+    return userId && isLiveApiTokenOwnedBy(ctx.params.tokenId, userId)
+      ? null
+      : fail(404, "api_token_unavailable", "API token unavailable.");
+  });
   // 3d.6b - editor (open/save/close). EMIT/CALL-IN-DEP closures own the stateful
   // watch lifecycle (the seam has `browsers` + the editorWatchers registry +
   // liveEmit in scope). openFile arms a watch bound to the caller's connectionId
@@ -3417,6 +3438,23 @@ function buildExecutorDeps(
       list: (userId) => listApiTokens(userId),
       mint: (input) => mintApiToken(input),
       revoke: (userId, id) => revokeApiToken(userId, id),
+      sendToInbox: async (input) => {
+        const result = await enqueueApiTokenInboxMessage(input);
+        return result.ok
+          ? {
+              ok: true as const,
+              messageId: result.message.id,
+              lastDrainedAt: result.lastDrainedAt,
+              tokenName: result.tokenName,
+            }
+          : result;
+      },
+      drainInbox: (tokenId) => drainApiTokenInbox(tokenId),
+      agentDisplay: (agentId) => agentManager.getAgentDisplay(agentId),
+      agentManagerUserId: (agentId) =>
+        agentManager.getAgent(agentId)?.userId ?? null,
+      echoToAgent: (agentId, tokenName, text) =>
+        agentManager.addApiTokenOutbound(agentId, tokenName, text),
     }),
   );
   register(
@@ -4923,8 +4961,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         if (auth.kind === "rejected") return auth.response;
 
         // Narrow non-browser tokens stop here, before the identity-only legacy
-        // surface. API tokens get one explicit exception: the live GET /agents
-        // manifest without the killed roster query.
+        // surface. API tokens get explicit exceptions for the live and killed
+        // GET /agents manifests.
         //
         // Everything below this line predates the capability model and gates on
         // "is there an identity" alone: the agent manifest (live and killed), the
@@ -4942,7 +4980,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           auth.identity.scope === "api" &&
           req.method === "GET" &&
           url.pathname === "/agents" &&
-          !url.searchParams.has("killed");
+          (!url.searchParams.has("killed") ||
+            url.searchParams.get("killed") === "1");
         if (
           auth.identity.scope === "app" ||
           (auth.identity.scope === "api" && !apiManifestAllowed)

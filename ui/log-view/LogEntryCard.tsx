@@ -111,11 +111,11 @@ function findMatchingToolResult(
   );
 }
 
-/** Serialize entries for clipboard (text + tool_call only) */
+/** Serialize visible conversation entries for the clipboard. */
 export function serializeEntries(entries: LogEntry[]): string {
   const parts: string[] = [];
   for (const e of entries) {
-    if (e.kind === "user_message") {
+    if (e.kind === "user_message" || e.kind === "api_token_outbound") {
       parts.push(e.content);
     } else if (e.kind === "text") {
       parts.push(e.content);
@@ -425,6 +425,17 @@ export const LogEntryCard = memo(function LogEntryCard({
         />
       );
     }
+    case "api_token_outbound":
+      return (
+        <UserMessage
+          content={entry.content}
+          isMobile={isMobile}
+          username="Agent"
+          fromNonHuman
+          agentId={entry.agentId}
+          canEdit={false}
+        />
+      );
     case "text":
       return (
         <AssistantText

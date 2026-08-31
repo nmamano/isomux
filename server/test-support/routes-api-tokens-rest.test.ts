@@ -6,10 +6,18 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
-import { mintApiToken } from "../api-tokens.ts";
+import {
+  API_TOKEN_INBOX_CAPACITY,
+  enqueueApiTokenInboxMessage,
+  mintApiToken,
+} from "../api-tokens.ts";
 import { getUserByName, setUserRoleById } from "../users.ts";
 import type { ApiTokenCreateRes } from "../../shared/contract-shapes.ts";
 import { blockAtomicFileReplacement } from "./temp-state.ts";
+import { mintAgentToken } from "../identity/tokens.ts";
+import { APP_MESSAGE_MAX_CHARS } from "../app-message-limits.ts";
+import { needsInterruptionMarker } from "../agent-manager.ts";
+import { TIERS } from "../log-search.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -17,7 +25,14 @@ afterEach(async () => {
   server = null;
 });
 
-async function spawn(srv: TestServer, name: string, roomId: string, desk = 0) {
+async function spawn(
+  srv: TestServer,
+  name: string,
+  roomId: string,
+  desk = 0,
+  username?: string,
+  userId?: string,
+) {
   const agent = await srv.agentManager.spawn(
     name,
     srv.stateRoot,
@@ -25,6 +40,13 @@ async function spawn(srv: TestServer, name: string, roomId: string, desk = 0) {
     desk,
     undefined,
     roomId,
+    undefined,
+    undefined,
+    undefined,
+    username,
+    "claude",
+    undefined,
+    userId,
   );
   if (!agent) throw new Error(`spawn failed: ${name}`);
   return agent;
@@ -70,6 +92,112 @@ async function waitFor(predicate: () => boolean) {
 }
 
 describe("personal API tokens", () => {
+  it("accepts agent replies, echoes them live, and drains at most once", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName(owner.username)!.id;
+    const room = srv.agentManager.getRooms()[0].id;
+    const sender = await spawn(srv, "Worker", room, 0, owner.username, ownerId);
+    const agentToken = mintAgentToken(sender.id, ownerId);
+    const minted = await mintThroughApi(
+      srv,
+      owner.rawSessionId,
+      'Remote\n"Boss',
+      null,
+    );
+    srv.agentManager.setTopic(sender.id, "Current work");
+    const stateBeforeReply = srv.agentManager.getAgent(sender.id)!.state;
+    const path = `/api/api-token-inboxes/${minted.body.apiToken.id}/messages`;
+    const sent = await bearer(srv, agentToken, path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "result ready" }),
+    });
+    expect(sent.status).toBe(200);
+    const ack = await sent.json();
+    expect(ack.lastDrainedAt).toBeNull();
+    expect(ack.messageId).toBeString();
+    const outbound = srv.agentManager.getAgentLogs(sender.id).at(-1);
+    expect(outbound).toMatchObject({
+      kind: "api_token_outbound",
+      content: `[To remote boss "Remote 'Boss"] result ready`,
+    });
+    expect(srv.agentManager.getAgent(sender.id)).toMatchObject({
+      state: stateBeforeReply,
+      topicStale: false,
+      turnHadHumanInput: false,
+    });
+    expect(needsInterruptionMarker(outbound)).toBe(false);
+
+    expect(TIERS.prompts).not.toContain(outbound?.kind);
+
+    const first = await bearer(
+      srv,
+      minted.body.token,
+      "/api/me/api-token-inbox/drain",
+      { method: "POST" },
+    );
+    expect(first.status).toBe(200);
+    const drained = await first.json();
+    expect(drained.previouslyDrainedAt).toBeNull();
+    expect(drained.messages).toHaveLength(1);
+    expect(drained.messages[0]).toMatchObject({
+      id: ack.messageId,
+      text: "result ready",
+      senderAgentId: sender.id,
+      senderAgentName: "Worker",
+    });
+    const second = await bearer(
+      srv,
+      minted.body.token,
+      "/api/me/api-token-inbox/drain",
+      { method: "POST" },
+    );
+    expect((await second.json()).messages).toEqual([]);
+
+    for (let i = 0; i < API_TOKEN_INBOX_CAPACITY; i++) {
+      await enqueueApiTokenInboxMessage({
+        tokenId: minted.body.apiToken.id,
+        userId: ownerId,
+        text: `fill ${i}`,
+        senderAgentId: sender.id,
+        senderAgentName: "Worker",
+        senderRoomName: "Room 1",
+      });
+    }
+    const full = await bearer(srv, agentToken, path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "retry me" }),
+    });
+    expect(full.status).toBe(429);
+    expect((await full.json()).error).toMatchObject({
+      code: "inbox_full",
+      message: "The API token inbox is full because it has not been drained.",
+    });
+
+    const tooLong = await bearer(srv, agentToken, path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "x".repeat(APP_MESSAGE_MAX_CHARS + 1) }),
+    });
+    expect(tooLong.status).toBe(400);
+    expect((await tooLong.json()).error.code).toBe("text_too_long");
+
+    await srv.http(`/api/me/api-tokens/${minted.body.apiToken.id}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    const unavailable = await bearer(srv, agentToken, path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "late" }),
+    });
+    expect(unavailable.status).toBe(404);
+    expect((await unavailable.json()).error.code).toBe("api_token_unavailable");
+  });
+
   it("mints, lists, sends as the human, and revokes through cookie-only routes", async () => {
     const srv = await startTestServer({
       fakeBackend: new FakeBackend({ session: { manualSend: true } }),
@@ -184,16 +312,24 @@ describe("personal API tokens", () => {
     srv.fakeBackend.sessionForAgent(target.id)!.completeTurn();
   });
 
-  it("allows only the live manifest below the capability dispatcher", async () => {
+  it("allows both agent manifests while legacy file and UI surfaces stay blocked", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const minted = await mintThroughApi(srv, owner.rawSessionId);
     const token = minted.body.token;
+    const roomId = srv.agentManager.getRooms()[0].id;
+    const createdTask = await srv.http("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      rawSessionId: owner.rawSessionId,
+      body: JSON.stringify({ title: "Room work", roomId }),
+    });
+    expect(createdTask.status).toBe(201);
 
     expect((await bearer(srv, token, "/agents")).status).toBe(200);
+    expect((await bearer(srv, token, "/agents?killed=1")).status).toBe(200);
     for (const path of [
-      "/agents?killed=1",
       "/api/files/agent-x/file.txt",
       "/api/images/agent-x/file.png",
       "/",
@@ -204,7 +340,32 @@ describe("personal API tokens", () => {
       (await bearer(srv, token, "/api/upload/agent-x", { method: "POST" }))
         .status,
     ).toBe(403);
-    expect((await bearer(srv, token, "/api/tasks")).status).toBe(403);
+    const tasks = await bearer(srv, token, "/api/tasks");
+    expect(tasks.status).toBe(200);
+    expect(
+      ((await tasks.json()) as Array<{ title: string; roomId?: string }>).some(
+        (task) => task.title === "Room work" && task.roomId === roomId,
+      ),
+    ).toBe(true);
+    const createdRoom = await bearer(srv, token, "/api/rooms", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Remote room" }),
+    });
+    expect(createdRoom.status).toBe(201);
+    const validCwd = await bearer(srv, token, "/api/validate/cwd", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: srv.stateRoot }),
+    });
+    expect(validCwd.status).toBe(200);
+    expect(
+      (
+        await bearer(srv, token, "/api/sessions/current", {
+          method: "DELETE",
+        })
+      ).status,
+    ).toBe(403);
   });
 
   it("accepts a never-expiring mint and rejects retired expiry presets", async () => {

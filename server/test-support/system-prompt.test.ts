@@ -424,3 +424,40 @@ describe("buildSystemPrompt - session hygiene", () => {
     );
   });
 });
+
+describe("buildSystemPrompt - remote boss inbox", () => {
+  const withTokens = () =>
+    buildSystemPrompt(
+      "A1",
+      "agent-1",
+      "Test Room",
+      "room-1",
+      null,
+      null,
+      null,
+      "Boss",
+      null,
+      false,
+      null,
+      "codex",
+      null,
+      [{ id: "pat-123", name: 'Remote\n"Boss' }],
+    );
+
+  it("is absent without a live token snapshot", () => {
+    expect(build()).not.toContain("How to message a remote boss:");
+    expect(build()).not.toContain("api-token-inboxes");
+  });
+
+  it("lists normalized name and id with staleness and retry rules", () => {
+    const prompt = withTokens();
+    expect(prompt).toContain("Remote 'Boss (pat-123)");
+    expect(prompt).toContain("/api/api-token-inboxes/<token-id>/messages");
+    expect(prompt).toContain(
+      "API tokens can change after this conversation starts; a send to an unavailable token fails.",
+    );
+    expect(prompt).toContain(
+      "Do not retry a full inbox until the remote boss drains it.",
+    );
+  });
+});

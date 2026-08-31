@@ -6,13 +6,17 @@ import { existsSync, readFileSync, renameSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
-import type { ApiTokenWire } from "../shared/contract-shapes.ts";
+import type {
+  ApiTokenInboxMessage,
+  ApiTokenWire,
+} from "../shared/contract-shapes.ts";
 import { errMessage } from "../shared/errors.ts";
 
 // null means the token never expires.
 export const API_TOKEN_EXPIRY_DAYS = [30, 365, null] as const;
 export const DEFAULT_API_TOKEN_EXPIRY_DAYS = 30;
 export const API_TOKEN_LAST_USED_PERSIST_INTERVAL_MS = 60_000;
+export const API_TOKEN_INBOX_CAPACITY = 100;
 
 const API_TOKENS_FILE = join(STATE_ROOT, "api-tokens.json");
 const RAW_PREFIX = "isomux_pat_";
@@ -20,6 +24,8 @@ const RAW_PREFIX = "isomux_pat_";
 interface StoredApiToken extends ApiTokenWire {
   userId: string;
   tokenHash: string;
+  inbox: ApiTokenInboxMessage[];
+  lastDrainedAt: number | null;
 }
 
 export interface ResolvedApiToken {
@@ -79,6 +85,16 @@ function ensureLoaded(): void {
         console.error("Ignoring invalid API token record:", id);
         continue;
       }
+      const inboxValid =
+        Array.isArray(value.inbox) && value.inbox.every(validInboxMessage);
+      const lastDrainedAtValid =
+        typeof value.lastDrainedAt === "number" || value.lastDrainedAt === null;
+      if (!inboxValid && value.inbox !== undefined) {
+        console.error("Ignoring malformed API token inbox:", id);
+      }
+      if (!lastDrainedAtValid && value.lastDrainedAt !== undefined) {
+        console.error("Ignoring malformed API token last-drained time:", id);
+      }
       const record: StoredApiToken = {
         id,
         userId: value.userId,
@@ -89,6 +105,8 @@ function ensureLoaded(): void {
         expiresAt: value.expiresAt,
         lastUsedAt:
           typeof value.lastUsedAt === "number" ? value.lastUsedAt : null,
+        inbox: inboxValid ? value.inbox! : [],
+        lastDrainedAt: lastDrainedAtValid ? value.lastDrainedAt! : null,
       };
       tokens.set(id, record);
       hashIndex.set(record.tokenHash, id);
@@ -105,6 +123,20 @@ function ensureLoaded(): void {
       );
     }
   }
+}
+
+function validInboxMessage(value: unknown): value is ApiTokenInboxMessage {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
+  const message = value as Partial<ApiTokenInboxMessage>;
+  return (
+    typeof message.id === "string" &&
+    typeof message.sentAt === "number" &&
+    typeof message.text === "string" &&
+    typeof message.senderAgentId === "string" &&
+    typeof message.senderAgentName === "string" &&
+    typeof message.senderRoomName === "string"
+  );
 }
 
 function persist(): void {
@@ -157,6 +189,8 @@ export async function mintApiToken(input: {
           ? null
           : now + input.expiresInDays * 24 * 60 * 60 * 1000,
       lastUsedAt: null,
+      inbox: [],
+      lastDrainedAt: null,
     };
     tokens!.set(id, record);
     hashIndex!.set(tokenHash, id);
@@ -168,6 +202,108 @@ export async function mintApiToken(input: {
       throw err;
     }
     return { token: raw, apiToken: wire(record) };
+  });
+}
+
+function isLive(record: StoredApiToken, now: number): boolean {
+  return record.expiresAt === null || record.expiresAt > now;
+}
+
+export function listLiveApiTokens(
+  userId: string,
+  now = Date.now(),
+): Array<Pick<ApiTokenWire, "id" | "name">> {
+  ensureLoaded();
+  return [...tokens!.values()]
+    .filter((record) => record.userId === userId && isLive(record, now))
+    .map(({ id, name }) => ({ id, name }));
+}
+
+export function isLiveApiTokenOwnedBy(
+  tokenId: string,
+  userId: string,
+  now = Date.now(),
+): boolean {
+  ensureLoaded();
+  const record = tokens!.get(tokenId);
+  return !!record && record.userId === userId && isLive(record, now);
+}
+
+export async function enqueueApiTokenInboxMessage(input: {
+  tokenId: string;
+  userId: string;
+  text: string;
+  senderAgentId: string;
+  senderAgentName: string;
+  senderRoomName: string;
+  now?: number;
+}): Promise<
+  | {
+      ok: true;
+      message: ApiTokenInboxMessage;
+      lastDrainedAt: number | null;
+      tokenName: string;
+    }
+  | { ok: false; reason: "unavailable" | "full" }
+> {
+  return mutate(() => {
+    ensureLoaded();
+    const now = input.now ?? Date.now();
+    const record = tokens!.get(input.tokenId);
+    if (!record || record.userId !== input.userId || !isLive(record, now)) {
+      return { ok: false as const, reason: "unavailable" as const };
+    }
+    if (record.inbox.length >= API_TOKEN_INBOX_CAPACITY) {
+      return { ok: false as const, reason: "full" as const };
+    }
+    const message: ApiTokenInboxMessage = {
+      id: randomBytes(8).toString("hex"),
+      sentAt: now,
+      text: input.text,
+      senderAgentId: input.senderAgentId,
+      senderAgentName: input.senderAgentName,
+      senderRoomName: input.senderRoomName,
+    };
+    record.inbox.push(message);
+    try {
+      persist();
+    } catch (err) {
+      record.inbox.pop();
+      throw err;
+    }
+    return {
+      ok: true as const,
+      message,
+      lastDrainedAt: record.lastDrainedAt,
+      tokenName: record.name,
+    };
+  });
+}
+
+export async function drainApiTokenInbox(
+  tokenId: string,
+  now = Date.now(),
+): Promise<{
+  messages: ApiTokenInboxMessage[];
+  previouslyDrainedAt: number | null;
+  drainedAt: number;
+} | null> {
+  return mutate(() => {
+    ensureLoaded();
+    const record = tokens!.get(tokenId);
+    if (!record || !isLive(record, now)) return null;
+    const messages = record.inbox;
+    const previouslyDrainedAt = record.lastDrainedAt;
+    record.inbox = [];
+    record.lastDrainedAt = now;
+    try {
+      persist();
+    } catch (err) {
+      record.inbox = messages;
+      record.lastDrainedAt = previouslyDrainedAt;
+      throw err;
+    }
+    return { messages, previouslyDrainedAt, drainedAt: now };
   });
 }
 

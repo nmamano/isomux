@@ -530,6 +530,30 @@ export interface ApiTokenListRes {
   apiTokens: ApiTokenWire[];
 }
 
+export interface ApiTokenInboxMessage {
+  id: string;
+  sentAt: number;
+  text: string;
+  senderAgentId: string;
+  senderAgentName: string;
+  senderRoomName: string;
+}
+
+export interface ApiTokenInboxSendReq {
+  text: string;
+}
+
+export interface ApiTokenInboxSendRes {
+  messageId: string;
+  lastDrainedAt: number | null;
+}
+
+export interface ApiTokenInboxDrainRes {
+  messages: ApiTokenInboxMessage[];
+  previouslyDrainedAt: number | null;
+  drainedAt: number;
+}
+
 export type UserUpdateReq = Partial<{
   name: string;
   envFile: string | null;

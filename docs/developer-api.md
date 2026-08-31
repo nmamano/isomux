@@ -34,7 +34,31 @@ curl -s -X POST "$OFFICE_URL/api/agents/$AGENT_ID/messages" \
   -d '{"text":"Please check the latest alert."}'
 ```
 
-The agent sees the message as `[Your name (API token "Token name")]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. The token cannot list killed agents, read conversations or files, upload files, open a WebSocket, manage the office, or use any API route except live-agent discovery and messaging. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
+The agent sees the message as `[Your name (API token "Token name")]`. If the target agent is waiting for a permission answer, the next API-token message to that agent is used as the answer instead of a new chat message. A token has the issuing user's operational reach: agents and their conversations, rooms, tasks, apps, logs, cron jobs, editor and file actions, memory, and office reads. It cannot mint durable access, revoke browser sessions, change user access or office settings, or grant the privileged-agent flag. These exclusions are defense in depth: a token can spawn an agent that runs commands. Room access and the issuing user's current role are checked on every request. An expired or revoked token stops working immediately.
+
+## Receive replies from office agents
+
+An agent's system prompt lists each live API token as `name (id)`. The agent sends a reply to that stable id:
+
+```bash
+curl -s -X POST "$OFFICE_URL/api/api-token-inboxes/$TOKEN_ID/messages" \
+  -H "Authorization: Bearer $AGENT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"The report is ready."}'
+```
+
+The send succeeds without a poller. Its response includes `lastDrainedAt`, or `null` when the token has never drained its inbox. A full inbox returns `inbox_full`; the sender must wait for the remote boss to drain it.
+
+The token drains its own inbox with a destructive poll:
+
+```bash
+curl -s -X POST "$OFFICE_URL/api/me/api-token-inbox/drain" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The response contains `messages`, `previouslyDrainedAt`, and `drainedAt`. A drain is at-most-once: it atomically removes the returned messages, so a response lost after the server commits cannot be recovered. Process and save each successful response before the next poll.
+
+A send can reach the inbox before its sender echo is saved. If the send returns an error after delivery, a retry can create a duplicate.
 
 API failures use JSON with an `error` object:
 

@@ -320,6 +320,11 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apiTokens.list": { caps: ["user:self"], emits: [] },
   "apiTokens.mint": { caps: ["user:self"], emits: [] },
   "apiTokens.revoke": { caps: ["user:self"], emits: [] },
+  "apiTokenInbox.send": {
+    caps: ["agent:send-to-api-token"],
+    emits: ["log_entry"],
+  },
+  "apiTokenInbox.drain": { caps: ["api:drain-inbox"], emits: [] },
   // Users
   "users.update": {
     caps: ["user:self", "user:admin"],
@@ -471,6 +476,7 @@ const SPEC_PRECONDITIONS: Record<string, RoutePrecondition[]> = {
     "messageRecipientExists",
     "messagePendingPermissionBindsParam",
   ],
+  "apiTokenInbox.send": ["apiTokenInboxTargetAvailable"],
   "invites.revoke": ["inviteOwnerOrSelf"],
   "sessions.revoke": ["sessionOwnerOrSelf", "notLastOwnerLockout"],
   "sessions.logout": ["notLastOwnerLockout"],
@@ -631,7 +637,86 @@ describe("route table: an APP identity authorizes exactly the app-self route", (
   });
 });
 
-describe("route table: an API identity authorizes exactly agent messaging", () => {
+// Written before the API guards were widened (task d1908202). This is the
+// intended remote-boss surface, not a snapshot of whatever today's guards let
+// through. The first run against the old guards is deliberately red.
+const API_REACHABLE_OPIDS = [
+  "agents.spawn",
+  "agents.kill",
+  "agents.revive",
+  "agents.abort",
+  "agents.update",
+  "agents.readInstructions",
+  "agents.move",
+  "agents.setTopic",
+  "agents.clearTopic",
+  "rooms.swapDesks",
+  "agents.sendMessage",
+  "agents.respondInteraction",
+  "agents.listScheduledMessages",
+  "agents.cancelScheduledMessage",
+  "agents.editMessage",
+  "agents.cancelQueued",
+  "agents.sendNow",
+  "agents.newConversation",
+  "agents.handoff",
+  "agents.resume",
+  "agents.listSessions",
+  "agents.logs",
+  "agents.getSlides",
+  "agents.ensureSlide",
+  "agents.openFile",
+  "agents.saveFile",
+  "agents.closeFile",
+  "agents.upload",
+  "agents.getFile",
+  "rooms.create",
+  "rooms.close",
+  "rooms.rename",
+  "rooms.getSettings",
+  "rooms.setSettings",
+  "apiTokenInbox.drain",
+  "validate.cwd",
+  "backends.listModels",
+  "tasks.list",
+  "tasks.get",
+  "tasks.create",
+  "tasks.update",
+  "tasks.claim",
+  "tasks.done",
+  "tasks.delete",
+  "apps.list",
+  "apps.get",
+  "apps.preview",
+  "apps.register",
+  "apps.update",
+  "apps.delete",
+  "apps.logs",
+  "apps.start",
+  "apps.stop",
+  "apps.restart",
+  "memory.read",
+  "memory.append",
+  "memory.replace",
+  "skills.usageCounts",
+  "cron.list",
+  "cron.get",
+  "cron.create",
+  "cron.update",
+  "cron.delete",
+  "cron.runNow",
+  "cron.listRuns",
+  "cron.listAllRuns",
+  "cron.getRun",
+  "cron.runMessage",
+  "cron.editRunMessage",
+  "system.backupStatus",
+  "system.version",
+  "storage.usage",
+  "usage.read",
+];
+
+describe("route table: an API identity authorizes exactly the remote-boss surface", () => {
   const apiIdentity: Identity = {
     scope: "api",
     userId: "u-owner",
@@ -649,18 +734,31 @@ describe("route table: an API identity authorizes exactly agent messaging", () =
     agentManagerUserId: () => "u-owner",
     killedAgentManagerUserId: () => "u-owner",
   };
-  it("denies every table route except agents.sendMessage", () => {
+  it("reaches the independently declared operational routes", () => {
     const allowed: string[] = [];
     for (const route of API_ROUTES) {
       const outcome = runAuthorize(
         route.auth,
         apiIdentity,
-        { id: "a-1", roomId: "r1" },
-        { text: "hi" },
+        {
+          id: "a-1",
+          name: "hello",
+          username: "alice",
+          roomId: "r1",
+          scheduledId: "s1",
+          runId: "run-1",
+        },
+        {
+          text: "hi",
+          senderAgentId: "a-1",
+          roomId: "r1",
+          targetRoomId: "r1",
+          username: "alice",
+        },
         deps,
       );
       if (outcome.ok) allowed.push(route.opId);
     }
-    expect(allowed).toEqual(["agents.sendMessage"]);
+    expect(allowed).toEqual(API_REACHABLE_OPIDS);
   });
 });

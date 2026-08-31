@@ -50,6 +50,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
       (
         [
           "agent:send-as-self",
+          "agent:send-to-api-token",
           "self:affordance",
           "task:read",
           "task:write",
@@ -193,10 +194,26 @@ describe("identity: capability sets (Phase 2.1)", () => {
     expect(capabilitiesForScope("api")).toBe(API_CAPABILITIES);
   });
 
-  it("API scope holds exactly discovery and message capabilities", () => {
+  it("API scope holds the explicit remote-boss operational capabilities", () => {
     expect([...API_CAPABILITIES]).toEqual([
       "api:discover-agents",
       "api:send-message",
+      "api:drain-inbox",
+      "office:read",
+      "agent:manage",
+      "agent:converse",
+      "room:manage",
+      "editor:use",
+      "file:upload",
+      "cron:read",
+      "cron:manage",
+      "task:read",
+      "task:write",
+      "memory:read",
+      "memory:write",
+      "log:read",
+      "app:read",
+      "app:write",
     ]);
     for (const set of [
       USER_CAPABILITIES,
@@ -207,7 +224,11 @@ describe("identity: capability sets (Phase 2.1)", () => {
     ]) {
       expect(set).not.toContain("api:discover-agents" as Capability);
       expect(set).not.toContain("api:send-message" as Capability);
+      expect(set).not.toContain("api:drain-inbox" as Capability);
     }
+    expect(AGENT_CAPABILITIES).toContain("agent:send-to-api-token");
+    expect(USER_CAPABILITIES).not.toContain("agent:send-to-api-token");
+    expect(API_CAPABILITIES).not.toContain("agent:send-to-api-token");
   });
 
   it("identityHasCapability checks membership", () => {

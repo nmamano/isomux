@@ -33,8 +33,10 @@ import {
   formatAgentSenderPrefix,
   formatAppSenderPrefix,
   formatCronjobSenderPrefix,
+  formatApiTokenName,
 } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
+import { listLiveApiTokens } from "./api-tokens.ts";
 import { isValidDesk } from "../shared/desks.ts";
 import {
   appendLog,
@@ -245,6 +247,12 @@ export function backendSessionHasFixedCwd(
 // assembled return object below. (See handoff note re: ReturnType vs a
 // hand-written interface.)
 export type AgentManager = ReturnType<typeof createAgentManager>;
+
+export function needsInterruptionMarker(
+  tail: Pick<LogEntry, "kind"> | undefined,
+): boolean {
+  return tail?.kind === "user_message";
+}
 
 type PermissionOption = {
   kind: ApprovalDecision["kind"];
@@ -1663,7 +1671,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // See gated addLogEntry below.
     const shouldAddInterruptionMarker = !!(
       resumeSessionId &&
-      (logCache.get(p.id) ?? []).at(-1)?.kind === "user_message"
+      needsInterruptionMarker((logCache.get(p.id) ?? []).at(-1))
     );
 
     // Session install: try resume, optionally fall back to fresh on failure,
@@ -2414,6 +2422,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           emit(event);
       }
     }
+  }
+
+  function addApiTokenOutbound(
+    agentId: string,
+    tokenName: string,
+    text: string,
+  ): void {
+    addLogEntry(
+      agentId,
+      "api_token_outbound",
+      `[To remote boss "${formatApiTokenName(tokenName)}"] ${text}`,
+      { recipient_api_token_name: formatApiTokenName(tokenName) },
+    );
   }
 
   // Emit a log entry to the UI only (not persisted to disk) - for ephemeral
@@ -4702,6 +4723,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryStore.renderForPromptMulti(memoryRefs),
       managed.info.agentType,
       ownerRecord?.language ?? null,
+      managed.info.userId ? listLiveApiTokens(managed.info.userId) : [],
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's
@@ -5519,7 +5541,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // If the prior session died owing a response, mark the gap. Parity
           // with the SDK's lazy synthetic placeholder injected at this moment.
           const tail = (logCache.get(agentId) ?? []).at(-1);
-          if (tail?.kind === "user_message") {
+          if (needsInterruptionMarker(tail)) {
             addLogEntry(
               agentId,
               "system",
@@ -6047,7 +6069,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // placeholder injected into its own transcript at this moment.
     if (!managed.session) {
       const tail = (logCache.get(agentId) ?? []).at(-1);
-      if (tail?.kind === "user_message") {
+      if (needsInterruptionMarker(tail)) {
         addLogEntry(agentId, "system", "Previous response was interrupted.");
       }
     }
@@ -8348,6 +8370,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     spawn,
     enqueueMessage,
     addSystemNote,
+    addApiTokenOutbound,
     cancelQueued,
     sendNow,
     sendMessage,

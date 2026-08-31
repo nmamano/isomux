@@ -374,8 +374,10 @@ describe("Slide Mode lifecycle (DI integration)", () => {
     expect(h.prompts).toHaveLength(0);
 
     // Settling it fulfils the parked request from the turn's real content.
+    h.mgr.addApiTokenOutbound(h.agentId, "Remote boss", "Still working.");
     h.fake.sessionForAgent(h.agentId)!.completeTurn({ status: "completed" });
-    await waitUntil(() => !!h.slideReadyFor(anchor));
+    await settle();
+    expect(h.slideReadyFor(anchor)).toBeDefined();
     expect(h.slideReadyFor(anchor)?.slide.placeholder).toBe(false);
     expect(h.slideReadyFor(anchor)?.slide.html).toBe(SLIDE_HTML);
     expect(h.prompts).toHaveLength(1);

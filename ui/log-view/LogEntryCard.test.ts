@@ -6,7 +6,29 @@
 // ContextBattery's bandColor).
 
 import { describe, it, expect } from "bun:test";
-import { describeMessageSender } from "./LogEntryCard.tsx";
+import type { LogEntry } from "../../shared/types.ts";
+import { describeMessageSender, serializeEntries } from "./LogEntryCard.tsx";
+
+function entry(kind: LogEntry["kind"], content: string): LogEntry {
+  return { id: content, agentId: "agent-1", timestamp: 1, kind, content };
+}
+
+describe("serializeEntries", () => {
+  it("includes an agent's visible message to its remote boss", () => {
+    expect(
+      serializeEntries([
+        entry("user_message", "Please report."),
+        entry("text", "Working."),
+        entry(
+          "api_token_outbound",
+          '[To remote boss "Laptop"] The report is ready.',
+        ),
+      ]),
+    ).toBe(
+      'Please report.\n\nWorking.\n\n[To remote boss "Laptop"] The report is ready.',
+    );
+  });
+});
 
 describe("describeMessageSender", () => {
   it("a boss is a human, labelled by name and device", () => {

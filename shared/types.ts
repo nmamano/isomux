@@ -633,6 +633,7 @@ export interface LogEntry {
     | "error"
     | "system"
     | "user_message"
+    | "api_token_outbound"
     | "diff"
     | "edit-request"
     | "terminal-command"

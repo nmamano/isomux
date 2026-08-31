@@ -756,6 +756,8 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["GET", "/api/me/api-tokens", "List API tokens"],
   ["POST", "/api/me/api-tokens", "Create API token"],
   ["DELETE", "/api/me/api-tokens/*", "Revoke API token"],
+  ["POST", "/api/api-token-inboxes/*/messages", "Message remote boss"],
+  ["POST", "/api/me/api-token-inbox/drain", "Drain API token inbox"],
   ["POST", "/api/agents/*/handoff", "Hand off to fresh session"],
   ["GET", "/api/agents/*/scheduled-messages", "List scheduled messages"],
   ["DELETE", "/api/agents/*/scheduled-messages/*", "Cancel scheduled message"],

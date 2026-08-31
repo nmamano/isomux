@@ -20,6 +20,7 @@ import {
   OPENCODE_TURN_HANDLE_PLACEHOLDER,
   openCodeAuthoritySocketPath,
 } from "./backends/opencode/office-proxy-shared.ts";
+import { formatApiTokenName } from "../shared/identity.ts";
 
 const PORT = process.env.PORT || "4000";
 
@@ -61,6 +62,7 @@ export function buildSystemPrompt(
   // English, adds nothing - agents already answer in English, so the clause
   // only exists to ask for something else.
   ownerLanguage?: SupportedLanguageCode | null,
+  remoteBossTokens: Array<{ id: string; name: string }> = [],
 ): string {
   // Human-facing office URL. Only worth a line when a real public origin is
   // configured for this boot (env/config, non-loopback bind); the localhost
@@ -72,6 +74,10 @@ export function buildSystemPrompt(
     publicOrigin.source === "localhost"
       ? ""
       : `\nThe office UI for humans is at ${publicOrigin.origin} - use that origin for links you give bosses to open in a browser. Your own API calls below stay on localhost:${PORT}.\n`;
+  const remoteBossNote =
+    remoteBossTokens.length === 0
+      ? ""
+      : `\nHow to message a remote boss: live API tokens at conversation start are ${remoteBossTokens.map((token) => `${formatApiTokenName(token.name)} (${token.id})`).join(", ")}. POST localhost:${PORT}/api/api-token-inboxes/<token-id>/messages with your bearer token and JSON {"text":"..."}. The acknowledgment includes when that inbox was last drained. API tokens can change after this conversation starts; a send to an unavailable token fails. Do not retry a full inbox until the remote boss drains it.\n  curl -s -X POST localhost:${PORT}/api/api-token-inboxes/<token-id>/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"..."}'\n`;
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
 Isomux is a meta-harness: it runs Claude Code, Codex, and OpenCode agents and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
 Your goal is to help the office bosses, who talk to you in this chat.
@@ -140,6 +146,7 @@ How to show diagrams and visual elements: sometimes an idea lands better visuall
   - HTML with inline <svg> - for arrows and custom shapes that HTML/CSS can't express. Fine for ~10 nodes; coordinate math gets painful past that. SVG is sanitized to a safe subset: style shapes with presentation attributes (fill, stroke, ...) - the style attribute, script/foreignObject, event handlers, and external references are stripped.
   - Fenced mermaid code block - for anything where you want auto-layout instead of hand-placed coordinates. Same syntax as GitHub-flavored markdown; the block renders inline as an SVG diagram.
 
+${remoteBossNote}
 How to send a message to another agent's chat: call POST localhost:${PORT}/api/agents/<receiver-id>/messages with your bearer token (your sender identity is derived from the token - you don't pass it). If the receiver is busy, your message is queued and delivered with the receiver's next turn; if idle, it's delivered right away. The receiver decides whether to reply - replies are just another POST in the opposite direction; there is no automatic back-and-forth. The ack says which happened: "queued":true means it waits until their current turn ends. To interrupt their current turn instead of waiting, add "steer":true. Steer every message in a thread you started; in a thread they started, leave it out.
   curl -s -X POST localhost:${PORT}/api/agents/<receiver-id>/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"..."}'
 You can also pass an optional clientMessageId (any unique string) to make retries safe for 5 minutes.

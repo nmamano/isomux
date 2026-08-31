@@ -27,6 +27,7 @@ import {
   type CommandConfig,
 } from "./commands.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { listLiveApiTokens } from "./api-tokens.ts";
 import { memoryStore } from "./memory-store.ts";
 import { getUserByName } from "./users.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
@@ -797,6 +798,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         ]),
         managed.info.agentType,
         ownerRecord?.language ?? null,
+        managed.info.userId ? listLiveApiTokens(managed.info.userId) : [],
       );
       // Pick a fence longer than any backtick run inside the prompt so the block
       // renders verbatim regardless of what office/room/agent prompts contain.

@@ -149,7 +149,7 @@ export const publicGuard: Guard = () => ALLOW;
 // is the explicit "any authenticated caller, no object-level restriction"
 // marker.)
 //
-// APP scope is the exception, and it is the reason this is no longer a bare
+// APP and API scopes are exceptions, and the reason this is no longer a bare
 // `() => ALLOW`. On a capability route the exclusion is mostly redundant - an
 // app token holds one capability that no other route asks for - but on the
 // handful of `authenticated`-kind routes (system.version, sessions.logout) this
@@ -159,6 +159,26 @@ export const publicGuard: Guard = () => ALLOW;
 // through appScope below, never by being merely authenticated.
 export const authenticated: Guard = ({ identity }) =>
   identity.scope === "app" || identity.scope === "api" ? FORBIDDEN : ALLOW;
+
+// Capability-gated operational routes admit a remote-boss API identity. Keep
+// this separate from authenticated: that guard is also the whole gate on
+// sessions.logout, which has no meaning for an API token and stays denied.
+export const operationalAuthenticated: Guard = ({ identity }) =>
+  identity.scope === "app" ? FORBIDDEN : ALLOW;
+
+export const agentTokenSender: Guard = ({ identity }) =>
+  identity.scope === "agent" &&
+  typeof identity.agentId === "string" &&
+  identity.agentId.length > 0
+    ? ALLOW
+    : FORBIDDEN;
+
+export const apiTokenInboxSelf: Guard = ({ identity }) =>
+  identity.scope === "api" &&
+  typeof identity.apiTokenId === "string" &&
+  identity.apiTokenId.length > 0
+    ? ALLOW
+    : FORBIDDEN;
 
 // APP-scope gate: the opt-in half of the rule above, and the ONLY guard that
 // admits an app. Paired with the app:message capability on the one route an app
@@ -308,8 +328,9 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
   };
 }
 
-// App read/delete: the USER who OWNS the app, OR an office owner, OR an agent
-// whose spawning user owns it. Reached by apps.get and apps.delete; apps.list
+// App read/delete: the USER who OWNS the app, an office owner, an agent whose
+// spawning user owns it, or an API token issued by that owner. Reached by
+// apps.get and apps.delete; apps.list
 // is filtered per-caller in the handler instead (there is no :name to gate on).
 //
 // Shaped like cronjobOwnerOrOfficeOwner, with ONE semantic difference that is
@@ -336,6 +357,7 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
     const { identity, params, deps } = ctx;
     const participates =
       identity.scope === "user" ||
+      identity.scope === "api" ||
       (identity.scope === "agent" &&
         identityHasCapability(identity, "app:read"));
     if (!participates) return FORBIDDEN;
@@ -349,8 +371,8 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
   };
 }
 
-// Cronjob mutate/run: the USER who created the cronjob, OR an office owner, OR
-// a PRIVILEGED agent whose spawning user created it.
+// Cronjob mutate/run: the USER who created the cronjob, an office owner, a
+// PRIVILEGED agent whose spawning user created it, or the creator's API token.
 //
 // By default an AGENT carries its spawning user's userId, so a NARROW agent
 // inheriting that user's cronjob ownership would be a confused-deputy
@@ -375,10 +397,10 @@ export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
     // privileged agent (granted cron:manage) apart from a narrow one - and from
     // a cron-run, which never holds it. Removing it (or simplifying to a bare
     // `scope === "agent"`) would let any agent own-match cronjobs.
-    const isPrivilegedAgent =
-      identity.scope === "agent" &&
+    const isPrivilegedOperator =
+      (identity.scope === "agent" || identity.scope === "api") &&
       identityHasCapability(identity, "cron:manage");
-    if (!isUser && !isPrivilegedAgent) return FORBIDDEN;
+    if (!isUser && !isPrivilegedOperator) return FORBIDDEN;
     if (officeOwner(ctx).ok) return ALLOW;
     const cronjobId = params[idParamName];
     if (!cronjobId) return FORBIDDEN;
@@ -448,12 +470,16 @@ export const messageSend: Guard = (ctx) => {
 // retired loopback /tasks route) answered DELETE with a 405 wall - so granting a
 // run the board would otherwise hand it a delete power it never had, over any
 // office-global task. Nothing about an unattended scheduled run wants that.
-// USER and AGENT are unaffected: both keep delete, as before. An APP holds no
+// USER, AGENT and remote-boss API callers keep delete. An APP holds no
 // task capability at all, so it never reaches this guard through the dispatcher
 // - named here anyway, because a guard whose deny list is "everything except
 // the scopes I happened to know about" is one new scope away from being wrong.
 export const taskDelete: Guard = ({ identity }) =>
-  identity.scope === "user" || identity.scope === "agent" ? ALLOW : FORBIDDEN;
+  identity.scope === "user" ||
+  identity.scope === "agent" ||
+  identity.scope === "api"
+    ? ALLOW
+    : FORBIDDEN;
 
 // Scheduled-message OUTBOX guard (agents.listScheduledMessages /
 // agents.cancelScheduledMessage). `:id` here is the SENDER whose pending
@@ -466,6 +492,7 @@ export const taskDelete: Guard = ({ identity }) =>
 //   AGENT    → `:id` must equal the token agent: an agent manages ONLY its own
 //              outbox. Deliberately NOT room-based - room-mates must not read
 //              or cancel each other's pending scheduled messages.
+//   API      → the issuing user manages reachable agent outboxes.
 //   CRON-RUN → deny (a run has no outbox).
 export const scheduledMessagesOwner: Guard = (ctx) => {
   switch (ctx.identity.scope) {
@@ -477,8 +504,8 @@ export const scheduledMessagesOwner: Guard = (ctx) => {
       return FORBIDDEN;
     case "app": // no outbox, and no agent id to bind one to
       return FORBIDDEN;
-    case "api": // no scheduled-message outbox
-      return FORBIDDEN;
+    case "api":
+      return messageSendUserGuard(ctx);
   }
 };
 
@@ -510,8 +537,8 @@ export const conversationReset: Guard = (ctx) => {
       return FORBIDDEN;
     case "app": // an app has no session of its own, and none over an agent
       return FORBIDDEN;
-    case "api": // a personal token can send, not reset sessions
-      return FORBIDDEN;
+    case "api":
+      return messageSendUserGuard(ctx);
   }
 };
 
@@ -589,7 +616,7 @@ export const logSearchAccess: Guard = (ctx) => {
     case "app":
       return FORBIDDEN;
     case "api":
-      return FORBIDDEN;
+      return logReadRoomGuard(ctx).ok ? ALLOW : killedAgentLogAccess(ctx);
   }
 };
 

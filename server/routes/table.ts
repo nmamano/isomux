@@ -25,6 +25,9 @@ import type { Capability } from "../identity/index.ts";
 import type { RouteAuthz } from "../identity/dispatch.ts";
 import {
   authenticated,
+  operationalAuthenticated,
+  agentTokenSender,
+  apiTokenInboxSelf,
   selfOrOwner,
   officeOwner,
   userScope,
@@ -98,6 +101,9 @@ import type {
   ApiTokenCreateReq,
   ApiTokenCreateRes,
   ApiTokenListRes,
+  ApiTokenInboxDrainRes,
+  ApiTokenInboxSendReq,
+  ApiTokenInboxSendRes,
   RecoveryMintReq,
   UserUpdateReq,
   SetAccessReq,
@@ -177,6 +183,7 @@ export type RoutePrecondition =
   // agents.sendMessage: while a pendingPermission is set for :id, the next
   // message to THAT agent is its allow/deny - interpretation binds to :id.
   | "messagePendingPermissionBindsParam"
+  | "apiTokenInboxTargetAvailable"
   // users.delete: an owner may not delete their OWN record (would brick in-browser
   // recovery; sign out / transfer ownership instead). Runs after selfOrOwner.
   | "userDeleteNotSelfOwner"
@@ -226,12 +233,12 @@ const pub: RouteAuth = { kind: "public" };
 // --- room-ref shorthands ----------------------------------------------------
 const roomParam = (name: string): Guard =>
   requiresRoomAccess({ kind: "paramRoomId", name });
-// Capability-free agent routes also use this shorthand, so narrow APP/API
-// identities must clear the authenticated-scope wall before room projection.
+// Capability-free agent routes also use this shorthand. APP stays outside;
+// remote-boss API identities use their issuing user's room projection.
 const agentParam = (name: string): Guard => {
   const roomAccess = requiresRoomAccess({ kind: "paramAgentId", name });
   return (ctx) => {
-    const identityGate = authenticated(ctx);
+    const identityGate = operationalAuthenticated(ctx);
     return identityGate.ok ? roomAccess(ctx) : identityGate;
   };
 };
@@ -652,7 +659,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "rooms.create",
     method: "POST",
     path: "/api/rooms",
-    auth: cap("room:manage", authenticated),
+    auth: cap("room:manage", operationalAuthenticated),
     emits: ["room_created"],
   }),
   defineRoute<void, NoContent>({
@@ -769,6 +776,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/me/api-tokens/:id",
     auth: cap("user:self", userScope),
+    emits: [],
+  }),
+  defineRoute<ApiTokenInboxSendReq, ApiTokenInboxSendRes>({
+    opId: "apiTokenInbox.send",
+    method: "POST",
+    path: "/api/api-token-inboxes/:tokenId/messages",
+    auth: cap("agent:send-to-api-token", agentTokenSender),
+    emits: ["log_entry"],
+    preconditions: ["apiTokenInboxTargetAvailable"],
+  }),
+  defineRoute<void, ApiTokenInboxDrainRes>({
+    opId: "apiTokenInbox.drain",
+    method: "POST",
+    path: "/api/me/api-token-inbox/drain",
+    auth: cap("api:drain-inbox", apiTokenInboxSelf),
     emits: [],
   }),
 
@@ -942,7 +964,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "validate.cwd",
     method: "POST",
     path: "/api/validate/cwd",
-    auth: cap("agent:manage", authenticated),
+    auth: cap("agent:manage", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<
@@ -957,7 +979,8 @@ export const API_ROUTES: readonly RouteDef[] = [
     // the guard: this route's subject is body.username (scope:"user") and there
     // is NO :username path param, so the params-based selfUser guard could never
     // match it. The guard is therefore just `authenticated`; stage-1 office:read
-    // already excludes AGENT scope. (A prior or(officeOwner, selfUser) collapsed
+    // excludes API scope because environment validation supports user settings,
+    // not remote operation. (A prior or(officeOwner, selfUser) collapsed
     // to officeOwner and wrongly denied a member validating their OWN env before
     // the precondition could run - do not reinstate it.)
     auth: cap("office:read", authenticated),
@@ -971,7 +994,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "backends.listModels",
     method: "GET",
     path: "/api/backends/:agentType/models",
-    auth: cap("agent:manage", authenticated),
+    auth: cap("agent:manage", operationalAuthenticated),
     emits: [],
   }),
 
@@ -980,42 +1003,42 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "tasks.list",
     method: "GET",
     path: "/api/tasks",
-    auth: cap("task:read", authenticated),
+    auth: cap("task:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, TaskItem>({
     opId: "tasks.get",
     method: "GET",
     path: "/api/tasks/:id",
-    auth: cap("task:read", authenticated),
+    auth: cap("task:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<TaskCreateReq, TaskItem>({
     opId: "tasks.create",
     method: "POST",
     path: "/api/tasks",
-    auth: cap("task:write", authenticated),
+    auth: cap("task:write", operationalAuthenticated),
     emits: ["tasks"],
   }),
   defineRoute<TaskUpdateReq, TaskItem>({
     opId: "tasks.update",
     method: "PATCH",
     path: "/api/tasks/:id",
-    auth: cap("task:write", authenticated),
+    auth: cap("task:write", operationalAuthenticated),
     emits: ["tasks"],
   }),
   defineRoute<TaskClaimReq, TaskItem>({
     opId: "tasks.claim",
     method: "POST",
     path: "/api/tasks/:id/claim",
-    auth: cap("task:write", authenticated),
+    auth: cap("task:write", operationalAuthenticated),
     emits: ["tasks"],
   }),
   defineRoute<void, TaskItem>({
     opId: "tasks.done",
     method: "POST",
     path: "/api/tasks/:id/done",
-    auth: cap("task:write", authenticated),
+    auth: cap("task:write", operationalAuthenticated),
     emits: ["tasks"],
   }),
   defineRoute<void, NoContent>({
@@ -1039,7 +1062,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "apps.list",
     method: "GET",
     path: "/api/apps",
-    auth: cap("app:read", authenticated),
+    auth: cap("app:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, AppWire>({
@@ -1053,7 +1076,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "apps.preview",
     method: "POST",
     path: "/api/apps/:name/preview",
-    auth: cap("app:read", authenticated),
+    auth: cap("app:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<AppRegisterReq, AppWire>({
@@ -1063,7 +1086,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     // hasOwningUser, not bare `authenticated`: an app must belong to a user, and
     // an agent token can carry a null userId. See the guard for why an ownerless
     // app is worse than a refusal.
-    auth: cap("app:write", and(authenticated, hasOwningUser)),
+    auth: cap("app:write", and(operationalAuthenticated, hasOwningUser)),
     emits: ["app_upserted"],
   }),
   // The only mutable fields are command, cwd and description. Name and port are
@@ -1144,21 +1167,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "memory.read",
     method: "GET",
     path: "/api/memory",
-    auth: cap("memory:read", authenticated),
+    auth: cap("memory:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<MemoryCreateReq, MemoryAppendRes>({
     opId: "memory.append",
     method: "POST",
     path: "/api/memory",
-    auth: cap("memory:write", authenticated),
+    auth: cap("memory:write", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<MemoryReplaceReq, MemoryWriteRes>({
     opId: "memory.replace",
     method: "PUT",
     path: "/api/memory",
-    auth: cap("memory:write", authenticated),
+    auth: cap("memory:write", operationalAuthenticated),
     emits: [],
   }),
 
@@ -1171,7 +1194,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "skills.usageCounts",
     method: "GET",
     path: "/api/skill-usage",
-    auth: cap("office:read", authenticated),
+    auth: cap("office:read", operationalAuthenticated),
     emits: [],
   }),
 
@@ -1180,21 +1203,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.list",
     method: "GET",
     path: "/api/cronjobs",
-    auth: cap("cron:read", authenticated),
+    auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, Cronjob>({
     opId: "cron.get",
     method: "GET",
     path: "/api/cronjobs/:id",
-    auth: cap("cron:read", authenticated),
+    auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<CronCreateReq, Cronjob>({
     opId: "cron.create",
     method: "POST",
     path: "/api/cronjobs",
-    auth: cap("cron:manage", authenticated),
+    auth: cap("cron:manage", operationalAuthenticated),
     emits: ["cronjob_added"],
   }),
   defineRoute<CronUpdateReq, Cronjob>({
@@ -1231,21 +1254,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "cron.listRuns",
     method: "GET",
     path: "/api/cronjobs/:id/runs",
-    auth: cap("cron:read", authenticated),
+    auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, { jobs: { cronjobId: string; runs: CronjobRun[] }[] }>({
     opId: "cron.listAllRuns",
     method: "GET",
     path: "/api/cron-runs",
-    auth: cap("cron:read", authenticated),
+    auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<void, { run: CronjobRun; entries: LogEntry[] }>({
     opId: "cron.getRun",
     method: "GET",
     path: "/api/cronjobs/:id/runs/:runId",
-    auth: cap("cron:read", authenticated),
+    auth: cap("cron:read", operationalAuthenticated),
     emits: [],
   }),
   defineRoute<CronRunMessageReq, MessageAck>({
@@ -1282,7 +1305,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "system.backupStatus",
     method: "GET",
     path: "/api/backup/status",
-    auth: cap("office:read", authenticated),
+    auth: cap("office:read", operationalAuthenticated),
     emits: [],
   }),
   // Deployment version identity (release-channel slice C1). Any authenticated
@@ -1295,7 +1318,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "system.version",
     method: "GET",
     path: "/api/version",
-    auth: authn(authenticated),
+    auth: authn(operationalAuthenticated),
     emits: [],
   }),
 
@@ -1309,7 +1332,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "storage.usage",
     method: "GET",
     path: "/api/storage/usage",
-    auth: cap("office:read", authenticated),
+    auth: cap("office:read", operationalAuthenticated),
     emits: [],
   }),
   // Structured counterpart to /isomux-usage. The handler derives the audience
@@ -1318,7 +1341,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "usage.read",
     method: "GET",
     path: "/api/usage",
-    auth: cap("office:read", authenticated),
+    auth: cap("office:read", operationalAuthenticated),
     emits: [],
   }),
   // Manual prune. Owner-only and DRY RUN unless the body says apply:true; no

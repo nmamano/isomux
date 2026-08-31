@@ -85,6 +85,8 @@ export type Capability =
   // keep the credential from inheriting any broader browser surface.
   | "api:discover-agents"
   | "api:send-message"
+  | "agent:send-to-api-token"
+  | "api:drain-inbox"
   | "self:affordance";
 
 // A resolved caller identity. Produced from a cookie session
@@ -161,6 +163,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
 // those capabilities are simply absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
   "agent:send-as-self",
+  "agent:send-to-api-token",
   "task:read",
   "task:write",
   "memory:read",
@@ -256,9 +259,33 @@ export const RUN_CAPABILITIES: readonly Capability[] = [
 // pins that the one is exactly one.
 export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
 
+// API set: a remote boss gets the same curated operational reach as a
+// privileged agent, expressed explicitly so every capability is an audit
+// decision. Identity and durable-access surfaces stay excluded: invite:manage,
+// session:manage, user:*, office:admin, view:manage and agent:privilege. The
+// agent/cron/app sender and self-affordance capabilities are also absent: an API
+// token is its issuing user, not an office participant. These exclusions are
+// defense in depth, not a shell boundary - agent:manage can spawn an agent that
+// runs commands. Decide every future capability here; never spread another set.
 export const API_CAPABILITIES: readonly Capability[] = [
   "api:discover-agents",
   "api:send-message",
+  "api:drain-inbox",
+  "office:read",
+  "agent:manage",
+  "agent:converse",
+  "room:manage",
+  "editor:use",
+  "file:upload",
+  "cron:read",
+  "cron:manage",
+  "task:read",
+  "task:write",
+  "memory:read",
+  "memory:write",
+  "log:read",
+  "app:read",
+  "app:write",
 ];
 
 export function capabilitiesForScope(scope: TokenScope): readonly Capability[] {
