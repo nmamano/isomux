@@ -280,6 +280,18 @@ export function permissionOptions(
   return options;
 }
 
+export function permissionInteractionChoices(
+  allowPersistentLabel?: string,
+  allowPrefixLabel?: string,
+): AgentChoiceInteraction["choices"] {
+  return permissionOptions(allowPersistentLabel, allowPrefixLabel).map(
+    (option, index) => ({
+      value: String(index + 1),
+      label: option.label,
+    }),
+  );
+}
+
 export function resolvePermissionReply(
   trimmed: string,
   options: PermissionOption[],
@@ -2239,12 +2251,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { interaction, value };
   }
 
+  function clearPermissionPrompt(agentId: string, managed: ManagedAgent) {
+    managed.pendingPermission = null;
+    const interaction = managed.pendingInteraction;
+    if (interaction?.kind === "permission") {
+      settleChoiceInteraction(managed, interaction, null);
+    } else {
+      syncPendingPrompt(agentId, managed);
+    }
+  }
+
   function claimTypedChoiceInteraction(
     managed: ManagedAgent,
     text: string,
   ): ClaimedChoiceInteraction | null {
     const interaction = managed.pendingInteraction;
     if (!interaction) return null;
+    // Permission replies can carry a prefix after the option number, or be
+    // free-text denial reasons. Keep the raw typed text for that resolver; the
+    // permission branch dismisses its card after it has read the reply.
+    if (interaction.kind === "permission") return null;
     const num = parseInt(text.trim(), 10);
     const choice =
       !isNaN(num) && num >= 1 && num <= interaction.choices.length
@@ -3697,13 +3723,25 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // Build the /resolve prompt. The backend owns the SDK resolver and
         // states per request which persistent choices it can represent.
         const lines = permissionPromptLines(ev);
-        emitEphemeralLog(agentId, "system", lines.join("\n"));
+        emitEphemeralLog(agentId, "system", lines.join("\n"), {
+          interactionFallback: true,
+        });
         managed.pendingPermission = {
           approvalId: ev.approvalId,
           toolName: ev.toolName,
           allowPersistent: Boolean(ev.allowPersistentLabel),
           allowPrefixLabel: ev.allowPrefixLabel,
         };
+        openChoiceInteraction(
+          agentId,
+          "permission",
+          ev.title ?? `Wants to use ${ev.toolName}`,
+          "Choose an option, or type any other message to deny with that as the reason.",
+          permissionInteractionChoices(
+            ev.allowPersistentLabel,
+            ev.allowPrefixLabel,
+          ),
+        );
         updateState(agentId, "waiting_for_response");
         break;
       }
@@ -4689,8 +4727,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // session can't accidentally route a future user message into a dead approval.
     // The backend's close() resolves any in-flight SDK resolver with deny.
     if (managed.pendingPermission) {
-      managed.pendingPermission = null;
-      syncPendingPrompt(managed.info.id, managed);
+      clearPermissionPrompt(managed.info.id, managed);
     }
     // Preflight checks so failures surface as readable errors instead of the
     // backend's opaque process-exit messages.
@@ -6155,7 +6192,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Race-set during the abort drain. The dying session (now closed) already
       // resolved its SDK callback with deny inside close(); we just clear the
       // orchestrator-side pointer so the normal-message path proceeds.
-      managed.pendingPermission = null;
+      clearPermissionPrompt(agentId, managed);
     }
     // Skip auto-recovery for slash commands: they are control-plane actions
     // (/clear creates a fresh session, /resume picks from disk) and must stay
@@ -6182,12 +6219,29 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Runs before slash-command interception by design - any typed slash command
     // while a prompt is pending is consumed as a deny reason, matching the
     // "anything else denies" contract shown to the user.
-    if (managed.pendingPermission && !claimedChoice) {
+    const clickedPermissionChoice =
+      claimedChoice?.interaction.kind === "permission"
+        ? claimedChoice.value
+        : null;
+    if (
+      managed.pendingPermission &&
+      (!claimedChoice || clickedPermissionChoice !== null)
+    ) {
       const pending = managed.pendingPermission;
-      managed.pendingPermission = null;
+      if (!claimedChoice && managed.pendingInteraction?.kind === "permission") {
+        const interaction = managed.pendingInteraction;
+        const typedNumber = /^([1-9]\d*)/u.exec(text.trim())?.[1] ?? null;
+        const value = interaction.choices.some(
+          (choice) => choice.value === typedNumber,
+        )
+          ? typedNumber
+          : null;
+        settleChoiceInteraction(managed, interaction, value);
+      }
+      clearPermissionPrompt(agentId, managed);
       const userMeta = buildUserMeta(username, device);
       emitEphemeralLog(agentId, "user_message", text, userMeta);
-      const trimmed = text.trim();
+      const trimmed = (clickedPermissionChoice ?? text).trim();
       const session = managed.session;
       if (!session) {
         emitEphemeralLog(
@@ -6724,7 +6778,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): Promise<DenyOutcome> {
     const pending = managed.pendingPermission;
     if (!pending) return "none";
-    managed.pendingPermission = null;
+    clearPermissionPrompt(agentId, managed);
     // Explicit: the main abort path flips state BEFORE calling us, so the sync
     // inside updateState has already run against the still-parked flag.
     syncPendingPrompt(agentId, managed);
@@ -6899,7 +6953,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // the natural turn_completed (status="interrupted") flow through the
         // consumer. The session stays alive - no subprocess kill, no respawn,
         // no .jsonl drain. Saves the ~1-2s replaceSession latency per abort.
-        const result = await tryHotAbort(managed);
+        const result = await tryHotAbort(agentId, managed);
         if (result === "timeout") {
           addLogEntry(
             agentId,
@@ -6978,6 +7032,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // "session_died" if the subprocess exited mid-interrupt (synthetic
   // turn_completed{failed} routed through the error path and flipped state).
   async function tryHotAbort(
+    agentId: string,
     managed: ManagedAgent,
   ): Promise<"ok" | "timeout" | "session_died"> {
     // Race the RPC + wrap-and-wake against a timeout. The RPC itself can in
@@ -6988,7 +7043,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       await managed.session!.abort();
       // Mirror createSession's stale-approval cleanup: replaceSession would
       // have cleared this; the hot path doesn't go through createSession.
-      managed.pendingPermission = null;
+      clearPermissionPrompt(agentId, managed);
       // Attach to the in-flight turn's promise (snapshot once) so abortPromise
       // doesn't resolve before pendingTurn settles - otherwise a follow-up
       // createTurnDeferred would supersede the original turn with a
@@ -7065,7 +7120,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // drops the orchestrator's pointer so the next message path doesn't think
     // an approval is pending.
     if (managed.pendingPermission) {
-      managed.pendingPermission = null;
+      clearPermissionPrompt(agentId, managed);
     }
     const turn = managed.pendingTurn;
     managed.pendingTurn = null;

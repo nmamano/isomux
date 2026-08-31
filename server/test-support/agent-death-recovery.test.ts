@@ -783,20 +783,45 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     srv: TestServer,
     rawSessionId: string,
     agentId: string,
+    options: {
+      approvalId?: string;
+      allowPersistentLabel?: string;
+      allowPrefixLabel?: string;
+    } = {},
   ) {
     await sendHuman(srv, rawSessionId, agentId, "run something");
     await waitUntil(() => agentOf(srv, agentId).state === "thinking");
     srv.fakeBackend.sessionForAgent(agentId)!.push({
       kind: "approval_request",
-      approvalId: "ap-1",
+      approvalId: options.approvalId ?? "ap-1",
       toolName: "Bash",
       input: { command: "rm -rf /tmp/x" },
       title: "Claude wants to use Bash",
+      allowPersistentLabel: options.allowPersistentLabel,
+      allowPrefixLabel: options.allowPrefixLabel,
     });
     await waitUntil(
       () => agentOf(srv, agentId).pendingPrompt === "permission",
       2000,
       "agent parked on a permission prompt",
+    );
+  }
+
+  async function clickPermission(
+    srv: TestServer,
+    rawSessionId: string,
+    agentId: string,
+    interactionId: string,
+    value: string,
+  ) {
+    return srv.http(
+      `/api/agents/${agentId}/interactions/${interactionId}/respond`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+        rawSessionId,
+      },
     );
   }
 
@@ -819,6 +844,140 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     expect(session.approvals).toEqual([
       { approvalId: "ap-1", decision: { kind: "allow_once" } },
     ]);
+  });
+
+  it("keeps typed prefix and free-text denial semantics while dismissing the card", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const prefixAgent = await spawnAgent(
+      server,
+      "Prefix",
+      firstRoomId(server),
+      "opencode",
+    );
+    await parkOnPermission(server, owner.rawSessionId, prefixAgent.id, {
+      approvalId: "ap-prefix",
+      allowPrefixLabel: "git",
+    });
+    expect(server.agentManager.getPendingInteractions()[0]?.kind).toBe(
+      "permission",
+    );
+    await sendHuman(server, owner.rawSessionId, prefixAgent.id, "3 git log");
+    await waitUntil(
+      () =>
+        server!.fakeBackend.sessionForAgent(prefixAgent.id)!.approvals
+          .length === 1,
+    );
+    expect(
+      server.fakeBackend.sessionForAgent(prefixAgent.id)!.approvals,
+    ).toEqual([
+      {
+        approvalId: "ap-prefix",
+        decision: { kind: "allow_prefix", prefixText: "git log" },
+      },
+    ]);
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+
+    const reasonAgent = await spawnAgent(
+      server,
+      "Reason",
+      firstRoomId(server),
+      "opencode",
+    );
+    await parkOnPermission(server, owner.rawSessionId, reasonAgent.id, {
+      approvalId: "ap-reason",
+    });
+    await sendHuman(
+      server,
+      owner.rawSessionId,
+      reasonAgent.id,
+      "no, use grep instead",
+    );
+    await waitUntil(
+      () =>
+        server!.fakeBackend.sessionForAgent(reasonAgent.id)!.approvals
+          .length === 1,
+    );
+    expect(
+      server.fakeBackend.sessionForAgent(reasonAgent.id)!.approvals,
+    ).toEqual([
+      {
+        approvalId: "ap-reason",
+        decision: { kind: "deny", reason: "no, use grep instead" },
+      },
+    ]);
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+  });
+
+  it("settles a permission button double click once", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(
+      server,
+      "Click",
+      firstRoomId(server),
+      "opencode",
+    );
+    await parkOnPermission(server, owner.rawSessionId, agent.id, {
+      approvalId: "ap-click",
+      allowPersistentLabel: "Allow for session",
+      allowPrefixLabel: "git",
+    });
+    const interaction = server.agentManager.getPendingInteractions()[0];
+    if (!interaction) throw new Error("permission interaction missing");
+    expect(interaction.choices.map((choice) => choice.value)).toEqual([
+      "1",
+      "2",
+      "3",
+      "4",
+    ]);
+    const [first, second] = await Promise.all([
+      clickPermission(
+        server,
+        owner.rawSessionId,
+        agent.id,
+        interaction.id,
+        "2",
+      ),
+      clickPermission(
+        server,
+        owner.rawSessionId,
+        agent.id,
+        interaction.id,
+        "2",
+      ),
+    ]);
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    await waitUntil(
+      () =>
+        server!.fakeBackend.sessionForAgent(agent.id)!.approvals.length === 1,
+    );
+    expect(server.fakeBackend.sessionForAgent(agent.id)!.approvals).toEqual([
+      { approvalId: "ap-click", decision: { kind: "allow_once" } },
+    ]);
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
+  });
+
+  it("removes the permission card when abort clears the prompt", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner();
+    const agent = await spawnAgent(server, "Abort card", firstRoomId(server));
+    await parkOnPermission(server, owner.rawSessionId, agent.id, {
+      approvalId: "ap-abort-card",
+    });
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(1);
+    const response = await server.http(`/api/agents/${agent.id}/abort`, {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(response.status).toBe(204);
+    await waitUntil(
+      () => agentOf(server!, agent.id).pendingPrompt === null,
+      2000,
+      "abort cleared the permission prompt",
+    );
+    expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
   });
 
   it("reports the parked state on the agent roster without leaking the prompt", async () => {

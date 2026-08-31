@@ -4,7 +4,12 @@ import { FitAddon } from "@xterm/addon-fit";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { useTheme } from "../store.tsx";
 import type { ServerMessage } from "../../shared/types.ts";
-import { commandInputBytes } from "./terminal-command.ts";
+import {
+  advanceCommandDelivery,
+  queueCommand,
+  type CommandDeliveryEvent,
+  type CommandDeliveryState,
+} from "./terminal-command.ts";
 
 const DARK_THEME = {
   background: "#0a0e16",
@@ -304,6 +309,8 @@ export function TerminalPanel({
   const [hasSelection, setHasSelection] = useState(false);
   const [ctrlActive, setCtrlActive] = useState(false);
   const ctrlActiveRef = useRef(false);
+  const commandDeliveryRef = useRef<CommandDeliveryState | null>(null);
+  const pendingCommandAcceptedRef = useRef(false);
   // Tracks whether the soft keyboard is currently up (visualViewport noticeably
   // shorter than layout viewport). When up, the env(safe-area-inset-bottom)
   // padding under the soft-key bar is wasted space - the home indicator zone
@@ -317,6 +324,24 @@ export function TerminalPanel({
     setCtrlActive(v);
   }, []);
 
+  const advancePendingCommand = useCallback(
+    (event: CommandDeliveryEvent) => {
+      const current = commandDeliveryRef.current;
+      const result = advanceCommandDelivery(current, event);
+      commandDeliveryRef.current = result.state;
+      if (result.write) {
+        send({ type: "terminal_input", agentId, data: result.write });
+        const helper = containerRef.current?.querySelector(
+          ".xterm-helper-textarea",
+        ) as HTMLTextAreaElement | null;
+        helper?.focus();
+      }
+      if (result.issue) setCommandIssue(result.issue);
+      if (result.handled) onCommandHandled?.();
+    },
+    [agentId, onCommandHandled],
+  );
+
   // Handle server messages for this terminal
   const handleRawMessage = useCallback(
     (data: string) => {
@@ -324,54 +349,62 @@ export function TerminalPanel({
         const msg = JSON.parse(data) as ServerMessage;
         if (msg.type === "terminal_output" && msg.agentId === agentId) {
           termRef.current?.write(msg.data);
+          advancePendingCommand({ type: "output", data: msg.data });
         } else if (msg.type === "terminal_status" && msg.agentId === agentId) {
           setOwner({ process: msg.process, shell: msg.shell });
           setCommandIssue(null);
+          advancePendingCommand({
+            type: "status",
+            process: msg.process,
+            shell: msg.shell,
+          });
         } else if (msg.type === "terminal_exit" && msg.agentId === agentId) {
           setOwner(null);
           setExited(msg.exitCode);
-          onCommandHandled?.();
+          advancePendingCommand({ type: "exit" });
         }
       } catch {}
     },
-    [agentId, onCommandHandled],
+    [advancePendingCommand, agentId],
   );
 
   // The panel is the single owner of terminal status, so command-card input is
-  // composed and gated here instead of keeping a stale second copy in LogView.
-  // A status can lag a foreground change by up to the 500 ms sidecar poll. Also,
-  // node-pty falls back to the shell path when its foreground lookup fails, so
-  // Ready is a useful indicator, not a correctness guarantee. The payload has
-  // no Enter, which bounds that race: bytes can reach stdin but cannot execute.
+  // sequenced and gated here instead of keeping a stale second copy in LogView.
+  // A status can lag a foreground change by up to the 500 ms sidecar poll. We
+  // first interrupt in its own write, wait for the tty's ^C echo, and then wait
+  // for a status received after that acknowledgement. Only a fresh shell owner
+  // receives the clear-and-type payload, which still contains no Enter.
   useEffect(() => {
-    if (!pendingCommand || !owner) return;
-    setCommandIssue(null);
-    if (owner.shell) {
-      send({
-        type: "terminal_input",
-        agentId,
-        data: commandInputBytes(pendingCommand),
-      });
-      const helper = containerRef.current?.querySelector(
-        ".xterm-helper-textarea",
-      ) as HTMLTextAreaElement | null;
-      helper?.focus();
-    } else {
-      setCommandIssue(`Not sent: ${owner.process} is using the terminal`);
+    if (!pendingCommand) {
+      pendingCommandAcceptedRef.current = false;
+      commandDeliveryRef.current = null;
+      return;
     }
-    // A foreign owner receives no bytes. Its name in the header makes the
-    // blocked click visible, and the user can choose whether to interrupt it.
-    onCommandHandled?.();
+    if (!owner) return;
+    if (!owner.shell) {
+      commandDeliveryRef.current = null;
+      pendingCommandAcceptedRef.current = true;
+      const blocked = setTimeout(() => {
+        setCommandIssue(`Not sent: ${owner.process} is using the terminal`);
+        onCommandHandled?.();
+      }, 0);
+      return () => clearTimeout(blocked);
+    }
+    const queued = queueCommand(commandDeliveryRef.current, pendingCommand);
+    commandDeliveryRef.current = queued.state;
+    if (!pendingCommandAcceptedRef.current && queued.write) {
+      send({ type: "terminal_input", agentId, data: queued.write });
+    }
+    pendingCommandAcceptedRef.current = true;
   }, [agentId, onCommandHandled, owner, pendingCommand]);
 
   useEffect(() => {
     if (!pendingCommand) return;
     const timeout = setTimeout(() => {
-      setCommandIssue("Terminal unavailable");
-      onCommandHandled?.();
+      advancePendingCommand({ type: "timeout" });
     }, 5000);
     return () => clearTimeout(timeout);
-  }, [onCommandHandled, pendingCommand]);
+  }, [advancePendingCommand, pendingCommand]);
 
   // Send keystrokes to the PTY, applying the sticky Ctrl modifier if armed.
   const sendInput = useCallback(

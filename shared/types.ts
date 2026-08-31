@@ -16,7 +16,11 @@ export type AgentState =
 // merely finished its turn sits. See AgentInfo.pendingPrompt.
 export type PendingPromptKind = "permission" | "resume" | "model" | "effort";
 
-export type AgentChoiceInteractionKind = "resume" | "model" | "effort";
+export type AgentChoiceInteractionKind =
+  | "permission"
+  | "resume"
+  | "model"
+  | "effort";
 
 export interface AgentChoiceInteraction {
   id: string;

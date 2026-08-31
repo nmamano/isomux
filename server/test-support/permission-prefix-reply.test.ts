@@ -4,12 +4,35 @@
 import { describe, expect, it } from "bun:test";
 
 import {
+  permissionInteractionChoices,
   permissionOptions,
   permissionPromptLines,
   resolvePermissionReply,
 } from "../agent-manager.ts";
 
 describe("permission options", () => {
+  it("keeps button values identical to typed numbers for every option shape", () => {
+    const shapes = [
+      [undefined, undefined],
+      ["Allow for session", undefined],
+      [undefined, "git"],
+      ["Allow for session", "git"],
+    ] as const;
+    for (const [persistent, prefix] of shapes) {
+      const options = permissionOptions(persistent, prefix);
+      const choices = permissionInteractionChoices(persistent, prefix);
+      expect(choices).toHaveLength(options.length);
+      for (const [index, choice] of choices.entries()) {
+        const typed = String(index + 1);
+        expect(choice.value).toBe(typed);
+        expect(choice.label).toBe(options[index].label);
+        expect(resolvePermissionReply(choice.value, options)).toEqual(
+          resolvePermissionReply(typed, options),
+        );
+      }
+    }
+  });
+
   function renderedChoices(
     allowPersistentLabel?: string,
     allowPrefixLabel?: string,
