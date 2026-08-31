@@ -13,8 +13,8 @@ export function sessionResumeLabel(
   session: Pick<SessionInfo, "topic" | "firstUserMessage">,
 ): string {
   return (
-    session.topic ||
-    session.firstUserMessage?.trim() ||
+    sessionMessagePreview(session.topic ?? "") ||
+    sessionMessagePreview(session.firstUserMessage ?? "") ||
     UNTITLED_CONVERSATION_LABEL
   );
 }

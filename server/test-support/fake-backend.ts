@@ -276,7 +276,9 @@ export interface FakeBackendConfig {
   loginInstructions?: { text: string; commands?: string[] };
   // oneShotPrompt response (default deterministic). Function form receives the
   // prompt + opts so topic-gen-style assertions can vary the reply.
-  oneShot?: string | ((prompt: string, opts: OneShotOptions) => string);
+  oneShot?:
+    | string
+    | ((prompt: string, opts: OneShotOptions) => string | Promise<string>);
   forkResult?: ForkSessionBeforeMessageResult;
   sessionMessages?: NormalizedMessage[];
   storedSessionState?:

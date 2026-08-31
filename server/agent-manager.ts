@@ -3311,6 +3311,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               if (entry.ephemeral) continue;
               appendLog(agentId, sessionId, entry);
             }
+            // Topic generation starts before a fresh backend reports its
+            // session id. If it already finished, attach that topic to the
+            // resolved session now so /resume uses the same label as the header.
+            persistCurrentSessionTopic(agentId, managed);
           }
           persistAll();
         } else if (managed && pendingFixedCwdReset.has(agentId)) {

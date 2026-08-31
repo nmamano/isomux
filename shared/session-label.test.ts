@@ -20,4 +20,19 @@ describe("session resume labels", () => {
     );
     expect(sessionMessagePreview("x".repeat(100))).toHaveLength(80);
   });
+
+  it("bounds and normalizes a stored first-message fallback at read time", () => {
+    expect(
+      sessionResumeLabel({
+        topic: `  ${"topic ".repeat(20)}\nlabel  `,
+        firstUserMessage: "Fallback",
+      }),
+    ).toBe("topic ".repeat(14).slice(0, 80));
+    expect(
+      sessionResumeLabel({
+        topic: null,
+        firstUserMessage: `  ${"long ".repeat(30)}\nrequest  `,
+      }),
+    ).toBe("long ".repeat(16).slice(0, 80));
+  });
 });

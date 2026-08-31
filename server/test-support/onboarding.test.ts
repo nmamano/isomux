@@ -38,6 +38,7 @@ import { FakeBackend } from "./fake-backend.ts";
 import { BackendNotConfiguredError } from "../internal-types.ts";
 import { _testRunOwnerCreatedHook } from "../auth-middleware.ts";
 import { STATE_ROOT } from "../config.ts";
+import { listAgentSessions } from "../persistence.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 import type { OneShotOptions } from "../backends/types.ts";
 
@@ -325,6 +326,74 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(topicOptions?.environmentKey).toBeString();
     expect(topicOptions?.environmentRevision).toBeString();
     expect(topicOptions?.systemPrompt).toContain("You are a labelling tool");
+  });
+
+  it("persists a topic that resolves before a fresh OpenCode session id", async () => {
+    const fakeBackend = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+      oneShot: "Resolved topic",
+    });
+    server = await startTestServer({ fakeBackend });
+    const rawSessionId = await claimOwner(server, "Boss");
+    const opencode = requireAgentByName(server, OPENCODE_WELCOME);
+
+    await server.http(`/api/agents/${opencode.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "first request" }),
+      rawSessionId,
+    });
+
+    await waitUntil(
+      () =>
+        listAgentSessions(opencode.id).some(
+          (session) => session.topic === "Resolved topic",
+        ),
+      "resolved topic in the session listing",
+    );
+    expect(listAgentSessions(opencode.id)).toHaveLength(1);
+    expect(listAgentSessions(opencode.id)[0]).toMatchObject({
+      sessionId: "fake-session-1",
+      topic: "Resolved topic",
+      firstUserMessage: "first request",
+      topicMessageCount: 1,
+    });
+  });
+
+  it("does not persist a topic placeholder when generation fails", async () => {
+    let rejectTopic!: (error: Error) => void;
+    const topicResult = new Promise<string>((_resolve, reject) => {
+      rejectTopic = reject;
+    });
+    const fakeBackend = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+      oneShot: () => topicResult,
+    });
+    server = await startTestServer({ fakeBackend });
+    const rawSessionId = await claimOwner(server, "Boss");
+    const opencode = requireAgentByName(server, OPENCODE_WELCOME);
+
+    await server.http(`/api/agents/${opencode.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "first request" }),
+      rawSessionId,
+    });
+
+    await waitUntil(
+      () => listAgentSessions(opencode.id).length === 1,
+      "resolved session id in the listing",
+    );
+    rejectTopic(new Error("topic unavailable"));
+    await waitUntil(
+      () => server?.agentManager.getAgent(opencode.id)?.topic === null,
+      "failed topic generation to clear its placeholder",
+    );
+    expect(listAgentSessions(opencode.id)[0]).toMatchObject({
+      sessionId: "fake-session-1",
+      topic: null,
+      firstUserMessage: "first request",
+    });
   });
 
   it("backend installed but not logged in: surfaces sign-in instructions", async () => {
