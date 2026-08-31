@@ -34,7 +34,7 @@ On 2026-08-29, the production installer was proven end to end for the allow arm:
 
 Codex fails open when a hook executable is missing, exits with an error, times out, or returns an invalid result. Isomux surfaces the same signed transcript warning when it detects a pre-spawn installation or trust failure, a caught checker fault, or a technical `hook/completed` failure:
 
-> ISOMUX SAFETY WARNING: Safety checks failed for this tool call. Isomux allowed it without guard enforcement. Tell the office owner and check the isomux service logs.
+> Isomux safety check skipped: Isomux could not run its safety check on this tool call, so the call ran unchecked. Tell the office owner and check the isomux service logs.
 
 The Codex session still starts after a pre-spawn failure. Isomux also writes a cause-specific server error so the office owner can distinguish artifact, repair, hook configuration, trust, and unexpected failures.
 

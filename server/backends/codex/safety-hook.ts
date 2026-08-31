@@ -10,8 +10,8 @@ import {
 declare const ISOMUX_SAFETY_HOOK_SOURCE_SHA256: string | undefined;
 
 export const SAFETY_WARNING =
-  "ISOMUX SAFETY WARNING: Safety checks failed for this tool call. " +
-  "Isomux allowed it without guard enforcement. Tell the office owner and " +
+  "Isomux safety check skipped: Isomux could not run its safety check on " +
+  "this tool call, so the call ran unchecked. Tell the office owner and " +
   "check the isomux service logs.";
 
 export const EMBEDDED_SOURCE_SHA256 =
@@ -20,9 +20,9 @@ export const EMBEDDED_SOURCE_SHA256 =
     : "development-uncompiled";
 
 export const MISSING_CWD_WARNING =
-  "ISOMUX SAFETY WARNING: This Codex tool call did not include a non-empty " +
-  "absolute cwd. Guard coverage for relative paths is reduced; tell the " +
-  "office owner.";
+  "Isomux safety check reduced: this Codex tool call arrived without an " +
+  "absolute working directory, so relative paths were checked less " +
+  "thoroughly. Tell the office owner.";
 
 interface CodexHookEnvelope {
   hook_event_name: "PreToolUse";

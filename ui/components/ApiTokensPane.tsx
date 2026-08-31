@@ -74,8 +74,18 @@ export function ApiTokensPane() {
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>API tokens</h4>
       <p style={hint}>
-        Send messages to your visible agents from scripts and other devices.
-        Tokens cannot manage your office or read conversations.
+        Drive your office from scripts and automations, and read the replies
+        your agents send back. A token has your own capabilities, except
+        changing who can get into the office. See the{" "}
+        <a
+          href="https://isomux.com/docs/developer-api"
+          target="_blank"
+          rel="noreferrer"
+          style={{ color: "var(--accent)" }}
+        >
+          Developer API guide
+        </a>{" "}
+        for everything a token can do.
       </p>
       <label style={{ ...dialogLabel, marginTop: 14 }}>How to use</label>
       <pre

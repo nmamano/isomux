@@ -24,9 +24,9 @@ import {
 import type { evaluateProposedAction } from "../../safety-policy.ts";
 
 export const OPENCODE_PERMISSION_ID_WARNING =
-  "ISOMUX SAFETY WARNING: OpenCode sent a tool permission request without " +
-  "an id. Isomux could not answer it, so the turn was stopped. Tell the " +
-  "office owner and check the isomux service logs.";
+  "Isomux stopped this turn: OpenCode asked to use a tool but sent no id " +
+  "with the request, so Isomux had no way to answer it. Tell the office " +
+  "owner and check the isomux service logs.";
 
 export interface DiscoveredOpenCodeModel {
   id: string;

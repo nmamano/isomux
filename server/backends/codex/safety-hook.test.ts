@@ -153,7 +153,7 @@ const corpus: Array<{ name: string; input: Envelope }> = [
 describe("standalone Codex safety hook", () => {
   it("pins Nil's signed safety-warning copy exactly", () => {
     expect(SAFETY_WARNING).toBe(
-      "ISOMUX SAFETY WARNING: Safety checks failed for this tool call. Isomux allowed it without guard enforcement. Tell the office owner and check the isomux service logs.",
+      "Isomux safety check skipped: Isomux could not run its safety check on this tool call, so the call ran unchecked. Tell the office owner and check the isomux service logs.",
     );
   });
 
