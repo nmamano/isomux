@@ -134,6 +134,9 @@ in the office or only agents you spawn. Isomux can open browser sign-in for
 Codex in either scope. Claude browser sign-in is available only for your own
 agents; changing the office Claude account still uses the built-in terminal.
 
+If both exist, the personal account wins: an agent whose user has set their own
+provider directory uses that account, even when the office is signed in.
+
 For an account that only your agents use, first set your Env File Path in User
 Settings. The file must point the provider at a separate absolute directory, as
 shown below. Then return to Connections and refresh.
