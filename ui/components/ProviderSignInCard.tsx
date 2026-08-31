@@ -9,15 +9,6 @@ import type {
 import { cardStyle, hint } from "./access-shared.tsx";
 import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
 
-const CLAUDE_CONFIG_REFUSAL =
-  "Claude sign-in from the browser needs your own Claude config directory. Set CLAUDE_CONFIG_DIR in your env file, and then try again.";
-const PERSONAL_INSTRUCTIONS: Record<ProviderAccountProvider, string> = {
-  claude:
-    "Set your Env File Path in User Settings. In that file, set CLAUDE_CONFIG_DIR to an absolute directory for Claude. Then return here and refresh.",
-  codex:
-    "Set your Env File Path in User Settings. In that file, set CODEX_HOME to an absolute directory for Codex. Then return here and refresh.",
-};
-
 export function ProviderSignInCard({
   provider,
   accounts,
@@ -131,7 +122,6 @@ export function ProviderSignInCard({
         ? "Waiting for provider…"
         : "Not connected";
   const personalRefused = scope === "personal" && !account?.canBrowserLogin;
-  const terminalOnly = provider === "claude" && scope === "office";
 
   return (
     <section style={{ ...cardStyle, marginTop: 14 }}>
@@ -174,27 +164,11 @@ export function ProviderSignInCard({
         <p style={hint}>
           {provider === "codex"
             ? "This signs in the Codex account that the whole office shares."
-            : "This uses the Claude account that the whole office shares."}
+            : "This signs in the Claude account that the whole office shares."}
         </p>
       )}
-      {terminalOnly && (
-        <>
-          <p style={hint}>
-            To change the office account, sign in from the built-in terminal.
-          </p>
-          <code>claude</code>
-        </>
-      )}
-      {personalRefused && provider === "claude" && (
-        <>
-          <p style={{ color: "var(--red)", fontSize: 12 }}>
-            {account?.error ?? CLAUDE_CONFIG_REFUSAL}
-          </p>
-          <p style={hint}>{PERSONAL_INSTRUCTIONS.claude}</p>
-        </>
-      )}
-      {personalRefused && provider === "codex" && (
-        <p style={hint}>{PERSONAL_INSTRUCTIONS.codex}</p>
+      {personalRefused && account?.error && (
+        <p style={{ color: "var(--red)", fontSize: 12 }}>{account.error}</p>
       )}
       {!personalRefused && account?.error && (
         <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>

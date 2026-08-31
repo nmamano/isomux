@@ -23,6 +23,7 @@ function usageFixture(
     "attachments",
     "session-metadata",
     "codex-home",
+    "provider-homes",
     "cronjobs",
     "memory",
     "other-state",

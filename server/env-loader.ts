@@ -17,6 +17,10 @@ import { readEnvFile } from "./persistence.ts";
 import { getUserByName, getUserEnvFileById } from "./users.ts";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
+import {
+  isPersonalProviderActive,
+  personalProviderHome,
+} from "./provider-homes.ts";
 
 // Provider lookup for the current office env file path. agent-manager sets
 // this once at module init from its `officeState.office.envFile` so we can
@@ -26,9 +30,17 @@ import { resolve } from "node:path";
 // agent-manager's module body has run, and no caller hits buildEnvFor that
 // early in practice.
 let getOfficeEnvFile: () => string | null = () => null;
+let getPersonalProviderActive: typeof isPersonalProviderActive =
+  isPersonalProviderActive;
 
 export function setOfficeEnvFileProvider(fn: () => string | null): void {
   getOfficeEnvFile = fn;
+}
+
+export function setPersonalProviderActiveProvider(
+  fn: typeof isPersonalProviderActive,
+): void {
+  getPersonalProviderActive = fn;
 }
 
 // Build the spawn-time env merge for a given user identity. `userId` is
@@ -41,16 +53,29 @@ export function buildEnvForUserId(
 ): { [key: string]: string | undefined } | undefined {
   const officeEnvFile = getOfficeEnvFile();
   const userEnvFile = userId ? getUserEnvFileById(userId) : null;
-  if (!officeEnvFile && !userEnvFile) return undefined;
+  const personalClaude = Boolean(
+    userId && getPersonalProviderActive(userId, "claude"),
+  );
+  const personalCodex = Boolean(
+    userId && getPersonalProviderActive(userId, "codex"),
+  );
+  if (!officeEnvFile && !userEnvFile && !personalClaude && !personalCodex)
+    return undefined;
 
   const merged: { [key: string]: string | undefined } = { ...process.env };
   if (officeEnvFile) {
     const officeEnv = readEnvFile(officeEnvFile);
     Object.assign(merged, officeEnv);
   }
+  const userEnv = userEnvFile ? readEnvFile(userEnvFile) : {};
   if (userEnvFile) {
-    const userEnv = readEnvFile(userEnvFile);
     Object.assign(merged, userEnv);
+  }
+  if (userId && personalClaude && !userEnv.CLAUDE_CONFIG_DIR?.trim()) {
+    merged.CLAUDE_CONFIG_DIR = personalProviderHome(userId, "claude");
+  }
+  if (userId && personalCodex && !userEnv.CODEX_HOME?.trim()) {
+    merged.CODEX_HOME = personalProviderHome(userId, "codex");
   }
   return merged;
 }

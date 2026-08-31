@@ -5,10 +5,16 @@ import { tmpdir } from "node:os";
 import {
   environmentSourceKeyForUserId,
   environmentSourceRevisionForUserId,
+  buildEnvForUserId,
   setOfficeEnvFileProvider,
+  setPersonalProviderActiveProvider,
 } from "./env-loader.ts";
+import { personalProviderHome } from "./provider-homes.ts";
 
-afterEach(() => setOfficeEnvFileProvider(() => null));
+afterEach(() => {
+  setOfficeEnvFileProvider(() => null);
+  setPersonalProviderActiveProvider(() => false);
+});
 
 describe("environment source identity", () => {
   it("uses paths, not process state or file contents", async () => {
@@ -38,5 +44,28 @@ describe("environment source identity", () => {
       else process.env.INVOCATION_ID = priorInvocationId;
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("activated personal provider environment", () => {
+  it("reaches a user with no office or user env file", () => {
+    setOfficeEnvFileProvider(() => null);
+    setPersonalProviderActiveProvider(
+      (userId, provider) => userId === "01a19e7b" && provider === "claude",
+    );
+    const env = buildEnvForUserId("01a19e7b");
+    expect(env?.CLAUDE_CONFIG_DIR).toBe(
+      personalProviderHome("01a19e7b", "claude"),
+    );
+  });
+
+  it("can activate Codex independently with no env files", () => {
+    setOfficeEnvFileProvider(() => null);
+    setPersonalProviderActiveProvider(
+      (userId, provider) => userId === "01a19e7b" && provider === "codex",
+    );
+    const env = buildEnvForUserId("01a19e7b");
+    expect(env?.CODEX_HOME).toBe(personalProviderHome("01a19e7b", "codex"));
+    expect(env?.CLAUDE_CONFIG_DIR).toBeUndefined();
   });
 });

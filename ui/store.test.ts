@@ -94,8 +94,7 @@ describe("ProviderSignInCard", () => {
       accountStatus: "unavailable" as const,
       loginStatus: "idle" as const,
       shared: true,
-      canBrowserLogin: false,
-      fallbackToTerminal: true,
+      canBrowserLogin: true,
     },
     {
       provider: "claude" as const,
@@ -103,10 +102,7 @@ describe("ProviderSignInCard", () => {
       accountStatus: "unavailable" as const,
       loginStatus: "idle" as const,
       shared: false,
-      canBrowserLogin: false,
-      fallbackToTerminal: true,
-      error:
-        "Claude sign-in from the browser needs your own Claude config directory. Set CLAUDE_CONFIG_DIR in your env file, and then try again.",
+      canBrowserLogin: true,
     },
   ];
 
@@ -117,11 +113,10 @@ describe("ProviderSignInCard", () => {
     expect(html).toContain("Who should use this account?");
     expect(html).toContain('checked=""');
     expect(html).toContain(
-      "This uses the Claude account that the whole office shares.",
+      "This signs in the Claude account that the whole office shares.",
     );
-    expect(html).toContain(
-      "To change the office account, sign in from the built-in terminal.",
-    );
+    expect(html).toContain("Connect Claude");
+    expect(html).not.toContain("sign in from the built-in terminal");
     expect(html).not.toContain("Set your Env File Path in User Settings.");
   });
 

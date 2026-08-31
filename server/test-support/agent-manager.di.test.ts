@@ -40,6 +40,8 @@ import {
   backendSessionHasFixedCwd,
 } from "../agent-manager.ts";
 import { resolveRealNode } from "../terminal.ts";
+import { personalProviderHome } from "../provider-homes.ts";
+import { setPersonalProviderActiveProvider } from "../env-loader.ts";
 
 // STATE_ROOT is a temp dir (the bun test preload preset ISOMUX_HOME before
 // config.ts was imported), so the disk-touching assertions below run in-suite
@@ -231,6 +233,41 @@ describe("AgentManager DI (temp-state isolated)", () => {
     expect(backendSessionHasFixedCwd("opencode")).toBe(true);
     expect(backendSessionHasFixedCwd("codex")).toBe(true);
     expect(backendSessionHasFixedCwd("claude")).toBe(false);
+  });
+
+  it("spawns with an activated personal home when no env files exist", async () => {
+    const fake = new FakeBackend();
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-personal-home") }),
+      initialRooms: [],
+    });
+    try {
+      setPersonalProviderActiveProvider(
+        (userId, provider) => userId === "01a19e7b" && provider === "claude",
+      );
+      const info = await mgr.spawn(
+        "Personal Claude",
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        "room-personal-home",
+        undefined,
+        undefined,
+        undefined,
+        "Owner",
+        "claude",
+        undefined,
+        "01a19e7b",
+      );
+      await mgr.sendMessage(info!.id, "hello", "Owner");
+      expect(fake.lastSession?.opts.env?.CLAUDE_CONFIG_DIR).toBe(
+        personalProviderHome("01a19e7b", "claude"),
+      );
+    } finally {
+      setPersonalProviderActiveProvider(() => false);
+    }
   });
 
   it("maps the backend edit capability into the OpenCode agent payload", async () => {

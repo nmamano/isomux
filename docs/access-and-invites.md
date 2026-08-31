@@ -130,16 +130,11 @@ explicitly) rather than relying on session expiry.
 ## Use your own provider account
 
 In User Settings → Connections, choose whether the account is for every agent
-in the office or only agents you spawn. Isomux can open browser sign-in for
-Codex in either scope. Claude browser sign-in is available only for your own
-agents; changing the office Claude account still uses the built-in terminal.
+in the office or only agents you spawn. Claude and Codex support browser sign-in
+in either scope. Isomux creates a separate personal provider home when needed.
 
 If both exist, the personal account wins: an agent whose user has set their own
 provider directory uses that account, even when the office is signed in.
-
-For an account that only your agents use, first set your Env File Path in User
-Settings. The file must point the provider at a separate absolute directory, as
-shown below. Then return to Connections and refresh.
 
 Set your Env File Path in User Settings to a file with one of these API keys:
 
@@ -148,18 +143,8 @@ ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
 
-For subscription billing, create a separate config directory and sign in once:
-
-```bash
-mkdir -p ~/.isomux-users/<user>/.claude
-CLAUDE_CONFIG_DIR=~/.isomux-users/<user>/.claude claude auth login
-
-# Run /usage in any Codex agent once first.
-mkdir -p ~/.isomux-users/<user>/.codex
-CODEX_HOME=~/.isomux-users/<user>/.codex ~/.isomux/bin/codex login --device-auth
-```
-
-Then put the config directory in the env file with an absolute path. Isomux does not expand `~` or `$VAR` there.
+An explicit absolute provider directory in the env file still overrides the
+Isomux-managed personal directory. Isomux does not expand `~` or `$VAR` there.
 
 ```text
 CLAUDE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/.claude

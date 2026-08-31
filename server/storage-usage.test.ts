@@ -50,6 +50,7 @@ function buildStateRoot(): string {
   write(join(root, "logs", "agent-a", "files", "photo.png"), 50);
   write(join(root, "logs", "agent-b", "s3.jsonl"), 400);
   write(join(root, "codex-home", "logs_2.sqlite"), 1000);
+  write(join(root, "provider-homes", "user-a", "claude", "settings.json"), 250);
   write(join(root, "cronjobs", "job1", "runs.json"), 25);
   write(join(root, "memory", "office.md"), 5);
   write(join(root, "agents.json"), 70);
@@ -96,6 +97,7 @@ describe("measureStorage", () => {
     expect(bytesOf(usage, "attachments")).toBe(50);
     expect(bytesOf(usage, "session-metadata")).toBe(10);
     expect(bytesOf(usage, "codex-home")).toBe(1000);
+    expect(bytesOf(usage, "provider-homes")).toBe(250);
     expect(bytesOf(usage, "cronjobs")).toBe(25);
     expect(bytesOf(usage, "memory")).toBe(5);
     expect(bytesOf(usage, "other-state")).toBe(70);
@@ -112,6 +114,7 @@ describe("measureStorage", () => {
       "attachments",
       "session-metadata",
       "codex-home",
+      "provider-homes",
       "cronjobs",
       "memory",
       "other-state",
@@ -148,7 +151,7 @@ describe("measureStorage", () => {
     expect(bytesOf(usage, "backups")).toBe(300);
     expect(bytesOf(usage, "update-snapshots")).toBe(400);
     // External categories are NOT part of the state-root total.
-    expect(usage.stateRootBytes).toBe(1860);
+    expect(usage.stateRootBytes).toBe(2110);
   });
 
   it("reports a null path for a location the box does not have", () => {

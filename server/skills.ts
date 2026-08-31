@@ -88,12 +88,13 @@ function scanCommandsDir(
   } catch {}
 }
 
-export function discoverUserSkills(): SkillInfo[] {
+export function discoverUserSkills(
+  claudeConfigDir = join(homedir(), ".claude"),
+): SkillInfo[] {
   const skills: SkillInfo[] = [];
-  const home = homedir();
   scanSkillsDir(join(STATE_ROOT, "skills"), "user", skills);
-  scanSkillsDir(join(home, ".claude", "skills"), "user", skills);
-  scanCommandsDir(join(home, ".claude", "commands"), "user", skills);
+  scanSkillsDir(join(claudeConfigDir, "skills"), "user", skills);
+  scanCommandsDir(join(claudeConfigDir, "commands"), "user", skills);
   return skills;
 }
 
@@ -141,11 +142,12 @@ export function discoverProjectSkills(cwd: string): SkillInfo[] {
 }
 
 // Scan skills from installed Claude Code plugins (~/.claude/plugins/)
-export function discoverPluginSkills(): SkillInfo[] {
+export function discoverPluginSkills(
+  claudeConfigDir = join(homedir(), ".claude"),
+): SkillInfo[] {
   const skills: SkillInfo[] = [];
   const manifestPath = join(
-    homedir(),
-    ".claude",
+    claudeConfigDir,
     "plugins",
     "installed_plugins.json",
   );
@@ -241,10 +243,10 @@ function readSkillFile(path: string): string | null {
 function resolvePluginSkillPrompt(
   pluginName: string,
   skillName: string,
+  claudeConfigDir: string,
 ): string | null {
   const manifestPath = join(
-    homedir(),
-    ".claude",
+    claudeConfigDir,
     "plugins",
     "installed_plugins.json",
   );
@@ -289,18 +291,21 @@ function resolvePluginSkillPrompt(
 //   7. <cwd>/.claude/commands/<name>.md          (project, claude commands)
 //   8. Bundled isomux skills (server/skills/)
 // Plugin-namespaced skills ("pluginName:skillName") short-circuit above the list.
-export function resolveSkillPrompt(name: string, cwd: string): string | null {
+export function resolveSkillPrompt(
+  name: string,
+  cwd: string,
+  claudeConfigDir = join(homedir(), ".claude"),
+): string | null {
   // Handle plugin-namespaced skills: "pluginName:skillName"
   if (name.includes(":")) {
     const [pluginName, skillName] = name.split(":", 2);
-    return resolvePluginSkillPrompt(pluginName, skillName);
+    return resolvePluginSkillPrompt(pluginName, skillName, claudeConfigDir);
   }
 
-  const home = homedir();
   const candidates = [
     join(STATE_ROOT, "skills", name, "SKILL.md"),
-    join(home, ".claude", "skills", name, "SKILL.md"),
-    join(home, ".claude", "commands", `${name}.md`),
+    join(claudeConfigDir, "skills", name, "SKILL.md"),
+    join(claudeConfigDir, "commands", `${name}.md`),
     join(cwd, ".isomux", "skills", name, "SKILL.md"),
     join(cwd, ".agents", "skills", name, "SKILL.md"),
     join(cwd, ".claude", "skills", name, "SKILL.md"),

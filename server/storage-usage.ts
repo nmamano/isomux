@@ -197,12 +197,14 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   const { stateRoot, backupDir, snapshotDir } = roots;
   const logsDir = join(stateRoot, "logs");
   const codexHome = join(stateRoot, "codex-home");
+  const providerHomes = join(stateRoot, "provider-homes");
   const cronjobs = join(stateRoot, "cronjobs");
   const memory = join(stateRoot, "memory");
 
   const total = measureTree(stateRoot);
   const logs = measureLogs(logsDir);
   const codex = measureTree(codexHome);
+  const providers = measureTree(providerHomes);
   const cron = measureTree(cronjobs);
   const mem = measureTree(memory);
 
@@ -214,6 +216,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
     logs.attachments.bytes +
     logs.metadata.bytes +
     codex.bytes +
+    providers.bytes +
     cron.bytes +
     mem.bytes;
   const claimedFiles =
@@ -221,6 +224,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
     logs.attachments.files +
     logs.metadata.files +
     codex.files +
+    providers.files +
     cron.files +
     mem.files;
 
@@ -243,6 +247,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
     cat("attachments", logsDir, logs.attachments),
     cat("session-metadata", logsDir, logs.metadata),
     cat("codex-home", codexHome, codex),
+    cat("provider-homes", providerHomes, providers),
     cat("cronjobs", cronjobs, cron),
     cat("memory", memory, mem),
     cat("other-state", stateRoot, {

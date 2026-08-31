@@ -21,13 +21,16 @@ import type {
   ProviderAccountWire,
   ProviderLoginStartRes,
 } from "../shared/types.ts";
+import {
+  activatePersonalProvider,
+  ensurePersonalProviderHome,
+  isPersonalProviderActive,
+  personalProviderHome,
+} from "./provider-homes.ts";
 
-export const CLAUDE_CONFIG_REFUSAL =
-  "Claude sign-in from the browser needs your own Claude config directory. Set CLAUDE_CONFIG_DIR in your env file, and then try again.";
-export const CODEX_HOME_REFUSAL =
-  "Set your Env File Path in User Settings. In that file, set CODEX_HOME to an absolute directory for Codex. Then return here and refresh.";
-const CLAUDE_OFFICE_TERMINAL =
-  "To change the office account, sign in from the built-in terminal.";
+export const CLAUDE_CONFIG_INVALID =
+  "CLAUDE_CONFIG_DIR must be an absolute directory.";
+export const CODEX_HOME_INVALID = "CODEX_HOME must be an absolute directory.";
 const ACCOUNT_STATUS_TTL_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
@@ -39,6 +42,7 @@ type Target = {
   dir: string;
   shared: boolean;
   env: Record<string, string | undefined>;
+  autoPersonal?: boolean;
 };
 type Active = {
   userId: string;
@@ -92,6 +96,10 @@ export class ProviderAccountManager {
       return file ? readEnvFile(file) : {};
     },
     private readonly users: () => Array<{ id: string }> = listUsers,
+    private readonly personalHome: typeof personalProviderHome = personalProviderHome,
+    private readonly ensurePersonalHome: typeof ensurePersonalProviderHome = ensurePersonalProviderHome,
+    private readonly personalActive: typeof isPersonalProviderActive = isPersonalProviderActive,
+    private readonly activatePersonal: typeof activatePersonalProvider = activatePersonalProvider,
   ) {}
 
   private userOnlyEnv(userId: string): Record<string, string> {
@@ -100,11 +108,28 @@ export class ProviderAccountManager {
 
   private normalizePersonal(
     value: string | undefined,
-    refusal: string,
+    invalid: string,
   ): string {
     const trimmed = value?.trim();
-    if (!trimmed || !isAbsolute(trimmed)) throw new Error(refusal);
+    if (!trimmed || !isAbsolute(trimmed)) throw new Error(invalid);
     return resolve(trimmed);
+  }
+
+  private collision(
+    provider: ProviderAccountProvider,
+    kind: "office" | "member" | "external",
+  ): Error {
+    const variable = provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME";
+    const name = provider === "claude" ? "Claude" : "Codex";
+    const target =
+      kind === "office"
+        ? `the office ${name} account directory`
+        : kind === "member"
+          ? `another member's ${name} account directory`
+          : `the box's external ${name} CLI directory`;
+    return new Error(
+      `${variable} collides with ${target}. Choose a different directory.`,
+    );
   }
 
   private target(
@@ -131,13 +156,30 @@ export class ProviderAccountManager {
           },
         };
       }
-      const dir = this.normalizePersonal(own.CODEX_HOME, CODEX_HOME_REFUSAL);
-      if (dir === officeDir) throw new Error(CODEX_HOME_REFUSAL);
+      const explicit = own.CODEX_HOME?.trim();
+      const autoPersonal = !explicit;
+      const dir = explicit
+        ? this.normalizePersonal(explicit, CODEX_HOME_INVALID)
+        : resolve(this.personalHome(userId, "codex"));
+      if (explicit && dir === officeDir)
+        throw this.collision("codex", "office");
+      if (explicit && dir === resolve(ISOMUX_CODEX_HOME))
+        throw this.collision("codex", "office");
+      if (explicit && dir === resolve(homedir(), ".codex"))
+        throw this.collision("codex", "external");
+      const officeValue = this.officeFileEnv().CODEX_HOME?.trim();
+      if (explicit && officeValue && resolve(officeValue) === dir)
+        throw this.collision("codex", "office");
+      const processValue = process.env.CODEX_HOME?.trim();
+      if (explicit && processValue && resolve(processValue) === dir)
+        throw this.collision("codex", "office");
       for (const other of this.users()) {
         if (other.id === userId) continue;
         const otherValue = this.userOnlyEnv(other.id).CODEX_HOME?.trim();
         if (otherValue && isAbsolute(otherValue) && resolve(otherValue) === dir)
-          throw new Error(CODEX_HOME_REFUSAL);
+          throw this.collision("codex", "member");
+        if (resolve(this.personalHome(other.id, "codex")) === dir)
+          throw this.collision("codex", "member");
       }
       return {
         provider,
@@ -146,6 +188,7 @@ export class ProviderAccountManager {
         dir,
         shared: false,
         env: { ...(this.envForUser(userId) ?? process.env), CODEX_HOME: dir },
+        autoPersonal,
       };
     }
 
@@ -165,21 +208,28 @@ export class ProviderAccountManager {
 
     // This is an accident barrier, not hostile-member isolation. Comparisons
     // are lexical; authenticated members already have shell-equivalent access.
-    const dir = this.normalizePersonal(
-      own.CLAUDE_CONFIG_DIR,
-      CLAUDE_CONFIG_REFUSAL,
-    );
-    const refused = new Set<string>([resolve(homedir(), ".claude"), officeDir]);
+    const explicit = own.CLAUDE_CONFIG_DIR?.trim();
+    const autoPersonal = !explicit;
+    const dir = explicit
+      ? this.normalizePersonal(explicit, CLAUDE_CONFIG_INVALID)
+      : resolve(this.personalHome(userId, "claude"));
+    if (explicit && dir === resolve(homedir(), ".claude"))
+      throw this.collision("claude", "external");
+    if (explicit && dir === officeDir) throw this.collision("claude", "office");
     const officeValue = this.officeFileEnv().CLAUDE_CONFIG_DIR?.trim();
-    if (officeValue) refused.add(resolve(officeValue));
+    if (explicit && officeValue && resolve(officeValue) === dir)
+      throw this.collision("claude", "office");
     const processValue = process.env.CLAUDE_CONFIG_DIR?.trim();
-    if (processValue) refused.add(resolve(processValue));
+    if (explicit && processValue && resolve(processValue) === dir)
+      throw this.collision("claude", "office");
     for (const other of this.users()) {
       if (other.id === userId) continue;
       const otherValue = this.userOnlyEnv(other.id).CLAUDE_CONFIG_DIR?.trim();
-      if (otherValue) refused.add(resolve(otherValue));
+      if (explicit && otherValue && resolve(otherValue) === dir)
+        throw this.collision("claude", "member");
+      if (explicit && resolve(this.personalHome(other.id, "claude")) === dir)
+        throw this.collision("claude", "member");
     }
-    if (refused.has(dir)) throw new Error(CLAUDE_CONFIG_REFUSAL);
     return {
       provider,
       scope,
@@ -190,6 +240,7 @@ export class ProviderAccountManager {
         ...(this.envForUser(userId) ?? process.env),
         CLAUDE_CONFIG_DIR: dir,
       },
+      autoPersonal,
     };
   }
 
@@ -228,15 +279,18 @@ export class ProviderAccountManager {
         error: err instanceof Error ? err.message : String(err),
       };
     }
-    if (provider === "claude" && scope === "office") {
+    if (
+      scope === "personal" &&
+      target.autoPersonal &&
+      !this.personalActive(userId, provider)
+    ) {
       return {
         provider,
         scope,
-        accountStatus: "unavailable",
+        accountStatus: "not_connected",
         loginStatus: "idle",
-        shared: target.shared,
-        canBrowserLogin: false,
-        fallbackToTerminal: true,
+        shared: false,
+        canBrowserLogin: true,
       };
     }
     const running = this.active.get(target.key);
@@ -309,12 +363,7 @@ export class ProviderAccountManager {
     } catch (err) {
       return this.failure(422, "browser_login_unavailable", err);
     }
-    if (provider === "claude" && scope === "office")
-      return this.failure(
-        422,
-        "browser_login_unavailable",
-        CLAUDE_OFFICE_TERMINAL,
-      );
+    if (target.autoPersonal) this.ensurePersonalHome(userId, provider);
     const existing = this.active.get(target.key);
     if (existing)
       return existing.userId === userId
@@ -445,6 +494,14 @@ export class ProviderAccountManager {
             : ((done as { error?: string | null }).error ??
               `${active.target.provider === "codex" ? "Codex" : "Claude"} did not report a connected account.`),
       };
+      if (
+        active.target.scope === "personal" &&
+        active.target.autoPersonal &&
+        providerSucceeded &&
+        account.connected
+      ) {
+        this.activatePersonal(active.userId, active.target.provider);
+      }
       this.statusCache.set(active.cacheKey, {
         checkedAt: Date.now(),
         wire: active.wire,

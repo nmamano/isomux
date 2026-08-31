@@ -1590,9 +1590,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       abortPromise: null,
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
-        ...discoverUserSkills(),
+        ...discoverUserSkills(
+          buildEnvForUserId(userId)?.CLAUDE_CONFIG_DIR ||
+            join(homedir(), ".claude"),
+        ),
         ...discoverProjectSkills(p.cwd),
-        ...discoverPluginSkills(),
+        ...discoverPluginSkills(
+          buildEnvForUserId(userId)?.CLAUDE_CONFIG_DIR ||
+            join(homedir(), ".claude"),
+        ),
         ...discoverBundledSkills(),
       ]),
       sdkReportedCommands: [],
@@ -3392,9 +3398,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // Skills are listed in priority order; deduplicate by name (highest priority wins).
         const discoveredSkills = managed
           ? [
-              ...discoverUserSkills(),
+              ...discoverUserSkills(claudeConfigDirFor(managed)),
               ...discoverProjectSkills(managed.info.cwd),
-              ...discoverPluginSkills(),
+              ...discoverPluginSkills(claudeConfigDirFor(managed)),
               ...discoverBundledSkills(),
             ]
           : [];
@@ -4600,6 +4606,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ...(base ?? process.env), ISOMUX_AGENT_TOKEN: token };
   }
 
+  function claudeConfigDirFor(managed: ManagedAgent): string {
+    return (
+      buildSessionEnv(managed)?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude")
+    );
+  }
+
   // The only author of the environment used to launch a shared OpenCode
   // server. Discovery and agent sessions both call this boundary, so whichever
   // one reaches a cold profile first supplies identical process input. The
@@ -4921,9 +4933,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       abortPromise: null,
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
-        ...discoverUserSkills(),
+        ...discoverUserSkills(
+          buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
+            join(homedir(), ".claude"),
+        ),
         ...discoverProjectSkills(resolvedCwd),
-        ...discoverPluginSkills(),
+        ...discoverPluginSkills(
+          buildEnvForUserId(info.userId)?.CLAUDE_CONFIG_DIR ||
+            join(homedir(), ".claude"),
+        ),
         ...discoverBundledSkills(),
       ]),
       sdkReportedCommands: [],
@@ -5067,6 +5085,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // productionStorageRoots() is the single answer to "what counts as isomux
     // storage", shared by the route and the /isomux-storage command.
     getStorageUsage: () => measureStorageCached(productionStorageRoots()),
+    claudeConfigDirFor,
   });
 
   // === Message queue ===

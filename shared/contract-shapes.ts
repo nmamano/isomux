@@ -843,6 +843,7 @@ export type StorageCategoryId =
   | "attachments"
   | "session-metadata"
   | "codex-home"
+  | "provider-homes"
   | "cronjobs"
   | "memory"
   | "other-state"

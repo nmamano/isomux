@@ -220,6 +220,7 @@ interface HandlerDeps {
   // pinned without walking a real state root, and so the refusal path can be
   // proven not to measure at all.
   getStorageUsage: () => StorageUsage;
+  claudeConfigDirFor: (managed: ManagedAgent) => string;
   // Defer-to-queue path for slash commands that arrive while the agent is busy.
   enqueueMessage: (
     agentId: string,
@@ -1289,7 +1290,11 @@ export function createCommandHandling(deps: HandlerDeps) {
     }
 
     // Step 2: Skill override check (for overridable config entries OR unknown commands)
-    const skillPrompt = resolveSkillPrompt(cmd, managed.info.cwd);
+    const skillPrompt = resolveSkillPrompt(
+      cmd,
+      managed.info.cwd,
+      deps.claudeConfigDirFor(managed),
+    );
     if (skillPrompt) {
       countUse();
       return executeSkill(
