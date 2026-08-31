@@ -789,7 +789,13 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
       if (!byId.has(id)) {
         byId.set(id, {
           id,
-          label: `${providerLabel} - ${modelLabel}`,
+          // The house provider prefixes every default-login model; "OpenCode
+          // Zen - " on each row is noise (Nil). Other providers keep the
+          // prefix - it is what disambiguates same-named models across them.
+          label:
+            providerId === "opencode"
+              ? modelLabel
+              : `${providerLabel} - ${modelLabel}`,
           ...(contextLimit !== null ? { contextLimit } : {}),
           ...(openCodeModelIsFree(model.cost) ? { isFree: true } : {}),
         });

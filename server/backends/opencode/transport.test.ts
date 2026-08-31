@@ -114,6 +114,28 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     expect(JSON.stringify(models)).not.toContain(canary);
   });
 
+  it("drops the house-provider prefix and keeps it for other providers", () => {
+    const models = allowDiscoveredModels({
+      connected: ["opencode", "gate"],
+      all: [
+        {
+          id: "opencode",
+          name: "OpenCode Zen",
+          models: { "big-pickle": { name: "Big Pickle" } },
+        },
+        {
+          id: "gate",
+          name: "Gate provider",
+          models: { "big-pickle": { name: "Big Pickle" } },
+        },
+      ],
+    });
+    expect(models).toEqual([
+      { id: "opencode/big-pickle", label: "Big Pickle" },
+      { id: "gate/big-pickle", label: "Gate provider - Big Pickle" },
+    ]);
+  });
+
   it("returns no models for malformed or empty connected discovery", () => {
     expect(allowDiscoveredModels(null)).toEqual([]);
     expect(
