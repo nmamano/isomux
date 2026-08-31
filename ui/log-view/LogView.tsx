@@ -2579,6 +2579,7 @@ export function LogView({
                             provider={entry.metadata.providerLogin}
                             accounts={providerAccounts}
                             showTitle={false}
+                            apiKeyNote
                             onStartNewConversation={async () => {
                               await apiFetch(
                                 "POST",

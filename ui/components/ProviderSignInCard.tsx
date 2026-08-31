@@ -20,12 +20,14 @@ export function ProviderSignInCard({
   onAccounts,
   onStartNewConversation,
   showTitle = true,
+  apiKeyNote = false,
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
   showTitle?: boolean;
+  apiKeyNote?: boolean;
 }) {
   const title = provider === "codex" ? "Codex" : "Claude";
   return (
@@ -44,6 +46,11 @@ export function ProviderSignInCard({
           onStartNewConversation={onStartNewConversation}
         />
       ))}
+      {apiKeyNote && (
+        <p style={{ ...hint, margin: "14px 0 0" }}>
+          Do you want to use an API token? See User Settings → Connections.
+        </p>
+      )}
     </section>
   );
 }
