@@ -498,11 +498,7 @@ function registerBootHooks(): void {
   }> = [
     { agentType: "claude", name: "Claude Welcome Agent", family: "Claude" },
     { agentType: "codex", name: "Codex Welcome Agent", family: "Codex" },
-    {
-      agentType: "opencode",
-      name: "OpenCode Welcome Agent",
-      family: "OpenCode",
-    },
+    { agentType: "opencode", name: "Free Welcome Agent", family: "OpenCode" },
   ];
 
   function welcomeAgentPrompt(agentType: AgentBackendType): string {
@@ -510,7 +506,7 @@ function registerBootHooks(): void {
     const roster = WELCOME_AGENTS.map(
       (agent) => `${agent.name} (${agent.family})`,
     ).join(", ");
-    return `You are the ${self.name} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with these welcome agents: ${roster}. The OpenCode Welcome Agent answers immediately, with no sign-in. If the Claude or Codex welcome agent does not answer, that provider account is not signed in yet. If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check which welcome agents are present, and then message each one and ask for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+    return `You are the ${self.name} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with these welcome agents: ${roster}. The Free Welcome Agent runs on a free OpenCode model, so it answers immediately with no sign-in and no subscription. The Claude and Codex welcome agents need a subscription sign-in with their provider; if one of them does not answer, that provider account is not signed in yet. If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check which welcome agents are present, and then message each one and ask for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
   }
 
   // Fixed outfits so all three welcome agents have a recognizable, friendly
@@ -604,7 +600,7 @@ function registerBootHooks(): void {
       username,
     );
     await spawnWelcomeAgent(
-      "OpenCode Welcome Agent",
+      "Free Welcome Agent",
       "opencode",
       OPENCODE_DEFAULT_MODEL,
       "bypassPermissions",

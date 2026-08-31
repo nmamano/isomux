@@ -11,7 +11,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 - **Choose Claude, Codex, or OpenCode** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list mixes chats from all three engines.
 - **Codex ships bundled** - no separate install. The first time you message a Codex agent, isomux prompts you to sign in via a one-click terminal card. The unattended VPS installer includes the Claude Code CLI; source checkouts still install it separately.
 - **OpenCode ships bundled and pinned**. Choose a connected model, or connect Anthropic or OpenAI from the model picker. Isomux gives you a login command for the shared OpenCode profile used by that environment.
-- **New offices start with three welcome agents**, one each for Claude, Codex, and OpenCode. The OpenCode agent can answer immediately without a provider sign-in.
+- **New offices start with three welcome agents**, one each for Claude, Codex, and OpenCode. The Free Welcome Agent runs on a free OpenCode model and answers immediately without a provider sign-in.
 
 ## Multi-agent
 

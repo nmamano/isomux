@@ -168,7 +168,7 @@ function persistedAgentRecords(): Array<{
 
 const CLAUDE_WELCOME = "Claude Welcome Agent";
 const CODEX_WELCOME = "Codex Welcome Agent";
-const OPENCODE_WELCOME = "OpenCode Welcome Agent";
+const OPENCODE_WELCOME = "Free Welcome Agent";
 
 // Resolve a seeded welcome agent by name, failing clearly (vs a bare non-null
 // assertion's generic throw) if the seed ever regresses.
@@ -220,13 +220,13 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
 
     for (const agent of agents) {
       expect(agent.customInstructions).toContain(
-        "New offices come preset with these welcome agents: Claude Welcome Agent (Claude), Codex Welcome Agent (Codex), OpenCode Welcome Agent (OpenCode).",
+        "New offices come preset with these welcome agents: Claude Welcome Agent (Claude), Codex Welcome Agent (Codex), Free Welcome Agent (OpenCode).",
       );
       expect(agent.customInstructions).toContain(
-        "The OpenCode Welcome Agent answers immediately, with no sign-in.",
+        "The Free Welcome Agent runs on a free OpenCode model, so it answers immediately with no sign-in and no subscription.",
       );
       expect(agent.customInstructions).toContain(
-        "If the Claude or Codex welcome agent does not answer, that provider account is not signed in yet.",
+        "The Claude and Codex welcome agents need a subscription sign-in with their provider; if one of them does not answer, that provider account is not signed in yet.",
       );
     }
 
