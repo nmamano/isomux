@@ -227,8 +227,8 @@ describe("OpenCode shared server supervisor", () => {
     expect(config.agent?.["isomux-interactive-bypass"]).toMatchObject({
       mode: "primary",
       permission: {
-        bash: "allow",
-        edit: "allow",
+        bash: "ask",
+        edit: "ask",
         task: "allow",
         question: "deny",
       },
@@ -236,8 +236,8 @@ describe("OpenCode shared server supervisor", () => {
     expect(config.agent?.["isomux-cron"]).toMatchObject({
       mode: "primary",
       permission: {
-        bash: "allow",
-        edit: "allow",
+        bash: "ask",
+        edit: "ask",
         task: "deny",
         question: "deny",
       },
@@ -491,6 +491,45 @@ describe("OpenCode shared server supervisor", () => {
       return lease;
     });
     await Bun.sleep(80);
+    expect(granted).toBe(false);
+    expect(alive(priorPid)).toBe(true);
+    active.endTurn();
+    const replacement = await waiting;
+    expect(replacement.pid).not.toBe(priorPid);
+    active.release();
+    replacement.release();
+  }, 20_000);
+
+  it("waits for an active turn before a permission-config replacement", async () => {
+    const path = await root();
+    const initialConfig = { share: "disabled" };
+    const { binary } = await makeHealthOnlyBinary(path);
+    const supervisor = makeSupervisor(
+      path,
+      initialConfig,
+      1000,
+      {},
+      5000,
+      binary,
+    );
+    const active = await supervisor.acquire();
+    const controlStarted = Date.now();
+    const unchanged = await supervisor.acquire();
+    const controlMs = Date.now() - controlStarted;
+    expect(controlMs).toBeLessThan(1000);
+    unchanged.release();
+    await active.beginTurn();
+    const priorPid = active.pid;
+    supervisor.updateConfiguration({
+      ...initialConfig,
+      permission: { bash: "ask", edit: "ask", question: "deny" },
+    });
+    let granted = false;
+    const waiting = supervisor.acquire().then((lease) => {
+      granted = true;
+      return lease;
+    });
+    await Bun.sleep(2000);
     expect(granted).toBe(false);
     expect(alive(priorPid)).toBe(true);
     active.endTurn();

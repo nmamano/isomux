@@ -199,9 +199,9 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - To make the office reachable from outside your Tailscale network - friends, collaborators on a different VPN - the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/access-and-invites walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety
-- Claude and Codex apply the same built-in pre-tool safety policy through backend-specific hooks. The guards block recognized dangerous actions before they run.
+- Claude, Codex, and OpenCode apply the same built-in pre-tool safety policy. The guards block recognized dangerous actions before they run.
 - Codex approvals: when a Codex agent asks to run something its sandbox won't allow, you can approve that one command, or every command starting with a prefix you pick, for the rest of the session.
-- Built-in pre-tool-use hooks block dangerous commands before they execute (Claude and Codex):
+- Built-in pre-tool safety checks block dangerous commands before they execute (Claude, Codex, and OpenCode):
   - Git safety: blocks destructive git commands (\`git reset --hard\`, force push, etc.)
   - Filesystem safety: blocks \`rm -rf\` on root/home paths (allows it on temp directories)
   - Config protection: blocks writes under ~/.isomux/ (managed by the server)

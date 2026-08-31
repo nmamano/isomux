@@ -12,6 +12,7 @@ import {
 } from "./adapter.ts";
 import { OpenCodeSupervisor } from "./supervisor.ts";
 import { STATE_ROOT } from "../../config.ts";
+import permissionRejectMessage from "./fixtures/permission-reject-message.json";
 
 const cleanup: Array<() => Promise<void> | void> = [];
 
@@ -394,8 +395,8 @@ describe("OpenCode pinned transport", () => {
         "isomux-interactive-bypass": {
           mode: "primary",
           permission: {
-            bash: "allow",
-            edit: "allow",
+            bash: "ask",
+            edit: "ask",
             task: "allow",
             question: "deny",
           },
@@ -628,7 +629,7 @@ describe("OpenCode pinned transport", () => {
                     : prompt.includes("FAIL")
                       ? "printf failed-before-exit; exit 7"
                       : prompt.includes("DENY")
-                        ? "printf denied > gate-denied.txt"
+                        ? "git reset --hard"
                         : "printf allowed > gate-allowed.txt";
               const edit = prompt.includes("EDIT");
               const toolName = edit ? "edit" : "bash";
@@ -715,8 +716,8 @@ describe("OpenCode pinned transport", () => {
           "isomux-cron": {
             mode: "primary",
             permission: {
-              bash: "allow",
-              edit: "allow",
+              bash: "ask",
+              edit: "ask",
               task: "deny",
               question: "deny",
             },
@@ -788,18 +789,9 @@ describe("OpenCode pinned transport", () => {
       await consumer;
       return events;
     };
-    const allowed = await run("ALLOW", true, 2);
-    const denied = await run("DENY", false);
-    const failed = await run("FAIL", true);
     const cronBefore = await supervisor.acquire();
     const cronPid = cronBefore.pid;
     cronBefore.release();
-    const cron = await run("CRON", false, 1, root, "bypassPermissions");
-    const cronAfter = await supervisor.acquire();
-    expect(cronAfter.pid).toBe(cronPid);
-    cronAfter.release();
-    await Bun.write(join(root, "gate-edit.txt"), "before\n");
-    const edited = await run("EDIT", true);
     const abortAtPermission = async () => {
       const session = backend.createSession({
         ...opts,
@@ -856,8 +848,18 @@ describe("OpenCode pinned transport", () => {
       session.close();
       return events;
     };
-    const permissionAbort = await abortAtPermission();
-    const toolAbort = await abortDuringTool();
+    const [allowed, denied, failed, cron] = await Promise.all([
+      run("ALLOW", true, 2),
+      run("DENY", false),
+      run("FAIL", true),
+      run("CRON", false, 1, root, "bypassPermissions"),
+    ]);
+    await Bun.write(join(root, "gate-edit.txt"), "before\n");
+    const edited = await run("EDIT", true);
+    const [permissionAbort, toolAbort] = await Promise.all([
+      abortAtPermission(),
+      abortDuringTool(),
+    ]);
     const repoA = join(root, "repo-a");
     const repoB = join(root, "repo-b");
     await Promise.all([mkdir(repoA), mkdir(repoB)]);
@@ -865,6 +867,9 @@ describe("OpenCode pinned transport", () => {
       run("REPO A", true, 1, repoA),
       run("REPO B", true, 1, repoB),
     ]);
+    const cronAfter = await supervisor.acquire();
+    expect(cronAfter.pid).toBe(cronPid);
+    cronAfter.release();
     expect(await Bun.file(join(root, "gate-allowed.txt")).text()).toBe(
       "allowed",
     );
@@ -891,6 +896,14 @@ describe("OpenCode pinned transport", () => {
     expect(denied.filter((event) => event.kind === "tool_result")).toHaveLength(
       1,
     );
+    expect(
+      denied.some(
+        (event) =>
+          event.kind === "tool_result" &&
+          event.content.startsWith(permissionRejectMessage.errorPrefix) &&
+          event.content.includes("BLOCKED by isomux safety hooks"),
+      ),
+    ).toBe(true);
     expect(denied.at(-1)).toMatchObject({
       kind: "turn_completed",
       status: "completed",

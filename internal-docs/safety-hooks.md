@@ -1,6 +1,6 @@
 # Agent safety hooks
 
-Isomux applies the same safety policy before recognized tool calls from Claude and Codex agents. The policy blocks recognized destructive commands, protected-path writes, secret-bearing reads, cross-agent process kills, and commands that open outbound tunnels.
+Isomux applies the same safety policy before recognized tool calls from Claude, Codex, and OpenCode agents. The policy blocks recognized destructive commands, protected-path writes, secret-bearing reads, cross-agent process kills, and commands that open outbound tunnels.
 
 These checks reduce accidents by honest agents. They are not complete prevention, and they are not an operating-system security boundary.
 
@@ -22,6 +22,8 @@ Relative paths that resolve under the literal `~/.isomux` are mapped to the conf
 
 ## Measured coverage
 
+OpenCode 1.18.23 emits an authoritative `permission.asked` event before an asked tool call runs. Isomux maps the full bash command and absolute edit path from its metadata, evaluates the neutral policy in-process, and answers `once` or `reject`. Interactive default mode still asks the boss after a safe policy decision. Bypass and cron modes answer safe bash and edit calls once without a boss prompt. Cron task stays denied. Interactive bypass task stays allowed because the transport does not yet prove ownership of descendant-session permission events. OpenCode read, grep, and glob tools emit no permission event, so they do not have Claude's sensitive-file read coverage.
+
 The Codex hook contract was measured with Codex 0.144.6 on 2026-08-28 and 2026-08-29. `PreToolUse` covered every measured Bash, `apply_patch`, dynamic-tool, and MCP action before its side effect. Fresh, resumed, forked, and one-shot sessions were measured directly. Cron runs and model listing use the same spawn path, so their setup coverage is inferred rather than measured with a tool action.
 
 `PermissionRequest` added no tool coverage in the measured `never` and `untrusted` approval modes. Under `never`, only `PreToolUse` fired. Under `untrusted`, the measured action reached `PreToolUse` first and `PermissionRequest` second. This conclusion applies only to those measured modes.
@@ -35,6 +37,10 @@ Codex fails open when a hook executable is missing, exits with an error, times o
 > ISOMUX SAFETY WARNING: Safety checks failed for this tool call. Isomux allowed it without guard enforcement. Tell the office owner and check the isomux service logs.
 
 The Codex session still starts after a pre-spawn failure. Isomux also writes a cause-specific server error so the office owner can distinguish artifact, repair, hook configuration, trust, and unexpected failures.
+
+OpenCode also fails open when a permission envelope no longer matches the pinned contract or its adapter throws. Isomux answers the owned request once and puts the same warning in the transcript, at most once per turn. The agent then works without Isomux enforcement. That degraded state is the OpenCode coverage that existed before this adapter, so it is not a regression from the prior status quo. A real policy denial still rejects the call.
+
+An event without a permission request id is different: Isomux cannot answer it without guessing ownership. It shows a transport warning and fails the turn instead of claiming an allow or leaving the turn parked. A malformed event is isolated from later valid events.
 
 ## Trust and event identity
 

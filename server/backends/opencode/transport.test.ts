@@ -7,9 +7,12 @@ import {
   discoverOpenCodeModels,
   allowMessages,
   OpenCodeTransport,
+  OPENCODE_PERMISSION_ID_WARNING,
+  handleOpenCodePermission,
   parseAllowedEvent,
   openCodeModelIsFree,
 } from "./transport.ts";
+import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 import { writeSafeContractFixture } from "./contract-fixture.ts";
 import { join } from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -406,7 +409,7 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     expect(JSON.stringify(parsed)).not.toContain(canary);
   });
 
-  it("keeps only reviewed reasoning, tool, permission, and completion fields", () => {
+  it("retains permission metadata only on the in-process policy event", () => {
     const canary = "CONTROL_EVENT_SECRET_CANARY";
     const events = [
       {
@@ -501,6 +504,7 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         id: "perm",
         permission: "bash",
         patterns: ["false"],
+        metadata: canary,
       },
       {
         kind: "step_finish",
@@ -514,7 +518,33 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         cost: 0,
       },
     ]);
-    expect(JSON.stringify(events)).not.toContain(canary);
+    expect(JSON.stringify(events)).toContain(canary);
+  });
+
+  it("splits an unanswerable permission identity from a fail-open shape", () => {
+    expect(
+      parseAllowedEvent(
+        JSON.stringify({
+          type: "permission.asked",
+          properties: { sessionID: "s", permission: "bash" },
+        }),
+      ),
+    ).toEqual({ kind: "permission_fault", sessionId: "s" });
+    expect(
+      parseAllowedEvent(
+        JSON.stringify({
+          type: "permission.asked",
+          properties: { sessionID: "s", id: "p", metadata: {} },
+        }),
+      ),
+    ).toEqual({
+      kind: "permission",
+      sessionId: "s",
+      id: "p",
+      permission: undefined,
+      patterns: undefined,
+      metadata: {},
+    });
   });
 
   it("keeps only the question request identity", () => {
@@ -627,5 +657,294 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         /(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|password|secret|bearer\s+[a-z0-9._~-]+)/i,
       );
     }
+  });
+});
+
+describe("OpenCode permission handling", () => {
+  const envelope = {
+    id: "permission-1",
+    sessionId: "session-1",
+    permission: "bash",
+    patterns: ["printf safe"],
+    metadata: { command: "printf safe" },
+  };
+
+  async function run(options: {
+    autoApprove: boolean;
+    event?: typeof envelope;
+    evaluate?: Parameters<typeof handleOpenCodePermission>[1]["evaluate"];
+    warningState?: { shown: boolean };
+  }) {
+    const replies: Array<{ reply: string; message?: string }> = [];
+    const events: NormalizedEvent[] = [];
+    const outcome = await handleOpenCodePermission(options.event ?? envelope, {
+      cwd: "/tmp",
+      autoApprove: options.autoApprove,
+      warningState: options.warningState ?? { shown: false },
+      reply: async (reply, message) => {
+        replies.push({ reply, ...(message ? { message } : {}) });
+      },
+      sink: (event) => events.push(event),
+      evaluate: options.evaluate,
+    });
+    return { outcome, replies, events };
+  }
+
+  it("auto-allows a safe bypass request once without a boss prompt", async () => {
+    expect(await run({ autoApprove: true })).toEqual({
+      outcome: "answered",
+      replies: [{ reply: "once" }],
+      events: [],
+    });
+  });
+
+  it("keeps a safe default request for the boss", async () => {
+    expect(await run({ autoApprove: false })).toEqual({
+      outcome: "prompt",
+      replies: [],
+      events: [],
+    });
+  });
+
+  it("rejects a policy denial before either mode can prompt", async () => {
+    for (const autoApprove of [false, true]) {
+      const result = await run({
+        autoApprove,
+        event: {
+          ...envelope,
+          metadata: { command: "git reset --hard" },
+        },
+      });
+      expect(result.outcome).toBe("answered");
+      expect(result.replies).toHaveLength(1);
+      expect(result.replies[0]).toMatchObject({ reply: "reject" });
+      expect(result.replies[0]?.message).toContain("git reset --hard");
+      expect(result.events).toHaveLength(1);
+      expect(result.events[0]).toMatchObject({
+        kind: "system_text",
+        isomuxAuthored: true,
+      });
+      expect(JSON.stringify(result.events)).toContain("git reset --hard");
+    }
+  });
+
+  it("fails open on an evaluator fault and warns in the transcript", async () => {
+    const result = await run({
+      autoApprove: true,
+      evaluate: () => {
+        throw new Error("adapter fault");
+      },
+    });
+    expect(result).toEqual({
+      outcome: "answered",
+      replies: [{ reply: "once" }],
+      events: [
+        {
+          kind: "system_text",
+          text: SAFETY_WARNING,
+          isomuxAuthored: true,
+        },
+      ],
+    });
+  });
+
+  it("warns but keeps default-mode fail-open requests for the boss", async () => {
+    for (const event of [{ ...envelope, permission: undefined }, envelope]) {
+      const result = await run({
+        autoApprove: false,
+        event: event as unknown as typeof envelope,
+        ...(event === envelope
+          ? {
+              evaluate: () => {
+                throw new Error("adapter fault");
+              },
+            }
+          : {}),
+      });
+      expect(result).toEqual({
+        outcome: "prompt",
+        replies: [],
+        events: [
+          {
+            kind: "system_text",
+            text: SAFETY_WARNING,
+            isomuxAuthored: true,
+          },
+        ],
+      });
+    }
+  });
+
+  it("fails open on an unknown payload and warns once per turn", async () => {
+    const warningState = { shown: false };
+    const malformed = { ...envelope, permission: undefined };
+    const first = await run({
+      autoApprove: true,
+      event: malformed as unknown as typeof envelope,
+      warningState,
+    });
+    const second = await run({
+      autoApprove: true,
+      event: malformed as unknown as typeof envelope,
+      warningState,
+    });
+    expect(first.replies).toEqual([{ reply: "once" }]);
+    expect(first.events).toEqual([
+      { kind: "system_text", text: SAFETY_WARNING, isomuxAuthored: true },
+    ]);
+    expect(second.replies).toEqual([{ reply: "once" }]);
+    expect(second.events).toEqual([]);
+  });
+
+  it("isolates a malformed event from a later valid policy denial", async () => {
+    const warningState = { shown: false };
+    const malformed = await run({
+      autoApprove: true,
+      event: {
+        ...envelope,
+        permission: undefined,
+      } as unknown as typeof envelope,
+      warningState,
+    });
+    const valid = await run({
+      autoApprove: true,
+      event: {
+        ...envelope,
+        metadata: { command: "git reset --hard" },
+      },
+      warningState,
+    });
+    expect(malformed.replies).toEqual([{ reply: "once" }]);
+    expect(valid.replies[0]).toMatchObject({ reply: "reject" });
+    expect(JSON.stringify(valid.events)).toContain("git reset --hard");
+  });
+});
+
+describe("OpenCode permission event integration", () => {
+  async function runFrames(
+    frames: unknown[],
+    agent?: string,
+  ): Promise<{ events: NormalizedEvent[]; replies: unknown[] }> {
+    const replies: unknown[] = [];
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/event") {
+          return new Response(
+            frames
+              .map((frame) => `data: ${JSON.stringify(frame)}\n\n`)
+              .join(""),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        if (url.pathname.endsWith("/prompt_async")) return new Response(null);
+        if (url.pathname.startsWith("/permission/") && request.body) {
+          replies.push(await request.json());
+          return new Response(null);
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    const supervisor = {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        beginTurn: async () => {},
+        endTurn: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor;
+    const transport = new OpenCodeTransport({
+      cwd: "/tmp",
+      model: "provider/model",
+      systemPrompt: "system",
+      supervisor,
+      sessionId: "session-1",
+      agent,
+    });
+    const events: NormalizedEvent[] = [];
+    await transport.send([{ type: "text", text: "go" }], (event) =>
+      events.push(event),
+    );
+    const deadline = Date.now() + 1_000;
+    while (
+      !events.some((event) => event.kind === "turn_completed") &&
+      Date.now() < deadline
+    )
+      await Bun.sleep(5);
+    transport.close();
+    await server.stop(true);
+    return { events, replies };
+  }
+
+  it("fails a no-id request visibly without claiming an allow", async () => {
+    const result = await runFrames([
+      {
+        type: "permission.asked",
+        properties: {
+          sessionID: "session-1",
+          permission: "bash",
+          metadata: { command: "printf must-not-run" },
+        },
+      },
+    ]);
+    expect(result.replies).toEqual([]);
+    expect(result.events).toContainEqual({
+      kind: "system_text",
+      text: OPENCODE_PERMISSION_ID_WARNING,
+      isomuxAuthored: true,
+    });
+    expect(result.events).toContainEqual({
+      kind: "turn_completed",
+      status: "failed",
+      error: OPENCODE_PERMISSION_ID_WARNING,
+    });
+    expect(JSON.stringify(result.events)).not.toContain(SAFETY_WARNING);
+  });
+
+  it("does not answer a foreign session permission", async () => {
+    const result = await runFrames(
+      [
+        {
+          type: "permission.asked",
+          properties: {
+            sessionID: "session-foreign",
+            id: "permission-foreign",
+            permission: "bash",
+            metadata: { command: "printf foreign" },
+          },
+        },
+      ],
+      "isomux-interactive-bypass",
+    );
+    expect(result.replies).toEqual([]);
+    expect(
+      result.events.some((event) => event.kind === "approval_request"),
+    ).toBe(false);
+  });
+
+  it("answers a malformed owned request once and shows the warning", async () => {
+    const result = await runFrames(
+      [
+        {
+          type: "permission.asked",
+          properties: {
+            sessionID: "session-1",
+            id: "permission-1",
+            metadata: {},
+          },
+        },
+      ],
+      "isomux-interactive-bypass",
+    );
+    expect(result.replies).toEqual([{ reply: "once" }]);
+    expect(result.events).toContainEqual({
+      kind: "system_text",
+      text: SAFETY_WARNING,
+      isomuxAuthored: true,
+    });
   });
 });

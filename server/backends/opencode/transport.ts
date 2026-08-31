@@ -16,6 +16,17 @@ import {
 } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
 import { OPENCODE_MANUAL_API_KEY_PROVIDERS } from "./login-wrapper.ts";
+import { SAFETY_WARNING } from "../codex/safety-hook.ts";
+import {
+  evaluateOpenCodePermission,
+  type OpenCodePermissionEnvelope,
+} from "./safety-adapter.ts";
+import type { evaluateProposedAction } from "../../safety-policy.ts";
+
+export const OPENCODE_PERMISSION_ID_WARNING =
+  "ISOMUX SAFETY WARNING: OpenCode sent a tool permission request without " +
+  "an id. Isomux could not answer it, so the turn was stopped. Tell the " +
+  "office owner and check the isomux service logs.";
 
 export interface DiscoveredOpenCodeModel {
   id: string;
@@ -85,6 +96,51 @@ export interface OpenCodePromptPart {
 }
 
 type EventSink = (event: NormalizedEvent) => void;
+
+export async function handleOpenCodePermission(
+  event: OpenCodePermissionEnvelope,
+  options: {
+    cwd: string;
+    autoApprove: boolean;
+    warningState: { shown: boolean };
+    reply: (reply: "once" | "reject", message?: string) => Promise<void>;
+    sink: EventSink;
+    evaluate?: typeof evaluateProposedAction;
+  },
+): Promise<"answered" | "prompt"> {
+  const result = evaluateOpenCodePermission(
+    event,
+    options.cwd,
+    options.evaluate,
+  );
+  if (result.kind === "fail_open") {
+    if (!options.warningState.shown) {
+      options.warningState.shown = true;
+      options.sink({
+        kind: "system_text",
+        text: SAFETY_WARNING,
+        isomuxAuthored: true,
+      });
+    }
+    if (!options.autoApprove) return "prompt";
+    await options.reply("once");
+    return "answered";
+  }
+  if (result.decision.decision === "deny") {
+    await options.reply("reject", result.decision.reason);
+    options.sink({
+      kind: "system_text",
+      text: result.decision.reason,
+      isomuxAuthored: true,
+    });
+    return "answered";
+  }
+  if (options.autoApprove) {
+    await options.reply("once");
+    return "answered";
+  }
+  return "prompt";
+}
 
 interface TrackedTool {
   callId: string;
@@ -353,6 +409,7 @@ export class OpenCodeTransport {
     const reasoningByPart = new Map<string, string>();
     const tools = new Map<string, TrackedTool>();
     const seenPermissions = new Set<string>();
+    const safetyWarningState = { shown: false };
     let stepFinish: { usage?: TokenUsage; cost?: number } | null = null;
     let settled = false;
     const settle = (event: NormalizedEvent): void => {
@@ -445,6 +502,24 @@ export class OpenCodeTransport {
             if (event.kind === "permission") {
               if (seenPermissions.has(event.id)) continue;
               seenPermissions.add(event.id);
+              const handled = await handleOpenCodePermission(event, {
+                cwd: this.cwd,
+                autoApprove: !!this.agent,
+                warningState: safetyWarningState,
+                reply: (reply, message) =>
+                  this.replyPermission(event.id, reply, message),
+                sink,
+              });
+              if (handled === "answered") continue;
+              const permissionName =
+                typeof event.permission === "string"
+                  ? event.permission
+                  : "unknown tool";
+              const displayPatterns = Array.isArray(event.patterns)
+                ? event.patterns.filter(
+                    (value): value is string => typeof value === "string",
+                  )
+                : [];
               this.pendingPermission = {
                 id: event.id,
                 sessionId: event.sessionId,
@@ -452,12 +527,25 @@ export class OpenCodeTransport {
               sink({
                 kind: "approval_request",
                 approvalId: event.id,
-                toolName: event.permission,
-                input: event.patterns.length
-                  ? { patterns: event.patterns }
+                toolName: permissionName,
+                input: displayPatterns.length
+                  ? { patterns: displayPatterns }
                   : {},
-                title: `OpenCode wants to use ${event.permission}`,
+                title: `OpenCode wants to use ${permissionName}`,
               });
+            }
+            if (event.kind === "permission_fault") {
+              sink({
+                kind: "system_text",
+                text: OPENCODE_PERMISSION_ID_WARNING,
+                isomuxAuthored: true,
+              });
+              settle({
+                kind: "turn_completed",
+                status: "failed",
+                error: OPENCODE_PERMISSION_ID_WARNING,
+              });
+              return;
             }
             if (event.kind === "question") {
               sink({
@@ -546,10 +634,11 @@ export class OpenCodeTransport {
   private async replyPermission(
     id: string,
     reply: "once" | "reject",
+    message?: string,
   ): Promise<void> {
     await this.request(`/permission/${encodeURIComponent(id)}/reply`, {
       method: "POST",
-      body: JSON.stringify({ reply }),
+      body: JSON.stringify({ reply, ...(message ? { message } : {}) }),
     });
   }
 
@@ -785,9 +874,11 @@ type AllowedEvent =
       kind: "permission";
       sessionId: string;
       id: string;
-      permission: string;
-      patterns: string[];
+      permission: unknown;
+      patterns: unknown;
+      metadata: unknown;
     }
+  | { kind: "permission_fault"; sessionId: string }
   | { kind: "question"; sessionId: string; id: string }
   | {
       kind: "step_finish";
@@ -822,14 +913,15 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
   }
   if (type === "permission.asked") {
     const id = stringField(properties, "id");
-    const permission = stringField(properties, "permission");
-    if (!id || !permission) return null;
-    const patterns = Array.isArray(properties.patterns)
-      ? properties.patterns.filter(
-          (value): value is string => typeof value === "string",
-        )
-      : [];
-    return { kind: "permission", sessionId, id, permission, patterns };
+    if (!id) return { kind: "permission_fault", sessionId };
+    return {
+      kind: "permission",
+      sessionId,
+      id,
+      permission: properties.permission,
+      patterns: properties.patterns,
+      metadata: properties.metadata,
+    } satisfies OpenCodePermissionEnvelope & { kind: "permission" };
   }
   if (type === "question.asked") {
     const id = stringField(properties, "id");

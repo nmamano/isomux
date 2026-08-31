@@ -33,8 +33,8 @@ const DEFAULT_OPENCODE_CONFIG: Record<string, unknown> = {
       description: "Isomux interactive non-asking agent",
       mode: "primary",
       permission: {
-        bash: "allow",
-        edit: "allow",
+        bash: "ask",
+        edit: "ask",
         task: "allow",
         question: "deny",
       },
@@ -43,8 +43,8 @@ const DEFAULT_OPENCODE_CONFIG: Record<string, unknown> = {
       description: "Isomux unattended cron run",
       mode: "primary",
       permission: {
-        bash: "allow",
-        edit: "allow",
+        bash: "ask",
+        edit: "ask",
         task: "deny",
         question: "deny",
       },

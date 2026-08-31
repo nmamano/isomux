@@ -1,0 +1,5 @@
+{
+  "source": "isolated OpenCode 1.18.23 s6 permission probe",
+  "measured": "2026-08-31",
+  "errorPrefix": "The user rejected permission to use this specific tool call with the following feedback: "
+}
