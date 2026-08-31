@@ -2428,12 +2428,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     tokenName: string,
     text: string,
   ): void {
-    addLogEntry(
-      agentId,
-      "api_token_outbound",
-      `[To remote boss "${formatApiTokenName(tokenName)}"] ${text}`,
-      { recipient_api_token_name: formatApiTokenName(tokenName) },
-    );
+    addLogEntry(agentId, "api_token_outbound", text, {
+      recipient_api_token_name: formatApiTokenName(tokenName),
+    });
   }
 
   // Emit a log entry to the UI only (not persisted to disk) - for ephemeral

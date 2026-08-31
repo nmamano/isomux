@@ -19,10 +19,10 @@ describe("serializeEntries", () => {
       serializeEntries([
         entry("user_message", "Please report."),
         entry("text", "Working."),
-        entry(
-          "api_token_outbound",
-          '[To remote boss "Laptop"] The report is ready.',
-        ),
+        {
+          ...entry("api_token_outbound", "The report is ready."),
+          metadata: { recipient_api_token_name: "Laptop" },
+        },
       ]),
     ).toBe(
       'Please report.\n\nWorking.\n\n[To remote boss "Laptop"] The report is ready.',

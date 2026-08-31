@@ -121,7 +121,10 @@ describe("personal API tokens", () => {
     const outbound = srv.agentManager.getAgentLogs(sender.id).at(-1);
     expect(outbound).toMatchObject({
       kind: "api_token_outbound",
-      content: `[To remote boss "Remote 'Boss"] result ready`,
+      // The recipient lives in metadata, not the text: the UI renders it as
+      // the card header, so baking it into content would double it.
+      content: "result ready",
+      metadata: { recipient_api_token_name: "Remote 'Boss" },
     });
     expect(srv.agentManager.getAgent(sender.id)).toMatchObject({
       state: stateBeforeReply,

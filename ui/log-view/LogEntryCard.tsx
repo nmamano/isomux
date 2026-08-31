@@ -115,7 +115,14 @@ function findMatchingToolResult(
 export function serializeEntries(entries: LogEntry[]): string {
   const parts: string[] = [];
   for (const e of entries) {
-    if (e.kind === "user_message" || e.kind === "api_token_outbound") {
+    if (e.kind === "api_token_outbound") {
+      const recipient = e.metadata?.recipient_api_token_name;
+      parts.push(
+        typeof recipient === "string"
+          ? `[To remote boss "${recipient}"] ${e.content}`
+          : e.content,
+      );
+    } else if (e.kind === "user_message") {
       parts.push(e.content);
     } else if (e.kind === "text") {
       parts.push(e.content);
@@ -425,17 +432,23 @@ export const LogEntryCard = memo(function LogEntryCard({
         />
       );
     }
-    case "api_token_outbound":
+    case "api_token_outbound": {
+      const recipient = entry.metadata?.recipient_api_token_name;
       return (
         <UserMessage
           content={entry.content}
           isMobile={isMobile}
-          username="Agent"
+          username={
+            typeof recipient === "string"
+              ? `To remote boss "${recipient}"`
+              : "To remote boss"
+          }
           fromNonHuman
           agentId={entry.agentId}
           canEdit={false}
         />
       );
+    }
     case "text":
       return (
         <AssistantText
