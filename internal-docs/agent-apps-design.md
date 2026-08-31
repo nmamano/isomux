@@ -232,3 +232,80 @@ exist yet.
 5abf799, 39a8ba0, 73765ce, cc00e1b, 5bcdcbe, dcf0eac, ca7c29f, b955eaa), and it
 did not wait on hosted: one generic design, where a self-hoster adds a wildcard
 DNS record and the installer's Caddy block obtains certificates on demand.
+
+## As built
+
+Everything above is the design as argued in August 2026. This section records
+what actually shipped, so the concrete values live next to the reasoning that
+produced them instead of only in code. Written up 2026-08-30 while drafting the
+[Personal Software Suites](https://nilmamano.com/blog/personal-software-suites)
+post, which links here rather than repeating any of it.
+
+### Registry constants (`server/app-registry.ts`)
+
+| What | Value | Why that value |
+| --- | --- | --- |
+| Port range | 21000-21999 | Below 32768, where Linux's ephemeral range starts, so an allocated port is never stolen by an outbound connection. Clear of the defaults agents reach for anyway (3000, 5173, 8000, 8080, 9000) and of isomux's own 4000. |
+| App cap | 100 | A sanity ceiling, not a product limit (ruling 3). A plain constant; nothing about it differs per deployment. |
+| Name length | 63 | The name becomes a DNS label, so the ceiling is RFC 1035's, not a taste call. |
+| Name charset | `^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$` | One hostname label: lowercase alphanumerics and inner hyphens. |
+| Command length | 4096 | |
+| Description length | 200 | |
+
+Reserved names, which an app may not claim because the office answers to them or
+will: `www`, `api`, `apps`, `office`, `isomux`, `admin`, `mail`, `smtp`, `ns1`,
+`ns2`, `localhost`, `auth`, `login`, `static`, `assets`, `files`, `health`,
+`status`, `ws`, `docs`, `cdn`. Cheap to extend now and impossible later, since
+every addition is a name somebody might already be using.
+
+**The registry fails loud, never empty.** Every public operation, reads
+included, starts from a validated snapshot, so a malformed `apps.json` raises
+`registry_corrupt` and nothing proceeds. The load-time catch-and-return-`[]` used
+for cronjobs and tasks is actively unsafe here: an empty worldview would
+duplicate a live registration, hand a second app a port that is already serving,
+and then persist the truncated view over the file that still held the truth.
+Validation is per-record and cross-record, because a set of individually
+well-formed records can still be an impossible one. Persistence failures
+propagate for the same reason: a silent catch would report a registration that
+was never written.
+
+### Supervisor settings (`server/app-supervisor.ts`)
+
+Each app is a systemd user unit isomux writes, starts and enables, with
+`Restart=on-failure`, a start limit so a permanently broken app gives up instead
+of spinning and filling the journal, `MemoryMax=512M` and `CPUQuota=100%`. The
+resource caps are what makes one customer's runaway app survivable on hosted.
+
+Environment injected into every app: `PORT`, `ISOMUX_APP_NAME`,
+`ISOMUX_APP_DATA_DIR`, `ISOMUX_APP_TOKEN`, and, when the office has app
+hostnames, `ISOMUX_APP_URL`. `ISOMUX_APP_HOST` carries the bind host so an app
+can pass it straight to its listen call.
+
+### Token capability (`server/app-tokens.ts`, `server/app-message-limits.ts`)
+
+| | Agent token | App token |
+| --- | --- | --- |
+| Message its configured target agent | yes | yes |
+| Message any agent in the office | yes | no |
+| Read and write the task board | yes | no |
+| Read other agents' conversations | yes | no |
+| Register and manage apps | yes | no |
+| Write to its own data directory | - | yes |
+| Survives an isomux restart | no (in memory) | yes (persisted, hashed at rest) |
+
+Message limits: 10 per minute as the burst guard, 500 per rolling 24 hours as
+the cost guard, 4000 characters per message.
+
+### Visibility, as shipped (`server/app-visibility.ts`)
+
+Office owners see every app. A user sees the apps they own. A user also sees apps
+built by agents in rooms they can reach, while that agent is live. Anyone who can
+see an app can open it and read its state and restart count, but its logs, its
+command, its working directory, and its start, stop, restart and delete controls
+stay with its owner and office owners.
+
+### Deletion
+
+Delete moves the data directory to `apps/data/.retired/<name>-<deletedAt>` rather
+than erasing it, so a later app that reuses the name starts with an empty
+directory and the old state is still recoverable by hand.
