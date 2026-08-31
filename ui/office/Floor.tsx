@@ -298,7 +298,7 @@ export function Walls({
             onToggleTheme?.();
           }
         }}
-        style={{ cursor: "pointer" }}
+        style={{ cursor: "pointer", pointerEvents: "auto" }}
       >
         {/* The projecting bottom and right faces match the wall's depth. */}
         <path
