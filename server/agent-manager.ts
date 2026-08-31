@@ -2948,7 +2948,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // the first committed sample already clears both bands (e.g. lands at 87%),
   // only the HIGHEST band emits a line; all bands ≤ it are consumed.
   function maybeEmitUiContextNotice(managed: ManagedAgent): void {
-    if (managed.info.agentType === "codex") return;
+    // Keep this boss-facing guard aligned with buildContextNoticeBlock. Codex
+    // compacts itself; OpenCode is opted out by default (Nil, 2026-08-31)
+    // because its harness owns compaction and this lane did not establish when
+    // /clear or /handoff advice is useful. Its measured connected-model windows
+    // span 200k-1,048,576 tokens; band sizing already handles that variation.
+    if (
+      managed.info.agentType === "codex" ||
+      managed.info.agentType === "opencode"
+    )
+      return;
     const snap = managed.contextUsage;
     if (!snap) return;
     let chosen: number | null = null;

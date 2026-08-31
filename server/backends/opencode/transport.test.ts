@@ -124,6 +124,29 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     ).toEqual([]);
   });
 
+  it("keeps only positive finite context limits from the shared provider parser", () => {
+    const models = allowDiscoveredModels({
+      connected: ["gate"],
+      all: [
+        {
+          id: "gate",
+          models: {
+            valid: { limit: { context: 262_144 } },
+            zero: { limit: { context: 0 } },
+            negative: { limit: { context: -1 } },
+            missing: {},
+          },
+        },
+      ],
+    });
+    expect(models).toEqual([
+      { id: "gate/missing", label: "gate - missing" },
+      { id: "gate/negative", label: "gate - negative" },
+      { id: "gate/valid", label: "gate - valid", contextLimit: 262_144 },
+      { id: "gate/zero", label: "gate - zero" },
+    ]);
+  });
+
   it("keeps connected models first and offers only measured provider defaults", () => {
     const models = allowDiscoveredModels({
       connected: ["z-connected"],
@@ -466,8 +489,10 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
             id: "f",
             messageID: "m",
             tokens: {
+              total: 19,
               input: 9,
               output: 4,
+              reasoning: 3,
               cache: { read: 2, write: 1 },
               provider: canary,
             },
@@ -512,6 +537,14 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
         usage: {
           inputTokens: 9,
           outputTokens: 4,
+          cacheReadInputTokens: 2,
+          cacheCreationInputTokens: 1,
+        },
+        contextBreakdown: {
+          totalTokens: 19,
+          inputTokens: 9,
+          outputTokens: 4,
+          reasoningTokens: 3,
           cacheReadInputTokens: 2,
           cacheCreationInputTokens: 1,
         },

@@ -1079,7 +1079,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       );
   }
 
-  it("suppresses both notices for Codex while the same sample still notifies Claude and OpenCode", async () => {
+  it("suppresses both notices for Codex and OpenCode while Claude still receives them", async () => {
     const fake = backendWith(() => Promise.resolve(usage(87, WIDE_WINDOW)));
     const mgr = makeManager(fake);
     const agents = [];
@@ -1100,7 +1100,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       for (const agent of agents) {
         const sent = fake.sessionForAgent(agent.id)!.sent[1].text;
         const notices = uiNotices(mgr, agent.id);
-        if (agent.agentType === "codex") {
+        if (agent.agentType === "codex" || agent.agentType === "opencode") {
           expect(sent).not.toContain("context check");
           expect(notices).toHaveLength(0);
         } else {

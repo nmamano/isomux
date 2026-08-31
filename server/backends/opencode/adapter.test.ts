@@ -139,7 +139,11 @@ describe("OpenCode deterministic tracer", () => {
 });
 
 describe("OpenCode pinned transport", () => {
-  function oneShotHarness(frames: unknown[], timeoutMs = 100) {
+  function oneShotHarness(
+    frames: unknown[],
+    timeoutMs = 100,
+    providerLookupFails = false,
+  ) {
     const permissionReplies: unknown[] = [];
     let deletes = 0;
     const server = Bun.serve({
@@ -148,6 +152,8 @@ describe("OpenCode pinned transport", () => {
       async fetch(request) {
         const url = new URL(request.url);
         if (url.pathname === "/provider") {
+          if (providerLookupFails)
+            return new Response("failed", { status: 503 });
           return Response.json({
             connected: ["gate"],
             all: [
@@ -157,6 +163,7 @@ describe("OpenCode pinned transport", () => {
                 models: {
                   free: {
                     name: "Free",
+                    limit: { context: 200_000, output: 10_000 },
                     cost: { input: 0, output: 0 },
                   },
                 },
@@ -230,6 +237,153 @@ describe("OpenCode pinned transport", () => {
       deletes: () => deletes,
     };
   }
+
+  it("reports context fullness from the latest complete OpenCode step", async () => {
+    const harness = oneShotHarness([
+      {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "one-shot-session",
+          part: {
+            type: "step-finish",
+            id: "earlier-finish",
+            messageID: "earlier-assistant",
+            tokens: {
+              total: 577_682,
+              input: 577_000,
+              output: 682,
+              reasoning: 0,
+              cache: { read: 0, write: 0 },
+            },
+          },
+        },
+      },
+      {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "one-shot-session",
+          part: {
+            type: "step-finish",
+            id: "finish",
+            messageID: "assistant",
+            tokens: {
+              total: 29_920,
+              input: 913,
+              output: 79,
+              reasoning: 0,
+              cache: { read: 28_928, write: 0 },
+            },
+          },
+        },
+      },
+      {
+        type: "session.idle",
+        properties: { sessionID: "one-shot-session" },
+      },
+    ]);
+    const session = harness.backend.createSession({
+      ...opts,
+      modelFamily: "gate/free",
+    });
+    await session.send("measure");
+    const events = session.stream()[Symbol.asyncIterator]();
+    while ((await events.next()).value?.kind !== "turn_completed") {}
+    expect(await session.getContextUsage()).toEqual({
+      model: "gate/free",
+      totalTokens: 29_920,
+      maxTokens: 200_000,
+      percentage: 14.96,
+      categories: [
+        { name: "Input", tokens: 913 },
+        { name: "Cached input", tokens: 28_928 },
+        { name: "Cache creation", tokens: 0 },
+        { name: "Output", tokens: 79 },
+        { name: "Reasoning", tokens: 0 },
+      ],
+    });
+    session.close();
+  });
+
+  it("degrades a failed lazy model-limit lookup to no context sample", async () => {
+    const harness = oneShotHarness(
+      [
+        {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "one-shot-session",
+            part: {
+              type: "step-finish",
+              id: "finish",
+              messageID: "assistant",
+              tokens: {
+                total: 10,
+                input: 5,
+                output: 5,
+                reasoning: 0,
+                cache: { read: 0, write: 0 },
+              },
+            },
+          },
+        },
+        {
+          type: "session.idle",
+          properties: { sessionID: "one-shot-session" },
+        },
+      ],
+      100,
+      true,
+    );
+    const session = harness.backend.createSession({
+      ...opts,
+      modelFamily: "gate/free",
+    });
+    await session.send("measure");
+    const events = session.stream()[Symbol.asyncIterator]();
+    while ((await events.next()).value?.kind !== "turn_completed") {}
+    expect(await session.getContextUsage()).toBeNull();
+    session.close();
+  });
+
+  it("reports context fullness after resuming an OpenCode session", async () => {
+    const harness = oneShotHarness([
+      {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "one-shot-session",
+          part: {
+            type: "step-finish",
+            id: "finish",
+            messageID: "assistant",
+            tokens: {
+              total: 50_000,
+              input: 1_000,
+              output: 500,
+              reasoning: 100,
+              cache: { read: 48_400, write: 0 },
+            },
+          },
+        },
+      },
+      {
+        type: "session.idle",
+        properties: { sessionID: "one-shot-session" },
+      },
+    ]);
+    const session = harness.backend.resumeSession("one-shot-session", {
+      ...opts,
+      modelFamily: "gate/free",
+    });
+    await session.send("resume and measure");
+    const events = session.stream()[Symbol.asyncIterator]();
+    while ((await events.next()).value?.kind !== "turn_completed") {}
+    expect(await session.getContextUsage()).toMatchObject({
+      model: "gate/free",
+      totalTokens: 50_000,
+      maxTokens: 200_000,
+      percentage: 25,
+    });
+    session.close();
+  });
 
   it("denies unattended one-shot tool requests before the timeout backstop", async () => {
     const harness = oneShotHarness([

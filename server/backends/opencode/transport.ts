@@ -31,6 +31,7 @@ export const OPENCODE_PERMISSION_ID_WARNING =
 export interface DiscoveredOpenCodeModel {
   id: string;
   label: string;
+  contextLimit?: number;
   requiresConnection?: boolean;
   isFree?: boolean;
 }
@@ -88,6 +89,16 @@ export interface OpenCodeTransportOptions {
   sessionId?: string;
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
+  completedStepSink?: (breakdown: OpenCodeContextBreakdown) => void;
+}
+
+export interface OpenCodeContextBreakdown {
+  totalTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
 }
 
 export interface OpenCodePromptPart {
@@ -228,6 +239,10 @@ export class OpenCodeTransport {
   private readonly resumedSessionId?: string;
   private readonly contractShapeSink?: (shape: string) => void;
   private readonly safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
+  private readonly completedStepSink?: (
+    breakdown: OpenCodeContextBreakdown,
+  ) => void;
+  private modelContextLimit: number | null | undefined;
   private lease: OpenCodeLease | null = null;
   private sessionId: string | null = null;
   private abortController: AbortController | null = null;
@@ -249,6 +264,22 @@ export class OpenCodeTransport {
     this.resumedSessionId = options.sessionId;
     this.contractShapeSink = options.contractShapeSink;
     this.safeErrorSink = options.safeErrorSink;
+    this.completedStepSink = options.completedStepSink;
+  }
+
+  async getModelContextLimit(): Promise<number | null> {
+    if (this.modelContextLimit !== undefined) return this.modelContextLimit;
+    await this.initialize(() => undefined);
+    const response = await this.request("/provider");
+    const model = allowDiscoveredModels(await response.json()).find(
+      (candidate) => candidate.id === this.model,
+    );
+    this.modelContextLimit = model?.contextLimit ?? null;
+    return this.modelContextLimit;
+  }
+
+  modelId(): string {
+    return this.model;
   }
 
   async initialize(sink: EventSink): Promise<string> {
@@ -561,8 +592,11 @@ export class OpenCodeTransport {
                 requestId: event.id,
               });
             }
-            if (event.kind === "step_finish")
+            if (event.kind === "step_finish") {
               stepFinish = { usage: event.usage, cost: event.cost };
+              if (event.contextBreakdown)
+                this.completedStepSink?.(event.contextBreakdown);
+            }
             if (event.kind === "idle") {
               if (this.abortRequested) {
                 for (const result of interruptedToolResults(tools.values()))
@@ -751,10 +785,12 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
       const id = `${providerId}/${modelId}`;
       const model = asRecord(rawModel);
       const modelLabel = safeCatalogLabel(model.name, modelId);
+      const contextLimit = positiveNumber(asRecord(model.limit), "context");
       if (!byId.has(id)) {
         byId.set(id, {
           id,
           label: `${providerLabel} - ${modelLabel}`,
+          ...(contextLimit !== null ? { contextLimit } : {}),
           ...(openCodeModelIsFree(model.cost) ? { isFree: true } : {}),
         });
       }
@@ -891,6 +927,7 @@ type AllowedEvent =
       kind: "step_finish";
       sessionId: string;
       usage?: TokenUsage;
+      contextBreakdown?: OpenCodeContextBreakdown;
       cost?: number;
     }
   | { kind: "idle"; sessionId: string }
@@ -998,6 +1035,12 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
       const cache = asRecord(tokens.cache);
       const input = numberField(tokens, "input");
       const output = numberField(tokens, "output");
+      const reasoning = numberField(tokens, "reasoning");
+      // Per-message total is the fullness signal. OpenCode's session table also
+      // has cumulative tokens_input, tokens_output, and tokens_cache_read
+      // columns (storage.ts): if a future release makes this total cumulative,
+      // reading it through would pin every OpenCode battery at 100%.
+      const total = numberField(tokens, "total");
       if (!partId) return null;
       const usage =
         input !== null && output !== null
@@ -1009,15 +1052,36 @@ export function parseAllowedEvent(data: string): AllowedEvent | null {
             }
           : undefined;
       const cost = numberField(part, "cost");
+      const contextBreakdown =
+        total !== null &&
+        total >= 0 &&
+        input !== null &&
+        output !== null &&
+        reasoning !== null
+          ? {
+              totalTokens: total,
+              inputTokens: input,
+              outputTokens: output,
+              reasoningTokens: reasoning,
+              cacheReadInputTokens: numberField(cache, "read") ?? 0,
+              cacheCreationInputTokens: numberField(cache, "write") ?? 0,
+            }
+          : undefined;
       return {
         kind: "step_finish",
         sessionId,
         ...(usage ? { usage } : {}),
+        ...(contextBreakdown ? { contextBreakdown } : {}),
         ...(cost !== null ? { cost } : {}),
       };
     }
   }
   return null;
+}
+
+function positiveNumber(record: Record<string, unknown>, field: string) {
+  const value = numberField(record, field);
+  return value !== null && value > 0 ? value : null;
 }
 
 function allowError(value: unknown): SafeOpenCodeError {

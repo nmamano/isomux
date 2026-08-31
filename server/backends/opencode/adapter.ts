@@ -32,6 +32,7 @@ import {
   discoverOpenCodeModels,
   OpenCodeTransport,
   splitModel,
+  type OpenCodeContextBreakdown,
   type SafeOpenCodeError,
 } from "./transport.ts";
 import {
@@ -144,6 +145,7 @@ class OpenCodeServerSession implements BackendSession {
   private ended = false;
   private readonly transport: OpenCodeTransport;
   private readonly agentId: string;
+  private latestContextBreakdown: OpenCodeContextBreakdown | null = null;
 
   constructor(
     opts: CreateSessionOptions,
@@ -166,6 +168,9 @@ class OpenCodeServerSession implements BackendSession {
       sessionId,
       contractShapeSink,
       safeErrorSink,
+      completedStepSink: (breakdown) => {
+        this.latestContextBreakdown = breakdown;
+      },
     });
   }
 
@@ -191,7 +196,31 @@ class OpenCodeServerSession implements BackendSession {
   }
 
   async getContextUsage(): Promise<ContextUsage | null> {
-    return null;
+    const breakdown = this.latestContextBreakdown;
+    if (!breakdown) return null;
+    let maxTokens: number | null;
+    try {
+      maxTokens = await this.transport.getModelContextLimit();
+    } catch {
+      return null;
+    }
+    if (maxTokens === null) return null;
+    return {
+      model: this.transport.modelId(),
+      totalTokens: breakdown.totalTokens,
+      maxTokens,
+      percentage: Math.min(100, (breakdown.totalTokens / maxTokens) * 100),
+      categories: [
+        { name: "Input", tokens: breakdown.inputTokens },
+        { name: "Cached input", tokens: breakdown.cacheReadInputTokens },
+        {
+          name: "Cache creation",
+          tokens: breakdown.cacheCreationInputTokens,
+        },
+        { name: "Output", tokens: breakdown.outputTokens },
+        { name: "Reasoning", tokens: breakdown.reasoningTokens },
+      ],
+    };
   }
 
   async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
@@ -496,7 +525,7 @@ export function createOpenCodeBackend(
     async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
       const supervisor = supervisorFor(opts);
       const models = await discoverOpenCodeModels(supervisor, opts.cwd);
-      return models.map((entry) => ({
+      return models.map(({ contextLimit: _contextLimit, ...entry }) => ({
         ...entry,
         supportedEfforts: [],
       }));

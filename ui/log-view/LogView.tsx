@@ -40,7 +40,9 @@ import {
   LogEntryCard,
   RawToolCallGroupCard,
   serializeEntries,
+  describeMessageSender,
 } from "./LogEntryCard.tsx";
+import { pinnedHumanMessageId } from "./pinned-message.ts";
 import {
   findRawToolCallGroups,
   liveTailEntryIds,
@@ -707,7 +709,13 @@ export function ChoiceInteractionCard({
   );
 }
 
-export function showAgentUsageIndicators(
+export function showAgentContextUsageIndicator(
+  _agentType: AgentInfo["agentType"],
+): boolean {
+  return true;
+}
+
+export function showAgentSubscriptionUsageIndicator(
   agentType: AgentInfo["agentType"],
 ): boolean {
   return agentType !== "opencode";
@@ -1261,25 +1269,13 @@ export function LogView({
     const root = scrollRef.current;
     if (!root) return;
     const rootRect = root.getBoundingClientRect();
-    for (let i = logs.length - 1; i >= 0; i--) {
-      const e = logs[i];
-      if (e.kind !== "user_message") continue;
-      const node = userMsgNodesRef.current.get(e.id);
-      if (!node) continue;
-      const r = node.getBoundingClientRect();
-      if (r.bottom > rootRect.top && r.top < rootRect.bottom) {
-        // visible - no pin
-        setPinnedMessageId(null);
-        return;
-      }
-      if (r.bottom <= rootRect.top) {
-        // first one above the viewport (iterating newest→oldest) wins
-        setPinnedMessageId(e.id);
-        return;
-      }
-      // else: below viewport, keep looking earlier
-    }
-    setPinnedMessageId(null);
+    setPinnedMessageId(
+      pinnedHumanMessageId(
+        logs,
+        (id) => userMsgNodesRef.current.get(id)?.getBoundingClientRect(),
+        rootRect,
+      ),
+    );
   }, [logs]);
   // Recompute after every render that could affect positions, on the next
   // frame so layout has settled (including auto-scroll's double-rAF).
@@ -2219,18 +2215,18 @@ export function LogView({
               gap: 10,
             }}
           >
-            {showAgentUsageIndicators(agent.agentType) && (
-              <>
-                <SubscriptionPill
-                  // Remount on agent/engine change so the pinned-limit state is
-                  // re-read for the new identity instead of being synced.
-                  key={`${agent.id}:${agent.agentType}`}
-                  usage={agent.subscriptionUsage}
-                  agentId={agent.id}
-                  provider={agent.agentType}
-                />
-                <ContextBattery usage={agent.contextUsage} />
-              </>
+            {showAgentSubscriptionUsageIndicator(agent.agentType) && (
+              <SubscriptionPill
+                // Remount on agent/engine change so the pinned-limit state is
+                // re-read for the new identity instead of being synced.
+                key={`${agent.id}:${agent.agentType}`}
+                usage={agent.subscriptionUsage}
+                agentId={agent.id}
+                provider={agent.agentType}
+              />
+            )}
+            {showAgentContextUsageIndicator(agent.agentType) && (
+              <ContextBattery usage={agent.contextUsage} />
             )}
             {/* Reads and flips the PREF, not the gated `slideView`: inside this
                 branch the gate is on so the two agree, but a toggle driven by
@@ -2339,17 +2335,17 @@ export function LogView({
                   {agent.pendingPrompt && !interaction && (
                     <PendingPromptLabel kind={agent.pendingPrompt} />
                   )}
-                  {showAgentUsageIndicators(agent.agentType) && (
-                    <>
-                      <SubscriptionPill
-                        key={`${agent.id}:${agent.agentType}`}
-                        usage={agent.subscriptionUsage}
-                        agentId={agent.id}
-                        provider={agent.agentType}
-                        isMobile
-                      />
-                      <ContextBattery usage={agent.contextUsage} isMobile />
-                    </>
+                  {showAgentSubscriptionUsageIndicator(agent.agentType) && (
+                    <SubscriptionPill
+                      key={`${agent.id}:${agent.agentType}`}
+                      usage={agent.subscriptionUsage}
+                      agentId={agent.id}
+                      provider={agent.agentType}
+                      isMobile
+                    />
+                  )}
+                  {showAgentContextUsageIndicator(agent.agentType) && (
+                    <ContextBattery usage={agent.contextUsage} isMobile />
                   )}
                   {slideModeEnabled && (
                     <SlideToggleButton
@@ -2546,7 +2542,9 @@ export function LogView({
                     agent.state === "waiting_for_response" &&
                     !editingLogEntryId &&
                     agent.capabilities.edit;
-                  const isUserMsg = entry.kind === "user_message";
+                  const isUserMsg =
+                    entry.kind === "user_message" &&
+                    describeMessageSender(entry.metadata).fromHuman;
                   return (
                     <div
                       key={entry.id}

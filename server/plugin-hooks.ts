@@ -569,7 +569,16 @@ export function pickContextThreshold(managed: ManagedAgent): number | null {
 async function buildContextNoticeBlock(
   managed: ManagedAgent,
 ): Promise<{ threshold: number; block: string; gen: number } | null> {
-  if (managed.info.agentType === "codex") return null;
+  // Codex compacts its own thread, so /clear or /handoff advice is wrong.
+  // OpenCode is also opted out by default (Nil, 2026-08-31): its six connected
+  // models measured 200k-1,048,576-token windows, but this lane did not prove
+  // when its harness-owned compaction makes the advice useful. The bands below
+  // already handle different and unknown window sizes without this guard.
+  if (
+    managed.info.agentType === "codex" ||
+    managed.info.agentType === "opencode"
+  )
+    return null;
   const inFlight = managed.contextSampleInFlight;
   if (inFlight) {
     await Promise.race([
