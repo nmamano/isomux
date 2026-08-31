@@ -306,7 +306,11 @@ describe("routes/logs REST: the three modes", () => {
     // The response states the selection it actually applied, so a caller never
     // has to re-derive it from the parameters they sent.
     expect(r.body.tier).toBe("conversation");
-    expect(r.body.kinds).toEqual(["user_message", "text", "api_token_outbound"]);
+    expect(r.body.kinds).toEqual([
+      "user_message",
+      "text",
+      "api_token_outbound",
+    ]);
 
     // The handle round-trips: feed {sessionId, entryId} straight back.
     const ctx = await api(
