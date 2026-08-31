@@ -430,6 +430,16 @@ export class SessionSwappedError extends Error {
   }
 }
 
+// A newer turn claimed the session while an older caller still owned the
+// per-turn deferred. Callers discriminate this ownership handoff from backend
+// failures without coupling control flow to the diagnostic message text.
+export class TurnSupersededError extends Error {
+  constructor(message = "Superseded by a new turn.") {
+    super(message);
+    this.name = "TurnSupersededError";
+  }
+}
+
 // Thrown by a backend session.send() when the backend isn't usable at all -
 // CLI not installed, auth missing, etc. - i.e. the failure is about the
 // agent's setup, not about the turn. sendMessage / flushQueue / editMessage

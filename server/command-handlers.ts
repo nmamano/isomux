@@ -1175,7 +1175,10 @@ export function createCommandHandling(deps: HandlerDeps) {
     // model. Multi-step pending flows still take the immediate path: the
     // user's reply during /resume etc. is a pick, not a skill.
     const state = managed.info.state;
-    const busy = state === "thinking" || state === "tool_executing";
+    const busy =
+      state === "thinking" ||
+      state === "tool_executing" ||
+      managed.pendingTurn !== null;
     if (busy && !inMultiStepFlow(managed)) {
       const result = deps.enqueueMessage(agentId, {
         sender: { kind: "user", username, device },

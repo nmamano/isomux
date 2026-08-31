@@ -1389,6 +1389,105 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
   });
 });
 
+// Regression for task bc782d34. A prompt-opening slash command (/model here)
+// can demote the visible state to waiting_for_response while an accepted queue
+// flush still owns pendingTurn. The queueing guards key on pendingTurn rather
+// than the visible state, so a model-running skill queues behind the flush
+// instead of superseding its deferred. Items arriving after the accepted
+// snapshot stay queued and retry at the next turn boundary.
+describe("queue: newer turn supersedes an accepted flush (task bc782d34)", () => {
+  it("keeps the accepted flush out of error and retries later arrivals", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    await postAgentMessage(server, recv.id, sender.id, "queued-turn");
+    const session = server.fakeBackend.sessionForAgent(recv.id)!;
+    await waitUntil(
+      () => session.sent.some((m) => m.text.includes("queued-turn")),
+      2000,
+      "flush accepted",
+    );
+    expect(queueOf(server, recv.id).length).toBe(0);
+    expect(stateOf(server, recv.id)).toBe("thinking");
+
+    // /model demotes the visible state while the flush still owns pendingTurn.
+    // The skill must queue behind it - the guard reads pendingTurn, not the
+    // visible state - so no second turn starts and no deferred is superseded.
+    await server.agentManager.sendMessage(recv.id, "/model", owner.username);
+    void server.agentManager.sendMessage(recv.id, "/grill-me", owner.username);
+
+    await waitUntil(
+      () => queueOf(server!, recv.id).some((item) => item.text === "/grill-me"),
+      2000,
+      "skill waits behind accepted flush",
+    );
+    expect(session.sent.length).toBe(1);
+    session.completeTurn();
+    await waitUntil(
+      () => session.sent.length === 2,
+      2000,
+      "queued skill accepted",
+    );
+    await postAgentMessage(server, recv.id, sender.id, "later-item");
+    await waitUntil(
+      () =>
+        queueOf(server!, recv.id).some((item) => item.text === "later-item"),
+      2000,
+      "later item remains visible",
+    );
+    session.completeTurn();
+    await waitUntil(
+      () => session.sent.some((message) => message.text.includes("later-item")),
+      2000,
+      "later item retried",
+    );
+    await waitUntil(
+      () =>
+        server!.agentManager
+          .getAgentLogs(recv.id)
+          .some(
+            (entry) =>
+              entry.kind === "user_message" && entry.content === "later-item",
+          ),
+      2000,
+      "later item provenance",
+    );
+    const logs = server.agentManager.getAgentLogs(recv.id);
+    expect(
+      logs.some(
+        (entry) =>
+          entry.kind === "user_message" && entry.content === "queued-turn",
+      ),
+    ).toBe(true);
+    expect(
+      logs.some(
+        (entry) =>
+          entry.kind === "error" &&
+          entry.content === "Error flushing queue: Superseded by a new turn.",
+      ),
+    ).toBe(false);
+    expect(
+      sock.messages.some((message) => {
+        const update = message as {
+          type?: string;
+          agentId?: string;
+          changes?: { state?: string };
+        };
+        return (
+          update.type === "agent_updated" &&
+          update.agentId === recv.id &&
+          update.changes?.state === "error"
+        );
+      }),
+    ).toBe(false);
+  });
+});
+
 // Task 8ba27b27: changing a setting (e.g. thinking effort) while messages are
 // queued swaps the session out from under the in-flight flush turn. That's
 // expected behavior, not a stall: the settings-driven replace stamps

@@ -134,6 +134,7 @@ import { productionStorageRoots } from "./storage-roots.ts";
 import {
   BackendNotConfiguredError,
   SessionSwappedError,
+  TurnSupersededError,
   inMultiStepFlow,
   pendingPromptOf,
   type ManagedAgent,
@@ -3729,7 +3730,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (stale) {
       managed.pendingTurn = null;
       try {
-        stale.reject(new Error("Superseded by a new turn."));
+        stale.reject(new TurnSupersededError());
       } catch {}
     }
     let resolve!: () => void;
@@ -5758,6 +5759,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           }
           return;
         }
+        if (err instanceof TurnSupersededError) {
+          // The old send was accepted before runAgentTurn awaited this
+          // deferred, so its queued snapshot already reached the backend.
+          // Keep a server-side trace of the ownership mismatch without
+          // presenting it as a failed delivery or putting the agent in error.
+          console.error(
+            `Agent ${agentId} flush turn was superseded after send acceptance:`,
+            errMessage(err),
+          );
+          return;
+        }
         if (err instanceof BackendNotConfiguredError) {
           // Backend can't run at all (CLI missing, auth missing, etc.).
           // surfaceBackendNotConfigured emits the hint+card, drains the queue
@@ -6039,7 +6051,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // is interpreted as a pick. Slash commands also pass through so /clear,
     // /new etc. can preempt rather than queue.
     const state = managed.info.state;
-    const busy = state === "thinking" || state === "tool_executing";
+    const busy =
+      state === "thinking" ||
+      state === "tool_executing" ||
+      managed.pendingTurn !== null;
     const isSlash = text.startsWith("/");
     if (busy && !claimedChoice && !inMultiStepFlow(managed) && !isSlash) {
       const result = enqueueMessage(agentId, {
