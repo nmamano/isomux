@@ -196,7 +196,9 @@ function ProviderScopeConnection({
     >
       <div style={{ fontSize: 12, fontWeight: 650 }}>{scopeTitle}</div>
       <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
-      <p style={{ ...hint, margin: "8px 0 0" }}>{status}</p>
+      <p style={{ ...hint, margin: "8px 0 0" }}>
+        <strong>Status:</strong> {status}
+      </p>
       {account?.error && (
         <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
           {account.error}
@@ -243,26 +245,21 @@ function ProviderScopeConnection({
           <div style={{ margin: "12px 0" }}>
             <p style={{ ...hint, margin: "0 0 8px" }}>
               {provider === "codex"
-                ? "Sign in here, or use a one-time code on another device."
+                ? "Signing in gives you a one-time code to enter on OpenAI's page. The page opens in a new tab; you can also open it on any other device."
                 : "Claude opens in your browser. After you sign in, paste the code here."}
             </p>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 style={dialogCancelBtn}
-                onClick={() => void connect("browser")}
+                onClick={() =>
+                  void connect(provider === "codex" ? "device" : "browser")
+                }
                 disabled={pending}
               >
-                Sign in with browser
+                {provider === "codex"
+                  ? "Sign in with one-time code"
+                  : "Sign in with browser"}
               </button>
-              {provider === "codex" && (
-                <button
-                  style={dialogCancelBtn}
-                  onClick={() => void connect("device")}
-                  disabled={pending}
-                >
-                  Sign in with one-time code
-                </button>
-              )}
             </div>
           </div>
         )
@@ -290,7 +287,6 @@ function ProviderScopeConnection({
             </button>
           ) : (
             <div role="dialog" aria-label={`Sign out ${title}`}>
-              {externalWarning && <p style={hint}>{externalWarning}</p>}
               <div style={{ display: "flex", gap: 8 }}>
                 <button
                   autoFocus
@@ -305,7 +301,7 @@ function ProviderScopeConnection({
                   onClick={() => void disconnect()}
                   disabled={pending}
                 >
-                  {`Sign out ${title}`}
+                  Confirm sign out
                 </button>
               </div>
             </div>

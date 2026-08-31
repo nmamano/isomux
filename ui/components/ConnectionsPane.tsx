@@ -81,7 +81,7 @@ export function ConnectionsPane() {
       </div>
       <p style={hint}>
         Connect the accounts your agents use. The provider stores the
-        credentials.
+        credentials, not us.
       </p>
       {error && <p style={{ color: "var(--red)", fontSize: 12 }}>{error}</p>}
       <ProviderSignInCard
@@ -94,6 +94,12 @@ export function ConnectionsPane() {
         accounts={accounts}
         onAccounts={updateAccounts}
       />
+      <p style={{ ...hint, marginTop: 14 }}>
+        <strong>Do you want to use an API token?</strong> Add{" "}
+        <code>ANTHROPIC_API_KEY</code> (Claude) or <code>OPENAI_API_KEY</code>{" "}
+        (Codex) to your env file (User Settings → Env File Path), then{" "}
+        <code>/clear</code> your agents to apply it.
+      </p>
     </div>
   );
 }
