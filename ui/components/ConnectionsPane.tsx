@@ -97,8 +97,9 @@ export function ConnectionsPane() {
       <p style={{ ...hint, marginTop: 14 }}>
         <strong>Do you want to use an API token?</strong> Add{" "}
         <code>ANTHROPIC_API_KEY</code> (Claude) or <code>OPENAI_API_KEY</code>{" "}
-        (Codex) to your env file (User Settings → Env File Path), then{" "}
-        <code>/clear</code> your agents to apply it.
+        (Codex) to your env file (User Settings → Env File Path), or to the
+        office env file (Office Settings → Env File Path) to share it with
+        every agent. Then <code>/clear</code> agents to apply it.
       </p>
     </div>
   );
