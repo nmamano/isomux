@@ -6,13 +6,13 @@
 // smoke proving the harness itself); the richer projection/ACL and persistence
 // nets are 1.2 / 1.3.
 //
-// How the seed is exercised (NOT via harness.seedOwner): the one-Opus + one-Codex
+// How the seed is exercised (NOT via harness.seedOwner): the three-agent
 // welcome seed fires from the onOwnerCreated hook on the HTTP claim path. We go
 // through a real POST /auth/claim so the hook runs; seedOwner() calls
 // _testSeedOwner directly and bypasses it.
 //
 // Backend states are scripted on a single injected FakeBackend. The harness
-// resolver is `() => fakeBackend` and ignores agentType, so ONE fake drives both
+// resolver is `() => fakeBackend` and ignores agentType, so ONE fake drives all
 // welcome agents (incl. detectAuthError + getLoginInstructions). Spawn creates a
 // session synchronously but never auto-sends; every normal/error behavior here
 // surfaces on the FIRST user message, so each state is driven by a WS
@@ -36,6 +36,7 @@ import {
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { BackendNotConfiguredError } from "../internal-types.ts";
+import { _testRunOwnerCreatedHook } from "../auth-middleware.ts";
 import { STATE_ROOT } from "../config.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
 
@@ -167,6 +168,7 @@ function persistedAgentRecords(): Array<{
 
 const CLAUDE_WELCOME = "Claude Welcome Agent";
 const CODEX_WELCOME = "Codex Welcome Agent";
+const OPENCODE_WELCOME = "OpenCode Welcome Agent";
 
 // Resolve a seeded welcome agent by name, failing clearly (vs a bare non-null
 // assertion's generic throw) if the seed ever regresses.
@@ -177,18 +179,20 @@ function requireAgentByName(srv: TestServer, name: string): AgentInfo {
 }
 
 describe("onboarding / fresh install (Phase 1.1)", () => {
-  it("seeds one Claude (Opus) + one Codex welcome agent on the first-owner claim", async () => {
+  it("seeds Claude, Codex, and free-model OpenCode welcome agents on the first-owner claim", async () => {
     // Default harness backend; the seed never sends, so its onSend is irrelevant.
     server = await startTestServer();
     await claimOwner(server, "Boss");
 
     const agents = server.agentManager.getAllAgents();
-    expect(agents.length).toBe(2);
+    expect(agents.length).toBe(3);
 
     const claude = agents.find((a) => a.name === CLAUDE_WELCOME);
     const codex = agents.find((a) => a.name === CODEX_WELCOME);
+    const opencode = agents.find((a) => a.name === OPENCODE_WELCOME);
     expect(claude).toBeDefined();
     expect(codex).toBeDefined();
+    expect(opencode).toBeDefined();
 
     // Backend + model + permission identity each welcome agent ships with.
     expect(claude!.agentType).toBe("claude");
@@ -198,33 +202,91 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(codex!.modelFamily).toBe("gpt-5.6-sol");
     expect(codex!.permissionMode).toBe("never");
     expect(codex!.codexSandbox).toBe("danger-full-access");
+    expect(opencode!.agentType).toBe("opencode");
+    expect(opencode!.modelFamily).toBe(
+      "opencode/muse-spark-1.2-contributor-free",
+    );
+    expect(opencode!.permissionMode).toBe("bypassPermissions");
 
     // Lazy spawn: the welcome agents are seeded DORMANT - zero subprocesses
     // until someone messages them (a fresh-install office shouldn't burn ~330MB
-    // on two agents nobody has talked to yet). The `agents.length === 2` check
+    // on three agents nobody has talked to yet). The `agents.length === 3` check
     // above already guards the accidental double-seed regression the
     // onOwnerCreated guard prevents.
     expect(server.fakeBackend.createSessionCount).toBe(0);
     expect(claude!.dormant).toBe(true);
     expect(codex!.dormant).toBe(true);
+    expect(opencode!.dormant).toBe(true);
+
+    for (const agent of agents) {
+      expect(agent.customInstructions).toContain(
+        "New offices come preset with these welcome agents: Claude Welcome Agent (Claude), Codex Welcome Agent (Codex), OpenCode Welcome Agent (OpenCode).",
+      );
+      expect(agent.customInstructions).toContain(
+        "The OpenCode Welcome Agent answers immediately, with no sign-in.",
+      );
+      expect(agent.customInstructions).toContain(
+        "If the Claude or Codex welcome agent does not answer, that provider account is not signed in yet.",
+      );
+    }
 
     // Persisted to disk under the temp STATE_ROOT (parse records, not substring).
     const names = persistedAgentRecords().map((a) => a.name);
     expect(names).toContain(CLAUDE_WELCOME);
     expect(names).toContain(CODEX_WELCOME);
+    expect(names).toContain(OPENCODE_WELCOME);
   });
 
-  it("backend logged in: a messaged welcome agent completes its first turn", async () => {
+  it("does not add welcome agents when the first-owner hook runs again", async () => {
+    server = await startTestServer();
+    await claimOwner(server, "Boss");
+    const openCode = requireAgentByName(server, OPENCODE_WELCOME);
+    await server.agentManager.editAgent(openCode.id, {
+      name: "Renamed Welcome Agent",
+    });
+    const before = server.agentManager.getAllAgents().map((agent) => agent.id);
+
+    await _testRunOwnerCreatedHook("Boss");
+
+    expect(server.agentManager.getAllAgents().map((agent) => agent.id)).toEqual(
+      before,
+    );
+    expect(before).toHaveLength(3);
+    expect(
+      server.agentManager
+        .getAllAgents()
+        .some((agent) => agent.name === OPENCODE_WELCOME),
+    ).toBe(false);
+  });
+
+  it("leaves an office that already has an agent unchanged on first-owner claim", async () => {
+    server = await startTestServer();
+    const existing = await server.agentManager.spawn(
+      "Existing Agent",
+      "~",
+      "auto",
+    );
+    expect(existing).not.toBeNull();
+
+    await claimOwner(server, "Boss");
+
+    const agents = server.agentManager.getAllAgents();
+    expect(agents).toHaveLength(1);
+    expect(agents[0].id).toBe(existing!.id);
+    expect(agents[0].name).toBe("Existing Agent");
+  });
+
+  it("OpenCode welcome-agent wiring completes its first fake-backend turn", async () => {
     const fakeBackend = new FakeBackend({
       session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
     });
     server = await startTestServer({ fakeBackend });
     const rawSessionId = await claimOwner(server, "Boss");
 
-    const claude = requireAgentByName(server, CLAUDE_WELCOME);
+    const opencode = requireAgentByName(server, OPENCODE_WELCOME);
     const sock = await connectAsOwner(server, rawSessionId);
 
-    await server.http(`/api/agents/${claude.id}/messages`, {
+    await server.http(`/api/agents/${opencode.id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "hi" }),
@@ -236,10 +298,10 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     // idle is only the pre-turn state).
     await waitForLog(
       sock,
-      claude.id,
+      opencode.id,
       (e) => e.kind === "text" && e.content === "ok",
     );
-    await waitForState(server, claude.id, "waiting_for_response");
+    await waitForState(server, opencode.id, "waiting_for_response");
   });
 
   it("backend installed but not logged in: surfaces sign-in instructions", async () => {
@@ -330,8 +392,8 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     );
     await waitForState(server, codex.id, "waiting_for_response");
 
-    // No crash: the office survived the broken backend (both welcome agents
+    // No crash: the office survived the broken backend (all welcome agents
     // still present, server still serving).
-    expect(server.agentManager.getAllAgents().length).toBe(2);
+    expect(server.agentManager.getAllAgents().length).toBe(3);
   });
 });

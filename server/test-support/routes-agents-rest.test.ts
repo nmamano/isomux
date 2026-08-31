@@ -1100,6 +1100,52 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(after?.codexSandbox).toBe("danger-full-access");
   });
 
+  it("PATCH claude->codex with the edit dialog's explicit defaults lands full access", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        agentType: "codex",
+        modelFamily: "gpt-5.6-sol",
+        effort: "high",
+        permissionMode: "never",
+        codexSandbox: "danger-full-access",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const after = srv.agentManager.getAgent(x.id);
+    expect(after?.agentType).toBe("codex");
+    expect(after?.permissionMode).toBe("never");
+    expect(after?.codexSandbox).toBe("danger-full-access");
+  });
+
+  it("PATCH claude->codex preserves explicit non-default permission and sandbox values", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        agentType: "codex",
+        modelFamily: "gpt-5.6-sol",
+        effort: "high",
+        permissionMode: "on-request",
+        codexSandbox: "workspace-write",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const after = srv.agentManager.getAgent(x.id);
+    expect(after?.agentType).toBe("codex");
+    expect(after?.permissionMode).toBe("on-request");
+    expect(after?.codexSandbox).toBe("workspace-write");
+  });
+
   // Task a7a60fba. The engine switch applies the metadata edit (name/cwd/
   // outfit/instructions) and only THEN hands off to newConversation for the
   // engine change, with no rollback wrapper around the pair. That is safe only

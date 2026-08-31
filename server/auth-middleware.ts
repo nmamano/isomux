@@ -49,6 +49,15 @@ export function setOnOwnerCreated(cb: OwnerCreatedCb | null): void {
   onOwnerCreated = cb;
 }
 
+// Test-only driver for the registered first-owner hook. This lets onboarding
+// tests prove the seed itself is idempotent without manufacturing a second
+// first-owner auth transition, which the real auth state correctly forbids.
+export async function _testRunOwnerCreatedHook(
+  username: string,
+): Promise<void> {
+  await onOwnerCreated?.({ username });
+}
+
 // ---------------------------------------------------------------------------
 // Loopback detection. This is NOT an authentication bypass, and there is no
 // longer one: every caller needs a bearer token or a session cookie, and the

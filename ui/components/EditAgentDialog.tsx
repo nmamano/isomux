@@ -81,6 +81,22 @@ export function codexNewEngineDefaults(): {
   return { permissionMode: "never", codexSandbox: "danger-full-access" };
 }
 
+export function agentEngineSwitchChanges(
+  targetEngine: AgentBackendType,
+  modelFamily: string,
+  effort: EffortLevel,
+  permissionMode: AgentInfo["permissionMode"],
+  codexSandbox: CodexSandboxMode,
+): EditAgentReq {
+  return {
+    agentType: targetEngine,
+    modelFamily,
+    effort,
+    permissionMode,
+    ...(targetEngine === "codex" ? { codexSandbox } : {}),
+  };
+}
+
 export function initialPermissionModeFor(
   agent: AgentInfo | undefined,
   engine: AgentBackendType,
@@ -869,11 +885,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         // The menus now show the new engine's options, so send the chosen
         // values along with the switch; the server validates each against the
         // target engine.
-        changes.agentType = targetEngine;
-        changes.modelFamily = modelFamily;
-        changes.effort = effort;
-        changes.permissionMode = permissionMode;
-        if (targetEngine === "codex") changes.codexSandbox = codexSandbox;
+        Object.assign(
+          changes,
+          agentEngineSwitchChanges(
+            targetEngine,
+            modelFamily,
+            effort,
+            permissionMode,
+            codexSandbox,
+          ),
+        );
       } else {
         if (modelFamily !== agent!.modelFamily)
           changes.modelFamily = modelFamily;

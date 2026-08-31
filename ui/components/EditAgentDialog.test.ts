@@ -6,6 +6,7 @@
 // noted in ContextBattery.test.ts).
 import { describe, it, expect } from "bun:test";
 import {
+  agentEngineSwitchChanges,
   agentFormDirty,
   codexNewEngineDefaults,
   defaultBackendModel,
@@ -97,7 +98,19 @@ describe("Codex new-engine defaults", () => {
   });
 
   it("gives edit-path engine switches full access without approval prompts", () => {
-    expect(codexNewEngineDefaults()).toEqual({
+    const defaults = codexNewEngineDefaults();
+    expect(
+      agentEngineSwitchChanges(
+        "codex",
+        "gpt-5.6-sol",
+        "high",
+        defaults.permissionMode,
+        defaults.codexSandbox,
+      ),
+    ).toEqual({
+      agentType: "codex",
+      modelFamily: "gpt-5.6-sol",
+      effort: "high",
       permissionMode: "never",
       codexSandbox: "danger-full-access",
     });

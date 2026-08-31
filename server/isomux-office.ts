@@ -71,6 +71,7 @@ import type { TaskItem } from "../shared/types.ts";
 import {
   CODEX_MODELS,
   MODEL_FAMILIES,
+  OPENCODE_DEFAULT_MODEL,
   type AgentOutfit,
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -474,26 +475,39 @@ function registerBootHooks(): void {
     recheckOpenAppSockets();
   });
 
-  // First-install onboarding: pre-spawn one Claude and one Codex welcome agent
-  // so the new owner can try whichever backend they're set up for. Spawn is
-  // always allowed (no CLI install check); the other backend surfaces a
-  // chat-visible error on first message - missing CLI, missing auth, all the
-  // same UX. Per-spawn try/catch is defense in depth against any unexpected
-  // throw. Awaited so both agents are in officeState before the redirected
+  // First-install onboarding: pre-spawn one welcome agent for each backend.
+  // OpenCode's bundled free model answers without provider credentials, so a
+  // new owner has one working coworker before signing in to Claude or Codex.
+  // Spawn is always allowed (no CLI install check); an unavailable backend
+  // surfaces a chat-visible error on first message. Per-spawn try/catch is
+  // defense in depth against any unexpected throw. Awaited so all three agents
+  // are in officeState before the redirected
   // browser reads `full_state`. Guarded so an owner-recovery on an existing
   // office doesn't double-seed.
-  function welcomeAgentPrompt(agentType: "claude" | "codex"): string {
-    const selfName =
-      agentType === "claude" ? "Claude Welcome Agent" : "Codex Welcome Agent";
-    const selfFamily = agentType === "claude" ? "Claude" : "Codex";
-    const otherName =
-      agentType === "claude" ? "Codex Welcome Agent" : "Claude Welcome Agent";
-    const otherFamily = agentType === "claude" ? "Codex" : "Claude";
-    return `You are the ${selfName} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents - you (a ${selfFamily} agent) and "${otherName}" (a ${otherFamily} agent). If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check the office agent manifest (curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN") to confirm the other welcome agent is present and then send them a message asking for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+  const WELCOME_AGENTS: ReadonlyArray<{
+    agentType: AgentBackendType;
+    name: string;
+    family: string;
+  }> = [
+    { agentType: "claude", name: "Claude Welcome Agent", family: "Claude" },
+    { agentType: "codex", name: "Codex Welcome Agent", family: "Codex" },
+    {
+      agentType: "opencode",
+      name: "OpenCode Welcome Agent",
+      family: "OpenCode",
+    },
+  ];
+
+  function welcomeAgentPrompt(agentType: AgentBackendType): string {
+    const self = WELCOME_AGENTS.find((agent) => agent.agentType === agentType)!;
+    const roster = WELCOME_AGENTS.map(
+      (agent) => `${agent.name} (${agent.family})`,
+    ).join(", ");
+    return `You are the ${self.name} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with these welcome agents: ${roster}. The OpenCode Welcome Agent answers immediately, with no sign-in. If the Claude or Codex welcome agent does not answer, that provider account is not signed in yet. If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check which welcome agents are present, and then message each one and ask for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
   }
 
-  // Fixed outfits so both welcome agents have a recognizable, friendly look on
-  // every fresh install instead of the random palette new spawns get. Claude =
+  // Fixed outfits so all three welcome agents have a recognizable, friendly
+  // look on every fresh install instead of the random palette new spawns get. Claude =
   // blue/glasses, Codex = pink/tie - visually distinct so the user can tell
   // them apart at a glance from the desk view.
   const CLAUDE_WELCOME_OUTFIT: AgentOutfit = {
@@ -514,12 +528,21 @@ function registerBootHooks(): void {
     beard: "stubble",
     accessory: "tie",
   };
+  const OPENCODE_WELCOME_OUTFIT: AgentOutfit = {
+    hat: "beanie",
+    color: "#59C9A5",
+    hair: "#2D3436",
+    hairStyle: "short",
+    skin: "#F4C7A1",
+    beard: "none",
+    accessory: "headphones",
+  };
 
   async function spawnWelcomeAgent(
     name: string,
-    agentType: "claude" | "codex",
+    agentType: AgentBackendType,
     modelFamily: string,
-    permissionMode: "auto" | undefined,
+    permissionMode: AgentInfo["permissionMode"] | undefined,
     outfit: AgentOutfit,
     username: string,
   ): Promise<void> {
@@ -571,6 +594,14 @@ function registerBootHooks(): void {
       CODEX_MODELS[0].value,
       undefined,
       CODEX_WELCOME_OUTFIT,
+      username,
+    );
+    await spawnWelcomeAgent(
+      "OpenCode Welcome Agent",
+      "opencode",
+      OPENCODE_DEFAULT_MODEL,
+      "bypassPermissions",
+      OPENCODE_WELCOME_OUTFIT,
       username,
     );
   });
