@@ -669,12 +669,18 @@ export function TerminalPanel({
     term?.clearSelection();
   }
 
+  function focusTerminal() {
+    if (mobile) inputProxyRef.current?.focus();
+    else termRef.current?.focus();
+  }
+
   function handleRespawn() {
     setExited(null);
     setOwner(null);
     setCommandIssue(null);
     if (termRef.current) resetTerminalForRespawn(termRef.current);
     send({ type: "terminal_restart", agentId });
+    focusTerminal();
   }
 
   async function doPaste() {
@@ -771,7 +777,10 @@ export function TerminalPanel({
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           <button
-            onClick={() => sendInput("\x03")}
+            onClick={() => {
+              sendInput("\x03");
+              focusTerminal();
+            }}
             style={{
               padding: "3px 7px",
               borderRadius: 5,

@@ -981,6 +981,29 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     }
   }
 
+  const memoryBlock = !isSpawn && (
+    <>
+      <label style={{ ...labelStyle, marginTop: 14 }}>
+        Memory{" "}
+        <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+          (durable facts for this agent; raw lines; {mem.size} /{" "}
+          {mem.cap ?? "…"})
+        </span>
+      </label>
+      <ExpandableTextarea
+        title="Agent Memory"
+        value={mem.memory}
+        onChange={mem.setMemory}
+        placeholder={
+          mem.loaded ? "Some memory relevant to this agent" : "Loading memory…"
+        }
+        rows={4}
+        readOnly={!mem.loaded}
+        style={{ ...inputStyle, resize: "vertical" }}
+      />
+    </>
+  );
+
   return (
     <div
       onMouseDown={(e) => {
@@ -2087,6 +2110,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 agent's full system prompt.
                 {!isSpawn && " Changes take effect on next conversation."}
               </p>
+              {isMobile && memoryBlock}
             </div>
           </div>
 
@@ -2141,30 +2165,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             </section>
           )}
 
-          {!isSpawn && (
-            <>
-              <label style={{ ...labelStyle, marginTop: 14 }}>
-                Memory{" "}
-                <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-                  (durable facts for this agent; raw lines; {mem.size} /{" "}
-                  {mem.cap ?? "…"})
-                </span>
-              </label>
-              <ExpandableTextarea
-                title="Agent Memory"
-                value={mem.memory}
-                onChange={mem.setMemory}
-                placeholder={
-                  mem.loaded
-                    ? "Some memory relevant to this agent"
-                    : "Loading memory…"
-                }
-                rows={4}
-                readOnly={!mem.loaded}
-                style={{ ...inputStyle, resize: "vertical" }}
-              />
-            </>
-          )}
+          {!isMobile && memoryBlock}
 
           {/* Move to Room - only show when multiple rooms exist and editing */}
           {!isSpawn && roomCount > 1 && (
