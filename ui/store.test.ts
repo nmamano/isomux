@@ -113,11 +113,13 @@ describe("ProviderSignInCard", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderSignInCard, { provider: "claude", accounts }),
     );
-    expect(html).toContain("Every agent in this office");
-    expect(html).toContain("Only agents I spawn");
-    expect(html).toContain("Use this account for agents that anyone spawns.");
+    expect(html).toContain("Option 1: Sign in for every agent in this office");
+    expect(html).toContain("Option 2: Sign in for agents I spawn");
+    expect(html).toContain(
+      "This subscription is used for every agent in the office except for those spawned by an office member that has set up its own.",
+    );
     expect(html).toContain("Use a separate account for your agents.");
-    expect(html).toContain("Sign in with browser");
+    expect(html).toContain("Sign in");
     expect(html).not.toContain("Who should use this account?");
     expect(html).not.toContain("sign in from the built-in terminal");
     expect(html).not.toContain("Set your Env File Path in User Settings.");

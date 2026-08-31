@@ -8,7 +8,7 @@ import type {
   ProviderLoginStartRes,
 } from "../../shared/types.ts";
 import { cardStyle, hint } from "./access-shared.tsx";
-import { dialogCancelBtn } from "./dialog-styles.ts";
+import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
 
 export function signOutButtonLabel(pending: boolean): string {
   return pending ? "Signing out…" : "Confirm sign out";
@@ -19,16 +19,18 @@ export function ProviderSignInCard({
   accounts,
   onAccounts,
   onStartNewConversation,
+  showTitle = true,
 }: {
   provider: ProviderAccountProvider;
   accounts: ProviderAccountWire[];
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
+  showTitle?: boolean;
 }) {
   const title = provider === "codex" ? "Codex" : "Claude";
   return (
     <section style={{ ...cardStyle, marginTop: 14 }}>
-      <h5 style={{ margin: "0 0 12px" }}>{title}</h5>
+      {showTitle && <h5 style={{ margin: "0 0 12px" }}>{title}</h5>}
       {(["office", "personal"] as const).map((scope) => (
         <ProviderScopeConnection
           key={scope}
@@ -62,14 +64,17 @@ function ProviderScopeConnection({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
   const [claudeCode, setClaudeCode] = useState("");
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const title = provider === "codex" ? "Codex" : "Claude";
   const scopeTitle =
-    scope === "office" ? "Every agent in this office" : "Only agents I spawn";
+    scope === "office"
+      ? "Option 1: Sign in for every agent in this office"
+      : "Option 2: Sign in for agents I spawn";
   const scopeHint =
     scope === "office"
-      ? "Use this account for agents that anyone spawns."
+      ? "This subscription is used for every agent in the office except for those spawned by an office member that has set up its own."
       : "Use a separate account for your agents.";
 
   async function refresh(): Promise<void> {
@@ -85,6 +90,7 @@ function ProviderScopeConnection({
     setPending(true);
     setError(null);
     setDeviceCode(null);
+    setCodeCopied(false);
     try {
       const result = await apiFetch<ProviderLoginStartRes>(
         "POST",
@@ -254,25 +260,51 @@ function ProviderScopeConnection({
             </p>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
-                style={dialogCancelBtn}
+                style={dialogSaveBtn}
                 onClick={() =>
                   void connect(provider === "codex" ? "device" : "browser")
                 }
                 disabled={pending}
               >
-                {provider === "codex"
-                  ? "Sign in with one-time code"
-                  : "Sign in with browser"}
+                Sign in
               </button>
             </div>
           </div>
         )
       )}
-      {deviceCode && (
-        <p style={hint}>
-          Enter this one-time code on the OpenAI page:{" "}
-          <strong>{deviceCode}</strong>
-        </p>
+      {deviceCode && account?.loginStatus === "waiting_external" && (
+        <div style={{ margin: "12px 0" }}>
+          <p style={{ ...hint, margin: "0 0 6px" }}>
+            Enter this one-time code on the OpenAI page:
+          </p>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
+              style={{
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 16,
+                fontWeight: 700,
+                letterSpacing: 2,
+                color: "var(--accent)",
+                background: "var(--bg-code)",
+                border: "1px solid var(--accent)",
+                borderRadius: 8,
+                padding: "6px 12px",
+              }}
+            >
+              {deviceCode}
+            </span>
+            <button
+              style={dialogCancelBtn}
+              onClick={() =>
+                void navigator.clipboard
+                  .writeText(deviceCode)
+                  .then(() => setCodeCopied(true))
+              }
+            >
+              {codeCopied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
       )}
       {account?.accountStatus === "connected" && (
         <div style={{ marginTop: 12 }}>

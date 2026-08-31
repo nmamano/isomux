@@ -2578,6 +2578,7 @@ export function LogView({
                           <ProviderSignInCard
                             provider={entry.metadata.providerLogin}
                             accounts={providerAccounts}
+                            showTitle={false}
                             onStartNewConversation={async () => {
                               await apiFetch(
                                 "POST",
