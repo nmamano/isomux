@@ -12,14 +12,25 @@ describe("preferredFreeOpenCodeModel", () => {
     expect(preferredFreeOpenCodeModel(models, preferred)?.id).toBe(preferred);
   });
 
-  it("falls back to the first free discovery result when the pin is retired", () => {
+  it("falls back to the id-smallest free model when the pin is retired", () => {
     const models = [
       { id: "paid/default" },
       { id: "opencode/replacement-free", isFree: true },
       { id: "opencode/later-free", isFree: true },
     ];
     expect(preferredFreeOpenCodeModel(models, preferred)?.id).toBe(
-      "opencode/replacement-free",
+      "opencode/later-free",
+    );
+  });
+
+  it("ignores the caller's list order, so display-label sorting cannot steer selection", () => {
+    const a = { id: "gate/gate-model", isFree: true };
+    const b = { id: "opencode/big-pickle", isFree: true };
+    expect(preferredFreeOpenCodeModel([a, b], preferred)?.id).toBe(
+      "gate/gate-model",
+    );
+    expect(preferredFreeOpenCodeModel([b, a], preferred)?.id).toBe(
+      "gate/gate-model",
     );
   });
 

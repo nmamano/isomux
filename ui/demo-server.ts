@@ -1305,6 +1305,13 @@ const DEMO_STORAGE_CATEGORIES: StorageUsageWire["categories"] = [
     files: 137,
   },
   {
+    id: "provider-homes",
+    path: "~/.isomux/provider-homes",
+    available: true,
+    bytes: 12_582_912,
+    files: 24,
+  },
+  {
     id: "cronjobs",
     path: "~/.isomux/cronjobs",
     available: true,

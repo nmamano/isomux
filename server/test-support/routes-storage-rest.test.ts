@@ -117,6 +117,7 @@ describe("routes/storage.usage REST", () => {
       "attachments",
       "session-metadata",
       "codex-home",
+      "provider-homes",
       "cronjobs",
       "memory",
       "other-state",
