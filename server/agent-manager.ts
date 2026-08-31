@@ -2919,6 +2919,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // the first committed sample already clears both bands (e.g. lands at 87%),
   // only the HIGHEST band emits a line; all bands ≤ it are consumed.
   function maybeEmitUiContextNotice(managed: ManagedAgent): void {
+    if (managed.info.agentType === "codex") return;
     const snap = managed.contextUsage;
     if (!snap) return;
     let chosen: number | null = null;

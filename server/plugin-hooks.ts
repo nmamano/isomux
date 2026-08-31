@@ -569,6 +569,7 @@ export function pickContextThreshold(managed: ManagedAgent): number | null {
 async function buildContextNoticeBlock(
   managed: ManagedAgent,
 ): Promise<{ threshold: number; block: string; gen: number } | null> {
+  if (managed.info.agentType === "codex") return null;
   const inFlight = managed.contextSampleInFlight;
   if (inFlight) {
     await Promise.race([

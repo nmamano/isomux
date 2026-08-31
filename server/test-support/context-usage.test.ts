@@ -148,9 +148,11 @@ function makeDiManager(ctxFn: () => Promise<ContextUsage | null>): {
 
 async function diSpawn(
   mgr: ReturnType<typeof createAgentManager>,
+  agentType: AgentInfo["agentType"] = "claude",
+  name = "Worker",
 ): Promise<AgentInfo> {
   const info = await mgr.spawn(
-    "Worker",
+    name,
     STATE_ROOT,
     "default",
     undefined,
@@ -160,7 +162,7 @@ async function diSpawn(
     undefined,
     undefined,
     undefined,
-    "claude",
+    agentType,
   );
   if (!info) throw new Error("spawn returned null");
   return info;
@@ -1076,6 +1078,41 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
           e.content.startsWith("Context is"),
       );
   }
+
+  it("suppresses both notices for Codex while the same sample still notifies Claude and OpenCode", async () => {
+    const fake = backendWith(() => Promise.resolve(usage(87, WIDE_WINDOW)));
+    const mgr = makeManager(fake);
+    const agents = [];
+    for (const agentType of ["claude", "codex", "opencode"] as const) {
+      agents.push(await diSpawn(mgr, agentType, `${agentType} Worker`));
+    }
+    try {
+      for (const agent of agents) {
+        await diRunTurn(mgr, agent.id, "one");
+        await waitUntil(
+          () => mgr.getAgent(agent.id)?.contextUsage?.percentage === 87,
+          WAIT_MS,
+          `${agent.agentType} sample committed`,
+        );
+        await diRunTurn(mgr, agent.id, "two");
+      }
+
+      for (const agent of agents) {
+        const sent = fake.sessionForAgent(agent.id)!.sent[1].text;
+        const notices = uiNotices(mgr, agent.id);
+        if (agent.agentType === "codex") {
+          expect(sent).not.toContain("context check");
+          expect(notices).toHaveLength(0);
+        } else {
+          expect(sent).toContain("[context check: 87% full");
+          expect(notices).toHaveLength(1);
+          expect(notices[0].content).toContain("87%");
+        }
+      }
+    } finally {
+      for (const s of fake.sessions) s.close();
+    }
+  });
 
   it("fires once per band as fullness rises, never re-fires, and stays out of the persisted log", async () => {
     let pct = 30;

@@ -88,6 +88,7 @@ async function spawnAgent(
   srv: TestServer,
   name: string,
   roomId: string,
+  agentType: AgentInfo["agentType"] = "claude",
 ): Promise<AgentInfo> {
   const info = await srv.agentManager.spawn(
     name,
@@ -100,7 +101,7 @@ async function spawnAgent(
     undefined,
     undefined,
     undefined,
-    "claude",
+    agentType,
   );
   if (!info) throw new Error(`spawn ${name} returned null`);
   return info;
@@ -123,6 +124,21 @@ async function runTurn(
 }
 
 describe("session-start memory-size notice (task f1a08f05)", () => {
+  it("still sends the memory notice to a Codex agent", async () => {
+    const srv = await startTestServer({ fakeBackend: backend() });
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    seedRoomMemory(room.id, Math.round(MEMORY_CAPS.room * 0.9));
+    const agent = await spawnAgent(srv, "Codex Worker", room.id, "codex");
+
+    await runTurn(srv, agent.id, "one");
+    const sent = srv.fakeBackend.sessionForAgent(agent.id)!.sent[0].text;
+    expect(sent).toContain("--- begin isomux: memory-check ---");
+    expect(sent).toContain("[memory check:");
+    expect(sent).not.toContain("context check");
+  });
+
   it("rides the first send, once per conversation, and re-arms on /clear", async () => {
     const srv = await startTestServer({ fakeBackend: backend() });
     server = srv;
