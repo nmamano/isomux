@@ -292,6 +292,7 @@ export function Walls({
         tabIndex={0}
         aria-label="Change theme"
         onClick={onToggleTheme}
+        onMouseDown={(event) => event.preventDefault()}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
