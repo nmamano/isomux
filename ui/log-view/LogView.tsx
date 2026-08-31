@@ -80,6 +80,7 @@ import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import { SkillsPopover } from "./SkillsPopover.tsx";
 import { shortenCwd } from "../cwd-display.ts";
 import { PENDING_PROMPT_LABEL } from "../pending-prompt.ts";
+import { ProviderSignInCard } from "../components/ProviderSignInCard.tsx";
 
 const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
@@ -750,6 +751,7 @@ export function LogView({
     presences,
     sessionContext,
     interactions,
+    providerAccounts,
   } = useAppState();
   const interaction = interactions.find((item) => item.agentId === agent.id);
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
@@ -2579,6 +2581,21 @@ export function LogView({
                           }
                         />
                       )}
+                      {(entry.metadata?.providerLogin === "codex" ||
+                        entry.metadata?.providerLogin === "claude") &&
+                        agent.userId !== null &&
+                        sessionContext?.userId === agent.userId && (
+                          <ProviderSignInCard
+                            provider={entry.metadata.providerLogin}
+                            accounts={providerAccounts}
+                            onStartNewConversation={async () => {
+                              await apiFetch(
+                                "POST",
+                                `/api/agents/${agent.id}/new-conversation`,
+                              );
+                            }}
+                          />
+                        )}
                     </div>
                   );
                 })}

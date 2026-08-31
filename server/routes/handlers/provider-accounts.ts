@@ -4,19 +4,44 @@ import {
   type HandlerErrorStatus,
   type RouteHandler,
 } from "../executor.ts";
-import type { ProviderAccountWire } from "../../../shared/types.ts";
+import type {
+  ProviderAccountProvider,
+  ProviderAccountScope,
+  ProviderAccountWire,
+} from "../../../shared/types.ts";
+
+type Result =
+  | { ok: true; value: unknown }
+  | { ok: false; status: HandlerErrorStatus; code: string; message: string };
 
 export interface ProviderAccountsDeps {
   list(userId: string): Promise<ProviderAccountWire[]>;
   refresh(userId: string): Promise<ProviderAccountWire[]>;
   start(
     userId: string,
+    provider: ProviderAccountProvider,
+    scope: ProviderAccountScope,
     method: "browser" | "device",
-  ): Promise<
-    | { ok: true; value: unknown }
-    | { ok: false; status: HandlerErrorStatus; code: string; message: string }
-  >;
-  cancel(userId: string): Promise<boolean>;
+  ): Promise<Result>;
+  callback(
+    userId: string,
+    provider: ProviderAccountProvider,
+    scope: ProviderAccountScope,
+    code: string,
+  ): Promise<Result>;
+  cancel(
+    userId: string,
+    provider: ProviderAccountProvider,
+    scope: ProviderAccountScope,
+  ): Promise<boolean>;
+}
+
+function provider(value: string): ProviderAccountProvider | null {
+  return value === "codex" || value === "claude" ? value : null;
+}
+
+function scope(value: unknown): ProviderAccountScope | null {
+  return value === "office" || value === "personal" ? value : null;
 }
 
 export function providerAccountsHandlers(
@@ -33,13 +58,11 @@ export function providerAccountsHandlers(
     "providerAccounts.start": async (ctx) => {
       const id = userId(ctx);
       if (!id) return fail(403, "forbidden");
-      if (ctx.params.provider !== "codex")
-        return fail(
-          422,
-          "browser_login_unavailable",
-          "Claude browser sign-in is not available yet.",
-        );
-      const body = (ctx.body ?? {}) as { method?: unknown };
+      const selectedProvider = provider(ctx.params.provider);
+      if (!selectedProvider) return fail(404, "provider_not_found");
+      const body = (ctx.body ?? {}) as { method?: unknown; scope?: unknown };
+      const selectedScope = scope(body.scope);
+      if (!selectedScope) return fail(422, "invalid_scope");
       if (
         body.method !== undefined &&
         body.method !== "browser" &&
@@ -48,7 +71,28 @@ export function providerAccountsHandlers(
         return fail(422, "invalid_method", "method must be browser or device");
       const result = await deps.start(
         id,
+        selectedProvider,
+        selectedScope,
         body.method === "device" ? "device" : "browser",
+      );
+      return result.ok
+        ? ok(result.value)
+        : fail(result.status, result.code, result.message);
+    },
+    "providerAccounts.callback": async (ctx) => {
+      const id = userId(ctx);
+      if (!id) return fail(403, "forbidden");
+      const selectedProvider = provider(ctx.params.provider);
+      if (!selectedProvider) return fail(404, "provider_not_found");
+      const body = (ctx.body ?? {}) as { scope?: unknown; code?: unknown };
+      const selectedScope = scope(body.scope);
+      if (!selectedScope || typeof body.code !== "string" || !body.code.trim())
+        return fail(422, "invalid_callback");
+      const result = await deps.callback(
+        id,
+        selectedProvider,
+        selectedScope,
+        body.code,
       );
       return result.ok
         ? ok(result.value)
@@ -62,9 +106,13 @@ export function providerAccountsHandlers(
     "providerAccounts.cancel": async (ctx) => {
       const id = userId(ctx);
       if (!id) return fail(403, "forbidden");
-      if (ctx.params.provider !== "codex")
-        return fail(422, "browser_login_unavailable");
-      return (await deps.cancel(id))
+      const selectedProvider = provider(ctx.params.provider);
+      if (!selectedProvider) return fail(404, "provider_not_found");
+      const selectedScope = scope(
+        (ctx.body as { scope?: unknown } | undefined)?.scope,
+      );
+      if (!selectedScope) return fail(422, "invalid_scope");
+      return (await deps.cancel(id, selectedProvider, selectedScope))
         ? ok({ canceled: true })
         : fail(409, "no_login_in_progress");
     },

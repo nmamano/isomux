@@ -3500,9 +3500,12 @@ function buildExecutorDeps(
         liveEmit("provider_accounts_updated", { accounts }, { userId });
         return accounts;
       },
-      start: (userId, method) =>
-        providerAccountManager.startLogin(userId, method),
-      cancel: (userId) => providerAccountManager.cancel(userId),
+      start: (userId, provider, scope, method) =>
+        providerAccountManager.startLogin(userId, provider, scope, method),
+      callback: (userId, provider, scope, code) =>
+        providerAccountManager.submitCode(userId, provider, scope, code),
+      cancel: (userId, provider, scope) =>
+        providerAccountManager.cancel(userId, provider, scope),
     }),
   );
   register(
@@ -5472,6 +5475,16 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                     accounts: [
                       {
                         provider: "codex",
+                        scope: "office",
+                        accountStatus: "unavailable",
+                        loginStatus: "idle",
+                        canBrowserLogin: false,
+                        fallbackToTerminal: true,
+                        error: "Could not read your env file.",
+                      },
+                      {
+                        provider: "codex",
+                        scope: "personal",
                         accountStatus: "unavailable",
                         loginStatus: "idle",
                         canBrowserLogin: false,
@@ -5480,6 +5493,16 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                       },
                       {
                         provider: "claude",
+                        scope: "office",
+                        accountStatus: "unavailable",
+                        loginStatus: "idle",
+                        canBrowserLogin: false,
+                        fallbackToTerminal: true,
+                        error: "Could not read your env file.",
+                      },
+                      {
+                        provider: "claude",
+                        scope: "personal",
                         accountStatus: "unavailable",
                         loginStatus: "idle",
                         canBrowserLogin: false,

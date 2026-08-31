@@ -13,6 +13,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { reducer, initialState } from "./store.tsx";
 import { ChoiceInteractionCard } from "./log-view/LogView.tsx";
+import { ProviderSignInCard } from "./components/ProviderSignInCard.tsx";
 import type {
   AppWire,
   LogEntry,
@@ -82,6 +83,68 @@ describe("reducer: log_entries_batch", () => {
     });
     expect((merged.logs.get(S) ?? []).map((e) => e.id)).toEqual(["a", "c"]);
     expect((merged.logs.get(T) ?? []).map((e) => e.id)).toEqual(["b"]);
+  });
+});
+
+describe("ProviderSignInCard", () => {
+  const accounts = [
+    {
+      provider: "claude" as const,
+      scope: "office" as const,
+      accountStatus: "unavailable" as const,
+      loginStatus: "idle" as const,
+      shared: true,
+      canBrowserLogin: false,
+      fallbackToTerminal: true,
+    },
+    {
+      provider: "claude" as const,
+      scope: "personal" as const,
+      accountStatus: "unavailable" as const,
+      loginStatus: "idle" as const,
+      shared: false,
+      canBrowserLogin: false,
+      fallbackToTerminal: true,
+      error:
+        "Claude sign-in from the browser needs your own Claude config directory. Set CLAUDE_CONFIG_DIR in your env file, and then try again.",
+    },
+  ];
+
+  it("presents an office-first fork and only the selected cell", () => {
+    const html = renderToStaticMarkup(
+      createElement(ProviderSignInCard, { provider: "claude", accounts }),
+    );
+    expect(html).toContain("Who should use this account?");
+    expect(html).toContain('checked=""');
+    expect(html).toContain(
+      "This uses the Claude account that the whole office shares.",
+    );
+    expect(html).toContain(
+      "To change the office account, sign in from the built-in terminal.",
+    );
+    expect(html).not.toContain("Set your Env File Path in User Settings.");
+  });
+
+  it("uses the generic waiting copy for the Claude code step", () => {
+    const waiting = [
+      {
+        provider: "claude" as const,
+        scope: "office" as const,
+        accountStatus: "not_connected" as const,
+        loginStatus: "waiting_external" as const,
+        shared: false,
+        canBrowserLogin: true,
+      },
+    ];
+    const html = renderToStaticMarkup(
+      createElement(ProviderSignInCard, {
+        provider: "claude",
+        accounts: waiting,
+      }),
+    );
+    expect(html).toContain("Waiting for provider…");
+    expect(html).not.toContain("Waiting for Claude");
+    expect(html).not.toContain("Waiting for OpenAI");
   });
 });
 

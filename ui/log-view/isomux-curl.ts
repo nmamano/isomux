@@ -760,6 +760,11 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["POST", "/api/me/provider-accounts/*/login", "Start provider sign-in"],
   ["POST", "/api/me/provider-accounts/*/cancel", "Cancel provider sign-in"],
   ["POST", "/api/me/provider-accounts/refresh", "Refresh provider accounts"],
+  [
+    "POST",
+    "/api/me/provider-accounts/:provider/callback",
+    "Submit provider sign-in code",
+  ],
   ["POST", "/api/api-token-inboxes/*/messages", "Message remote boss"],
   ["POST", "/api/me/api-token-inbox/drain", "Drain API token inbox"],
   ["POST", "/api/agents/*/handoff", "Hand off to fresh session"],

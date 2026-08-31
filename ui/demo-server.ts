@@ -1602,13 +1602,34 @@ export async function demoApi(
         accounts: [
           {
             provider: "codex",
+            scope: "office",
             accountStatus: "not_connected",
             loginStatus: "idle",
             shared: true,
             canBrowserLogin: true,
           },
           {
+            provider: "codex",
+            scope: "personal",
+            accountStatus: "unavailable",
+            loginStatus: "idle",
+            shared: false,
+            canBrowserLogin: false,
+            error:
+              "Set your Env File Path in User Settings. In that file, set CODEX_HOME to an absolute directory for Codex. Then return here and refresh.",
+          },
+          {
             provider: "claude",
+            scope: "office",
+            accountStatus: "unavailable",
+            loginStatus: "idle",
+            shared: true,
+            canBrowserLogin: false,
+            fallbackToTerminal: true,
+          },
+          {
+            provider: "claude",
+            scope: "personal",
             accountStatus: "unavailable",
             loginStatus: "idle",
             canBrowserLogin: false,
@@ -1619,37 +1640,71 @@ export async function demoApi(
         ],
       };
     case "POST /api/me/provider-accounts/codex/login":
+    case "POST /api/me/provider-accounts/claude/login": {
+      const selectedProvider = route.includes("/claude/") ? "claude" : "codex";
+      const selectedScope =
+        (body as { scope?: "office" | "personal" } | undefined)?.scope ??
+        "office";
       return {
         account: {
-          provider: "codex",
+          provider: selectedProvider,
+          scope: selectedScope,
           accountStatus: "not_connected",
           loginStatus: "waiting_external",
           shared: true,
           canBrowserLogin: true,
         },
-        authUrl: "https://auth.openai.com/",
-        userCode: "ABCD-EFGH",
+        authUrl:
+          selectedProvider === "claude"
+            ? "https://claude.com/"
+            : "https://auth.openai.com/",
+        userCode: selectedProvider === "codex" ? "ABCD-EFGH" : undefined,
       };
+    }
     case "POST /api/me/provider-accounts/codex/cancel":
+    case "POST /api/me/provider-accounts/claude/cancel":
       return { canceled: true };
+    case "POST /api/me/provider-accounts/claude/callback":
+      return { submitted: true };
     case "POST /api/me/provider-accounts/refresh":
       return {
         accounts: [
           {
             provider: "codex",
+            scope: "office",
             accountStatus: "not_connected",
             loginStatus: "idle",
             shared: true,
             canBrowserLogin: true,
           },
           {
+            provider: "codex",
+            scope: "personal",
+            accountStatus: "unavailable",
+            loginStatus: "idle",
+            shared: false,
+            canBrowserLogin: false,
+            error:
+              "Set your Env File Path in User Settings. In that file, set CODEX_HOME to an absolute directory for Codex. Then return here and refresh.",
+          },
+          {
             provider: "claude",
+            scope: "office",
+            accountStatus: "unavailable",
+            loginStatus: "idle",
+            shared: true,
+            canBrowserLogin: false,
+            fallbackToTerminal: true,
+          },
+          {
+            provider: "claude",
+            scope: "personal",
             accountStatus: "unavailable",
             loginStatus: "idle",
             canBrowserLogin: false,
             fallbackToTerminal: true,
             error:
-              "Claude browser sign-in is not available yet. Use the terminal instead.",
+              "Claude sign-in from the browser needs your own Claude config directory. Set CLAUDE_CONFIG_DIR in your env file, and then try again.",
           },
         ],
       };

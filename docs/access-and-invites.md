@@ -129,6 +129,15 @@ explicitly) rather than relying on session expiry.
 
 ## Use your own provider account
 
+In User Settings → Connections, choose whether the account is for every agent
+in the office or only agents you spawn. Isomux can open browser sign-in for
+Codex in either scope. Claude browser sign-in is available only for your own
+agents; changing the office Claude account still uses the built-in terminal.
+
+For an account that only your agents use, first set your Env File Path in User
+Settings. The file must point the provider at a separate absolute directory, as
+shown below. Then return to Connections and refresh.
+
 Set your Env File Path in User Settings to a file with one of these API keys:
 
 ```text

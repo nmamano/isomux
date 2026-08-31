@@ -55,6 +55,23 @@ export function buildEnvForUserId(
   return merged;
 }
 
+// Build the environment used by office-scoped provider operations. This is
+// deliberately separate from buildEnvForUserId(): a user's override must not
+// change the directory behind an "office" sign-in choice.
+export function buildOfficeEnv(): {
+  [key: string]: string | undefined;
+} {
+  const merged: { [key: string]: string | undefined } = { ...process.env };
+  const officeEnvFile = getOfficeEnvFile();
+  if (officeEnvFile) Object.assign(merged, readEnvFile(officeEnvFile));
+  return merged;
+}
+
+export function readOfficeEnvFile(): Record<string, string> {
+  const officeEnvFile = getOfficeEnvFile();
+  return officeEnvFile ? readEnvFile(officeEnvFile) : {};
+}
+
 // Stable identity for the intentional environment sources. Contents are not
 // identity: rotating a credential must replace the server without stranding
 // durable sessions in a new profile. Do not derive this from the merged

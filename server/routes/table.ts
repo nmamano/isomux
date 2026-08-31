@@ -65,6 +65,8 @@ import type {
   ProviderAccountsWire,
   ProviderLoginStartReq,
   ProviderLoginStartRes,
+  ProviderLoginCallbackReq,
+  ProviderLoginCancelReq,
   LogEntry,
   UpdateStatusWire,
 } from "../../shared/types.ts";
@@ -781,6 +783,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:self", userScope),
     emits: ["provider_accounts_updated"],
   }),
+  defineRoute<ProviderLoginCallbackReq, { submitted: true }>({
+    opId: "providerAccounts.callback",
+    method: "POST",
+    path: "/api/me/provider-accounts/:provider/callback",
+    auth: cap("user:self", userScope),
+    emits: ["provider_accounts_updated"],
+  }),
   defineRoute<void, ProviderAccountsWire>({
     opId: "providerAccounts.refresh",
     method: "POST",
@@ -788,7 +797,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:self", userScope),
     emits: ["provider_accounts_updated"],
   }),
-  defineRoute<void, { canceled: true }>({
+  defineRoute<ProviderLoginCancelReq, { canceled: true }>({
     opId: "providerAccounts.cancel",
     method: "POST",
     path: "/api/me/provider-accounts/:provider/cancel",

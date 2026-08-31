@@ -1330,6 +1330,7 @@ export interface BackendModelWire {
 }
 
 export type ProviderAccountProvider = "codex" | "claude";
+export type ProviderAccountScope = "office" | "personal";
 export type ProviderAccountStatus =
   | "connected"
   | "not_connected"
@@ -1343,6 +1344,7 @@ export type ProviderLoginStatus =
 
 export interface ProviderAccountWire {
   provider: ProviderAccountProvider;
+  scope: ProviderAccountScope;
   accountStatus: ProviderAccountStatus;
   loginStatus: ProviderLoginStatus;
   accountLabel?: string;
@@ -1358,12 +1360,22 @@ export interface ProviderAccountsWire {
 
 export interface ProviderLoginStartReq {
   method?: "browser" | "device";
+  scope: ProviderAccountScope;
 }
 
 export interface ProviderLoginStartRes {
   account: ProviderAccountWire;
   authUrl?: string;
   userCode?: string;
+}
+
+export interface ProviderLoginCallbackReq {
+  scope: ProviderAccountScope;
+  code: string;
+}
+
+export interface ProviderLoginCancelReq {
+  scope: ProviderAccountScope;
 }
 
 // Update-available status feeding the header banner (server/update-checker.ts).

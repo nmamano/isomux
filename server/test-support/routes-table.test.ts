@@ -31,6 +31,7 @@ import {
   type Identity,
 } from "../identity/index.ts";
 import type { GuardDeps } from "../identity/guards.ts";
+import { providerAccountsHandlers } from "../routes/handlers/provider-accounts.ts";
 
 const ALL_CAPS = new Set<Capability>([
   ...USER_CAPABILITIES,
@@ -86,6 +87,80 @@ describe("provider account routes", () => {
       },
     );
     expect(result).toEqual({ ok: false, status: 403, code: "forbidden" });
+  });
+
+  it("carries the explicit provider and scope into every login act", async () => {
+    const calls: string[] = [];
+    const handlers = providerAccountsHandlers({
+      list: async () => [],
+      refresh: async () => [],
+      start: async (_userId, provider, scope, method) => {
+        calls.push(`start:${provider}:${scope}:${method}`);
+        return { ok: true, value: { account: {} } };
+      },
+      callback: async (_userId, provider, scope, code) => {
+        calls.push(`callback:${provider}:${scope}:${code}`);
+        return { ok: true, value: { submitted: true } };
+      },
+      cancel: async (_userId, provider, scope) => {
+        calls.push(`cancel:${provider}:${scope}`);
+        return true;
+      },
+    });
+    const context = (body: unknown) =>
+      ({
+        identity: {
+          scope: "user",
+          role: "member",
+          userId: "u1",
+          capabilities: USER_CAPABILITIES,
+        },
+        params: { provider: "claude" },
+        body,
+      }) as never;
+    await handlers["providerAccounts.start"](
+      context({ scope: "personal", method: "browser" }),
+    );
+    await handlers["providerAccounts.callback"](
+      context({ scope: "personal", code: "code#state" }),
+    );
+    await handlers["providerAccounts.cancel"](context({ scope: "personal" }));
+    expect(calls).toEqual([
+      "start:claude:personal:browser",
+      "callback:claude:personal:code#state",
+      "cancel:claude:personal",
+    ]);
+  });
+
+  it("rejects a login act without an explicit scope", async () => {
+    let started = false;
+    const handlers = providerAccountsHandlers({
+      list: async () => [],
+      refresh: async () => [],
+      start: async () => {
+        started = true;
+        return { ok: true, value: {} };
+      },
+      callback: async () => ({ ok: true, value: {} }),
+      cancel: async () => true,
+    });
+    const result = await handlers["providerAccounts.start"]({
+      identity: {
+        scope: "user",
+        role: "member",
+        userId: "u1",
+        capabilities: USER_CAPABILITIES,
+      },
+      params: { provider: "codex" },
+      body: { method: "browser" },
+    } as never);
+    expect(result).toEqual({
+      kind: "error",
+      status: 422,
+      code: "invalid_scope",
+      message: undefined,
+    });
+    expect(started).toBe(false);
   });
 });
 
@@ -351,6 +426,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apiTokens.revoke": { caps: ["user:self"], emits: [] },
   "providerAccounts.list": { caps: ["user:self"], emits: [] },
   "providerAccounts.start": {
+    caps: ["user:self"],
+    emits: ["provider_accounts_updated"],
+  },
+  "providerAccounts.callback": {
     caps: ["user:self"],
     emits: ["provider_accounts_updated"],
   },

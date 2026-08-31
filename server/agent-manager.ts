@@ -441,7 +441,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentId: string,
     instructions: { text: string; commands?: string[] },
   ): void {
-    addLogEntry(agentId, "system", instructions.text);
+    const managed = agents.get(agentId);
+    const providerLogin =
+      managed?.info.userId &&
+      (managed.info.agentType === "codex" ||
+        managed.info.agentType === "claude")
+        ? managed.info.agentType
+        : undefined;
+    addLogEntry(
+      agentId,
+      "system",
+      instructions.text,
+      providerLogin ? { providerLogin } : undefined,
+    );
     for (const command of instructions.commands ?? []) {
       emitAgentTerminalCommand(agentId, command);
     }
