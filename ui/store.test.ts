@@ -116,7 +116,7 @@ describe("ProviderSignInCard", () => {
     expect(html).toContain("Option 1: Sign in for every agent in this office");
     expect(html).toContain("Option 2: Sign in for agents I spawn");
     expect(html).toContain(
-      "This subscription is used for every agent in the office except for those spawned by an office member that has set up its own.",
+      "This subscription is used for every agent in the office except for those spawned by an office member that has set up its own (via Option 2).",
     );
     expect(html).toContain("Use a separate account for your agents.");
     expect(html).toContain("Sign in");

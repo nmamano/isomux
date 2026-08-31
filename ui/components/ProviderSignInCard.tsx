@@ -33,11 +33,12 @@ export function ProviderSignInCard({
   return (
     <section style={{ ...cardStyle, marginTop: 14 }}>
       {showTitle && <h5 style={{ margin: "0 0 12px" }}>{title}</h5>}
-      {(["office", "personal"] as const).map((scope) => (
+      {(["office", "personal"] as const).map((scope, index) => (
         <ProviderScopeConnection
           key={scope}
           provider={provider}
           scope={scope}
+          hideTopBorder={index === 0 && !showTitle}
           account={accounts.find(
             (candidate) =>
               candidate.provider === provider && candidate.scope === scope,
@@ -47,7 +48,14 @@ export function ProviderSignInCard({
         />
       ))}
       {apiKeyNote && (
-        <p style={{ ...hint, margin: "14px 0 0" }}>
+        <p
+          style={{
+            ...hint,
+            margin: "14px 0 0",
+            borderTop: "1px solid var(--border-subtle)",
+            paddingTop: 14,
+          }}
+        >
           Do you want to use an API token? See User Settings → Connections.
         </p>
       )}
@@ -61,12 +69,14 @@ function ProviderScopeConnection({
   account,
   onAccounts,
   onStartNewConversation,
+  hideTopBorder = false,
 }: {
   provider: ProviderAccountProvider;
   scope: ProviderAccountScope;
   account?: ProviderAccountWire;
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
+  hideTopBorder?: boolean;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +91,7 @@ function ProviderScopeConnection({
       : "Option 2: Sign in for agents I spawn";
   const scopeHint =
     scope === "office"
-      ? "This subscription is used for every agent in the office except for those spawned by an office member that has set up its own."
+      ? "This subscription is used for every agent in the office except for those spawned by an office member that has set up its own (via Option 2)."
       : "Use a separate account for your agents.";
 
   async function refresh(): Promise<void> {
@@ -205,11 +215,15 @@ function ProviderScopeConnection({
 
   return (
     <div
-      style={{
-        borderTop: "1px solid var(--border-subtle)",
-        paddingTop: 14,
-        marginTop: 14,
-      }}
+      style={
+        hideTopBorder
+          ? {}
+          : {
+              borderTop: "1px solid var(--border-subtle)",
+              paddingTop: 14,
+              marginTop: 14,
+            }
+      }
     >
       <div style={{ fontSize: 12, fontWeight: 650 }}>{scopeTitle}</div>
       <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
@@ -259,23 +273,29 @@ function ProviderScopeConnection({
       ) : (
         account?.canBrowserLogin &&
         account.accountStatus !== "connected" && (
-          <div style={{ margin: "12px 0" }}>
-            <p style={{ ...hint, margin: "0 0 8px" }}>
+          <div
+            style={{
+              margin: "12px 0",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <button
+              style={{ ...dialogSaveBtn, flexShrink: 0 }}
+              onClick={() =>
+                void connect(provider === "codex" ? "device" : "browser")
+              }
+              disabled={pending}
+            >
+              Sign in
+            </button>
+            <p style={{ ...hint, margin: 0, flex: 1, minWidth: 180 }}>
               {provider === "codex"
                 ? "Signing in gives you a one-time code to enter on OpenAI's page. The page opens in a new tab; you can also open it on any other device."
                 : "Claude opens in your browser. After you sign in, paste the code here."}
             </p>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <button
-                style={dialogSaveBtn}
-                onClick={() =>
-                  void connect(provider === "codex" ? "device" : "browser")
-                }
-                disabled={pending}
-              >
-                Sign in
-              </button>
-            </div>
           </div>
         )
       )}
