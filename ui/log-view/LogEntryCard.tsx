@@ -444,6 +444,7 @@ export const LogEntryCard = memo(function LogEntryCard({
               : "To remote boss"
           }
           fromNonHuman
+          outgoing
           agentId={entry.agentId}
           canEdit={false}
         />
@@ -714,6 +715,7 @@ function UserMessage({
   isMobile,
   username,
   fromNonHuman,
+  outgoing,
   attachments,
   agentId,
   canEdit,
@@ -726,6 +728,10 @@ function UserMessage({
   // the muted/dashed/italic treatment that keeps a non-human message from
   // reading like the boss.
   fromNonHuman?: boolean;
+  // The agent SENT this, rather than received it. Mirrors the card - accent
+  // bar on the right and a small left inset - so direction is readable at a
+  // glance without reading the header text.
+  outgoing?: boolean;
   attachments?: Attachment[];
   agentId?: string;
   canEdit?: boolean;
@@ -734,15 +740,16 @@ function UserMessage({
   const getText = useCallback(() => content, [content]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const accentColor = fromNonHuman ? "var(--text-muted)" : "var(--accent)";
+  const edge = `3px ${fromNonHuman ? "dashed" : "solid"} ${accentColor}`;
   return (
     <div
       style={{
-        margin: "12px 0",
+        margin: outgoing ? "12px 0 12px 18px" : "12px 0",
         padding: "10px 14px",
         paddingRight: 40,
         borderRadius: 10,
         background: "var(--user-msg-bg)",
-        borderLeft: `3px ${fromNonHuman ? "dashed" : "solid"} ${accentColor}`,
+        ...(outgoing ? { borderRight: edge } : { borderLeft: edge }),
         position: "relative",
       }}
     >
