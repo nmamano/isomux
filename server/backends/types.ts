@@ -543,9 +543,7 @@ export interface Backend {
   // system log entry after an auth-error is detected; each entry in
   // `commands`, when present, is emitted as an adjacent terminal-command card
   // the user can click to copy into the built-in terminal. Multiple commands
-  // render as a stack of cards in the order returned - backends that surface
-  // alternatives (e.g. Codex browser OAuth vs `--device-auth` for remote
-  // hosts) use this to give the user a side-by-side pick.
+  // render as a stack of cards in the order returned.
   //
   // `opts.env` carries the agent's resolved spawn env (process.env + office
   // envFile + user envFile, in that override order). Backends that detect

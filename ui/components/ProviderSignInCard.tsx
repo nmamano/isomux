@@ -10,6 +10,10 @@ import type {
 import { cardStyle, hint } from "./access-shared.tsx";
 import { dialogCancelBtn } from "./dialog-styles.ts";
 
+export function signOutButtonLabel(pending: boolean): string {
+  return pending ? "Signing out…" : "Confirm sign out";
+}
+
 export function ProviderSignInCard({
   provider,
   accounts,
@@ -301,7 +305,7 @@ function ProviderScopeConnection({
                   onClick={() => void disconnect()}
                   disabled={pending}
                 >
-                  Confirm sign out
+                  {signOutButtonLabel(pending)}
                 </button>
               </div>
             </div>

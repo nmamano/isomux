@@ -667,6 +667,320 @@ describe("AgentManager DI (temp-state isolated)", () => {
     expect(await mgr.demoteToLazy(info!.id)).toBe(true);
   });
 
+  it("collapses a Codex auth wake to one actionable browser notice", async () => {
+    const fake = new FakeBackend({
+      isAuthError: (text) => /401/.test(text),
+      loginInstructions: {
+        text: "terminal fallback",
+        commands: ["codex login --device-auth"],
+      },
+      session: {
+        onSend: (_text, _attachments, session) => {
+          session.push({
+            kind: "system_text",
+            text: "[codex stderr] 401 Unauthorized",
+          });
+          session.push({
+            kind: "system_text",
+            text: "[codex stderr] 401 Unauthorized retry",
+          });
+          session.push({
+            kind: "turn_completed",
+            status: "failed",
+            error:
+              "Codex turn failed after an auth error; see the prior Codex auth notice.",
+            causedByAuth: true,
+          });
+        },
+      },
+    });
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-codex-auth") }),
+      initialRooms: [],
+      listProviderAccounts: async () => [
+        {
+          provider: "codex",
+          scope: "office",
+          accountStatus: "not_connected",
+          loginStatus: "idle",
+          canBrowserLogin: true,
+        },
+      ],
+    });
+    mgr.configurePluginHooksDeps();
+    const info = await mgr.spawn(
+      "Codex auth card",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-codex-auth",
+      undefined,
+      "fake",
+      "high",
+      "tester",
+      "codex",
+      undefined,
+      "user-a",
+    );
+    mgr.enqueueMessage(info!.id, {
+      sender: { kind: "user", username: "tester" },
+      text: "hello",
+    });
+    const deadline = Date.now() + 2000;
+    while (
+      !mgr
+        .getAgentLogs(info!.id)
+        .some((entry) => entry.metadata?.providerLogin === "codex") &&
+      Date.now() < deadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+    const logs = mgr.getAgentLogs(info!.id);
+    const notice = logs.filter(
+      (entry) => entry.metadata?.providerLogin === "codex",
+    );
+    expect(notice).toHaveLength(1);
+    expect(notice[0].content).toBe(
+      "Codex could not run this message because it is not signed in. Sign in below to continue.",
+    );
+    expect(logs.some((entry) => entry.content.includes("[codex stderr]"))).toBe(
+      false,
+    );
+    expect(
+      logs.some((entry) => entry.content.includes("prior Codex auth notice")),
+    ).toBe(false);
+    expect(
+      logs.filter((entry) => entry.kind === "terminal-command"),
+    ).toHaveLength(0);
+  });
+
+  it("emits a new Codex auth notice on a later wake", async () => {
+    const fake = new FakeBackend({
+      isAuthError: (text) => /401/.test(text),
+      loginInstructions: {
+        text: "terminal fallback",
+        commands: ["codex login --device-auth"],
+      },
+      session: {
+        onSend: (_text, _attachments, session) => {
+          session.push({ kind: "system_text", text: "401 Unauthorized" });
+          session.push({
+            kind: "turn_completed",
+            status: "failed",
+            error: "auth wake failed",
+            causedByAuth: true,
+          });
+        },
+      },
+    });
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-codex-auth-reset") }),
+      initialRooms: [],
+      listProviderAccounts: async () => [
+        {
+          provider: "codex",
+          scope: "office",
+          accountStatus: "not_connected",
+          loginStatus: "idle",
+          canBrowserLogin: true,
+        },
+      ],
+    });
+    mgr.configurePluginHooksDeps();
+    const info = await mgr.spawn(
+      "Codex auth reset",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-codex-auth-reset",
+      undefined,
+      "fake",
+      "high",
+      "tester",
+      "codex",
+      undefined,
+      "user-a",
+    );
+    const send = (text: string) =>
+      mgr.enqueueMessage(info!.id, {
+        sender: { kind: "user", username: "tester" },
+        text,
+      });
+    send("first");
+    let deadline = Date.now() + 2000;
+    while (
+      mgr
+        .getAgentLogs(info!.id)
+        .filter((entry) => entry.metadata?.providerLogin === "codex").length <
+        1 &&
+      Date.now() < deadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    send("second");
+    deadline = Date.now() + 2000;
+    while (
+      mgr
+        .getAgentLogs(info!.id)
+        .filter((entry) => entry.metadata?.providerLogin === "codex").length <
+        2 &&
+      Date.now() < deadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(
+      mgr
+        .getAgentLogs(info!.id)
+        .filter((entry) => entry.metadata?.providerLogin === "codex"),
+    ).toHaveLength(2);
+  });
+
+  it("keeps Codex terminal fallback when no browser card is actionable", async () => {
+    const cases = [
+      ["no user", null, async () => []],
+      [
+        "lookup failure",
+        "user-a",
+        async () => Promise.reject(new Error("bad env")),
+      ],
+      [
+        "capability failure",
+        "user-a",
+        async () => [
+          {
+            provider: "codex" as const,
+            scope: "office" as const,
+            accountStatus: "unavailable" as const,
+            loginStatus: "idle" as const,
+            canBrowserLogin: false,
+            fallbackToTerminal: true,
+          },
+        ],
+      ],
+    ] as const;
+    for (const [name, userId, listProviderAccounts] of cases) {
+      const fake = new FakeBackend({
+        isAuthError: (text) => /401/.test(text),
+        loginInstructions: {
+          text: "terminal fallback",
+          commands: ["codex login --device-auth"],
+        },
+        session: {
+          onSend: (_text, _attachments, session) => {
+            session.push({ kind: "system_text", text: "401 Unauthorized" });
+          },
+        },
+      });
+      const room = `room-fallback-${name.replaceAll(" ", "-")}`;
+      const mgr = createAgentManager({
+        resolveBackend: () => fake,
+        officeState: new OfficeState({ rooms: rooms(room) }),
+        initialRooms: [],
+        listProviderAccounts,
+      });
+      mgr.configurePluginHooksDeps();
+      const info = await mgr.spawn(
+        `Codex ${name}`,
+        STATE_ROOT,
+        "default",
+        undefined,
+        undefined,
+        room,
+        undefined,
+        "fake",
+        "high",
+        "tester",
+        "codex",
+        undefined,
+        userId,
+      );
+      mgr.enqueueMessage(info!.id, {
+        sender: { kind: "user", username: "tester" },
+        text: "hello",
+      });
+      const deadline = Date.now() + 2000;
+      while (
+        mgr
+          .getAgentLogs(info!.id)
+          .filter((entry) => entry.kind === "terminal-command").length < 1 &&
+        Date.now() < deadline
+      )
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      const logs = mgr.getAgentLogs(info!.id);
+      expect(logs.some((entry) => entry.content === "terminal fallback")).toBe(
+        true,
+      );
+      expect(
+        logs.filter((entry) => entry.kind === "terminal-command"),
+      ).toHaveLength(1);
+      expect(
+        logs.find((entry) => entry.kind === "terminal-command")?.terminal
+          ?.command,
+      ).toContain("--device-auth");
+      expect(
+        logs.some((entry) => entry.metadata?.providerLogin === "codex"),
+      ).toBe(false);
+    }
+  });
+
+  it("keeps the already-authenticated Codex clear hint instead of a sign-in card", async () => {
+    const fake = new FakeBackend({
+      isAuthError: (text) => /401/.test(text),
+      loginInstructions: { text: "Codex is signed in. Type /clear." },
+      session: {
+        onSend: (_text, _attachments, session) => {
+          session.push({ kind: "system_text", text: "401 Unauthorized" });
+        },
+      },
+    });
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-codex-clear") }),
+      initialRooms: [],
+      listProviderAccounts: async () => [
+        {
+          provider: "codex",
+          scope: "office",
+          accountStatus: "not_connected",
+          loginStatus: "idle",
+          canBrowserLogin: true,
+        },
+      ],
+    });
+    mgr.configurePluginHooksDeps();
+    const info = await mgr.spawn(
+      "Codex clear",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-codex-clear",
+      undefined,
+      "fake",
+      "high",
+      "tester",
+      "codex",
+      undefined,
+      "user-a",
+    );
+    mgr.enqueueMessage(info!.id, {
+      sender: { kind: "user", username: "tester" },
+      text: "hello",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const logs = mgr.getAgentLogs(info!.id);
+    expect(
+      logs.some(
+        (entry) => entry.content === "Codex is signed in. Type /clear.",
+      ),
+    ).toBe(true);
+    expect(
+      logs.some((entry) => entry.metadata?.providerLogin === "codex"),
+    ).toBe(false);
+  });
+
   it("recovers through the exact login card, pty-sidecar, and /clear", async () => {
     const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
     const requestPaths: string[] = [];

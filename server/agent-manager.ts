@@ -12,6 +12,7 @@ import type {
   LogEntry,
   OfficeSettings,
   PendingPromptKind,
+  ProviderAccountWire,
   QueuedMessage,
   RoomWire,
   SkillInfo,
@@ -235,6 +236,7 @@ export interface ManagerDeps {
   // real WS-broadcast sink via onEvent() AFTER construction, because that
   // closure references broadcast helpers defined later in isomux-office.ts.
   eventSink?: EventHandler;
+  listProviderAccounts?: (userId: string) => Promise<ProviderAccountWire[]>;
 }
 
 export function backendSessionHasFixedCwd(
@@ -430,33 +432,62 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     });
   }
 
-  // Emit a system log entry with the login/install text, plus an adjacent
-  // terminal-command card per companion shell command the backend supplies.
-  // Centralizes the dual-emission pattern so the four detectAgentAuthError
-  // callsites and the BackendNotConfiguredError catch all render the same
-  // shape: explanatory text first, then one or more clickable cards in the
-  // order returned (e.g. Codex emits browser-OAuth + device-auth so the user
-  // can pick based on whether the host has a usable browser).
-  function emitLoginInstructions(
+  // Emit a system log entry with the login/install text, plus the backend's
+  // companion terminal-command cards. Centralizes the auth-error callsites.
+  async function emitLoginInstructions(
     agentId: string,
     instructions: { text: string; commands?: string[] },
-  ): void {
+  ): Promise<void> {
     const managed = agents.get(agentId);
-    const providerLogin =
-      managed?.info.userId &&
-      (managed.info.agentType === "codex" ||
-        managed.info.agentType === "claude")
-        ? managed.info.agentType
-        : undefined;
+    if (
+      managed?.info.agentType === "codex" &&
+      managed.info.userId &&
+      instructions.commands?.length &&
+      deps.listProviderAccounts
+    ) {
+      try {
+        const accounts = await deps.listProviderAccounts(managed.info.userId);
+        const cardIsActionable = accounts.some(
+          (account) =>
+            account.provider === "codex" &&
+            account.accountStatus !== "connected" &&
+            account.canBrowserLogin,
+        );
+        if (cardIsActionable) {
+          addLogEntry(
+            agentId,
+            "system",
+            "Codex could not run this message because it is not signed in. Sign in below to continue.",
+            { providerLogin: "codex" },
+          );
+          return;
+        }
+      } catch {}
+    }
     addLogEntry(
       agentId,
       "system",
       instructions.text,
-      providerLogin ? { providerLogin } : undefined,
+      managed?.info.agentType === "claude" && managed.info.userId
+        ? { providerLogin: "claude" }
+        : undefined,
     );
     for (const command of instructions.commands ?? []) {
       emitAgentTerminalCommand(agentId, command);
     }
+  }
+
+  function flushPendingFreshRecoveryNotice(
+    agentId: string,
+    managed: ManagedAgent | undefined,
+  ): void {
+    if (!managed?.pendingFreshRecoveryNotice) return;
+    managed.pendingFreshRecoveryNotice = false;
+    addLogEntry(
+      agentId,
+      "system",
+      "Started a fresh session (previous one could not be restored).",
+    );
   }
 
   // Surface a BackendNotConfiguredError to the user: emit the actionable
@@ -480,7 +511,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed: ManagedAgent,
     err: BackendNotConfiguredError,
   ): void {
-    emitLoginInstructions(agentId, {
+    void emitLoginInstructions(agentId, {
       text: err.message,
       commands: err.command ? [err.command] : undefined,
     });
@@ -1620,6 +1651,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryNotice: null,
       memoryNoticeFired: false,
       wakeNotice: null,
+      pendingFreshRecoveryNotice: false,
+      codexAuthNoticeEmittedThisWake: false,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -2148,6 +2181,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const managed = agents.get(agentId);
     if (!managed) return;
     managed.lastActiveAt = Date.now();
+    managed.codexAuthNoticeEmittedThisWake = false;
     if (managed.info.turnHadHumanInput !== opts.humanInput) {
       for (const event of officeState.updateAgent(agentId, {
         turnHadHumanInput: opts.humanInput,
@@ -2877,6 +2911,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // conversation. Unconditional, including the edit-fork rollback path: at
     // worst an agent loses a warning, which beats being handed a false one.
     managed.wakeNotice = null;
+    managed.pendingFreshRecoveryNotice = false;
+    managed.codexAuthNoticeEmittedThisWake = false;
     // Null the slot so nothing ever waits on an orphaned old-conversation
     // request (it still self-discards at commit via the gen check).
     managed.contextSampleInFlight = null;
@@ -3419,10 +3455,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         break;
       }
       case "assistant_text":
+        flushPendingFreshRecoveryNotice(agentId, agents.get(agentId));
         addLogEntry(agentId, "text", ev.text);
         break;
       case "system_text": {
-        addLogEntry(agentId, "system", ev.text);
         // Claude's SDK emits its "Not logged in · Please run /login" notice as
         // a synthetic assistant message that the claude adapter routes here as
         // system_text. Without auth-error detection at this layer, the user
@@ -3434,14 +3470,32 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // rules (a command containing `401` is not a sign-in problem), and
         // being ours they can never BE a provider auth notice.
         const managedForAuth = agents.get(agentId);
-        if (
+        const codexAuthSignal =
+          managedForAuth?.info.agentType === "codex" &&
           !ev.isomuxAuthored &&
-          detectAgentAuthError(managedForAuth, ev.text)
-        ) {
-          emitLoginInstructions(
-            agentId,
-            agentLoginInstructions(managedForAuth),
-          );
+          detectAgentAuthError(managedForAuth, ev.text);
+        if (codexAuthSignal) {
+          if (managedForAuth) managedForAuth.pendingFreshRecoveryNotice = false;
+          if (!managedForAuth?.codexAuthNoticeEmittedThisWake) {
+            if (managedForAuth)
+              managedForAuth.codexAuthNoticeEmittedThisWake = true;
+            void emitLoginInstructions(
+              agentId,
+              agentLoginInstructions(managedForAuth),
+            );
+          }
+        } else {
+          flushPendingFreshRecoveryNotice(agentId, managedForAuth);
+          addLogEntry(agentId, "system", ev.text);
+          if (
+            !ev.isomuxAuthored &&
+            detectAgentAuthError(managedForAuth, ev.text)
+          ) {
+            void emitLoginInstructions(
+              agentId,
+              agentLoginInstructions(managedForAuth),
+            );
+          }
         }
         break;
       }
@@ -3566,6 +3620,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed) refreshContextUsage(managed, "turn_completed");
         // Subscription-allowance reading at the same boundary.
         if (managed) refreshSubscriptionUsage(managed, "turn_completed");
+        if (ev.status === "completed")
+          flushPendingFreshRecoveryNotice(agentId, managed);
         if (ev.status !== "completed") {
           // Hot-abort path (Codex): the natural turn_completed with
           // status="interrupted" arrives after a user-initiated turn/interrupt.
@@ -3576,6 +3632,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // sendMessage / flushQueue callers).
           const isHotAbortClean =
             managed?.aborting === true && ev.status === "interrupted";
+          if (isHotAbortClean)
+            flushPendingFreshRecoveryNotice(agentId, managed);
           if (!isHotAbortClean) {
             // status="failed" while aborting usually means the codex subprocess
             // exited mid-interrupt (handleSubprocessExit synthesizes a failed
@@ -3595,16 +3653,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             const failure = isHotAbortDirty
               ? { text: errorText }
               : humanizeBackendFailure(errorText);
-            addLogEntry(
-              agentId,
-              "error",
-              failure.text,
-              backendFailureMeta(failure),
-            );
+            if (ev.causedByAuth !== true)
+              addLogEntry(
+                agentId,
+                "error",
+                failure.text,
+                backendFailureMeta(failure),
+              );
             // Arm the caller-catch echo suppressor (see ManagedAgent.
             // lastBackendFailure): the turn rejection below wakes the owning
             // caller, whose catch would otherwise repeat this same sentence.
-            if (managed) managed.lastBackendFailure = failure.text;
+            if (managed && ev.causedByAuth !== true)
+              managed.lastBackendFailure = failure.text;
             // Auth detection: trust the backend's `causedByAuth` flag when set
             // (Codex sets it after rewriting the error string to avoid double-
             // emission of the login card). Fall back to regex on the raw error
@@ -3613,11 +3673,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             const isAuthError =
               ev.causedByAuth === true ||
               detectAgentAuthError(managed, errorText);
+            if (isAuthError) {
+              if (managed) managed.pendingFreshRecoveryNotice = false;
+            } else {
+              flushPendingFreshRecoveryNotice(agentId, managed);
+            }
             // Only emit when the regex path caught it - if the backend already
             // coalesced (causedByAuth=true), the login card was emitted earlier
             // in the turn and re-emitting here would duplicate it.
             if (ev.causedByAuth !== true && isAuthError) {
-              emitLoginInstructions(agentId, agentLoginInstructions(managed));
+              void emitLoginInstructions(
+                agentId,
+                agentLoginInstructions(managed),
+              );
             }
             // Auth-failed turns: leave the agent in waiting_for_response so the
             // desk reads "user needs to sign in," not "agent crashed." Non-auth
@@ -3688,6 +3756,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         break;
       case "error": {
         const managed = agents.get(agentId);
+        const isAuthError = detectAgentAuthError(managed, ev.message);
+        if (isAuthError) {
+          if (managed) managed.pendingFreshRecoveryNotice = false;
+        } else {
+          flushPendingFreshRecoveryNotice(agentId, managed);
+        }
         // Task 86678675: the backend's raw string ("Claude Code process exited
         // with code 143") goes to metadata; chat gets the explained version.
         // Everything below still classifies on ev.message.
@@ -3713,9 +3787,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           );
           if (hints) addLogEntry(agentId, "system", hints);
         }
-        const isAuthError = detectAgentAuthError(managed, ev.message);
         if (isAuthError) {
-          emitLoginInstructions(agentId, agentLoginInstructions(managed));
+          void emitLoginInstructions(agentId, agentLoginInstructions(managed));
         }
         // Reject any in-flight turn so sendMessage / executeSkill don't hang.
         const turn = managed?.pendingTurn;
@@ -4038,7 +4111,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
       const isAuthError = detectAgentAuthError(managed, errorText);
       if (isAuthError) {
-        emitLoginInstructions(agentId, agentLoginInstructions(managed));
+        void emitLoginInstructions(agentId, agentLoginInstructions(managed));
       }
       // Same rationale as the "error"-event path above: auth errors aren't
       // agent failures, surface them as waiting_for_response to match the
@@ -4963,6 +5036,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryNotice: null,
       memoryNoticeFired: false,
       wakeNotice: null,
+      pendingFreshRecoveryNotice: false,
+      codexAuthNoticeEmittedThisWake: false,
       subscriptionUsage: null,
       subscriptionGen: 0,
       subscriptionSampleSeq: 0,
@@ -5062,7 +5137,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     openChoiceInteraction,
     cancelChoiceInteraction,
     emitLoginInstructionsFor: (agentId, managed) =>
-      emitLoginInstructions(agentId, agentLoginInstructions(managed)),
+      void emitLoginInstructions(agentId, agentLoginInstructions(managed)),
     createSession,
     replaceSession,
     persistAll,
@@ -6045,11 +6120,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
         addLogEntry(agentId, "system", wakeText);
       } else if (!(wasDormant && dormantReason === "fresh")) {
-        addLogEntry(
-          agentId,
-          "system",
-          "Started a fresh session (previous one could not be restored).",
-        );
+        managed.pendingFreshRecoveryNotice = true;
       }
       // State contract (review-pinned): a busy state here belongs to the
       // CALLER - sendMessage's early-echo beginTurn claims "thinking" for the
@@ -8536,6 +8607,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 // calls this at boot; tests construct createAgentManager(...) with fakes.
 export function createProductionAgentManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;
+  listProviderAccounts?: (userId: string) => Promise<ProviderAccountWire[]>;
 }): AgentManager {
   const initialOfficeConfig = loadOfficeConfig();
   const initialLoadedAgents = loadAgents();
@@ -8558,6 +8630,7 @@ export function createProductionAgentManager(overrides?: {
     resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
     officeState,
     initialRooms: initialLoadedAgents,
+    listProviderAccounts: overrides?.listProviderAccounts,
   });
   // Production-only global registration (kept out of createAgentManager so DI
   // tests don't clobber this env-loader process-global).

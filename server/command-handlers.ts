@@ -1011,8 +1011,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       // Reuses the same backend-dispatched text + cards an auth-error
       // would surface - single source of truth for "how does this agent
-      // authenticate." Codex emits the two-card pick (browser + device-auth)
-      // and the auto-clear short text when already authed; Claude emits its
+      // authenticate." Codex emits its login card or the auto-clear short
+      // text when already authed; Claude emits its
       // /login walkthrough with a `claude` terminal card.
       deps.emitLoginInstructionsFor(agentId, managed);
       deps.updateState(agentId, "waiting_for_response");

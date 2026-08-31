@@ -13,7 +13,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { reducer, initialState } from "./store.tsx";
 import { ChoiceInteractionCard } from "./log-view/LogView.tsx";
-import { ProviderSignInCard } from "./components/ProviderSignInCard.tsx";
+import {
+  ProviderSignInCard,
+  signOutButtonLabel,
+} from "./components/ProviderSignInCard.tsx";
 import type {
   AppWire,
   LogEntry,
@@ -191,6 +194,45 @@ describe("ProviderSignInCard", () => {
         `This signs out ${title} in this machine, even outside the office.`,
       );
     }
+  });
+
+  it("labels the slow confirm action while sign-out is pending", () => {
+    expect(signOutButtonLabel(false)).toBe("Confirm sign out");
+    expect(signOutButtonLabel(true)).toBe("Signing out…");
+  });
+
+  it("replaces a failed in-chat account wire with the successful push", () => {
+    const failed = {
+      provider: "codex" as const,
+      scope: "office" as const,
+      accountStatus: "not_connected" as const,
+      loginStatus: "failed" as const,
+      canBrowserLogin: true,
+      error: "Codex did not report a connected account.",
+    };
+    const succeeded = {
+      ...failed,
+      accountStatus: "connected" as const,
+      loginStatus: "succeeded" as const,
+      accountLabel: "signed-in@example.com",
+      error: undefined,
+    };
+    const before = reducer(initialState, {
+      type: "provider_accounts_updated",
+      accounts: [failed],
+    });
+    const after = reducer(before, {
+      type: "provider_accounts_updated",
+      accounts: [succeeded],
+    });
+    const html = renderToStaticMarkup(
+      createElement(ProviderSignInCard, {
+        provider: "codex",
+        accounts: after.providerAccounts,
+      }),
+    );
+    expect(html).toContain("Connected as signed-in@example.com");
+    expect(html).not.toContain("Codex did not report a connected account.");
   });
 });
 

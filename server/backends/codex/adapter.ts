@@ -110,25 +110,23 @@ import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
 // the user needs a one-time `codex login` against isomux's CODEX_HOME - the
 // [Copy to terminal] card alongside this message has the exact command.
 //
-// Two [Copy to terminal] cards follow: browser OAuth (default) and
-// `--device-auth` (remote / headless). Both target the default
-// `~/.isomux/codex-home/`. Users with a per-user envFile `CODEX_HOME`
+// The terminal card targets the default `~/.isomux/codex-home/`. Users with a
+// per-user envFile `CODEX_HOME`
 // (e.g. `~/.isomux-users/<name>/.codex` for billing isolation, see
 // internal-docs/isolation-design.md) need to prefix the pasted command
 // with their own `CODEX_HOME=<path>` before pressing Enter - the wrapper's
 // default only kicks in when CODEX_HOME is unset.
-// Same wrapper command the [Copy to terminal] cards use, so the prose and the
-// cards never disagree - `~/.isomux/bin/codex` at the default root (byte-for-
+// Same wrapper command the [Copy to terminal] card uses, so the prose and the
+// card never disagree - `~/.isomux/bin/codex` at the default root (byte-for-
 // byte prod), the active wrapper path under an ISOMUX_HOME override.
 const codexLoginCmd = codexWrapperCommandForShell();
-const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on one of the cards below:
+const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on the card below:
 
-- \`${codexLoginCmd} login\`: if running isomux locally
-- \`${codexLoginCmd} login --device-auth\`: for your hosted Isomux VPS, or another remote or headless host (e.g. a Mac mini or Linux box you reach over a VPN)
+- \`${codexLoginCmd} login --device-auth\`
 
 Press Enter to run, follow the prompts, then \`/clear\` this conversation to apply the new auth. Other codex agents apply on their next \`/clear\`.
 
-Alternative: add \`OPENAI_API_KEY\` to your envFile (User Settings → Env File Path, then \`/clear\`). For envFile users with a custom CODEX_HOME: prefix the login commands above with \`CODEX_HOME=<your value>\` first.`;
+Alternative: add \`OPENAI_API_KEY\` to your envFile (User Settings → Env File Path, then \`/clear\`). For envFile users with a custom CODEX_HOME: prefix the login command above with \`CODEX_HOME=<your value>\` first.`;
 
 // Surfaced when an auth-error fires but the office already has a valid
 // codex auth (auth.json present, or OPENAI_API_KEY in env). The user's

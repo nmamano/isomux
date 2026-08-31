@@ -260,6 +260,114 @@ describe("ProviderAccountManager", () => {
     });
   });
 
+  it("verifies Codex device-code completion in a fresh client", async () => {
+    let complete!: (value: {
+      loginId: string;
+      success: boolean;
+      error: null;
+    }) => void;
+    let clients = 0;
+    const emitted: string[] = [];
+    const manager = new ProviderAccountManager(
+      (_userId, accounts) => {
+        const wire = accounts.find(
+          (account) =>
+            account.provider === "codex" && account.scope === "office",
+        );
+        if (wire)
+          emitted.push(
+            `${wire.loginStatus}/${wire.accountStatus}/${wire.error ?? "none"}`,
+          );
+      },
+      (() => {
+        const client = ++clients;
+        return {
+          start: async () => {},
+          login: async () => ({
+            loginId: "device-1",
+            authUrl: "https://auth.openai.com/",
+            userCode: "ABCD",
+          }),
+          waitForCompletion: () =>
+            new Promise((resolve) => {
+              complete = resolve;
+            }),
+          read: async () =>
+            client === 1
+              ? { connected: false }
+              : { connected: true, label: "signed-in@example.com" },
+          close: async () => {},
+        };
+      }) as never,
+    );
+
+    await manager.startLogin("user-a", "codex", "office", "device");
+    complete({ loginId: "device-1", success: true, error: null });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(clients).toBeGreaterThan(1);
+    expect(emitted.at(-1)).toBe("succeeded/connected/none");
+  });
+
+  it("does not reuse a pre-logout probe for a refresh", async () => {
+    let connected = true;
+    let release!: () => void;
+    let reads = 0;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const manager = new ProviderAccountManager(
+      () => {},
+      (() => ({
+        start: async () => {},
+        read: async () => {
+          const snapshot = connected;
+          reads++;
+          if (reads === 1) await held;
+          return { connected: snapshot };
+        },
+        logout: async () => {
+          connected = false;
+        },
+        close: async () => {},
+      })) as never,
+      undefined,
+      (userId) => userId,
+      () => ({}),
+      (() => ({
+        start: async () => {},
+        read: async () => ({ connected: false }),
+        close: async () => {},
+      })) as never,
+      () => ({ CODEX_HOME: "/tmp/provider-refresh-codex" }),
+      () => ({}),
+      () => ({}),
+      () => [{ id: "user-a" }],
+    );
+
+    const oldProbe = manager.list("user-a");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const disconnect = manager.disconnect("user-a", "codex", "office");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+    const result = await disconnect;
+    await oldProbe;
+
+    expect(result.ok).toBe(true);
+    if (result.ok)
+      expect(
+        result.value.accounts.find(
+          (account) =>
+            account.provider === "codex" && account.scope === "office",
+        )?.accountStatus,
+      ).toBe("not_connected");
+    expect(
+      (await manager.list("user-a")).find(
+        (account) => account.provider === "codex" && account.scope === "office",
+      )?.accountStatus,
+    ).toBe("not_connected");
+  });
+
   it("does not let a canceled operation settle later", async () => {
     let complete!: (value: {
       loginId: string;

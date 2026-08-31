@@ -383,7 +383,10 @@ function createManagers(startOpts: StartServerOpts): void {
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
   agentManager =
     startOpts.agentManager ??
-    createProductionAgentManager({ resolveBackend: startOpts.resolveBackend });
+    createProductionAgentManager({
+      resolveBackend: startOpts.resolveBackend,
+      listProviderAccounts: (userId) => providerAccountManager.list(userId),
+    });
   cronjobManager =
     startOpts.cronjobManager ??
     createProductionCronjobManager({

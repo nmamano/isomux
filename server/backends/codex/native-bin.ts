@@ -205,15 +205,6 @@ exec ${shellSingleQuote(process.execPath)} ${shellSingleQuote(launcher)} "$@"
 // Routes through the `~/.isomux/bin/codex` wrapper so the cards stay short
 // and readable rather than a wall of absolute paths.
 //
-// Returns two commands:
-//   1. Browser OAuth flow - codex spawns a local server on :1455 and opens
-//      the user's browser. Works when a browser on the isomux host can reach
-//      that port (i.e. local install, or an SSH tunnel).
-//   2. Device-auth flow - codex prints a code + URL to enter on any device.
-//      The right call for remote / headless servers (the common self-hoster
-//      shape over Tailscale, where the redirect to `localhost:1455` on the
-//      browser machine has nowhere to land).
-//
 // Per-user envFile users with a custom CODEX_HOME (e.g.
 // `~/.isomux-users/marc/.codex`) need to prefix the wrapper call with their
 // own `CODEX_HOME=<path>`; the wrapper's default only kicks in when
@@ -232,7 +223,7 @@ export function codexWrapperCommandForShell(): string {
 export function getCodexLoginCommands(): string[] {
   ensureCodexWrapperScript();
   const cmd = codexWrapperCommandForShell();
-  return [`${cmd} login`, `${cmd} login --device-auth`];
+  return [`${cmd} login --device-auth`];
 }
 
 function shellSingleQuote(s: string): string {

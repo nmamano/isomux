@@ -46,10 +46,10 @@ describe("codex wrapper follows the active state root", () => {
       const commands = JSON.parse(out.split("\n").pop()!);
       // Finding 2: login cards point at the wrapper actually written, under the
       // override root - not a stale/absent ~/.isomux/bin/codex.
-      expect(commands).toHaveLength(2);
+      expect(commands).toHaveLength(1);
       expect(commands[0]).toContain(wantBin);
       expect(commands[0]).toContain("login");
-      expect(commands[1]).toContain("--device-auth");
+      expect(commands[0]).toContain("--device-auth");
 
       // Finding 1: the generated wrapper's CODEX_HOME default is the override
       // codex-home, not $HOME/.isomux/codex-home, and an explicit CODEX_HOME

@@ -66,6 +66,7 @@ export class ProviderAccountManager {
     { checkedAt: number; wire: ProviderAccountWire }
   >();
   private probes = new Map<string, Promise<ProviderAccountWire>>();
+  private cacheGenerations = new Map<string, number>();
 
   constructor(
     private readonly emit: (
@@ -311,6 +312,10 @@ export class ProviderAccountManager {
     const running = this.active.get(target.key);
     if (running?.userId === userId) return running.wire;
     const cacheKey = this.cacheKey(userId, target);
+    const cacheGeneration = refresh
+      ? (this.cacheGenerations.get(cacheKey) ?? 0) + 1
+      : (this.cacheGenerations.get(cacheKey) ?? 0);
+    if (refresh) this.cacheGenerations.set(cacheKey, cacheGeneration);
     const cached = this.statusCache.get(cacheKey);
     if (
       !refresh &&
@@ -318,13 +323,15 @@ export class ProviderAccountManager {
       Date.now() - cached.checkedAt < ACCOUNT_STATUS_TTL_MS
     )
       return cached.wire;
-    let probe = this.probes.get(cacheKey);
-    if (!probe) {
+    let probe = refresh ? undefined : this.probes.get(cacheKey);
+    if (!probe && !refresh) {
       probe = this.probe(target).finally(() => this.probes.delete(cacheKey));
       this.probes.set(cacheKey, probe);
     }
+    probe ??= this.probe(target);
     const wire = await probe;
-    this.statusCache.set(cacheKey, { checkedAt: Date.now(), wire });
+    if ((this.cacheGenerations.get(cacheKey) ?? 0) === cacheGeneration)
+      this.statusCache.set(cacheKey, { checkedAt: Date.now(), wire });
     return wire;
   }
 
@@ -498,7 +505,14 @@ export class ProviderAccountManager {
           await verifier.close();
         }
       } else {
-        account = await active.client.read();
+        await active.client.close();
+        const verifier = this.createCodex(active.target.env);
+        try {
+          await verifier.start();
+          account = await verifier.read();
+        } finally {
+          await verifier.close();
+        }
       }
       const providerSucceeded =
         active.target.provider === "claude" ||
