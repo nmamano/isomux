@@ -286,89 +286,130 @@ export function Walls({
       />
 
       {/* Window on left wall */}
-      {/* Frame */}
-      <path
-        d="M-290 120 L-140 45 L-140 -50 L-290 25 Z"
-        fill="var(--wall-decor)"
-        stroke="var(--wall-stroke)"
-        strokeWidth="1"
-      />
-      {/* Pane area */}
-      <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#0a0e1a" />
-
-      {/* Night scene (dark mode) */}
-      <g clipPath="url(#window-clip)" className="window-night">
+      <g
+        data-no-pan
+        role="button"
+        tabIndex={0}
+        aria-label="Change theme"
+        onClick={onToggleTheme}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onToggleTheme?.();
+          }
+        }}
+        style={{ cursor: "pointer" }}
+      >
+        {/* The projecting bottom and right faces match the wall's depth. */}
+        <path
+          d="M-290 120 L-140 45 L-131 49.5 L-281 124.5 Z"
+          fill="var(--wall-end-left)"
+          stroke="var(--wall-stroke)"
+          strokeWidth="0.5"
+        />
+        <path
+          d="M-140 -50 L-140 45 L-131 49.5 L-131 -45.5 Z"
+          fill="var(--wall-top-left)"
+          stroke="var(--wall-stroke)"
+          strokeWidth="0.5"
+        />
+        {/* Frame */}
+        <path
+          d="M-290 120 L-140 45 L-140 -50 L-290 25 Z"
+          fill="var(--wall-decor)"
+          stroke="var(--wall-stroke)"
+          strokeWidth="1"
+        />
+        {/* Pane area */}
         <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#0a0e1a" />
-        {/* Stars */}
-        {stars.map(([sx, sy, sr], i) => (
-          <circle
-            key={i}
-            cx={sx}
-            cy={sy}
-            r={sr}
+
+        {/* Night scene (dark mode) */}
+        <g clipPath="url(#window-clip)" className="window-night">
+          <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#0a0e1a" />
+          {/* Stars */}
+          {stars.map(([sx, sy, sr], i) => (
+            <circle
+              key={i}
+              cx={sx}
+              cy={sy}
+              r={sr}
+              fill="white"
+              opacity={0.4 + (i % 4) * 0.15}
+            >
+              {i % 5 === 0 && (
+                <animate
+                  attributeName="opacity"
+                  values={`${0.3 + (i % 3) * 0.1};${0.7 + (i % 2) * 0.2};${0.3 + (i % 3) * 0.1}`}
+                  dur={`${2 + (i % 3)}s`}
+                  repeatCount="indefinite"
+                />
+              )}
+            </circle>
+          ))}
+          {/* Moon - crescent via overlapping circles */}
+          <g>
+            <circle cx={-203} cy={-8} r={18} fill="transparent" />
+            <circle cx={-203} cy={-8} r={12} fill="#E8E0C8" />
+            <circle cx={-203 + moonPhase * 10} cy={-9} r={10} fill="#0a0e1a" />
+            {/* Moon glow */}
+            <circle cx={-203} cy={-8} r={18} fill="#E8E0C8" opacity="0.05" />
+          </g>
+        </g>
+
+        {/* Day scene (light mode) */}
+        <g clipPath="url(#window-clip)" className="window-day">
+          <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#87CEEB" />
+          {/* Sun */}
+          <g>
+            <circle cx={-205} cy={-5} r={20} fill="transparent" />
+            <circle cx={-205} cy={-5} r={14} fill="#F5D060" />
+            <circle cx={-205} cy={-5} r={20} fill="#F5D060" opacity="0.15" />
+          </g>
+          {/* Clouds */}
+          <ellipse
+            cx={-240}
+            cy={40}
+            rx={18}
+            ry={6}
             fill="white"
-            opacity={0.4 + (i % 4) * 0.15}
-          >
-            {i % 5 === 0 && (
-              <animate
-                attributeName="opacity"
-                values={`${0.3 + (i % 3) * 0.1};${0.7 + (i % 2) * 0.2};${0.3 + (i % 3) * 0.1}`}
-                dur={`${2 + (i % 3)}s`}
-                repeatCount="indefinite"
-              />
-            )}
-          </circle>
-        ))}
-        {/* Moon - crescent via overlapping circles (clickable to toggle theme) */}
-        <g
-          data-no-pan
-          onClick={onToggleTheme}
-          style={{ cursor: "pointer", pointerEvents: "auto" }}
-        >
-          <circle cx={-203} cy={-8} r={18} fill="transparent" />
-          <circle cx={-203} cy={-8} r={12} fill="#E8E0C8" />
-          <circle cx={-203 + moonPhase * 10} cy={-9} r={10} fill="#0a0e1a" />
-          {/* Moon glow */}
-          <circle cx={-203} cy={-8} r={18} fill="#E8E0C8" opacity="0.05" />
+            opacity="0.7"
+          />
+          <ellipse
+            cx={-230}
+            cy={37}
+            rx={12}
+            ry={5}
+            fill="white"
+            opacity="0.6"
+          />
+          <ellipse cx={-175} cy={5} rx={14} ry={5} fill="white" opacity="0.5" />
+          <ellipse
+            cx={-165}
+            cy={3}
+            rx={10}
+            ry={4}
+            fill="white"
+            opacity="0.45"
+          />
         </g>
-      </g>
 
-      {/* Day scene (light mode) */}
-      <g clipPath="url(#window-clip)" className="window-day">
-        <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#87CEEB" />
-        {/* Sun (clickable to toggle theme) */}
-        <g
-          data-no-pan
-          onClick={onToggleTheme}
-          style={{ cursor: "pointer", pointerEvents: "auto" }}
-        >
-          <circle cx={-205} cy={-5} r={20} fill="transparent" />
-          <circle cx={-205} cy={-5} r={14} fill="#F5D060" />
-          <circle cx={-205} cy={-5} r={20} fill="#F5D060" opacity="0.15" />
-        </g>
-        {/* Clouds */}
-        <ellipse cx={-240} cy={40} rx={18} ry={6} fill="white" opacity="0.7" />
-        <ellipse cx={-230} cy={37} rx={12} ry={5} fill="white" opacity="0.6" />
-        <ellipse cx={-175} cy={5} rx={14} ry={5} fill="white" opacity="0.5" />
-        <ellipse cx={-165} cy={3} rx={10} ry={4} fill="white" opacity="0.45" />
+        {/* Window crossbar (vertical center divider) */}
+        <line
+          x1={-215}
+          y1={80}
+          x2={-215}
+          y2={-10}
+          stroke="var(--wall-decor)"
+          strokeWidth="2"
+        />
+        {/* Window crossbar (horizontal, following iso slope) */}
+        <path
+          d="M-285 70 L-145 0"
+          stroke="var(--wall-decor)"
+          strokeWidth="2"
+          fill="none"
+        />
       </g>
-
-      {/* Window crossbar (vertical center divider) */}
-      <line
-        x1={-215}
-        y1={80}
-        x2={-215}
-        y2={-10}
-        stroke="var(--wall-decor)"
-        strokeWidth="2"
-      />
-      {/* Window crossbar (horizontal, following iso slope) */}
-      <path
-        d="M-285 70 L-145 0"
-        stroke="var(--wall-decor)"
-        strokeWidth="2"
-        fill="none"
-      />
 
       {/* Corkboard on left wall - casual, mutable feel */}
       <g

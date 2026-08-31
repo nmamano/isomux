@@ -2454,6 +2454,7 @@ export function LogView({
               <div
                 ref={messagesRef}
                 onScroll={handleScroll}
+                className="chat-messages"
                 style={{
                   flex: 1,
                   overflowY: "auto",

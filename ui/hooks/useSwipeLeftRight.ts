@@ -49,6 +49,15 @@ export function useSwipeLeftRight(
         startRef.current = null;
         return;
       }
+      // Selection handles start their own touch gestures. On iOS the range
+      // can update after touchend, so the end-only guard below is too late:
+      // the chat swipe has already tracked the handle drag. Give an existing
+      // text selection ownership from the first event instead.
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) {
+        startRef.current = null;
+        return;
+      }
       if (shouldStartRef.current && !shouldStartRef.current()) {
         startRef.current = null;
         return;
