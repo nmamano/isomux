@@ -408,7 +408,7 @@ export function Walls({
           x1={-215}
           y1={73.5}
           x2={-215}
-          y2={-10}
+          y2={-12.5}
           stroke="var(--wall-decor)"
           strokeWidth="2"
         />
