@@ -234,7 +234,7 @@ export function Walls({
       <defs>
         {/* Clip the sky scene to the window pane (iso parallelogram) */}
         <clipPath id="window-clip">
-          <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" />
+          <path d="M-290 111 L-149 40.5 L-149 -45.5 L-290 25 Z" />
         </clipPath>
         <radialGradient id="door-knob" cx="32%" cy="28%" r="68%">
           <stop offset="0" stopColor="#fff1ad" />
@@ -301,32 +301,26 @@ export function Walls({
         }}
         style={{ cursor: "pointer", pointerEvents: "auto" }}
       >
-        {/* The projecting bottom and right faces match the wall's depth. */}
+        {/* Four-sided wall opening, with its depth visible inside. */}
         <path
-          d="M-290 120 L-140 45 L-131 49.5 L-281 124.5 Z"
+          d="M-290 120 L-140 45 L-140 -50 L-290 25 Z"
           fill="var(--wall-end-left)"
           stroke="var(--wall-stroke)"
           strokeWidth="0.5"
         />
         <path
-          d="M-140 -50 L-140 45 L-131 49.5 L-131 -45.5 Z"
+          d="M-140 45 L-140 -50 L-149 -45.5 L-149 40.5 Z"
           fill="var(--wall-top-left)"
           stroke="var(--wall-stroke)"
           strokeWidth="0.5"
         />
-        {/* Frame */}
-        <path
-          d="M-290 120 L-140 45 L-140 -50 L-290 25 Z"
-          fill="var(--wall-decor)"
-          stroke="var(--wall-stroke)"
-          strokeWidth="1"
-        />
-        {/* Pane area */}
-        <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#0a0e1a" />
 
         {/* Night scene (dark mode) */}
         <g clipPath="url(#window-clip)" className="window-night">
-          <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#0a0e1a" />
+          <path
+            d="M-290 111 L-149 40.5 L-149 -45.5 L-290 25 Z"
+            fill="#0a0e1a"
+          />
           {/* Stars */}
           {stars.map(([sx, sy, sr], i) => (
             <circle
@@ -359,7 +353,10 @@ export function Walls({
 
         {/* Day scene (light mode) */}
         <g clipPath="url(#window-clip)" className="window-day">
-          <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#87CEEB" />
+          <path
+            d="M-290 111 L-149 40.5 L-149 -45.5 L-290 25 Z"
+            fill="#87CEEB"
+          />
           {/* Sun */}
           <g>
             <circle cx={-205} cy={-5} r={20} fill="transparent" />
@@ -394,10 +391,22 @@ export function Walls({
           />
         </g>
 
+        {/* The outer-edge frame is hidden on the left and top. */}
+        <path
+          d="M-290 111 L-149 40.5"
+          stroke="var(--wall-decor)"
+          strokeWidth="2"
+        />
+        <path
+          d="M-149 40.5 L-149 -45.5"
+          stroke="var(--wall-decor)"
+          strokeWidth="2"
+        />
+
         {/* Window crossbar (vertical center divider) */}
         <line
           x1={-215}
-          y1={80}
+          y1={73.5}
           x2={-215}
           y2={-10}
           stroke="var(--wall-decor)"
@@ -405,7 +414,7 @@ export function Walls({
         />
         {/* Window crossbar (horizontal, following iso slope) */}
         <path
-          d="M-285 70 L-145 0"
+          d="M-290 68 L-149 -2.5"
           stroke="var(--wall-decor)"
           strokeWidth="2"
           fill="none"
