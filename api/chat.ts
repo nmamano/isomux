@@ -379,7 +379,7 @@ export default async function handler(req: Request) {
     typeof pageContext === "string" && Boolean(pageContext.trim());
   let system = buildSystemPrompt(page, hasPageContext);
   if (hasPageContext) {
-    const trimmed = pageContext!.slice(0, 20_000);
+    const trimmed = pageContext.slice(0, 20_000);
     system += `\n\n---\n## Current docs page\n\nThe user is reading this specific docs page. Use it as authoritative context when they ask about its contents. Quote it directly when answering specifics.\n\n<page-content>\n${trimmed}\n</page-content>`;
   }
 

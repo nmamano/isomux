@@ -17,7 +17,7 @@ describe("resetTerminalForRespawn", () => {
       "utf8",
     );
     const handleRespawn = source.match(
-      /function handleRespawn\(\) \{([\s\S]*?)\n  \}/u,
+      /function handleRespawn\(\) \{([\s\S]*?)\n {2}\}/u,
     )?.[1];
     expect(handleRespawn).toContain("resetTerminalForRespawn(termRef.current)");
     expect(handleRespawn).not.toContain(".clear(");
