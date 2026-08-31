@@ -95,6 +95,10 @@ export class CodexAccountClient {
     await this.client.request("account/login/cancel", { loginId });
   }
 
+  async logout(): Promise<void> {
+    await this.client.request("account/logout", undefined);
+  }
+
   close(): Promise<void> {
     return this.client.close();
   }

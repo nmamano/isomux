@@ -1665,6 +1665,9 @@ export async function demoApi(
     case "POST /api/me/provider-accounts/codex/cancel":
     case "POST /api/me/provider-accounts/claude/cancel":
       return { canceled: true };
+    case "POST /api/me/provider-accounts/codex/disconnect":
+    case "POST /api/me/provider-accounts/claude/disconnect":
+      return demoApi("GET", "/api/me/provider-accounts");
     case "POST /api/me/provider-accounts/claude/callback":
       return { submitted: true };
     case "POST /api/me/provider-accounts/refresh":

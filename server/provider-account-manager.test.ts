@@ -1,10 +1,164 @@
 import { describe, expect, it } from "bun:test";
 import { homedir } from "node:os";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { resolve } from "node:path";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 
 describe("ProviderAccountManager", () => {
+  it("marks external CLI directories by resolved path for both providers", async () => {
+    const fake = () => ({
+      start: async () => {},
+      read: async () => ({ connected: false }),
+      close: async () => {},
+    });
+    const external = new ProviderAccountManager(
+      () => {},
+      fake as never,
+      undefined,
+      undefined,
+      () => ({}),
+      fake as never,
+      () => ({
+        CODEX_HOME: resolve(homedir(), ".codex"),
+        CLAUDE_CONFIG_DIR: resolve(homedir(), ".claude"),
+      }),
+    );
+    const managed = new ProviderAccountManager(
+      () => {},
+      fake as never,
+      undefined,
+      undefined,
+      () => ({}),
+      fake as never,
+      () => ({
+        CODEX_HOME: "/tmp/isomux-codex",
+        CLAUDE_CONFIG_DIR: "/tmp/isomux-claude",
+      }),
+    );
+
+    for (const account of await external.list("user-a"))
+      if (account.scope === "office") expect(account.externalCli).toBe(true);
+    for (const account of await managed.list("user-a"))
+      if (account.scope === "office") expect(account.externalCli).toBe(false);
+  });
+
+  it("invalidates and emits an office disconnect for every member", async () => {
+    let connected = true;
+    const emitted: Array<{ userId: string; connected: boolean }> = [];
+    const fake = () => ({
+      start: async () => {},
+      read: async () => ({ connected }),
+      logout: async () => {
+        connected = false;
+      },
+      close: async () => {},
+    });
+    const manager = new ProviderAccountManager(
+      (userId, accounts) =>
+        emitted.push({
+          userId,
+          connected:
+            accounts.find(
+              (account) =>
+                account.provider === "codex" && account.scope === "office",
+            )?.accountStatus === "connected",
+        }),
+      fake as never,
+      undefined,
+      (userId) => userId,
+      () => ({}),
+      fake as never,
+      () => ({ CODEX_HOME: "/tmp/isomux-codex" }),
+      () => ({}),
+      () => ({}),
+      () => [{ id: "user-a" }, { id: "user-b" }],
+    );
+    await manager.list("user-a");
+    await manager.list("user-b");
+
+    const result = await manager.disconnect("user-a", "codex", "office");
+
+    expect(result.ok).toBe(true);
+    if (result.ok)
+      expect(
+        result.value.accounts.find(
+          (account) =>
+            account.provider === "codex" && account.scope === "office",
+        )?.accountStatus,
+      ).toBe("not_connected");
+    expect(emitted.slice(-2)).toEqual([
+      { userId: "user-a", connected: false },
+      { userId: "user-b", connected: false },
+    ]);
+    expect(
+      (await manager.list("user-b")).find(
+        (account) => account.provider === "codex" && account.scope === "office",
+      )?.accountStatus,
+    ).toBe("not_connected");
+  });
+
+  it("verifies Claude removal before deactivation and accepts an absent credential", async () => {
+    const root = mkdtempSync("/tmp/provider-disconnect-");
+    const home = resolve(root, "user-a", "claude");
+    mkdirSync(home, { recursive: true });
+    writeFileSync(resolve(home, ".credentials.json"), "fixture");
+    const order: string[] = [];
+    const claude = () => ({
+      start: async () => {},
+      read: async () => {
+        const connected = existsSync(resolve(home, ".credentials.json"));
+        order.push(`read:${connected}`);
+        return { connected };
+      },
+      close: async () => {},
+    });
+    const codex = () => ({
+      start: async () => {},
+      read: async () => ({ connected: false }),
+      close: async () => {},
+    });
+    const manager = new ProviderAccountManager(
+      () => {},
+      codex as never,
+      undefined,
+      undefined,
+      () => ({}),
+      claude as never,
+      () => ({}),
+      () => ({}),
+      () => ({}),
+      () => [{ id: "user-a" }],
+      () => home,
+      () => home,
+      () => true,
+      () => {},
+      () => order.push("deactivate"),
+    );
+
+    const result = await manager.disconnect("user-a", "claude", "personal");
+
+    expect(result.ok).toBe(true);
+    if (result.ok)
+      expect(
+        result.value.accounts.find(
+          (account) =>
+            account.provider === "claude" && account.scope === "personal",
+        )?.accountStatus,
+      ).toBe("not_connected");
+    expect(order.slice(0, 2)).toEqual(["read:false", "deactivate"]);
+    expect(existsSync(resolve(home, ".credentials.json"))).toBe(false);
+    expect((await manager.disconnect("user-a", "claude", "personal")).ok).toBe(
+      true,
+    );
+    rmSync(root, { recursive: true });
+  });
   it("allows only one login process for a shared credential directory", async () => {
     let starts = 0;
     const fake = () => ({

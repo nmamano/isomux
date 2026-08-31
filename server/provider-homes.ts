@@ -74,3 +74,18 @@ export function activatePersonalProvider(
     0o600,
   );
 }
+
+export function deactivatePersonalProvider(
+  userId: string,
+  provider: ProviderAccountProvider,
+): void {
+  const state = readState();
+  if (!state[userId]?.[provider]) return;
+  delete state[userId][provider];
+  if (Object.keys(state[userId]).length === 0) delete state[userId];
+  atomicWriteFileSync(
+    PROVIDER_ACCOUNT_STATE_FILE,
+    JSON.stringify(state, null, 2),
+    0o600,
+  );
+}

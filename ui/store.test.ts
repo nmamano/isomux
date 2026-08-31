@@ -106,16 +106,16 @@ describe("ProviderSignInCard", () => {
     },
   ];
 
-  it("presents an office-first fork and only the selected cell", () => {
+  it("presents both account scopes without a selection toggle", () => {
     const html = renderToStaticMarkup(
       createElement(ProviderSignInCard, { provider: "claude", accounts }),
     );
-    expect(html).toContain("Who should use this account?");
-    expect(html).toContain('checked=""');
-    expect(html).toContain(
-      "This signs in the Claude account that the whole office shares.",
-    );
-    expect(html).toContain("Connect Claude");
+    expect(html).toContain("Every agent in this office");
+    expect(html).toContain("Only agents I spawn");
+    expect(html).toContain("Use this account for agents that anyone spawns.");
+    expect(html).toContain("Use a separate account for your agents.");
+    expect(html).toContain("Sign in with browser");
+    expect(html).not.toContain("Who should use this account?");
     expect(html).not.toContain("sign in from the built-in terminal");
     expect(html).not.toContain("Set your Env File Path in User Settings.");
   });
@@ -140,6 +140,57 @@ describe("ProviderSignInCard", () => {
     expect(html).toContain("Waiting for provider…");
     expect(html).not.toContain("Waiting for Claude");
     expect(html).not.toContain("Waiting for OpenAI");
+  });
+
+  it("does not call an account disconnected before its row loads", () => {
+    const html = renderToStaticMarkup(
+      createElement(ProviderSignInCard, { provider: "claude", accounts: [] }),
+    );
+    expect(html).toContain("Checking connection…");
+    expect(html).not.toContain("Not connected");
+  });
+
+  it("renders the provider error when a sign-in fails", () => {
+    const html = renderToStaticMarkup(
+      createElement(ProviderSignInCard, {
+        provider: "claude",
+        accounts: [
+          {
+            provider: "claude",
+            scope: "office",
+            accountStatus: "not_connected",
+            loginStatus: "failed",
+            canBrowserLogin: true,
+            error: "Claude rejected this sign-in.",
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("Claude rejected this sign-in.");
+  });
+
+  it("pins the shared CLI warning copy for both providers", () => {
+    for (const provider of ["claude", "codex"] as const) {
+      const title = provider === "claude" ? "Claude" : "Codex";
+      const html = renderToStaticMarkup(
+        createElement(ProviderSignInCard, {
+          provider,
+          accounts: [
+            {
+              provider,
+              scope: "office",
+              accountStatus: "connected",
+              loginStatus: "idle",
+              canBrowserLogin: true,
+              externalCli: true,
+            },
+          ],
+        }),
+      );
+      expect(html).toContain(
+        `This signs out ${title} in this machine, even outside the office.`,
+      );
+    }
   });
 });
 

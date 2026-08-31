@@ -6,15 +6,13 @@ import type {
 } from "../../shared/types.ts";
 import { hint, sectionHeader } from "./access-shared.tsx";
 import { dialogCancelBtn } from "./dialog-styles.ts";
-import { useAppState } from "../store.tsx";
+import { useAppState, useDispatch } from "../store.tsx";
 import { ProviderSignInCard } from "./ProviderSignInCard.tsx";
 
 export function ConnectionsPane() {
   const { providerAccounts: liveAccounts } = useAppState();
-  const [loadedAccounts, setLoadedAccounts] = useState<ProviderAccountWire[]>(
-    [],
-  );
-  const accounts = liveAccounts.length > 0 ? liveAccounts : loadedAccounts;
+  const dispatch = useDispatch();
+  const accounts = liveAccounts;
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,7 +26,10 @@ export function ConnectionsPane() {
           ? "/api/me/provider-accounts/refresh"
           : "/api/me/provider-accounts",
       );
-      setLoadedAccounts(result.accounts);
+      dispatch({
+        type: "provider_accounts_updated",
+        accounts: result.accounts,
+      });
     } catch (caught) {
       setError(
         caught instanceof ApiError
@@ -42,7 +43,12 @@ export function ConnectionsPane() {
 
   useEffect(() => {
     void apiFetch<ProviderAccountsWire>("GET", "/api/me/provider-accounts")
-      .then((result) => setLoadedAccounts(result.accounts))
+      .then((result) =>
+        dispatch({
+          type: "provider_accounts_updated",
+          accounts: result.accounts,
+        }),
+      )
       .catch((caught) =>
         setError(
           caught instanceof ApiError
@@ -50,7 +56,10 @@ export function ConnectionsPane() {
             : "Could not check provider accounts.",
         ),
       );
-  }, []);
+  }, [dispatch]);
+
+  const updateAccounts = (next: ProviderAccountWire[]) =>
+    dispatch({ type: "provider_accounts_updated", accounts: next });
 
   return (
     <div style={{ marginTop: 24 }}>
@@ -78,12 +87,12 @@ export function ConnectionsPane() {
       <ProviderSignInCard
         provider="codex"
         accounts={accounts}
-        onAccounts={setLoadedAccounts}
+        onAccounts={updateAccounts}
       />
       <ProviderSignInCard
         provider="claude"
         accounts={accounts}
-        onAccounts={setLoadedAccounts}
+        onAccounts={updateAccounts}
       />
     </div>
   );

@@ -81,7 +81,11 @@ export class ClaudeAccountClient {
     if (!account || typeof account !== "object") return { connected: false };
     const value = account as Record<string, unknown>;
     const connected =
-      typeof value.tokenSource === "string" && value.tokenSource !== "none";
+      typeof value.tokenSource === "string"
+        ? value.tokenSource !== "none"
+        : value.apiProvider === "firstParty" &&
+          typeof value.email === "string" &&
+          value.email.length > 0;
     return {
       connected,
       label:

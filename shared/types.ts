@@ -1351,6 +1351,8 @@ export interface ProviderAccountWire {
   shared?: boolean;
   canBrowserLogin: boolean;
   fallbackToTerminal?: boolean;
+  externalCli?: boolean;
+  explicitDirectory?: boolean;
   error?: string;
 }
 
@@ -1375,6 +1377,10 @@ export interface ProviderLoginCallbackReq {
 }
 
 export interface ProviderLoginCancelReq {
+  scope: ProviderAccountScope;
+}
+
+export interface ProviderDisconnectReq {
   scope: ProviderAccountScope;
 }
 

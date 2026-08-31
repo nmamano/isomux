@@ -2,6 +2,46 @@ import { describe, expect, it } from "bun:test";
 import { ClaudeAccountClient } from "./account.ts";
 
 describe("ClaudeAccountClient", () => {
+  it("recognizes current first-party account info without tokenSource", async () => {
+    const client = new ClaudeAccountClient({}, () => ({
+      claudeAuthenticate: async () => ({ manualUrl: "https://claude.ai/" }),
+      claudeOAuthCallback: async () => {},
+      claudeOAuthWaitForCompletion: async () => {},
+      accountInfo: async () => ({
+        email: "member@example.com",
+        subscriptionType: "Claude Max",
+        apiProvider: "firstParty",
+      }),
+    }));
+
+    await client.start();
+    expect(await client.read()).toEqual({
+      connected: true,
+      label: "member@example.com",
+    });
+    await client.close();
+  });
+
+  it("does not treat retained account metadata as a live credential", async () => {
+    const client = new ClaudeAccountClient({}, () => ({
+      claudeAuthenticate: async () => ({ manualUrl: "https://claude.ai/" }),
+      claudeOAuthCallback: async () => {},
+      claudeOAuthWaitForCompletion: async () => {},
+      accountInfo: async () => ({
+        email: "member@example.com",
+        tokenSource: "none",
+        apiProvider: "firstParty",
+      }),
+    }));
+
+    await client.start();
+    expect(await client.read()).toEqual({
+      connected: false,
+      label: undefined,
+    });
+    await client.close();
+  });
+
   it("keeps the undeclared OAuth controls behind its adapter", async () => {
     const calls: string[] = [];
     const raw = {

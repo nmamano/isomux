@@ -759,6 +759,11 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["GET", "/api/me/provider-accounts", "Check provider accounts"],
   ["POST", "/api/me/provider-accounts/*/login", "Start provider sign-in"],
   ["POST", "/api/me/provider-accounts/*/cancel", "Cancel provider sign-in"],
+  [
+    "POST",
+    "/api/me/provider-accounts/*/disconnect",
+    "Sign out provider account",
+  ],
   ["POST", "/api/me/provider-accounts/refresh", "Refresh provider accounts"],
   [
     "POST",

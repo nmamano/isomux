@@ -4,10 +4,11 @@ import type {
   ProviderAccountProvider,
   ProviderAccountScope,
   ProviderAccountWire,
+  ProviderAccountsWire,
   ProviderLoginStartRes,
 } from "../../shared/types.ts";
 import { cardStyle, hint } from "./access-shared.tsx";
-import { dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
+import { dialogCancelBtn } from "./dialog-styles.ts";
 
 export function ProviderSignInCard({
   provider,
@@ -20,18 +21,55 @@ export function ProviderSignInCard({
   onAccounts?: (accounts: ProviderAccountWire[]) => void;
   onStartNewConversation?: () => Promise<void>;
 }) {
-  const [scope, setScope] = useState<ProviderAccountScope>("office");
+  const title = provider === "codex" ? "Codex" : "Claude";
+  return (
+    <section style={{ ...cardStyle, marginTop: 14 }}>
+      <h5 style={{ margin: "0 0 12px" }}>{title}</h5>
+      {(["office", "personal"] as const).map((scope) => (
+        <ProviderScopeConnection
+          key={scope}
+          provider={provider}
+          scope={scope}
+          account={accounts.find(
+            (candidate) =>
+              candidate.provider === provider && candidate.scope === scope,
+          )}
+          onAccounts={onAccounts}
+          onStartNewConversation={onStartNewConversation}
+        />
+      ))}
+    </section>
+  );
+}
+
+function ProviderScopeConnection({
+  provider,
+  scope,
+  account,
+  onAccounts,
+  onStartNewConversation,
+}: {
+  provider: ProviderAccountProvider;
+  scope: ProviderAccountScope;
+  account?: ProviderAccountWire;
+  onAccounts?: (accounts: ProviderAccountWire[]) => void;
+  onStartNewConversation?: () => Promise<void>;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
   const [claudeCode, setClaudeCode] = useState("");
-  const account = accounts.find(
-    (candidate) => candidate.provider === provider && candidate.scope === scope,
-  );
+  const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   const title = provider === "codex" ? "Codex" : "Claude";
+  const scopeTitle =
+    scope === "office" ? "Every agent in this office" : "Only agents I spawn";
+  const scopeHint =
+    scope === "office"
+      ? "Use this account for agents that anyone spawns."
+      : "Use a separate account for your agents.";
 
   async function refresh(): Promise<void> {
-    const result = await apiFetch<{ accounts: ProviderAccountWire[] }>(
+    const result = await apiFetch<ProviderAccountsWire>(
       "POST",
       "/api/me/provider-accounts/refresh",
     );
@@ -56,13 +94,7 @@ export function ProviderSignInCard({
         } else window.open(result.authUrl, "_blank", "noopener,noreferrer");
       } else popup?.close();
       setDeviceCode(result.userCode ?? null);
-      onAccounts?.(
-        accounts.map((current) =>
-          current.provider === provider && current.scope === scope
-            ? result.account
-            : current,
-        ),
-      );
+      await refresh();
     } catch (caught) {
       popup?.close();
       setError(
@@ -115,62 +147,57 @@ export function ProviderSignInCard({
     }
   }
 
-  const status =
-    account?.accountStatus === "connected"
-      ? `Connected${account.accountLabel ? ` as ${account.accountLabel}` : ""}`
-      : account?.loginStatus === "waiting_external"
-        ? "Waiting for provider…"
-        : "Not connected";
-  const personalRefused = scope === "personal" && !account?.canBrowserLogin;
+  async function disconnect() {
+    setPending(true);
+    setError(null);
+    try {
+      const result = await apiFetch<ProviderAccountsWire>(
+        "POST",
+        `/api/me/provider-accounts/${provider}/disconnect`,
+        { scope },
+      );
+      onAccounts?.(result.accounts);
+      setConfirmingSignOut(false);
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError
+          ? caught.message
+          : `Could not sign out ${title}.`,
+      );
+    } finally {
+      setPending(false);
+    }
+  }
+
+  const status = !account
+    ? "Checking connection…"
+    : account.loginStatus === "waiting_external"
+      ? "Waiting for provider…"
+      : account.accountStatus === "connected"
+        ? account.accountLabel
+          ? `Connected as ${account.accountLabel}`
+          : "Connected"
+        : account.accountStatus === "unavailable"
+          ? "Connection unavailable"
+          : "Not connected";
+  const externalWarning = account?.externalCli
+    ? `This signs out ${title} in this machine, even outside the office.`
+    : account?.explicitDirectory
+      ? "This removes the sign-in from the account directory you chose."
+      : null;
 
   return (
-    <section style={{ ...cardStyle, marginTop: 14 }}>
-      <h5 style={{ margin: "0 0 4px" }}>{title}</h5>
-      <p style={{ ...hint, marginTop: 0 }}>{status}</p>
-      <fieldset
-        style={{ border: 0, padding: 0, margin: "12px 0" }}
-        aria-label="Who should use this account?"
-      >
-        <legend style={{ fontSize: 12, fontWeight: 650, marginBottom: 8 }}>
-          Who should use this account?
-        </legend>
-        <label style={{ display: "block", fontSize: 12, marginBottom: 6 }}>
-          <input
-            type="radio"
-            name={`${provider}-account-scope`}
-            checked={scope === "office"}
-            onChange={() => setScope("office")}
-          />{" "}
-          Every agent in this office
-          <span style={{ ...hint, display: "block", marginLeft: 20 }}>
-            Use the office account for agents that anyone spawns.
-          </span>
-        </label>
-        <label style={{ display: "block", fontSize: 12 }}>
-          <input
-            type="radio"
-            name={`${provider}-account-scope`}
-            checked={scope === "personal"}
-            onChange={() => setScope("personal")}
-          />{" "}
-          Only agents I spawn
-          <span style={{ ...hint, display: "block", marginLeft: 20 }}>
-            Use a separate account for your agents.
-          </span>
-        </label>
-      </fieldset>
-
-      {scope === "office" && account?.shared && (
-        <p style={hint}>
-          {provider === "codex"
-            ? "This signs in the Codex account that the whole office shares."
-            : "This signs in the Claude account that the whole office shares."}
-        </p>
-      )}
-      {personalRefused && account?.error && (
-        <p style={{ color: "var(--red)", fontSize: 12 }}>{account.error}</p>
-      )}
-      {!personalRefused && account?.error && (
+    <div
+      style={{
+        borderTop: "1px solid var(--border-subtle)",
+        paddingTop: 14,
+        marginTop: 14,
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 650 }}>{scopeTitle}</div>
+      <p style={{ ...hint, margin: "8px 0 0" }}>{scopeHint}</p>
+      <p style={{ ...hint, margin: "8px 0 0" }}>{status}</p>
+      {account?.error && (
         <p role="alert" style={{ color: "var(--red)", fontSize: 12 }}>
           {account.error}
         </p>
@@ -195,7 +222,7 @@ export function ProviderSignInCard({
           )}
           {provider === "claude" && (
             <button
-              style={{ ...dialogSaveBtn, marginRight: 8 }}
+              style={{ ...dialogCancelBtn, marginRight: 8 }}
               onClick={() => void submitClaudeCode()}
               disabled={pending || !claudeCode.trim()}
             >
@@ -211,26 +238,32 @@ export function ProviderSignInCard({
           </button>
         </div>
       ) : (
-        account?.canBrowserLogin && (
-          <div style={{ display: "flex", gap: 8, margin: "12px 0" }}>
-            <button
-              style={dialogSaveBtn}
-              title="Use browser sign-in when you can open the provider page in this browser."
-              onClick={() => void connect("browser")}
-              disabled={pending}
-            >
-              {`Connect ${title}`}
-            </button>
-            {provider === "codex" && (
+        account?.canBrowserLogin &&
+        account.accountStatus !== "connected" && (
+          <div style={{ margin: "12px 0" }}>
+            <p style={{ ...hint, margin: "0 0 8px" }}>
+              {provider === "codex"
+                ? "Sign in here, or use a one-time code on another device."
+                : "Claude opens in your browser. After you sign in, paste the code here."}
+            </p>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 style={dialogCancelBtn}
-                title="Use a one-time code when Isomux runs on a remote or headless computer."
-                onClick={() => void connect("device")}
+                onClick={() => void connect("browser")}
                 disabled={pending}
               >
-                Use a one-time code
+                Sign in with browser
               </button>
-            )}
+              {provider === "codex" && (
+                <button
+                  style={dialogCancelBtn}
+                  onClick={() => void connect("device")}
+                  disabled={pending}
+                >
+                  Sign in with one-time code
+                </button>
+              )}
+            </div>
           </div>
         )
       )}
@@ -240,19 +273,58 @@ export function ProviderSignInCard({
           <strong>{deviceCode}</strong>
         </p>
       )}
+      {account?.accountStatus === "connected" && (
+        <div style={{ marginTop: 12 }}>
+          {externalWarning && (
+            <p style={{ ...hint, color: "var(--red)", margin: "0 0 8px" }}>
+              {externalWarning}
+            </p>
+          )}
+          {!confirmingSignOut ? (
+            <button
+              style={{ ...dialogCancelBtn, color: "var(--red)" }}
+              onClick={() => setConfirmingSignOut(true)}
+              disabled={pending}
+            >
+              Sign out
+            </button>
+          ) : (
+            <div role="dialog" aria-label={`Sign out ${title}`}>
+              {externalWarning && <p style={hint}>{externalWarning}</p>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  autoFocus
+                  style={dialogCancelBtn}
+                  onClick={() => setConfirmingSignOut(false)}
+                  disabled={pending}
+                >
+                  Cancel
+                </button>
+                <button
+                  style={{ ...dialogCancelBtn, color: "var(--red)" }}
+                  onClick={() => void disconnect()}
+                  disabled={pending}
+                >
+                  {`Sign out ${title}`}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
       {account?.loginStatus === "succeeded" && onStartNewConversation && (
         <div style={{ margin: "12px 0" }}>
           <p style={hint}>
             Connected. Start a new conversation to use this account.
           </p>
           <button
-            style={dialogSaveBtn}
+            style={dialogCancelBtn}
             onClick={() => void onStartNewConversation()}
           >
             Start a new conversation
           </button>
         </div>
       )}
-    </section>
+    </div>
   );
 }

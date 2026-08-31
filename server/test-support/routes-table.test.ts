@@ -107,6 +107,7 @@ describe("provider account routes", () => {
         calls.push(`cancel:${provider}:${scope}`);
         return true;
       },
+      disconnect: async () => ({ ok: true, value: { accounts: [] } }),
     });
     const context = (body: unknown) =>
       ({
@@ -144,6 +145,7 @@ describe("provider account routes", () => {
       },
       callback: async () => ({ ok: true, value: {} }),
       cancel: async () => true,
+      disconnect: async () => ({ ok: true, value: { accounts: [] } }),
     });
     const result = await handlers["providerAccounts.start"]({
       identity: {
@@ -440,6 +442,10 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["provider_accounts_updated"],
   },
   "providerAccounts.cancel": {
+    caps: ["user:self"],
+    emits: ["provider_accounts_updated"],
+  },
+  "providerAccounts.disconnect": {
     caps: ["user:self"],
     emits: ["provider_accounts_updated"],
   },

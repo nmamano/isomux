@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { unlinkSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { readEnvFile } from "./persistence.ts";
 import { getUserEnvFileById, listUsers } from "./users.ts";
@@ -23,6 +24,7 @@ import type {
 } from "../shared/types.ts";
 import {
   activatePersonalProvider,
+  deactivatePersonalProvider,
   ensurePersonalProviderHome,
   isPersonalProviderActive,
   personalProviderHome,
@@ -43,6 +45,8 @@ type Target = {
   shared: boolean;
   env: Record<string, string | undefined>;
   autoPersonal?: boolean;
+  externalCli: boolean;
+  explicitDirectory: boolean;
 };
 type Active = {
   userId: string;
@@ -100,6 +104,7 @@ export class ProviderAccountManager {
     private readonly ensurePersonalHome: typeof ensurePersonalProviderHome = ensurePersonalProviderHome,
     private readonly personalActive: typeof isPersonalProviderActive = isPersonalProviderActive,
     private readonly activatePersonal: typeof activatePersonalProvider = activatePersonalProvider,
+    private readonly deactivatePersonal: typeof deactivatePersonalProvider = deactivatePersonalProvider,
   ) {}
 
   private userOnlyEnv(userId: string): Record<string, string> {
@@ -154,6 +159,8 @@ export class ProviderAccountManager {
             ...(this.envForUser(userId) ?? process.env),
             CODEX_HOME: officeDir,
           },
+          externalCli: officeDir === resolve(homedir(), ".codex"),
+          explicitDirectory: false,
         };
       }
       const explicit = own.CODEX_HOME?.trim();
@@ -189,6 +196,8 @@ export class ProviderAccountManager {
         shared: false,
         env: { ...(this.envForUser(userId) ?? process.env), CODEX_HOME: dir },
         autoPersonal,
+        externalCli: false,
+        explicitDirectory: Boolean(explicit),
       };
     }
 
@@ -203,6 +212,8 @@ export class ProviderAccountManager {
         dir: officeDir,
         shared: this.users().length > 1,
         env: { ...officeEnv, CLAUDE_CONFIG_DIR: officeDir },
+        externalCli: officeDir === resolve(homedir(), ".claude"),
+        explicitDirectory: false,
       };
     }
 
@@ -241,6 +252,8 @@ export class ProviderAccountManager {
         CLAUDE_CONFIG_DIR: dir,
       },
       autoPersonal,
+      externalCli: false,
+      explicitDirectory: Boolean(explicit),
     };
   }
 
@@ -291,6 +304,8 @@ export class ProviderAccountManager {
         loginStatus: "idle",
         shared: false,
         canBrowserLogin: true,
+        externalCli: target.externalCli,
+        explicitDirectory: target.explicitDirectory,
       };
     }
     const running = this.active.get(target.key);
@@ -331,6 +346,8 @@ export class ProviderAccountManager {
         accountLabel: status.label,
         shared: target.shared,
         canBrowserLogin: true,
+        externalCli: target.externalCli,
+        explicitDirectory: target.explicitDirectory,
       };
     } catch (err) {
       return {
@@ -341,6 +358,8 @@ export class ProviderAccountManager {
         shared: target.shared,
         canBrowserLogin: false,
         fallbackToTerminal: true,
+        externalCli: target.externalCli,
+        explicitDirectory: target.explicitDirectory,
         error: err instanceof Error ? err.message : String(err),
       };
     } finally {
@@ -398,6 +417,8 @@ export class ProviderAccountManager {
         loginStatus: "waiting_external",
         shared: target.shared,
         canBrowserLogin: true,
+        externalCli: target.externalCli,
+        explicitDirectory: target.explicitDirectory,
       };
       const active: Active = {
         userId,
@@ -552,6 +573,77 @@ export class ProviderAccountManager {
     await active.client.close();
     this.emit(userId, await this.list(userId));
     return true;
+  }
+
+  async disconnect(
+    userId: string,
+    provider: ProviderAccountProvider,
+    scope: ProviderAccountScope,
+  ): Promise<
+    | { ok: true; value: { accounts: ProviderAccountWire[] } }
+    | { ok: false; status: HandlerErrorStatus; code: string; message: string }
+  > {
+    let target: Target;
+    try {
+      target = this.target(userId, provider, scope);
+    } catch (err) {
+      return this.failure(422, "disconnect_unavailable", err);
+    }
+    if (this.active.has(target.key))
+      return this.failure(
+        409,
+        "login_in_progress",
+        "A sign-in is already in progress. Cancel it before signing out.",
+      );
+
+    let client: AccountClient | null = null;
+    try {
+      if (provider === "codex") {
+        client = this.createCodex(target.env);
+        await client.start();
+        await client.logout();
+        const account = await client.read();
+        if (account.connected)
+          throw new Error("Codex still reports a connected account.");
+      } else {
+        try {
+          unlinkSync(resolve(target.dir, ".credentials.json"));
+        } catch (err) {
+          if (
+            !err ||
+            typeof err !== "object" ||
+            !("code" in err) ||
+            err.code !== "ENOENT"
+          )
+            throw err;
+        }
+        client = this.createClaude(target.env);
+        await client.start();
+        const account = await client.read();
+        if (account.connected)
+          throw new Error("Claude still reports a connected account.");
+      }
+    } catch (err) {
+      return this.failure(502, "provider_error", err);
+    } finally {
+      await client?.close();
+    }
+
+    if (scope === "personal" && target.autoPersonal)
+      this.deactivatePersonal(userId, provider);
+
+    const affectedUsers = scope === "office" ? this.users() : [{ id: userId }];
+    const prefix = `${target.key}:${scope}:`;
+    for (const key of this.statusCache.keys())
+      if (key.startsWith(prefix)) this.statusCache.delete(key);
+
+    let actorAccounts: ProviderAccountWire[] = [];
+    for (const affected of affectedUsers) {
+      const accounts = await this.list(affected.id, true);
+      this.emit(affected.id, accounts);
+      if (affected.id === userId) actorAccounts = accounts;
+    }
+    return { ok: true, value: { accounts: actorAccounts } };
   }
 
   private clientFor(target: Target): AccountClient {

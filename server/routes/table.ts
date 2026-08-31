@@ -67,6 +67,7 @@ import type {
   ProviderLoginStartRes,
   ProviderLoginCallbackReq,
   ProviderLoginCancelReq,
+  ProviderDisconnectReq,
   LogEntry,
   UpdateStatusWire,
 } from "../../shared/types.ts";
@@ -801,6 +802,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "providerAccounts.cancel",
     method: "POST",
     path: "/api/me/provider-accounts/:provider/cancel",
+    auth: cap("user:self", userScope),
+    emits: ["provider_accounts_updated"],
+  }),
+  defineRoute<ProviderDisconnectReq, ProviderAccountsWire>({
+    opId: "providerAccounts.disconnect",
+    method: "POST",
+    path: "/api/me/provider-accounts/:provider/disconnect",
     auth: cap("user:self", userScope),
     emits: ["provider_accounts_updated"],
   }),

@@ -3505,6 +3505,8 @@ function buildExecutorDeps(
         providerAccountManager.submitCode(userId, provider, scope, code),
       cancel: (userId, provider, scope) =>
         providerAccountManager.cancel(userId, provider, scope),
+      disconnect: (userId, provider, scope) =>
+        providerAccountManager.disconnect(userId, provider, scope),
     }),
   );
   register(

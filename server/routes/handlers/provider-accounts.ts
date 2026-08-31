@@ -34,6 +34,11 @@ export interface ProviderAccountsDeps {
     provider: ProviderAccountProvider,
     scope: ProviderAccountScope,
   ): Promise<boolean>;
+  disconnect(
+    userId: string,
+    provider: ProviderAccountProvider,
+    scope: ProviderAccountScope,
+  ): Promise<Result>;
 }
 
 function provider(value: string): ProviderAccountProvider | null {
@@ -115,6 +120,20 @@ export function providerAccountsHandlers(
       return (await deps.cancel(id, selectedProvider, selectedScope))
         ? ok({ canceled: true })
         : fail(409, "no_login_in_progress");
+    },
+    "providerAccounts.disconnect": async (ctx) => {
+      const id = userId(ctx);
+      if (!id) return fail(403, "forbidden");
+      const selectedProvider = provider(ctx.params.provider);
+      if (!selectedProvider) return fail(404, "provider_not_found");
+      const selectedScope = scope(
+        (ctx.body as { scope?: unknown } | undefined)?.scope,
+      );
+      if (!selectedScope) return fail(422, "invalid_scope");
+      const result = await deps.disconnect(id, selectedProvider, selectedScope);
+      return result.ok
+        ? ok(result.value)
+        : fail(result.status, result.code, result.message);
     },
   };
 }
