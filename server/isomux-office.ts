@@ -75,6 +75,7 @@ import {
   type AgentOutfit,
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
+import { resolveWelcomeOpenCodeModel } from "./welcome-opencode-model.ts";
 import {
   buildProductionGuardDeps,
   type GuardDepsLiveReaders,
@@ -368,6 +369,9 @@ let scheduledMessageManager: ScheduledMessageManager;
 // a fake here - that default is what makes "the test suite never touches
 // systemd" a property of the wiring rather than a promise.
 let appSupervisor: AppSupervisor;
+let discoverWelcomeOpenCodeModels:
+  | ((userId: string) => Promise<BackendModelWire[]>)
+  | undefined;
 
 function createManagers(startOpts: StartServerOpts): void {
   // createProductionAgentManager() loads the persisted office/agents snapshot
@@ -376,6 +380,7 @@ function createManagers(startOpts: StartServerOpts): void {
   // backend/env/user/persistence + clock/timers. Tests pass a pre-built manager
   // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
   appSupervisor = startOpts.appSupervisor ?? productionAppSupervisor;
+  discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
   agentManager =
     startOpts.agentManager ??
     createProductionAgentManager({ resolveBackend: startOpts.resolveBackend });
@@ -577,6 +582,53 @@ function registerBootHooks(): void {
     }
   }
 
+  const WELCOME_MODEL_DISCOVERY_TIMEOUT_MS = 5_000;
+
+  async function welcomeOpenCodeModel(
+    username: string,
+  ): Promise<string | null> {
+    const user = getUserByName(username);
+    if (!user) {
+      console.warn(
+        `[bootstrap] cannot discover a free OpenCode model: owner ${username} was not found; using the preferred model`,
+      );
+      return OPENCODE_DEFAULT_MODEL;
+    }
+    const result = await resolveWelcomeOpenCodeModel(
+      async () => {
+        const discovery = await (discoverWelcomeOpenCodeModels
+          ? discoverWelcomeOpenCodeModels(user.id).then((models) => ({
+              ok: true as const,
+              models,
+            }))
+          : listBackendModels({
+              agentType: "opencode",
+              cwd: "~",
+              includeHidden: false,
+              userId: user.id,
+            }));
+        if (!discovery.ok) throw new Error(discovery.error);
+        return discovery.models;
+      },
+      OPENCODE_DEFAULT_MODEL,
+      WELCOME_MODEL_DISCOVERY_TIMEOUT_MS,
+    );
+    if (result.kind === "no_free_model") {
+      console.warn(
+        "[bootstrap] Free Welcome Agent was not spawned because OpenCode discovery returned no free model.",
+      );
+      return null;
+    }
+    if (result.kind === "discovery_failed") {
+      console.warn(
+        "[bootstrap] OpenCode model discovery failed; using the preferred free model:",
+        result.error,
+      );
+      return OPENCODE_DEFAULT_MODEL;
+    }
+    return result.model;
+  }
+
   // Seed welcome agents on the first owner of a fresh office. Fires for
   // both the tokenless claim form (handleClaim) and the legacy bootstrap-
   // invite accept (handleAccept where isBootstrap is true). The hook only
@@ -601,14 +653,17 @@ function registerBootHooks(): void {
       CODEX_WELCOME_OUTFIT,
       username,
     );
-    await spawnWelcomeAgent(
-      "Free Welcome Agent",
-      "opencode",
-      OPENCODE_DEFAULT_MODEL,
-      "bypassPermissions",
-      OPENCODE_WELCOME_OUTFIT,
-      username,
-    );
+    const openCodeModel = await welcomeOpenCodeModel(username);
+    if (openCodeModel) {
+      await spawnWelcomeAgent(
+        "Free Welcome Agent",
+        "opencode",
+        openCodeModel,
+        "bypassPermissions",
+        OPENCODE_WELCOME_OUTFIT,
+        username,
+      );
+    }
   });
 } // end registerBootHooks
 
@@ -5761,6 +5816,11 @@ export interface StartServerOpts {
   // Override the backend resolver for both factories (tests pass a FakeBackend
   // resolver). Ignored when agentManager/cronjobManager are supplied directly.
   resolveBackend?: typeof getBackend;
+  // Test seam for first-office OpenCode discovery. Production uses the same
+  // backend model-list path as the picker.
+  discoverWelcomeOpenCodeModels?: (
+    userId: string,
+  ) => Promise<BackendModelWire[]>;
   // Inject the app supervisor. Tests MUST pass a fake: the production one
   // writes systemd unit files and runs systemctl against the real user manager,
   // which is shared with whatever office is running on the same box.

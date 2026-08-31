@@ -20,8 +20,8 @@
 //
 // The first user message also kicks off fire-and-forget topic generation
 // (oneShotPrompt); the fake resolves it synchronously so its tail settles before
-// teardown, and these tests make no assertions about it (per review: no brittle
-// call-count coupling to topic-gen interleaving).
+// teardown. The OpenCode wiring test also checks that the one-shot call keeps
+// the owner's isolated environment identity.
 //
 // Zero LLM calls: bun test. The opt-in T3 live logged-in happy path is deferred
 // to Phase 1.4 (where the live/adapter infra lands); see live-gate.ts.
@@ -39,6 +39,7 @@ import { BackendNotConfiguredError } from "../internal-types.ts";
 import { _testRunOwnerCreatedHook } from "../auth-middleware.ts";
 import { STATE_ROOT } from "../config.ts";
 import type { AgentInfo, LogEntry } from "../../shared/types.ts";
+import type { OneShotOptions } from "../backends/types.ts";
 
 let server: TestServer | null = null;
 
@@ -140,6 +141,19 @@ async function waitForState(
         `waitForState timed out: ${agentId} is "${actual}", wanted "${state}"`,
       );
     }
+    await sleep(10);
+  }
+}
+
+async function waitUntil(
+  predicate: () => boolean,
+  description: string,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline)
+      throw new Error(`waitUntil timed out: ${description}`);
     await sleep(10);
   }
 }
@@ -277,8 +291,13 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
   });
 
   it("OpenCode welcome-agent wiring completes its first fake-backend turn", async () => {
+    let topicOptions: OneShotOptions | undefined;
     const fakeBackend = new FakeBackend({
       session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+      oneShot: (_prompt, opts) => {
+        topicOptions = opts;
+        return "OpenCode welcome";
+      },
     });
     server = await startTestServer({ fakeBackend });
     const rawSessionId = await claimOwner(server, "Boss");
@@ -302,6 +321,10 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
       (e) => e.kind === "text" && e.content === "ok",
     );
     await waitForState(server, opencode.id, "waiting_for_response");
+    await waitUntil(() => fakeBackend.oneShotCount === 1, "topic generation");
+    expect(topicOptions?.environmentKey).toBeString();
+    expect(topicOptions?.environmentRevision).toBeString();
+    expect(topicOptions?.systemPrompt).toContain("You are a labelling tool");
   });
 
   it("backend installed but not logged in: surfaces sign-in instructions", async () => {

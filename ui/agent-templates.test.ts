@@ -226,7 +226,9 @@ describe("resolveTemplateModel", () => {
     const current = { modelFamily: "missing/model", effort: "low" } as const;
     const first = model("first/model", []);
     const reported = model("reported/model", [], { isDefault: true });
-    const muse = model("opencode/muse-spark-1.2-contributor-free", []);
+    const muse = model("opencode/muse-spark-1.2-contributor-free", [], {
+      isFree: true,
+    });
     expect(
       resolveTemplateModel(
         template,
@@ -249,6 +251,22 @@ describe("resolveTemplateModel", () => {
       resolveTemplateModel(template, "opencode", current, [first], false)
         .modelFamily,
     ).toBe(first.id);
+  });
+
+  it("keeps a visible current paid OpenCode model when applying a template", () => {
+    const paid = model("provider/paid", []);
+    const free = model("opencode/muse-spark-1.2-contributor-free", [], {
+      isFree: true,
+    });
+    expect(
+      resolveTemplateModel(
+        template,
+        "opencode",
+        { modelFamily: paid.id, effort: "high" },
+        [free, paid],
+        false,
+      ).modelFamily,
+    ).toBe(paid.id);
   });
 
   it("clamps a Claude max recommendation through effortLevelsFor", () => {

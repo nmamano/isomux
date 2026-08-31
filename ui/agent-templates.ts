@@ -12,6 +12,7 @@ import {
   claudeFamilySupportsAutoPermission,
   effortLevelsFor,
 } from "../shared/types.ts";
+import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
 
 export const FIRST_TURN_CLAUSE =
   "To start, learn what the user wants and propose a direction.";
@@ -441,7 +442,7 @@ export function resolveTemplateModel(
     if (visible.length === 0) return current;
     const chosen =
       visible.find((model) => model.id === current.modelFamily) ??
-      visible.find((model) => model.id === OPENCODE_DEFAULT_MODEL) ??
+      preferredFreeOpenCodeModel(visible, OPENCODE_DEFAULT_MODEL) ??
       visible.find((model) => model.isDefault) ??
       visible[0];
     return {

@@ -375,6 +375,13 @@ export class OpenCodeTransport {
     return child;
   }
 
+  async deleteSession(): Promise<void> {
+    const sessionId = await this.initialize(() => undefined);
+    await this.request(`/session/${encodeURIComponent(sessionId)}`, {
+      method: "DELETE",
+    });
+  }
+
   canAbortInPlace(): boolean {
     return this.activeTurn;
   }

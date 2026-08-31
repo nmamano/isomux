@@ -23,7 +23,11 @@ import type {
   StoredSessionState,
   SubscriptionUsageResult,
 } from "../types.ts";
-import { OPENCODE_TRACER_MODEL } from "../../../shared/types.ts";
+import {
+  OPENCODE_DEFAULT_MODEL,
+  OPENCODE_TRACER_MODEL,
+} from "../../../shared/types.ts";
+import { preferredFreeOpenCodeModel } from "../../../shared/opencode-model.ts";
 import {
   discoverOpenCodeModels,
   OpenCodeTransport,
@@ -74,7 +78,9 @@ const CAPABILITIES: BackendCapabilities = {
   skills: false,
   oneShot: false,
   canUseTool: true,
-  topicGen: false,
+  // oneShotPrompt supports topic generation. `oneShot` stays false because it
+  // gates Slide Mode, which has no OpenCode-specific model selection rule.
+  topicGen: true,
   edit: true,
   mcp: false,
 };
@@ -83,6 +89,7 @@ const TRACER_CAPABILITIES: BackendCapabilities = {
   fork: false,
   edit: false,
   canUseTool: false,
+  topicGen: false,
 };
 
 const TRACER_MODELS: ModelOption[] = [
@@ -114,7 +121,11 @@ export interface OpenCodeBackendOptions {
   contractShapeSink?: (shape: string) => void;
   safeErrorSink?: (error: Readonly<SafeOpenCodeError>) => void;
   bindingAgentSink?: (sessionId: string, agent: string | undefined) => void;
+  oneShotTimeoutMs?: number;
 }
+
+const ONE_SHOT_TIMEOUT_MS = 30_000;
+const ONE_SHOT_CLEANUP_TIMEOUT_MS = 1_000;
 
 function productionModel(model: string): string {
   if (model === OPENCODE_TRACER_MODEL) {
@@ -212,6 +223,10 @@ class OpenCodeServerSession implements BackendSession {
     const wake = this.wake;
     this.wake = null;
     wake?.();
+  }
+
+  async deleteStoredSession(): Promise<void> {
+    await this.transport.deleteSession();
   }
 }
 
@@ -567,10 +582,90 @@ export function createOpenCodeBackend(
         transport.close();
       }
     },
-    async oneShotPrompt(): Promise<string> {
-      throw new Error(
-        "OpenCode one-shot prompts are not available in this backend.",
+    async oneShotPrompt(prompt: string, opts: OneShotOptions): Promise<string> {
+      if (!options.supervisor && !opts.environmentKey) {
+        throw new Error(
+          "OpenCode one-shot prompt environment identity is required.",
+        );
+      }
+      const supervisor = supervisorFor(opts);
+      const models = await discoverOpenCodeModels(
+        supervisor,
+        opts.cwd ?? "/tmp",
       );
+      const selected = preferredFreeOpenCodeModel(
+        models,
+        opts.modelFamily || OPENCODE_DEFAULT_MODEL,
+      );
+      if (!selected) {
+        throw new Error("OpenCode one-shot prompts require a free model.");
+      }
+      const session = new OpenCodeServerSession(
+        {
+          agentId: "isomux-opencode-one-shot",
+          cwd: opts.cwd ?? "/tmp",
+          systemPrompt: opts.systemPrompt ?? "",
+          modelFamily: selected.id,
+          effort: "high",
+          permissionMode: "default",
+          env: opts.env,
+          environmentKey: opts.environmentKey,
+          environmentRevision: opts.environmentRevision,
+        },
+        selected.id,
+        supervisor,
+      );
+      const timeoutError = new Error("OpenCode one-shot prompt timed out.");
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const completion = (async () => {
+          let text = "";
+          for await (const event of session.stream()) {
+            if (event.kind === "assistant_text") text += event.text;
+            if (event.kind === "approval_request") {
+              await session.approve(event.approvalId, {
+                kind: "deny",
+                reason: "One-shot prompts cannot run tools.",
+              });
+            }
+            if (event.kind === "input_request") {
+              void session.abort();
+              throw new Error(
+                "OpenCode one-shot prompt requested interactive input.",
+              );
+            }
+            if (event.kind === "turn_completed") {
+              if (event.status !== "completed") {
+                throw new Error(
+                  event.error ?? "OpenCode one-shot prompt failed.",
+                );
+              }
+              return text;
+            }
+          }
+          throw new Error("OpenCode one-shot prompt ended without completion.");
+        })();
+        const run = Promise.all([session.send(prompt), completion]).then(
+          ([, text]) => text,
+        );
+        return await Promise.race([
+          run,
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(() => {
+              void session.abort();
+              reject(timeoutError);
+            }, options.oneShotTimeoutMs ?? ONE_SHOT_TIMEOUT_MS);
+          }),
+        ]);
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        void session.abort();
+        await Promise.race([
+          session.deleteStoredSession().catch(() => undefined),
+          Bun.sleep(ONE_SHOT_CLEANUP_TIMEOUT_MS),
+        ]);
+        session.close();
+      }
     },
     detectAuthError(text: string): boolean {
       return text.includes(AUTH_FAILURE);

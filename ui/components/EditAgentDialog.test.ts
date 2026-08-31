@@ -300,6 +300,7 @@ describe("template values after an engine switch", () => {
     const muse: BackendModelWire = {
       id: "opencode/muse-spark-1.2-contributor-free",
       label: "Muse Spark 1.2 Free",
+      isFree: true,
       supportedEfforts: [],
     };
     expect(defaultBackendModel([first, spare, reported, muse], false)?.id).toBe(

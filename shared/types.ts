@@ -1022,6 +1022,9 @@ export interface SessionInfo {
   sessionId: string;
   lastModified: number;
   topic: string | null;
+  // Short first-user-message preview used when a generated topic is absent.
+  // Optional for sessions persisted before this metadata was introduced.
+  firstUserMessage?: string | null;
   // The cwd this session runs in. Source of truth is per-session metadata
   // (sessions.json); the agent's own cwd is just a denormalized mirror of the
   // active session's cwd. Optional/null for legacy sessions persisted before

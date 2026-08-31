@@ -10,6 +10,7 @@ import type {
   SkillInfo,
   SkillOrigin,
 } from "../shared/types.ts";
+import { sessionResumeLabel } from "../shared/session-label.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import {
   MODEL_FAMILIES,
@@ -546,7 +547,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           hour: "2-digit",
           minute: "2-digit",
         });
-        const rawLabel = s.topic || s.sessionId.slice(0, 8) + "...";
+        const rawLabel = sessionResumeLabel(s);
         const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
         const suffix = s.branched ? "  (branched)" : "";
         // cwd is a property of the session - surface it so the user sees which
@@ -593,7 +594,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           const branched = session.branched ? " · Branched" : "";
           return {
             value: session.sessionId,
-            label: `${session.forked ? "↳ " : ""}${session.topic || `${session.sessionId.slice(0, 8)}...`}`,
+            label: `${session.forked ? "↳ " : ""}${sessionResumeLabel(session)}`,
             description: `${date}${cwd}${branched}`,
           };
         }),

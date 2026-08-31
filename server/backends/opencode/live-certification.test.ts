@@ -57,6 +57,20 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
     });
     const backend = createOpenCodeBackend({ supervisor });
     const discovered = await backend.listModels({ cwd: repo });
+    const freeModel = discovered.find(
+      (model) => model.isFree && !model.requiresConnection && !model.hidden,
+    );
+    expect(freeModel).toBeDefined();
+    expect(
+      (
+        await backend.oneShotPrompt("Output only: LIVE_TOPIC_OK", {
+          cwd: repo,
+          modelFamily: freeModel!.id,
+          systemPrompt:
+            "You are a labelling tool. Output only the requested label.",
+        })
+      ).trim(),
+    ).toContain("LIVE_TOPIC_OK");
     const connected = new Set(discovered.map((model) => model.id));
     for (const model of requestedModels) {
       expect(connected.has(model)).toBe(true);

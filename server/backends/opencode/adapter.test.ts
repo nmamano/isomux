@@ -66,6 +66,16 @@ async function collect(
   return events;
 }
 
+async function rejected(promise: Promise<unknown>): Promise<Error> {
+  try {
+    await promise;
+  } catch (error) {
+    if (error instanceof Error) return error;
+    throw error;
+  }
+  throw new Error("Expected promise to reject.");
+}
+
 describe("OpenCode deterministic tracer", () => {
   it("is registered with only the capabilities this tracer proves", () => {
     const backend = getBackend("opencode");
@@ -75,7 +85,7 @@ describe("OpenCode deterministic tracer", () => {
       skills: false,
       oneShot: false,
       canUseTool: true,
-      topicGen: false,
+      topicGen: true,
       edit: true,
       mcp: false,
     });
@@ -85,6 +95,8 @@ describe("OpenCode deterministic tracer", () => {
     expect(createOpenCodeTracerBackend().capabilities).toMatchObject({
       fork: false,
       edit: false,
+      topicGen: false,
+      oneShot: false,
     });
   });
 
@@ -127,6 +139,174 @@ describe("OpenCode deterministic tracer", () => {
 });
 
 describe("OpenCode pinned transport", () => {
+  function oneShotHarness(frames: unknown[], timeoutMs = 100) {
+    const permissionReplies: unknown[] = [];
+    let deletes = 0;
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        const url = new URL(request.url);
+        if (url.pathname === "/provider") {
+          return Response.json({
+            connected: ["gate"],
+            all: [
+              {
+                id: "gate",
+                name: "Gate",
+                models: {
+                  free: {
+                    name: "Free",
+                    cost: { input: 0, output: 0 },
+                  },
+                },
+              },
+            ],
+          });
+        }
+        if (url.pathname === "/session" && request.method === "POST")
+          return Response.json({ id: "one-shot-session" });
+        if (url.pathname === "/event") {
+          if (frames.length === 0) {
+            return await new Promise<Response>((resolve) => {
+              request.signal.addEventListener(
+                "abort",
+                () =>
+                  resolve(
+                    new Response(null, {
+                      headers: { "content-type": "text/event-stream" },
+                    }),
+                  ),
+                { once: true },
+              );
+            });
+          }
+          return new Response(
+            new ReadableStream({
+              async start(controller) {
+                for (const frame of frames) {
+                  controller.enqueue(`data: ${JSON.stringify(frame)}\n\n`);
+                  await Bun.sleep(20);
+                }
+                controller.close();
+              },
+            }),
+            { headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        if (url.pathname.endsWith("/prompt_async")) return Response.json(true);
+        if (url.pathname.includes("/permission/") && request.body) {
+          permissionReplies.push(await request.json());
+          return Response.json(true);
+        }
+        if (url.pathname.endsWith("/abort")) return Response.json(true);
+        if (
+          url.pathname === "/session/one-shot-session" &&
+          request.method === "DELETE"
+        ) {
+          deletes++;
+          return Response.json(true);
+        }
+        return new Response("not found", { status: 404 });
+      },
+    });
+    cleanup.push(() => server.stop(true));
+    const supervisor = {
+      acquire: async () => ({
+        pid: process.pid,
+        baseUrl: `http://127.0.0.1:${server.port}`,
+        authHeader: "Basic test",
+        beginTurn: async () => {},
+        endTurn: () => {},
+        release: () => {},
+      }),
+    } as unknown as OpenCodeSupervisor;
+    return {
+      backend: createOpenCodeBackend({
+        supervisor,
+        oneShotTimeoutMs: timeoutMs,
+      }),
+      permissionReplies,
+      deletes: () => deletes,
+    };
+  }
+
+  it("denies unattended one-shot tool requests before the timeout backstop", async () => {
+    const harness = oneShotHarness([
+      {
+        type: "permission.asked",
+        properties: {
+          sessionID: "one-shot-session",
+          id: "permission-1",
+          metadata: {},
+        },
+      },
+      {
+        type: "session.idle",
+        properties: { sessionID: "one-shot-session" },
+      },
+    ]);
+    expect(
+      await rejected(
+        harness.backend.oneShotPrompt("label", {
+          cwd: "/tmp",
+          modelFamily: "gate/free",
+          systemPrompt: "label only",
+        }),
+      ),
+    ).toHaveProperty(
+      "message",
+      expect.stringMatching(/timed out|without a recorded completion/),
+    );
+    expect(harness.permissionReplies).toEqual([
+      {
+        reply: "reject",
+      },
+    ]);
+    expect(harness.deletes()).toBe(1);
+  });
+
+  it("fails unattended one-shot questions instead of waiting", async () => {
+    const harness = oneShotHarness([
+      {
+        type: "question.asked",
+        properties: {
+          sessionID: "one-shot-session",
+          id: "question-1",
+        },
+      },
+    ]);
+    expect(
+      await rejected(
+        harness.backend.oneShotPrompt("label", {
+          cwd: "/tmp",
+          modelFamily: "gate/free",
+          systemPrompt: "label only",
+        }),
+      ),
+    ).toHaveProperty(
+      "message",
+      expect.stringContaining("requested interactive input"),
+    );
+    expect(harness.deletes()).toBe(1);
+  });
+
+  it("bounds a one-shot that emits no terminal event", async () => {
+    const harness = oneShotHarness([], 10);
+    const startedAt = Date.now();
+    expect(
+      await rejected(
+        harness.backend.oneShotPrompt("label", {
+          cwd: "/tmp",
+          modelFamily: "gate/free",
+          systemPrompt: "label only",
+        }),
+      ),
+    ).toHaveProperty("message", expect.stringContaining("timed out"));
+    expect(Date.now() - startedAt).toBeLessThan(150);
+    expect(harness.deletes()).toBe(1);
+  });
+
   it("uses the shared attachment notice contract and fails empty input safe", async () => {
     const agentId = `opencode-attachment-${Date.now()}`;
     const files = join(STATE_ROOT, "logs", agentId, "files");
@@ -450,6 +630,13 @@ describe("OpenCode pinned transport", () => {
       false,
     );
     expect(JSON.stringify(discovered)).not.toContain("test-only");
+    expect(
+      await backend.oneShotPrompt("label this conversation", {
+        cwd: root,
+        modelFamily: "retired/preference",
+        systemPrompt: "You only label.",
+      }),
+    ).toBe("OpenCode real tracer reply.");
     const discoveryLease = await supervisor.acquire();
     const discoveryPid = discoveryLease.pid;
     discoveryLease.release();

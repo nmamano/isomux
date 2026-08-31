@@ -26,7 +26,7 @@
 // nested/positional + userId-not-derived assertions stay current-behavior.
 
 import { describe, it, expect, beforeEach } from "bun:test";
-import { mkdirSync, writeFileSync, readFileSync } from "fs";
+import { chmodSync, mkdirSync, writeFileSync, readFileSync } from "fs";
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
@@ -48,6 +48,8 @@ import {
   getSessionEngineConfig,
   backfillSessionEngineConfigs,
   listAgentSessions,
+  appendLog,
+  loadSessionsMap,
   type Room,
   type PersistedAgent,
   type AgentHistory,
@@ -814,5 +816,70 @@ describe("per-session engine config (Claude <-> Codex switching)", () => {
     expect(after?.cwd).toBe("/home/u/proj");
     expect(after?.lastModified).toBe(before?.lastModified);
     expect(after?.agentType).toBe("claude");
+  });
+
+  it("stores the first user message preview beside session metadata", () => {
+    appendLog(AGENT, "preview", {
+      id: "message-1",
+      agentId: AGENT,
+      timestamp: Date.now(),
+      kind: "user_message",
+      content: "  First\nmessage  preview ",
+    });
+    appendLog(AGENT, "preview", {
+      id: "message-2",
+      agentId: AGENT,
+      timestamp: Date.now(),
+      kind: "user_message",
+      content: "Second message",
+    });
+    expect(loadSessionsMap(AGENT).preview?.firstUserMessage).toBe(
+      "First message preview",
+    );
+  });
+
+  it("backfills a legacy preview once from a bounded log head", () => {
+    const path = stateFile(`logs/${AGENT}/legacy-preview.jsonl`);
+    mkdirSync(join(STATE_ROOT, "logs", AGENT), { recursive: true });
+    writeFileSync(
+      path,
+      `${JSON.stringify({ kind: "system", content: "init" })}\n${JSON.stringify({ kind: "user_message", content: "Legacy first request" })}\n`,
+    );
+    const session = listAgentSessions(AGENT).find(
+      (s) => s.sessionId === "legacy-preview",
+    );
+    expect(session?.firstUserMessage).toBe("Legacy first request");
+    expect(session?.lastModified).toBeGreaterThan(0);
+    expect(loadSessionsMap(AGENT)["legacy-preview"]).toBeUndefined();
+    writeFileSync(
+      path,
+      `${JSON.stringify({ kind: "user_message", content: "Changed on disk" })}\n`,
+    );
+    expect(
+      listAgentSessions(AGENT).find((s) => s.sessionId === "legacy-preview")
+        ?.firstUserMessage,
+    ).toBe("Changed on disk");
+  });
+
+  it("keeps other sessions visible when one legacy log is unreadable", () => {
+    appendLog(AGENT, "readable", {
+      id: "message-readable",
+      agentId: AGENT,
+      timestamp: Date.now(),
+      kind: "user_message",
+      content: "Readable session",
+    });
+    const unreadable = stateFile(`logs/${AGENT}/unreadable.jsonl`);
+    writeFileSync(unreadable, "not readable");
+    chmodSync(unreadable, 0);
+    try {
+      expect(
+        listAgentSessions(AGENT).some(
+          (session) => session.sessionId === "readable",
+        ),
+      ).toBe(true);
+    } finally {
+      chmodSync(unreadable, 0o600);
+    }
   });
 });

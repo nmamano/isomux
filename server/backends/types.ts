@@ -430,6 +430,8 @@ export interface OneShotOptions {
   modelFamily: string;
   systemPrompt?: string;
   env?: { [key: string]: string | undefined };
+  environmentKey?: string;
+  environmentRevision?: string;
 }
 
 export interface ListModelsOptions {

@@ -182,6 +182,14 @@ async function bootTestServer(
     const handle = await startServer({
       port: 0,
       resolveBackend: () => fakeBackend,
+      discoverWelcomeOpenCodeModels: async () => [
+        {
+          id: "opencode/muse-spark-1.2-contributor-free",
+          label: "Muse Spark",
+          isFree: true,
+          supportedEfforts: [],
+        },
+      ],
       appSupervisor,
       skipSchedulers: true,
       skipBackups: true,

@@ -4,6 +4,7 @@ import type {
   SessionInfo,
   AgentBackendType,
 } from "../../shared/types.ts";
+import { sessionResumeLabel } from "../../shared/session-label.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 import { alternateEngineOptions } from "../engine-options.ts";
@@ -179,7 +180,7 @@ export function ContextMenu({
           </div>
           {sessions.slice(0, 5).map((s) => {
             const isCurrent = s.sessionId === currentSessionId;
-            const rawLabel = s.topic || s.sessionId.slice(0, 8) + "...";
+            const rawLabel = sessionResumeLabel(s);
             const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
             const branchedSuffix = s.branched ? " (branched)" : "";
             // No engine badge: which backend a past session ran on doesn't

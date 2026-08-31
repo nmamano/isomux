@@ -2561,6 +2561,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         cwd: managed.info.cwd,
         modelFamily: topicModel,
         systemPrompt: topicSystemPrompt,
+        ...(managed.info.agentType === "opencode"
+          ? {
+              env: buildOpenCodeLaunchEnvironmentForUserId(managed.info.userId),
+              environmentKey: environmentSourceKeyForUserId(
+                managed.info.userId,
+              ),
+              environmentRevision: environmentSourceRevisionForUserId(
+                managed.info.userId,
+              ),
+            }
+          : {}),
       });
       if (agents.has(agentId) && managed.topicGenToken === startToken) {
         const topic = text.trim().slice(0, 80);

@@ -3,17 +3,18 @@ import {
   OPENCODE_DEFAULT_MODEL,
   type BackendModelWire,
 } from "../shared/types.ts";
+import { preferredFreeOpenCodeModel } from "../shared/opencode-model.ts";
 
 export function defaultBackendModel(
   models: BackendModelWire[],
   isCodex: boolean,
 ): BackendModelWire | undefined {
   const visibleModels = models.filter((model) => !model.hidden);
-  const preferredModelId = isCodex
-    ? CODEX_MODELS[0].value
-    : OPENCODE_DEFAULT_MODEL;
+  const preferredModelId = isCodex ? CODEX_MODELS[0].value : undefined;
   return (
-    visibleModels.find((model) => model.id === preferredModelId) ??
+    (preferredModelId
+      ? visibleModels.find((model) => model.id === preferredModelId)
+      : preferredFreeOpenCodeModel(visibleModels, OPENCODE_DEFAULT_MODEL)) ??
     visibleModels.find((model) => model.isDefault) ??
     visibleModels[0]
   );

@@ -9,6 +9,9 @@ import {
   existsSync,
   readdirSync,
   renameSync,
+  openSync,
+  readSync,
+  closeSync,
 } from "fs";
 import { createHash } from "crypto";
 import type {
@@ -24,6 +27,7 @@ import type {
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
+import { sessionMessagePreview } from "../shared/session-label.ts";
 
 const ISOMUX_DIR = STATE_ROOT;
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
@@ -75,6 +79,9 @@ export function appendLog(agentId: string, sessionId: string, entry: LogEntry) {
     mkdirSync(agentDir, { recursive: true });
     const logFile = join(agentDir, `${sessionId}.jsonl`);
     appendFileSync(logFile, JSON.stringify(entry) + "\n");
+    if (entry.kind === "user_message") {
+      persistSessionFirstUserMessage(agentId, sessionId, entry.content);
+    }
   } catch (err) {
     console.error("Failed to write log:", err);
   }
@@ -169,6 +176,7 @@ type SessionsMap = Record<
   string,
   {
     topic: string | null;
+    firstUserMessage?: string | null;
     // Count of user_message + text log entries at the moment the persisted
     // topic was last generated. Used on resume/startup to detect drift: if
     // the replayed log has materially more entries, the topic is stale and
@@ -224,6 +232,48 @@ function saveSessionsMap(agentId: string, map: SessionsMap) {
     );
   } catch (err) {
     console.error("Failed to save sessions map:", err);
+  }
+}
+
+function persistSessionFirstUserMessage(
+  agentId: string,
+  sessionId: string,
+  content: string,
+) {
+  const preview = sessionMessagePreview(content);
+  if (!preview) return;
+  const map = loadSessionsMap(agentId);
+  const existing = map[sessionId];
+  if (existing?.firstUserMessage) return;
+  map[sessionId] = {
+    ...(existing ?? { topic: null, lastModified: 0 }),
+    firstUserMessage: preview,
+    lastModified: existing?.lastModified ?? Date.now(),
+  };
+  saveSessionsMap(agentId, map);
+}
+
+const LEGACY_SESSION_PREVIEW_BYTES = 64 * 1024;
+
+function readLegacySessionPreview(path: string): string | null {
+  let fd: number | null = null;
+  try {
+    fd = openSync(path, "r");
+    const buffer = Buffer.alloc(LEGACY_SESSION_PREVIEW_BYTES);
+    const bytes = readSync(fd, buffer, 0, buffer.length, 0);
+    for (const line of buffer.toString("utf8", 0, bytes).split("\n")) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line) as Partial<LogEntry>;
+        if (entry.kind === "user_message" && typeof entry.content === "string")
+          return sessionMessagePreview(entry.content);
+      } catch {}
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (fd !== null) closeSync(fd);
   }
 }
 
@@ -499,6 +549,7 @@ export function listAgentSessions(agentId: string): {
   sessionId: string;
   lastModified: number;
   topic: string | null;
+  firstUserMessage: string | null;
   topicMessageCount: number;
   cwd: string | null;
   agentType: AgentInfo["agentType"] | null;
@@ -510,6 +561,7 @@ export function listAgentSessions(agentId: string): {
     const agentDir = join(LOGS_DIR, agentId);
     if (!existsSync(agentDir)) return [];
     const sessionsMap = loadSessionsMap(agentId);
+    let backfilledPreview = false;
 
     // Collect all forkedFrom values to detect which sessions have been branched FROM
     const branchedFromIds = new Set<string>();
@@ -517,25 +569,42 @@ export function listAgentSessions(agentId: string): {
       if (entry.forkedFrom) branchedFromIds.add(entry.forkedFrom);
     }
 
-    return readdirSync(agentDir)
+    const sessions = readdirSync(agentDir)
       .filter((f) => f.endsWith(".jsonl"))
       .map((f) => {
         const sid = f.replace(".jsonl", "");
         const entry = sessionsMap[sid];
+        let legacyPreview: string | null = null;
+        if (entry?.firstUserMessage === undefined) {
+          legacyPreview = readLegacySessionPreview(join(agentDir, f));
+          if (entry) {
+            sessionsMap[sid] = {
+              ...entry,
+              firstUserMessage: legacyPreview,
+            };
+            backfilledPreview = true;
+          }
+        }
+        const effectiveEntry = sessionsMap[sid];
         return {
           sessionId: sid,
           lastModified:
-            entry?.lastModified ?? Bun.file(join(agentDir, f)).lastModified,
-          topic: entry?.topic ?? null,
-          topicMessageCount: entry?.topicMessageCount ?? 0,
-          cwd: entry?.cwd ?? null,
-          agentType: entry?.agentType ?? null,
-          modelFamily: entry?.modelFamily ?? null,
+            effectiveEntry?.lastModified ??
+            Bun.file(join(agentDir, f)).lastModified,
+          topic: effectiveEntry?.topic ?? null,
+          firstUserMessage:
+            effectiveEntry?.firstUserMessage ?? legacyPreview ?? null,
+          topicMessageCount: effectiveEntry?.topicMessageCount ?? 0,
+          cwd: effectiveEntry?.cwd ?? null,
+          agentType: effectiveEntry?.agentType ?? null,
+          modelFamily: effectiveEntry?.modelFamily ?? null,
           ...(branchedFromIds.has(sid) ? { branched: true as const } : {}),
-          ...(entry?.forkedFrom ? { forked: true as const } : {}),
+          ...(effectiveEntry?.forkedFrom ? { forked: true as const } : {}),
         };
       })
       .sort((a, b) => b.lastModified - a.lastModified);
+    if (backfilledPreview) saveSessionsMap(agentId, sessionsMap);
+    return sessions;
   } catch {
     return [];
   }
