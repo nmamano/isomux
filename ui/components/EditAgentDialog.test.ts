@@ -273,6 +273,11 @@ describe("template values after an engine switch", () => {
       label: "First",
       supportedEfforts: [],
     };
+    const spare: BackendModelWire = {
+      id: "spare/model",
+      label: "Spare",
+      supportedEfforts: [],
+    };
     const reported: BackendModelWire = {
       id: "reported/model",
       label: "Reported",
@@ -284,7 +289,7 @@ describe("template values after an engine switch", () => {
       label: "Muse Spark 1.2 Free",
       supportedEfforts: [],
     };
-    expect(defaultBackendModel([first, reported, muse], false)?.id).toBe(
+    expect(defaultBackendModel([first, spare, reported, muse], false)?.id).toBe(
       muse.id,
     );
     expect(defaultBackendModel([first, reported], false)?.id).toBe(reported.id);

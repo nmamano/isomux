@@ -129,4 +129,11 @@ describe("OpenCode cron model selection", () => {
     expect(source).toContain("Current model:");
     expect(source).toContain("Reopen this dialog to try again.");
   });
+
+  it("uses the shared backend-model default picker", async () => {
+    const source = await Bun.file(
+      new URL("./CronjobDialog.tsx", import.meta.url),
+    ).text();
+    expect(source).toContain("defaultBackendModel(r.models, isCodex)");
+  });
 });

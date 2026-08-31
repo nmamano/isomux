@@ -30,6 +30,7 @@ import {
 } from "./dialog-styles.ts";
 import { shortenCwd } from "../cwd-display.ts";
 import {
+  defaultBackendModel,
   modelListErrorMessage,
   modelSelectCursor,
   openCodeModelSelectionReady,
@@ -274,22 +275,12 @@ export function CronjobDialog({
           return;
         }
         setBackendModels(r.models);
-        // On create, pick the default. Invariant: prefer Isomux's canonical
-        // default (CODEX_MODELS[0], currently gpt-5.6-sol) when this auth tier
-        // offers it; otherwise fall back to Codex's per-auth isDefault, then
-        // the first listed model. We choose from the visible (non-hidden)
-        // models so the value always matches a rendered <option>. The model
-        // select is disabled during loading so the user can't have
-        // overridden us.
+        // On create, use the same backend default picker as the agent dialog:
+        // prefer Isomux's canonical model when this login offers it, then the
+        // backend's reported default, then the first visible model. The select
+        // is disabled during loading, so the user cannot have overridden us.
         if (!isEdit) {
-          const preferredModelId = isCodex ? CODEX_MODELS[0].value : null;
-          const visibleModels = r.models.filter((m) => !m.hidden);
-          const def =
-            (preferredModelId
-              ? visibleModels.find((m) => m.id === preferredModelId)
-              : undefined) ??
-            visibleModels.find((m) => m.isDefault) ??
-            visibleModels[0];
+          const def = defaultBackendModel(r.models, isCodex);
           if (def) {
             setModelFamily(def.id);
             updateCronjobMachineDefaults(baselineRef.current!, def.id);

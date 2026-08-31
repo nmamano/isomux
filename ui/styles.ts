@@ -50,6 +50,7 @@ ${emitThemesCss()}
   /* Editable controls need one visible glyph per character. Disable calt too;
      select and button share this rule harmlessly so typography stays centralized. */
   input, select, textarea, button { font-family: inherit; font-variant-ligatures: none; }
+  select option, select optgroup { background: var(--bg-base); color: var(--text-primary); }
 
   /* Markdown content styles */
   .md-content { font-size: 13px; line-height: 1.7; color: var(--text-secondary); }

@@ -14,7 +14,6 @@ import {
   DEFAULT_EFFORT,
   modelVersionLabel,
   CODEX_MODELS,
-  OPENCODE_DEFAULT_MODEL,
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
   familyDisplayLabel,
@@ -62,12 +61,14 @@ import {
 } from "../agent-templates.ts";
 import { ENGINE_ACCENT, ENGINE_OPTIONS } from "../engine-options.ts";
 import {
+  defaultBackendModel,
   openCodeModelSelectionReady,
   partitionBackendModelsForPicker,
   modelListErrorMessage,
   modelSelectCursor,
 } from "../backend-model-selection.ts";
 export { openCodeModelSelectionReady } from "../backend-model-selection.ts";
+export { defaultBackendModel } from "../backend-model-selection.ts";
 
 // Cap the recent-cwd suggestion chips so the row stays scannable even when the
 // server is tracking its full history of working directories.
@@ -105,21 +106,6 @@ export function permissionModeChangeForEdit(
   current: AgentInfo["permissionMode"],
 ): Pick<EditAgentReq, "permissionMode"> {
   return persisted === current ? {} : { permissionMode: current };
-}
-
-export function defaultBackendModel(
-  models: BackendModelWire[],
-  isCodex: boolean,
-): BackendModelWire | undefined {
-  const visibleModels = models.filter((model) => !model.hidden);
-  const preferredModelId = isCodex
-    ? CODEX_MODELS[0].value
-    : OPENCODE_DEFAULT_MODEL;
-  return (
-    visibleModels.find((model) => model.id === preferredModelId) ??
-    visibleModels.find((model) => model.isDefault) ??
-    visibleModels[0]
-  );
 }
 
 export function templateValuesAfterEngineSwitch(
@@ -1133,11 +1119,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     }}
                   >
                     {ENGINE_OPTIONS.map((option) => (
-                      <option
-                        key={option.agentType}
-                        value={option.agentType}
-                        style={modelOptionStyle}
-                      >
+                      <option key={option.agentType} value={option.agentType}>
                         {option.label}
                       </option>
                     ))}
@@ -1405,7 +1387,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       style={selectStyle}
                     >
                       {HAIR_STYLES.map((s) => (
-                        <option key={s} value={s} style={modelOptionStyle}>
+                        <option key={s} value={s}>
                           {HAIR_STYLE_LABELS[s]}
                         </option>
                       ))}
@@ -1432,7 +1414,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       style={selectStyle}
                     >
                       {HATS.map((h) => (
-                        <option key={h} value={h} style={modelOptionStyle}>
+                        <option key={h} value={h}>
                           {HAT_LABELS[h]}
                         </option>
                       ))}
@@ -1463,7 +1445,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       style={selectStyle}
                     >
                       {BEARDS.map((b) => (
-                        <option key={b} value={b} style={modelOptionStyle}>
+                        <option key={b} value={b}>
                           {BEARD_LABELS[b]}
                         </option>
                       ))}
@@ -1493,11 +1475,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       style={selectStyle}
                     >
                       {ACCESSORIES.map((a) => (
-                        <option
-                          key={a ?? "none"}
-                          value={a ?? "none"}
-                          style={modelOptionStyle}
-                        >
+                        <option key={a ?? "none"} value={a ?? "none"}>
                           {ACCESSORY_LABELS[a ?? "none"]}
                         </option>
                       ))}
@@ -1723,45 +1701,37 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 >
                   {isOpenCode ? (
                     <>
-                      <option value="default" style={modelOptionStyle}>
-                        Ask
-                      </option>
-                      <option
-                        value="bypassPermissions"
-                        style={modelOptionStyle}
-                      >
+                      <option value="default">Ask</option>
+                      <option value="bypassPermissions">
                         Bypass all permissions
                       </option>
                     </>
                   ) : isCodex ? (
                     <>
-                      <option value="untrusted" style={modelOptionStyle}>
+                      <option value="untrusted">
                         Untrusted (ask on every tool)
                       </option>
-                      <option value="on-request" style={modelOptionStyle}>
+                      <option value="on-request">
                         On request (model asks when needed)
                       </option>
-                      <option value="never" style={modelOptionStyle}>
+                      <option value="never">
                         Never ask (use sandbox-only)
                       </option>
                     </>
                   ) : (
                     <>
                       {claudeFamilySupportsAutoPermission(modelFamily) && (
-                        <option value="auto" style={modelOptionStyle}>
+                        <option value="auto">
                           Auto (classifier auto-approves safe actions)
                         </option>
                       )}
-                      <option value="default" style={modelOptionStyle}>
+                      <option value="default">
                         Default (ask for everything)
                       </option>
-                      <option value="acceptEdits" style={modelOptionStyle}>
+                      <option value="acceptEdits">
                         Accept Edits (auto-approve file changes)
                       </option>
-                      <option
-                        value="bypassPermissions"
-                        style={modelOptionStyle}
-                      >
+                      <option value="bypassPermissions">
                         Bypass (auto-approve all)
                       </option>
                     </>
@@ -1784,16 +1754,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                         cursor: "pointer",
                       }}
                     >
-                      <option value="read-only" style={modelOptionStyle}>
+                      <option value="read-only">
                         Read-only (model can read, never write)
                       </option>
-                      <option value="workspace-write" style={modelOptionStyle}>
+                      <option value="workspace-write">
                         Workspace write (write inside cwd only)
                       </option>
-                      <option
-                        value="danger-full-access"
-                        style={modelOptionStyle}
-                      >
+                      <option value="danger-full-access">
                         Danger: full access (no sandbox)
                       </option>
                     </select>
@@ -1885,36 +1852,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           <>
                             {pickerModels
                               ? pickerModels.available.map((m) => (
-                                  <option
-                                    key={m.id}
-                                    value={m.id}
-                                    style={modelOptionStyle}
-                                  >
+                                  <option key={m.id} value={m.id}>
                                     {m.label}
                                   </option>
                                 ))
                               : isCodex
                                 ? CODEX_MODELS.map((m) => (
-                                    <option
-                                      key={m.value}
-                                      value={m.value}
-                                      style={modelOptionStyle}
-                                    >
+                                    <option key={m.value} value={m.value}>
                                       {m.label}
                                     </option>
                                   ))
                                 : null}
                             {pickerModels && pickerModels.free.length > 0 && (
-                              <optgroup
-                                label="Free (the provider may use traffic for training)"
-                                style={modelOptionStyle}
-                              >
+                              <optgroup label="Free (the provider may use traffic for training)">
                                 {pickerModels.free.map((m) => (
-                                  <option
-                                    key={m.id}
-                                    value={m.id}
-                                    style={modelOptionStyle}
-                                  >
+                                  <option key={m.id} value={m.id}>
                                     {m.label}
                                   </option>
                                 ))}
@@ -1922,38 +1874,23 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                             )}
                             {pickerModels &&
                               pickerModels.connect.length > 0 && (
-                                <optgroup
-                                  label="Connect a provider"
-                                  style={modelOptionStyle}
-                                >
+                                <optgroup label="Connect a provider">
                                   {pickerModels.connect.map((m) => (
-                                    <option
-                                      key={m.id}
-                                      value={m.id}
-                                      style={modelOptionStyle}
-                                    >
+                                    <option key={m.id} value={m.id}>
                                       Connect {m.label}
                                     </option>
                                   ))}
                                 </optgroup>
                               )}
                             {storedNotInList && (
-                              <option
-                                key={modelFamily}
-                                value={modelFamily}
-                                style={modelOptionStyle}
-                              >
+                              <option key={modelFamily} value={modelFamily}>
                                 Current model
                               </option>
                             )}
                           </>
                         ) : (
                           MODEL_FAMILIES.map((m) => (
-                            <option
-                              key={m.family}
-                              value={m.family}
-                              style={modelOptionStyle}
-                            >
+                            <option key={m.family} value={m.family}>
                               {m.label} ({modelVersionLabel(m.family)})
                             </option>
                           ))
@@ -2093,11 +2030,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                           }}
                         >
                           {effortLevels.map((opt) => (
-                            <option
-                              key={opt.level}
-                              value={opt.level}
-                              style={modelOptionStyle}
-                            >
+                            <option key={opt.level} value={opt.level}>
                               {opt.label}
                             </option>
                           ))}
@@ -2349,10 +2282,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
 const labelStyle: React.CSSProperties = dialogLabel;
 const inputStyle: React.CSSProperties = dialogInput;
-const modelOptionStyle: React.CSSProperties = {
-  background: "var(--bg-base)",
-  color: "var(--text-primary)",
-};
 const selectStyle: React.CSSProperties = {
   ...inputStyle,
   appearance: "none",
