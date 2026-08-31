@@ -246,7 +246,7 @@ describe("personal API tokens", () => {
     expect(sent.status).toBe(200);
     expect(await sent.json()).toEqual({ messageId: "" });
     expect(srv.fakeBackend.sessionForAgent(target.id)!.sent[0].text).toContain(
-      `[Boss (API token "Phone 'alerts")] off-office alert`,
+      `[Boss (API token "Phone 'alerts" (${minted.body.apiToken.id}))] off-office alert`,
     );
     srv.fakeBackend.sessionForAgent(target.id)!.releaseSends();
     srv.fakeBackend.sessionForAgent(target.id)!.completeTurn();

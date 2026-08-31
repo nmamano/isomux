@@ -23,9 +23,9 @@ describe("formatCronjobSenderPrefix", () => {
 
 describe("formatApiTokenDevice", () => {
   it("normalizes the server-held token name into one bounded device label", () => {
-    expect(formatApiTokenDevice(` Phone\n\u0000"${"x".repeat(80)} `)).toBe(
-      `API token "Phone '${"x".repeat(57)}"`,
-    );
+    expect(
+      formatApiTokenDevice(` Phone\n\u0000"${"x".repeat(80)} `, "pat-123"),
+    ).toBe(`API token "Phone '${"x".repeat(57)}" (pat-123)`);
   });
 
   // The log decides an API-token message's rendering from the device string,
@@ -33,7 +33,9 @@ describe("formatApiTokenDevice", () => {
   // formatter accepts - including the ones normalization mangles.
   it("recognizes its own output, whatever the token name", () => {
     for (const name of ["test", `\n\u0000"${"x".repeat(80)}`, '"', "   "]) {
-      expect(isApiTokenDevice(formatApiTokenDevice(name))).toBe(true);
+      expect(isApiTokenDevice(formatApiTokenDevice(name, "pat-123"))).toBe(
+        true,
+      );
     }
   });
 

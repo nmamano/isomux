@@ -80,8 +80,11 @@ export function formatApiTokenName(tokenName: string): string {
   );
 }
 
-export function formatApiTokenDevice(tokenName: string): string {
-  return `${API_TOKEN_DEVICE_PREFIX}${formatApiTokenName(tokenName)}"`;
+export function formatApiTokenDevice(
+  tokenName: string,
+  tokenId: string,
+): string {
+  return `${API_TOKEN_DEVICE_PREFIX}${formatApiTokenName(tokenName)}" (${tokenId})`;
 }
 
 // An API-token message carries the issuing human's authority but was NOT typed

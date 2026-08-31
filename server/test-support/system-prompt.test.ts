@@ -426,38 +426,19 @@ describe("buildSystemPrompt - session hygiene", () => {
 });
 
 describe("buildSystemPrompt - remote boss inbox", () => {
-  const withTokens = () =>
-    buildSystemPrompt(
-      "A1",
-      "agent-1",
-      "Test Room",
-      "room-1",
-      null,
-      null,
-      null,
-      "Boss",
-      null,
-      false,
-      null,
-      "codex",
-      null,
-      [{ id: "pat-123", name: 'Remote\n"Boss' }],
+  it("explains replies without listing remote bosses", () => {
+    const prompt = build();
+    expect(prompt).toContain(
+      'A boss can also access the office remotely. When they do, their messages will look like `[Boss (API token "Phone \'alerts" (pat-123))]`, where the id after the closing quote is their reply handle.',
     );
-
-  it("is absent without a live token snapshot", () => {
-    expect(build()).not.toContain("How to message a remote boss:");
-    expect(build()).not.toContain("api-token-inboxes");
-  });
-
-  it("lists normalized name and id with staleness and retry rules", () => {
-    const prompt = withTokens();
-    expect(prompt).toContain("Remote 'Boss (pat-123)");
+    expect(prompt).toContain(
+      "Respond to them at the remote location with POST",
+    );
     expect(prompt).toContain("/api/api-token-inboxes/<token-id>/messages");
+    expect(prompt).toContain("a send to an unavailable token fails");
     expect(prompt).toContain(
-      "API tokens can change after this conversation starts; a send to an unavailable token fails.",
+      "if its inbox is full, do not retry until the remote boss drains it",
     );
-    expect(prompt).toContain(
-      "Do not retry a full inbox until the remote boss drains it.",
-    );
+    expect(prompt).not.toContain("live API tokens at conversation start are");
   });
 });

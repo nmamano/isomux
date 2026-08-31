@@ -36,7 +36,6 @@ import {
   formatApiTokenName,
 } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
-import { listLiveApiTokens } from "./api-tokens.ts";
 import { isValidDesk } from "../shared/desks.ts";
 import {
   appendLog,
@@ -4723,7 +4722,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       memoryStore.renderForPromptMulti(memoryRefs),
       managed.info.agentType,
       ownerRecord?.language ?? null,
-      managed.info.userId ? listLiveApiTokens(managed.info.userId) : [],
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's

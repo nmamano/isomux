@@ -436,7 +436,10 @@ export function conversationHandlers(
           ctx.params.id,
           b.text,
           deps.attributionFor(ctx.identity).username,
-          formatApiTokenDevice(ctx.identity.apiTokenName ?? "unknown"),
+          formatApiTokenDevice(
+            ctx.identity.apiTokenName ?? "unknown",
+            ctx.identity.apiTokenId ?? "reply unavailable: missing token id",
+          ),
         );
         if (!r.ok) return fail(r.status, r.code, r.message);
         return ok({ messageId: "" });

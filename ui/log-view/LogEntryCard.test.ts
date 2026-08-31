@@ -94,8 +94,14 @@ describe("describeMessageSender", () => {
     // typing. The token is his authority, so the label stays his identity, but
     // it arrived from a script and reads that way (dashed, not editable).
     expect(
-      describeMessageSender({ username: "Nil", device: 'API token "test"' }),
-    ).toEqual({ label: 'Nil (API token "test")', fromHuman: false });
+      describeMessageSender({
+        username: "Nil",
+        device: 'API token "test" (pat-123)',
+      }),
+    ).toEqual({
+      label: 'Nil (API token "test" (pat-123))',
+      fromHuman: false,
+    });
   });
 
   it("a cron sender is not made human by carrying a username alongside", () => {

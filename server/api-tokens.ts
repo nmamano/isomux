@@ -209,16 +209,6 @@ function isLive(record: StoredApiToken, now: number): boolean {
   return record.expiresAt === null || record.expiresAt > now;
 }
 
-export function listLiveApiTokens(
-  userId: string,
-  now = Date.now(),
-): Array<Pick<ApiTokenWire, "id" | "name">> {
-  ensureLoaded();
-  return [...tokens!.values()]
-    .filter((record) => record.userId === userId && isLive(record, now))
-    .map(({ id, name }) => ({ id, name }));
-}
-
 export function isLiveApiTokenOwnedBy(
   tokenId: string,
   userId: string,
