@@ -710,12 +710,6 @@ export function ChoiceInteractionCard({
   );
 }
 
-export function showAgentContextUsageIndicator(
-  _agentType: AgentInfo["agentType"],
-): boolean {
-  return true;
-}
-
 export function showAgentSubscriptionUsageIndicator(
   agentType: AgentInfo["agentType"],
 ): boolean {
@@ -2227,9 +2221,7 @@ export function LogView({
                 provider={agent.agentType}
               />
             )}
-            {showAgentContextUsageIndicator(agent.agentType) && (
-              <ContextBattery usage={agent.contextUsage} />
-            )}
+            <ContextBattery usage={agent.contextUsage} />
             {/* Reads and flips the PREF, not the gated `slideView`: inside this
                 branch the gate is on so the two agree, but a toggle driven by
                 the derived value would write a gate-forced false back over the
@@ -2346,9 +2338,7 @@ export function LogView({
                       isMobile
                     />
                   )}
-                  {showAgentContextUsageIndicator(agent.agentType) && (
-                    <ContextBattery usage={agent.contextUsage} isMobile />
-                  )}
+                  <ContextBattery usage={agent.contextUsage} isMobile />
                   {slideModeEnabled && (
                     <SlideToggleButton
                       active={slideViewPref}
