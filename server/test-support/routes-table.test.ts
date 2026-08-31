@@ -82,6 +82,7 @@ describe("provider account routes", () => {
         userIdForUsername: () => null,
         cronjobCreatorUserId: () => null,
         appOwnerUserId: () => null,
+        isOfficeOwnerUserId: () => false,
         agentManagerUserId: () => null,
         killedAgentManagerUserId: () => null,
       },
@@ -246,6 +247,7 @@ describe("route table: public routes are routed AROUND authorize()", () => {
       userIdForUsername: () => null,
       cronjobCreatorUserId: () => null,
       appOwnerUserId: () => null,
+      isOfficeOwnerUserId: () => false,
       agentManagerUserId: () => null,
       killedAgentManagerUserId: () => null,
     };
@@ -645,6 +647,7 @@ describe("route table: an APP identity authorizes exactly the app-self route", (
     userIdForUsername: () => "u-owner",
     cronjobCreatorUserId: () => "u-owner",
     appOwnerUserId: () => "u-owner",
+    isOfficeOwnerUserId: () => true,
     agentManagerUserId: () => "u-owner",
     killedAgentManagerUserId: () => "u-owner",
   };
@@ -852,6 +855,7 @@ describe("route table: an API identity authorizes exactly the remote-boss surfac
     userIdForUsername: () => "u-owner",
     cronjobCreatorUserId: () => "u-owner",
     appOwnerUserId: () => "u-owner",
+    isOfficeOwnerUserId: () => true,
     agentManagerUserId: () => "u-owner",
     killedAgentManagerUserId: () => "u-owner",
   };

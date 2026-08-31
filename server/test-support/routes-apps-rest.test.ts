@@ -869,12 +869,32 @@ describe("routes/apps REST: who can see and delete an app", () => {
     ]);
     const ownerAgent = await spawnAgent(srv, "OwnerBot");
     const ownerId = getUserByName("Boss")!.id;
+    const ownerAgentToken = mintAgentToken(ownerAgent.id, ownerId);
     const ownerAgentList = await api(srv, "/api/apps", {
-      bearer: mintAgentToken(ownerAgent.id, ownerId),
+      bearer: ownerAgentToken,
     });
     expect(
       (ownerAgentList.body as AppWire[]).map((a) => a.name).sort(),
     ).toEqual(["alice-app", "boss-app"]);
+    const foreignRow = (ownerAgentList.body as AppWire[]).find(
+      (app) => app.name === "alice-app",
+    )!;
+    expect(foreignRow.command).toBe("bun run serve.ts");
+    expect(foreignRow.cwd).toBe(srv.stateRoot);
+
+    const ownerAgentControl = await api(srv, "/api/apps/alice-app", {
+      method: "PATCH",
+      bearer: ownerAgentToken,
+      body: { description: "managed by the owner's agent" },
+    });
+    expect(ownerAgentControl.status).toBe(200);
+
+    const memberAgentControl = await api(srv, "/api/apps/boss-app", {
+      method: "PATCH",
+      bearer: mintAgentToken(bot.id, aliceId),
+      body: { description: "must stay blocked" },
+    });
+    expect(memberAgentControl.status).toBe(403);
   });
 
   it("an unknown name denies exactly like somebody else's app (no existence oracle)", async () => {
@@ -1286,14 +1306,12 @@ describe("routes/apps REST: updating an app", () => {
     expect((r.body as AppWire).cwd.startsWith("/")).toBe(true);
   });
 
-  it("denies an unknown name rather than confirming it is free", async () => {
+  it("lets an owner's agent reach the honest unknown-name response", async () => {
     const { srv, token, owner } = await withApp();
-    // 403, not 404, and deliberately: names are unique office-wide, so a 404
-    // here would answer "is this name still available" - a question only
-    // registration is meant to answer. Same rule the read and delete routes
-    // follow.
+    // Task 3cd85856 gives the owner's agent the same app-control reach as the
+    // human owner, including the honest 404 for an unknown name.
     expect((await patch(srv, "nope", { command: "x" }, token)).status).toBe(
-      403,
+      404,
     );
     // An office owner skips the owner lookup, so it reaches the handler and
     // gets the honest answer.
@@ -2176,7 +2194,6 @@ function throwingDeps(over: Partial<AppsDeps> = {}): AppsDeps {
     resolveMessageTarget: () => "ok",
     attributionFor: () => ({ createdBy: "Agent1", username: "alice" }),
     validateCwd: (cwd) => ({ ok: true, resolved: cwd }),
-    isOfficeOwner: () => true,
     projectForList: (_identity, _record, wire) => wire,
     publicUrl: () => null,
     canAccess: () => true,

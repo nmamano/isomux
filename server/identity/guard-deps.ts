@@ -46,6 +46,9 @@ export interface GuardDepsLiveReaders {
   killedAgentManagerUserId(agentId: string): string | null;
   // Username → user record (or null). users.getUserByName.
   getUserByName(username: string): { id: string } | null;
+  // User id -> live role. The agent app-control guard asks about the agent's
+  // boss through this seam rather than trusting the agent identity's inert role.
+  getUserById(userId: string): { role: "owner" | "member" } | null;
   // The live cronjob list; id → creator userId. cronjobManager.listCronjobs.
   listCronjobs(): readonly { id: string; userId?: string | null }[];
   // The registered apps; name → owner userId. appRegistry.list. A corrupt
@@ -79,6 +82,10 @@ export function buildProductionGuardDeps(
 
     userIdForUsername(username: string): string | null {
       return live.getUserByName(username)?.id ?? null;
+    },
+
+    isOfficeOwnerUserId(userId: string): boolean {
+      return live.getUserById(userId)?.role === "owner";
     },
 
     cronjobCreatorUserId(cronjobId: string): string | null {

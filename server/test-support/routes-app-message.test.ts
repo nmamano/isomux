@@ -541,7 +541,6 @@ describe("routes/apps: the burst is spent on every attempt, the day only on deli
     resolveMessageTarget: () => "ok",
     attributionFor: () => ({ createdBy: "AppBot", username: "alice" }),
     validateCwd: (cwd: string) => ({ ok: true as const, resolved: cwd }),
-    isOfficeOwner: () => false,
     projectForList: (_identity, _record, wire) => wire,
     publicUrl: () => null,
     canAccess: () => true,

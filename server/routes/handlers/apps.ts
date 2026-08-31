@@ -114,8 +114,6 @@ export interface AppsDeps {
   validateCwd(
     cwd: string,
   ): { ok: true; resolved: string } | { ok: false; error: string };
-  // Office-owner status is also used by management projections.
-  isOfficeOwner(identity: Identity): boolean;
   projectForList(
     identity: Identity,
     record: AppRecord,

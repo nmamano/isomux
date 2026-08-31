@@ -73,6 +73,10 @@ export interface GuardDeps {
   // exists / it has no owner. Unknown and unowned collapse into the same null,
   // so a caller cannot use a denial to probe which names are taken.
   appOwnerUserId(name: string): string | null;
+  // Whether userId names a live office owner. Agent identities carry their
+  // boss's userId, so app authorization can grant the boss's office-wide reach
+  // without making Identity.role authoritative outside USER scope.
+  isOfficeOwnerUserId(userId: string): boolean;
   // The MANAGER userId of `agentId` - the spawning user (AgentInfo.userId) - or
   // null if the agent is unknown / unowned. Gates agents.setPrivileged: a member
   // may toggle privilege only on agents they manage.
@@ -350,8 +354,10 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
 // question a caller might want answered, and registration is the only place it
 // gets an answer.
 //
-// The officeOwner branch requires scope==="user" + owner, so an agent can never
-// reach office-wide app powers - only its own user's.
+// An agent whose boss is an office owner deliberately gets the same office-wide
+// app control (task 3cd85856, Nil's 2026-08-31 ruling). This is a separate,
+// AGENT-only branch: officeOwner stays USER-only, and API/cron/app identities do
+// not inherit the grant through a matching userId.
 export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
   return (ctx) => {
     const { identity, params, deps } = ctx;
@@ -362,6 +368,13 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
         identityHasCapability(identity, "app:read"));
     if (!participates) return FORBIDDEN;
     if (officeOwner(ctx).ok) return ALLOW;
+    if (
+      identity.scope === "agent" &&
+      identity.userId !== null &&
+      deps.isOfficeOwnerUserId(identity.userId)
+    ) {
+      return ALLOW;
+    }
     const name = params[nameParamName];
     if (!name) return FORBIDDEN;
     const ownerUserId = deps.appOwnerUserId(name);

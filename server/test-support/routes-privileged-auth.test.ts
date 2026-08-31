@@ -66,6 +66,7 @@ function deps(over: Partial<GuardDeps> = {}): GuardDeps {
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => SPAWNER,
     appOwnerUserId: () => null,
+    isOfficeOwnerUserId: () => false,
     // Default: the target agent is managed by the member fixture (for the
     // setPrivileged (i-b) tests, which override per case).
     agentManagerUserId: () => member.userId,

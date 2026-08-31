@@ -134,6 +134,7 @@ function makeDeps(over: Partial<GuardDeps> = {}): GuardDeps {
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => null,
     appOwnerUserId: () => null,
+    isOfficeOwnerUserId: () => false,
     agentManagerUserId: () => null,
     killedAgentManagerUserId: () => null,
     ...over,
@@ -516,13 +517,11 @@ describe("guard: hasOwningUser", () => {
 });
 
 // --- appOwnerOrOfficeOwner --------------------------------------------------
-// Written as a deliberate CONTRAST to cronjobOwnerOrOfficeOwner below, because
-// the two guards look alike and are not: `cron:manage` is a privileged extra,
-// so a narrow agent is denied there, while `app:read` is BASELINE, so an
-// ordinary agent IS allowed here on an owner match. That difference is the
-// feature (an agent must manage the apps it registers for its user), and the
-// owner match is what keeps it from being a confused deputy. Copying the cron
-// guard without re-deriving this is exactly the mistake these cases catch.
+// Written as a deliberate CONTRAST to cronjobOwnerOrOfficeOwner below. App
+// access includes the ordinary agent's owner match and, under task 3cd85856
+// (Nil's 2026-08-31 ruling), an agent whose boss is an office owner. Cron access
+// keeps its narrower privilege + creator rule. Copying either guard without
+// re-deriving its scope is exactly the mistake these cases catch.
 
 describe("guard: appOwnerOrOfficeOwner", () => {
   const guard = appOwnerOrOfficeOwner("name");
@@ -573,8 +572,11 @@ describe("guard: appOwnerOrOfficeOwner", () => {
       guard(ctx(privilegedAgent, { name: "hello" }, undefined, deps)),
     ).toEqual(OK);
   });
-  it("denies an agent whose MANAGER does not own the app", () => {
-    const deps = makeDeps({ appOwnerUserId: () => "u-other" });
+  it("denies an agent whose MEMBER boss does not own the app", () => {
+    const deps = makeDeps({
+      appOwnerUserId: () => "u-other",
+      isOfficeOwnerUserId: () => false,
+    });
     expect(guard(ctx(agent, { name: "hello" }, undefined, deps))).toEqual(DENY);
   });
   it("denies a CRON-RUN even on a userId match (it holds no app capability)", () => {
@@ -583,10 +585,7 @@ describe("guard: appOwnerOrOfficeOwner", () => {
     const deps = makeDeps({ appOwnerUserId: () => "u-cron" });
     expect(guard(ctx(run, { name: "hello" }, undefined, deps))).toEqual(DENY);
   });
-  it("gives an agent NO office-owner shortcut: it only ever owner-matches", () => {
-    // officeOwner requires scope==="user" + owner, so an agent spawned by the
-    // office owner still reaches only the apps that owner owns - never the
-    // office-wide branch.
+  it("allows an office owner's agent to control a foreign app", () => {
     const ownerAgent: Identity = { ...agent, userId: "u-owner" };
     expect(
       guard(
@@ -594,10 +593,82 @@ describe("guard: appOwnerOrOfficeOwner", () => {
           ownerAgent,
           { name: "hello" },
           undefined,
-          makeDeps({ appOwnerUserId: () => "someone-else" }),
+          makeDeps({
+            appOwnerUserId: () => "someone-else",
+            isOfficeOwnerUserId: (userId) => userId === "u-owner",
+          }),
+        ),
+      ),
+    ).toEqual(OK);
+  });
+  it("allows an office owner's agent through before an unknown-app lookup", () => {
+    const ownerAgent: Identity = { ...agent, userId: "u-owner" };
+    expect(
+      guard(
+        ctx(
+          ownerAgent,
+          { name: "never-registered" },
+          undefined,
+          makeDeps({
+            appOwnerUserId: () => null,
+            isOfficeOwnerUserId: (userId) => userId === "u-owner",
+          }),
+        ),
+      ),
+    ).toEqual(OK);
+  });
+  it("denies an agent with no boss even when the owner predicate is permissive", () => {
+    const unownedAgent: Identity = { ...agent, userId: null };
+    expect(
+      guard(
+        ctx(
+          unownedAgent,
+          { name: "hello" },
+          undefined,
+          makeDeps({
+            appOwnerUserId: () => "someone-else",
+            isOfficeOwnerUserId: () => true,
+          }),
         ),
       ),
     ).toEqual(DENY);
+  });
+  it("denies an office owner's API token on a foreign app", () => {
+    const ownerApi: Identity = { ...api, userId: "u-owner", role: "owner" };
+    expect(
+      guard(
+        ctx(
+          ownerApi,
+          { name: "hello" },
+          undefined,
+          makeDeps({
+            appOwnerUserId: () => "someone-else",
+            isOfficeOwnerUserId: (userId) => userId === "u-owner",
+          }),
+        ),
+      ),
+    ).toEqual(DENY);
+  });
+  it("denies a cron-run whose userId belongs to an office owner", () => {
+    let ownerChecks = 0;
+    const ownerRun: Identity = { ...run, userId: "u-owner" };
+    expect(
+      guard(
+        ctx(
+          ownerRun,
+          { name: "hello" },
+          undefined,
+          makeDeps({
+            appOwnerUserId: () => "u-owner",
+            isOfficeOwnerUserId: () => {
+              ownerChecks += 1;
+              return true;
+            },
+          }),
+        ),
+      ),
+    ).toEqual(DENY);
+    expect(ownerChecks).toBe(0);
   });
 });
 
@@ -1072,6 +1143,7 @@ describe("guard catalog: an APP identity is denied everywhere", () => {
     userIdForUsername: () => "u-owner",
     cronjobCreatorUserId: () => "u-owner",
     appOwnerUserId: () => "u-owner",
+    isOfficeOwnerUserId: () => true,
     agentManagerUserId: () => "u-owner",
     killedAgentManagerUserId: () => "u-owner",
   });

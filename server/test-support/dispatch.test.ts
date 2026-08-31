@@ -44,6 +44,7 @@ const deps: GuardDeps = {
   userIdForUsername: () => null,
   cronjobCreatorUserId: () => null,
   appOwnerUserId: () => null,
+  isOfficeOwnerUserId: () => false,
   agentManagerUserId: () => null,
   killedAgentManagerUserId: () => null,
 };

@@ -34,6 +34,12 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     // exclusion), so the two lookups can never both claim the same agent.
     killedAgentManagerUserId: (agentId) => (agentId === "aDead" ? "u2" : null),
     getUserByName: (name) => (name === "Nil" ? { id: "u1" } : null),
+    getUserById: (userId) =>
+      userId === "u-owner"
+        ? { role: "owner" }
+        : userId === "u1"
+          ? { role: "member" }
+          : null,
     listCronjobs: () => [
       { id: "j1", userId: "u7" },
       { id: "jNull", userId: null },
@@ -66,6 +72,11 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     expect(deps.cronjobCreatorUserId("j1")).toBe("u7");
     expect(deps.cronjobCreatorUserId("jNull")).toBeNull();
     expect(deps.cronjobCreatorUserId("ghost")).toBeNull();
+  });
+  it("isOfficeOwnerUserId reads the live role and rejects members and unknown users", () => {
+    expect(deps.isOfficeOwnerUserId("u-owner")).toBe(true);
+    expect(deps.isOfficeOwnerUserId("u1")).toBe(false);
+    expect(deps.isOfficeOwnerUserId("ghost")).toBe(false);
   });
   it("appOwnerUserId resolves the app's owner, null for unknown/unowned", () => {
     expect(deps.appOwnerUserId("hello")).toBe("u7");

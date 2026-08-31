@@ -1443,6 +1443,7 @@ function buildLiveGuardDeps(): GuardDeps {
     killedAgentManagerUserId: (agentId) =>
       agentManager.killedAgentManagerUserId(agentId),
     getUserByName: (username) => getUserByName(username) ?? null,
+    getUserById: (userId) => getUserById(userId) ?? null,
     listCronjobs: () => cronjobManager.listCronjobs(),
     listApps: () => appRegistry.list(),
   };
@@ -1957,8 +1958,6 @@ function buildExecutorDeps(
           return { ok: false, error: errMessage(err, "Invalid directory") };
         }
       },
-      isOfficeOwner: (identity) =>
-        identity.scope === "user" && identity.role === "owner",
       projectForList: (identity, record, ownerWire) => {
         const visibility = appVisibilityFacts(record);
         const viewer = appViewerFacts(identity, visibility);
