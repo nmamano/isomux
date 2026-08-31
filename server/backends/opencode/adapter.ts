@@ -659,7 +659,6 @@ export function createOpenCodeBackend(
         ]);
       } finally {
         if (timeout) clearTimeout(timeout);
-        void session.abort();
         await Promise.race([
           session.deleteStoredSession().catch(() => undefined),
           Bun.sleep(ONE_SHOT_CLEANUP_TIMEOUT_MS),

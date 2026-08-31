@@ -54,6 +54,7 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   full_state: "recipient-scoped",
   all_rooms_list: "owners",
   presence_list: "recipient-scoped",
+  provider_accounts_updated: "recipient-scoped",
   editor_external_change: "recipient-scoped",
   // Editor file lifecycle (task 1ed49547): the watch's confirmed-deletion
   // push, same single-socket scoping as editor_external_change.

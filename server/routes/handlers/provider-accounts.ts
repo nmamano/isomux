@@ -1,4 +1,9 @@
-import { fail, ok, type RouteHandler } from "../executor.ts";
+import {
+  fail,
+  ok,
+  type HandlerErrorStatus,
+  type RouteHandler,
+} from "../executor.ts";
 import type { ProviderAccountWire } from "../../../shared/types.ts";
 
 export interface ProviderAccountsDeps {
@@ -9,7 +14,7 @@ export interface ProviderAccountsDeps {
     method: "browser" | "device",
   ): Promise<
     | { ok: true; value: unknown }
-    | { ok: false; status: number; code: string; message: string }
+    | { ok: false; status: HandlerErrorStatus; code: string; message: string }
   >;
   cancel(userId: string): Promise<boolean>;
 }

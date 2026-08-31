@@ -11,6 +11,7 @@ import {
   withIsomuxCodexHome,
 } from "./backends/codex/native-bin.ts";
 import { CodexAccountClient } from "./backends/codex/account.ts";
+import type { HandlerErrorStatus } from "./routes/executor.ts";
 import type {
   ProviderAccountProvider,
   ProviderAccountWire,
@@ -178,7 +179,7 @@ export class ProviderAccountManager {
     method: "browser" | "device",
   ): Promise<
     | { ok: true; value: ProviderLoginStartRes }
-    | { ok: false; status: number; code: string; message: string }
+    | { ok: false; status: HandlerErrorStatus; code: string; message: string }
   > {
     const target = this.target(userId, "codex");
     const cacheKey = `${target.key}:${this.environmentKeyForUser(userId)}`;
