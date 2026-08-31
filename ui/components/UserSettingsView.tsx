@@ -48,6 +48,7 @@ import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
 import { ApiTokensPane } from "./ApiTokensPane.tsx";
+import { ConnectionsPane } from "./ConnectionsPane.tsx";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -71,7 +72,8 @@ type AccountSection =
   | "sessions"
   | "devices"
   | "prefs"
-  | "apiTokens";
+  | "apiTokens"
+  | "connections";
 
 // What the detail pane shows: a user's editor, or one account section.
 // null = nothing selected - on mobile that means the list is showing; on
@@ -268,11 +270,13 @@ export function UserSettingsView({
         { section: "sessions", label: "Sessions" },
         { section: "devices", label: "My devices" },
         { section: "prefs", label: "Preferences" },
+        { section: "connections", label: "Connections" },
         { section: "apiTokens", label: "API tokens" },
       ]
     : [
         { section: "devices", label: "My devices" },
         { section: "prefs", label: "Preferences" },
+        { section: "connections", label: "Connections" },
         { section: "apiTokens", label: "API tokens" },
       ];
 
@@ -643,6 +647,8 @@ export function UserSettingsView({
                   <MyDevicesPane />
                 ) : selection.section === "prefs" && sessionContext ? (
                   <PreferencesPane />
+                ) : selection.section === "connections" && sessionContext ? (
+                  <ConnectionsPane />
                 ) : selection.section === "apiTokens" && sessionContext ? (
                   <ApiTokensPane />
                 ) : null}

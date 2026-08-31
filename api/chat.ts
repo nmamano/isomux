@@ -55,7 +55,7 @@ Free · open source · no cloud · no account.
 The core thesis: **by anthropomorphizing agents, we reduce cognitive load** - we're more used to coordinating humans than terminals.
 
 - **Multi-provider**: spawn Claude Code, Codex, and OpenCode agents in the same office, side-by-side.
-- Claude can use your existing Claude Code login. Codex ships bundled and authenticates on first use. OpenCode also ships bundled; you select a connected model or connect Anthropic or OpenAI from the model picker, and then log its provider into the shared environment profile when needed.
+- Claude can use your existing Claude Code login. Codex ships bundled and connects to ChatGPT from User Settings or through the terminal fallback. OpenCode also ships bundled; you select a connected model or connect Anthropic or OpenAI from the model picker, and then log its provider into the shared environment profile when needed.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. No bundler, no database, minimal deps.
 - GitHub: github.com/nmamano/isomux
 - Docs: isomux.com/docs (full feature list, self-hosted setup including the unattended VPS install, access and invites, backup/restore, security audit)

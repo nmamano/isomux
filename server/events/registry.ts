@@ -49,6 +49,7 @@ import type {
   SlideFailureReason,
   SlideRecord,
   UpdateStatusWire,
+  ProviderAccountWire,
 } from "../../shared/types.ts";
 import type {
   UserPublicWire,
@@ -208,6 +209,7 @@ export interface EventPayloads {
   // delivered to every socket of that user - incl. at connect hydration, since
   // the now-public users_list can no longer carry the caller's own grants/view.
   user_self_updated: { user: UserSelfWire; prevName?: string };
+  provider_accounts_updated: { accounts: ProviderAccountWire[] };
   tasks: { tasks: TaskItem[] };
   // One task created/changed and visible to this recipient; one task gone from
   // this recipient's board (deleted, or re-filed out of their rooms). Both are
@@ -374,6 +376,10 @@ export const EVENT_REGISTRY = {
   users_admin_list: { audience: "owners", projectionKey: { kind: "owners" } },
   user_admin_updated: { audience: "owners", projectionKey: { kind: "owners" } },
   user_self_updated: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "userId" },
+  },
+  provider_accounts_updated: {
     audience: "recipient-scoped",
     projectionKey: { kind: "userId" },
   },

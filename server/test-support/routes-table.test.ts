@@ -60,6 +60,35 @@ describe("route table: identity invariants", () => {
   });
 });
 
+describe("provider account routes", () => {
+  it("rejects an agent token before it can read a sign-in secret", () => {
+    const route = API_ROUTES.find((r) => r.opId === "providerAccounts.start")!;
+    const identity: Identity = {
+      scope: "agent",
+      role: "member",
+      userId: "u1",
+      agentId: "a1",
+      capabilities: AGENT_CAPABILITIES,
+    };
+    const result = runAuthorize(
+      route.auth,
+      identity,
+      { provider: "codex" },
+      undefined,
+      {
+        hasRoomAccess: () => true,
+        roomIdForAgent: () => null,
+        userIdForUsername: () => null,
+        cronjobCreatorUserId: () => null,
+        appOwnerUserId: () => null,
+        agentManagerUserId: () => null,
+        killedAgentManagerUserId: () => null,
+      },
+    );
+    expect(result).toEqual({ ok: false, status: 403, code: "forbidden" });
+  });
+});
+
 describe("route table: emits resolve to the event registry", () => {
   it("every emitted id is a real registry event", () => {
     for (const r of ALL_ROUTES) {
@@ -320,6 +349,19 @@ const SPEC_ROUTE_CONTRACT: Record<
   "apiTokens.list": { caps: ["user:self"], emits: [] },
   "apiTokens.mint": { caps: ["user:self"], emits: [] },
   "apiTokens.revoke": { caps: ["user:self"], emits: [] },
+  "providerAccounts.list": { caps: ["user:self"], emits: [] },
+  "providerAccounts.start": {
+    caps: ["user:self"],
+    emits: ["provider_accounts_updated"],
+  },
+  "providerAccounts.refresh": {
+    caps: ["user:self"],
+    emits: ["provider_accounts_updated"],
+  },
+  "providerAccounts.cancel": {
+    caps: ["user:self"],
+    emits: ["provider_accounts_updated"],
+  },
   "apiTokenInbox.send": {
     caps: ["agent:send-to-api-token"],
     emits: ["log_entry"],

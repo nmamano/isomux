@@ -1322,6 +1322,43 @@ export interface BackendModelWire {
   defaultEffort?: string;
 }
 
+export type ProviderAccountProvider = "codex" | "claude";
+export type ProviderAccountStatus =
+  | "connected"
+  | "not_connected"
+  | "unavailable";
+export type ProviderLoginStatus =
+  | "idle"
+  | "waiting_external"
+  | "succeeded"
+  | "failed"
+  | "interrupted";
+
+export interface ProviderAccountWire {
+  provider: ProviderAccountProvider;
+  accountStatus: ProviderAccountStatus;
+  loginStatus: ProviderLoginStatus;
+  accountLabel?: string;
+  shared?: boolean;
+  canBrowserLogin: boolean;
+  fallbackToTerminal?: boolean;
+  error?: string;
+}
+
+export interface ProviderAccountsWire {
+  accounts: ProviderAccountWire[];
+}
+
+export interface ProviderLoginStartReq {
+  method?: "browser" | "device";
+}
+
+export interface ProviderLoginStartRes {
+  account: ProviderAccountWire;
+  authUrl?: string;
+  userCode?: string;
+}
+
 // Update-available status feeding the header banner (server/update-checker.ts).
 // Mode is decided by the box shape: "commit" on source checkouts (what HEAD
 // runs vs. the repo's latest release and the GitHub main tip - the notice
@@ -1518,6 +1555,7 @@ export type ServerMessage =
   // Recipient-scoped to the subject: their OWN full record (UserSelfWire ===
   // UserRecord), incl. at connect hydration since users_list is now public-only.
   | { type: "user_self_updated"; user: UserRecord; prevName?: string }
+  | { type: "provider_accounts_updated"; accounts: ProviderAccountWire[] }
   | { type: "session_context"; context: SessionContext }
   // totalOnlineUsers counts distinct userIds across ALL live presence
   // entries (including off-scene viewMode="away" sessions whose

@@ -34,6 +34,7 @@ import type {
   InviteWire,
   SessionWire,
   UpdateStatusWire,
+  ProviderAccountWire,
 } from "../shared/types.ts";
 import {
   type UserView,
@@ -200,6 +201,7 @@ export interface AppState {
   // killed_agent_removed events as kills and revivals happen.
   killedAgents: KilledAgentSummary[];
   interactions: AgentChoiceInteraction[];
+  providerAccounts: ProviderAccountWire[];
 }
 
 type Action =
@@ -328,6 +330,7 @@ type Action =
   | { type: "users_admin_list"; users: UserRecord[] }
   | { type: "user_admin_updated"; user: UserRecord; prevName?: string }
   | { type: "user_self_updated"; user: UserRecord; prevName?: string }
+  | { type: "provider_accounts_updated"; accounts: ProviderAccountWire[] }
   | { type: "session_context"; context: SessionContext }
   | {
       type: "presence_list";
@@ -1003,6 +1006,8 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         users: upsertUserView(state.users, action.user, action.prevName),
       };
+    case "provider_accounts_updated":
+      return { ...state, providerAccounts: action.accounts };
     case "presence_list":
       return {
         ...state,
@@ -1161,6 +1166,7 @@ export const initialState: AppState = {
   onlineUserIds: [],
   killedAgents: [],
   interactions: [],
+  providerAccounts: [],
 };
 
 const StateCtx = createContext<AppState>(initialState);

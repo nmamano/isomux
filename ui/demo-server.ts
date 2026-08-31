@@ -1597,6 +1597,62 @@ export async function demoApi(
     }
     case "GET /api/me/api-tokens":
       return { apiTokens: [...demoApiTokens] };
+    case "GET /api/me/provider-accounts":
+      return {
+        accounts: [
+          {
+            provider: "codex",
+            accountStatus: "not_connected",
+            loginStatus: "idle",
+            shared: true,
+            canBrowserLogin: true,
+          },
+          {
+            provider: "claude",
+            accountStatus: "unavailable",
+            loginStatus: "idle",
+            canBrowserLogin: false,
+            fallbackToTerminal: true,
+            error:
+              "Claude sign-in from the browser needs your own Claude config directory. Set CLAUDE_CONFIG_DIR in your env file, and then try again.",
+          },
+        ],
+      };
+    case "POST /api/me/provider-accounts/codex/login":
+      return {
+        account: {
+          provider: "codex",
+          accountStatus: "not_connected",
+          loginStatus: "waiting_external",
+          shared: true,
+          canBrowserLogin: true,
+        },
+        authUrl: "https://auth.openai.com/",
+        userCode: "ABCD-EFGH",
+      };
+    case "POST /api/me/provider-accounts/codex/cancel":
+      return { canceled: true };
+    case "POST /api/me/provider-accounts/refresh":
+      return {
+        accounts: [
+          {
+            provider: "codex",
+            accountStatus: "not_connected",
+            loginStatus: "idle",
+            shared: true,
+            canBrowserLogin: true,
+          },
+          {
+            provider: "claude",
+            accountStatus: "unavailable",
+            loginStatus: "idle",
+            canBrowserLogin: false,
+            fallbackToTerminal: true,
+            error:
+              "Claude browser sign-in is not available yet. Use the terminal instead.",
+          },
+        ],
+      };
     case "POST /api/me/api-tokens": {
       const b = (body ?? {}) as ApiTokenCreateReq;
       const now = Date.now();

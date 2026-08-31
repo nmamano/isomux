@@ -208,6 +208,8 @@ import { usersHandlers } from "./routes/handlers/users.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
+import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
+import { ProviderAccountManager } from "./provider-account-manager.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
 import { storageHandlers } from "./routes/handlers/storage.ts";
 import { usageHandlers } from "./routes/handlers/usage.ts";
@@ -1456,6 +1458,12 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<OfficeWsData>> = {
     for (const ws of recipients) ws.send(data);
   },
 };
+
+const providerAccountManager = new ProviderAccountManager(
+  (userId, accounts) => {
+    liveEmit("provider_accounts_updated", { accounts }, { userId });
+  },
+);
 
 // Bind the emit() helper to the production transport seam. The ONLY path to the
 // wire for migrated core ops / event sinks (never a raw broadcast()).
@@ -3430,6 +3438,19 @@ function buildExecutorDeps(
     }),
   );
   register(
+    providerAccountsHandlers({
+      list: (userId) => providerAccountManager.list(userId),
+      refresh: async (userId) => {
+        const accounts = await providerAccountManager.list(userId, true);
+        liveEmit("provider_accounts_updated", { accounts }, { userId });
+        return accounts;
+      },
+      start: (userId, method) =>
+        providerAccountManager.startLogin(userId, method),
+      cancel: (userId) => providerAccountManager.cancel(userId),
+    }),
+  );
+  register(
     apiTokenHandlers({
       list: (userId) => listApiTokens(userId),
       mint: (input) => mintApiToken(input),
@@ -5377,6 +5398,43 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               user: selfUserForHydration,
             }),
           );
+          void providerAccountManager
+            .list(selfUserForHydration.id)
+            .then((accounts) => {
+              if (browsers.has(ws))
+                ws.send(
+                  JSON.stringify({
+                    type: "provider_accounts_updated",
+                    accounts,
+                  }),
+                );
+            })
+            .catch(() => {
+              if (browsers.has(ws))
+                ws.send(
+                  JSON.stringify({
+                    type: "provider_accounts_updated",
+                    accounts: [
+                      {
+                        provider: "codex",
+                        accountStatus: "unavailable",
+                        loginStatus: "idle",
+                        canBrowserLogin: false,
+                        fallbackToTerminal: true,
+                        error: "Could not read your env file.",
+                      },
+                      {
+                        provider: "claude",
+                        accountStatus: "unavailable",
+                        loginStatus: "idle",
+                        canBrowserLogin: false,
+                        fallbackToTerminal: true,
+                        error: "Could not read your env file.",
+                      },
+                    ],
+                  }),
+                );
+            });
         }
         // Send projected full_state (rooms + agents filtered to the
         // session's allowedRooms; sessions whose allowedRooms covers
