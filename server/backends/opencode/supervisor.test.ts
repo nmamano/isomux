@@ -610,6 +610,32 @@ describe("OpenCode shared server supervisor", () => {
     lease.release();
   }, 20_000);
 
+  it("makes concurrent authentication preparation wait for the same shutdown", async () => {
+    const path = await root();
+    const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
+    const lease = await supervisor.acquire();
+    await lease.beginTurn();
+
+    const first = supervisor.prepareForAuthentication();
+    const pending = `${supervisor.profileDir}.auth-login-pending`;
+    const deadline = Date.now() + 5000;
+    while (!(await Bun.file(pending).exists()) && Date.now() < deadline)
+      await Bun.sleep(10);
+    expect(await Bun.file(pending).exists()).toBe(true);
+
+    let secondSettled = false;
+    const second = supervisor.prepareForAuthentication().finally(() => {
+      secondSettled = true;
+    });
+    await Bun.sleep(50);
+    expect(secondSettled).toBe(false);
+
+    lease.endTurn();
+    await Promise.all([first, second]);
+    expect(alive(lease.pid)).toBe(false);
+    lease.release();
+  }, 20_000);
+
   it("removes stale pending login state instead of blocking the shared environment", async () => {
     const path = await root();
     const supervisor = new OpenCodeSupervisor({

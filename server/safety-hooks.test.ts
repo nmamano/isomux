@@ -225,6 +225,7 @@ describe("shell write-target classification", () => {
 describe("rm flag classification cost", () => {
   it("classifies a 404-byte pathological cluster within 20 ms", async () => {
     const command = `rm -${"rf".repeat(200)}`;
+    // Keep 404 bytes: the former ambiguous matcher crossed the 20 ms bound here.
     expect(command.length).toBe(404);
     const started = performance.now();
     const result = await bash(command);

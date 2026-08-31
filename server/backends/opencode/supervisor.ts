@@ -9,6 +9,8 @@ import { openCodeProfilePaths } from "./login-wrapper.ts";
 export const OPENCODE_IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
 export const OPENCODE_REPLACEMENT_DRAIN_MS = 2 * 60 * 1000;
 export const OPENCODE_AUTH_LOGIN_PENDING_TTL_MS = 10 * 60 * 1000;
+export const OPENCODE_LOGIN_IN_PROGRESS =
+  "OpenCode login is in progress for this shared environment.";
 
 interface ServerRecord {
   pid: number;
@@ -97,6 +99,7 @@ export class OpenCodeSupervisor {
   private activeTurns = 0;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private shutdownPromise: Promise<void> | null = null;
+  private authenticationPreparationPromise: Promise<void> | null = null;
   private record: ServerRecord | null = null;
   readonly profileDir: string;
   readonly recordPath: string;
@@ -135,14 +138,17 @@ export class OpenCodeSupervisor {
 
   async acquire(): Promise<OpenCodeLease> {
     if (this.hasActivePendingLogin()) {
-      throw new Error(
-        "OpenCode login is in progress for this shared environment.",
-      );
+      throw new Error(OPENCODE_LOGIN_IN_PROGRESS);
     }
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (this.shutdownPromise) await this.shutdownPromise;
     await this.replaceServerIfRequested();
+    // A login can begin while this acquire waits for shutdown or replacement.
+    // Do not restart the shared server inside that login window.
+    if (this.hasActivePendingLogin()) {
+      throw new Error(OPENCODE_LOGIN_IN_PROGRESS);
+    }
     await this.ensureServer();
     this.leases++;
     let released = false;
@@ -170,6 +176,9 @@ export class OpenCodeSupervisor {
         if (released || turnActive) return;
         await this.replaceServerIfRequested();
         if (this.shutdownPromise) await this.shutdownPromise;
+        if (this.hasActivePendingLogin()) {
+          throw new Error(OPENCODE_LOGIN_IN_PROGRESS);
+        }
         if (!this.record) await this.ensureServer();
         turnActive = true;
         this.activeTurns++;
@@ -213,6 +222,19 @@ export class OpenCodeSupervisor {
   }
 
   async prepareForAuthentication(): Promise<void> {
+    if (this.authenticationPreparationPromise)
+      return this.authenticationPreparationPromise;
+    if (this.hasActivePendingLogin()) return;
+    this.authenticationPreparationPromise =
+      this.performAuthenticationPreparation();
+    try {
+      await this.authenticationPreparationPromise;
+    } finally {
+      this.authenticationPreparationPromise = null;
+    }
+  }
+
+  private async performAuthenticationPreparation(): Promise<void> {
     await mkdir(this.profileDir, { recursive: true });
     const pending = `${this.profileDir}.auth-login-pending`;
     await writeFile(pending, "login pending\n", { mode: 0o600 });

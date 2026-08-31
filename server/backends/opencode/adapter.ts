@@ -37,6 +37,7 @@ import {
 import {
   OPENCODE_CRON_AGENT,
   OPENCODE_INTERACTIVE_BYPASS_AGENT,
+  OPENCODE_LOGIN_IN_PROGRESS,
   openCodeSupervisorForEnvironment,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
@@ -396,7 +397,9 @@ export function createOpenCodeTracerBackend(
     },
 
     detectAuthError(text: string): boolean {
-      return text.includes(AUTH_FAILURE);
+      return (
+        text.includes(AUTH_FAILURE) || text.includes(OPENCODE_LOGIN_IN_PROGRESS)
+      );
     },
 
     getLoginInstructions(opts): { text: string; commands: string[] } {
@@ -667,7 +670,9 @@ export function createOpenCodeBackend(
       }
     },
     detectAuthError(text: string): boolean {
-      return text.includes(AUTH_FAILURE);
+      return (
+        text.includes(AUTH_FAILURE) || text.includes(OPENCODE_LOGIN_IN_PROGRESS)
+      );
     },
     getLoginInstructions(opts): { text: string; commands: string[] } {
       return loginInstructions(opts?.environmentKey, opts?.modelFamily);
