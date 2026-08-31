@@ -178,6 +178,8 @@ const corpus: Case[] = [
   shell("git push short force deny", "git push origin main -f"),
   shell("branch force delete deny", "git branch -D topic"),
   shell("rm root deny", "rm -rf /"),
+  shell("rm reverse cluster root deny", "rm -fr /"),
+  shell("rm mixed cluster deny", "rm -Rvf ./build"),
   shell("rm separate flags deny", "rm -r -f ./build"),
   shell("rm long flags deny", "rm --recursive --force ./build"),
   shell("stash drop deny", "git stash drop"),
@@ -186,6 +188,9 @@ const corpus: Case[] = [
   shell("safe restore allow", "git restore --staged README.md"),
   shell("safe clean allow", "git clean -n"),
   shell("safe temp rm allow", "rm -rf /tmp/isomux-probe"),
+  shell("safe reverse temp rm allow", "rm -fr /tmp/isomux-probe"),
+  shell("safe var temp rm allow", "rm -Rvf /var/tmp/isomux-probe"),
+  shell("safe tmpdir rm allow", "rm -fr $TMPDIR/isomux-probe"),
   shell(
     "safe fragment short-circuits destructive fragment",
     "git clean -n; git reset --hard HEAD",
@@ -195,6 +200,70 @@ const corpus: Case[] = [
   shell("quoted shell kill deny", 'bash -c "pkill -f bun"'),
   shell("quoted prose allow", 'echo "cat ~/.env; pkill -f bun"'),
   shell("protected command write deny", "tee ~/.isomux/agents.json"),
+  shell(
+    "quoted redirect prose now allows",
+    `cd /tmp/rev1-copy && jq -n --arg t '<prose containing parens (x) and git diff HEAD > /tmp/frozen-x.diff>' '{text:$t}' | curl localhost:4000 -d @- | sed -E 's/[A-Za-z0-9_-]{30,}/REDACTED/g'`,
+  ),
+  shell(
+    "compound sed program is not a write target",
+    `cd /tmp/rev1-copy && python3 - <<'EOF'\nprint("rendered (copy)")\nEOF\nsed -n 82,86p /tmp/rev1-copy/shared/identity.ts`,
+  ),
+  shell(
+    "compound bun subcommand is not a write target",
+    `cd /tmp/rev1-copy && cat > /tmp/rev1-render.ts <<'EOF'\nconsole.log("rendered (copy)")\nEOF\nbun run /tmp/rev1-render.ts`,
+  ),
+  divergence(
+    shell(
+      "protected sed read now allows",
+      `sed -n '44p' ${join(STATE_ROOT, "agents.json")}`,
+    ),
+    true,
+    false,
+  ),
+  divergence(
+    shell(
+      "protected awk read now allows",
+      `awk '{print}' ${join(STATE_ROOT, "agents.json")}`,
+    ),
+    true,
+    false,
+  ),
+  divergence(
+    shell(
+      "protected perl read now allows",
+      `perl -ne 'print' ${join(STATE_ROOT, "agents.json")}`,
+    ),
+    true,
+    false,
+  ),
+  shell(
+    "clustered sed in-place remains denied",
+    `sed -ni.bak 's/a/b/' ${join(STATE_ROOT, "agents.json")}`,
+  ),
+  shell(
+    "perl in-place remains denied",
+    `perl -pi -e 's/a/b/' ${join(STATE_ROOT, "agents.json")}`,
+  ),
+  shell(
+    "tee pipeline remains denied",
+    `echo x | tee ${join(STATE_ROOT, "agents.json")}`,
+  ),
+  shell(
+    "compound redirect remains denied",
+    `cd /tmp && echo ok; echo x > ${join(STATE_ROOT, "agents.json")}`,
+  ),
+  divergence(
+    shell(
+      "raw parenthesis cwd co-trigger remains denied",
+      "cd /tmp/c && echo 'a(b)' > out.txt",
+    ),
+    false,
+    true,
+  ),
+  shell(
+    "plain literal cd and relative redirect remains allowed",
+    "cd /tmp/c && echo ab > out.txt",
+  ),
   divergence(
     shell(
       "relative protected redirect now denies",
@@ -383,6 +452,41 @@ describe("provider-neutral safety-policy extraction", () => {
     const baseline = await baselineFactory();
     for (const testCase of corpus) {
       await expectCaseAgainstBaseline(createSafetyHooks, baseline, testCase);
+    }
+  });
+
+  it("rejects the old broad positional write-target classifier", async () => {
+    const oldClassifier = await mutantFactory("broad-write-targets", (source) =>
+      source
+        .replace(
+          '  "ln",\n];',
+          '  "ln",\n  "sed",\n  "awk",\n  "perl",\n  "python",\n  "python3",\n  "ruby",\n  "node",\n  "bun",\n];',
+        )
+        .replace('  if (command.name === "sed") {', "  if (false) {")
+        .replace('  if (command.name === "perl") {', "  if (false) {"),
+    );
+    const expectedChanges = [
+      "quoted redirect prose now allows",
+      "compound sed program is not a write target",
+      "compound bun subcommand is not a write target",
+      "protected sed read now allows",
+      "protected awk read now allows",
+      "protected perl read now allows",
+    ];
+    const changed: string[] = [];
+    for (const testCase of corpus) {
+      const current = await decide(createSafetyHooks, testCase);
+      const old = await decide(oldClassifier, testCase);
+      if (current.denied !== old.denied) changed.push(testCase.name);
+      else expect(current, testCase.name).toEqual(old);
+    }
+    expect(changed).toEqual(expectedChanges);
+    for (const name of expectedChanges) {
+      const testCase = corpus.find((entry) => entry.name === name)!;
+      expect((await decide(createSafetyHooks, testCase)).denied, name).toBe(
+        false,
+      );
+      expect((await decide(oldClassifier, testCase)).denied, name).toBe(true);
     }
   });
 

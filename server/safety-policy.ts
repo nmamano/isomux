@@ -114,11 +114,11 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
   // Note: [rR] because both -r and -R mean recursive in GNU coreutils
   // Specific root/home pattern MUST come before generic pattern
   [
-    /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+[/~]|rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+[/~]/,
+    /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+[/~]/,
     "rm -rf on root or home paths is EXTREMELY DANGEROUS. This command will NOT be executed. Ask the user to run it manually if truly needed.",
   ],
   [
-    /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f|rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR]/,
+    /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*/,
     "rm -rf is destructive and requires human approval. Explain what you want to delete and why, then ask the user to run the command manually.",
   ],
   // Catch rm with separate -r and -f flags (e.g., rm -r -f, rm -f -r)
@@ -151,18 +151,12 @@ const SAFE_PATTERNS: RegExp[] = [
   /git\s+clean\s+-[a-z]*n[a-z]*/, // Dry run (-n, -fn, -nf, etc.)
   /git\s+clean\s+--dry-run/, // Dry run (long form)
   // Allow rm -rf on temp directories (-rf/-Rf and -fr/-fR flag orderings)
-  /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+\/tmp\//,
-  /rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+\/tmp\//,
-  /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+\/var\/tmp\//,
-  /rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+\/var\/tmp\//,
-  /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+\$TMPDIR\//,
-  /rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+\$TMPDIR\//,
-  /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+\$\{TMPDIR/,
-  /rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+\$\{TMPDIR/,
-  /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+"\$TMPDIR\//,
-  /rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+"\$TMPDIR\//,
-  /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+"\$\{TMPDIR/,
-  /rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+"\$\{TMPDIR/,
+  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\/tmp\//,
+  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\/var\/tmp\//,
+  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\$TMPDIR\//,
+  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+\$\{TMPDIR/,
+  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+"\$TMPDIR\//,
+  /rm\s+-(?=[a-zA-Z]*[rR])(?=[a-zA-Z]*f)[a-zA-Z]*\s+"\$\{TMPDIR/,
   // Separate flags on temp directories
   /rm\s+(-[a-zA-Z]+\s+)*-[rR]\s+(-[a-zA-Z]+\s+)*-f\s+\/tmp\//,
   /rm\s+(-[a-zA-Z]+\s+)*-f\s+(-[a-zA-Z]+\s+)*-[rR]\s+\/tmp\//,
@@ -399,7 +393,9 @@ function stripQuotedStrings(cmd: string): string {
 // Reading from ~/.isomux/ via these is fine; only writing to it should be blocked.
 const COPY_COMMANDS = ["cp", "rsync", "scp", "install"];
 
-// Commands that can modify files - if these target ~/.isomux/, block them
+// Commands whose positional operands are write targets. Interpreters and text
+// processors need command-specific handling in writeTargets: their operands are
+// usually programs or input files, not destinations.
 const WRITE_COMMANDS = [
   "cp",
   "mv",
@@ -415,14 +411,6 @@ const WRITE_COMMANDS = [
   "rsync",
   "scp",
   "ln",
-  "sed",
-  "awk",
-  "perl",
-  "python",
-  "python3",
-  "ruby",
-  "node",
-  "bun",
 ];
 
 // ---------------------------------------------------------------------------
@@ -1845,8 +1833,57 @@ function writeTargets(command: EffectiveCommand): ShellWord[] {
     const operands = args.filter((word) => !word.text.startsWith("-"));
     return [...redirects, ...(operands.length ? [operands.at(-1)!] : [])];
   }
+  if (command.name === "sed") {
+    const inPlace = args.some(
+      (word) =>
+        !word.quoted &&
+        (/^-[^-]*i/.test(word.text) ||
+          word.text === "--in-place" ||
+          word.text.startsWith("--in-place=")),
+    );
+    return inPlace
+      ? [
+          ...redirects,
+          ...readerPathOperands(args, SED_GRAMMAR).map((text) => ({
+            text,
+            quoted: false,
+          })),
+        ]
+      : redirects;
+  }
+  if (command.name === "perl") {
+    const inPlace = args.some(
+      (word) => !word.quoted && /^-[^-]*i/.test(word.text),
+    );
+    return inPlace ? [...redirects, ...perlFileOperands(args)] : redirects;
+  }
   if (!WRITE_COMMANDS.includes(command.name)) return redirects;
   return [...redirects, ...args.filter((word) => !word.text.startsWith("-"))];
+}
+
+/** Input files of an in-place Perl one-liner, excluding its program text. */
+function perlFileOperands(args: ShellWord[]): ShellWord[] {
+  const operands: ShellWord[] = [];
+  let programFromFlag = false;
+  let endOfOptions = false;
+  for (let i = 0; i < args.length; i++) {
+    const word = args[i];
+    if (!endOfOptions && !word.quoted && word.text === "--") {
+      endOfOptions = true;
+      continue;
+    }
+    if (!endOfOptions && !word.quoted && /^-[^-]/.test(word.text)) {
+      const programIndex = word.text.search(/[eE]/);
+      if (programIndex !== -1) {
+        programFromFlag = true;
+        if (programIndex === word.text.length - 1) i++;
+      }
+      continue;
+    }
+    operands.push(word);
+  }
+  if (!programFromFlag) operands.shift();
+  return operands;
 }
 
 function dynamicDirectoryTarget(target: ShellWord | undefined): boolean {

@@ -174,6 +174,66 @@ describe("protected-path resolution", () => {
   });
 });
 
+describe("shell write-target classification", () => {
+  it("allows the three compound commands that produced bogus write targets", async () => {
+    const commands = [
+      `cd /tmp/rev1-copy && python3 - <<'EOF'\nprint("rendered (copy)")\nEOF\nsed -n 82,86p /tmp/rev1-copy/shared/identity.ts`,
+      `cd /tmp/rev1-copy && cat > /tmp/rev1-render.ts <<'EOF'\nconsole.log("rendered (copy)")\nEOF\nbun run /tmp/rev1-render.ts`,
+      `cd /tmp/rev1-copy && jq -n --arg t '<prose containing parens (x) and git diff HEAD > /tmp/frozen-x.diff>' '{text:$t}' | curl localhost:4000 -d @- | sed -E 's/[A-Za-z0-9_-]{30,}/REDACTED/g'`,
+    ];
+    for (const command of commands) {
+      expect((await bash(command)).denied, command).toBe(false);
+    }
+  });
+
+  it("allows read-only text processors on the protected state tree", async () => {
+    for (const command of [
+      `sed -n '44p' ${PROTECTED_FILE} | jq .`,
+      `awk '{print}' ${PROTECTED_FILE}`,
+      `perl -ne 'print' ${PROTECTED_FILE}`,
+    ]) {
+      expect((await bash(command)).denied, command).toBe(false);
+    }
+  });
+
+  it("still denies real writes to the protected state tree", async () => {
+    const commands = [
+      `echo x > ${PROTECTED_FILE}`,
+      `cd /tmp && echo x > ${PROTECTED_FILE}`,
+      `cd /tmp && echo ok; echo x > ${PROTECTED_FILE}`,
+      `sed -i 's/a/b/' ${PROTECTED_FILE}`,
+      `sed -i.bak 's/a/b/' ${PROTECTED_FILE}`,
+      `sed -ni.bak 's/a/b/' ${PROTECTED_FILE}`,
+      `sed --in-place 's/a/b/' ${PROTECTED_FILE}`,
+      `perl -pi -e 's/a/b/' ${PROTECTED_FILE}`,
+      `echo x | tee ${PROTECTED_FILE}`,
+      `cd /tmp && cp /tmp/source ${PROTECTED_FILE}`,
+    ];
+    for (const command of commands) {
+      expect((await bash(command)).denied, command).toBe(true);
+    }
+  });
+
+  it("pins the surviving raw-parenthesis cwd co-trigger", async () => {
+    expect((await bash("cd /tmp/c && echo 'a(b)' > out.txt")).denied).toBe(
+      true,
+    );
+    expect((await bash("cd /tmp/c && echo ab > out.txt")).denied).toBe(false);
+  });
+});
+
+describe("rm flag classification cost", () => {
+  it("classifies a 404-byte pathological cluster within 20 ms", async () => {
+    const command = `rm -${"rf".repeat(200)}`;
+    expect(command.length).toBe(404);
+    const started = performance.now();
+    const result = await bash(command);
+    const elapsedMs = performance.now() - started;
+    expect(result.denied).toBe(true);
+    expect(elapsedMs).toBeLessThan(20);
+  });
+});
+
 describe("outbound-tunnel guard", () => {
   const denied = [
     [
