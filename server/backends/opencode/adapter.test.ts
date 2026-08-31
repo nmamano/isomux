@@ -287,7 +287,9 @@ describe("OpenCode pinned transport", () => {
     });
     await session.send("measure");
     const events = session.stream()[Symbol.asyncIterator]();
-    while ((await events.next()).value?.kind !== "turn_completed") {}
+    while ((await events.next()).value?.kind !== "turn_completed") {
+      /* drain to turn completion */
+    }
     expect(await session.getContextUsage()).toEqual({
       model: "gate/free",
       totalTokens: 29_920,
@@ -339,7 +341,9 @@ describe("OpenCode pinned transport", () => {
     });
     await session.send("measure");
     const events = session.stream()[Symbol.asyncIterator]();
-    while ((await events.next()).value?.kind !== "turn_completed") {}
+    while ((await events.next()).value?.kind !== "turn_completed") {
+      /* drain to turn completion */
+    }
     expect(await session.getContextUsage()).toBeNull();
     session.close();
   });
@@ -375,7 +379,9 @@ describe("OpenCode pinned transport", () => {
     });
     await session.send("resume and measure");
     const events = session.stream()[Symbol.asyncIterator]();
-    while ((await events.next()).value?.kind !== "turn_completed") {}
+    while ((await events.next()).value?.kind !== "turn_completed") {
+      /* drain to turn completion */
+    }
     expect(await session.getContextUsage()).toMatchObject({
       model: "gate/free",
       totalTokens: 50_000,
