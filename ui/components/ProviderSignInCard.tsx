@@ -84,6 +84,10 @@ function ProviderScopeConnection({
   const [codeCopied, setCodeCopied] = useState(false);
   const [authUrl, setAuthUrl] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState(false);
+  // Local mirror of "a sign-in is in flight". The wire's waiting_external
+  // can lag or never reach this card (seen live in the chat card), and the
+  // paste-code input must not depend on it.
+  const [localWaiting, setLocalWaiting] = useState(false);
   const [claudeCode, setClaudeCode] = useState("");
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   // The one-time code renders from local state the moment the login POST
@@ -97,6 +101,7 @@ function ProviderScopeConnection({
       setCodeCopied(false);
       setAuthUrl(null);
       setLinkCopied(false);
+      setLocalWaiting(false);
     }
   }, [connected]);
   const title = provider === "codex" ? "Codex" : "Claude";
@@ -139,6 +144,7 @@ function ProviderScopeConnection({
       } else popup?.close();
       setDeviceCode(result.userCode ?? null);
       setAuthUrl(result.authUrl ?? null);
+      setLocalWaiting(true);
       await refresh();
     } catch (caught) {
       popup?.close();
@@ -161,6 +167,7 @@ function ProviderScopeConnection({
         code: claudeCode,
       });
       setClaudeCode("");
+      setLocalWaiting(false);
       await refresh();
     } catch (caught) {
       setError(
@@ -182,6 +189,7 @@ function ProviderScopeConnection({
       });
       setDeviceCode(null);
       setAuthUrl(null);
+      setLocalWaiting(false);
       await refresh();
     } catch (caught) {
       setError(
@@ -261,7 +269,8 @@ function ProviderScopeConnection({
         </p>
       )}
 
-      {account?.loginStatus === "waiting_external" ? (
+      {(account?.loginStatus === "waiting_external" ||
+        (localWaiting && !connected)) ? (
         <div style={{ margin: "12px 0" }}>
           {provider === "claude" && (
             <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
