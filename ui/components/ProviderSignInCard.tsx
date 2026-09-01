@@ -379,40 +379,58 @@ function ProviderScopeConnection({
         </div>
       )}
       {account?.accountStatus === "connected" && (
-        <div style={{ marginTop: 12 }}>
-          {externalWarning && (
-            <p style={{ ...hint, color: "var(--red)", margin: "0 0 8px" }}>
-              {externalWarning}
-            </p>
-          )}
+        <div
+          style={{
+            marginTop: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+            flexWrap: "wrap",
+          }}
+        >
           {!confirmingSignOut ? (
             <button
-              style={{ ...dialogCancelBtn, color: "var(--red)" }}
+              style={{ ...dialogCancelBtn, color: "var(--red)", flexShrink: 0 }}
               onClick={() => setConfirmingSignOut(true)}
               disabled={pending}
             >
               Sign out
             </button>
           ) : (
-            <div role="dialog" aria-label={`Sign out ${title}`}>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  autoFocus
-                  style={dialogCancelBtn}
-                  onClick={() => setConfirmingSignOut(false)}
-                  disabled={pending}
-                >
-                  Cancel
-                </button>
-                <button
-                  style={{ ...dialogCancelBtn, color: "var(--red)" }}
-                  onClick={() => void disconnect()}
-                  disabled={pending}
-                >
-                  {signOutButtonLabel(pending)}
-                </button>
-              </div>
+            <div
+              role="dialog"
+              aria-label={`Sign out ${title}`}
+              style={{ display: "flex", gap: 8, flexShrink: 0 }}
+            >
+              <button
+                autoFocus
+                style={dialogCancelBtn}
+                onClick={() => setConfirmingSignOut(false)}
+                disabled={pending}
+              >
+                Cancel
+              </button>
+              <button
+                style={{ ...dialogCancelBtn, color: "var(--red)" }}
+                onClick={() => void disconnect()}
+                disabled={pending}
+              >
+                {signOutButtonLabel(pending)}
+              </button>
             </div>
+          )}
+          {externalWarning && (
+            <p
+              style={{
+                ...hint,
+                color: "var(--red)",
+                margin: 0,
+                flex: 1,
+                minWidth: 180,
+              }}
+            >
+              {externalWarning}
+            </p>
           )}
         </div>
       )}
