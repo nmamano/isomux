@@ -157,7 +157,8 @@ function sanitizedChildEnvironment(): NodeJS.ProcessEnv {
   return Object.fromEntries(
     Object.entries(process.env).filter(
       ([name]) =>
-        !name.startsWith("OPENCODE_") && name !== "ISOMUX_OPENCODE_DEBUG",
+        (name === "OPENCODE_API_KEY" || !name.startsWith("OPENCODE_")) &&
+        name !== "ISOMUX_OPENCODE_DEBUG",
     ),
   );
 }

@@ -3,6 +3,7 @@ import {
   chmod,
   mkdtemp,
   mkdir,
+  readdir,
   readFile,
   rm,
   utimes,
@@ -286,6 +287,67 @@ describe("OpenCode shared server supervisor", () => {
     leaseB.release();
     await second.shutdown();
     expect(alive(leaseA.pid)).toBe(false);
+  }, 20_000);
+
+  it("passes only the Zen API key through the OpenCode control prefix", async () => {
+    const path = await root();
+    const { binary } = await makeHealthOnlyBinary(path);
+    const apiKeyCanary = "synthetic-opencode-api-key-canary";
+    const debugRoot = join(path, "tmp");
+    await mkdir(debugRoot);
+    const supervisor = makeSupervisor(
+      path,
+      undefined,
+      1000,
+      {
+        OPENCODE_API_KEY: apiKeyCanary,
+        OPENCODE_UNRELATED: "must-not-reach-child",
+        OPENCODE_CONFIG: "hostile-parent-config",
+        OPENCODE_SERVER_PASSWORD: "hostile-parent-password",
+        TMPDIR: debugRoot,
+      },
+      5000,
+      binary,
+    );
+    const priorDebug = process.env.ISOMUX_OPENCODE_DEBUG;
+    process.env.ISOMUX_OPENCODE_DEBUG = "1";
+    const lease = await supervisor.acquire().finally(() => {
+      if (priorDebug === undefined) delete process.env.ISOMUX_OPENCODE_DEBUG;
+      else process.env.ISOMUX_OPENCODE_DEBUG = priorDebug;
+    });
+    const childEnv = Object.fromEntries(
+      (await readFile(`/proc/${lease.pid}/environ`))
+        .toString()
+        .split("\0")
+        .filter(Boolean)
+        .map((entry) => {
+          const separator = entry.indexOf("=");
+          return [entry.slice(0, separator), entry.slice(separator + 1)];
+        }),
+    );
+    const recordText = await readFile(supervisor.recordPath, "utf8");
+    const record = JSON.parse(recordText);
+    expect(childEnv.OPENCODE_API_KEY).toBe(apiKeyCanary);
+    expect(childEnv.OPENCODE_UNRELATED).toBeUndefined();
+    expect(childEnv.OPENCODE_CONFIG).toBe(
+      join(supervisor.profileDir, "opencode.json"),
+    );
+    expect(childEnv.OPENCODE_SERVER_PASSWORD).toBe(record.password);
+    expect(recordText).not.toContain(apiKeyCanary);
+    const debugAfter = (await readdir(debugRoot)).filter((name) =>
+      name.startsWith("isomux-opencode-debug-"),
+    );
+    expect(debugAfter.length).toBeGreaterThan(0);
+    for (const name of debugAfter) {
+      const debugDir = join(debugRoot, name);
+      expect(
+        await readFile(join(debugDir, "stdout.log"), "utf8"),
+      ).not.toContain(apiKeyCanary);
+      expect(
+        await readFile(join(debugDir, "stderr.log"), "utf8"),
+      ).not.toContain(apiKeyCanary);
+    }
+    lease.release();
   }, 20_000);
 
   it("replaces an adoptee that exits after its health response", async () => {
