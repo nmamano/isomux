@@ -82,6 +82,8 @@ function ProviderScopeConnection({
   const [error, setError] = useState<string | null>(null);
   const [deviceCode, setDeviceCode] = useState<string | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
+  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [claudeCode, setClaudeCode] = useState("");
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
   // The one-time code renders from local state the moment the login POST
@@ -93,6 +95,8 @@ function ProviderScopeConnection({
     if (connected) {
       setDeviceCode(null);
       setCodeCopied(false);
+      setAuthUrl(null);
+      setLinkCopied(false);
     }
   }, [connected]);
   const title = provider === "codex" ? "Codex" : "Claude";
@@ -119,6 +123,8 @@ function ProviderScopeConnection({
     setError(null);
     setDeviceCode(null);
     setCodeCopied(false);
+    setAuthUrl(null);
+    setLinkCopied(false);
     try {
       const result = await apiFetch<ProviderLoginStartRes>(
         "POST",
@@ -132,6 +138,7 @@ function ProviderScopeConnection({
         } else window.open(result.authUrl, "_blank", "noopener,noreferrer");
       } else popup?.close();
       setDeviceCode(result.userCode ?? null);
+      setAuthUrl(result.authUrl ?? null);
       await refresh();
     } catch (caught) {
       popup?.close();
@@ -173,6 +180,8 @@ function ProviderScopeConnection({
       await apiFetch("POST", `/api/me/provider-accounts/${provider}/cancel`, {
         scope,
       });
+      setDeviceCode(null);
+      setAuthUrl(null);
       await refresh();
     } catch (caught) {
       setError(
@@ -309,6 +318,22 @@ function ProviderScopeConnection({
             </p>
           </div>
         )
+      )}
+      {authUrl && !connected && (
+        <p style={{ ...hint, margin: "12px 0 0" }}>
+          Signing in from another browser or profile (e.g. incognito for a
+          different account)?{" "}
+          <button
+            style={{ ...dialogCancelBtn, padding: "3px 10px" }}
+            onClick={() =>
+              void navigator.clipboard
+                .writeText(authUrl)
+                .then(() => setLinkCopied(true))
+            }
+          >
+            {linkCopied ? "Link copied" : "Copy sign-in link"}
+          </button>
+        </p>
       )}
       {deviceCode && !connected && (
         <div style={{ margin: "12px 0" }}>
