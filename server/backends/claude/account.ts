@@ -123,7 +123,15 @@ export class ClaudeAccountClient {
     }
     if (!code || !state)
       throw new Error("Claude returned an invalid sign-in code.");
-    await this.required().claudeOAuthCallback(code, state);
+    try {
+      await this.required().claudeOAuthCallback(code, state);
+    } catch {
+      // The SDK surfaces the provider's raw HTTP error (e.g. "Request
+      // failed with status code 400") - useless to the person pasting.
+      throw new Error(
+        "Claude rejected this sign-in code - it may have expired or already been used. Click Sign in again and paste the fresh code.",
+      );
+    }
   }
 
   waitForCompletion(): Promise<unknown> {
