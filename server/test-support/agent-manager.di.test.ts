@@ -236,12 +236,18 @@ describe("AgentManager DI (temp-state isolated)", () => {
   });
 
   it("spawns with an activated personal home when no env files exist", async () => {
-    const fake = new FakeBackend();
+    // onSend completes the wake turn so it doesn't park; configurePluginHooksDeps
+    // lets runAgentTurn run at all (it throws unconfigured) - together they make
+    // the first-message wake clean instead of logging a turn error.
+    const fake = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+    });
     const mgr = createAgentManager({
       resolveBackend: () => fake,
       officeState: new OfficeState({ rooms: rooms("room-personal-home") }),
       initialRooms: [],
     });
+    mgr.configurePluginHooksDeps();
     try {
       setPersonalProviderActiveProvider(
         (userId, provider) => userId === "01a19e7b" && provider === "claude",
