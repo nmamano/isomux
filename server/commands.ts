@@ -117,10 +117,13 @@ export const commands: Record<string, CommandConfig> = {
     autoRun: true,
   },
   logout: {
-    ...UNSUPPORTED_HARDCODED,
-    description: "Log out of your Anthropic account",
-    message:
-      "To log out:\n1. Open the built-in terminal\n2. Run `claude logout`",
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "logout",
+    description: "Manage sign-in or sign out",
+    autoRun: true,
   },
   "isomux-all-hands": {
     type: "hardcoded",

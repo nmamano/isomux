@@ -182,6 +182,10 @@ interface HandlerDeps {
   // dispatch in agent-manager so the /login handler can render the same
   // explanatory text + [Copy to terminal] cards an auth-error path would.
   emitLoginInstructionsFor: (agentId: string, managed: ManagedAgent) => void;
+  emitLogoutAffordanceFor: (
+    agentId: string,
+    managed: ManagedAgent,
+  ) => Promise<void>;
 
   // Session ops
   createSession: (
@@ -1015,6 +1019,14 @@ export function createCommandHandling(deps: HandlerDeps) {
       // text when already authed; Claude emits its
       // /login walkthrough with a `claude` terminal card.
       deps.emitLoginInstructionsFor(agentId, managed);
+      deps.updateState(agentId, "waiting_for_response");
+      return true;
+    },
+
+    async logout(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
+      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      await deps.emitLogoutAffordanceFor(agentId, managed);
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },

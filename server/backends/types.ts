@@ -447,6 +447,15 @@ export interface ListModelsOptions {
 // own the storage rules needed to classify it.
 export type StoredSessionState = "missing" | "empty" | "durable";
 
+export type LoginInstructionKind = "already_authed" | "login" | "not_installed";
+
+export interface LoginInstructions {
+  kind: LoginInstructionKind;
+  cardEligible: boolean;
+  text: string;
+  commands?: string[];
+}
+
 // Per-model effort option as reported by the backend. Codex's
 // ReasoningEffortOption maps directly; backends that don't expose
 // per-model efforts can return an empty array.
@@ -553,5 +562,5 @@ export interface Backend {
     env?: { [key: string]: string | undefined };
     environmentKey?: string;
     modelFamily?: string;
-  }): { text: string; commands?: string[] };
+  }): LoginInstructions;
 }

@@ -233,9 +233,9 @@ export interface ManagedAgent {
   // suppress across a conversation.
   wakeNotice: string | null;
   // Recovery copy held until the first event proves whether this wake failed
-  // only because Codex needs sign-in. That auth path already has one notice.
+  // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;
-  codexAuthNoticeEmittedThisWake: boolean;
+  authNoticeEmittedThisWake: boolean;
   // --- Subscription-allowance usage (the pill next to the context battery).
   // Latest committed reading for the ACCOUNT this agent's backend is signed in
   // to, or null when there is none (Claude API-key/Bedrock/Vertex sessions,

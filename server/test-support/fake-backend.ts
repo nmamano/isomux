@@ -29,6 +29,7 @@ import type {
   PermissionModeOption,
   BackendModel,
   ListModelsOptions,
+  LoginInstructions,
   OneShotOptions,
   ForkSessionBeforeMessageResult,
   SubscriptionUsageResult,
@@ -99,6 +100,7 @@ export class FakeSession implements BackendSession {
   private buffer: NormalizedEvent[] = [];
   private resolveWake: (() => void) | null = null;
   private ended = false;
+  private streamError: unknown = null;
   private readonly abortInPlace: boolean;
   private readonly contextUsage: FakeSessionConfig["contextUsage"];
   private readonly subscriptionUsage: FakeSessionConfig["subscriptionUsage"];
@@ -175,6 +177,13 @@ export class FakeSession implements BackendSession {
     this.wake();
   }
 
+  failStream(err: unknown): void {
+    if (this.ended) return;
+    this.streamError = err;
+    this.ended = true;
+    this.wake();
+  }
+
   // Settle all parked manualSend sends successfully (in call order).
   releaseSends(): void {
     const waiters = this.sendWaiters;
@@ -204,7 +213,10 @@ export class FakeSession implements BackendSession {
       while (this.buffer.length > 0) {
         yield this.buffer.shift()!;
       }
-      if (this.ended) return;
+      if (this.ended) {
+        if (this.streamError) throw this.streamError;
+        return;
+      }
       await new Promise<void>((resolve) => {
         this.resolveWake = resolve;
       });
@@ -273,7 +285,10 @@ export interface FakeBackendConfig {
   models?: BackendModel[];
   // detectAuthError predicate (default: never an auth error).
   isAuthError?: (text: string) => boolean;
-  loginInstructions?: { text: string; commands?: string[] };
+  loginInstructions?: Omit<LoginInstructions, "kind" | "cardEligible"> & {
+    kind?: LoginInstructions["kind"];
+    cardEligible?: boolean;
+  };
   // oneShotPrompt response (default deterministic). Function form receives the
   // prompt + opts so topic-gen-style assertions can vary the reply.
   oneShot?:
@@ -435,7 +450,20 @@ export class FakeBackend implements Backend {
 
   getLoginInstructions(_opts?: {
     env?: { [key: string]: string | undefined };
-  }): { text: string; commands?: string[] } {
-    return this.cfg.loginInstructions ?? { text: "fake login instructions" };
+  }): LoginInstructions {
+    const configured = this.cfg.loginInstructions;
+    if (!configured)
+      return {
+        kind: "already_authed",
+        cardEligible: true,
+        text: "fake login instructions",
+      };
+    return {
+      ...configured,
+      kind:
+        configured.kind ??
+        (configured.commands?.length ? "login" : "already_authed"),
+      cardEligible: configured.cardEligible ?? true,
+    };
   }
 }

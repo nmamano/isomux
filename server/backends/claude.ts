@@ -102,6 +102,7 @@ import type {
   ModelOption,
   ForkSessionBeforeMessageResult,
   NormalizedEvent,
+  LoginInstructions,
   NormalizedMessage,
   OneShotOptions,
   PermissionModeOption,
@@ -121,7 +122,9 @@ const LOGIN_INSTRUCTIONS = `To authenticate Claude Code:
 3. Type \`/login\`
 4. Follow the auth flow
 
-Once complete, it takes effect immediately for all Isomux agents.`;
+Once complete, it takes effect immediately for all Isomux agents.
+
+Alternative: add \`ANTHROPIC_API_KEY\` to your envFile (User Settings → Env File Path, then \`/clear\`).`;
 
 // Surfaced when an auth-error fires (or the user types /login) but the
 // office already has a valid Claude auth (credentials.json present, or
@@ -1485,14 +1488,18 @@ export function createClaudeBackend(
 
     getLoginInstructions(opts?: {
       env?: { [key: string]: string | undefined };
-    }): { text: string; commands?: string[] } {
+    }): LoginInstructions {
       // Short-circuit: if the office is already signed in (credentials.json
       // present, or ANTHROPIC_API_KEY in env), the user just needs to /clear
       // a dead session - no walkthrough needed. Symmetric with Codex's
       // ALREADY_AUTHED hint. The check honors the agent's merged env so
       // envFile-set ANTHROPIC_API_KEY counts as authed.
       if (isClaudeCodeAuthenticated(opts?.env)) {
-        return { text: ALREADY_AUTHED_INSTRUCTIONS };
+        return {
+          kind: "already_authed",
+          cardEligible: false,
+          text: ALREADY_AUTHED_INSTRUCTIONS,
+        };
       }
       // If the user can't actually run `claude` and `/login` (binary missing
       // from PATH), surface the install command first instead of the terminal
@@ -1500,8 +1507,15 @@ export function createClaudeBackend(
       // rides along so the catch site can emit a [Copy to terminal] next to
       // the text.
       return isClaudeCodeInstalled()
-        ? { text: LOGIN_INSTRUCTIONS, commands: [LOGIN_COMMAND] }
+        ? {
+            kind: "login",
+            cardEligible: true,
+            text: LOGIN_INSTRUCTIONS,
+            commands: [LOGIN_COMMAND],
+          }
         : {
+            kind: "not_installed",
+            cardEligible: false,
             text: CLAUDE_CODE_NOT_INSTALLED_MESSAGE,
             commands: [INSTALL_COMMAND],
           };

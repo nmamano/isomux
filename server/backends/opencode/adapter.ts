@@ -22,6 +22,7 @@ import type {
   SessionEnvironmentOptions,
   StoredSessionState,
   SubscriptionUsageResult,
+  LoginInstructions,
 } from "../types.ts";
 import {
   OPENCODE_DEFAULT_MODEL,
@@ -54,10 +55,7 @@ const AUTH_FAILURE = "OpenCode authentication is not configured.";
 function loginInstructions(
   environmentKey: string | undefined,
   modelFamily: string | undefined,
-): {
-  text: string;
-  commands: string[];
-} {
+): LoginInstructions {
   if (!environmentKey) {
     throw new Error("OpenCode session environment identity is required.");
   }
@@ -67,6 +65,8 @@ function loginInstructions(
   const [provider] = splitModel(modelFamily);
   const wrapper = ensureOpenCodeLoginWrapper(environmentKey, provider);
   return {
+    kind: "login",
+    cardEligible: false,
     text:
       `OpenCode needs a ${provider} API key. Review and run ${wrapper}, ` +
       "paste your key at the masked prompt, and then use /clear.",
@@ -431,7 +431,7 @@ export function createOpenCodeTracerBackend(
       );
     },
 
-    getLoginInstructions(opts): { text: string; commands: string[] } {
+    getLoginInstructions(opts): LoginInstructions {
       return loginInstructions(opts?.environmentKey, opts?.modelFamily);
     },
   };
@@ -703,7 +703,7 @@ export function createOpenCodeBackend(
         text.includes(AUTH_FAILURE) || text.includes(OPENCODE_LOGIN_IN_PROGRESS)
       );
     },
-    getLoginInstructions(opts): { text: string; commands: string[] } {
+    getLoginInstructions(opts): LoginInstructions {
       return loginInstructions(opts?.environmentKey, opts?.modelFamily);
     },
   };

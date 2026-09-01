@@ -48,6 +48,20 @@ type Target = {
   externalCli: boolean;
   explicitDirectory: boolean;
 };
+
+export type EffectiveProviderAccountTarget = Pick<
+  Target,
+  "provider" | "scope" | "dir"
+>;
+
+export function effectiveProviderDirectory(
+  provider: ProviderAccountProvider,
+  env: Record<string, string | undefined>,
+): string {
+  return provider === "claude"
+    ? resolve(env.CLAUDE_CONFIG_DIR?.trim() || resolve(homedir(), ".claude"))
+    : resolve(withIsomuxCodexHome(env).CODEX_HOME ?? ISOMUX_CODEX_HOME);
+}
 type Active = {
   userId: string;
   target: Target;
@@ -110,6 +124,29 @@ export class ProviderAccountManager {
 
   private userOnlyEnv(userId: string): Record<string, string> {
     return this.userEnv(userId);
+  }
+
+  effectiveTarget(
+    userId: string,
+    provider: ProviderAccountProvider,
+  ): EffectiveProviderAccountTarget {
+    const office = this.target(userId, provider, "office");
+    const env = this.envForUser(userId) ?? process.env;
+    const effectiveDir = effectiveProviderDirectory(provider, env);
+    if (effectiveDir === resolve(office.dir)) {
+      return { provider, scope: "office", dir: effectiveDir };
+    }
+    const personal = this.target(userId, provider, "personal");
+    if (effectiveDir !== resolve(personal.dir)) {
+      throw new Error(
+        `Cannot map the active ${provider} directory to a scope.`,
+      );
+    }
+    return {
+      provider,
+      scope: "personal",
+      dir: effectiveDir,
+    };
   }
 
   private normalizePersonal(

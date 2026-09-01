@@ -56,6 +56,7 @@ import type {
   CreateSessionOptions,
   ForkSessionBeforeMessageResult,
   ListModelsOptions,
+  LoginInstructions,
   ModelOption,
   NormalizedEvent,
   NormalizedMessage,
@@ -2919,10 +2920,19 @@ export const codexBackend: Backend = {
 
   getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
-  }): { text: string; commands?: string[] } {
+  }): LoginInstructions {
     if (isCodexAuthenticated(opts?.env)) {
-      return { text: ALREADY_AUTHED_INSTRUCTIONS };
+      return {
+        kind: "already_authed",
+        cardEligible: false,
+        text: ALREADY_AUTHED_INSTRUCTIONS,
+      };
     }
-    return { text: LOGIN_INSTRUCTIONS, commands: getCodexLoginCommands() };
+    return {
+      kind: "login",
+      cardEligible: true,
+      text: LOGIN_INSTRUCTIONS,
+      commands: getCodexLoginCommands(),
+    };
   },
 };

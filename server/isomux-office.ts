@@ -386,6 +386,8 @@ function createManagers(startOpts: StartServerOpts): void {
     createProductionAgentManager({
       resolveBackend: startOpts.resolveBackend,
       listProviderAccounts: (userId) => providerAccountManager.list(userId),
+      effectiveProviderAccountTarget: (userId, provider) =>
+        providerAccountManager.effectiveTarget(userId, provider),
     });
   cronjobManager =
     startOpts.cronjobManager ??
