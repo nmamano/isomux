@@ -100,7 +100,7 @@ export class FakeSession implements BackendSession {
   private buffer: NormalizedEvent[] = [];
   private resolveWake: (() => void) | null = null;
   private ended = false;
-  private streamError: unknown = null;
+  private streamError: Error | null = null;
   private readonly abortInPlace: boolean;
   private readonly contextUsage: FakeSessionConfig["contextUsage"];
   private readonly subscriptionUsage: FakeSessionConfig["subscriptionUsage"];
@@ -177,7 +177,7 @@ export class FakeSession implements BackendSession {
     this.wake();
   }
 
-  failStream(err: unknown): void {
+  failStream(err: Error): void {
     if (this.ended) return;
     this.streamError = err;
     this.ended = true;
