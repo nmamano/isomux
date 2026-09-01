@@ -90,8 +90,10 @@ describe("provider auth affordances", () => {
           opts.effective ? { CLAUDE_CONFIG_DIR: opts.effective } : undefined,
         undefined,
         () => (opts.office ? { CLAUDE_CONFIG_DIR: opts.office } : {}),
-        () => (opts.office ? { CLAUDE_CONFIG_DIR: opts.office } : {}),
-        () => (opts.explicit ? { CLAUDE_CONFIG_DIR: opts.explicit } : {}),
+        (): Record<string, string> =>
+          opts.office ? { CLAUDE_CONFIG_DIR: opts.office } : {},
+        (): Record<string, string> =>
+          opts.explicit ? { CLAUDE_CONFIG_DIR: opts.explicit } : {},
         () => [{ id: "user-a" }],
         () => "/accounts/auto-personal",
         () => "/accounts/auto-personal",
