@@ -130,7 +130,7 @@ export type ClaudeModel = string;
 // unrecognized id makes it fall back to a 200k default (task 89925a7c).
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   opus: "claude-opus-5",
-  fable: "claude-fable-5",
+  fable: "claude-fable-5-1",
   sonnet: "claude-sonnet-5",
   haiku: "claude-haiku-4-5-20251001",
 };
@@ -199,7 +199,7 @@ export const CODEX_MODELS: { value: string; label: string }[] = [
 export const OPENCODE_TRACER_MODEL = "opencode/fake";
 
 // Extract a display version from the exact model id: "claude-opus-4-8" -> "4.8",
-// "claude-fable-5" -> "5". Matches one or two numeric components after the
+// "claude-fable-5-1" -> "5.1". Matches one or two numeric components after the
 // family prefix and stops before trailing date stamps
 // ("claude-haiku-4-5-20251001" -> "4.5").
 export function modelVersionLabel(family: ModelFamily): string {
@@ -270,7 +270,7 @@ export function familyFromLegacyModel(model: string | undefined): ModelFamily {
 }
 
 // Claude families that support the "max" effort level. Historically opus-only;
-// Fable 5 (the 2.1.170 flagship) also supports it, verified end-to-end through
+// Fable 5.1 also supports it, verified end-to-end through
 // the bundled binary. Single source so the UI effort filters, the backend's
 // listModels metadata, and server-side validateEffort stay aligned.
 export function claudeFamilySupportsMaxEffort(family: string): boolean {

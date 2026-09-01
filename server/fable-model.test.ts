@@ -13,8 +13,8 @@ import {
 import { validateEffort } from "./agent-validators.ts";
 
 describe("fable model family", () => {
-  it("maps to the claude-fable-5 model id", () => {
-    expect(FAMILY_TO_MODEL.fable).toBe("claude-fable-5");
+  it("maps to the claude-fable-5-1 model id", () => {
+    expect(FAMILY_TO_MODEL.fable).toBe("claude-fable-5-1");
   });
 
   it("is a selectable Claude family (opus is the MODEL_FAMILIES[0] default)", () => {
@@ -30,9 +30,9 @@ describe("fable model family", () => {
     expect(familyFromLegacyModel("claude-fable-5")).toBe("fable");
   });
 
-  it("renders a single-component version label", () => {
-    expect(modelVersionLabel("fable")).toBe("5");
-    expect(familyDisplayLabel("fable")).toBe("Fable 5");
+  it("renders the Fable version label", () => {
+    expect(modelVersionLabel("fable")).toBe("5.1");
+    expect(familyDisplayLabel("fable")).toBe("Fable 5.1");
     // opus joined the single-component family when it moved to claude-opus-5,
     // sonnet when it moved to claude-sonnet-5.
     expect(modelVersionLabel("opus")).toBe("5");
