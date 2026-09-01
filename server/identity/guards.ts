@@ -73,9 +73,9 @@ export interface GuardDeps {
   // exists / it has no owner. Unknown and unowned collapse into the same null,
   // so a caller cannot use a denial to probe which names are taken.
   appOwnerUserId(name: string): string | null;
-  // Whether userId names a live office owner. Agent identities carry their
-  // boss's userId, so app authorization can grant the boss's office-wide reach
-  // without making Identity.role authoritative outside USER scope.
+  // Whether userId names a live office owner. Agent and API identities carry
+  // their user's id, so app authorization can grant that user's office-wide
+  // reach without making Identity.role authoritative outside USER scope.
   isOfficeOwnerUserId(userId: string): boolean;
   // The MANAGER userId of `agentId` - the spawning user (AgentInfo.userId) - or
   // null if the agent is unknown / unowned. Gates agents.setPrivileged: a member
@@ -354,10 +354,11 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
 // question a caller might want answered, and registration is the only place it
 // gets an answer.
 //
-// An agent whose boss is an office owner deliberately gets the same office-wide
-// app control (task 3cd85856, Nil's 2026-08-31 ruling). This is a separate,
-// AGENT-only branch: officeOwner stays USER-only, and API/cron/app identities do
-// not inherit the grant through a matching userId.
+// An agent or API token whose user is an office owner deliberately gets the
+// same office-wide app control (task 3cd85856 and Nil's 2026-08-31 ruling).
+// This is a separate AGENT/API branch: officeOwner stays USER-only, and
+// cron/app identities do not inherit the grant through a matching userId.
+// Enumeration through apps.list uses a separate visibility seam.
 export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
   return (ctx) => {
     const { identity, params, deps } = ctx;
@@ -369,7 +370,7 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
     if (!participates) return FORBIDDEN;
     if (officeOwner(ctx).ok) return ALLOW;
     if (
-      identity.scope === "agent" &&
+      (identity.scope === "agent" || identity.scope === "api") &&
       identity.userId !== null &&
       deps.isOfficeOwnerUserId(identity.userId)
     ) {

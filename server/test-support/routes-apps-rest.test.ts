@@ -895,6 +895,41 @@ describe("routes/apps REST: who can see and delete an app", () => {
       body: { description: "must stay blocked" },
     });
     expect(memberAgentControl.status).toBe(403);
+
+    const ownerApiToken = await api(srv, "/api/me/api-tokens", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { name: "Owner remote", expiresInDays: 30 },
+    });
+    expect(ownerApiToken.status).toBe(201);
+    const ownerApiRaw = (ownerApiToken.body as { token: string }).token;
+    const ownerApiRead = await api(srv, "/api/apps/alice-app", {
+      bearer: ownerApiRaw,
+    });
+    expect(ownerApiRead.status).toBe(200);
+    const ownerApiForeignRow = ownerApiRead.body as AppWire;
+    expect(ownerApiForeignRow.command).toBe("bun run serve.ts");
+    expect(ownerApiForeignRow.cwd).toBe(srv.stateRoot);
+    const ownerApiControl = await api(srv, "/api/apps/alice-app", {
+      method: "PATCH",
+      bearer: ownerApiRaw,
+      body: { description: "managed by the owner's API token" },
+    });
+    expect(ownerApiControl.status).toBe(200);
+
+    const memberApiToken = await api(srv, "/api/me/api-tokens", {
+      method: "POST",
+      rawSessionId: alice.rawSessionId,
+      body: { name: "Member remote", expiresInDays: 30 },
+    });
+    expect(memberApiToken.status).toBe(201);
+    const memberApiRaw = (memberApiToken.body as { token: string }).token;
+    const memberApiControl = await api(srv, "/api/apps/boss-app", {
+      method: "PATCH",
+      bearer: memberApiRaw,
+      body: { description: "must stay blocked" },
+    });
+    expect(memberApiControl.status).toBe(403);
   });
 
   it("an unknown name denies exactly like somebody else's app (no existence oracle)", async () => {

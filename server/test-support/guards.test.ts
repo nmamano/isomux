@@ -633,7 +633,7 @@ describe("guard: appOwnerOrOfficeOwner", () => {
       ),
     ).toEqual(DENY);
   });
-  it("denies an office owner's API token on a foreign app", () => {
+  it("allows an office owner's API token to control a foreign app", () => {
     const ownerApi: Identity = { ...api, userId: "u-owner", role: "owner" };
     expect(
       guard(
@@ -644,6 +644,68 @@ describe("guard: appOwnerOrOfficeOwner", () => {
           makeDeps({
             appOwnerUserId: () => "someone-else",
             isOfficeOwnerUserId: (userId) => userId === "u-owner",
+          }),
+        ),
+      ),
+    ).toEqual(OK);
+  });
+  it("allows an office owner's API token through before an unknown-app lookup", () => {
+    const ownerApi: Identity = { ...api, userId: "u-owner", role: "owner" };
+    expect(
+      guard(
+        ctx(
+          ownerApi,
+          { name: "never-registered" },
+          undefined,
+          makeDeps({
+            appOwnerUserId: () => null,
+            isOfficeOwnerUserId: (userId) => userId === "u-owner",
+          }),
+        ),
+      ),
+    ).toEqual(OK);
+  });
+  it("allows a member's API token to control its own user's app", () => {
+    expect(
+      guard(
+        ctx(
+          api,
+          { name: "hello" },
+          undefined,
+          makeDeps({
+            appOwnerUserId: () => "u-mem",
+            isOfficeOwnerUserId: () => false,
+          }),
+        ),
+      ),
+    ).toEqual(OK);
+  });
+  it("denies a member's API token on a foreign app", () => {
+    expect(
+      guard(
+        ctx(
+          api,
+          { name: "hello" },
+          undefined,
+          makeDeps({
+            appOwnerUserId: () => "u-other",
+            isOfficeOwnerUserId: () => false,
+          }),
+        ),
+      ),
+    ).toEqual(DENY);
+  });
+  it("denies an API token with no user even when the owner predicate is permissive", () => {
+    const ownerlessApi: Identity = { ...api, userId: null };
+    expect(
+      guard(
+        ctx(
+          ownerlessApi,
+          { name: "hello" },
+          undefined,
+          makeDeps({
+            appOwnerUserId: () => "u-other",
+            isOfficeOwnerUserId: () => true,
           }),
         ),
       ),

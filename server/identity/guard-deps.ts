@@ -46,8 +46,8 @@ export interface GuardDepsLiveReaders {
   killedAgentManagerUserId(agentId: string): string | null;
   // Username → user record (or null). users.getUserByName.
   getUserByName(username: string): { id: string } | null;
-  // User id -> live role. The agent app-control guard asks about the agent's
-  // boss through this seam rather than trusting the agent identity's inert role.
+  // User id -> live role. The app-control guard asks about the agent or API
+  // token's user through this seam rather than trusting identity.role.
   getUserById(userId: string): { role: "owner" | "member" } | null;
   // The live cronjob list; id → creator userId. cronjobManager.listCronjobs.
   listCronjobs(): readonly { id: string; userId?: string | null }[];
