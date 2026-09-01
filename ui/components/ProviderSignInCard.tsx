@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../api.ts";
 import type {
   ProviderAccountProvider,
@@ -84,6 +84,17 @@ function ProviderScopeConnection({
   const [codeCopied, setCodeCopied] = useState(false);
   const [claudeCode, setClaudeCode] = useState("");
   const [confirmingSignOut, setConfirmingSignOut] = useState(false);
+  // The one-time code renders from local state the moment the login POST
+  // returns - gating it on the pushed account status hid it whenever that
+  // update lagged. Once the account reports connected, retire the code so
+  // it cannot linger after a later sign-out.
+  const connected = account?.accountStatus === "connected";
+  useEffect(() => {
+    if (connected) {
+      setDeviceCode(null);
+      setCodeCopied(false);
+    }
+  }, [connected]);
   const title = provider === "codex" ? "Codex" : "Claude";
   const scopeTitle =
     scope === "office"
@@ -289,7 +300,7 @@ function ProviderScopeConnection({
               }
               disabled={pending}
             >
-              Sign in
+              {pending ? "Signing in…" : "Sign in"}
             </button>
             <p style={{ ...hint, margin: 0, flex: 1, minWidth: 180 }}>
               {provider === "codex"
@@ -299,7 +310,7 @@ function ProviderScopeConnection({
           </div>
         )
       )}
-      {deviceCode && account?.loginStatus === "waiting_external" && (
+      {deviceCode && !connected && (
         <div style={{ margin: "12px 0" }}>
           <p style={{ ...hint, margin: "0 0 6px" }}>
             Enter this one-time code on the OpenAI page:
