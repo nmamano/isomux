@@ -330,8 +330,7 @@ function ProviderScopeConnection({
       )}
       {authUrl && !connected && (
         <p style={{ ...hint, margin: "12px 0 0" }}>
-          Link didn&apos;t open? Signing in from another browser or profile
-          (e.g. incognito for a different account)?{" "}
+          Link didn&apos;t open?{" "}
           <button
             style={{ ...dialogCancelBtn, padding: "3px 10px" }}
             onClick={() =>
