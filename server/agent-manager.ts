@@ -596,6 +596,49 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitAgentTerminalCommand(agentId, command);
   }
 
+  // /login while already signed in opens the same card affordance /logout
+  // does, with its own notice. Falls back to the backend's already-authed
+  // text when the card cannot render, which keeps the /clear advice for
+  // terminal-only setups.
+  async function emitAlreadySignedInAffordance(
+    agentId: string,
+    managed: ManagedAgent,
+    fallback: LoginInstructions,
+  ): Promise<void> {
+    const provider = managed.info.agentType;
+    if (
+      (provider === "claude" || provider === "codex") &&
+      managed.info.userId &&
+      deps.listProviderAccounts &&
+      deps.effectiveProviderAccountTarget
+    ) {
+      const target = fallbackProviderTarget(managed);
+      if (target) {
+        try {
+          const accounts = await deps.listProviderAccounts(managed.info.userId);
+          const cardIsAvailable = accounts.some(
+            (account) =>
+              account.provider === provider &&
+              account.scope === target.scope &&
+              account.canBrowserLogin,
+          );
+          if (cardIsAvailable) {
+            addLogEntry(
+              agentId,
+              "system",
+              provider === "claude"
+                ? "You are already signed in. Manage your Claude sign-in below."
+                : "You are already signed in. Manage your Codex sign-in below.",
+              { providerLogin: provider },
+            );
+            return;
+          }
+        } catch {}
+      }
+    }
+    void emitLoginInstructions(agentId, fallback);
+  }
+
   function flushPendingFreshRecoveryNotice(
     agentId: string,
     managed: ManagedAgent | undefined,
@@ -5245,8 +5288,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     beginTurn,
     openChoiceInteraction,
     cancelChoiceInteraction,
-    emitLoginInstructionsFor: (agentId, managed) =>
-      void emitLoginInstructions(agentId, agentLoginInstructions(managed)),
+    emitLoginInstructionsFor: (agentId, managed) => {
+      const instructions = agentLoginInstructions(managed);
+      if (instructions.kind === "already_authed") {
+        void emitAlreadySignedInAffordance(agentId, managed, instructions);
+        return;
+      }
+      void emitLoginInstructions(agentId, instructions);
+    },
     emitLogoutAffordanceFor: emitLogoutAffordance,
     createSession,
     replaceSession,

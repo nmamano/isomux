@@ -269,8 +269,8 @@ function ProviderScopeConnection({
         </p>
       )}
 
-      {(account?.loginStatus === "waiting_external" ||
-        (localWaiting && !connected)) ? (
+      {account?.loginStatus === "waiting_external" ||
+      (localWaiting && !connected) ? (
         <div style={{ margin: "12px 0" }}>
           {provider === "claude" && (
             <label style={{ display: "block", fontSize: 12, marginBottom: 8 }}>
