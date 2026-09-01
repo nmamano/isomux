@@ -198,3 +198,52 @@ Enabling and configuring the Stripe customer portal is a pending Nil Dashboard
 action. Until that action is complete and the product exposes the portal path,
 the single-use Stripe payment-update link above is the manual card-change path.
 
+
+## An office answers on the box but not on the internet
+
+The symptom the customer reports is that their office URL stopped loading.
+Isomux itself is fine: the service is active, `/readyz` answers over loopback,
+and agents keep working. What is gone is Caddy, the front door that terminates
+TLS and proxies to the office.
+
+The known cause is v2026.9.1's access logging. Caddy is configured to write
+`/var/log/caddy/isomux-office-access.log` and `isomux-app-access.log`, and on
+that release the installer's root-level config check created those files owned
+by root before Caddy started under its own account. Caddy then could not open
+them and exited. v2026.9.1 was withdrawn from the release channel and the
+installer now creates and repairs both files for the Caddy account, so no box
+can newly enter this state - but a box that updated inside the window stays
+down, because the migration returns early when Caddy is inactive and never
+reaches the repair.
+
+Confirm it is this, over SSH as root:
+
+```
+systemctl is-active caddy
+journalctl -u caddy -n 20 --no-pager
+ls -l /var/log/caddy/
+```
+
+It is this failure when Caddy is inactive or failed, the journal shows
+`open /var/log/caddy/isomux-office-access.log: permission denied`, and the log
+files are owned `root:root`.
+
+Repair, proven on a live box:
+
+```
+chown caddy:caddy /var/log/caddy/isomux-office-access.log /var/log/caddy/isomux-app-access.log
+systemctl restart caddy
+```
+
+Then verify from OUTSIDE the box, never over loopback - a loopback check
+passes throughout this failure, which is how the broken update reported
+success in the first place:
+
+```
+curl -sS -o /dev/null -w '%{http_code}\n' https://<office-domain>/readyz
+```
+
+A 200 means the front door is back. If Caddy still will not start, read the
+journal again rather than repeating the chown: a different Caddy failure has
+the same customer-visible symptom, and this box has no restart policy that
+would revive it on its own.

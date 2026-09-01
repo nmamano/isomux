@@ -72,9 +72,19 @@ reboot, and the claim flow produces a working owner session.
    service restarting into the new version.
 3. Confirm the office's existing state survived: agents, rooms, tasks, and
    any provider sign-ins that were present before the update.
+4. Reach the office FROM OUTSIDE THE BOX. This is not the same check as the
+   updater's, and on 2026-09-01 it was the only one that failed.
 
 **Pass criteria:** the update completes, the version reports the new tag,
-and no pre-existing state is lost.
+no pre-existing state is lost, and the office's public URL serves - proven
+by an external request, never by a loopback one.
+
+The updater declares success on a loopback `/readyz` poll, so every check
+that runs on the box agrees with it by construction. On 2026-09-01 the
+service was active, `/readyz` answered over loopback, agents worked, and the
+office had been off the internet since the update, because Caddy was dead.
+Anything that only asks the box how it is doing cannot see that class at
+all.
 
 ## Stage C - the onboarding walk
 
@@ -127,3 +137,59 @@ Record every finding as a board task before deciding anything.
 
 Then update this document with anything the run taught: a check that would
 have caught the failure earlier belongs here, not in a transcript.
+
+## What the v2026.9.1 run taught (2026-09-01)
+
+The run found a stop-ship defect on the update and fresh-install paths, and
+it also found several ways a verification run can lie to itself. Both are
+worth keeping.
+
+**Ask the system, not the box.** Covered in stage B above, and it
+generalises: for every pass criterion, ask which vantage point can observe
+it. A criterion only checkable from inside the thing under test is not a
+criterion.
+
+**A test that stubs the mechanism proves the branching, not the
+behaviour.** The failing code shipped with its own test suite, green. The
+suite stubbed `systemctl`, so it proved which commands the script calls and
+could never observe that a real `systemctl restart` returns 0 while the
+process it started dies milliseconds later. That assumption was baked into
+the code and its test at once, which is why passing tests were no defence.
+When a release changes something that only a real service can exercise,
+this playbook is where it gets exercised - that is the whole reason the
+playbook exists downstream of CI.
+
+**The rig must reproduce the condition before its results count.** A fresh
+office booted with a PATH that omitted the Claude CLI showed a signed-out
+Claude agent giving install instructions. Reported as a P0; it was the rig.
+On a box where the CLI is installed, the same release shows the sign-in
+card. Before filing anything against onboarding, prove the office resolves
+what you think it resolves - and prefer a real box, which cannot have this
+class of rig error.
+
+**Know which stage a check belongs to.** Welcome agents seed once, on a
+fresh office's first owner claim. An UPGRADED office keeps whatever set it
+was created with, so "three welcome agents exist" is a stage-A/C-on-a-fresh-
+office check and says nothing on a box that updated. A second false P0 came
+from applying it to the wrong stage.
+
+**Identify and photograph the box before touching it.** Query the control
+plane (instances joined to subscriptions) and record hostname, instance
+identity and test-versus-customer status; then, over SSH and BEFORE
+updating, record the trust repo's resolved tag and the service checkout's
+`git tag --points-at HEAD`. Both were missing on 2026-09-01, and the
+pre-state had to be recovered from the updater's own derived value.
+
+**Say which range you actually ran.** The available box was two releases
+behind, so the run exercised v2026.8.25 to v2026.9.1 and the
+previous-release path went untested - as did the target release's own
+updater changes, because an update runs the INSTALLED updater, which is the
+old one. Name the range and name what the old updater therefore never
+executed.
+
+**Stage A has a part that needs no box.** Confirm the GitHub Release is
+published and not a draft, that `releases/latest` resolves to the new tag,
+that the tag points at the intended commit, and that the installer the docs
+tell a customer to fetch is byte-identical to the one in the tree. Those
+four take a minute and gate whether the rest of stage A means anything.
+They are not a substitute for an install on a clean box.
