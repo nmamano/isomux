@@ -23,7 +23,9 @@ import { ok, created, fail, type RouteHandler } from "../executor.ts";
 import {
   injectedSize,
   MEMORY_CAPS,
+  MEMORY_LINE_MAX,
   MemoryCapError,
+  MemoryLineTooLongError,
 } from "../../memory-store.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
@@ -47,7 +49,7 @@ export interface MemoryDeps {
     author: string;
     authorAgentId?: string | null;
     text: string;
-  }): { item: MemoryItem; version: string };
+  }): { item: MemoryItem; version: string; size: number; cap: number };
   // Overwrite the whole file guarded by expectedVersion; conflict writes nothing.
   replace(input: {
     scope: MemoryScope;
@@ -250,11 +252,19 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         });
         return created(res);
       } catch (e) {
+        if (e instanceof MemoryLineTooLongError) {
+          return fail(
+            422,
+            "memory_line_too_long",
+            `a memory must fit in ${MEMORY_LINE_MAX} characters of text (this one is ${e.size}). A fact that needs more than that is not a trigger: put the detail in a doc or the task record and save a pointer to it.`,
+            { size: e.size, cap: MEMORY_LINE_MAX },
+          );
+        }
         if (e instanceof MemoryCapError) {
           return fail(
             422,
             "memory_over_cap",
-            `adding this would put the scope over its size cap (${e.size} of ${e.cap} chars); trim existing memories first`,
+            `adding this would put the scope over its size cap (${e.size} of ${e.cap} chars). Trim this scope and save again, or drop the note - do not save it to a wider scope.`,
             { size: e.size, cap: e.cap },
           );
         }

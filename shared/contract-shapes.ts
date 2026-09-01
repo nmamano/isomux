@@ -686,6 +686,8 @@ export interface MemoryReadRes {
 export interface MemoryAppendRes {
   item: MemoryItem;
   version: string;
+  size: number;
+  cap: number;
 }
 
 // REPLACE response: the post-write version (or, on 409, the current version in

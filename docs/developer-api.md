@@ -60,6 +60,27 @@ The response contains `messages`, `previouslyDrainedAt`, and `drainedAt`. A drai
 
 A send can reach the inbox before its sender echo is saved. If the send returns an error after delivery, a retry can create a duplicate.
 
+## Read and write memory
+
+`GET /api/memory?scope=agent` returns the scope's raw `text`, optimistic-concurrency
+`version`, current injected `size`, and `cap`. For `agent`, an agent token may omit
+`scopeId` to target itself; a signed-in user must name an existing agent. `room`
+requires an existing `scopeId`. `office` rejects `scopeId`. For `boss`, an omitted
+`scopeId` targets the caller's user or the agent's manager; an explicit id must
+name an existing user.
+
+`POST /api/memory` accepts `{ scope, scopeId?, text }` and appends one
+server-stamped trigger. The text must fit on one line of at most 400 characters.
+The response returns `{ item, version, size, cap }`, where `size` and `cap` show
+the scope's post-write cost. A duplicate returns 409. A line or scope-cap failure
+returns 422. If a scope is full, trim your own lines, propose the rest to a boss,
+or drop the note; do not move it to a wider scope. Do not make big changes to
+office memory.
+
+`PUT /api/memory` accepts `{ scope, scopeId?, text, version }` and replaces the
+raw file. Use the version from GET. A stale version returns 409. REPLACE is the
+curation path and does not apply the 400-character APPEND limit.
+
 API failures use JSON with an `error` object:
 
 ```json

@@ -17,6 +17,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
 import type { AgentInfo, MemoryItem } from "../../shared/types.ts";
+import { MEMORY_LINE_MAX } from "../memory-store.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -78,6 +79,9 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
 function errCode(body: unknown): string | undefined {
   return (body as { error?: { code?: string } }).error?.code;
 }
+function errMessage(body: unknown): string | undefined {
+  return (body as { error?: { message?: string } }).error?.message;
+}
 function errVersion(body: unknown): string | undefined {
   return (body as { error?: { version?: string } }).error?.version;
 }
@@ -106,8 +110,18 @@ function asRead(body: unknown): {
 } {
   return body as { text: string; version: string; size: number; cap: number };
 }
-function asAppend(body: unknown): { item: MemoryItem; version: string } {
-  return body as { item: MemoryItem; version: string };
+function asAppend(body: unknown): {
+  item: MemoryItem;
+  version: string;
+  size: number;
+  cap: number;
+} {
+  return body as {
+    item: MemoryItem;
+    version: string;
+    size: number;
+    cap: number;
+  };
 }
 
 describe("routes/memory REST: identity required", () => {
@@ -159,7 +173,7 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
       },
     });
     expect(r.status).toBe(201);
-    const { item, version } = asAppend(r.body);
+    const { item, version, size, cap } = asAppend(r.body);
     expect(item.author).toBeNull();
     expect(item.text).toBe("no em dashes in prose");
     expect(item.scopeId).toBe(bot.id);
@@ -168,6 +182,8 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
     expect(item.raw).toBe(`- ${item.date}: no em dashes in prose`);
     expect(item.raw).not.toContain("MemBot");
     expect(version).toMatch(/^[0-9a-f]{12}$/);
+    expect(size).toBe(item.raw.length);
+    expect(cap).toBe(5000);
 
     const onDisk = readMem(srv, "agents", `${bot.id}.md`)!;
     expect(onDisk).toBe(`- ${item.date}: no em dashes in prose\n`);
@@ -294,6 +310,27 @@ describe("routes/memory REST: APPEND (agent own scope)", () => {
       expect(errCode(r.body)).toBe("invalid_text");
     }
   });
+
+  it("rejects a line over 400 characters with trigger guidance", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const size = MEMORY_LINE_MAX + 1;
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "agent", text: "x".repeat(size) },
+    });
+    expect(r.status).toBe(422);
+    expect(errCode(r.body)).toBe("memory_line_too_long");
+    expect(errMessage(r.body)).toBe(
+      `a memory must fit in 400 characters of text (this one is ${size}). A fact that needs more than that is not a trigger: put the detail in a doc or the task record and save a pointer to it.`,
+    );
+    expect(readMem(srv, "agents", `${bot.id}.md`)).toBeNull();
+  });
 });
 
 describe("routes/memory REST: APPEND dedup guard", () => {
@@ -339,17 +376,30 @@ describe("routes/memory REST: APPEND hard cap", () => {
     const bot = await spawnAgent(srv, "CapBot");
     const token = mintAgentToken(bot.id, ownerId);
 
-    const huge = "x".repeat(6000); // agent cap is 5000 chars
+    const huge = "x".repeat(400);
+    for (let i = 0; i < 12; i++) {
+      const seeded = await api(srv, "/api/memory", {
+        method: "POST",
+        bearer: token,
+        body: { scope: "agent", text: `${i}:${huge.slice(3)}` },
+      });
+      expect(seeded.status).toBe(201);
+    }
     const res = await api(srv, "/api/memory", {
       method: "POST",
       bearer: token,
-      body: { scope: "agent", text: huge },
+      body: { scope: "agent", text: `overflow:${huge.slice(9)}` },
     });
     expect(res.status).toBe(422);
     expect(errCode(res.body)).toBe("memory_over_cap");
+    expect(errMessage(res.body)).toContain(
+      "adding this would put the scope over its size cap",
+    );
+    expect(errMessage(res.body)).toContain("Trim this scope and save again");
+    expect(errMessage(res.body)).toContain("do not save it to a wider scope");
 
     const read = await api(srv, "/api/memory?scope=agent", { bearer: token });
-    expect((read.body as { text: string }).text).toBe("");
+    expect((read.body as { text: string }).text).not.toContain("overflow:");
   });
 });
 

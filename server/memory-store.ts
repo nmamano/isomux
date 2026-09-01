@@ -151,6 +151,8 @@ export const MEMORY_CAPS: Record<MemoryScope, number> = {
   boss: 5000,
 };
 
+export const MEMORY_LINE_MAX = 400;
+
 // Caps are HARD and enforced at write time: a save that would put a scope over
 // its cap is refused (fail loud and early - Nil, 2026-08-01), so memories are
 // never silently dropped from the prompt. A scope can still sit over its cap
@@ -161,7 +163,13 @@ export class MemoryCapError extends Error {
     readonly size: number,
     readonly cap: number,
   ) {
-    super(`memory scope over its size cap (${size} of ${cap} chars)`);
+    super(`memory scope size exceeds its cap (${size} of ${cap} chars)`);
+  }
+}
+
+export class MemoryLineTooLongError extends Error {
+  constructor(readonly size: number) {
+    super(`memory line is too long (${size} of ${MEMORY_LINE_MAX} chars)`);
   }
 }
 
@@ -220,6 +228,8 @@ export interface MemoryReadResult {
 export interface MemoryAppendResult {
   item: MemoryItem;
   version: string;
+  size: number;
+  cap: number;
 }
 
 export type MemoryReplaceResult =
@@ -338,6 +348,9 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     authorAgentId?: string | null;
     text: string;
   }): MemoryAppendResult {
+    if (input.text.length > MEMORY_LINE_MAX) {
+      throw new MemoryLineTooLongError(input.text.length);
+    }
     const date = today();
     // Self-authored agent memory drops the author from the stored line - see
     // formatMemoryLine. The decision lives HERE, not in the handler, because the
@@ -355,12 +368,14 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     // Hard cap, checked BEFORE the write: appending must never push the scope
     // over its injected-size cap. Throws so no caller can ignore it.
     const cap = caps[input.scope];
-    const prospective =
-      injectedSize(readText(input.scope, input.scopeId)) + line.length + 1;
+    const existing = readText(input.scope, input.scopeId);
+    const prospective = injectedSize(existing) + line.length + 1;
     if (prospective > cap) throw new MemoryCapError(prospective, cap);
     const path = filePath(input.scope, input.scopeId);
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, line + "\n");
+    const separator =
+      existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
+    appendFileSync(path, separator + line + "\n");
     const content = readText(input.scope, input.scopeId);
     const version = versionOf(content);
     logOp({
@@ -383,6 +398,8 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
         raw: line,
       },
       version,
+      size: injectedSize(content),
+      cap,
     };
   }
 

@@ -22,7 +22,9 @@ import {
   isExactDuplicateText,
   versionOf,
   MEMORY_CAPS,
+  MEMORY_LINE_MAX,
   MemoryCapError,
+  MemoryLineTooLongError,
   injectedSize,
   type OpLogEntry,
 } from "../memory-store.ts";
@@ -261,7 +263,43 @@ describe("memory-store: append", () => {
     expect(after.text).toBe("- Bot, 2026-06-28: a durable fact\n");
     expect(after.version).toBe(res.version);
     expect(after.version).not.toBe(before.version);
+    expect(res.size).toBe(injectedSize(after.text));
+    expect(res.cap).toBe(MEMORY_CAPS.agent);
     void root;
+  });
+
+  it("refuses append text over the one-line limit without writing", () => {
+    const { store } = freshStore();
+    const text = "x".repeat(MEMORY_LINE_MAX + 1);
+    let err: unknown;
+    try {
+      store.append({ scope: "agent", scopeId: "a1", author: "Bot", text });
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(MemoryLineTooLongError);
+    expect((err as MemoryLineTooLongError).size).toBe(MEMORY_LINE_MAX + 1);
+    expect(store.readText("agent", "a1")).toBe("");
+  });
+
+  it("separates an append from raw REPLACE content without a trailing newline", () => {
+    const { store } = freshStore();
+    const replaced = "- Nil, 2026-06-27: first fact";
+    store.replace({
+      scope: "agent",
+      scopeId: "a1",
+      text: replaced,
+      author: "Nil",
+    });
+    const res = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "Bot",
+      text: "second fact",
+    });
+    const expected = `${replaced}\n- Bot, 2026-06-28: second fact\n`;
+    expect(store.readText("agent", "a1")).toBe(expected);
+    expect(res.size).toBe(injectedSize(expected));
   });
 
   // authorAgentId is what makes a line a self-note. The store owns the rule, so
@@ -413,6 +451,18 @@ describe("memory-store: append", () => {
 });
 
 describe("memory-store: replace", () => {
+  it("keeps REPLACE raw-in-raw-out and accepts a line over the APPEND limit", () => {
+    const { store } = freshStore();
+    const text = "x".repeat(MEMORY_LINE_MAX + 1);
+    const res = store.replace({
+      scope: "agent",
+      scopeId: "a1",
+      text,
+      author: "Nil",
+    });
+    expect(res.ok).toBe(true);
+    expect(store.readText("agent", "a1")).toBe(text);
+  });
   it("overwrites with the correct version and returns the new version", () => {
     const { root, store } = freshStore();
     store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "one" });
