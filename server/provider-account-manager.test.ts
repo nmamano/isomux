@@ -11,6 +11,12 @@ import { resolve } from "node:path";
 import { ProviderAccountManager } from "./provider-account-manager.ts";
 import { ISOMUX_CODEX_HOME } from "./backends/codex/native-bin.ts";
 
+const disconnectedAccountClient = () => ({
+  start: async () => {},
+  read: async () => ({ connected: false }),
+  close: async () => {},
+});
+
 describe("ProviderAccountManager", () => {
   it("marks external CLI directories by resolved path for both providers", async () => {
     const fake = () => ({
@@ -174,7 +180,14 @@ describe("ProviderAccountManager", () => {
       cancel: async () => {},
       close: async () => {},
     });
-    const manager = new ProviderAccountManager(() => {}, fake as never);
+    const manager = new ProviderAccountManager(
+      () => {},
+      fake as never,
+      undefined,
+      undefined,
+      () => ({}),
+      disconnectedAccountClient as never,
+    );
     const first = await manager.startLogin(
       "user-a",
       "codex",
@@ -212,7 +225,14 @@ describe("ProviderAccountManager", () => {
       cancel: async () => {},
       close: async () => {},
     });
-    const manager = new ProviderAccountManager(() => {}, fake as never);
+    const manager = new ProviderAccountManager(
+      () => {},
+      fake as never,
+      undefined,
+      undefined,
+      () => ({}),
+      disconnectedAccountClient as never,
+    );
     const first = await manager.startLogin(
       "user-a",
       "codex",
@@ -251,6 +271,10 @@ describe("ProviderAccountManager", () => {
     const manager = new ProviderAccountManager(
       (_userId, accounts) => emitted.push(accounts),
       fake as never,
+      undefined,
+      undefined,
+      () => ({}),
+      disconnectedAccountClient as never,
     );
     await manager.startLogin("user-a", "codex", "office", "browser");
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -299,6 +323,10 @@ describe("ProviderAccountManager", () => {
           close: async () => {},
         };
       }) as never,
+      undefined,
+      undefined,
+      () => ({}),
+      disconnectedAccountClient as never,
     );
 
     await manager.startLogin("user-a", "codex", "office", "device");
@@ -392,6 +420,10 @@ describe("ProviderAccountManager", () => {
     const manager = new ProviderAccountManager(
       (_userId, accounts) => emitted.push(accounts[0]?.loginStatus ?? "none"),
       fake as never,
+      undefined,
+      undefined,
+      () => ({}),
+      disconnectedAccountClient as never,
     );
     await manager.startLogin("user-a", "codex", "office", "browser");
     await manager.cancel("user-a", "codex", "office");
@@ -415,7 +447,14 @@ describe("ProviderAccountManager", () => {
       cancel: async () => {},
       close: async () => {},
     });
-    const manager = new ProviderAccountManager(() => {}, fake as never, 5);
+    const manager = new ProviderAccountManager(
+      () => {},
+      fake as never,
+      5,
+      undefined,
+      () => ({}),
+      disconnectedAccountClient as never,
+    );
     await manager.startLogin("user-a", "codex", "office", "browser");
     await new Promise((resolve) => setTimeout(resolve, 15));
     const second = await manager.startLogin(
@@ -437,7 +476,14 @@ describe("ProviderAccountManager", () => {
       read: async () => ({ connected: false }),
       close: async () => {},
     });
-    const manager = new ProviderAccountManager(() => {}, fake as never);
+    const manager = new ProviderAccountManager(
+      () => {},
+      fake as never,
+      undefined,
+      undefined,
+      () => ({}),
+      disconnectedAccountClient as never,
+    );
     await manager.list("user-a");
     await manager.list("user-a");
     expect(starts).toBe(1);
@@ -464,7 +510,7 @@ describe("ProviderAccountManager", () => {
         CODEX_HOME: `/tmp/${userId}-codex`,
         ...(userId === "user-a" ? { OPENAI_API_KEY: "test-key" } : {}),
       }),
-      undefined,
+      disconnectedAccountClient as never,
       () => ({}),
       () => ({}),
       (userId) => ({ CODEX_HOME: `/tmp/${userId}-codex` }),
