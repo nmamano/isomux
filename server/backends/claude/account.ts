@@ -129,7 +129,7 @@ export class ClaudeAccountClient {
       // The SDK surfaces the provider's raw HTTP error (e.g. "Request
       // failed with status code 400") - useless to the person pasting.
       throw new Error(
-        "Claude rejected this sign-in code - it may have expired or already been used. Click Sign in again and paste the fresh code.",
+        "Claude rejected this sign-in code. Click Sign in again and paste the code from the tab that opens.",
       );
     }
   }
