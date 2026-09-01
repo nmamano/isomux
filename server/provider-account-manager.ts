@@ -37,6 +37,13 @@ const ACCOUNT_STATUS_TTL_MS = 30_000;
 const LOGIN_TIMEOUT_MS = 10 * 60_000;
 
 type AccountClient = CodexAccountClient | ClaudeAccountClient;
+
+export type CreateCodexAccountClient = (
+  env?: Record<string, string | undefined>,
+) => CodexAccountClient;
+export type CreateClaudeAccountClient = (
+  env?: Record<string, string | undefined>,
+) => ClaudeAccountClient;
 type Target = {
   provider: ProviderAccountProvider;
   scope: ProviderAccountScope;
@@ -87,9 +94,8 @@ export class ProviderAccountManager {
       userId: string,
       accounts: ProviderAccountWire[],
     ) => void,
-    private readonly createCodex: (
-      env?: Record<string, string | undefined>,
-    ) => CodexAccountClient = (env) => new CodexAccountClient(env),
+    private readonly createCodex: CreateCodexAccountClient = (env) =>
+      new CodexAccountClient(env),
     private readonly loginTimeoutMs = LOGIN_TIMEOUT_MS,
     private readonly environmentKeyForUser: (
       userId: string,
@@ -97,9 +103,8 @@ export class ProviderAccountManager {
     private readonly envForUser: (
       userId: string,
     ) => Record<string, string | undefined> | undefined = buildEnvForUserId,
-    private readonly createClaude: (
-      env?: Record<string, string | undefined>,
-    ) => ClaudeAccountClient = (env) => new ClaudeAccountClient(env),
+    private readonly createClaude: CreateClaudeAccountClient = (env) =>
+      new ClaudeAccountClient(env),
     private readonly officeEnv: () => Record<
       string,
       string | undefined

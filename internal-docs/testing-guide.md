@@ -137,7 +137,7 @@ Feature → risk tier → deterministic test path → live/manual coverage. A co
 
 | Feature | tier | deterministic test path | live/manual |
 |---|---|---|---|
-| Onboarding / fresh install (welcome agents spawn across not-installed / not-logged-in / logged-in) | T1 (+opt-in T3) | fresh-install harness: temp ISOMUX_HOME, welcome-agent seed, FakeBackend per backend state | T3 live logged-in happy path |
+| Onboarding / fresh install (welcome agents spawn across not-installed / not-logged-in / logged-in) | T1 (+opt-in T3) | fresh-install harness: temp ISOMUX_HOME, welcome-agent seed, FakeBackend per backend state; account-client factories fail before subprocess start while the real ProviderAccountManager shapes unavailable-account wires | T3 live logged-in happy path |
 | Multi-provider (mix Claude + Codex) | T2/T3 | adapter contract fixtures per backend | T3 smoke per provider |
 | Subscription auth (works if CLI works) | T3 | env-detect unit; login-instructions unit | T3 manual login |
 | Agents message each other (queue) | T1 | FakeBackend: POST message enqueues; coalescing order | - |

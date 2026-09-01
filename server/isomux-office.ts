@@ -210,7 +210,11 @@ import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { providerAccountsHandlers } from "./routes/handlers/provider-accounts.ts";
-import { ProviderAccountManager } from "./provider-account-manager.ts";
+import {
+  ProviderAccountManager,
+  type CreateClaudeAccountClient,
+  type CreateCodexAccountClient,
+} from "./provider-account-manager.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
 import { storageHandlers } from "./routes/handlers/storage.ts";
 import { usageHandlers } from "./routes/handlers/usage.ts";
@@ -361,6 +365,7 @@ function bootPrelude(): void {
 let agentManager: AgentManager;
 let cronjobManager: CronjobManager;
 let scheduledMessageManager: ScheduledMessageManager;
+let providerAccountManager: ProviderAccountManager;
 // The app supervisor is injectable for one specific reason: systemd is
 // MACHINE-GLOBAL. Every other collaborator a test injects is about determinism
 // or cost; this one is about a test run being unable to write a unit file, stop
@@ -381,6 +386,16 @@ function createManagers(startOpts: StartServerOpts): void {
   // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
   appSupervisor = startOpts.appSupervisor ?? productionAppSupervisor;
   discoverWelcomeOpenCodeModels = startOpts.discoverWelcomeOpenCodeModels;
+  providerAccountManager = new ProviderAccountManager(
+    (userId, accounts) => {
+      liveEmit("provider_accounts_updated", { accounts }, { userId });
+    },
+    startOpts.createCodexAccountClient,
+    undefined,
+    undefined,
+    undefined,
+    startOpts.createClaudeAccountClient,
+  );
   agentManager =
     startOpts.agentManager ??
     createProductionAgentManager({
@@ -1519,12 +1534,6 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<OfficeWsData>> = {
     for (const ws of recipients) ws.send(data);
   },
 };
-
-const providerAccountManager = new ProviderAccountManager(
-  (userId, accounts) => {
-    liveEmit("provider_accounts_updated", { accounts }, { userId });
-  },
-);
 
 // Bind the emit() helper to the production transport seam. The ONLY path to the
 // wire for migrated core ops / event sinks (never a raw broadcast()).
@@ -5842,6 +5851,10 @@ export interface StartServerOpts {
   // Inject pre-built managers (tests). Omit → production factories.
   agentManager?: AgentManager;
   cronjobManager?: CronjobManager;
+  // Account-client factories are a narrow test seam around provider CLI probes.
+  // Production omits them and uses the real Codex and Claude clients.
+  createCodexAccountClient?: CreateCodexAccountClient;
+  createClaudeAccountClient?: CreateClaudeAccountClient;
   // Override the backend resolver for both factories (tests pass a FakeBackend
   // resolver). Ignored when agentManager/cronjobManager are supplied directly.
   resolveBackend?: typeof getBackend;

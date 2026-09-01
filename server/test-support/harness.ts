@@ -101,6 +101,19 @@ export interface StartTestServerOpts {
   startServer?: Partial<StartServerOpts>;
 }
 
+// A fresh test office has no provider CLI account. Keep the real account
+// manager and its wire shaping under test, but model that unavailable probe
+// without starting provider subprocesses. This also keeps onboarding's backend
+// login-text + terminal-command fallback branch deterministic across machines.
+const unavailableAccountClient = () =>
+  ({
+    start: async () => {
+      throw new Error("provider CLI unavailable in test harness");
+    },
+    read: async () => ({ connected: false }),
+    close: async () => {},
+  }) as never;
+
 // Process-global single-instance guard (see file header).
 let activeHarness = false;
 
@@ -191,6 +204,8 @@ async function bootTestServer(
         },
       ],
       appSupervisor,
+      createCodexAccountClient: unavailableAccountClient,
+      createClaudeAccountClient: unavailableAccountClient,
       skipSchedulers: true,
       skipBackups: true,
       skipAdminSocket: true,
