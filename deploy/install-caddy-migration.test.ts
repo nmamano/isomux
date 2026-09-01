@@ -33,6 +33,7 @@ const roots: string[] = [];
 
 function run(options: {
   kind?: "hosted" | "self-hosted";
+  rendering?: "pre-log" | "post-log";
   mutate?: (text: string) => string;
   transactionFails?: boolean;
   caddyAfterFailure?: "active" | "inactive";
@@ -56,9 +57,9 @@ function run(options: {
   const caddyfile = join(caddyDir, "Caddyfile");
   const calls = join(root, "calls");
   const kind = options.kind ?? "hosted";
-  const setup = `${RENDER_OLD}
+  const setup = `${options.rendering === "post-log" ? RENDER_NEW : RENDER_OLD}
 CADDY_MARKER='# Managed by the isomux installer'
-render_caddyfile_without_access_log ${kind} "$CADDYFILE" office.example
+${options.rendering === "post-log" ? "render_caddyfile" : "render_caddyfile_without_access_log"} ${kind} "$CADDYFILE" office.example
 `;
   let proc = Bun.spawnSync(["bash", "-c", setup], {
     env: { ...process.env, CADDYFILE: caddyfile },
@@ -67,6 +68,7 @@ render_caddyfile_without_access_log ${kind} "$CADDYFILE" office.example
   if (options.mutate) {
     writeFileSync(caddyfile, options.mutate(readFileSync(caddyfile, "utf8")));
   }
+  const input = readFileSync(caddyfile, "utf8");
   const script = `${RENDER_OLD}
 ${RENDER_NEW}
 ${MIGRATE}
@@ -99,6 +101,8 @@ migrate_caddy_access_log
   return {
     code: proc.exitCode,
     out: `${proc.stdout.toString()}${proc.stderr.toString()}`,
+    input,
+    caddyfilePath: caddyfile,
     caddyfile: readFileSync(caddyfile, "utf8"),
     calls: existsSync(calls) ? readFileSync(calls, "utf8") : "",
   };
@@ -121,6 +125,16 @@ describe("deps-only Caddy access-log migration", () => {
     }
   });
 
+  it("silently leaves either exact known post-log rendering byte-identical", () => {
+    for (const kind of ["hosted", "self-hosted"] as const) {
+      const result = run({ kind, rendering: "post-log" });
+      expect(result.code).toBe(0);
+      expect(result.out).toBe("");
+      expect(result.calls).toBe("");
+      expect(result.caddyfile).toBe(result.input);
+    }
+  });
+
   it("leaves a one-byte-different managed file and restart calls untouched", () => {
     const result = run({
       mutate: (text) =>
@@ -134,7 +148,10 @@ describe("deps-only Caddy access-log migration", () => {
     expect(result.caddyfile).toContain("reverse_proxy 127.0.0.1:4001");
     expect(result.caddyfile).not.toContain("roll_keep_for");
     expect(result.out).toContain(
-      "differs from both known installer renderings",
+      "warning: the managed Caddyfile differs from the known installer renderings; access logging was not added",
+    );
+    expect(result.out).toContain(
+      `ISOMUX_UPDATE_WARNING=Caddy access logging was not added because ${result.caddyfilePath} has different bytes`,
     );
   });
 

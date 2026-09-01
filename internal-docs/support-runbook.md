@@ -224,9 +224,12 @@ journalctl -u caddy -n 20 --no-pager
 ls -l /var/log/caddy/
 ```
 
-It is this failure when Caddy is inactive or failed, the journal shows
-`open /var/log/caddy/isomux-office-access.log: permission denied`, and the log
-files are owned `root:root`.
+It is this failure when the journal shows
+`open /var/log/caddy/isomux-office-access.log: permission denied` and the log
+files are owned `root:root`. Before the installer adds Caddy's restart policy,
+Caddy stays inactive or failed. After the installer adds it, Caddy can stay
+`activating` and the journal repeats the same permission error every five
+seconds while Caddy retries.
 
 Repair, proven on a live box:
 
@@ -245,5 +248,6 @@ curl -sS -o /dev/null -w '%{http_code}\n' https://<office-domain>/readyz
 
 A 200 means the front door is back. If Caddy still will not start, read the
 journal again rather than repeating the chown: a different Caddy failure has
-the same customer-visible symptom, and this box has no restart policy that
-would revive it on its own.
+the same customer-visible symptom. A box that has not run the installer with
+the new restart policy stays down. A box that has run it retries every five
+seconds, but a retry cannot repair a different failure.

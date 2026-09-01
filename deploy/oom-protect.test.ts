@@ -549,6 +549,24 @@ describe("the kill-order tiers", () => {
     }
   });
 
+  it("gives only Caddy the ruled on-failure restart policy", async () => {
+    const out = await tiers();
+    expect(out).toContain(
+      "/etc/systemd/system/caddy.service.d/isomux-oom.conf: Restart=on-failure",
+    );
+    expect(out).toContain(
+      "/etc/systemd/system/caddy.service.d/isomux-oom.conf: # The Caddy package ships no Restart= policy, so this drop-in adds",
+    );
+    expect(out).not.toContain(
+      "/etc/systemd/system/ssh.service.d/isomux-oom.conf: # The Caddy package",
+    );
+    for (const unit of ["ssh", "isomux"]) {
+      expect(out).not.toContain(
+        `/etc/systemd/system/${unit}.service.d/isomux-oom.conf: Restart=`,
+      );
+    }
+  });
+
   it("keeps the office above the agents it starts, not below them", async () => {
     const out = await tiers();
     expect(out).toContain(

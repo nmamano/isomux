@@ -326,7 +326,14 @@ stamp_pid() {
 }
 
 oom_tier() {
-  local unit=$1 score=$2
+  local unit=$1 score=$2 restart=${3:-} restart_line="" restart_note=""
+  if [[ -n $restart ]]; then
+    printf -v restart_line 'Restart=%s\n' "$restart"
+    printf -v restart_note '%s\n' \
+      "# The Caddy package ships no Restart= policy, so this drop-in adds" \
+      "# Restart=$restart with RestartSec=$RESTART_BACKOFF and no start limit." \
+      "# This deliberate crash loop is better than a dark front door."
+  fi
   write_file "/etc/systemd/system/$unit.d/isomux-oom.conf" 644 <<EOF
 # Written by isomux-oom-protect.
 [Unit]
@@ -336,11 +343,11 @@ oom_tier() {
 # five inside two seconds during an earlyoom cascade and then stayed dead for
 # three hours while the box went on answering ssh and every liveness probe.
 # Retry forever instead, with the backoff below so forever is not a spin.
-StartLimitIntervalSec=0
+${restart_note}StartLimitIntervalSec=0
 
 [Service]
 OOMScoreAdjust=$score
-RestartSec=$RESTART_BACKOFF
+${restart_line}RestartSec=$RESTART_BACKOFF
 EOF
   # A unit file only takes effect at the next start, and restarting sshd or
   # tailscaled to pick it up is exactly the disruption this script exists to
@@ -529,7 +536,7 @@ configure_kill_order() {
   oom_tier systemd-resolved.service -900  # DNS. The one that actually went down.
   oom_tier systemd-networkd.service -900  # addresses and routes
   oom_tier systemd-logind.service -900    # ssh sessions, and `systemctl --user`
-  oom_tier caddy.service -500
+  oom_tier caddy.service -500 on-failure
   oom_tier isomux.service "$OFFICE_SCORE"
   run systemctl daemon-reload
   configure_user_level_office
