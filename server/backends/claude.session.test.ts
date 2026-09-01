@@ -9,6 +9,7 @@ import type {
   PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
+  CLAUDE_MEMORY_OFF_SETTINGS,
   ClaudeSession,
   createClaudeBackend,
   type SdkClient,
@@ -876,6 +877,60 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
     expect(fake.resumeCalls).toHaveLength(1);
     expect(fake.resumeCalls[0].sessionId).toBe("s-42");
     assertTypedShape(fake.resumeCalls[0].opts);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backend-native memory off (task 3f6ff5e0). These pin what isomux HANDS the
+// SDK: `settings.autoMemoryEnabled === false` as an explicit value on every
+// launch path. A top-level `autoMemoryEnabled` is not an SDK Option and would
+// be dropped silently, so the assertion is on the nested settings object.
+// Whether the SDK honours it is the live probe's claim, not this test's.
+// ---------------------------------------------------------------------------
+
+describe("createClaudeBackend - backend-native auto-memory is switched off", () => {
+  const createOpts = {
+    agentId: "agent-mem",
+    cwd: "/tmp",
+    systemPrompt: "sys",
+    modelFamily: "opus",
+    effort: "high",
+    permissionMode: "default",
+  };
+
+  it("createSession carries settings.autoMemoryEnabled === false", () => {
+    const fake = new FakeSdkClient();
+    createClaudeBackend(fake).createSession(createOpts);
+    const settings = fake.createCalls[0].opts.settings;
+    expect(typeof settings).toBe("object");
+    expect(
+      (settings as { autoMemoryEnabled?: unknown }).autoMemoryEnabled,
+    ).toBe(false);
+    expect(fake.createCalls[0].opts).not.toHaveProperty("autoMemoryEnabled");
+  });
+
+  it("resumeSession carries settings.autoMemoryEnabled === false", () => {
+    const fake = new FakeSdkClient();
+    createClaudeBackend(fake).resumeSession("s-7", createOpts);
+    const settings = fake.resumeCalls[0].opts.settings;
+    expect(
+      (settings as { autoMemoryEnabled?: unknown }).autoMemoryEnabled,
+    ).toBe(false);
+  });
+
+  it("oneShotPrompt carries settings.autoMemoryEnabled === false", async () => {
+    const fake = new FakeSdkClient();
+    await createClaudeBackend(fake).oneShotPrompt("Summarize", {
+      modelFamily: "haiku",
+    });
+    const settings = fake.oneShotCalls[0].settings;
+    expect(
+      (settings as { autoMemoryEnabled?: unknown }).autoMemoryEnabled,
+    ).toBe(false);
+  });
+
+  it("the shared constant is the documented SDK switch, nothing else", () => {
+    expect(CLAUDE_MEMORY_OFF_SETTINGS).toEqual({ autoMemoryEnabled: false });
   });
 });
 

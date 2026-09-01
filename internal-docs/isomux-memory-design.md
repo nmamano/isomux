@@ -327,6 +327,33 @@ botched write is therefore just re-REPLACEing an earlier `content` snapshot. v1
 recovery is manual (read the log, re-PUT a snapshot); a restore endpoint/UI can
 come later.
 
+## 7b. Backend-native memory is switched off per launch
+
+isomux memory is the only memory an office agent has, so memories carry over
+when an agent's backend changes (Nil, 2026-09-01). Each backend's own memory is
+therefore switched off on every launch, in the backend adapter, never in a
+file the operator has to remember:
+
+- **Claude** (`server/backends/claude.ts`, `CLAUDE_MEMORY_OFF_SETTINGS`): the
+  SDK's typed `settings: { autoMemoryEnabled: false }` on every session,
+  resume and one-shot query. It lands in the flag-settings layer, which
+  outranks `~/.claude/settings.json`. The env var
+  `CLAUDE_CODE_DISABLE_AUTO_MEMORY` is not used: the SDK's `env` option
+  replaces the child environment rather than merging it, and the variable is
+  truthiness-parsed. Escape hatch: an operator envFile that sets
+  `CLAUDE_CODE_DISABLE_AUTO_MEMORY` to an explicitly falsy value (`0`,
+  `false`) is checked by the CLI before settings and turns auto-memory back
+  on. Do not set it.
+- **Codex** (`server/backends/codex/adapter.ts`, `CODEX_THREAD_CONFIG_OVERRIDES`):
+  `memories.use_memories = false` and `memories.generate_memories = false` in
+  the per-thread `config` map on every `thread/start` and `thread/resume`.
+  Per-thread beats editing `config.toml` under `CODEX_HOME`: no shared-file
+  mutation, and it holds for a per-user `CODEX_HOME` too. Codex rejects a
+  non-boolean but ignores an unknown key silently, so the adapter test pins
+  the spelling.
+- **OpenCode**: no native memory feature in the vendored binary (1.18.23);
+  nothing to switch.
+
 ## 8. Future / deferred machinery
 
 Deferred. Add only if real scale demands:

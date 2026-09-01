@@ -55,6 +55,10 @@ export interface SdkSessionOptions {
   pathToClaudeCodeExecutable: string;
   systemPrompt?: Options["systemPrompt"];
   effort?: SdkEffortLevel;
+  // The SDK's "flag settings" layer (`--settings`), typed straight off the
+  // SDK so this stays a faithful subset. Carries CLAUDE_MEMORY_OFF_SETTINGS;
+  // a future writer must merge into it, never assign over it.
+  settings?: Options["settings"];
   env?: { [key: string]: string | undefined };
   cwd: string;
   permissionMode: PermissionMode;
@@ -201,8 +205,32 @@ export interface SdkOneShotOptions {
   model: string;
   pathToClaudeCodeExecutable: string;
   systemPrompt?: string;
+  settings?: Options["settings"];
   env?: { [key: string]: string | undefined };
 }
+
+// Backend-native memory is off in every isomux launch: isomux memory is the
+// only memory an office agent has, so it carries over when the agent's
+// backend changes (Nil's ruling, 2026-09-01). Without this the CLI reads and
+// writes ~/.claude/projects/<sanitized-cwd>/memory/ on its own and injects
+// that MEMORY.md into every session in the cwd.
+//
+// Why the typed setting and not CLAUDE_CODE_DISABLE_AUTO_MEMORY in env:
+// Options.env REPLACES the child's environment instead of merging with
+// process.env, and buildSdkOpts sets env only when the caller supplied one,
+// so injecting a single variable would either wipe the inherited environment
+// for env-less agents or freeze it into a build-time snapshot. The env var
+// is also parsed for truthiness ("false" and "0" leave memory ON) and is
+// undocumented, while `settings.autoMemoryEnabled` is the documented switch:
+// "When false, Claude will not read from or write to the auto-memory
+// directory". It lands in the flag-settings layer, which outranks
+// ~/.claude/settings.json. The one thing that still beats it is an operator
+// envFile setting CLAUDE_CODE_DISABLE_AUTO_MEMORY to an explicitly falsy
+// value ("0"/"false"), which the CLI checks before settings.
+export const CLAUDE_MEMORY_OFF_SETTINGS: Extract<Options["settings"], object> =
+  {
+    autoMemoryEnabled: false,
+  };
 
 export interface SdkClient {
   createSession(opts: SdkSessionOptions): SdkConversation;
@@ -551,6 +579,7 @@ export const realV1SdkClient: SdkClient = {
     model,
     pathToClaudeCodeExecutable,
     systemPrompt,
+    settings,
     env,
   }) {
     // One-shot text completion: no tools, no thinking, no filesystem context.
@@ -566,6 +595,7 @@ export const realV1SdkClient: SdkClient = {
         settingSources: [],
         cwd: "/tmp",
         ...(systemPrompt ? { systemPrompt } : {}),
+        ...(settings ? { settings } : {}),
         ...(env ? { env } : {}),
       },
     });
@@ -1320,6 +1350,8 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // which includes Codex-only values). Narrow at the call site, same
     // pattern as permissionMode.
     effort: opts.effort as SdkEffortLevel,
+    // Backend-native auto-memory off; see CLAUDE_MEMORY_OFF_SETTINGS.
+    settings: CLAUDE_MEMORY_OFF_SETTINGS,
     cwd: opts.cwd,
     hooks: createSafetyHooks(),
     // AskUserQuestion has no usable UI in isomux: the canUseTool approval
@@ -1478,6 +1510,10 @@ export function createClaudeBackend(
         model,
         pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
         systemPrompt: opts.systemPrompt,
+        // settingSources: [] skips the filesystem layers but not the
+        // built-in default (auto-memory ON), so the flag layer is needed
+        // here too or the /tmp cwd gets its own memory folder.
+        settings: CLAUDE_MEMORY_OFF_SETTINGS,
         env: opts.env,
       });
     },

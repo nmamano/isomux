@@ -15,7 +15,13 @@
 // production uses (transport.onNotification / onServerRequest / onStderr /
 // onExit -> handle* -> enqueue -> stream).
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -351,6 +357,63 @@ describe("CodexSession bootstrap", () => {
     const init = expectKind(await nextEvent(it, "system_init"), "system_init");
     expect(init.sessionId).toBe("resumed-thread-9");
     expect(fake.requests.map((r) => r.method)).toEqual(["thread/resume"]);
+  });
+
+  // Backend-native memory off (task 3f6ff5e0): both memories keys must be
+  // EXPLICIT false values in the per-thread config map, on start and on
+  // resume. Absent keys would pass only while the upstream default is off,
+  // which is the opposite of the guarantee wanted. Codex ignores an unknown
+  // key silently, so the dotted spelling is pinned here too.
+  function memoriesConfigOf(params: unknown): Record<string, unknown> {
+    const config = (params as { config?: unknown }).config;
+    expect(typeof config).toBe("object");
+    return config as Record<string, unknown>;
+  }
+
+  it("thread/start pins memories.use_memories and memories.generate_memories to false", async () => {
+    const { fake, it } = start();
+    await nextEvent(it, "system_init");
+    const config = memoriesConfigOf(fake.requests[0].params);
+    expect(config["memories.use_memories"]).toBe(false);
+    expect(config["memories.generate_memories"]).toBe(false);
+  });
+
+  // The backend-level oneShotPrompt opens its own JsonRpcLiteClient and
+  // issues a THIRD thread/start with inline params, so it never passes
+  // through buildThreadStartParams and has no transport seam to fake. A
+  // source-level check is what covers it: every thread/start and
+  // thread/resume in the adapter must carry the pin. This is the guard for a
+  // launch path added later that forgets it - the miss that this test exists
+  // for happened once already.
+  it("every thread/start and thread/resume in the adapter carries the memories pin", () => {
+    const src = readFileSync(join(import.meta.dir, "adapter.ts"), "utf8");
+    // buildThreadStartParams is the indirect carrier: one call site passes
+    // its return value rather than an inline object.
+    const builder = src.slice(src.indexOf("buildThreadStartParams()"));
+    expect(builder).toContain("CODEX_THREAD_CONFIG_OVERRIDES");
+    const sites = [...src.matchAll(/"thread\/(?:start|resume)"/g)];
+    expect(sites.length).toBeGreaterThanOrEqual(3);
+    for (const site of sites) {
+      // Look a little before the method string (to catch the params variable
+      // assignment) and through the params object that follows it.
+      const window = src.slice(Math.max(0, site.index - 300), site.index + 800);
+      const carries =
+        window.includes("CODEX_THREAD_CONFIG_OVERRIDES") ||
+        window.includes("buildThreadStartParams");
+      expect({ site: window.slice(280, 360), carries }).toMatchObject({
+        carries: true,
+      });
+    }
+  });
+
+  it("thread/resume pins the same two memories keys to false", async () => {
+    const fake = new FakeCodexTransport();
+    const { it } = start(fake, { resumeThreadId: "resumed-thread-9" });
+    await nextEvent(it, "system_init");
+    expect(fake.requests[0].method).toBe("thread/resume");
+    const config = memoriesConfigOf(fake.requests[0].params);
+    expect(config["memories.use_memories"]).toBe(false);
+    expect(config["memories.generate_memories"]).toBe(false);
   });
 
   it("bootstrap failure defers: system_init with empty id, send() rejects with the captured error", async () => {

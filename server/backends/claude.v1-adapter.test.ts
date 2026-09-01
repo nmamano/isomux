@@ -610,7 +610,9 @@ describe("sessionOptsToV1", () => {
       env: { FOO: "bar" },
       hooks: {},
       disallowedTools: ["AskUserQuestion"],
+      settings: { autoMemoryEnabled: false },
     });
+    expect(v1.settings).toEqual({ autoMemoryEnabled: false });
     expect(v1.model).toBe("claude-opus-4-8");
     expect(v1.pathToClaudeCodeExecutable).toBe("/bin/echo");
     expect(v1.cwd).toBe("/tmp");

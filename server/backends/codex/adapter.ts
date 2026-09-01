@@ -138,6 +138,23 @@ const ALREADY_AUTHED_INSTRUCTIONS = `Codex is signed in. Type \`/clear\` to refr
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|403|401/i;
 
+// Per-thread config overrides, sent with every thread/start and
+// thread/resume (the `config` map takes dotted keys, same as `-c`).
+// Backend-native memory is off in every isomux launch: isomux memory is the
+// only memory an office agent has, so it carries over when the agent's
+// backend changes (Nil's ruling, 2026-09-01). Codex 0.144 ships a memories
+// feature whose keys upstream now documents as defaulting to true; pinning
+// both here keeps a default flip from turning it on, and a per-thread
+// override beats editing the shared config.toml under CODEX_HOME (no file
+// mutation, and it holds for a per-user CODEX_HOME too). Codex type-checks
+// these keys (a non-boolean is rejected at thread/start) but ignores an
+// unknown key silently, so the adapter test pins the exact spelling.
+export const CODEX_THREAD_CONFIG_OVERRIDES: Readonly<Record<string, boolean>> =
+  {
+    "memories.use_memories": false,
+    "memories.generate_memories": false,
+  };
+
 // Capability flags for the Codex backend. Match the spec's parity table.
 // hooks: false - Codex emits hook/* notifications but provides no
 // programmatic register-from-client surface at 0.130 (v1).
@@ -790,6 +807,7 @@ export class CodexSession implements BackendSession {
           model: this.opts.modelFamily,
           developerInstructions: this.opts.systemPrompt,
           persistExtendedHistory: false,
+          config: { ...CODEX_THREAD_CONFIG_OVERRIDES },
         });
         this.threadId = resumeResp.thread.id;
       } else {
@@ -848,6 +866,7 @@ export class CodexSession implements BackendSession {
       // persistExtendedHistory is deprecated in 0.130 and ignored by the
       // server, but the wire schema still requires the field.
       persistExtendedHistory: false,
+      config: { ...CODEX_THREAD_CONFIG_OVERRIDES },
     };
     if (this.opts.ephemeral) params.ephemeral = true;
     if (this.opts.effort) {
@@ -2846,6 +2865,11 @@ export const codexBackend: Backend = {
           ephemeral: true,
           experimentalRawEvents: false,
           persistExtendedHistory: false,
+          // This path issues its own thread/start instead of going through
+          // buildThreadStartParams, so the pin has to be repeated here.
+          // ephemeral:true governs thread persistence, not the memories
+          // feature.
+          config: { ...CODEX_THREAD_CONFIG_OVERRIDES },
         },
       );
       const threadId = startResp.thread.id;

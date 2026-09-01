@@ -33,7 +33,7 @@ For the plugin system:
 - Per-agent or per-room enablement.
 - Plugin marketplace, install/update commands, manifest validation against a schema.
 - UI surfaces (a "Plugins" tab or settings panel).
-- Auto-disabling Claude's `autoMemoryEnabled` setting (operator disables it manually in `~/.claude/settings.json`).
+- Auto-disabling Claude's `autoMemoryEnabled` setting - no longer a gap: isomux switches it off on every launch (`isomux-memory-design.md`, section 7b).
 - A published `@isomux/plugin-types` package. Plugins re-declare types until the API stabilizes.
 
 For the mem0 plugin:
@@ -280,8 +280,7 @@ One-time:
      { "id": "mem0", "path": "/home/nil/nil/isomux-mem0" }
    ]
    ```
-5. (Recommended) Set `"autoMemoryEnabled": false` in `~/.claude/settings.json` to disable Claude's parallel auto-memory.
-6. Restart isomux (`systemctl --user restart isomux`).
+5. Restart isomux (`systemctl --user restart isomux`). Claude's parallel auto-memory needs no step: isomux switches it off on every launch.
 
 To disable: remove the `"mem0"` entry from `enabledPlugins` and restart. The plugin dir can stay in place.
 
