@@ -162,6 +162,15 @@ updater copy the same way.
    `configure_caddy` to follow, and on a verified one apt is free to upgrade
    Caddy and start a proxy the operator had deliberately turned off.
 
+   When deps mode adds access logging to an exact installer-owned Caddyfile,
+   it creates or repairs both configured log files for the account declared by
+   the Caddy unit before root validation. The Caddyfile transaction does not
+   commit on `systemctl restart` alone: it waits briefly for Caddy's port-80
+   redirect, which needs neither a certificate nor the isomux upstream. A
+   failed check restores the previous Caddyfile and verifies that the restored
+   front door serves before the migration can become a warning. If restoration
+   does not serve, the dependency sync fails.
+
    At the end of the target release's dependency-only installer, after it
    restores Caddy, the installer records
    `networkBind: "loopback"` only when the key is absent and the active Caddy
@@ -189,7 +198,10 @@ updater copy the same way.
 6. Start the service; poll `GET /readyz` (unauth; answered only once the
    boot migrations have run, since the listener binds after them;
    rate-limited with loopback exempt so the poll cannot manufacture a
-   rollback).
+   rollback). On a system deployment with a Caddy unit, an inactive Caddy
+   qualifies the successful result with a public-front-door warning in both
+   output and the durable status file. It does not trigger code/state rollback:
+   Caddy is outside the snapshot, so that rollback cannot repair it.
 7. On failed readiness, roll back fully: stop and wait inactive (never
    restore under a live or crash-looping process), move the broken state
    root aside for forensics, restore the entire state root from the step-5

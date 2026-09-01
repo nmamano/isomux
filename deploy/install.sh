@@ -3470,6 +3470,7 @@ EOF
 
 install_caddyfile_transaction() {
   local rendered=$1 final=/etc/caddy/Caddyfile old=/etc/caddy/.Caddyfile.isomux-old
+  prepare_caddy_access_logs "$rendered"
   run caddy validate --config "$rendered" --adapter caddyfile
   if [[ -f /etc/isomux/tls/key.pem ]]; then
     assert_caddy_file /etc/isomux/tls/key.pem
@@ -3481,17 +3482,82 @@ install_caddyfile_transaction() {
   [[ ! -f $final ]] || cp -a "$final" "$old"
   mv -f "$rendered" "$final"
   sync -f /etc/caddy
-  if ! systemctl restart caddy; then
+  if ! systemctl restart caddy || ! verify_caddy_front_door "$final"; then
     if [[ -f $old ]]; then
       cp -a "$old" "$rendered"
       sync -f "$rendered"
       mv -f "$rendered" "$final"
       sync -f /etc/caddy
-      systemctl restart caddy || true
+      if systemctl restart caddy && verify_caddy_front_door "$final"; then
+        die "Caddy rejected the new configuration; the previous file was restored"
+      fi
+      die "Caddy rejected the new configuration, and the previous file did not restore a serving front door; check: systemctl status caddy"
     fi
-    die "Caddy rejected the new configuration; the previous file was restored"
+    die "Caddy rejected the new configuration and there was no previous file to restore; check: systemctl status caddy"
   fi
   rm -f "$old"
+}
+
+prepare_caddy_access_logs() {
+  local config=$1 directory=/var/log/caddy user group file
+  local -a files=()
+  mapfile -t files < <(awk '
+    /^[[:space:]]*output[[:space:]]+file[[:space:]]+/ { print $3 }
+  ' "$config")
+  if [[ ${#files[@]} -ne 2 ]] || \
+    [[ ${files[0]:-} != "$directory/isomux-office-access.log" ]] || \
+    [[ ${files[1]:-} != "$directory/isomux-app-access.log" ]]; then
+    die "managed Caddyfile does not contain the two expected access-log paths"
+  fi
+  user=$(systemctl show caddy --property=User --value)
+  [[ -n $user ]] || user=root
+  id -u "$user" >/dev/null
+  group=$(systemctl show caddy --property=Group --value)
+  [[ -n $group ]] || group=$(id -gn "$user")
+  [[ -n $group ]] || die "Caddy unit has no usable group"
+  getent group "$group" >/dev/null
+  if [[ -e $directory || -L $directory ]]; then
+    [[ -d $directory && ! -L $directory ]] || die "Caddy log path is not a regular directory: $directory"
+  else
+    install -d -o "$user" -g "$group" -m 0755 "$directory"
+  fi
+  for file in "${files[@]}"; do
+    [[ ! -L $file ]] || die "refusing to change ownership of Caddy access-log symlink: $file"
+    if [[ -e $file ]]; then
+      [[ -f $file ]] || die "Caddy access log is not a regular file: $file"
+      chown -h "$user:$group" "$file"
+      [[ -f $file && ! -L $file ]] || die "Caddy access log changed while its ownership was repaired: $file"
+      chmod 0600 "$file"
+    else
+      install -o "$user" -g "$group" -m 0600 /dev/null "$file"
+    fi
+  done
+}
+
+verify_caddy_front_door() {
+  local config=$1 domain attempt status
+  local attempts=${CADDY_VERIFY_ATTEMPTS:-11}
+  local interval=${CADDY_VERIFY_INTERVAL_SECONDS:-1}
+  domain=$(awk '
+    /^[^[:space:]#].*[[:space:]]\{$/ {
+      line=$0
+      sub(/[[:space:]]+\{$/, "", line)
+      if (line != "{" && line !~ /^\*/) { print line; exit }
+    }
+  ' "$config")
+  [[ $domain =~ ^[A-Za-z0-9][A-Za-z0-9.-]*$ ]] || return 1
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    status=""
+    if systemctl is-active --quiet caddy; then
+      status=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+        --max-time 1 --resolve "$domain:80:127.0.0.1" "http://$domain/__isomux/front-door-check") || true
+      if [[ $status == 308 ]] && systemctl is-active --quiet caddy; then
+        return 0
+      fi
+    fi
+    ((attempt == attempts)) || sleep "$interval"
+  done
+  return 1
 }
 
 assert_caddy_file() {
@@ -3777,7 +3843,7 @@ migrate_caddy_access_log() (
   transaction_rc=$?
   set -e
   if ((transaction_rc != 0)); then
-    if systemctl is-active --quiet caddy; then
+    if verify_caddy_front_door "$CADDYFILE"; then
       log "warning: Caddy rejected the access-log migration and its previous configuration was restored"
       log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added; the previous configuration was restored"
       return 0
@@ -3910,7 +3976,7 @@ deps_only() {
   migration_rc=$?
   set -e
   if ((migration_rc != 0)); then
-    if systemctl is-active --quiet caddy; then
+    if verify_caddy_front_door "$CADDYFILE"; then
       log "warning: Caddy access-log migration did not complete; the active front door was left unchanged"
       log "ISOMUX_UPDATE_WARNING=Caddy access logging was not added; the active front door was left unchanged"
     else

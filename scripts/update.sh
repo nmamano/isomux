@@ -283,6 +283,16 @@ ready_poll() {
   done
 }
 
+check_public_front_door() {
+  [[ $SERVICE_KIND == system ]] || return 0
+  systemctl cat caddy >/dev/null 2>&1 || return 0
+  if ! systemctl is-active --quiet caddy; then
+    local warning="Caddy is down; the office's public URL may be down. Check: systemctl status caddy"
+    log "warning: $warning"
+    add_deps_warning "$warning"
+  fi
+}
+
 # --- Recovery ladders -------------------------------------------------------
 
 # Re-point the checkout at the old commit and rebuild its world. Used by every
@@ -529,8 +539,13 @@ main() {
     svc start "$SERVICE_NAME"
     phase readiness
     ready_poll "$READY_TIMEOUT_S"
+    check_public_front_door
     phase finalize
-    write_status ok "recorded the release tag for $TARGET_TAG"
+    if [[ -n $DEPS_WARNING ]]; then
+      write_status ok "recorded the release tag for $TARGET_TAG; warning: $DEPS_WARNING"
+    else
+      write_status ok "recorded the release tag for $TARGET_TAG"
+    fi
     trap - ERR
     log "recorded the release tag for $TARGET_TAG"
     exit 0
@@ -577,6 +592,7 @@ main() {
 
   phase readiness
   ready_poll "$READY_TIMEOUT_S" || fail_ready
+  check_public_front_door
 
   phase finalize
   trap - ERR

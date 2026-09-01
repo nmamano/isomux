@@ -78,6 +78,8 @@ function buildFixture(opts: {
   failStarts?: number;
   mutateStateOnStart?: boolean;
   stopStaysActive?: boolean;
+  caddyActive?: boolean;
+  caddyUnitPresent?: boolean;
 }): Fixture {
   const base = mkdtempSync(join(tmpdir(), "isomux-update-test-"));
   const repo = join(base, "repo");
@@ -142,6 +144,9 @@ function buildFixture(opts: {
 echo "systemctl $*" >> "$STUB_LOG"
 [[ $1 == --user ]] && shift
 case $1 in
+  cat)
+    if [[ $2 == caddy && "$CADDY_UNIT_PRESENT" != 1 ]]; then exit 4; fi
+    ;;
   stop)
     [[ -n \${STOP_STAYS_ACTIVE:-} ]] || echo inactive > "$STUB_STATE"
     stops=$(grep -c "systemctl.* stop " "$STUB_LOG")
@@ -168,6 +173,10 @@ case $1 in
     fi
     ;;
   is-active)
+    if [[ $* == 'is-active --quiet caddy' ]]; then
+      [[ "$CADDY_ACTIVE" == 1 ]]
+      exit
+    fi
     cat "$STUB_STATE"
     [[ $(cat "$STUB_STATE") == active ]] || exit 3
     ;;
@@ -228,6 +237,8 @@ READY_TIMEOUT_S=3
     TEST_STATE_ROOT: stateRoot,
     READY_AFTER_STARTS: String(opts.readyAfterStarts ?? 1),
     FAIL_STARTS: String(opts.failStarts ?? 0),
+    CADDY_ACTIVE: opts.caddyActive === false ? "0" : "1",
+    CADDY_UNIT_PRESENT: opts.caddyUnitPresent === false ? "0" : "1",
   };
   if (opts.mutateStateOnStart) env.MUTATE_STATE_ON_START = "1";
   if (opts.stopStaysActive) env.STOP_STAYS_ACTIVE = "1";
@@ -701,13 +712,54 @@ describe("update.sh failure ladders", () => {
 });
 
 // Network convergence lives in the target release's deps-only installer. The
-// installed updater still has no path to the terminator's config.
-describe("update.sh leaves the terminator's config alone", () => {
+// installed updater does not mutate the terminator's config, but it must not
+// report an unqualified success when the public front door is down.
+describe("update.sh public-front-door result", () => {
   const SRC = readFileSync(new URL("./update.sh", import.meta.url), "utf8");
+
+  function updaterWithSystemFrontDoorProbe(): string {
+    const path = join(fx.base, "system-front-door-updater");
+    const changed = SRC.replaceAll(
+      "check_public_front_door\n",
+      "SERVICE_KIND=system check_public_front_door\n",
+    );
+    expect(changed).not.toBe(SRC);
+    writeFileSync(path, changed, { mode: 0o700 });
+    return path;
+  }
 
   it("has no path to the Caddyfile at all", () => {
     expect(SRC).not.toContain("/etc/caddy");
     expect(SRC).not.toContain("Caddyfile");
-    expect(SRC.toLowerCase()).not.toContain("caddy");
+  });
+
+  it("warns in both output and status when loopback is ready but Caddy is down", async () => {
+    fx = buildFixture({ caddyActive: false });
+    const result = await runUpdate(
+      ["v2026.7.20"],
+      updaterWithSystemFrontDoorProbe(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.out).toContain(
+      "warning: Caddy is down; the office's public URL may be down. Check: systemctl status caddy",
+    );
+    expect(status().result).toBe("ok");
+    expect(status().message).toContain(
+      "warning: Caddy is down; the office's public URL may be down. Check: systemctl status caddy",
+    );
+  });
+
+  it("does not warn on a system office with no Caddy unit", async () => {
+    fx = buildFixture({
+      caddyActive: false,
+      caddyUnitPresent: false,
+    });
+    const result = await runUpdate(
+      ["v2026.7.20"],
+      updaterWithSystemFrontDoorProbe(),
+    );
+    expect(result.code).toBe(0);
+    expect(result.out).not.toContain("office's public URL may be down");
+    expect(status().message).not.toContain("office's public URL may be down");
   });
 });

@@ -82,6 +82,8 @@ function runDepsMode(opts: {
   packagesFail?: boolean;
   failVerb?: string;
   noCaddyUnit?: boolean;
+  migrationFails?: boolean;
+  frontDoorHealthy?: boolean;
 }): Run {
   const stubLog = join(base, "stub.log");
   const activeFile = join(base, "caddy-active");
@@ -122,12 +124,13 @@ step() { CURRENT_STEP=$1; }
 # Non-exiting for the guards (root/apt/service-user never hold in a test
 # process; those are pinned in install-sh.test.ts), but deps_only's own die
 # calls must still stop it - so mark and exit on the ones that matter.
-die() { echo "DIE: $*"; case "$*" in *caddy*) exit 1 ;; esac; }
+die() { echo "DIE: $*"; case "$*" in *[Cc]addy*) exit 1 ;; esac; }
 install_packages() { echo "install_packages"; ${apt}; ${opts.packagesFail ? "report_failure; exit 1" : "true"}; }
 install_browser() { echo "install_browser"; }
 configure_codex_sandbox() { echo "configure_codex_sandbox"; }
 configure_user_manager() { echo "configure_user_manager"; }
-migrate_caddy_access_log() { echo "migrate_caddy_access_log"; }
+migrate_caddy_access_log() { echo "migrate_caddy_access_log"; ${opts.migrationFails ? "return 1" : ":"}; }
+verify_caddy_front_door() { ${opts.frontDoorHealthy === false ? "return 1" : "return 0"}; }
 write_loopback_bind_if_proxied() { echo "write_loopback_bind_if_proxied"; }
 deps_only
 `;
@@ -259,6 +262,21 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
     const r = runDepsMode({ active: true, enabled: true, aptDoes: "purge" });
     expect(r.out).toContain("could not restore caddy");
     expect(r.out).not.toContain("install_browser");
+    expect(r.code).not.toBe(0);
+  });
+
+  it("fails when migration reports failure and an active unit has no serving front door", () => {
+    const r = runDepsMode({
+      active: true,
+      enabled: true,
+      migrationFails: true,
+      frontDoorHealthy: false,
+    });
+    expect(r.active).toBe(true);
+    expect(r.out).toContain(
+      "Caddy access logging was not added and Caddy is down",
+    );
+    expect(r.out).not.toContain("system dependencies are up to date");
     expect(r.code).not.toBe(0);
   });
 });
