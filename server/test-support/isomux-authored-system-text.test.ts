@@ -10,7 +10,6 @@ import { describe, it, expect } from "bun:test";
 
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
-import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { FakeBackend } from "./fake-backend.ts";
@@ -35,26 +34,39 @@ function room(): RoomWire[] {
 // plausibly would (`4 grep 401` is an entirely reasonable thing to type).
 const AUTH_SHAPED =
   "Allowing any command starting with `grep 401` for this session.";
+const ORDINARY_PROVIDER_TEXT = "Provider session initialized.";
 
 async function emitSystemText(
+  text: string,
   isomuxAuthored: true | undefined,
-): Promise<string[]> {
-  const logs: string[] = [];
-  const sink: EventHandler = (e) => {
-    if (e.type === "log_entry" && e.entry.kind === "system")
-      logs.push(e.entry.content);
-  };
+): Promise<ReturnType<ReturnType<typeof createAgentManager>["getAgentLogs"]>> {
   // The real backends' detectAuthError is the 401/403/"not logged in" regex;
   // FakeBackend defaults to "never", so give it the same shape to test against.
   const fake = new FakeBackend({
     isAuthError: (t) => /401|403|not logged in|authentication/i.test(t),
-    loginInstructions: { text: "Sign in to continue." },
+    loginInstructions: {
+      text: "Sign in to continue.",
+      commands: ["codex login --device-auth"],
+    },
   });
   const mgr = createAgentManager({
     resolveBackend: () => fake,
     officeState: new OfficeState({ rooms: room() }),
     initialRooms: [],
-    eventSink: sink,
+    listProviderAccounts: async () => [
+      {
+        provider: "codex",
+        scope: "office",
+        accountStatus: "not_connected",
+        loginStatus: "idle",
+        canBrowserLogin: true,
+      },
+    ],
+    effectiveProviderAccountTarget: () => ({
+      provider: "codex",
+      scope: "office",
+      dir: "/accounts/office-codex",
+    }),
   });
   mgr.configurePluginHooksDeps();
   const info = await mgr.spawn(
@@ -67,8 +79,10 @@ async function emitSystemText(
     undefined,
     undefined,
     undefined,
-    undefined,
+    "Owner",
     "codex",
+    undefined,
+    "user-a",
   );
   if (!info) throw new Error("spawn returned null");
   // The session is created on the first message, not at spawn.
@@ -82,27 +96,52 @@ async function emitSystemText(
   );
   fake.sessionForAgent(info.id)!.push({
     kind: "system_text",
-    text: AUTH_SHAPED,
+    text,
     ...(isomuxAuthored ? { isomuxAuthored } : {}),
   });
   await waitUntil(
-    () => logs.some((l) => l.includes("grep 401")),
-    "breadcrumb logged",
+    () =>
+      mgr
+        .getAgentLogs(info.id)
+        .some((entry) =>
+          isomuxAuthored || text === ORDINARY_PROVIDER_TEXT
+            ? entry.content === text
+            : entry.metadata?.providerLogin === "codex",
+        ),
+    "system text handled",
   );
-  // Login instructions are emitted right after, so one more tick settles it.
-  await sleep(50);
-  return logs;
+  return mgr.getAgentLogs(info.id);
 }
 
 describe("system_text auth sniffing", () => {
-  it("relayed backend text still triggers the sign-in card", async () => {
-    const logs = await emitSystemText(undefined);
-    expect(logs.some((l) => /sign in|login|log in/i.test(l))).toBe(true);
+  it("collapses relayed provider auth text into the sign-in card", async () => {
+    const logs = await emitSystemText(AUTH_SHAPED, undefined);
+    expect(
+      logs.filter((entry) => entry.metadata?.providerLogin === "codex"),
+    ).toEqual([
+      expect.objectContaining({
+        content:
+          "Codex could not run this message because it is not signed in. Sign in below to continue.",
+      }),
+    ]);
+    expect(logs.some((entry) => entry.content === AUTH_SHAPED)).toBe(false);
   });
 
   it("Isomux-authored text never does, however auth-shaped it reads", async () => {
-    const logs = await emitSystemText(true);
-    expect(logs.some((l) => l.includes("grep 401"))).toBe(true);
-    expect(logs.some((l) => /sign in|login|log in/i.test(l))).toBe(false);
+    const logs = await emitSystemText(AUTH_SHAPED, true);
+    expect(logs.some((entry) => entry.content === AUTH_SHAPED)).toBe(true);
+    expect(
+      logs.some((entry) => entry.metadata?.providerLogin === "codex"),
+    ).toBe(false);
+  });
+
+  it("logs ordinary provider system text verbatim without a sign-in card", async () => {
+    const logs = await emitSystemText(ORDINARY_PROVIDER_TEXT, undefined);
+    expect(logs.some((entry) => entry.content === ORDINARY_PROVIDER_TEXT)).toBe(
+      true,
+    );
+    expect(
+      logs.some((entry) => entry.metadata?.providerLogin === "codex"),
+    ).toBe(false);
   });
 });
