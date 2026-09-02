@@ -910,10 +910,12 @@ function seedUsers() {
     });
   }
   const ricky = users.get("ricky");
-  const requestedUser =
-    new URLSearchParams(window.location.search).get("as") === "member"
-      ? users.get("stephen")
-      : ricky;
+  // `?as=member` views the demo as a member. The seeder also runs under bun
+  // test, where there is no window, so the switch is guarded.
+  const viewAsMember =
+    typeof window !== "undefined" &&
+    new URLSearchParams(window.location.search).get("as") === "member";
+  const requestedUser = viewAsMember ? users.get("stephen") : ricky;
   if (requestedUser) {
     sessionContext = {
       userId: requestedUser.id,
