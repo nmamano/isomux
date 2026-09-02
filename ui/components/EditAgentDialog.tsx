@@ -1893,19 +1893,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       >
                         {usesBackendModels ? (
                           <>
-                            {pickerModels
-                              ? pickerModels.available.map((m) => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.label}
-                                  </option>
-                                ))
-                              : isCodex
-                                ? CODEX_MODELS.map((m) => (
-                                    <option key={m.value} value={m.value}>
-                                      {m.label}
-                                    </option>
-                                  ))
-                                : null}
+                            {/* OpenCode lists free models first, then the
+                                paid catalogue as its own group (Nil). */}
                             {pickerModels && pickerModels.free.length > 0 && (
                               <optgroup label="Free (the provider may use traffic for training)">
                                 {pickerModels.free.map((m) => (
@@ -1915,6 +1904,29 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                                 ))}
                               </optgroup>
                             )}
+                            {pickerModels
+                              ? isOpenCode
+                                ? pickerModels.available.length > 0 && (
+                                    <optgroup label="Paid (billed to your OpenCode account)">
+                                      {pickerModels.available.map((m) => (
+                                        <option key={m.id} value={m.id}>
+                                          {m.label}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )
+                                : pickerModels.available.map((m) => (
+                                    <option key={m.id} value={m.id}>
+                                      {m.label}
+                                    </option>
+                                  ))
+                              : isCodex
+                                ? CODEX_MODELS.map((m) => (
+                                    <option key={m.value} value={m.value}>
+                                      {m.label}
+                                    </option>
+                                  ))
+                                : null}
                             {pickerModels &&
                               pickerModels.connect.length > 0 && (
                                 <optgroup label="Connect a provider">
