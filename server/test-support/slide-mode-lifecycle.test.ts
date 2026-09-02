@@ -21,7 +21,10 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { FakeBackend, type FakeSessionConfig } from "./fake-backend.ts";
-import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { createAgentManager } from "../agent-manager.ts";
@@ -55,7 +58,7 @@ let cleanup: (() => void) | null = null;
 afterEach(() => {
   cleanup?.();
   cleanup = null;
-  setOfficeEnvFileProvider(() => null);
+  clearTestManagedOfficeEnv();
 });
 
 // Point CLAUDE_CONFIG_DIR at a unique temp dir (via an office env file) so the
@@ -65,9 +68,7 @@ let envSuffix = 0;
 function wireClaudeHome(): string {
   const suffix = `slide-life-${++envSuffix}`;
   const claudeHome = join(STATE_ROOT, `claude-home-${suffix}`);
-  const envFile = join(STATE_ROOT, `office-${suffix}.env`);
-  writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome}\n`);
-  setOfficeEnvFileProvider(() => envFile);
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
   return claudeHome;
 }
 

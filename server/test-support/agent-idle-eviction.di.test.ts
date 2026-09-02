@@ -16,7 +16,10 @@ import type { RoomWire } from "../../shared/types.ts";
 import { STATE_ROOT } from "../config.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 
 function rooms(...ids: string[]): RoomWire[] {
@@ -48,9 +51,7 @@ const claudeHome = () => join(STATE_ROOT, "claude-home-idle-evict");
 // file, so the Claude resume preflight (claudeSessionFileExists) consults a
 // path we control instead of the host ~/.claude.
 function wireClaudeConfigDir(): void {
-  const envFile = join(STATE_ROOT, "office-idle-evict.env");
-  writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome()}\n`);
-  setOfficeEnvFileProvider(() => envFile);
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
 }
 
 // Touch the existence-only session file createSession checks on resume.
@@ -179,7 +180,7 @@ function isLiveAndDemotable(
 afterEach(() => {
   // env-loader's office-env provider is a process global; reset so other test
   // files don't inherit our temp CLAUDE_CONFIG_DIR.
-  setOfficeEnvFileProvider(() => null);
+  clearTestManagedOfficeEnv();
 });
 
 describe("idle eviction - demote / dormant / wake", () => {

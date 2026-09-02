@@ -29,7 +29,10 @@ import { loadLog, loadSessionsMap } from "../persistence.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
-import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import {
   formatAttachmentLines,
   resolveAttachmentNotices,
@@ -58,7 +61,7 @@ const activeFakes: FakeBackend[] = [];
 afterEach(() => {
   for (const f of activeFakes) f.sessions.forEach((s) => s.close());
   activeFakes.length = 0;
-  setOfficeEnvFileProvider(() => null);
+  clearTestManagedOfficeEnv();
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -113,9 +116,7 @@ function claudeHome(): string {
 }
 
 function wireClaudeConfigDir(): void {
-  const envFile = join(STATE_ROOT, "office.env");
-  writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome()}\n`);
-  setOfficeEnvFileProvider(() => envFile);
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
 }
 
 function seedClaudeSession(cwd: string, sessionId: string): void {

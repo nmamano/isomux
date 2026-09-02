@@ -25,7 +25,10 @@ import { FakeBackend } from "./fake-backend.ts";
 import { stripOutboundEnvelope } from "../plugin-hooks.ts";
 import { MEMORY_CAPS } from "../memory-store.ts";
 import { STATE_ROOT } from "../config.ts";
-import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { loadLog } from "../persistence.ts";
 import type { AgentInfo } from "../../shared/types.ts";
@@ -34,7 +37,7 @@ let server: TestServer | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
-  setOfficeEnvFileProvider(() => null);
+  clearTestManagedOfficeEnv();
 });
 
 const WAIT_MS = 20_000;
@@ -57,9 +60,7 @@ let homeSuffix = 0;
 function wireClaudeHome(): string {
   const suffix = `mem-notice-${++homeSuffix}`;
   const claudeHome = join(STATE_ROOT, `claude-home-${suffix}`);
-  const envFile = join(STATE_ROOT, `office-${suffix}.env`);
-  writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome}\n`);
-  setOfficeEnvFileProvider(() => envFile);
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
   return claudeHome;
 }
 

@@ -39,7 +39,10 @@ import { findUsageAtFork, readAgentUsage } from "../usage-report.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
-import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import type { EventHandler } from "../internal-types.ts";
 import type { LogEntry, RoomWire } from "../../shared/types.ts";
@@ -62,7 +65,7 @@ afterEach(() => {
   // preflight finds the seeded provider file). Reset the env-loader
   // process-global after each test so it cannot leak into other tests; harness
   // tests re-register their own provider on boot.
-  setOfficeEnvFileProvider(() => null);
+  clearTestManagedOfficeEnv();
 });
 
 let ts = 0;
@@ -503,9 +506,7 @@ function claudeHome(): string {
 // the real ~/.claude). buildEnvForUserId merges the office env file over
 // process.env, so this reaches createSession's preflight.
 function wireClaudeConfigDir(): void {
-  const envFile = join(STATE_ROOT, "office.env");
-  writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome()}\n`);
-  setOfficeEnvFileProvider(() => envFile);
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
 }
 
 // Satisfy the explicit-resume/fork preflight by touching the provider session

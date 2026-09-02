@@ -29,7 +29,10 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
-import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import {
   startTestServer,
@@ -52,7 +55,7 @@ afterEach(async () => {
   // The #11 bridge test overrides the process-global office env-file provider
   // to inject a temp CLAUDE_CONFIG_DIR. Reset it so it can't outlive this file
   // pointing at a now-deleted temp STATE_ROOT path (mirrors fork-usage.test.ts).
-  setOfficeEnvFileProvider(() => null);
+  clearTestManagedOfficeEnv();
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -305,9 +308,7 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     // tree, never the real ~/.claude. Mirrors fork-usage.test.ts. The next
     // startTestServer boot re-registers the production provider, so no leak.
     const claudeHome = join(srv.stateRoot, "bridge-claude-home");
-    const envFile = join(srv.stateRoot, "bridge-office.env");
-    writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome}\n`);
-    setOfficeEnvFileProvider(() => envFile);
+    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
 
     const job = seedJob(srv, "Boss");
     const run = srv.cronjobManager.runCronjobNow(job.id, "Boss");

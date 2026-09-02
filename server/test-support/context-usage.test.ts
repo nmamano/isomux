@@ -30,7 +30,10 @@ import { OfficeState } from "../../shared/office-state.ts";
 import type { AgentEvent } from "../internal-types.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
 import { loadLog } from "../persistence.ts";
 import { STATE_ROOT } from "../config.ts";
@@ -42,7 +45,7 @@ let server: TestServer | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
-  setOfficeEnvFileProvider(() => null);
+  clearTestManagedOfficeEnv();
 });
 
 // Every wait below is an "expect this to happen" poll, so its deadline only
@@ -114,9 +117,7 @@ let diSuffix = 0;
 function wireClaudeHome(): string {
   const suffix = `ctx-life-${++diSuffix}`;
   const claudeHome = join(STATE_ROOT, `claude-home-${suffix}`);
-  const envFile = join(STATE_ROOT, `office-${suffix}.env`);
-  writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome}\n`);
-  setOfficeEnvFileProvider(() => envFile);
+  setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
   return claudeHome;
 }
 
@@ -445,9 +446,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     // asserted through the manager's public getAgentContextUsage op - the
     // REST mapping over it is covered by the harness tests above.
     const claudeHome = join(STATE_ROOT, "claude-home-context-usage");
-    const envFile = join(STATE_ROOT, "office-context-usage.env");
-    writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome}\n`);
-    setOfficeEnvFileProvider(() => envFile);
+    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome });
 
     // One committed reading, then null forever - so post-edit reads can't
     // silently refill the snapshot through the live path.

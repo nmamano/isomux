@@ -29,12 +29,15 @@ import { createAgentManager } from "../agent-manager.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { STATE_ROOT } from "../config.ts";
 import { claudeProjectDir } from "../cwd-utils.ts";
-import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
 import { stampSessionEngineConfig } from "../persistence.ts";
 import type { AgentInfo, RoomWire } from "../../shared/types.ts";
 import type { SubscriptionUsageResult } from "../backends/types.ts";
 
-afterEach(() => setOfficeEnvFileProvider(() => null));
+afterEach(() => clearTestManagedOfficeEnv());
 
 const WAIT_MS = 20_000;
 setDefaultTimeout(60_000);
@@ -133,12 +136,10 @@ let homeSuffix = 0;
 function wireClaudeHome(): string {
   const suffix = `sub-usage-${++homeSuffix}`;
   const claudeHome = join(STATE_ROOT, `claude-home-${suffix}`);
-  const envFile = join(STATE_ROOT, `office-${suffix}.env`);
-  writeFileSync(
-    envFile,
-    `CLAUDE_CONFIG_DIR=${claudeHome}\nCODEX_HOME=${join(STATE_ROOT, "codex-home")}\n`,
-  );
-  setOfficeEnvFileProvider(() => envFile);
+  setTestManagedOfficeEnv({
+    CLAUDE_CONFIG_DIR: claudeHome,
+    CODEX_HOME: join(STATE_ROOT, "codex-home"),
+  });
   return claudeHome;
 }
 
