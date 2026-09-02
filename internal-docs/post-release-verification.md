@@ -193,3 +193,65 @@ that the tag points at the intended commit, and that the installer the docs
 tell a customer to fetch is byte-identical to the one in the tree. Those
 four take a minute and gate whether the rest of stage A means anything.
 They are not a substitute for an install on a clean box.
+
+## What the v2026.9.2 run taught (2026-09-02)
+
+**Pin the installer and the application separately.** The self-hosted docs
+fetch `deploy/install.sh` from `main`, while `ISOMUX_REF` selects the
+application checkout. Setting `ISOMUX_REF` to an old release can therefore
+run the current installer against old application code, which is a hybrid,
+not a previous-release install. Record the fetched installer hash and the
+checked-out tag separately. Use a box that was installed while the previous
+release was current when the update test needs a genuine previous-release
+starting point.
+
+**A pre-release cannot prove the default latest-release path.** GitHub's
+`releases/latest` excludes pre-releases. For a pre-release, verify the tag and
+installer with an explicit `ISOMUX_REF`, name the default resolution as not
+run, and check it immediately after promotion. Do not report an explicit-ref
+install as proof that the customer default resolves the new tag.
+
+**Install as early as a customer would, and capture the first attempt.** A raw
+Ubuntu box can still have cloud-init holding the dpkg lock when SSH becomes
+available. Capture the first installer attempt. If it fails on that lock,
+capture the holder and its duration, then follow the installer's documented
+retry advice in a new evidence file. The first failure and the retry outcome
+are separate facts; a successful retry does not erase the onboarding defect.
+
+**An update must converge installed helpers, not only the checkout.** The
+target installer may run only a dependency slice during an update. Compare
+systemd drop-ins and installed helper scripts before and after the update,
+and run the target helper's dry-run on the real box. A timer that repeatedly
+runs a stale installed helper does not converge new target behaviour.
+
+**Prove the catalogue condition before judging model groups.** Runtime model
+groups can depend on provider rows that exist only when that provider's
+credential is present. An empty group is correctly hidden. Record the
+credential condition and the provider catalogue first; if the lane has no
+authority to provision the credential, use the grouping unit test as the
+positive half and name the runtime groups as not run.
+
+**Silent migrations need state evidence.** A successful managed-environment
+import logs nothing. Prove it with the managed file, the cleared legacy-path
+marker, the retained legacy source file, and stable managed-file bytes after
+a second restart. Search the journal for the failure strings with `grep -c`;
+do not invent a success line and then treat its absence as failure.
+
+**Message a seeded welcome agent after the reboot.** A roster photograph
+proves seeding, but it does not prove the first conversation is clean. Send
+the first message only after the reboot used for the fresh-install gate, and
+record any recovery notice as well as the answer. A never-messaged agent has
+no prior session to lose, so a restore-failure notice there is onboarding
+noise rather than state-loss evidence.
+
+**Join the two systems of record by UUID, not by IP.** The provider's display
+name carries the control-plane instance id: a Contabo
+`isomux-cp-intent-<uuid>` joins to the control-plane `inst-<uuid>`. Two
+records can share an IP by accident; they cannot share a UUID. Put the
+customer boxes in the SAME query output as the target, and count the customer
+instance ids in the destructive command before running it.
+
+**Move the evidence off the box before a destructive step.** A rebuild
+destroys the only copy of anything left on the box, and a reading nobody took
+cannot be recovered. Confirm every artefact is on the operator's machine, and
+say so on the record, before the next reinstall.
