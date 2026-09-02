@@ -300,14 +300,12 @@ For the full flow - invite TTLs, multi-device users, sign-out, owner recovery, t
 ### Provider API keys
 
 Each user can add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
-`OPENCODE_API_KEY` under User Settings → Connections. Isomux creates and
-updates managed personal and office-wide files under `~/.isomux/`; users do
-not need to create or edit those files on the server. Other per-user variables
-work the same way, for example `GH_TOKEN` so the `gh` CLI acts as you.
+`OPENCODE_API_KEY` under User Settings → Connections. Other per-user variables
+work the same way, for example, each member can set `GH_TOKEN` so their agents
+use their own GitHub credentials.
 
 Office variables load for every agent. Personal variables override office
-values. On update, Isomux automatically imports existing personal and office
-env files into managed variables.
+values.
 
 ## Backups
 

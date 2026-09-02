@@ -147,10 +147,8 @@ OPENCODE_API_KEY=sk-...
 Isomux stores personal and office-wide variables in managed files under
 `~/.isomux/`. Personal variables override office-wide variables when an agent
 starts or resumes a conversation. Other per-user variables work the same way,
-for example `GH_TOKEN` so the `gh` CLI acts as you.
-
-On update, Isomux automatically imports existing personal and office env files
-into managed variables.
+for example, each member can set `GH_TOKEN` so their agents use their own
+GitHub credentials.
 
 An explicit absolute provider directory in the managed variables still overrides the
 Isomux-managed personal directory. Isomux does not expand `~` or `$VAR` there.
