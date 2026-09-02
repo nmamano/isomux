@@ -173,7 +173,12 @@ describe("template values after an engine switch", () => {
       supportedEfforts: [],
     };
     expect(partitionBackendModelsForPicker([available, connect], true)).toEqual(
-      { available: [available], free: [], connect: [connect] },
+      {
+        available: [available],
+        free: [],
+        subscription: [],
+        connect: [connect],
+      },
     );
   });
 
@@ -193,7 +198,27 @@ describe("template values after an engine switch", () => {
     expect(partitionBackendModelsForPicker([free, connect], true)).toEqual({
       available: [],
       free: [free],
+      subscription: [],
       connect: [connect],
+    });
+  });
+
+  it("splits the Go subscription rows from the pay-as-you-go rows", () => {
+    const paid: BackendModelWire = {
+      id: "opencode/kimi-k3",
+      label: "Kimi K3",
+      supportedEfforts: [],
+    };
+    const go: BackendModelWire = {
+      id: "opencode-go/kimi-k3",
+      label: "Kimi K3",
+      supportedEfforts: [],
+    };
+    expect(partitionBackendModelsForPicker([go, paid], true)).toEqual({
+      available: [paid],
+      free: [],
+      subscription: [go],
+      connect: [],
     });
   });
 
@@ -208,6 +233,7 @@ describe("template values after an engine switch", () => {
     expect(partitionBackendModelsForPicker(models, false)).toEqual({
       available: models,
       free: [],
+      subscription: [],
       connect: [],
     });
   });

@@ -1893,8 +1893,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       >
                         {usesBackendModels ? (
                           <>
-                            {/* OpenCode lists free models first, then the
-                                paid catalogue as its own group (Nil). */}
+                            {/* OpenCode picker order (Nil): Free, then
+                                Pay-as-you-go, then Subscription. */}
                             {pickerModels && pickerModels.free.length > 0 && (
                               <optgroup label="Free (the provider may use traffic for training)">
                                 {pickerModels.free.map((m) => (
@@ -1904,29 +1904,42 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                                 ))}
                               </optgroup>
                             )}
-                            {pickerModels
-                              ? isOpenCode
-                                ? pickerModels.available.length > 0 && (
-                                    <optgroup label="Paid (billed to your OpenCode account)">
+                            {pickerModels ? (
+                              isOpenCode ? (
+                                <>
+                                  {pickerModels.available.length > 0 && (
+                                    <optgroup label="Pay-as-you-go (OpenCode credits)">
                                       {pickerModels.available.map((m) => (
                                         <option key={m.id} value={m.id}>
                                           {m.label}
                                         </option>
                                       ))}
                                     </optgroup>
-                                  )
-                                : pickerModels.available.map((m) => (
-                                    <option key={m.id} value={m.id}>
-                                      {m.label}
-                                    </option>
-                                  ))
-                              : isCodex
-                                ? CODEX_MODELS.map((m) => (
-                                    <option key={m.value} value={m.value}>
-                                      {m.label}
-                                    </option>
-                                  ))
-                                : null}
+                                  )}
+                                  {pickerModels.subscription.length > 0 && (
+                                    <optgroup label="Subscription (OpenCode Go)">
+                                      {pickerModels.subscription.map((m) => (
+                                        <option key={m.id} value={m.id}>
+                                          {m.label}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                </>
+                              ) : (
+                                pickerModels.available.map((m) => (
+                                  <option key={m.id} value={m.id}>
+                                    {m.label}
+                                  </option>
+                                ))
+                              )
+                            ) : isCodex ? (
+                              CODEX_MODELS.map((m) => (
+                                <option key={m.value} value={m.value}>
+                                  {m.label}
+                                </option>
+                              ))
+                            ) : null}
                             {pickerModels &&
                               pickerModels.connect.length > 0 && (
                                 <optgroup label="Connect a provider">

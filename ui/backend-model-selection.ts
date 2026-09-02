@@ -61,14 +61,26 @@ export function partitionBackendModelsForPicker(
 ): {
   available: BackendModelWire[];
   free: BackendModelWire[];
+  subscription: BackendModelWire[];
   connect: BackendModelWire[];
 } {
-  if (!isOpenCode) return { available: models, free: [], connect: [] };
+  if (!isOpenCode)
+    return { available: models, free: [], subscription: [], connect: [] };
+  // OpenCode's house providers: "opencode" bills Zen credits per request,
+  // "opencode-go" is the flat-rate Go subscription. Same key, same models
+  // listed twice; the picker shows them as Pay-as-you-go and Subscription.
+  const isSubscription = (model: BackendModelWire) =>
+    model.id.startsWith("opencode-go/");
   return {
     available: models.filter(
-      (model) => !model.requiresConnection && !model.isFree,
+      (model) =>
+        !model.requiresConnection && !model.isFree && !isSubscription(model),
     ),
     free: models.filter((model) => !model.requiresConnection && model.isFree),
+    subscription: models.filter(
+      (model) =>
+        !model.requiresConnection && !model.isFree && isSubscription(model),
+    ),
     connect: models.filter((model) => model.requiresConnection),
   };
 }
