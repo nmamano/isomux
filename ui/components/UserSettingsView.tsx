@@ -49,18 +49,11 @@ import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
 import { ApiTokensPane } from "./ApiTokensPane.tsx";
 import { ConnectionsPane } from "./ConnectionsPane.tsx";
-import { ManagedEnvEditor } from "./ManagedEnvEditor.tsx";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
 } from "./ExpandableTextarea.tsx";
 import { useAccessListsSeed, formatRelative } from "./access-shared.tsx";
-
-type ValidationStatus =
-  | { kind: "idle" }
-  | { kind: "pending" }
-  | { kind: "ok"; keyCount?: number }
-  | { kind: "error"; message: string };
 
 // Account-section entries in the sidebar. Owners get the three admin panes
 // the old "Access & invites" section was split into (task 07514e7f) plus the
@@ -649,7 +642,10 @@ export function UserSettingsView({
                 ) : selection.section === "prefs" && sessionContext ? (
                   <PreferencesPane />
                 ) : selection.section === "connections" && sessionContext ? (
-                  <ConnectionsPane />
+                  <ConnectionsPane
+                    username={sessionContext.username}
+                    role={sessionContext.role}
+                  />
                 ) : selection.section === "apiTokens" && sessionContext ? (
                   <ApiTokensPane />
                 ) : null}
@@ -828,7 +824,6 @@ function UserEditPanel({
   // list, falling back to the projected rooms until it lands.
   const rowsForPrefs: { id: string; name: string }[] =
     !isOwner && isMe ? (meRooms ?? editorRooms) : editorRooms;
-  const [envFile, setEnvFile] = useState<string>(user.envFile ?? "");
   const [memberPrompt, setMemberPrompt] = useState<string>(
     user.memberPrompt ?? "",
   );
@@ -845,9 +840,6 @@ function UserEditPanel({
   const [avatarVariant, setAvatarVariant] = useState<GhostVariant>(
     user.avatarVariant,
   );
-  const [validation, setValidation] = useState<ValidationStatus>({
-    kind: "idle",
-  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -895,56 +887,6 @@ function UserEditPanel({
       });
   }
 
-  // Env-path validation (task 4733fa30): ONE path-based flow serves both the
-  // stored value (validated on open and when the record refreshes) and the
-  // typed-but-unsaved value (validated on input blur - previously a bad path
-  // only surfaced after saving). The seq ref drops out-of-order responses so
-  // a slow probe can't overwrite a newer result.
-  const validationSeqRef = useRef(0);
-  function runEnvValidation(path: string) {
-    const seq = ++validationSeqRef.current;
-    const trimmed = path.trim();
-    if (!trimmed) {
-      setValidation({ kind: "idle" });
-      return;
-    }
-    setValidation({ kind: "pending" });
-    apiFetch<{ ok: boolean; keyCount?: number; error?: string }>(
-      "POST",
-      "/api/validate/env",
-      { scope: "user", username: user.name, path: trimmed },
-    )
-      .then((r) => {
-        if (seq !== validationSeqRef.current) return;
-        if (r.ok) setValidation({ kind: "ok", keyCount: r.keyCount });
-        else
-          setValidation({
-            kind: "error",
-            message: r.error || "Invalid env file",
-          });
-      })
-      .catch((e) => {
-        if (seq !== validationSeqRef.current) return;
-        setValidation({
-          kind: "error",
-          message: e instanceof ApiError ? e.message : "Invalid env file",
-        });
-      });
-  }
-
-  // Validate the stored envFile on open. No cancellation cleanup needed: any
-  // newer run (effect re-run or input blur) bumps the seq, which makes stale
-  // responses drop themselves; a post-unmount response is a no-op setState.
-  useEffect(() => {
-    // One-shot probe kick-off, not state synchronization - same
-    // setState-in-effect exemption the old stored-value validation used.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    runEnvValidation(user.envFile ?? "");
-    // runEnvValidation reads only user.name besides its argument; both are
-    // covered by these deps.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.envFile, user.name]);
-
   // notifSetting and allowedSetting are both strict string[] (no "all"
   // sentinel). Toggling adds or removes a roomId.
   function toggleRoomNotif(roomId: string) {
@@ -987,8 +929,6 @@ function UserEditPanel({
     // Name is trim-saved (see handleSave), so compare trimmed to avoid
     // false-positive dirtiness on trailing whitespace the user can't see.
     if (name.trim() !== user.name) return true;
-    if (!isMe && (envFile.trim() || null) !== (user.envFile ?? null))
-      return true;
     if ((memberPrompt.trim() || null) !== (user.memberPrompt ?? null))
       return true;
     if (mem.dirty) return true;
@@ -1068,7 +1008,6 @@ function UserEditPanel({
     const memoryChanged = mem.dirty;
     const recordChanged =
       renamed ||
-      (!isMe && (envFile.trim() || null) !== (user.envFile ?? null)) ||
       (memberPrompt.trim() || null) !== (user.memberPrompt ?? null) ||
       normalizedColor !== user.avatarColor ||
       avatarVariant !== user.avatarVariant;
@@ -1091,11 +1030,10 @@ function UserEditPanel({
           { allowedRooms: allowedSetting },
         );
       }
-      // (2) Record fields (name/env/prompt/avatar), against the original name.
+      // (2) Record fields (name/prompt/avatar), against the original name.
       if (recordChanged) {
         await apiFetch("PATCH", `/api/users/${encodeURIComponent(origName)}`, {
           name: renamed ? trimmed : undefined,
-          envFile: isMe ? undefined : envFile.trim() || null,
           memberPrompt: memberPrompt.trim() || null,
           avatarColor: normalizedColor,
           avatarVariant,
@@ -1152,7 +1090,6 @@ function UserEditPanel({
       // so the form reads clean once the broadcast refreshes the record -
       // including normalizations the server applies (trim, hex color).
       setName(trimmed);
-      setEnvFile(envFile.trim());
       setMemberPrompt(memberPrompt.trim());
       setAvatarColor(normalizedColor);
     } catch (err) {
@@ -1406,29 +1343,6 @@ function UserEditPanel({
         ) : null}
 
         <h5 style={sectionTitleStyle}>Agent Context</h5>
-        {isMe ? (
-          <>
-            <label style={subLabelStyle}>Environment Variables</label>
-            <ManagedEnvEditor username={user.name} />
-          </>
-        ) : (
-          <>
-            <label style={subLabelStyle}>
-              Env File Path <span style={hintStyle}>(absolute path)</span>
-            </label>
-            <input
-              value={envFile}
-              onChange={(e) => {
-                setEnvFile(e.target.value);
-                setValidation({ kind: "idle" });
-              }}
-              onBlur={() => runEnvValidation(envFile)}
-              placeholder="/home/you/.secrets/me.env"
-              style={inputStyle}
-            />
-            <ValidationLine status={validation} />
-          </>
-        )}
 
         <label style={subLabelStyle}>
           Profile Prompt{" "}
@@ -1773,30 +1687,6 @@ function RoleBadge({ role }: { role: "owner" | "member" }) {
     >
       {role}
     </span>
-  );
-}
-
-function ValidationLine({ status }: { status: ValidationStatus }) {
-  if (status.kind === "idle") return null;
-  if (status.kind === "pending")
-    return (
-      <p
-        style={{ fontSize: 10, color: "var(--text-ghost)", margin: "4px 0 0" }}
-      >
-        Checking…
-      </p>
-    );
-  if (status.kind === "ok")
-    return (
-      <p style={{ fontSize: 10, color: "var(--accent)", margin: "4px 0 0" }}>
-        Loaded {status.keyCount ?? 0} variable{status.keyCount === 1 ? "" : "s"}
-        .
-      </p>
-    );
-  return (
-    <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>
-      {status.message}
-    </p>
   );
 }
 

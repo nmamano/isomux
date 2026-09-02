@@ -1,21 +1,18 @@
 // Office-settings resource handlers - Phase 3a slice 3a.5. The office-wide
-// prompt / envFile / display-name surface on the unified REST surface (opIds
+// prompt / display-name surface on the unified REST surface (opIds
 // office.{getSettings,setSettings}). Owner-only - the route table gates both with
 // office:admin + officeOwner.
 //
 // Strangler: office.setSettings (REST) delegates to the shared core
 // (applyOfficeSettings in the index seam); the legacy update_office_settings WS
 // arm that once shared it is retired (the office-prompt UI now PUTs here). The
-// core validates COMPLETELY before it mutates/emits, so an invalid env path or
-// over-long name never produces a double-signal (no partial write, no
+// core validates COMPLETELY before it mutates/emits, so an over-long name never
+// produces a double-signal (no partial write, no
 // office_settings_updated). setSettings emits office_settings_updated via the
 // existing AgentManager event sink - the handler never emits.
 //
-// office.getSettings returns the FULL OfficeSettings (incl envFile); envFile is
-// owner-only by the route guard and, by design, never rides the office-wide
-// office_settings_updated event (see internal-docs/generic-runtime-refactor.md →
-// Event registry; the all-event drop is a deferred UI-coordinated Follow-up, so
-// the legacy broadcast bridge stays byte-identical for now).
+// office.getSettings returns the editable prompt and display name. The legacy
+// envFile field remains persistence-only until the boot migration clears it.
 //
 // name omitted-vs-null is preserved end to end: an absent `name` (a stale client
 // tab from before the field existed) PRESERVES the current name; an explicit
@@ -31,10 +28,10 @@ import {
   type RouteHandler,
   type HandlerErrorStatus,
 } from "../executor.ts";
-import type { OfficeSettings } from "../../../shared/types.ts";
+import type { OfficeSettingsRes } from "../../../shared/contract-shapes.ts";
 
 // setSettings outcome the seam shapes: ok, a status-mapped validation failure
-// (400 invalid env path / over-long name), or a version conflict carrying the
+// (400 over-long name), or a version conflict carrying the
 // CURRENT version (409 - the settings changed since the caller's read). The
 // handler maps them 1:1.
 export type ApplyOfficeSettingsResult =
@@ -43,15 +40,13 @@ export type ApplyOfficeSettingsResult =
   | { ok: false; conflict: true; version: string };
 
 export interface OfficeSettingsDeps {
-  // Full settings + their optimistic-concurrency version (one version over the
-  // whole blob - the PUT replaces prompt/envFile/name wholesale).
-  getSettings(): OfficeSettings & { version: string };
+  // Editable settings + their optimistic-concurrency version.
+  getSettings(): OfficeSettingsRes;
   // Validate-then-apply, guarded by the version from a preceding getSettings.
   // `name === undefined` preserves the current name; null or empty clears it.
   // Throws nothing - invalid input returns { ok: false }.
   applySettings(input: {
     prompt: string | null;
-    envFile: string | null;
     name?: string | null;
     expectedVersion: string;
   }): ApplyOfficeSettingsResult;
@@ -66,12 +61,10 @@ export function officeSettingsHandlers(
     "office.setSettings": (ctx) => {
       const b = (ctx.body ?? {}) as {
         prompt?: unknown;
-        envFile?: unknown;
         name?: unknown;
         version?: unknown;
       };
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
-      const envFile = typeof b.envFile === "string" ? b.envFile : null;
       // Distinguish "name omitted" (undefined → preserve) from "name set to
       // null/empty" (→ clear). JSON access yields undefined for an absent key and
       // null for an explicit null, so a direct read carries the distinction.
@@ -92,7 +85,6 @@ export function officeSettingsHandlers(
       }
       const r = deps.applySettings({
         prompt,
-        envFile,
         name,
         expectedVersion: b.version,
       });

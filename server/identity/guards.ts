@@ -219,6 +219,19 @@ export const hasOwningUser: Guard = ({ identity }) =>
 export const officeOwner: Guard = ({ identity }) =>
   identity.scope === "user" && identity.role === "owner" ? ALLOW : FORBIDDEN;
 
+// Managed office variables are owner-only, but an API token has its issuing
+// user's reach. Keep this separate from officeOwner: widening officeOwner to
+// API scope would silently widen every existing office-owner route.
+export const officeEnvOwner: Guard = (ctx) => {
+  if (officeOwner(ctx).ok) return ALLOW;
+  const { identity } = ctx;
+  return identity.scope === "api" &&
+    identity.userId !== null &&
+    ctx.deps.isOfficeOwnerUserId(identity.userId)
+    ? ALLOW
+    : FORBIDDEN;
+};
+
 // USER-scope gate. Any user identity (owner OR member) passes; AGENT and
 // CRON-RUN never do - a privileged agent stays scope==="agent", so it cannot
 // pass either. This is the scope half of the agents.setPrivileged double-gate:

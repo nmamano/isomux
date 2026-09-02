@@ -312,7 +312,7 @@ describe("route table: managed env values are self-only", () => {
   };
 
   it("admits the owning user and API identity, and no agent identity", () => {
-    for (const opId of ["userEnv.get", "userEnv.replace", "userEnv.import"]) {
+    for (const opId of ["userEnv.get", "userEnv.replace"]) {
       const route = API_ROUTES.find((candidate) => candidate.opId === opId)!;
       expect(
         runAuthorize(
@@ -376,6 +376,65 @@ describe("route table: managed env values are self-only", () => {
     expect(API_CAPABILITIES).toContain("user:env");
     expect(AGENT_CAPABILITIES).not.toContain("user:env");
     expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain("user:env");
+  });
+});
+
+describe("route table: managed office env is owner-only", () => {
+  const deps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: () => null,
+    cronjobCreatorUserId: () => null,
+    appOwnerUserId: () => null,
+    isOfficeOwnerUserId: (id: string) => id === "owner",
+    agentManagerUserId: () => null,
+    killedAgentManagerUserId: () => null,
+  } satisfies GuardDeps;
+  const identity = (
+    scope: Identity["scope"],
+    userId: string | null,
+    role: "owner" | "member",
+    capabilities: readonly Capability[],
+  ): Identity => ({
+    scope,
+    userId,
+    role,
+    capabilities,
+    ...(scope === "agent" ? { agentId: "a1" } : {}),
+    ...(scope === "app" ? { appName: "app" } : {}),
+    ...(scope === "cron-run" ? { cronjobId: "j1", runId: "run1" } : {}),
+  });
+
+  it("allows owner users and owner API tokens, and refuses every other scope", () => {
+    const route = API_ROUTES.find((r) => r.opId === "officeEnv.get")!;
+    const allowed = (candidate: Identity) =>
+      runAuthorize(route.auth, candidate, {}, undefined, deps).ok;
+    expect(allowed(identity("user", "owner", "owner", USER_CAPABILITIES))).toBe(
+      true,
+    );
+    expect(
+      allowed(identity("user", "member", "member", USER_CAPABILITIES)),
+    ).toBe(false);
+    expect(allowed(identity("api", "owner", "owner", API_CAPABILITIES))).toBe(
+      true,
+    );
+    expect(allowed(identity("api", "member", "member", API_CAPABILITIES))).toBe(
+      false,
+    );
+    expect(
+      allowed(identity("agent", "owner", "member", AGENT_CAPABILITIES)),
+    ).toBe(false);
+    expect(
+      allowed(
+        identity("agent", "owner", "member", PRIVILEGED_AGENT_CAPABILITIES),
+      ),
+    ).toBe(false);
+    expect(allowed(identity("app", "owner", "member", APP_CAPABILITIES))).toBe(
+      false,
+    );
+    expect(
+      allowed(identity("cron-run", "owner", "member", RUN_CAPABILITIES)),
+    ).toBe(false);
   });
 });
 
@@ -537,10 +596,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "userEnv.get": { caps: ["user:env"], emits: [] },
   "userEnv.replace": { caps: ["user:env"], emits: [] },
-  "userEnv.import": {
-    caps: ["user:env"],
-    emits: ["user_admin_updated", "user_self_updated"],
-  },
+  "officeEnv.get": { caps: ["user:env"], emits: [] },
+  "officeEnv.replace": { caps: ["user:env"], emits: [] },
   "apiTokens.list": { caps: ["user:self"], emits: [] },
   "apiTokens.mint": { caps: ["user:self"], emits: [] },
   "apiTokens.revoke": { caps: ["user:self"], emits: [] },
@@ -923,7 +980,8 @@ const API_REACHABLE_OPIDS = [
   "rooms.setSettings",
   "userEnv.get",
   "userEnv.replace",
-  "userEnv.import",
+  "officeEnv.get",
+  "officeEnv.replace",
   "apiTokenInbox.drain",
   "validate.cwd",
   "backends.listModels",

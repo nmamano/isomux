@@ -556,7 +556,6 @@ export interface ApiTokenInboxDrainRes {
 
 export type UserUpdateReq = Partial<{
   name: string;
-  envFile: string | null;
   memberPrompt: string | null;
   avatarColor: string;
   avatarVariant: UserRecord["avatarVariant"];
@@ -597,28 +596,27 @@ export interface AccessSettingsReq {
 
 export interface OfficeSettingsReq {
   prompt: string | null;
-  envFile: string | null;
   // Optional: omitted preserves the current office name (a stale client tab),
   // explicit null/empty clears it, a string sets it. The handler keys on the
   // undefined-vs-null distinction, so null must be representable in the contract.
   name?: string | null;
   // Token from a preceding office.getSettings read. The PUT replaces the whole
-  // settings blob (prompt/envFile/name), so ONE version guards the whole clobber
+  // settings blob (prompt/name), so ONE version guards the whole clobber
   // surface - a mismatch is a 409 version_conflict, mirroring memory REPLACE.
   version: string;
 }
 
-export type UserEnvRes =
-  | { mode: "managed"; values: Record<string, string> }
-  | { mode: "custom"; path: string };
+export type UserEnvRes = { mode: "managed"; values: Record<string, string> };
 
 export interface UserEnvReplaceReq {
   values: Record<string, string>;
 }
 
-// office.getSettings response: the full settings + their optimistic-concurrency
-// version (sha over the canonical [prompt, envFile, name] serialization).
-export type OfficeSettingsRes = OfficeSettings & { version: string };
+// office.getSettings response: the editable settings plus their
+// optimistic-concurrency version.
+export type OfficeSettingsRes = Pick<OfficeSettings, "prompt" | "name"> & {
+  version: string;
+};
 
 export interface ValidateCwdReq {
   cwd: string;

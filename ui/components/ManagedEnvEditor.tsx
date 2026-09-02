@@ -23,8 +23,7 @@ function entriesOf(values: Record<string, string>): Entry[] {
     .map(([key, value]) => ({ id: nextEntryId++, key, value }));
 }
 
-export function ManagedEnvEditor({ username }: { username: string }) {
-  const path = `/api/users/${encodeURIComponent(username)}/env`;
+export function ManagedEnvEditor({ path }: { path: string }) {
   const [mode, setMode] = useState<UserEnvRes | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [saved, setSaved] = useState<Record<string, string>>({});
@@ -80,49 +79,16 @@ export function ManagedEnvEditor({ username }: { username: string }) {
     }
   }
 
-  async function importCustom() {
-    setSaving(true);
-    setError(null);
-    try {
-      await apiFetch("POST", `${path}/import`);
-      await load();
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Could not move the env file",
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
   if (!mode) {
-    return <div style={dialogHint}>{error ?? "Loading variables…"}</div>;
-  }
-
-  if (mode.mode === "custom") {
     return (
-      <div>
-        <div style={dialogHint}>Custom env file: {mode.path}</div>
-        <button
-          type="button"
-          style={{ ...dialogSaveBtn, marginTop: 8 }}
-          disabled={saving}
-          onClick={() => void importCustom()}
-        >
-          {saving ? "Moving…" : "Move to managed variables"}
-        </button>
-        {error && (
-          <div style={{ color: "var(--red)", marginTop: 6 }}>{error}</div>
-        )}
+      <div data-managed-env-path={path} style={dialogHint}>
+        {error ?? "Loading variables…"}
       </div>
     );
   }
 
   return (
-    <div>
-      <div style={{ ...dialogHint, marginBottom: 8 }}>
-        These variables load when your agents start or resume a conversation.
-      </div>
+    <div data-managed-env-path={path}>
       {entries.map((entry) => (
         <div
           key={entry.id}

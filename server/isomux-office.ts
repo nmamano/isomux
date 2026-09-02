@@ -220,13 +220,19 @@ import { systemHandlers } from "./routes/handlers/system.ts";
 import { storageHandlers } from "./routes/handlers/storage.ts";
 import { usageHandlers } from "./routes/handlers/usage.ts";
 import { STATE_ROOT } from "./config.ts";
-import { readEnvFile } from "./persistence.ts";
 import {
+  managedOfficeEnvExists,
   managedUserEnvExists,
+  readManagedOfficeEnv,
   readManagedUserEnv,
-  removeManagedUserEnv,
+  writeManagedOfficeEnv,
   writeManagedUserEnv,
 } from "./user-env.ts";
+import {
+  legacyEnvFileExists,
+  migrateManagedEnvAtBoot,
+} from "./managed-env-migration.ts";
+import { readEnvFile } from "./persistence.ts";
 import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
@@ -1048,8 +1054,8 @@ async function applyAccessSettings(
 // office/tasks slice). Object-level AUTH is NOT here: REST enforces it in the
 // route table (guard + precondition).
 
-// Optimistic-concurrency version over the WHOLE office-settings blob: the PUT
-// replaces prompt/envFile/name wholesale, so one version guards the whole
+// Optimistic-concurrency version over the WHOLE office-settings blob. The
+// persisted envFile remains in the version until the boot import clears it.
 // clobber surface. Canonical array serialization (stable order, distinguishes
 // null from ""), hashed with the same versionOf as memory files.
 function officeSettingsVersion(): string {
@@ -1065,7 +1071,6 @@ function officeSettingsVersion(): string {
 // office_settings_updated via the sink.
 function applyOfficeSettings(input: {
   prompt: string | null;
-  envFile: string | null;
   name?: string | null;
   expectedVersion: string;
 }):
@@ -1075,19 +1080,6 @@ function applyOfficeSettings(input: {
   const currentVersion = officeSettingsVersion();
   if (input.expectedVersion !== currentVersion) {
     return { ok: false, conflict: true, version: currentVersion };
-  }
-  const envFile =
-    input.envFile && input.envFile.trim() ? input.envFile.trim() : null;
-  if (envFile) {
-    try {
-      agentManager.validateEnvPath(envFile);
-    } catch (err) {
-      return {
-        ok: false,
-        status: 400,
-        error: errMessage(err, "Invalid env file"),
-      };
-    }
   }
   const rawName =
     input.name === undefined
@@ -1102,7 +1094,11 @@ function applyOfficeSettings(input: {
       error: "Office name must be 60 characters or fewer",
     };
   }
-  agentManager.setOfficeSettings(input.prompt, envFile, rawName);
+  agentManager.setOfficeSettings(
+    input.prompt,
+    agentManager.getOfficeSettings().envFile,
+    rawName,
+  );
   return { ok: true };
 }
 
@@ -2444,7 +2440,7 @@ function buildExecutorDeps(
     userEnvHandlers({
       get: (userId) => {
         const user = getUserById(userId);
-        if (user?.envFile) return { mode: "custom", path: user.envFile };
+        if (!user) return { mode: "managed", values: {} };
         return {
           mode: "managed",
           values: readManagedUserEnv(userId) ?? {},
@@ -2453,56 +2449,15 @@ function buildExecutorDeps(
       replace: (userId, values) => {
         const user = getUserById(userId);
         if (!user) return { ok: false, status: 404, code: "not_found" };
-        if (user.envFile) {
-          return {
-            ok: false,
-            status: 409,
-            code: "custom_env_active",
-            message:
-              "move the custom env file before editing managed variables",
-          };
-        }
         writeManagedUserEnv(userId, values);
         return { ok: true };
       },
-      importCustom: (userId) => {
-        const user = getUserById(userId);
-        if (!user) return { ok: false, status: 404, code: "not_found" };
-        if (!user.envFile) {
-          return { ok: false, status: 409, code: "no_custom_env" };
-        }
-        if (managedUserEnvExists(userId)) {
-          return {
-            ok: false,
-            status: 409,
-            code: "managed_env_exists",
-            message: "a managed env file already exists",
-          };
-        }
-        let values: Record<string, string>;
-        try {
-          values = readEnvFile(user.envFile);
-          writeManagedUserEnv(userId, values);
-        } catch {
-          return {
-            ok: false,
-            status: 400,
-            code: "import_failed",
-            message: "could not import the custom env file",
-          };
-        }
-        let updated: ReturnType<typeof updateUserById>;
-        try {
-          updated = updateUserById(userId, { envFile: null });
-        } catch {
-          removeManagedUserEnv(userId);
-          return { ok: false, status: 500, code: "import_failed" };
-        }
-        if (!updated.ok) {
-          removeManagedUserEnv(userId);
-          return { ok: false, status: 500, code: "import_failed" };
-        }
-        emitPrivateUserRecord(updated.user);
+      getOffice: () => ({
+        mode: "managed",
+        values: readManagedOfficeEnv() ?? {},
+      }),
+      replaceOffice: (values) => {
+        writeManagedOfficeEnv(values);
         return { ok: true };
       },
     }),
@@ -2519,25 +2474,11 @@ function buildExecutorDeps(
             error: `User ${username} not found`,
           };
         }
-        // Validate envFile against the same seam the WS arm used.
-        if (changes.envFile && changes.envFile.trim()) {
-          try {
-            agentManager.validateEnvPath(changes.envFile.trim());
-          } catch (err) {
-            return {
-              ok: false,
-              status: 400,
-              code: "invalid_env",
-              error: errMessage(err, "Invalid env file"),
-            };
-          }
-        }
         // Record fields ONLY - allowedRooms/notif/default are NOT in
         // UserUpdateReq (access → users.setAccess; view prefs → view.*). Resolve
         // by id so a rename can't strand the write.
         const result = updateUserById(target.id, {
           name: changes.name,
-          envFile: changes.envFile,
           memberPrompt: changes.memberPrompt,
           avatarColor: changes.avatarColor,
           avatarVariant: changes.avatarVariant,
@@ -2556,7 +2497,7 @@ function buildExecutorDeps(
         // Condition the PUBLIC refresh on an actual public-field delta (0236f470).
         // users.update can touch PUBLIC fields or PRIVATE-only ones. UserPublicWire
         // is id|name|role|avatarColor|avatarVariant|createdAt, and of those this
-        // route mutates only name/avatarColor/avatarVariant; env/prompt are private.
+        // route mutates only name/avatarColor/avatarVariant; prompt is private.
         // A private-only edit changes nothing in the public projection, so a public
         // user_updated/users_list would be a pure timing signal that the record
         // changed - the leak setAccess avoids. Mirror setAccess: owners always get
@@ -2716,7 +2657,8 @@ function buildExecutorDeps(
   register(
     officeSettingsHandlers({
       getSettings: () => ({
-        ...agentManager.getOfficeSettings(),
+        prompt: agentManager.getOfficeSettings().prompt,
+        name: agentManager.getOfficeSettings().name,
         version: officeSettingsVersion(),
       }),
       applySettings: (input) => applyOfficeSettings(input),
@@ -6028,6 +5970,36 @@ export async function startServer(
   resetServerModuleState();
   bootPrelude();
   createManagers(opts);
+  migrateManagedEnvAtBoot({
+    office: {
+      label: "office variables",
+      path: agentManager.getOfficeSettings().envFile,
+      legacyExists: legacyEnvFileExists,
+      managedExists: managedOfficeEnvExists,
+      readManaged: readManagedOfficeEnv,
+      readLegacy: readEnvFile,
+      writeManaged: writeManagedOfficeEnv,
+      clearLegacyPath: () => {
+        const settings = agentManager.getOfficeSettings();
+        agentManager.setOfficeSettings(settings.prompt, null, settings.name);
+      },
+    },
+    users: listUsers(),
+    userSubject: (user) => ({
+      label: `user "${user.name}"`,
+      path: user.envFile,
+      legacyExists: legacyEnvFileExists,
+      managedExists: () => managedUserEnvExists(user.id),
+      readManaged: () => readManagedUserEnv(user.id),
+      readLegacy: readEnvFile,
+      writeManaged: (values) => writeManagedUserEnv(user.id, values),
+      clearLegacyPath: () => {
+        const result = updateUserById(user.id, { envFile: null });
+        if (!result.ok) throw new Error("user no longer exists");
+      },
+    }),
+    log: (message) => console.error(message),
+  });
   registerBootHooks();
   wireEventSinks();
   // Phase 3b slice 3: migrate any PERSISTED owner from the old materialized-

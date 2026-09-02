@@ -2,7 +2,7 @@
 //
 // `username` is the name of the boss using this browser; `device` is an
 // optional label for this connection point ("Phone", "Laptop", ...). Per-user
-// preferences (notif rooms, env file path, language, the Slide Mode gate) live
+// preferences (notif rooms, managed variables, language, the Slide Mode gate) live
 // server-side on the user record - see server/users.ts - and are edited from
 // User Settings, so they follow a boss across devices. What stays here is what
 // is genuinely about THIS browser.

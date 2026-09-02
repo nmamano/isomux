@@ -136,7 +136,7 @@ in either scope. Isomux creates a separate personal provider home when needed.
 If both exist, the personal account wins: an agent whose user has set their own
 provider directory uses that account, even when the office is signed in.
 
-Add provider API keys under User Settings → Environment Variables:
+Add provider API keys under User Settings → Connections:
 
 ```text
 ANTHROPIC_API_KEY=sk-ant-...
@@ -144,12 +144,13 @@ OPENAI_API_KEY=sk-...
 OPENCODE_API_KEY=sk-...
 ```
 
-Isomux stores these variables in a per-user file under `~/.isomux/`. The file
-is created on the first save and loaded when an agent starts or resumes a
-conversation.
+Isomux stores personal and office-wide variables in managed files under
+`~/.isomux/`. Personal variables override office-wide variables when an agent
+starts or resumes a conversation. Other per-user variables work the same way,
+for example `GH_TOKEN` so the `gh` CLI acts as you.
 
-An existing custom Env File Path stays active until its user selects **Move to
-managed variables** in User Settings.
+On update, Isomux automatically imports existing personal and office env files
+into managed variables.
 
 An explicit absolute provider directory in the managed variables still overrides the
 Isomux-managed personal directory. Isomux does not expand `~` or `$VAR` there.

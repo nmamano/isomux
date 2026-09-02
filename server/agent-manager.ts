@@ -1770,6 +1770,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       dormant: !!opts.lazy,
     };
     officeState.addExistingAgent(info);
+    // Boot migration runs after managers load persisted state. Keep skill
+    // discovery from turning a pending env import into a boot failure; session
+    // creation still resolves the env again and surfaces the repair instruction.
+    let discoveryEnv: { [key: string]: string | undefined } | undefined;
+    try {
+      discoveryEnv = buildEnvForUserId(userId);
+    } catch {
+      discoveryEnv = undefined;
+    }
     const managed: ManagedAgent = {
       info,
       session: null,
@@ -1786,13 +1795,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([
         ...discoverUserSkills(
-          buildEnvForUserId(userId)?.CLAUDE_CONFIG_DIR ||
-            join(homedir(), ".claude"),
+          discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
         ),
         ...discoverProjectSkills(p.cwd),
         ...discoverPluginSkills(
-          buildEnvForUserId(userId)?.CLAUDE_CONFIG_DIR ||
-            join(homedir(), ".claude"),
+          discoveryEnv?.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"),
         ),
         ...discoverBundledSkills(),
       ]),

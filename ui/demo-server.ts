@@ -63,6 +63,7 @@ let embedMode = false;
 let demoSeededAt = 0;
 let demoApiTokens: ApiTokenWire[] = [];
 const demoManagedEnv: Record<string, Record<string, string>> = {};
+let demoManagedOfficeEnv: Record<string, string> = {};
 
 export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
 
@@ -872,7 +873,8 @@ const DEMO_USERS_SEED: { name: string; role: UserRole }[] = [
 ];
 
 // Active sessions surfaced in the Access pane. Ricky on laptop is the
-// viewer; Stephen has two sessions (laptop + phone) - the phone session
+// default viewer; ?as=member selects Stephen for access screenshots. Stephen
+// has two sessions (laptop + phone) - the phone session
 // is the one whose ghost cycles through the office below.
 const CURRENT_SESSION_PREFIX = "a1b2c3d4";
 let activeSessionsList: SessionWire[] = [];
@@ -908,11 +910,15 @@ function seedUsers() {
     });
   }
   const ricky = users.get("ricky");
-  if (ricky) {
+  const requestedUser =
+    new URLSearchParams(window.location.search).get("as") === "member"
+      ? users.get("stephen")
+      : ricky;
+  if (requestedUser) {
     sessionContext = {
-      userId: ricky.id,
-      username: ricky.name,
-      role: ricky.role,
+      userId: requestedUser.id,
+      username: requestedUser.name,
+      role: requestedUser.role,
       currentSessionPrefix: CURRENT_SESSION_PREFIX,
       // Fixed demo connectionId - the real server generates these per WS
       // upgrade. The viewer's own ghost is filtered client-side by
@@ -1497,7 +1503,18 @@ export async function demoApi(
     // single-writer so conflicts can't happen: serve a fixed token and let the
     // PUT below ignore it.
     case "GET /api/office/settings":
-      return { ...state.office, version: "demo-version" };
+      return {
+        prompt: state.office.prompt,
+        name: state.office.name,
+        version: "demo-version",
+      };
+    case "GET /api/office/env":
+      return { mode: "managed", values: demoManagedOfficeEnv };
+    case "PUT /api/office/env":
+      demoManagedOfficeEnv = {
+        ...(((body ?? {}) as { values?: Record<string, string> }).values ?? {}),
+      };
+      return undefined;
     case "GET /api/usage":
       return demoUsageReport();
     case "GET /api/storage/usage":
@@ -1527,14 +1544,13 @@ export async function demoApi(
     // version guard is production-only; the demo ignores b.version).
     case "PUT /api/office/settings": {
       const b = (body ?? {}) as OfficeSettingsReq;
-      const envFile = b.envFile && b.envFile.trim() ? b.envFile.trim() : null;
       const name =
         b.name === undefined
           ? state.office.name
           : b.name && b.name.trim()
             ? b.name.trim()
             : null;
-      emitEvents(state.setOfficeSettings(b.prompt, envFile, name));
+      emitEvents(state.setOfficeSettings(b.prompt, state.office.envFile, name));
       return undefined;
     }
     // tasks.create - push + broadcast the `tasks` event; return the created task
@@ -1916,23 +1932,14 @@ export async function demoApi(
   // prune notif/default to the new access (mirror the server clamp). An owner
   // target accesses all rooms by rule, so don't prune theirs. Listed before the
   // bare /:username route.
-  const userEnvMatch = pathname.match(
-    /^\/api\/users\/([^/]+)\/env(?:\/(import))?$/,
-  );
+  const userEnvMatch = pathname.match(/^\/api\/users\/([^/]+)\/env$/);
   if (userEnvMatch) {
     const uname = decodeURIComponent(userEnvMatch[1]);
     const existing = users.get(uname.toLowerCase());
     if (!existing)
       throw new ApiError(404, "not_found", `User ${uname} not found`);
-    if (userEnvMatch[2] === "import" && method === "POST") {
-      demoManagedEnv[existing.id] = {};
-      users.set(uname.toLowerCase(), { ...existing, envFile: null });
-      return undefined;
-    }
     if (method === "GET") {
-      return existing.envFile
-        ? { mode: "custom", path: existing.envFile }
-        : { mode: "managed", values: demoManagedEnv[existing.id] ?? {} };
+      return { mode: "managed", values: demoManagedEnv[existing.id] ?? {} };
     }
     if (method === "PUT") {
       demoManagedEnv[existing.id] = {

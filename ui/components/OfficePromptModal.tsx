@@ -32,7 +32,6 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const isOwner = sessionContext?.role === "owner";
   const readOnly = !isOwner;
   const [text, setText] = useState(office.prompt ?? "");
-  const [envFile, setEnvFile] = useState(office.envFile ?? "");
   const [name, setName] = useState(office.name ?? "");
   // Office memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Disabled until the load resolves; saved separately from the
@@ -42,7 +41,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   // memory editor): GET on open (owner-only GET, so skip for read-only members
   // - they never save), send the version back on save; a 409 means another
   // writer saved since. The token must stay coupled to the BYTES read with it,
-  // so ALL guarded fields (prompt/envFile/name - one version over the whole
+  // so ALL guarded fields (prompt/name - one version over the whole
   // blob) hydrate from the same GET response; never pair store-snapshot fields
   // with the GET's version, or a fresher server blob gets silently blessed
   // over. Until the load resolves the fields are read-only and Save stays
@@ -62,7 +61,6 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
       .then((r) => {
         if (cancelled) return;
         setText(r.prompt ?? "");
-        setEnvFile(r.envFile ?? "");
         setName(r.name ?? "");
         setSettingsVersion(r.version);
       })
@@ -75,42 +73,6 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     };
   }, [readOnly]);
 
-  // Ask the server to re-validate the stored env file on open. Members
-  // can't validate office env files (the server gates that command to
-  // owners), so skip the request entirely - the input still shows the
-  // stored path for context.
-  useEffect(() => {
-    const saved = office.envFile;
-    if (!saved || readOnly) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setStatus({ kind: "idle" });
-      return;
-    }
-    setStatus({ kind: "pending" });
-    let cancelled = false;
-    apiFetch<{ ok: boolean; keyCount?: number; error?: string }>(
-      "POST",
-      "/api/validate/env",
-      { scope: "office" },
-    )
-      .then((r) => {
-        if (cancelled) return;
-        if (r.ok) setStatus({ kind: "ok", keyCount: r.keyCount });
-        else
-          setStatus({ kind: "error", message: r.error || "Invalid env file" });
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        setStatus({
-          kind: "error",
-          message: e instanceof ApiError ? e.message : "Invalid env file",
-        });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [office.envFile, readOnly]);
-
   async function handleSave() {
     // The office settings PUT and the memory REPLACE are separate calls: memory
     // rides the permissive /api/memory surface, not the owner-only settings
@@ -120,7 +82,6 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     setSaving(true);
     const body: OfficeSettingsReq = {
       prompt: text.trim() ? text : null,
-      envFile: envFile.trim() || null,
       name: name.trim() || null,
       version: settingsVersion,
     };
@@ -280,33 +241,6 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             marginBottom: 5,
           }}
         >
-          Env File Path{" "}
-          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
-            (optional, absolute path)
-          </span>
-        </label>
-        <input
-          value={envFile}
-          onChange={(e) => {
-            setEnvFile(e.target.value);
-            setStatus({ kind: "idle" });
-          }}
-          placeholder="/home/you/.secrets/office.env"
-          readOnly={readOnly || !settingsLoaded}
-          style={readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle}
-        />
-        <ValidationLine status={status} />
-
-        <label
-          style={{
-            display: "block",
-            fontSize: 11,
-            fontWeight: 600,
-            color: "var(--text-muted)",
-            marginTop: 14,
-            marginBottom: 5,
-          }}
-        >
           Rules{" "}
           <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
             (system prompt for all agents)
@@ -446,6 +380,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
           </>
         )}
 
+        <ValidationLine status={status} />
         <div
           style={{
             display: "flex",

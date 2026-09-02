@@ -1060,7 +1060,8 @@ export interface SkillInfo {
   aliasFor?: string;
 }
 
-// Office-level settings (prompt + optional env file path + optional display name)
+// Office-level settings. envFile is a boot-migration marker for old installs;
+// new writes use the managed office environment.
 export interface OfficeSettings {
   prompt: string | null;
   envFile: string | null;
@@ -1137,7 +1138,7 @@ export interface UserRecord {
   id: string; // stable 8-char hex; the storage key in users.json
   name: string; // display case, e.g. "Nil"; case-insensitively unique
   notifRooms: NotifRoomsSetting;
-  envFile: string | null; // absolute path to dotenv file
+  envFile: string | null; // legacy boot-migration marker
   createdAt: number;
   role: UserRole; // app-level role; owner can invite users, revoke sessions, and set per-user room access
   // Visual identity for the live-avatars feature. avatarColor is a hex

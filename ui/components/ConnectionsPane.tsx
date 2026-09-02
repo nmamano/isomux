@@ -4,12 +4,19 @@ import type {
   ProviderAccountWire,
   ProviderAccountsWire,
 } from "../../shared/types.ts";
-import { hint, sectionHeader } from "./access-shared.tsx";
+import { cardStyle, hint, sectionHeader } from "./access-shared.tsx";
 import { dialogCancelBtn } from "./dialog-styles.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 import { ProviderSignInCard } from "./ProviderSignInCard.tsx";
+import { ManagedEnvEditor } from "./ManagedEnvEditor.tsx";
 
-export function ConnectionsPane() {
+export function ConnectionsPane({
+  username,
+  role,
+}: {
+  username: string;
+  role: "owner" | "member";
+}) {
   const { providerAccounts: liveAccounts } = useAppState();
   const dispatch = useDispatch();
   const accounts = liveAccounts;
@@ -94,13 +101,50 @@ export function ConnectionsPane() {
         accounts={accounts}
         onAccounts={updateAccounts}
       />
-      <p style={{ ...hint, marginTop: 14 }}>
-        <strong>Do you want to use an API key?</strong> Add{" "}
-        <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or{" "}
-        <code>OPENCODE_API_KEY</code> under User Settings → Environment
-        Variables. Then <code>/clear</code> agents to apply it. To share a key
-        with every agent, use Office Settings → Env File Path.
-      </p>
+      <section style={{ ...cardStyle, marginTop: 14 }}>
+        <h5 style={{ margin: "0 0 12px" }}>Environment variables</h5>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 650 }}>
+            Variables for every agent in this office
+          </div>
+          <p style={{ ...hint, margin: "8px 0" }}>
+            These variables load for every agent unless a user variable
+            overrides them.
+          </p>
+          {role === "owner" ? (
+            <ManagedEnvEditor path="/api/office/env" />
+          ) : (
+            <p style={{ ...hint, margin: 0 }}>
+              Office-wide variables are managed by an office owner.
+            </p>
+          )}
+        </div>
+        <div
+          style={{
+            borderTop: "1px solid var(--border-subtle)",
+            paddingTop: 14,
+            marginTop: 14,
+          }}
+        >
+          <div style={{ fontSize: 12, fontWeight: 650 }}>
+            Variables for agents I spawn
+          </div>
+          <p style={{ ...hint, margin: "8px 0" }}>
+            These variables load for agents you spawn and override office-wide
+            variables.
+          </p>
+          <ManagedEnvEditor
+            path={`/api/users/${encodeURIComponent(username)}/env`}
+          />
+          <p style={{ ...hint, margin: "10px 0 0" }}>
+            Add <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or{" "}
+            <code>OPENCODE_API_KEY</code> to use provider API keys. Other
+            per-user variables work the same way, for example{" "}
+            <code>GH_TOKEN</code> so the <code>gh</code> CLI acts as you. Then{" "}
+            <code>/clear</code> agents to apply changes.
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

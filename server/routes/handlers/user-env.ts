@@ -18,7 +18,8 @@ type Outcome =
 export interface UserEnvDeps {
   get(userId: string): UserEnvRes;
   replace(userId: string, values: Record<string, string>): Outcome;
-  importCustom(userId: string): Outcome;
+  getOffice(): UserEnvRes;
+  replaceOffice(values: Record<string, string>): Outcome;
 }
 
 function subjectUserId(ctx: Parameters<RouteHandler>[0]): string | null {
@@ -68,13 +69,27 @@ export function userEnvHandlers(
           : fail(500, "write_failed", "could not save the managed env file");
       }
     },
-    "userEnv.import": (ctx) => {
-      const userId = subjectUserId(ctx);
-      if (!userId) return fail(403, "forbidden");
-      const result = deps.importCustom(userId);
-      return result.ok
-        ? noContent()
-        : fail(result.status, result.code, result.message);
+    "officeEnv.get": () => {
+      try {
+        return ok(deps.getOffice());
+      } catch {
+        return fail(500, "read_failed", "could not read the managed env file");
+      }
+    },
+    "officeEnv.replace": (ctx) => {
+      const values = valuesFromBody(ctx.body);
+      if (!values)
+        return fail(400, "invalid_env", "values must be a string map");
+      try {
+        const result = deps.replaceOffice(values);
+        return result.ok
+          ? noContent()
+          : fail(result.status, result.code, result.message);
+      } catch (error) {
+        return error instanceof ManagedEnvValidationError
+          ? fail(400, "invalid_env", error.message)
+          : fail(500, "write_failed", "could not save the managed env file");
+      }
     },
   };
 }

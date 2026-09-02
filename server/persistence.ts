@@ -775,7 +775,7 @@ export function loadAgents(): Room[] {
     if (typeof room.prompt !== "string") room.prompt = null;
     if (typeof room.envFile === "string" && room.envFile) {
       console.log(
-        `[migration] room "${room.name}" had envFile=${room.envFile} (now removed; copy to your User Settings if you still want it applied)`,
+        `[migration] room "${room.name}" had envFile=${room.envFile} (now removed; add its variables in User Settings → Connections if you still want them applied)`,
       );
       strippedRoomEnv++;
     }
@@ -923,7 +923,8 @@ export function saveRecentCwd(cwd: string) {
   }
 }
 
-// Office-level settings (prompt + env file path) stored in office-config.json.
+// Office-level settings stored in office-config.json. envFile remains only as a
+// boot-migration marker for old installs.
 // On first load, if the legacy office-prompt.md exists and no config file does,
 // fold the .md content into the JSON and leave the .md in place as a one-time backup.
 //

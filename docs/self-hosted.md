@@ -300,12 +300,14 @@ For the full flow - invite TTLs, multi-device users, sign-out, owner recovery, t
 ### Provider API keys
 
 Each user can add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
-`OPENCODE_API_KEY` under User Settings → Environment Variables. Isomux creates
-and updates a private per-user file under `~/.isomux/`; users do not need to
-create or edit that file on the server.
+`OPENCODE_API_KEY` under User Settings → Connections. Isomux creates and
+updates managed personal and office-wide files under `~/.isomux/`; users do
+not need to create or edit those files on the server. Other per-user variables
+work the same way, for example `GH_TOKEN` so the `gh` CLI acts as you.
 
-An office env file can still provide variables to every user. Per-user managed
-variables override office values.
+Office variables load for every agent. Personal variables override office
+values. On update, Isomux automatically imports existing personal and office
+env files into managed variables.
 
 ## Backups
 

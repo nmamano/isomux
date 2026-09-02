@@ -1,16 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { readFileSync, writeFileSync } from "fs";
-import { join } from "path";
-
 import { mintApiToken } from "../api-tokens.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
-import { getUserByName, updateUserById } from "../users.ts";
-import {
-  managedUserEnvPath,
-  managedUserEnvExists,
-  readManagedUserEnv,
-  writeManagedUserEnv,
-} from "../user-env.ts";
+import { getUserByName } from "../users.ts";
 import { startTestServer, type TestServer } from "./harness.ts";
 
 let server: TestServer | null = null;
@@ -42,6 +33,33 @@ async function request(
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     },
   );
+  let body: unknown = null;
+  try {
+    body = await response.json();
+  } catch {
+    // A successful write has no response body.
+  }
+  return { status: response.status, body };
+}
+
+async function officeRequest(
+  srv: TestServer,
+  init: {
+    method?: string;
+    body?: unknown;
+    session?: string;
+    bearer?: string;
+  } = {},
+) {
+  const headers: Record<string, string> = {};
+  if (init.body !== undefined) headers["Content-Type"] = "application/json";
+  if (init.bearer) headers.Authorization = `Bearer ${init.bearer}`;
+  const response = await srv.http("/api/office/env", {
+    method: init.method ?? "GET",
+    headers,
+    rawSessionId: init.session,
+    body: init.body === undefined ? undefined : JSON.stringify(init.body),
+  });
   let body: unknown = null;
   try {
     body = await response.json();
@@ -135,81 +153,52 @@ describe("managed user env routes", () => {
     expect(badValue.status).toBe(400);
     expect(JSON.stringify(badValue.body)).not.toContain(secret);
   });
+});
 
-  it("reports legacy mode without reading values and imports only into an absent managed file", async () => {
+describe("managed office env routes", () => {
+  it("allows owner cookies and API tokens without exposing values to members or agents", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
-    const ownerRecord = getUserByName(owner.username)!;
-    const custom = join(server.stateRoot, "legacy-owner.env");
-    const original = "CUSTOM_SECRET='legacy value'\n";
-    writeFileSync(custom, original, { mode: 0o600 });
-    expect(updateUserById(ownerRecord.id, { envFile: custom }).ok).toBe(true);
+    const member = await server.seedMember("Member");
+    const ownerId = getUserByName(owner.username)!.id;
+    const memberId = getUserByName(member.username)!.id;
+    const ownerApi = await mintApiToken({
+      userId: ownerId,
+      name: "Owner API",
+      expiresInDays: null,
+    });
+    const memberApi = await mintApiToken({
+      userId: memberId,
+      name: "Member API",
+      expiresInDays: null,
+    });
+    const agent = mintAgentToken("office-env-agent", ownerId, false);
+    const privileged = mintAgentToken("office-env-privileged", ownerId, true);
 
-    const legacy = await request(server, owner.username, {
-      session: owner.rawSessionId,
-    });
-    expect(legacy).toEqual({
-      status: 200,
-      body: { mode: "custom", path: custom },
-    });
-    expect(JSON.stringify(legacy.body)).not.toContain("legacy value");
-
-    writeManagedUserEnv(ownerRecord.id, { EXISTING: "keep" });
-    const collision = await request(server, owner.username, {
-      method: "POST",
-      session: owner.rawSessionId,
-      suffix: "/import",
-    });
-    expect(collision.status).toBe(409);
-    expect(readFileSync(custom, "utf8")).toBe(original);
-    expect(readManagedUserEnv(ownerRecord.id)).toEqual({ EXISTING: "keep" });
-    expect(getUserByName(owner.username)!.envFile).toBe(custom);
-  });
-
-  it("imports a custom file without returning its values", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Boss");
-    const member = await server.seedMember("Mia");
-    const record = getUserByName(member.username)!;
-    const custom = join(server.stateRoot, "legacy-member.env");
-    writeFileSync(custom, "CUSTOM_SECRET='migrated'\n", { mode: 0o600 });
-    expect(updateUserById(record.id, { envFile: custom }).ok).toBe(true);
-
-    const imported = await request(server, member.username, {
-      method: "POST",
-      session: member.rawSessionId,
-      suffix: "/import",
-    });
-    expect(imported).toEqual({ status: 204, body: null });
-    expect(getUserByName(member.username)!.envFile).toBeNull();
-    expect(readManagedUserEnv(record.id)).toEqual({
-      CUSTOM_SECRET: "migrated",
-    });
-    expect(readFileSync(custom, "utf8")).toContain("migrated");
-    expect(readFileSync(managedUserEnvPath(record.id), "utf8")).toBe(
-      "CUSTOM_SECRET='migrated'\n",
+    expect(
+      (
+        await officeRequest(server, {
+          method: "PUT",
+          session: owner.rawSessionId,
+          body: { values: { GH_TOKEN: "office" } },
+        })
+      ).status,
+    ).toBe(204);
+    expect(
+      (await officeRequest(server, { session: owner.rawSessionId })).body,
+    ).toEqual({ mode: "managed", values: { GH_TOKEN: "office" } });
+    expect(
+      (await officeRequest(server, { bearer: ownerApi.token })).status,
+    ).toBe(200);
+    expect(
+      (await officeRequest(server, { session: member.rawSessionId })).status,
+    ).toBe(403);
+    expect(
+      (await officeRequest(server, { bearer: memberApi.token })).status,
+    ).toBe(403);
+    expect((await officeRequest(server, { bearer: agent })).status).toBe(403);
+    expect((await officeRequest(server, { bearer: privileged })).status).toBe(
+      403,
     );
-  });
-
-  it("leaves both sources unchanged when import validation fails", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Boss");
-    const member = await server.seedMember("Mia");
-    const record = getUserByName(member.username)!;
-    const custom = join(server.stateRoot, "invalid-legacy.env");
-    const original = "CUSTOM_SECRET='do-not-echo\nsecond-line'\n";
-    writeFileSync(custom, original, { mode: 0o600 });
-    expect(updateUserById(record.id, { envFile: custom }).ok).toBe(true);
-
-    const imported = await request(server, member.username, {
-      method: "POST",
-      session: member.rawSessionId,
-      suffix: "/import",
-    });
-    expect(imported.status).toBe(400);
-    expect(JSON.stringify(imported.body)).not.toContain("do-not-echo");
-    expect(getUserByName(member.username)!.envFile).toBe(custom);
-    expect(readFileSync(custom, "utf8")).toBe(original);
-    expect(managedUserEnvExists(record.id)).toBe(false);
   });
 });

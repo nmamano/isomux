@@ -28,8 +28,6 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, OfficeSettings } from "../../shared/types.ts";
@@ -119,7 +117,7 @@ async function spawnAgent(
 }
 
 describe("routes/office.getSettings REST", () => {
-  it("owner -> 200 full settings incl envFile; member/agent -> 403; no id -> 401", async () => {
+  it("owner -> 200 without envFile; member/agent -> 403; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -128,7 +126,7 @@ describe("routes/office.getSettings REST", () => {
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
 
-    // Seed an envFile so we can confirm it is exposed to the owner.
+    // A legacy migration marker is no longer exposed on the settings wire.
     srv.agentManager.setOfficeSettings("P", "/opt/office.env", "Acme");
 
     const r = await api(srv, "/api/office/settings", {
@@ -138,7 +136,7 @@ describe("routes/office.getSettings REST", () => {
     const s = r.body as OfficeSettings & { version: string };
     expect(s.prompt).toBe("P");
     expect(s.name).toBe("Acme");
-    expect(s.envFile).toBe("/opt/office.env");
+    expect(s.envFile).toBeUndefined();
     // Optimistic-concurrency version over the whole blob, required by the PUT.
     expect(s.version).toMatch(/^[0-9a-f]{12}$/);
 
@@ -157,14 +155,12 @@ describe("routes/office.getSettings REST", () => {
 });
 
 describe("routes/office.setSettings REST", () => {
-  it("owner valid save -> 204, persists, broadcasts office_settings_updated (bridge still carries envFile)", async () => {
+  it("owner valid save -> 204, ignores stale envFile, and broadcasts", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
+    srv.agentManager.setOfficeSettings(null, "/legacy/office.env", null);
     const sock = await srv.connectWs(owner.rawSessionId);
-
-    const envPath = join(srv.stateRoot, "office.env");
-    writeFileSync(envPath, "K=v\n");
 
     const version = await officeVersion(srv, owner.rawSessionId);
     const r = await api(srv, "/api/office/settings", {
@@ -172,7 +168,7 @@ describe("routes/office.setSettings REST", () => {
       rawSessionId: owner.rawSessionId,
       body: {
         prompt: "office prompt",
-        envFile: envPath,
+        envFile: "/stale/tab.env",
         name: "Acme",
         version,
       },
@@ -181,7 +177,7 @@ describe("routes/office.setSettings REST", () => {
 
     const s = srv.agentManager.getOfficeSettings();
     expect(s.prompt).toBe("office prompt");
-    expect(s.envFile).toBe(envPath);
+    expect(s.envFile).toBe("/legacy/office.env");
     expect(s.name).toBe("Acme");
 
     // 3b.5 CLOSED the deferred leak: the all-audience office_settings_updated no
@@ -201,30 +197,6 @@ describe("routes/office.setSettings REST", () => {
     expect(evt.name).toBe("Acme");
     expect(evt.prompt).toBe("office prompt");
     expect(evt.envFile).toBeUndefined(); // 3b.5: envFile no longer rides the all-event
-  });
-
-  it("invalid env path -> 400 and NO double-signal (state untouched, no broadcast)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const sock = await srv.connectWs(owner.rawSessionId);
-
-    const version = await officeVersion(srv, owner.rawSessionId);
-    const r = await api(srv, "/api/office/settings", {
-      method: "PUT",
-      rawSessionId: owner.rawSessionId,
-      body: { prompt: "nope", envFile: "./relative.env", name: null, version },
-    });
-    expect(r.status).toBe(400);
-    // State untouched: validation ran BEFORE any mutation.
-    expect(srv.agentManager.getOfficeSettings().prompt).toBeNull();
-    // No emit on the invalid path (no double-signal).
-    await sleep(150);
-    expect(
-      sock.messages.some(
-        (m) => (m as { type?: string }).type === "office_settings_updated",
-      ),
-    ).toBe(false);
   });
 
   it("name over 60 chars -> 400, state untouched", async () => {

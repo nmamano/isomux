@@ -126,14 +126,28 @@ describe("ProviderSignInCard", () => {
     expect(html).not.toContain("Set your Env File Path in User Settings.");
   });
 
-  it("points all API-key providers at managed environment variables", () => {
-    const html = renderToStaticMarkup(createElement(ConnectionsPane));
+  it("mounts both managed variable editors for an owner", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsPane, { username: "Boss", role: "owner" }),
+    );
     expect(html).toContain("ANTHROPIC_API_KEY");
     expect(html).toContain("OPENAI_API_KEY");
     expect(html).toContain("OPENCODE_API_KEY");
-    expect(html).toContain("User Settings → Environment Variables");
-    expect(html).not.toContain("User Settings → Env File Path");
-    expect(html).toContain("Office Settings → Env File Path");
+    expect(html).toContain('data-managed-env-path="/api/office/env"');
+    expect(html).toContain('data-managed-env-path="/api/users/Boss/env"');
+    expect(html).toContain("GH_TOKEN");
+  });
+
+  it("shows a member the office placeholder and only mounts their editor", () => {
+    const html = renderToStaticMarkup(
+      createElement(ConnectionsPane, { username: "Member", role: "member" }),
+    );
+    expect(html).toContain(
+      "Office-wide variables are managed by an office owner.",
+    );
+    expect(html).not.toContain('data-managed-env-path="/api/office/env"');
+    expect(html).toContain('data-managed-env-path="/api/users/Member/env"');
+    expect(html).not.toContain("owner-secret-value");
   });
 
   it("uses the generic waiting copy for the Claude code step", () => {

@@ -31,6 +31,7 @@ import {
   selfOrOwner,
   selfUserOrApi,
   officeOwner,
+  officeEnvOwner,
   userScope,
   requiresRoomAccess,
   agentParamMustEqualTokenAgent,
@@ -780,12 +781,19 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("user:env", selfUserOrApi),
     emits: [],
   }),
-  defineRoute<void, NoContent>({
-    opId: "userEnv.import",
-    method: "POST",
-    path: "/api/users/:username/env/import",
-    auth: cap("user:env", selfUserOrApi),
-    emits: ["user_admin_updated", "user_self_updated"],
+  defineRoute<void, UserEnvRes>({
+    opId: "officeEnv.get",
+    method: "GET",
+    path: "/api/office/env",
+    auth: cap("user:env", officeEnvOwner),
+    emits: [],
+  }),
+  defineRoute<UserEnvReplaceReq, NoContent>({
+    opId: "officeEnv.replace",
+    method: "PUT",
+    path: "/api/office/env",
+    auth: cap("user:env", officeEnvOwner),
+    emits: [],
   }),
 
   // Personal durable API credentials. Management is cookie USER-only: an API

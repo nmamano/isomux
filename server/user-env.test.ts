@@ -5,10 +5,13 @@ import { dirname } from "path";
 import { parseDotenv, readEnvFile } from "./persistence.ts";
 import {
   ManagedEnvValidationError,
+  managedOfficeEnvPath,
   managedUserEnvExists,
   managedUserEnvPath,
   serializeManagedUserEnv,
   writeManagedUserEnv,
+  writeManagedOfficeEnv,
+  readManagedOfficeEnv,
 } from "./user-env.ts";
 
 const USER_ID = "user-env-test";
@@ -16,6 +19,7 @@ const path = managedUserEnvPath(USER_ID);
 
 afterEach(() => {
   rmSync(dirname(path), { recursive: true, force: true });
+  rmSync(dirname(managedOfficeEnvPath()), { recursive: true, force: true });
 });
 
 describe("managed user env storage", () => {
@@ -56,6 +60,14 @@ describe("managed user env storage", () => {
     expect(readEnvFile(path)).toEqual({});
     expect(statSync(path).mode & 0o777).toBe(0o600);
     expect(readdirSync(dirname(path))).toEqual([`${USER_ID}.env`]);
+  });
+
+  it("uses the shared atomic writer and permissions for office values", () => {
+    writeManagedOfficeEnv({ GH_TOKEN: "office" });
+
+    expect(readManagedOfficeEnv()).toEqual({ GH_TOKEN: "office" });
+    expect(statSync(dirname(managedOfficeEnvPath())).mode & 0o777).toBe(0o700);
+    expect(statSync(managedOfficeEnvPath()).mode & 0o777).toBe(0o600);
   });
 
   it("rejects invalid keys, line breaks, and unsafe user ids before writing", () => {

@@ -16,6 +16,8 @@ import { STATE_ROOT } from "./config.ts";
 import { parseDotenv } from "./persistence.ts";
 
 const USER_ENV_DIR = join(STATE_ROOT, "user-env");
+const OFFICE_ENV_DIR = join(STATE_ROOT, "office-env");
+const OFFICE_ENV_FILE = join(OFFICE_ENV_DIR, "office.env");
 const SAFE_USER_ID = /^[A-Za-z0-9_-]+$/;
 const SAFE_KEY = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -43,6 +45,19 @@ export function readManagedUserEnv(userId: string): ManagedEnvValues | null {
   const path = managedUserEnvPath(userId);
   if (!existsSync(path)) return null;
   return parseDotenv(readFileSync(path, "utf8"));
+}
+
+export function managedOfficeEnvPath(): string {
+  return OFFICE_ENV_FILE;
+}
+
+export function managedOfficeEnvExists(): boolean {
+  return existsSync(OFFICE_ENV_FILE);
+}
+
+export function readManagedOfficeEnv(): ManagedEnvValues | null {
+  if (!existsSync(OFFICE_ENV_FILE)) return null;
+  return parseDotenv(readFileSync(OFFICE_ENV_FILE, "utf8"));
 }
 
 function validate(values: ManagedEnvValues): void {
@@ -81,13 +96,25 @@ export function writeManagedUserEnv(
   userId: string,
   values: ManagedEnvValues,
 ): void {
-  const path = managedUserEnvPath(userId);
+  writeManagedEnv(USER_ENV_DIR, managedUserEnvPath(userId), userId, values);
+}
+
+export function writeManagedOfficeEnv(values: ManagedEnvValues): void {
+  writeManagedEnv(OFFICE_ENV_DIR, OFFICE_ENV_FILE, "office", values);
+}
+
+function writeManagedEnv(
+  directory: string,
+  path: string,
+  tempName: string,
+  values: ManagedEnvValues,
+): void {
   const content = serializeManagedUserEnv(values);
-  mkdirSync(USER_ENV_DIR, { recursive: true, mode: 0o700 });
-  chmodSync(USER_ENV_DIR, 0o700);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  chmodSync(directory, 0o700);
   const temp = join(
-    USER_ENV_DIR,
-    `.${userId}.${process.pid}.${crypto.randomUUID()}.tmp`,
+    directory,
+    `.${tempName}.${process.pid}.${crypto.randomUUID()}.tmp`,
   );
   let fd: number | null = null;
   try {

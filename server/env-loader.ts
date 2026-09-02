@@ -21,7 +21,12 @@ import {
   isPersonalProviderActive,
   personalProviderHome,
 } from "./provider-homes.ts";
-import { managedUserEnvExists, managedUserEnvPath } from "./user-env.ts";
+import {
+  managedOfficeEnvExists,
+  managedOfficeEnvPath,
+  managedUserEnvExists,
+  managedUserEnvPath,
+} from "./user-env.ts";
 
 // Provider lookup for the current office env file path. agent-manager sets
 // this once at module init from its `officeState.office.envFile` so we can
@@ -48,9 +53,21 @@ function resolveUserEnvSource(
   userId: string | null | undefined,
 ): string | null {
   if (!userId) return null;
-  const custom = getUserEnvFileById(userId);
-  if (custom) return custom;
+  const pendingImport = getUserEnvFileById(userId);
+  if (pendingImport) throw pendingImportError(pendingImport);
   return managedUserEnvExists(userId) ? managedUserEnvPath(userId) : null;
+}
+
+function resolveOfficeEnvSource(): string | null {
+  const pendingImport = getOfficeEnvFile();
+  if (pendingImport) throw pendingImportError(pendingImport);
+  return managedOfficeEnvExists() ? managedOfficeEnvPath() : null;
+}
+
+function pendingImportError(path: string): Error {
+  return new Error(
+    `The env file ${path} could not be imported into managed variables: fix it so it parses (one NAME=value per line) or delete it, then restart isomux.`,
+  );
 }
 
 // Build the spawn-time env merge for a given user identity. `userId` is
@@ -61,10 +78,7 @@ function resolveUserEnvSource(
 export function buildEnvForUserId(
   userId: string | null | undefined,
 ): { [key: string]: string | undefined } | undefined {
-  const officeEnvFile = getOfficeEnvFile();
-  // A configured custom path remains the exclusive user source until the user
-  // explicitly imports it. A missing managed file means the user has not opted
-  // in, so it never makes spawn fail.
+  const officeEnvFile = resolveOfficeEnvSource();
   const userEnvFile = resolveUserEnvSource(userId);
   const personalClaude = Boolean(
     userId && getPersonalProviderActive(userId, "claude"),
@@ -100,13 +114,13 @@ export function buildOfficeEnv(): {
   [key: string]: string | undefined;
 } {
   const merged: { [key: string]: string | undefined } = { ...process.env };
-  const officeEnvFile = getOfficeEnvFile();
+  const officeEnvFile = resolveOfficeEnvSource();
   if (officeEnvFile) Object.assign(merged, readEnvFile(officeEnvFile));
   return merged;
 }
 
 export function readOfficeEnvFile(): Record<string, string> {
-  const officeEnvFile = getOfficeEnvFile();
+  const officeEnvFile = resolveOfficeEnvSource();
   return officeEnvFile ? readEnvFile(officeEnvFile) : {};
 }
 
@@ -118,7 +132,7 @@ export function environmentSourceKeyForUserId(
   userId: string | null | undefined,
 ): string {
   const userEnvFile = resolveUserEnvSource(userId);
-  const sources = [getOfficeEnvFile(), userEnvFile].filter(
+  const sources = [resolveOfficeEnvSource(), userEnvFile].filter(
     (path): path is string => Boolean(path),
   );
   if (sources.length === 0) return "default";
@@ -136,7 +150,7 @@ export function environmentSourceKeyForUserId(
 export function environmentSourceRevisionForUserId(
   userId: string | null | undefined,
 ): string {
-  const officeEnvFile = getOfficeEnvFile();
+  const officeEnvFile = resolveOfficeEnvSource();
   const userEnvFile = resolveUserEnvSource(userId);
   const configured: Record<string, string> = {};
   if (officeEnvFile) Object.assign(configured, readEnvFile(officeEnvFile));

@@ -237,8 +237,8 @@ export function RoomSettingsModal({
             margin: "3px 0 0",
           }}
         >
-          Changes take effect on next conversation. Env files are now per-user -
-          set them in User Settings.
+          Changes take effect on next conversation. Set environment variables in
+          User Settings → Connections.
         </p>
 
         <label
