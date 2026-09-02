@@ -22,7 +22,6 @@ import type {
   SessionEnvironmentOptions,
   StoredSessionState,
   SubscriptionUsageResult,
-  LoginInstructions,
 } from "../types.ts";
 import {
   OPENCODE_DEFAULT_MODEL,
@@ -39,11 +38,9 @@ import {
 import {
   OPENCODE_CRON_AGENT,
   OPENCODE_INTERACTIVE_BYPASS_AGENT,
-  OPENCODE_LOGIN_IN_PROGRESS,
   openCodeSupervisorForEnvironment,
   type OpenCodeSupervisor,
 } from "./supervisor.ts";
-import { ensureOpenCodeLoginWrapper, quoteShellWord } from "./login-wrapper.ts";
 import { inspectOpenCodeStoredSession } from "./storage.ts";
 import {
   formatAttachmentLines,
@@ -51,28 +48,8 @@ import {
 } from "../../attachment-prompt.ts";
 
 const AUTH_FAILURE = "OpenCode authentication is not configured.";
-
-function loginInstructions(
-  environmentKey: string | undefined,
-  modelFamily: string | undefined,
-): LoginInstructions {
-  if (!environmentKey) {
-    throw new Error("OpenCode session environment identity is required.");
-  }
-  if (!modelFamily) {
-    throw new Error("OpenCode model is required for login recovery.");
-  }
-  const [provider] = splitModel(modelFamily);
-  const wrapper = ensureOpenCodeLoginWrapper(environmentKey, provider);
-  return {
-    kind: "login",
-    cardEligible: false,
-    text:
-      `OpenCode needs a ${provider} API key. Review and run ${wrapper}, ` +
-      "paste your key at the masked prompt, and then use /clear.",
-    commands: [quoteShellWord(wrapper)],
-  };
-}
+const AUTH_GUIDANCE =
+  "To use your own Anthropic or OpenAI API key with OpenCode, add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` under User Settings → Connections, then `/clear`.";
 
 const CAPABILITIES: BackendCapabilities = {
   fork: true,
@@ -426,13 +403,15 @@ export function createOpenCodeTracerBackend(
     },
 
     detectAuthError(text: string): boolean {
-      return (
-        text.includes(AUTH_FAILURE) || text.includes(OPENCODE_LOGIN_IN_PROGRESS)
-      );
+      return text.includes(AUTH_FAILURE);
     },
 
-    getLoginInstructions(opts): LoginInstructions {
-      return loginInstructions(opts?.environmentKey, opts?.modelFamily);
+    getLoginInstructions() {
+      return {
+        kind: "login",
+        cardEligible: false,
+        text: AUTH_GUIDANCE,
+      };
     },
   };
 }
@@ -699,12 +678,14 @@ export function createOpenCodeBackend(
       }
     },
     detectAuthError(text: string): boolean {
-      return (
-        text.includes(AUTH_FAILURE) || text.includes(OPENCODE_LOGIN_IN_PROGRESS)
-      );
+      return text.includes(AUTH_FAILURE);
     },
-    getLoginInstructions(opts): LoginInstructions {
-      return loginInstructions(opts?.environmentKey, opts?.modelFamily);
+    getLoginInstructions() {
+      return {
+        kind: "login",
+        cardEligible: false,
+        text: AUTH_GUIDANCE,
+      };
     },
   };
 }

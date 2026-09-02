@@ -6,8 +6,6 @@ const repoRoot = join(import.meta.dir, "../../..");
 const committedArtifactRoots = [
   join(import.meta.dir, "fixtures"),
   join(repoRoot, "internal-docs/opencode-gate/evidence"),
-  join(import.meta.dir, "login-runner.ts"),
-  join(import.meta.dir, "login-wrapper.ts"),
   join(import.meta.dir, "start-server.ts"),
   join(import.meta.dir, "supervisor.ts"),
 ];

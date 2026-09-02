@@ -1,16 +1,13 @@
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { existsSync, statSync, unlinkSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import { STATE_ROOT } from "../../config.ts";
 import { resolveOpenCodeBinary } from "./runtime.ts";
-import { openCodeProfilePaths } from "./login-wrapper.ts";
+import { openCodeProfilePaths } from "./profile-paths.ts";
 
 export const OPENCODE_IDLE_SHUTDOWN_MS = 10 * 60 * 1000;
 export const OPENCODE_REPLACEMENT_DRAIN_MS = 2 * 60 * 1000;
-export const OPENCODE_AUTH_LOGIN_PENDING_TTL_MS = 10 * 60 * 1000;
-export const OPENCODE_LOGIN_IN_PROGRESS =
-  "OpenCode login is in progress for this shared environment.";
 
 interface ServerRecord {
   pid: number;
@@ -90,7 +87,6 @@ export interface OpenCodeSupervisorOptions {
   idleShutdownMs?: number;
   launchEnv?: Record<string, string | undefined>;
   replacementDrainMs?: number;
-  pendingLoginTtlMs?: number;
   environmentRevision?: string;
 }
 
@@ -99,7 +95,6 @@ export class OpenCodeSupervisor {
   private activeTurns = 0;
   private idleTimer: ReturnType<typeof setTimeout> | null = null;
   private shutdownPromise: Promise<void> | null = null;
-  private authenticationPreparationPromise: Promise<void> | null = null;
   private record: ServerRecord | null = null;
   readonly profileDir: string;
   readonly recordPath: string;
@@ -111,7 +106,6 @@ export class OpenCodeSupervisor {
   private launchEnv: Record<string, string | undefined>;
   private environmentRevision: string;
   private readonly replacementDrainMs: number;
-  private readonly pendingLoginTtlMs: number;
   private replacementPromise: Promise<void> | null = null;
   private replacementRequested = false;
 
@@ -131,24 +125,13 @@ export class OpenCodeSupervisor {
     this.environmentRevision = options.environmentRevision ?? "default";
     this.replacementDrainMs =
       options.replacementDrainMs ?? OPENCODE_REPLACEMENT_DRAIN_MS;
-    this.pendingLoginTtlMs =
-      options.pendingLoginTtlMs ?? OPENCODE_AUTH_LOGIN_PENDING_TTL_MS;
-    this.clearPendingLogin();
   }
 
   async acquire(): Promise<OpenCodeLease> {
-    if (this.hasActivePendingLogin()) {
-      throw new Error(OPENCODE_LOGIN_IN_PROGRESS);
-    }
     if (this.idleTimer) clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (this.shutdownPromise) await this.shutdownPromise;
     await this.replaceServerIfRequested();
-    // A login can begin while this acquire waits for shutdown or replacement.
-    // Do not restart the shared server inside that login window.
-    if (this.hasActivePendingLogin()) {
-      throw new Error(OPENCODE_LOGIN_IN_PROGRESS);
-    }
     await this.ensureServer();
     this.leases++;
     let released = false;
@@ -176,9 +159,6 @@ export class OpenCodeSupervisor {
         if (released || turnActive) return;
         await this.replaceServerIfRequested();
         if (this.shutdownPromise) await this.shutdownPromise;
-        if (this.hasActivePendingLogin()) {
-          throw new Error(OPENCODE_LOGIN_IN_PROGRESS);
-        }
         if (!this.record) await this.ensureServer();
         turnActive = true;
         this.activeTurns++;
@@ -219,59 +199,6 @@ export class OpenCodeSupervisor {
       this.shutdownPromise = null;
     });
     return this.shutdownPromise;
-  }
-
-  async prepareForAuthentication(): Promise<void> {
-    if (this.authenticationPreparationPromise)
-      return this.authenticationPreparationPromise;
-    if (this.hasActivePendingLogin()) return;
-    this.authenticationPreparationPromise =
-      this.performAuthenticationPreparation();
-    try {
-      await this.authenticationPreparationPromise;
-    } finally {
-      this.authenticationPreparationPromise = null;
-    }
-  }
-
-  private async performAuthenticationPreparation(): Promise<void> {
-    await mkdir(this.profileDir, { recursive: true });
-    const pending = `${this.profileDir}.auth-login-pending`;
-    await writeFile(pending, "login pending\n", { mode: 0o600 });
-    const deadline = Date.now() + this.replacementDrainMs;
-    while (this.activeTurns > 0 && Date.now() < deadline) await Bun.sleep(25);
-    if (this.activeTurns > 0) {
-      await rm(pending, { force: true });
-      throw new Error(
-        "OpenCode login is waiting for another turn to finish. Send your message again to retry.",
-      );
-    }
-    await this.shutdown();
-  }
-
-  private clearPendingLogin(): void {
-    try {
-      unlinkSync(`${this.profileDir}.auth-login-pending`);
-    } catch (error) {
-      if (
-        !(error instanceof Error && "code" in error && error.code === "ENOENT")
-      )
-        throw error;
-    }
-  }
-
-  private hasActivePendingLogin(): boolean {
-    const pending = `${this.profileDir}.auth-login-pending`;
-    try {
-      if (Date.now() - statSync(pending).mtimeMs < this.pendingLoginTtlMs)
-        return true;
-      unlinkSync(pending);
-      return false;
-    } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT")
-        return false;
-      throw error;
-    }
   }
 
   private async performShutdown(): Promise<void> {

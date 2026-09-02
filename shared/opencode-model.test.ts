@@ -34,14 +34,10 @@ describe("preferredFreeOpenCodeModel", () => {
     );
   });
 
-  it("refuses hidden, connect-only, and paid candidates", () => {
+  it("refuses hidden and paid candidates", () => {
     expect(
       preferredFreeOpenCodeModel(
-        [
-          { id: preferred, isFree: true, hidden: true },
-          { id: "connect/free", isFree: true, requiresConnection: true },
-          { id: "paid/default" },
-        ],
+        [{ id: preferred, isFree: true, hidden: true }, { id: "paid/default" }],
         preferred,
       ),
     ).toBeUndefined();

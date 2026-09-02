@@ -15,7 +15,6 @@ import {
   type OpenCodeAuthorityBroker,
 } from "./authority-broker.ts";
 import { OPENCODE_TURN_HANDLE_PLACEHOLDER } from "./office-proxy-shared.ts";
-import { OPENCODE_MANUAL_API_KEY_PROVIDERS } from "./login-wrapper.ts";
 import { SAFETY_WARNING } from "../codex/safety-hook.ts";
 import {
   evaluateOpenCodePermission,
@@ -32,7 +31,6 @@ export interface DiscoveredOpenCodeModel {
   id: string;
   label: string;
   contextLimit?: number;
-  requiresConnection?: boolean;
   isFree?: boolean;
 }
 
@@ -631,25 +629,12 @@ export class OpenCodeTransport {
               this.lease?.endTurn();
               this.safeErrorSink?.(event.error);
               const auth = await this.isAuthenticationError(event.error);
-              let recoveryError: string | null = null;
-              if (auth) {
-                try {
-                  await this.supervisor.prepareForAuthentication();
-                } catch (error) {
-                  recoveryError =
-                    error instanceof Error
-                      ? error.message
-                      : "OpenCode login could not prepare the shared server.";
-                }
-              }
               sink({
                 kind: "turn_completed",
                 status: "failed",
-                error:
-                  recoveryError ??
-                  (auth
-                    ? "OpenCode authentication is not configured."
-                    : "OpenCode reported a provider or transport error."),
+                error: auth
+                  ? "OpenCode authentication is not configured."
+                  : "OpenCode reported a provider or transport error.",
               });
               this.abortController?.abort();
               return;
@@ -754,31 +739,14 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
       : [],
   );
   const byId = new Map<string, DiscoveredOpenCodeModel>();
-  const connectById = new Map<string, DiscoveredOpenCodeModel>();
   if (!Array.isArray(body.all)) return [];
   for (const rawProvider of body.all) {
     const provider = asRecord(rawProvider);
     const providerId = stringField(provider, "id");
     if (!providerId || !safeCatalogId(providerId)) continue;
+    if (!connected.has(providerId)) continue;
     const providerLabel = safeCatalogLabel(provider.name, providerId);
     const models = asRecord(provider.models);
-    if (!connected.has(providerId)) {
-      if (
-        !OPENCODE_MANUAL_API_KEY_PROVIDERS.includes(
-          providerId as (typeof OPENCODE_MANUAL_API_KEY_PROVIDERS)[number],
-        )
-      )
-        continue;
-      const picked = pickConnectModel(providerId, models, body.default);
-      if (picked) {
-        connectById.set(picked, {
-          id: picked,
-          label: providerLabel,
-          requiresConnection: true,
-        });
-      }
-      continue;
-    }
     for (const [rawModelId, rawModel] of Object.entries(models)) {
       if (!rawModelId) continue;
       const modelId = rawModelId.startsWith(`${providerId}/`)
@@ -814,23 +782,7 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
     if (left.id === right.id) return 0;
     return left.id < right.id ? -1 : 1;
   };
-  return [
-    ...[...byId.values()].sort(compare),
-    ...[...connectById.values()].sort(compare),
-  ];
-}
-
-function pickConnectModel(
-  providerId: string,
-  models: Record<string, unknown>,
-  rawDefaults: unknown,
-): string | null {
-  const defaults = asRecord(rawDefaults);
-  const defaultId = stringField(defaults, providerId);
-  if (!defaultId || !safeCatalogId(defaultId)) return null;
-  if (!(defaultId in models) && !(`${providerId}/${defaultId}` in models))
-    return null;
-  return `${providerId}/${defaultId}`;
+  return [...byId.values()].sort(compare);
 }
 
 function safeCatalogId(value: string): boolean {

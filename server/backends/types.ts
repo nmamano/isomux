@@ -475,7 +475,6 @@ export interface BackendModel {
   description?: string;
   isDefault?: boolean;
   hidden?: boolean;
-  requiresConnection?: boolean;
   isFree?: boolean;
   supportedEfforts: BackendEffortOption[];
   defaultEffort?: string;

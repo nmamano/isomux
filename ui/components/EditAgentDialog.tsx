@@ -1940,16 +1940,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                                 </option>
                               ))
                             ) : null}
-                            {pickerModels &&
-                              pickerModels.connect.length > 0 && (
-                                <optgroup label="Connect a provider">
-                                  {pickerModels.connect.map((m) => (
-                                    <option key={m.id} value={m.id}>
-                                      Connect {m.label}
-                                    </option>
-                                  ))}
-                                </optgroup>
-                              )}
                             {storedNotInList && (
                               <option key={modelFamily} value={modelFamily}>
                                 Current model

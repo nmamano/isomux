@@ -31,15 +31,12 @@ import {
 import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import type { EventHandler } from "../internal-types.ts";
 import { STATE_ROOT } from "../config.ts";
-import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { openCodeProfilePaths } from "../backends/opencode/login-wrapper.ts";
 import {
   createAgentManager,
   createProductionAgentManager,
   backendSessionHasFixedCwd,
 } from "../agent-manager.ts";
-import { resolveRealNode } from "../terminal.ts";
 import { personalProviderHome } from "../provider-homes.ts";
 import { setPersonalProviderActiveProvider } from "../env-loader.ts";
 
@@ -69,106 +66,6 @@ function alive(pid: number): boolean {
   } catch {
     return false;
   }
-}
-
-async function runLoginCardThroughPty(
-  command: string,
-  cwd: string,
-  apiKey: string,
-): Promise<void> {
-  const nodePath = resolveRealNode();
-  if (!nodePath) {
-    throw new Error(
-      "Cannot run the login card through a PTY: no real Node.js binary found after searching ISOMUX_NODE_PATH, known absolute install paths, and bare node on " +
-        `PATH (${process.env.PATH ?? "unset"}); Bun's node-compat is rejected.`,
-    );
-  }
-  const sidecar = Bun.spawn(
-    [nodePath, join(import.meta.dir, "..", "pty-sidecar.cjs")],
-    {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-    },
-  );
-  const write = (message: Record<string, unknown>) =>
-    sidecar.stdin.write(`${JSON.stringify(message)}\n`);
-  await write({
-    type: "spawn",
-    shell: "/bin/bash",
-    cols: 80,
-    rows: 24,
-    cwd,
-    env: {
-      PATH: process.env.PATH,
-      HOME: join(cwd, "global-home"),
-      XDG_DATA_HOME: join(cwd, "global-data"),
-      OPENCODE_CONFIG_CONTENT: "S2_AMBIENT_CONFIG_CANARY",
-      TERM: "xterm-256color",
-      SHELL: "/bin/bash",
-      LANG: "C.UTF-8",
-    },
-  });
-  await Bun.sleep(500);
-  await write({ type: "input", data: `${command}\r` });
-  const reader = sidecar.stdout.getReader();
-  const decoder = new TextDecoder();
-  let output = "";
-  let partial = "";
-  let keySent = false;
-  let doneAt: number | null = null;
-  let exited = false;
-  let pendingRead = reader.read();
-  const deadline = Date.now() + 60_000;
-  while (!exited && Date.now() < deadline) {
-    const next = await Promise.race([
-      pendingRead.then((result) => ({ kind: "read" as const, result })),
-      Bun.sleep(100).then(() => ({ kind: "tick" as const })),
-    ]);
-    if (next.kind === "read") {
-      pendingRead = reader.read();
-      if (next.result.done) exited = true;
-      if (!next.result.value) continue;
-      partial += decoder.decode(next.result.value, { stream: true });
-      const lines = partial.split("\n");
-      partial = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line) continue;
-        const message = JSON.parse(line) as {
-          type?: string;
-          data?: string;
-        };
-        if (message.type === "output") output += message.data ?? "";
-        if (message.type === "exit") exited = true;
-      }
-    }
-    if (!keySent && output.includes("Enter your API key")) {
-      keySent = true;
-      await write({ type: "input", data: apiKey });
-      await Bun.sleep(250);
-      await write({ type: "input", data: "\r" });
-    }
-    if (keySent && doneAt === null && output.includes("Done")) {
-      doneAt = Date.now();
-    }
-    if (doneAt !== null && Date.now() - doneAt >= 1000) {
-      await write({ type: "kill" });
-      await sidecar.exited;
-      exited = true;
-    }
-  }
-  if (!exited) {
-    await write({ type: "input", data: "\u0003" });
-    await Bun.sleep(250);
-    await write({ type: "kill" });
-    throw new Error(
-      `Timed out driving the OpenCode login card through pty-sidecar. Output: ${output.slice(-1000)}`,
-    );
-  }
-  expect(output).toContain("Enter your API key");
-  expect(output).toContain("Done");
-  expect(output).not.toContain(apiKey);
-  await sidecar.exited;
 }
 
 // Spy resolver: records the agentTypes asked for and returns the FakeBackend.
@@ -632,7 +529,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).toBe(true);
   });
 
-  it("surfaces OpenCode missing auth with one profile-scoped terminal card", async () => {
+  it("surfaces OpenCode missing auth as Connections guidance without a terminal card", async () => {
     const backend = createOpenCodeTracerBackend({ failAuth: true });
     const mgr = createAgentManager({
       resolveBackend: () => backend,
@@ -657,19 +554,18 @@ describe("AgentManager DI (temp-state isolated)", () => {
       sender: { kind: "user", username: "tester" },
       text: "hello",
     });
+    const guidance =
+      "To use your own Anthropic or OpenAI API key with OpenCode, add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` under User Settings → Connections, then `/clear`.";
     const deadline = Date.now() + 2000;
     while (
-      !mgr
-        .getAgentLogs(info!.id)
-        .some((entry) => entry.kind === "terminal-command") &&
+      !mgr.getAgentLogs(info!.id).some((entry) => entry.content === guidance) &&
       Date.now() < deadline
     ) {
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
     const logs = mgr.getAgentLogs(info!.id);
-    const cards = logs.filter((entry) => entry.kind === "terminal-command");
-    expect(cards).toHaveLength(1);
-    expect(cards[0].terminal?.command).toContain("opencode-login-");
+    expect(logs.some((entry) => entry.content === guidance)).toBe(true);
+    expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(false);
     expect(await mgr.demoteToLazy(info!.id)).toBe(true);
   });
 
@@ -987,7 +883,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
     ).toBe(false);
   });
 
-  it("recovers through the exact login card, pty-sidecar, and /clear", async () => {
+  it("keeps provider credentials out of Connections guidance and agent logs", async () => {
     const apiKey = `sk-${"S2_MANUAL_LOGIN_CANARY"}`;
     const requestPaths: string[] = [];
     const safeErrors: Array<Record<string, unknown>> = [];
@@ -1005,7 +901,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
         }
         if (url.pathname !== "/v1/responses")
           return new Response("not found", { status: 404 });
-        if (request.headers.get("authorization") !== `Bearer ${apiKey}`) {
+        if (
+          request.headers.get("authorization") !== `Bearer rejected-${apiKey}`
+        ) {
           return Response.json(
             {
               error: {
@@ -1103,12 +1001,14 @@ describe("AgentManager DI (temp-state isolated)", () => {
         });
       },
     });
-    const profile = openCodeProfilePaths("default");
     const supervisor = new OpenCodeSupervisor({
-      profileDir: profile.profileDir,
+      profileDir: join(STATE_ROOT, "opencode", "profiles", "default"),
       serverCwd: STATE_ROOT,
       idleShutdownMs: 100,
-      launchEnv: { OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1` },
+      launchEnv: {
+        OPENAI_API_KEY: apiKey,
+        OPENAI_BASE_URL: `http://127.0.0.1:${mock.port}/v1`,
+      },
       config: {
         autoupdate: false,
         model: "openai/gpt-4o",
@@ -1146,18 +1046,21 @@ describe("AgentManager DI (temp-state isolated)", () => {
         sender: { kind: "user", username: "tester" },
         text: "fail before login",
       });
+      const guidance =
+        "To use your own Anthropic or OpenAI API key with OpenCode, add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` under User Settings → Connections, then `/clear`.";
       const authDeadline = Date.now() + 30_000;
       while (
         !mgr
           .getAgentLogs(info!.id)
-          .some((entry) => entry.kind === "terminal-command") &&
+          .some((entry) => entry.content === guidance) &&
         Date.now() < authDeadline
       )
         await Bun.sleep(10);
-      const card = mgr
-        .getAgentLogs(info!.id)
-        .find((entry) => entry.kind === "terminal-command");
-      expect(card?.terminal?.command).toContain("opencode-login-");
+      const logs = mgr.getAgentLogs(info!.id);
+      expect(logs.some((entry) => entry.content === guidance)).toBe(true);
+      expect(logs.some((entry) => entry.kind === "terminal-command")).toBe(
+        false,
+      );
 
       const globalAuth = join(
         STATE_ROOT,
@@ -1166,27 +1069,9 @@ describe("AgentManager DI (temp-state isolated)", () => {
         "auth.json",
       );
       expect(await Bun.file(globalAuth).exists()).toBe(false);
-      await runLoginCardThroughPty(card!.terminal!.command, STATE_ROOT, apiKey);
-      expect(await Bun.file(globalAuth).exists()).toBe(false);
-      expect(
-        (await stat(join(profile.dataHome, "opencode", "auth.json"))).mode &
-          0o777,
-      ).toBe(0o600);
-
-      await mgr.sendMessage(info!.id, "/clear", "tester");
-      await mgr.sendMessage(info!.id, "reply after login", "tester");
-      const replyDeadline = Date.now() + 15_000;
-      while (
-        !mgr
-          .getAgentLogs(info!.id)
-          .some((entry) => entry.content === "Recovered after login.") &&
-        Date.now() < replyDeadline
-      )
-        await Bun.sleep(10);
       const serialized = JSON.stringify(mgr.getAgentLogs(info!.id));
-      expect(safeErrors.slice(1)).toEqual([]);
+      expect(safeErrors).toHaveLength(1);
       expect(requestPaths).toContain("/v1/responses");
-      expect(serialized).toContain("Recovered after login.");
       expect(serialized).not.toContain(apiKey);
       for await (const path of new Bun.Glob("**/*.jsonl").scan(STATE_ROOT)) {
         expect(await Bun.file(join(STATE_ROOT, path)).text()).not.toContain(

@@ -169,7 +169,7 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
     ]);
   });
 
-  it("keeps connected models first and offers only measured provider defaults", () => {
+  it("does not list providers absent from connected", () => {
     const models = allowDiscoveredModels({
       connected: ["z-connected"],
       default: {
@@ -205,19 +205,11 @@ describe("OpenCode OC1 raw-ingress allowlist", () => {
       ],
     });
 
-    expect(models).toEqual([
-      { id: "z-connected/model", label: "Zed - Model" },
-      {
-        id: "anthropic/claude-sonnet-4-6",
-        label: "Anthropic",
-        requiresConnection: true,
-      },
-      {
-        id: "openai/gpt-5.3-chat-latest",
-        label: "OpenAI",
-        requiresConnection: true,
-      },
-    ]);
+    expect(models).toEqual([{ id: "z-connected/model", label: "Zed - Model" }]);
+    expect(models.some((model) => model.id.startsWith("anthropic/"))).toBe(
+      false,
+    );
+    expect(models.some((model) => model.id.startsWith("openai/"))).toBe(false);
   });
 
   it("releases the discovery lease when the provider request fails", async () => {

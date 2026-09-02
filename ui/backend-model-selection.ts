@@ -33,7 +33,7 @@ export function modelListErrorMessage(
 ): string {
   if (error.authError) {
     return isOpenCode
-      ? "OpenCode has no connected provider for this environment. Use an OpenCode agent's login card, then reopen this dialog."
+      ? "To use your own Anthropic or OpenAI API key with OpenCode, add ANTHROPIC_API_KEY or OPENAI_API_KEY under User Settings → Connections. Then reopen this dialog."
       : "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then reopen this dialog. (Or set OPENAI_API_KEY in your env.)";
   }
   const detail = error.message.trim();
@@ -62,10 +62,8 @@ export function partitionBackendModelsForPicker(
   available: BackendModelWire[];
   free: BackendModelWire[];
   subscription: BackendModelWire[];
-  connect: BackendModelWire[];
 } {
-  if (!isOpenCode)
-    return { available: models, free: [], subscription: [], connect: [] };
+  if (!isOpenCode) return { available: models, free: [], subscription: [] };
   // OpenCode's house providers: "opencode" bills Zen credits per request,
   // "opencode-go" is the flat-rate Go subscription. Same key, same models
   // listed twice; the picker shows them as Pay-as-you-go and Subscription.
@@ -73,14 +71,11 @@ export function partitionBackendModelsForPicker(
     model.id.startsWith("opencode-go/");
   return {
     available: models.filter(
-      (model) =>
-        !model.requiresConnection && !model.isFree && !isSubscription(model),
+      (model) => !model.isFree && !isSubscription(model),
     ),
-    free: models.filter((model) => !model.requiresConnection && model.isFree),
+    free: models.filter((model) => model.isFree),
     subscription: models.filter(
-      (model) =>
-        !model.requiresConnection && !model.isFree && isSubscription(model),
+      (model) => !model.isFree && isSubscription(model),
     ),
-    connect: models.filter((model) => model.requiresConnection),
   };
 }

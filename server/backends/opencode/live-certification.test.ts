@@ -57,9 +57,7 @@ describe.skipIf(!LIVE)("OpenCode OC1 real-provider certification", () => {
     });
     const backend = createOpenCodeBackend({ supervisor });
     const discovered = await backend.listModels({ cwd: repo });
-    const freeModel = discovered.find(
-      (model) => model.isFree && !model.requiresConnection && !model.hidden,
-    );
+    const freeModel = discovered.find((model) => model.isFree && !model.hidden);
     expect(freeModel).toBeDefined();
     expect(
       (

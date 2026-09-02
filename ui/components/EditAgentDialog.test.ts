@@ -160,50 +160,19 @@ describe("initial permission mode", () => {
 });
 
 describe("template values after an engine switch", () => {
-  it("groups OpenCode connect entries after available models", () => {
-    const available: BackendModelWire = {
-      id: "opencode/model",
-      label: "OpenCode - Model",
-      supportedEfforts: [],
-    };
-    const connect: BackendModelWire = {
-      id: "anthropic/claude-sonnet-4-6",
-      label: "Anthropic",
-      requiresConnection: true,
-      supportedEfforts: [],
-    };
-    expect(partitionBackendModelsForPicker([available, connect], true)).toEqual(
-      {
-        available: [available],
-        free: [],
-        subscription: [],
-        connect: [connect],
-      },
-    );
-  });
-
-  it("omits an empty normal remainder when all connected models are free", () => {
+  it("preserves Free, Pay-as-you-go, and Subscription membership and order", () => {
     const free: BackendModelWire = {
       id: "opencode/big-pickle",
-      label: "OpenCode Zen - Big Pickle",
+      label: "Big Pickle",
       isFree: true,
       supportedEfforts: [],
     };
-    const connect: BackendModelWire = {
-      id: "anthropic/claude-sonnet-4-6",
-      label: "Anthropic",
-      requiresConnection: true,
+    const secondFree: BackendModelWire = {
+      id: "opencode/gpt-5-nano",
+      label: "GPT-5 Nano",
+      isFree: true,
       supportedEfforts: [],
     };
-    expect(partitionBackendModelsForPicker([free, connect], true)).toEqual({
-      available: [],
-      free: [free],
-      subscription: [],
-      connect: [connect],
-    });
-  });
-
-  it("splits the Go subscription rows from the pay-as-you-go rows", () => {
     const paid: BackendModelWire = {
       id: "opencode/kimi-k3",
       label: "Kimi K3",
@@ -214,11 +183,12 @@ describe("template values after an engine switch", () => {
       label: "Kimi K3",
       supportedEfforts: [],
     };
-    expect(partitionBackendModelsForPicker([go, paid], true)).toEqual({
+    expect(
+      partitionBackendModelsForPicker([go, free, paid, secondFree], true),
+    ).toEqual({
       available: [paid],
-      free: [],
+      free: [free, secondFree],
       subscription: [go],
-      connect: [],
     });
   });
 
@@ -234,7 +204,6 @@ describe("template values after an engine switch", () => {
       available: models,
       free: [],
       subscription: [],
-      connect: [],
     });
   });
 
@@ -245,6 +214,7 @@ describe("template values after an engine switch", () => {
     expect(source).toContain("MODEL_FAMILIES.map((m) => (");
     expect(source).toContain("partitionBackendModelsForPicker(");
     expect(source).toContain("isOpenCode,");
+    expect(source).not.toContain("Connect a provider");
   });
 
   it("keeps an existing OpenCode agent editable when discovery fails", () => {

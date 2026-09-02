@@ -10,7 +10,7 @@ import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
 import { createOpenCodeBackend } from "../backends/opencode/adapter.ts";
-import { openCodeProfilePaths } from "../backends/opencode/login-wrapper.ts";
+import { openCodeProfilePaths } from "../backends/opencode/profile-paths.ts";
 import { OpenCodeSupervisor } from "../backends/opencode/supervisor.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { STATE_ROOT } from "../config.ts";

@@ -1324,7 +1324,6 @@ export interface BackendModelWire {
   description?: string;
   isDefault?: boolean;
   hidden?: boolean;
-  requiresConnection?: boolean;
   isFree?: boolean;
   supportedEfforts: BackendEffortOptionWire[];
   defaultEffort?: string;

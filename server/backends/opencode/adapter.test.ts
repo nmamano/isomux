@@ -116,7 +116,7 @@ describe("OpenCode deterministic tracer", () => {
     ]);
   });
 
-  it("requires exact profile identity before it renders the login command", async () => {
+  it("renders Connections guidance without a login command", async () => {
     const backend = createOpenCodeTracerBackend({ failAuth: true });
     const session = backend.createSession(opts);
     await session.send("hello");
@@ -127,14 +127,11 @@ describe("OpenCode deterministic tracer", () => {
       status: "failed",
       error: "OpenCode authentication is not configured.",
     });
-    expect(() => backend.getLoginInstructions()).toThrow(
-      "OpenCode session environment identity is required.",
-    );
-    const instructions = backend.getLoginInstructions({
-      environmentKey: "default",
-      modelFamily: "anthropic/claude-sonnet",
+    expect(backend.getLoginInstructions()).toEqual({
+      kind: "login",
+      cardEligible: false,
+      text: "To use your own Anthropic or OpenAI API key with OpenCode, add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` under User Settings → Connections, then `/clear`.",
     });
-    expect(instructions.commands).toHaveLength(1);
   });
 });
 

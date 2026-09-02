@@ -6,7 +6,6 @@ import {
   readdir,
   readFile,
   rm,
-  utimes,
   writeFile,
 } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -657,99 +656,6 @@ describe("OpenCode shared server supervisor", () => {
     expect(response.ok).toBe(true);
     expect((await readFile(healthMarker, "utf8")).length).toBeGreaterThan(0);
     next.release();
-  }, 20_000);
-
-  it("stops the shared server before login and blocks new acquires until login finishes", async () => {
-    const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
-    const lease = await supervisor.acquire();
-    await supervisor.prepareForAuthentication();
-    expect(alive(lease.pid)).toBe(false);
-    await expectRejection(
-      supervisor.acquire(),
-      /login is in progress for this shared environment/,
-    );
-    lease.release();
-  }, 20_000);
-
-  it("makes concurrent authentication preparation wait for the same shutdown", async () => {
-    const path = await root();
-    const supervisor = makeSupervisor(path, gateConfig(mockProvider()));
-    const lease = await supervisor.acquire();
-    await lease.beginTurn();
-
-    const first = supervisor.prepareForAuthentication();
-    const pending = `${supervisor.profileDir}.auth-login-pending`;
-    const deadline = Date.now() + 5000;
-    while (!(await Bun.file(pending).exists()) && Date.now() < deadline)
-      await Bun.sleep(10);
-    expect(await Bun.file(pending).exists()).toBe(true);
-
-    let secondSettled = false;
-    const second = supervisor.prepareForAuthentication().finally(() => {
-      secondSettled = true;
-    });
-    await Bun.sleep(50);
-    expect(secondSettled).toBe(false);
-
-    lease.endTurn();
-    await Promise.all([first, second]);
-    expect(alive(lease.pid)).toBe(false);
-    lease.release();
-  }, 20_000);
-
-  it("removes stale pending login state instead of blocking the shared environment", async () => {
-    const path = await root();
-    const supervisor = new OpenCodeSupervisor({
-      profileDir: join(path, "profile"),
-      serverCwd: path,
-      config: gateConfig(mockProvider()),
-      pendingLoginTtlMs: 0,
-    });
-    supervisors.push(supervisor);
-    await mkdir(supervisor.profileDir, { recursive: true });
-    const pending = `${supervisor.profileDir}.auth-login-pending`;
-    await writeFile(pending, "abandoned login\n");
-    const stale = new Date(Date.now() - 60_000);
-    await utimes(pending, stale, stale);
-    const lease = await supervisor.acquire();
-    expect(await Bun.file(pending).exists()).toBe(false);
-    expect(alive(lease.pid)).toBe(true);
-    lease.release();
-  }, 20_000);
-
-  it("clears pending login state when a supervisor starts", async () => {
-    const path = await root();
-    const profileDir = join(path, "profile");
-    await mkdir(profileDir, { recursive: true });
-    const pending = `${profileDir}.auth-login-pending`;
-    await writeFile(pending, "interrupted by restart\n");
-    const supervisor = new OpenCodeSupervisor({ profileDir, serverCwd: path });
-    supervisors.push(supervisor);
-    expect(await Bun.file(pending).exists()).toBe(false);
-  });
-
-  it("fails the authentication drain loudly when an active turn does not finish", async () => {
-    const path = await root();
-    const supervisor = makeSupervisor(
-      path,
-      gateConfig(mockProvider()),
-      1000,
-      {},
-      30,
-    );
-    const lease = await supervisor.acquire();
-    await lease.beginTurn();
-    await expectRejection(
-      supervisor.prepareForAuthentication(),
-      /Send your message again to retry/,
-    );
-    expect(alive(lease.pid)).toBe(true);
-    expect(
-      await Bun.file(`${supervisor.profileDir}.auth-login-pending`).exists(),
-    ).toBe(false);
-    lease.endTurn();
-    lease.release();
   }, 20_000);
 
   it("fails a requested replacement loudly when an active turn does not finish", async () => {

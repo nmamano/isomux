@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { StoredSessionState } from "../types.ts";
-import { openCodeProfilePaths } from "./login-wrapper.ts";
+import { openCodeProfilePaths } from "./profile-paths.ts";
 
 const EXPECTED_SESSION_COLUMNS = [
   "id",
