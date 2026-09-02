@@ -60,6 +60,9 @@ export async function discoverOpenCodeModels(
 ): Promise<DiscoveredOpenCodeModel[]> {
   const lease = await supervisor.acquire();
   try {
+    // The /provider body echoes provider API keys in cleartext (measured
+    // 2026-09-02 with OPENCODE_API_KEY set: the key appears twice). Reduce it
+    // to scalars right here and never log, store or forward the raw body.
     const url = new URL("/provider", lease.baseUrl);
     url.searchParams.set("directory", cwd);
     const response = await fetch(url, {
