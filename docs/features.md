@@ -9,7 +9,7 @@ Isomux is a meta-harness: it sits one level above Claude Code, Codex, and OpenCo
 ## Multi-provider
 
 - **Choose Claude, Codex, or OpenCode** when spawning an agent, and switch an agent between them whenever you want. The `/resume` list mixes chats from all three engines.
-- **OpenCode ships bundled and pinned**. Choose a Free, Pay-as-you-go, or Subscription model. To use your own Anthropic or OpenAI API key with OpenCode, add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` under User Settings → Connections.
+- **OpenCode ships bundled and pinned**. Choose a Free, Pay-as-you-go, or Subscription model.
 - **New offices start with three welcome agents**, one each for Claude, Codex, and OpenCode. The Free Welcome Agent runs on a free OpenCode model and answers immediately.
 
 ## Multi-agent

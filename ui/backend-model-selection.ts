@@ -33,7 +33,7 @@ export function modelListErrorMessage(
 ): string {
   if (error.authError) {
     return isOpenCode
-      ? "To use your own Anthropic or OpenAI API key with OpenCode, add ANTHROPIC_API_KEY or OPENAI_API_KEY under User Settings → Connections. Then reopen this dialog."
+      ? "OpenCode could not list its models. Reopen this dialog."
       : "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then reopen this dialog. (Or set OPENAI_API_KEY in your env.)";
   }
   const detail = error.message.trim();

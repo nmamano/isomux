@@ -8,6 +8,6 @@ A **WebSocket layer** keeps every connected device - and every connected user - 
 
 **Agent identities** are saved to the local file system and persist across server restarts.
 
-Isomux uses each backend's own login state. Claude and Codex can use their existing CLI sign-ins. OpenCode uses a shared profile for each environment and reads provider API keys from its environment. To use your own Anthropic or OpenAI API key with OpenCode, add `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` under User Settings → Connections.
+Isomux uses each backend's own login state: Claude and Codex reuse their CLI sign-ins, and OpenCode reads API keys from your Connections variables.
 
 For a deeper dive, see the [Design and Architecture blog post](https://nilmamano.com/blog/isomux).
