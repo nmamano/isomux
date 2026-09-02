@@ -29,6 +29,7 @@ import {
   agentTokenSender,
   apiTokenInboxSelf,
   selfOrOwner,
+  selfUserOrApi,
   officeOwner,
   userScope,
   requiresRoomAccess,
@@ -113,6 +114,8 @@ import type {
   RecoveryMintReq,
   UserUpdateReq,
   SetAccessReq,
+  UserEnvReplaceReq,
+  UserEnvRes,
   InviteMintReq,
   AccessSettingsReq,
   AccessSettings,
@@ -758,6 +761,30 @@ export const API_ROUTES: readonly RouteDef[] = [
     // UserPublicWire, so a public user_updated / users_list would carry no
     // observable change and would only broadcast the TIMING of a private edit.
     // Owners get the full record on the admin channel, the subject on its own.
+    emits: ["user_admin_updated", "user_self_updated"],
+  }),
+
+  // Managed per-user environment. Cleartext values stay self-only, but a
+  // durable API identity has the same reach as its issuing user.
+  defineRoute<void, UserEnvRes>({
+    opId: "userEnv.get",
+    method: "GET",
+    path: "/api/users/:username/env",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
+  defineRoute<UserEnvReplaceReq, NoContent>({
+    opId: "userEnv.replace",
+    method: "PUT",
+    path: "/api/users/:username/env",
+    auth: cap("user:env", selfUserOrApi),
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "userEnv.import",
+    method: "POST",
+    path: "/api/users/:username/env/import",
+    auth: cap("user:env", selfUserOrApi),
     emits: ["user_admin_updated", "user_self_updated"],
   }),
 

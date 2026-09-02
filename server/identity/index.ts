@@ -43,6 +43,7 @@ export type Capability =
   | "room:manage"
   | "view:manage"
   | "user:self"
+  | "user:env"
   | "user:admin"
   | "office:admin"
   | "invite:manage"
@@ -137,6 +138,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "room:manage",
   "view:manage",
   "user:self",
+  "user:env",
   "user:admin",
   "office:admin",
   "invite:manage",
@@ -262,12 +264,15 @@ export const APP_CAPABILITIES: readonly Capability[] = ["app:message"];
 // API set: a remote boss gets the same curated operational reach as a
 // privileged agent, expressed explicitly so every capability is an audit
 // decision. Identity and durable-access surfaces stay excluded: invite:manage,
-// session:manage, user:*, office:admin, view:manage and agent:privilege. The
+// session:manage, user:self, user:admin, office:admin, view:manage and
+// agent:privilege. user:env is the explicit exception for the issuing user's
+// self-only managed environment routes. The
 // agent/cron/app sender and self-affordance capabilities are also absent: an API
 // token is its issuing user, not an office participant. These exclusions are
 // defense in depth, not a shell boundary - agent:manage can spawn an agent that
 // runs commands. Decide every future capability here; never spread another set.
 export const API_CAPABILITIES: readonly Capability[] = [
+  "user:env",
   "api:discover-agents",
   "api:send-message",
   "api:drain-inbox",

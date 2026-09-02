@@ -49,6 +49,7 @@ import { MyDevicesPane } from "./MyDevicesPane.tsx";
 import { PreferencesPane } from "./PreferencesPane.tsx";
 import { ApiTokensPane } from "./ApiTokensPane.tsx";
 import { ConnectionsPane } from "./ConnectionsPane.tsx";
+import { ManagedEnvEditor } from "./ManagedEnvEditor.tsx";
 import {
   ExpandableTextarea,
   isExpandedEditorOpen,
@@ -986,7 +987,8 @@ function UserEditPanel({
     // Name is trim-saved (see handleSave), so compare trimmed to avoid
     // false-positive dirtiness on trailing whitespace the user can't see.
     if (name.trim() !== user.name) return true;
-    if ((envFile.trim() || null) !== (user.envFile ?? null)) return true;
+    if (!isMe && (envFile.trim() || null) !== (user.envFile ?? null))
+      return true;
     if ((memberPrompt.trim() || null) !== (user.memberPrompt ?? null))
       return true;
     if (mem.dirty) return true;
@@ -1066,7 +1068,7 @@ function UserEditPanel({
     const memoryChanged = mem.dirty;
     const recordChanged =
       renamed ||
-      (envFile.trim() || null) !== (user.envFile ?? null) ||
+      (!isMe && (envFile.trim() || null) !== (user.envFile ?? null)) ||
       (memberPrompt.trim() || null) !== (user.memberPrompt ?? null) ||
       normalizedColor !== user.avatarColor ||
       avatarVariant !== user.avatarVariant;
@@ -1093,7 +1095,7 @@ function UserEditPanel({
       if (recordChanged) {
         await apiFetch("PATCH", `/api/users/${encodeURIComponent(origName)}`, {
           name: renamed ? trimmed : undefined,
-          envFile: envFile.trim() || null,
+          envFile: isMe ? undefined : envFile.trim() || null,
           memberPrompt: memberPrompt.trim() || null,
           avatarColor: normalizedColor,
           avatarVariant,
@@ -1404,30 +1406,29 @@ function UserEditPanel({
         ) : null}
 
         <h5 style={sectionTitleStyle}>Agent Context</h5>
-        <label style={subLabelStyle}>
-          Env File Path <span style={hintStyle}>(absolute path)</span>
-        </label>
-        <input
-          value={envFile}
-          onChange={(e) => {
-            setEnvFile(e.target.value);
-            setValidation({ kind: "idle" });
-          }}
-          onBlur={() => runEnvValidation(envFile)}
-          placeholder="/home/you/.secrets/me.env"
-          style={inputStyle}
-        />
-        <ValidationLine status={validation} />
-        <div style={{ ...hintStyle, marginTop: 4 }}>
-          A file of NAME=value lines on the server, loaded into the environment
-          of your agents. It lets you bill your agents to your own account
-          rather than the one the office shares: ANTHROPIC_API_KEY=… (Claude) or
-          OPENAI_API_KEY=… (Codex) for API-key billing, or CLAUDE_CONFIG_DIR=… /
-          CODEX_HOME=… pointing at a directory you signed in yourself, for your
-          own subscription. Each agent reads the file when it starts or resumes
-          a conversation, so a change reaches a running agent on its next
-          /clear.
-        </div>
+        {isMe ? (
+          <>
+            <label style={subLabelStyle}>Environment Variables</label>
+            <ManagedEnvEditor username={user.name} />
+          </>
+        ) : (
+          <>
+            <label style={subLabelStyle}>
+              Env File Path <span style={hintStyle}>(absolute path)</span>
+            </label>
+            <input
+              value={envFile}
+              onChange={(e) => {
+                setEnvFile(e.target.value);
+                setValidation({ kind: "idle" });
+              }}
+              onBlur={() => runEnvValidation(envFile)}
+              placeholder="/home/you/.secrets/me.env"
+              style={inputStyle}
+            />
+            <ValidationLine status={validation} />
+          </>
+        )}
 
         <label style={subLabelStyle}>
           Profile Prompt{" "}

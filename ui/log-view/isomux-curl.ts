@@ -757,6 +757,9 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["POST", "/api/me/api-tokens", "Create API token"],
   ["DELETE", "/api/me/api-tokens/*", "Revoke API token"],
   ["GET", "/api/me/provider-accounts", "Check provider accounts"],
+  ["GET", "/api/users/*/env", "Read managed environment"],
+  ["PUT", "/api/users/*/env", "Save managed environment"],
+  ["POST", "/api/users/*/env/import", "Move custom environment"],
   ["POST", "/api/me/provider-accounts/*/login", "Start provider sign-in"],
   ["POST", "/api/me/provider-accounts/*/cancel", "Cancel provider sign-in"],
   [

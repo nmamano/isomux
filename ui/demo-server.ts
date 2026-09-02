@@ -62,6 +62,7 @@ const state = new OfficeState();
 let embedMode = false;
 let demoSeededAt = 0;
 let demoApiTokens: ApiTokenWire[] = [];
+const demoManagedEnv: Record<string, Record<string, string>> = {};
 
 export const DEMO_ROOM_NAMES = ["Conference Room", "The Annex"] as const;
 
@@ -1915,6 +1916,31 @@ export async function demoApi(
   // prune notif/default to the new access (mirror the server clamp). An owner
   // target accesses all rooms by rule, so don't prune theirs. Listed before the
   // bare /:username route.
+  const userEnvMatch = pathname.match(
+    /^\/api\/users\/([^/]+)\/env(?:\/(import))?$/,
+  );
+  if (userEnvMatch) {
+    const uname = decodeURIComponent(userEnvMatch[1]);
+    const existing = users.get(uname.toLowerCase());
+    if (!existing)
+      throw new ApiError(404, "not_found", `User ${uname} not found`);
+    if (userEnvMatch[2] === "import" && method === "POST") {
+      demoManagedEnv[existing.id] = {};
+      users.set(uname.toLowerCase(), { ...existing, envFile: null });
+      return undefined;
+    }
+    if (method === "GET") {
+      return existing.envFile
+        ? { mode: "custom", path: existing.envFile }
+        : { mode: "managed", values: demoManagedEnv[existing.id] ?? {} };
+    }
+    if (method === "PUT") {
+      demoManagedEnv[existing.id] = {
+        ...(((body ?? {}) as { values?: Record<string, string> }).values ?? {}),
+      };
+      return undefined;
+    }
+  }
   const userAccessMatch = pathname.match(/^\/api\/users\/([^/]+)\/access$/);
   if (userAccessMatch && method === "PUT") {
     const uname = decodeURIComponent(userAccessMatch[1]);

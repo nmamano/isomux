@@ -241,6 +241,18 @@ export const selfUser: Guard = ({ identity, params, deps }) => {
     : FORBIDDEN;
 };
 
+// Secret-bearing self route: the user's cookie session and that same user's
+// durable API identity may reach it. Agent identities keep their spawning
+// userId for attribution, but can never pass this scope check.
+export const selfUserOrApi: Guard = ({ identity, params, deps }) => {
+  if (identity.scope !== "user" && identity.scope !== "api") return FORBIDDEN;
+  const username = params.username;
+  if (!username || !identity.userId) return FORBIDDEN;
+  return deps.userIdForUsername(username) === identity.userId
+    ? ALLOW
+    : FORBIDDEN;
+};
+
 // USER edit/delete: self OR office owner. Both branches are USER-gated (each of
 // officeOwner and selfUser requires scope === "user").
 export const selfOrOwner: Guard = (ctx) =>

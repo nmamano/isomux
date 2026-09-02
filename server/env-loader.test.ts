@@ -10,6 +10,8 @@ import {
   setPersonalProviderActiveProvider,
 } from "./env-loader.ts";
 import { personalProviderHome } from "./provider-homes.ts";
+import { claimUser, updateUserById } from "./users.ts";
+import { writeManagedUserEnv } from "./user-env.ts";
 
 afterEach(() => {
   setOfficeEnvFileProvider(() => null);
@@ -67,5 +69,59 @@ describe("activated personal provider environment", () => {
     const env = buildEnvForUserId("01a19e7b");
     expect(env?.CODEX_HOME).toBe(personalProviderHome("01a19e7b", "codex"));
     expect(env?.CLAUDE_CONFIG_DIR).toBeUndefined();
+  });
+});
+
+describe("managed user environment", () => {
+  it("flows provider keys with user-over-office precedence and stable identity", async () => {
+    const user = claimUser("Managed Env Flow User");
+    const root = await mkdtemp(join(tmpdir(), "isomux-managed-flow-"));
+    const office = join(root, "office.env");
+    await writeFile(
+      office,
+      "OPENAI_API_KEY=office\nANTHROPIC_API_KEY=office\nSHARED=office\n",
+    );
+    setOfficeEnvFileProvider(() => office);
+    setPersonalProviderActiveProvider(
+      (id, provider) =>
+        id === user.id && (provider === "claude" || provider === "codex"),
+    );
+    const beforeKey = environmentSourceKeyForUserId(user.id);
+
+    writeManagedUserEnv(user.id, {
+      OPENCODE_API_KEY: "zen",
+      OPENAI_API_KEY: "openai",
+      ANTHROPIC_API_KEY: "anthropic",
+      CLAUDE_CONFIG_DIR: "/explicit/claude",
+      SHARED: "user",
+    });
+    const firstKey = environmentSourceKeyForUserId(user.id);
+    const firstRevision = environmentSourceRevisionForUserId(user.id);
+    const env = buildEnvForUserId(user.id);
+
+    expect(env?.OPENCODE_API_KEY).toBe("zen");
+    expect(env?.OPENAI_API_KEY).toBe("openai");
+    expect(env?.ANTHROPIC_API_KEY).toBe("anthropic");
+    expect(env?.SHARED).toBe("user");
+    expect(env?.CLAUDE_CONFIG_DIR).toBe("/explicit/claude");
+    expect(env?.CODEX_HOME).toBe(personalProviderHome(user.id, "codex"));
+    expect(firstKey).not.toBe(beforeKey);
+
+    writeManagedUserEnv(user.id, { OPENCODE_API_KEY: "rotated" });
+    expect(environmentSourceKeyForUserId(user.id)).toBe(firstKey);
+    expect(environmentSourceRevisionForUserId(user.id)).not.toBe(firstRevision);
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("keeps a configured custom path exclusive even when managed storage exists", async () => {
+    const user = claimUser("Legacy Env Flow User");
+    const root = await mkdtemp(join(tmpdir(), "isomux-custom-flow-"));
+    const custom = join(root, "custom.env");
+    await writeFile(custom, "SOURCE=custom\n");
+    expect(updateUserById(user.id, { envFile: custom }).ok).toBe(true);
+    writeManagedUserEnv(user.id, { SOURCE: "managed" });
+
+    expect(buildEnvForUserId(user.id)?.SOURCE).toBe("custom");
+    await rm(root, { recursive: true, force: true });
   });
 });

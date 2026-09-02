@@ -21,6 +21,7 @@ import {
   isPersonalProviderActive,
   personalProviderHome,
 } from "./provider-homes.ts";
+import { managedUserEnvExists, managedUserEnvPath } from "./user-env.ts";
 
 // Provider lookup for the current office env file path. agent-manager sets
 // this once at module init from its `officeState.office.envFile` so we can
@@ -43,6 +44,15 @@ export function setPersonalProviderActiveProvider(
   getPersonalProviderActive = fn;
 }
 
+function resolveUserEnvSource(
+  userId: string | null | undefined,
+): string | null {
+  if (!userId) return null;
+  const custom = getUserEnvFileById(userId);
+  if (custom) return custom;
+  return managedUserEnvExists(userId) ? managedUserEnvPath(userId) : null;
+}
+
 // Build the spawn-time env merge for a given user identity. `userId` is
 // the stable user record id; pass null for an unowned context (agents
 // with no spawning user, cronjobs not bound to a user). Returns
@@ -52,7 +62,10 @@ export function buildEnvForUserId(
   userId: string | null | undefined,
 ): { [key: string]: string | undefined } | undefined {
   const officeEnvFile = getOfficeEnvFile();
-  const userEnvFile = userId ? getUserEnvFileById(userId) : null;
+  // A configured custom path remains the exclusive user source until the user
+  // explicitly imports it. A missing managed file means the user has not opted
+  // in, so it never makes spawn fail.
+  const userEnvFile = resolveUserEnvSource(userId);
   const personalClaude = Boolean(
     userId && getPersonalProviderActive(userId, "claude"),
   );
@@ -104,10 +117,10 @@ export function readOfficeEnvFile(): Record<string, string> {
 export function environmentSourceKeyForUserId(
   userId: string | null | undefined,
 ): string {
-  const sources = [
-    getOfficeEnvFile(),
-    userId ? getUserEnvFileById(userId) : null,
-  ].filter((path): path is string => Boolean(path));
+  const userEnvFile = resolveUserEnvSource(userId);
+  const sources = [getOfficeEnvFile(), userEnvFile].filter(
+    (path): path is string => Boolean(path),
+  );
   if (sources.length === 0) return "default";
   const identity = sources.map((path) => resolve(path));
   return createHash("sha256")
@@ -124,7 +137,7 @@ export function environmentSourceRevisionForUserId(
   userId: string | null | undefined,
 ): string {
   const officeEnvFile = getOfficeEnvFile();
-  const userEnvFile = userId ? getUserEnvFileById(userId) : null;
+  const userEnvFile = resolveUserEnvSource(userId);
   const configured: Record<string, string> = {};
   if (officeEnvFile) Object.assign(configured, readEnvFile(officeEnvFile));
   if (userEnvFile) Object.assign(configured, readEnvFile(userEnvFile));

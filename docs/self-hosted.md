@@ -297,6 +297,16 @@ For the full flow - invite TTLs, multi-device users, sign-out, owner recovery, t
 
 > **Don't store an SSH key on the host that root accepts** - agents can read the host's files and would become root with it. See [root access](#root-access) for the check and the fix.
 
+### Provider API keys
+
+Each user can add `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or
+`OPENCODE_API_KEY` under User Settings → Environment Variables. Isomux creates
+and updates a private per-user file under `~/.isomux/`; users do not need to
+create or edit that file on the server.
+
+An office env file can still provide variables to every user. Per-user managed
+variables override office values.
+
 ## Backups
 
 Isomux stores seven daily backups of `~/.isomux/` in the server's backup directory on the same disk as the office, so copy them elsewhere if you need protection from server loss. Current backup health and the exact directory are at `GET /api/backup/status`.

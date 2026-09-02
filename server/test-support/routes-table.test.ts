@@ -269,6 +269,116 @@ describe("route table: public routes are routed AROUND authorize()", () => {
   });
 });
 
+describe("route table: managed env values are self-only", () => {
+  const deps: GuardDeps = {
+    hasRoomAccess: () => true,
+    roomIdForAgent: () => "r1",
+    userIdForUsername: (name) => (name === "self" ? "u1" : "u2"),
+    cronjobCreatorUserId: () => null,
+    appOwnerUserId: () => null,
+    isOfficeOwnerUserId: () => false,
+    agentManagerUserId: () => "u1",
+    killedAgentManagerUserId: () => "u1",
+  };
+  const identities: Record<string, Identity> = {
+    user: {
+      scope: "user",
+      userId: "u1",
+      role: "member",
+      capabilities: USER_CAPABILITIES,
+    },
+    api: {
+      scope: "api",
+      userId: "u1",
+      role: "member",
+      apiTokenId: "p1",
+      apiTokenName: "API",
+      capabilities: API_CAPABILITIES,
+    },
+    agent: {
+      scope: "agent",
+      userId: "u1",
+      role: "member",
+      agentId: "a1",
+      capabilities: AGENT_CAPABILITIES,
+    },
+    privilegedAgent: {
+      scope: "agent",
+      userId: "u1",
+      role: "member",
+      agentId: "a2",
+      capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+    },
+  };
+
+  it("admits the owning user and API identity, and no agent identity", () => {
+    for (const opId of ["userEnv.get", "userEnv.replace", "userEnv.import"]) {
+      const route = API_ROUTES.find((candidate) => candidate.opId === opId)!;
+      expect(
+        runAuthorize(
+          route.auth,
+          identities.user,
+          { username: "self" },
+          undefined,
+          deps,
+        ).ok,
+      ).toBe(true);
+      expect(
+        runAuthorize(
+          route.auth,
+          identities.api,
+          { username: "self" },
+          undefined,
+          deps,
+        ).ok,
+      ).toBe(true);
+      expect(
+        runAuthorize(
+          route.auth,
+          identities.user,
+          { username: "other" },
+          undefined,
+          deps,
+        ).ok,
+      ).toBe(false);
+      expect(
+        runAuthorize(
+          route.auth,
+          identities.api,
+          { username: "other" },
+          undefined,
+          deps,
+        ).ok,
+      ).toBe(false);
+      expect(
+        runAuthorize(
+          route.auth,
+          identities.agent,
+          { username: "self" },
+          undefined,
+          deps,
+        ).ok,
+      ).toBe(false);
+      expect(
+        runAuthorize(
+          route.auth,
+          identities.privilegedAgent,
+          { username: "self" },
+          undefined,
+          deps,
+        ).ok,
+      ).toBe(false);
+    }
+  });
+
+  it("assigns user:env only to USER and API capability sets", () => {
+    expect(USER_CAPABILITIES).toContain("user:env");
+    expect(API_CAPABILITIES).toContain("user:env");
+    expect(AGENT_CAPABILITIES).not.toContain("user:env");
+    expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain("user:env");
+  });
+});
+
 describe("route table: coverage sanity", () => {
   it("declares the expected /api surface (every spec resource group present)", () => {
     const opIds = new Set(API_ROUTES.map((r) => r.opId));
@@ -423,6 +533,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   // "edit a user record" while staying out of both agent capability sets.
   "prefs.update": {
     caps: ["user:self"],
+    emits: ["user_admin_updated", "user_self_updated"],
+  },
+  "userEnv.get": { caps: ["user:env"], emits: [] },
+  "userEnv.replace": { caps: ["user:env"], emits: [] },
+  "userEnv.import": {
+    caps: ["user:env"],
     emits: ["user_admin_updated", "user_self_updated"],
   },
   "apiTokens.list": { caps: ["user:self"], emits: [] },
@@ -805,6 +921,9 @@ const API_REACHABLE_OPIDS = [
   "rooms.rename",
   "rooms.getSettings",
   "rooms.setSettings",
+  "userEnv.get",
+  "userEnv.replace",
+  "userEnv.import",
   "apiTokenInbox.drain",
   "validate.cwd",
   "backends.listModels",

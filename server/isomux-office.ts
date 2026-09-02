@@ -206,6 +206,7 @@ import { invitesHandlers } from "./routes/handlers/invites.ts";
 import { sessionsHandlers } from "./routes/handlers/sessions.ts";
 import { accessHandlers } from "./routes/handlers/access.ts";
 import { usersHandlers } from "./routes/handlers/users.ts";
+import { userEnvHandlers } from "./routes/handlers/user-env.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
@@ -219,6 +220,13 @@ import { systemHandlers } from "./routes/handlers/system.ts";
 import { storageHandlers } from "./routes/handlers/storage.ts";
 import { usageHandlers } from "./routes/handlers/usage.ts";
 import { STATE_ROOT } from "./config.ts";
+import { readEnvFile } from "./persistence.ts";
+import {
+  managedUserEnvExists,
+  readManagedUserEnv,
+  removeManagedUserEnv,
+  writeManagedUserEnv,
+} from "./user-env.ts";
 import { measureStorageCached } from "./storage-usage.ts";
 import { productionStorageRoots } from "./storage-roots.ts";
 import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
@@ -2432,6 +2440,73 @@ function buildExecutorDeps(
   // event sink): the seam runs updateUserById/deleteUser + the fanout, mirroring
   // the retired WS arms. Role/self authz is the route guard's (selfOrOwner /
   // officeOwner); the two delete preconditions add owner!=self + not-last-owner.
+  register(
+    userEnvHandlers({
+      get: (userId) => {
+        const user = getUserById(userId);
+        if (user?.envFile) return { mode: "custom", path: user.envFile };
+        return {
+          mode: "managed",
+          values: readManagedUserEnv(userId) ?? {},
+        };
+      },
+      replace: (userId, values) => {
+        const user = getUserById(userId);
+        if (!user) return { ok: false, status: 404, code: "not_found" };
+        if (user.envFile) {
+          return {
+            ok: false,
+            status: 409,
+            code: "custom_env_active",
+            message:
+              "move the custom env file before editing managed variables",
+          };
+        }
+        writeManagedUserEnv(userId, values);
+        return { ok: true };
+      },
+      importCustom: (userId) => {
+        const user = getUserById(userId);
+        if (!user) return { ok: false, status: 404, code: "not_found" };
+        if (!user.envFile) {
+          return { ok: false, status: 409, code: "no_custom_env" };
+        }
+        if (managedUserEnvExists(userId)) {
+          return {
+            ok: false,
+            status: 409,
+            code: "managed_env_exists",
+            message: "a managed env file already exists",
+          };
+        }
+        let values: Record<string, string>;
+        try {
+          values = readEnvFile(user.envFile);
+          writeManagedUserEnv(userId, values);
+        } catch {
+          return {
+            ok: false,
+            status: 400,
+            code: "import_failed",
+            message: "could not import the custom env file",
+          };
+        }
+        let updated: ReturnType<typeof updateUserById>;
+        try {
+          updated = updateUserById(userId, { envFile: null });
+        } catch {
+          removeManagedUserEnv(userId);
+          return { ok: false, status: 500, code: "import_failed" };
+        }
+        if (!updated.ok) {
+          removeManagedUserEnv(userId);
+          return { ok: false, status: 500, code: "import_failed" };
+        }
+        emitPrivateUserRecord(updated.user);
+        return { ok: true };
+      },
+    }),
+  );
   register(
     usersHandlers({
       update: async ({ username, changes }) => {

@@ -608,6 +608,14 @@ export interface OfficeSettingsReq {
   version: string;
 }
 
+export type UserEnvRes =
+  | { mode: "managed"; values: Record<string, string> }
+  | { mode: "custom"; path: string };
+
+export interface UserEnvReplaceReq {
+  values: Record<string, string>;
+}
+
 // office.getSettings response: the full settings + their optimistic-concurrency
 // version (sha over the canonical [prompt, envFile, name] serialization).
 export type OfficeSettingsRes = OfficeSettings & { version: string };

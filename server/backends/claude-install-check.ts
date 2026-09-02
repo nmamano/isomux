@@ -10,25 +10,26 @@
 //
 // Codex doesn't have an equivalent presence check: codex now ships bundled as
 // an isomux runtime dep (see server/backends/codex/native-bin.ts), so its
-// availability is guaranteed by a successful `bun install`. Memoized so
-// repeat callers don't re-spawn `which`.
+// availability is guaranteed by a successful `bun install`.
 
-import { execSync } from "child_process";
-import { existsSync } from "fs";
+import { accessSync, constants, existsSync } from "fs";
 import { homedir } from "os";
-import { join } from "path";
+import { delimiter, join } from "path";
 
-let cached: boolean | null = null;
-
-export function isClaudeCodeInstalled(): boolean {
-  if (cached !== null) return cached;
-  try {
-    execSync("which claude", { stdio: "pipe" });
-    cached = true;
-  } catch {
-    cached = false;
+export function isClaudeCodeInstalled(env?: {
+  [key: string]: string | undefined;
+}): boolean {
+  const effective = env ?? process.env;
+  for (const dir of effective.PATH?.split(delimiter) ?? []) {
+    if (!dir) continue;
+    try {
+      accessSync(join(dir, "claude"), constants.X_OK);
+      return true;
+    } catch {
+      // Keep searching the effective PATH.
+    }
   }
-  return cached;
+  return false;
 }
 
 // Cheap probe for "user has already completed claude-code login at some
@@ -42,8 +43,8 @@ export function isClaudeCodeInstalled(): boolean {
 //      bypasses the credentials file entirely. Caller passes the agent's
 //      resolved env (process.env + office envFile + user envFile, in
 //      override order); defaults to process.env if no env supplied.
-//   2. `~/.claude/.credentials.json` exists - the file `claude /login`
-//      writes, and what the SDK reads to authenticate.
+//   2. `<CLAUDE_CONFIG_DIR>/.credentials.json` exists, falling back to
+//      `~/.claude/.credentials.json` when CLAUDE_CONFIG_DIR is blank.
 //
 // Symmetric with `isCodexAuthenticated` in codex/native-bin.ts. The CLI
 // presence check (`isClaudeCodeInstalled`) is independent: the SDK can
@@ -54,5 +55,9 @@ export function isClaudeCodeAuthenticated(env?: {
 }): boolean {
   const effective = env ?? process.env;
   if (effective.ANTHROPIC_API_KEY) return true;
-  return existsSync(join(homedir(), ".claude", ".credentials.json"));
+  const configured = effective.CLAUDE_CONFIG_DIR;
+  const configDir = configured?.trim()
+    ? configured
+    : join(homedir(), ".claude");
+  return existsSync(join(configDir, ".credentials.json"));
 }

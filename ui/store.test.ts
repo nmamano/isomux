@@ -17,6 +17,7 @@ import {
   ProviderSignInCard,
   signOutButtonLabel,
 } from "./components/ProviderSignInCard.tsx";
+import { ConnectionsPane } from "./components/ConnectionsPane.tsx";
 import type {
   AppWire,
   LogEntry,
@@ -123,6 +124,16 @@ describe("ProviderSignInCard", () => {
     expect(html).not.toContain("Who should use this account?");
     expect(html).not.toContain("sign in from the built-in terminal");
     expect(html).not.toContain("Set your Env File Path in User Settings.");
+  });
+
+  it("points all API-key providers at managed environment variables", () => {
+    const html = renderToStaticMarkup(createElement(ConnectionsPane));
+    expect(html).toContain("ANTHROPIC_API_KEY");
+    expect(html).toContain("OPENAI_API_KEY");
+    expect(html).toContain("OPENCODE_API_KEY");
+    expect(html).toContain("User Settings → Environment Variables");
+    expect(html).not.toContain("User Settings → Env File Path");
+    expect(html).toContain("Office Settings → Env File Path");
   });
 
   it("uses the generic waiting copy for the Claude code step", () => {

@@ -95,11 +95,11 @@ export function ConnectionsPane() {
         onAccounts={updateAccounts}
       />
       <p style={{ ...hint, marginTop: 14 }}>
-        <strong>Do you want to use an API token?</strong> Add{" "}
-        <code>ANTHROPIC_API_KEY</code> (Claude) or <code>OPENAI_API_KEY</code>{" "}
-        (Codex) to your env file (User Settings → Env File Path), or to the
-        office env file (Office Settings → Env File Path) to share it with every
-        agent. Then <code>/clear</code> agents to apply it.
+        <strong>Do you want to use an API key?</strong> Add{" "}
+        <code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, or{" "}
+        <code>OPENCODE_API_KEY</code> under User Settings → Environment
+        Variables. Then <code>/clear</code> agents to apply it. To share a key
+        with every agent, use Office Settings → Env File Path.
       </p>
     </div>
   );

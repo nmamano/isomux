@@ -142,8 +142,8 @@ export function withIsomuxCodexHome(
 //      override honored, otherwise the default ISOMUX_CODEX_HOME).
 //
 // This used to only consult process.env, which created a footgun: a user
-// who put OPENAI_API_KEY in their envFile (the supported way to set
-// per-agent secrets - see User Settings → Env File Path) would still get
+// who put OPENAI_API_KEY in their managed environment (the supported way to set
+// per-agent secrets - see User Settings → Environment Variables) would still get
 // the full sign-in walkthrough on any auth-error, because the helper
 // couldn't see their envFile-set key. Threading the merged env in closes
 // that gap.

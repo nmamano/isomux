@@ -1671,9 +1671,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     margin: "3px 0 0",
                   }}
                 >
-                  Locked to the spawning user. Controls which{" "}
-                  <code>envFile</code> loads on each session (see User
-                  Settings).
+                  Locked to the spawning user. Controls which environment loads
+                  on each session (see User Settings).
                 </p>
 
                 {/* Privileged operator access. Grants this agent its spawning user's
