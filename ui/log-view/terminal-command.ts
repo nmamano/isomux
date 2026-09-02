@@ -23,6 +23,7 @@ export type CommandDeliveryEvent =
 export type CommandDeliveryResult = {
   state: CommandDeliveryState | null;
   write?: string;
+  requestStatus?: true;
   issue?: string;
   handled?: true;
 };
@@ -59,6 +60,7 @@ export function advanceCommandDelivery(
         interruptOutput,
         phase: interruptOutput.includes("^C") ? "fresh_owner" : state.phase,
       },
+      requestStatus: interruptOutput.includes("^C") ? true : undefined,
     };
   }
   if (event.type !== "status") return { state };

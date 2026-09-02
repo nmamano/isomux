@@ -32,6 +32,7 @@ describe("commandInputBytes", () => {
       data: "background output\r\n",
     });
     expect(arbitraryOutput.state?.phase).toBe("interrupt_ack");
+    expect(arbitraryOutput.requestStatus).toBeUndefined();
 
     const caret = advanceCommandDelivery(arbitraryOutput.state, {
       type: "output",
@@ -43,6 +44,16 @@ describe("commandInputBytes", () => {
       data: "C\r\n$ ",
     });
     expect(acknowledged.state?.phase).toBe("fresh_owner");
+    expect(acknowledged.write).toBeUndefined();
+    expect(acknowledged.requestStatus).toBe(true);
+    for (const data of ["prompt redraw", "background output"]) {
+      const afterAcknowledgement = advanceCommandDelivery(acknowledged.state, {
+        type: "output",
+        data,
+      });
+      expect(afterAcknowledgement.state?.phase).toBe("fresh_owner");
+      expect(afterAcknowledgement.requestStatus).toBeUndefined();
+    }
 
     const freshStatus = advanceCommandDelivery(acknowledged.state, {
       type: "status",
@@ -79,6 +90,7 @@ describe("commandInputBytes", () => {
       type: "output",
       data: "^C",
     });
+    expect(acknowledged.requestStatus).toBe(true);
     const foreign = advanceCommandDelivery(acknowledged.state, {
       type: "status",
       shell: false,

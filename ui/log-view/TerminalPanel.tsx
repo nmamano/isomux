@@ -329,6 +329,9 @@ export function TerminalPanel({
       const current = commandDeliveryRef.current;
       const result = advanceCommandDelivery(current, event);
       commandDeliveryRef.current = result.state;
+      if (result.requestStatus) {
+        send({ type: "terminal_status_request", agentId });
+      }
       if (result.write) {
         send({ type: "terminal_input", agentId, data: result.write });
         const helper = containerRef.current?.querySelector(

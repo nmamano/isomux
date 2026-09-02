@@ -1623,6 +1623,7 @@ export type ServerMessage =
 // Browser → Server commands
 export type ClientCommand =
   | { type: "terminal_open"; agentId: string }
+  | { type: "terminal_status_request"; agentId: string }
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }

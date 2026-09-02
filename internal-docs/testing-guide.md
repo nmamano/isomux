@@ -33,6 +33,33 @@ T3 is gated behind the `ISOMUX_TEST_LIVE` env flag plus the separate `test:live`
 3. The feature inventory as a coverage map, not a mandate. Every feature in the canonical inventory (`docs/features.md`) has at least one behavioral test of its critical mechanism at the lowest deterministic tier. Tracked via the traceability matrix below.
 4. Avoid horizontal slicing. Do not write all tests up front against speculation: characterization tests are grounded by observation, new-code tests follow red-green-refactor.
 
+## Measured test recipes
+
+### PTY control characters
+
+Measured 2026-08-28 with node-pty 1.1.0 and `bash -i -l`: `\x03` is
+INTR, and the line discipline discards the full pending input queue. A command
+concatenated after it in the same write arrived intact 0/15 times; two
+back-to-back writes arrived intact 9/15 times; only a real gap reached 15/15.
+A split write is a timing bet, not a fix. `\x05\x15` is the portable full-line
+clear for bash, zsh, and fish.
+
+Use a marker whose output cannot occur in its own echo. `expr 6 \* 7` produces
+a standalone `42`. Readline redraws with `\r`, so a naive regular expression
+can otherwise match the marker inside its echoed command and report a false
+success.
+
+### Timing comparisons on a shared box
+
+Measured 2026-08-29: interleave quiet and loaded runs as q/L/q/L, with
+untouched cases in the same file as a drift control. Load the box with CPU-only
+spinners so earlyoom stays out of the comparison. Timer-bound cases barely
+moved under load; CPU-bound cases swung 4.2x.
+
+A scratch copy made by excluding `.git` from a tar archive makes tests that
+call `git ls-files` exit 128. Confirm that exit appears on both sides before
+reading it as a regression.
+
 ## Seams and where they live
 
 `control-plane/drive-loop.test.ts` pins the deployed combined cadence: operation

@@ -4796,6 +4796,10 @@ async function handleInboundMessage(
         if (!agentVisibleForSession(session, cmd.agentId)) break;
         agentManager.terminalInput(cmd.agentId, cmd.data);
         break;
+      case "terminal_status_request":
+        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        agentManager.terminalStatus(cmd.agentId);
+        break;
       case "terminal_resize":
         if (!agentVisibleForSession(session, cmd.agentId)) break;
         agentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows);

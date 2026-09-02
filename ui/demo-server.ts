@@ -2248,6 +2248,7 @@ export function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
     // Silent no-ops
     case "terminal_open":
+    case "terminal_status_request":
     case "terminal_input":
     case "terminal_resize":
     case "terminal_close":
