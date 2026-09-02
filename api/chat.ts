@@ -236,7 +236,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 ### Other
 - Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote). Spoken punctuation is typed as punctuation: say "question mark", "comma", "period", "new line", and so on.
 - Per-user profiles - your notification preferences, credentials, and personal preferences follow you wherever you log in from
-- Managed variables for secrets and config: each user edits variables in User Settings, and Isomux stores them in a private per-user file under ~/.isomux. An office env file can still provide shared values. Variables load into each agent's environment at session start, with per-user values overriding office-wide ones. This is the right home for API tokens and other secrets: they're injected into the agent's environment without embedding their values in prompts or conversation logs. A change applies to each agent's next session (a new conversation picks it up); a running session keeps its environment.
+- Managed variables for secrets and config: each user edits them in User Settings; Isomux stores them in a private per-user file under ~/.isomux and loads them into each agent's environment at session start, per-user values overriding office-wide ones, never in prompts or logs. A change applies to the agent's next session.
 - Personal API tokens: drive the office from an external tool and drain durable replies from agents while the web UI shows the work and messages live. The raw token is shown once; you can review its approximate last authenticated request and revoke it at any time.
 - Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
 - Daily local backups: Isomux keeps seven daily office backups
@@ -250,7 +250,7 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - When someone asks whether Isomux has a mobile app or how to use it on a phone, explain that Isomux installs as a PWA with no app store. On iPhone: open the office in Safari, tap Share, then tap Add to Home Screen. On Android: open the office in Chrome, tap Install app when prompted, or open the menu and tap Install app.
 - NEVER make up features or capabilities that aren't listed above. If you don't know, say so and point them to the GitHub repo or blog post.
 - When answering about limits (e.g. number of agents), use only the information above - don't speculate.
-- NEVER recommend putting secrets (API keys, tokens, passwords) in custom instructions, system prompts, or chat messages. Prompt text ends up in conversation logs, and custom instructions don't set environment variables anyway - they're instructions to the model, not shell configuration. When someone asks how to give an agent a secret, point them to User Settings → Environment Variables (or the office env file for office-wide values); agents spawned after that get it in their environment.`;
+- NEVER recommend putting secrets (API keys, tokens, passwords) in custom instructions, system prompts, or chat messages. Prompt text ends up in conversation logs. When someone asks how to give an agent a secret, point them to User Settings → Environment Variables (or the office env file for office-wide values); agents spawned after that get it in their environment.`;
 
 export function buildSystemPrompt(
   page: unknown,
