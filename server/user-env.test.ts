@@ -15,6 +15,13 @@ import {
 } from "./user-env.ts";
 
 const USER_ID = "user-env-test";
+// Only this user's entries: the user-env directory is a per-process
+// singleton shared with every test file bun runs in the same process (GitHub
+// CI ran other files first and their users' files were present). The check
+// that matters is that no temp file from the atomic write is left behind
+// next to the final one.
+const ownEntries = () =>
+  readdirSync(dirname(path)).filter((name) => name.startsWith(USER_ID));
 const path = managedUserEnvPath(USER_ID);
 
 afterEach(() => {
@@ -50,7 +57,7 @@ describe("managed user env storage", () => {
     expect(readEnvFile(path)).toEqual(values);
     expect(statSync(dirname(path)).mode & 0o777).toBe(0o700);
     expect(statSync(path).mode & 0o777).toBe(0o600);
-    expect(readdirSync(dirname(path))).toEqual([`${USER_ID}.env`]);
+    expect(ownEntries()).toEqual([`${USER_ID}.env`]);
   });
 
   it("atomically replaces a file and leaves an empty file for no keys", () => {
@@ -59,7 +66,7 @@ describe("managed user env storage", () => {
 
     expect(readEnvFile(path)).toEqual({});
     expect(statSync(path).mode & 0o777).toBe(0o600);
-    expect(readdirSync(dirname(path))).toEqual([`${USER_ID}.env`]);
+    expect(ownEntries()).toEqual([`${USER_ID}.env`]);
   });
 
   it("uses the shared atomic writer and permissions for office values", () => {
