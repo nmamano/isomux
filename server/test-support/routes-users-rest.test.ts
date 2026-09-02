@@ -124,7 +124,7 @@ describe("routes/users REST - update (record split, Option A)", () => {
     expect(getUserByName("Mia2")!.allowedRooms).toEqual([]); // grants untouched
   });
 
-  it("unauth -> 401 (new envelope); malformed name -> 422; invalid env -> 400", async () => {
+  it("unauth -> 401 (new envelope); malformed name -> 422; envFile is no longer a setting and is ignored", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     const mia = await server.seedMember("Mia");
@@ -142,13 +142,16 @@ describe("routes/users REST - update (record split, Option A)", () => {
     });
     expect(bad.status).toBe(422);
 
-    const badEnv = await api(server, `/api/users/${mia.username}`, {
+    // Per-user env files are managed by isomux now (Connections page); the
+    // old envFile path setting is gone from the wire. A stale client that
+    // still sends it is ignored, not rejected, and nothing is stored.
+    const staleEnv = await api(server, `/api/users/${mia.username}`, {
       method: "PATCH",
       rawSessionId: owner.rawSessionId,
       body: { envFile: "/no/such/file/at/all.env" },
     });
-    expect(badEnv.status).toBe(400);
-    expect(errCode(badEnv)).toBe("invalid_env");
+    expect(staleEnv.status).toBe(200);
+    expect(getUserByName("Mia")!.envFile ?? null).toBe(null);
   });
 
   it("a rename to an existing name -> 409 name_taken", async () => {
