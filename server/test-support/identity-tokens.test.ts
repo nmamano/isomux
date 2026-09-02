@@ -196,6 +196,7 @@ describe("identity: capability sets (Phase 2.1)", () => {
 
   it("API scope holds the explicit remote-boss operational capabilities", () => {
     expect([...API_CAPABILITIES]).toEqual([
+      "user:env",
       "api:discover-agents",
       "api:send-message",
       "api:drain-inbox",
