@@ -47,9 +47,9 @@ async function waitUntil(
 
 const claudeHome = () => join(STATE_ROOT, "claude-home-idle-evict");
 
-// Point the agent env's CLAUDE_CONFIG_DIR at a temp dir via a temp office env
-// file, so the Claude resume preflight (claudeSessionFileExists) consults a
-// path we control instead of the host ~/.claude.
+// Point the agent env's CLAUDE_CONFIG_DIR at a temp dir via the managed office
+// env file, so the Claude resume preflight (claudeSessionFileExists) consults
+// a path we control instead of the host ~/.claude.
 function wireClaudeConfigDir(): void {
   setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeHome() });
 }
