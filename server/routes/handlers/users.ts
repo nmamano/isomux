@@ -49,8 +49,8 @@ type DeleteOutcome =
   | { ok: false; status: HandlerErrorStatus; code: string; error: string };
 
 export interface UsersDeps {
-  // Record edit (name/env/prompt/avatar). selfOrOwner already passed. Validates
-  // envFile via the shared seam; on ok emits user_updated + users_list + presence.
+  // Record edit (name/prompt/avatar). selfOrOwner already passed. On ok emits
+  // user_updated + users_list + presence.
   update(input: {
     username: string;
     changes: UserUpdateReq;
@@ -71,7 +71,7 @@ export interface UsersDeps {
 
 // Reject a present-but-wrong-typed optional field with 422 BEFORE the core (the
 // slice-7/8 malformed-boundary pattern): a non-string name/avatar or a value
-// that is neither string nor null for env/prompt would otherwise corrupt the
+// that is neither string nor null for the prompt would otherwise corrupt the
 // record. Absent fields (undefined) are tolerated - UserUpdateReq is a Partial.
 function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
   if (body.name !== undefined && typeof body.name !== "string") {
@@ -79,13 +79,6 @@ function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
   }
   if (body.name !== undefined && body.name.trim().length === 0) {
     return "name cannot be empty";
-  }
-  if (
-    body.envFile !== undefined &&
-    body.envFile !== null &&
-    typeof body.envFile !== "string"
-  ) {
-    return "envFile must be a string or null";
   }
   if (
     body.memberPrompt !== undefined &&
