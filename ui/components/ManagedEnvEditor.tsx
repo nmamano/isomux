@@ -29,6 +29,9 @@ export function ManagedEnvEditor({ path }: { path: string }) {
   const [saved, setSaved] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Values are secrets. They render masked until the user reveals them, so a
+  // shared or streamed screen on the Connections page shows nothing (Nil).
+  const [showValues, setShowValues] = useState(false);
 
   const load = () =>
     apiFetch<UserEnvRes>("GET", path)
@@ -116,6 +119,8 @@ export function ManagedEnvEditor({ path }: { path: string }) {
           />
           <input
             aria-label={`${entry.key || "Variable"} value`}
+            type={showValues ? "text" : "password"}
+            autoComplete="off"
             value={entry.value}
             placeholder="Value"
             style={dialogInput}
@@ -152,6 +157,13 @@ export function ManagedEnvEditor({ path }: { path: string }) {
           }
         >
           Add variable
+        </button>
+        <button
+          type="button"
+          style={dialogCancelBtn}
+          onClick={() => setShowValues((shown) => !shown)}
+        >
+          {showValues ? "Hide values" : "Show values"}
         </button>
         <button
           type="button"
