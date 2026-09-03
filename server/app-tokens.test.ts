@@ -580,11 +580,13 @@ describe("app-tokens: boot reconciliation", () => {
   });
 
   it("reports a restart failure separately from token provisioning", () => {
+    const s = store();
+    s.mint("hello", "u-alice");
     const f = files({
       states: new Map([["hello", "running"]]),
       failRestart: true,
     });
-    const report = reconcileAppTokens(reconcileDeps([record()], store(), f));
+    const report = reconcileAppTokens(reconcileDeps([record()], s, f));
     expect(report.provisioned).toEqual(["hello"]);
     expect(report.failed).toEqual([]);
     expect(report.restarted).toEqual([]);

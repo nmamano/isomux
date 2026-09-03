@@ -1884,9 +1884,12 @@ describe("routes/apps REST: app tokens", () => {
     // Still the same plaintext in the app's environment file, and boot touched
     // nothing: reconciliation hashed it, found the pair healthy, and left it.
     expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
-    // Only the boot reload: the pair was healthy and the unit wired, so
-    // nothing was rewritten, rotated or activated.
-    expect(srv.appSupervisor.calls.slice(before)).toEqual(["reloadUnits"]);
+    // Only the runtime read and boot reload: the pair was healthy and the unit
+    // wired, so nothing was rewritten, rotated or activated.
+    expect(srv.appSupervisor.calls.slice(before)).toEqual([
+      "states:hello",
+      "reloadUnits",
+    ]);
   });
 
   it("gives a token at boot to an app that has none, without restarting it", async () => {
@@ -1915,9 +1918,37 @@ describe("routes/apps REST: app tokens", () => {
     // and picks the token up on its next restart.
     const did = srv.appSupervisor.calls.slice(before);
     expect(did).toEqual([
+      "states:hello",
       "reloadUnits",
       "regenerate:hello",
       "provisionToken:hello",
+    ]);
+  });
+
+  it("restarts a running app when a same-box restore kept its hash but omitted its plaintext", async () => {
+    let srv = await startTestServer();
+    server = srv;
+    const { raw: old } = await registerApp(srv);
+    // This is the daily-backup restore shape: apps/app-tokens.json survives,
+    // apps/units does not, and the systemd process can outlive a same-box
+    // restore. The stored hash is the only remaining signal that its process
+    // holds a credential reconciliation is about to invalidate.
+    srv.appSupervisor.tokenFiles.clear();
+
+    const before = srv.appSupervisor.calls.length;
+    srv = await srv.restart();
+    server = srv;
+
+    const fresh = srv.appSupervisor.tokenFiles.get("hello")!;
+    expect(fresh).toBeTruthy();
+    expect(fresh).not.toBe(old);
+    expect(officeTokens().lookup(old)).toBeNull();
+    expect(officeTokens().lookup(fresh)?.appName).toBe("hello");
+    expect(srv.appSupervisor.calls.slice(before)).toEqual([
+      "states:hello",
+      "reloadUnits",
+      "provisionToken:hello",
+      "restart:hello",
     ]);
   });
 
@@ -1967,6 +1998,7 @@ describe("routes/apps REST: app tokens", () => {
 
     // The unit is written, and NOTHING else: no install, no enable, no start.
     expect(srv.appSupervisor.calls.slice(before)).toEqual([
+      "states:hello",
       "reloadUnits",
       "regenerate:hello",
     ]);
@@ -2007,8 +2039,12 @@ describe("routes/apps REST: app tokens", () => {
     srv = await srv.restart();
     server = srv;
 
-    // Exactly the reload: no rotation, no regeneration, and nothing activated.
-    expect(srv.appSupervisor.calls.slice(before)).toEqual(["reloadUnits"]);
+    // Exactly the runtime read and reload: no rotation, no regeneration, and
+    // nothing activated.
+    expect(srv.appSupervisor.calls.slice(before)).toEqual([
+      "states:hello",
+      "reloadUnits",
+    ]);
     expect(srv.appSupervisor.tokenFiles.get("hello")).toBe(raw);
     expect(officeTokens().lookup(raw)?.appName).toBe("hello");
   });

@@ -27,13 +27,15 @@
 // behind a unit that injects nothing. Skipping on a healthy pair alone would
 // make that state permanent, since nothing else ever looks again.
 //
-// WHEN IT RESTARTS. A running app whose token is re-minted must restart because
-// its process still holds the rejected token and app:message is its only
-// capability. Healthy and merely rewired apps are not bounced; stopped apps
-// take the new token on their next start. Runtime state is captured before the
-// pass changes anything. A false negative in the pair check would otherwise
-// cause a silent re-mint and restart on every boot, so the healthy-pair test is
-// also the guard against repeated user-visible disruption.
+// WHEN IT RESTARTS. A running app whose prior credential is replaced must
+// restart because its process still holds the rejected token and app:message is
+// its only capability. A pre-token app has no credential to invalidate, so it
+// is provisioned without a bounce. Healthy and merely rewired apps are not
+// bounced; stopped apps take the new token on their next start. Runtime state
+// is captured before the pass changes anything. A false negative in the pair
+// check would otherwise cause a silent re-mint and restart on every boot, so
+// the healthy-pair test is also the guard against repeated user-visible
+// disruption.
 //
 // BEST EFFORT, NOT ATOMIC. Two files and a store cannot be written as one
 // transaction, so the cleanup after a half-finished provisioning is best effort
@@ -139,6 +141,15 @@ export function reconcileAppTokens(
     // would call healthy and an app would experience as a token that never
     // works.
     const current = deps.readToken(app.name);
+    // Either half proves that a running process may still hold a credential we
+    // are about to invalidate. Plaintext alone is insufficient: a same-box
+    // restore excludes the plaintext but keeps app-tokens.json, so a stored
+    // hash survives while the running process holds a token that no longer
+    // matches. Capture this before provision() replaces that hash and destroys
+    // the signal. A pre-token app with neither half gets its first token without
+    // a user-visible bounce.
+    const hadCredential =
+      current !== null || deps.tokens.names().includes(app.name);
     const paired = current !== null && deps.tokens.matches(app.name, current);
     const wired = deps.unitInjectsToken(app.name);
     if (paired && wired) continue;
@@ -164,7 +175,7 @@ export function reconcileAppTokens(
       provision(deps, app);
       report.provisioned.push(app.name);
       const state = before.get(app.name)?.state ?? "unknown";
-      if (state === "running" || state === "starting") {
+      if (hadCredential && (state === "running" || state === "starting")) {
         try {
           deps.restart(app.name);
           report.restarted.push(app.name);
