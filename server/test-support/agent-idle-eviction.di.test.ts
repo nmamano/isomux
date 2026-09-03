@@ -131,6 +131,32 @@ function makeManager(fake: FakeBackend) {
   return mgr;
 }
 
+function persistedAgent(id: string, lastSessionId: string | null) {
+  return {
+    id,
+    name: id,
+    desk: 0,
+    cwd: STATE_ROOT,
+    outfit: {
+      hat: "none" as const,
+      color: "#ffffff",
+      hair: "#000000",
+      hairStyle: "short" as const,
+      skin: "#ffffff",
+      beard: "none" as const,
+      accessory: null,
+    },
+    permissionMode: "default" as const,
+    modelFamily: "opencode/fake",
+    agentType: "opencode" as const,
+    lastSessionId,
+    topic: null,
+    customInstructions: null,
+    userId: null,
+    username: null,
+  };
+}
+
 async function spawnReady(
   mgr: ReturnType<typeof createAgentManager>,
   name: string,
@@ -448,6 +474,76 @@ describe("idle eviction - demote / dormant / wake", () => {
 });
 
 describe("lazy spawn / release-on-clear - blank agents hold no subprocess", () => {
+  it("a never-started agent stays a silent fresh wake across boot restore", async () => {
+    const fake = makeFake();
+    const id = "agent-never-started";
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-a") }),
+      initialRooms: [
+        {
+          id: "room-a",
+          name: "room-a",
+          prompt: null,
+          agents: [persistedAgent(id, null)],
+        },
+      ],
+    });
+    mgr.configurePluginHooksDeps();
+
+    await mgr.restoreAgents();
+    expect(mgr.getAgent(id)?.dormant).toBe(true);
+    expect(mgr._testDormantReason(id)).toBe("fresh");
+    expect(mgr.getCurrentSessionId(id)).toBeNull();
+
+    const sent = mgr.sendMessage(id, "hello", "tester");
+    await waitUntil(() => isLiveAndDemotable(mgr, id), "blank restore woke");
+    await sent;
+    expect(fake.createSessionCount).toBe(1);
+    expect(fake.resumeSessionCount).toBe(0);
+    expect(logText(mgr, id)).not.toContain(
+      "Started a fresh session (previous one could not be restored).",
+    );
+    expect(logText(mgr, id)).not.toContain("Resumed");
+    fake.lastSession?.close();
+  });
+
+  it("a lost prior session still reports the fresh recovery after boot restore", async () => {
+    const fake = new FakeBackend({
+      storedSessionState: "missing",
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+    });
+    const id = "agent-lost-session";
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: rooms("room-a") }),
+      initialRooms: [
+        {
+          id: "room-a",
+          name: "room-a",
+          prompt: null,
+          agents: [persistedAgent(id, "missing-session")],
+        },
+      ],
+    });
+    mgr.configurePluginHooksDeps();
+
+    await mgr.restoreAgents();
+    expect(mgr.getAgent(id)?.dormant).toBe(true);
+    expect(mgr._testDormantReason(id)).toBe("boot");
+    expect(mgr.getCurrentSessionId(id)).toBeNull();
+
+    const sent = mgr.sendMessage(id, "hello", "tester");
+    await waitUntil(() => isLiveAndDemotable(mgr, id), "lost restore woke");
+    await sent;
+    expect(fake.createSessionCount).toBe(1);
+    expect(fake.resumeSessionCount).toBe(0);
+    expect(logText(mgr, id)).toContain(
+      "Started a fresh session (previous one could not be restored).",
+    );
+    fake.lastSession?.close();
+  });
+
   it("lazy spawn holds NO subprocess; first message wakes a FRESH session, silently", async () => {
     wireClaudeConfigDir();
     const fake = makeFake();

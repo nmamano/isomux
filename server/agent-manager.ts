@@ -149,6 +149,8 @@ import {
   type AbortResult,
 } from "./internal-types.ts";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
+import { isClaudeCodeAuthenticated } from "./backends/claude-install-check.ts";
+import { isCodexAuthenticated } from "./backends/codex/native-bin.ts";
 import {
   createSlideMode,
   drainOnSettle,
@@ -412,6 +414,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): boolean {
     if (!managed) return isAuthError(text);
     return getBackend(managed.info.agentType).detectAuthError(text);
+  }
+  function agentIsKnownUnauthenticated(managed: ManagedAgent): boolean {
+    // Credential state must gate topic-output sniffing. The per-turn auth
+    // notice cannot: topic generation starts at send time, before the backend
+    // can emit that notice, so the first-run ordering is racy.
+    let env: { [key: string]: string | undefined } | undefined;
+    try {
+      env = buildEnvForUserId(managed.info.userId);
+    } catch {
+      return false;
+    }
+    if (managed.info.agentType === "claude")
+      return !isClaudeCodeAuthenticated(env);
+    if (managed.info.agentType === "codex") return !isCodexAuthenticated(env);
+    return false;
   }
   function agentLoginInstructions(
     managed: ManagedAgent | undefined,
@@ -1845,7 +1862,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       recentSteers: [],
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
-      dormantReason: opts.lazy ? "boot" : null,
+      // A never-started agent stays a blank conversation across a restart.
+      // Mark only that case fresh so its first wake stays silent. If a prior
+      // session id exists but the backend says it is no longer durable, keep
+      // the boot reason: that is real state loss and the recovery notice is
+      // useful even though resumeSessionId was cleared above.
+      dormantReason: opts.lazy ? (p.lastSessionId ? "boot" : "fresh") : null,
     };
     // Durable queue replay (task 9870b472): re-seed the queue + dedupe window
     // persisted by the previous run so a restart doesn't drop queued messages
@@ -2823,7 +2845,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             }
           : {}),
       });
-      if (agents.has(agentId) && managed.topicGenToken === startToken) {
+      if (
+        agents.has(agentId) &&
+        managed.topicGenToken === startToken &&
+        detectAgentAuthError(managed, text) &&
+        agentIsKnownUnauthenticated(managed)
+      ) {
+        // A signed-out backend can return its auth notice as a successful
+        // one-shot result. Treat it like the quiet auth-error catch below,
+        // rather than publishing provider copy as the topic. A null topic
+        // retries this cheap subprocess on each message until sign-in; keep
+        // that self-resolving cost instead of blocking the recovered account.
+        for (const event of officeState.updateAgent(agentId, { topic: null }))
+          emit(event);
+      } else if (agents.has(agentId) && managed.topicGenToken === startToken) {
         const topic = text.trim().slice(0, 80);
         managed.topicMessageCount = textEntries.length;
         // officeState.setTopic mutates topic + topicStale, fires persistAll via onChange,
@@ -8616,6 +8651,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return agents.get(agentId)?.toolCallTimestamps.size;
   }
 
+  function _testDormantReason(
+    agentId: string,
+  ): ManagedAgent["dormantReason"] | undefined {
+    return agents.get(agentId)?.dormantReason;
+  }
+
   // Test-only: simulate an unknown-bug wedged flush (flushInProgress held with
   // an aged flushStartedAt) so sweepStuckFlushes' forced-recovery contract can
   // be exercised. Once layers 1–2 of task da065287 exist, every wire-
@@ -8754,6 +8795,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     _testSetAbortInProgress,
     _testLastForcedRecoveryAt,
     _testActiveToolCount,
+    _testDormantReason,
     _testWedgeFlush,
     openEditorFile,
     saveEditorFile,

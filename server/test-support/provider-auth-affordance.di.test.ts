@@ -1,4 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { OfficeState } from "../../shared/office-state.ts";
 import type {
   AgentBackendType,
@@ -12,6 +14,17 @@ import {
 } from "../provider-account-manager.ts";
 import { STATE_ROOT } from "../config.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { loadAgents } from "../persistence.ts";
+import { claudeBackend } from "../backends/claude.ts";
+import { codexBackend } from "../backends/codex/adapter.ts";
+import { isClaudeCodeAuthenticated } from "../backends/claude-install-check.ts";
+import { isCodexAuthenticated } from "../backends/codex/native-bin.ts";
+import {
+  clearTestManagedOfficeEnv,
+  setTestManagedOfficeEnv,
+} from "./managed-office-env.ts";
+
+afterEach(() => clearTestManagedOfficeEnv());
 
 function room(id: string): RoomWire {
   return { id, name: id, prompt: null, canCloseWhenEmpty: false };
@@ -130,8 +143,17 @@ describe("provider auth affordances", () => {
   });
 
   it("coalesces Claude system_text and a failed 401 completion", async () => {
+    setTestManagedOfficeEnv({
+      CLAUDE_CONFIG_DIR: join(STATE_ROOT, "signed-out-claude"),
+      ANTHROPIC_API_KEY: "",
+    });
+    let successfulTopicResult: string | null = null;
     const fake = new FakeBackend({
-      isAuthError: (text) => /not logged in|401/i.test(text),
+      isAuthError: (text) => claudeBackend.detectAuthError(text),
+      oneShot: () => {
+        successfulTopicResult = "Not logged in · Please run /login";
+        return successfulTopicResult;
+      },
       loginInstructions: {
         kind: "login",
         text: "terminal fallback",
@@ -161,6 +183,9 @@ describe("provider auth affordances", () => {
         dir: "/accounts/office-claude",
       }),
     });
+    expect(isClaudeCodeAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(
+      false,
+    );
     mgr.enqueueMessage(agentId, {
       sender: { kind: "user", username: "tester" },
       text: "hello",
@@ -170,7 +195,11 @@ describe("provider auth affordances", () => {
         .getAgentLogs(agentId)
         .some((entry) => entry.metadata?.providerLogin === "claude"),
     );
+    await waitFor(() => fake.oneShotCount === 1);
     const logs = mgr.getAgentLogs(agentId);
+    expect(fake.oneShotCount).toBe(1);
+    expect(successfulTopicResult).toBe("Not logged in · Please run /login");
+    expect(logs.some((entry) => entry.kind === "user_message")).toBe(true);
     expect(
       logs.filter((entry) => entry.metadata?.providerLogin === "claude"),
     ).toHaveLength(1);
@@ -179,6 +208,70 @@ describe("provider auth affordances", () => {
         (entry) => entry.content === "Not logged in · Please run /login",
       ),
     ).toBe(false);
+    expect(mgr.getAgent(agentId)?.topic).toBeNull();
+    expect(
+      loadAgents()
+        .flatMap((entry) => entry.agents)
+        .find((agent) => agent.id === agentId)?.topic,
+    ).toBeNull();
+  });
+
+  it("keeps an auth-flavored topic when Claude is signed in", async () => {
+    const claudeDir = join(STATE_ROOT, "signed-in-claude");
+    mkdirSync(claudeDir, { recursive: true });
+    writeFileSync(join(claudeDir, ".credentials.json"), "{}");
+    setTestManagedOfficeEnv({ CLAUDE_CONFIG_DIR: claudeDir });
+    const label = "OAuth authentication flow design";
+    const fake = new FakeBackend({
+      isAuthError: (text) => claudeBackend.detectAuthError(text),
+      oneShot: label,
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.completeTurn({ text: "ok" }),
+      },
+    });
+    const { mgr, agentId } = await harness({
+      backendType: "claude",
+      fake,
+    });
+    expect(isClaudeCodeAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(
+      true,
+    );
+
+    await mgr.sendMessage(agentId, "Help me design an OAuth flow", "tester");
+    await waitFor(() => fake.oneShotCount === 1);
+
+    expect(claudeBackend.detectAuthError(label)).toBe(true);
+    expect(fake.oneShotCount).toBe(1);
+    expect(mgr.getAgent(agentId)?.topic).toBe(label);
+  });
+
+  it("keeps an auth-flavored topic when Codex is signed in", async () => {
+    const codexHome = join(STATE_ROOT, "signed-in-codex");
+    mkdirSync(codexHome, { recursive: true });
+    writeFileSync(join(codexHome, "auth.json"), "{}");
+    setTestManagedOfficeEnv({ CODEX_HOME: codexHome });
+    const label = "Debugging 401 errors in the API";
+    const fake = new FakeBackend({
+      isAuthError: (text) => codexBackend.detectAuthError(text),
+      oneShot: label,
+      session: {
+        onSend: (_text, _attachments, session) =>
+          session.completeTurn({ text: "ok" }),
+      },
+    });
+    const { mgr, agentId } = await harness({
+      backendType: "codex",
+      fake,
+    });
+    expect(isCodexAuthenticated(mgr.buildEnvForUserId("user-a"))).toBe(true);
+
+    await mgr.sendMessage(agentId, "Help me debug a 401 API error", "tester");
+    await waitFor(() => fake.oneShotCount === 1);
+
+    expect(codexBackend.detectAuthError(label)).toBe(true);
+    expect(fake.oneShotCount).toBe(1);
+    expect(mgr.getAgent(agentId)?.topic).toBe(label);
   });
 
   it("coalesces Claude system_text and an auth-looking stream exit", async () => {
