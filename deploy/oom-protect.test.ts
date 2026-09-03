@@ -873,21 +873,21 @@ describe("the command line", () => {
     expect(exit).toBe(3);
   });
 
-  it("converges update policy without creating swap or restarting Caddy", () => {
-    expect(SRC).toContain("converge_update_memory_cap() {");
-    expect(SRC).toContain("    converge_update_memory_cap");
-    const decision = SRC.split("\n").find(
-      (line) =>
-        line.includes("UPDATE_CONVERGE") && line.includes("configure_swap"),
-    );
-    expect(decision).toBeDefined();
-    const result = Bun.spawnSync([
-      "bash",
-      "-c",
-      `UPDATE_CONVERGE=1; configure_swap() { echo CREATED_SWAP; }; ${decision}`,
-    ]);
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout.toString()).toBe("");
+  it("converges update policy without creating swap, adding a memory cap, or restarting Caddy", () => {
+    expect(SRC).not.toContain("converge_update_memory_cap");
+    for (const skipped of ["configure_swap", "configure_office_memory_cap"]) {
+      const decision = SRC.split("\n").find(
+        (line) => line.includes("UPDATE_CONVERGE") && line.includes(skipped),
+      );
+      expect(decision).toBeDefined();
+      const result = Bun.spawnSync([
+        "bash",
+        "-c",
+        `UPDATE_CONVERGE=1; ${skipped}() { echo RAN; }; ${decision}`,
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString()).toBe("");
+    }
     expect(SRC).toContain("oom_tier caddy.service -500 on-failure");
     expect(
       SRC.split("\n")

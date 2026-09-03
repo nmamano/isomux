@@ -168,14 +168,6 @@ describe("verified backup publication", () => {
 
   test("omits credential stores while preserving adjacent and customer state", async () => {
     const f = fixture();
-    write(
-      f.state,
-      "users.json",
-      JSON.stringify([
-        { id: "u-alice", name: "Alice" },
-        { id: "u-bob", name: "Bob" },
-      ]),
-    );
     const excluded = [
       "apps/units/hello.env",
       "user-env/u-alice.env",
@@ -190,7 +182,6 @@ describe("verified backup publication", () => {
       "opencode/profiles/shared/data/opencode/auth.json",
       "opencode/profiles/shared/data/opencode/mcp-auth.json",
       "tls/cert.key",
-      "RESTORE.txt",
     ];
     const kept = [
       "apps/apps.json",
@@ -217,7 +208,7 @@ describe("verified backup publication", () => {
     const file = await runBackupOnceForTest(config(f), realDeps);
     const restored = extract(f, file);
 
-    for (const relativePath of excluded.filter((p) => p !== "RESTORE.txt"))
+    for (const relativePath of excluded)
       expect(fs.existsSync(path.join(restored, relativePath))).toBe(false);
     for (const relativePath of kept)
       expect(fs.readFileSync(path.join(restored, relativePath), "utf8")).toBe(
@@ -225,72 +216,6 @@ describe("verified backup publication", () => {
       );
     expect(fs.existsSync(path.join(restored, "apps/units/hello.sh"))).toBe(
       false,
-    );
-    const report = fs.readFileSync(path.join(restored, "RESTORE.txt"), "utf8");
-    expect(report).not.toContain("EXCLUDED:RESTORE.txt");
-    expect(report).toContain('user "Alice"');
-    expect(report).not.toContain('user "Bob"');
-    expect(report).toContain("OpenCode MCP OAuth credentials were omitted");
-    expect(report).toContain("opencode mcp auth <server-name>");
-    expect(report).toContain(
-      "This report does not claim that the archive is free of secrets.",
-    );
-  });
-
-  test("replaces a restored report instead of archiving it again", async () => {
-    const first = fixture();
-    write(first.state, "office-env/office.env", "FIRST_SECRET\n");
-    const firstFile = await runBackupOnceForTest(config(first), realDeps);
-    const restoredState = extract(first, firstFile);
-    const oldReport = fs.readFileSync(
-      path.join(restoredState, "RESTORE.txt"),
-      "utf8",
-    );
-    expect(oldReport).toContain("Office environment variables were omitted");
-
-    const secondBackupDir = path.join(first.root, "second-backups");
-    const secondFile = await runBackupOnceForTest(
-      {
-        ...config(first),
-        backupDir: secondBackupDir,
-        stateRootParent: path.dirname(restoredState),
-        stateRootName: path.basename(restoredState),
-      },
-      realDeps,
-    );
-    const members = Bun.spawnSync([
-      "tar",
-      "-tzf",
-      path.join(secondBackupDir, secondFile),
-    ])
-      .stdout.toString()
-      .trim()
-      .split("\n");
-    expect(
-      members.filter(
-        (member) => member === `${path.basename(first.state)}/RESTORE.txt`,
-      ),
-    ).toHaveLength(1);
-    const secondRestored = path.join(first.root, "second-restored");
-    fs.mkdirSync(secondRestored);
-    expect(
-      Bun.spawnSync([
-        "tar",
-        "-xzf",
-        path.join(secondBackupDir, secondFile),
-        "-C",
-        secondRestored,
-      ]).exitCode,
-    ).toBe(0);
-    const newReport = fs.readFileSync(
-      path.join(secondRestored, path.basename(first.state), "RESTORE.txt"),
-      "utf8",
-    );
-    expect(newReport).not.toContain(
-      "Office environment variables were omitted",
-    );
-    expect(newReport).toContain(
-      "No listed credential file or regenerable secret cache existed",
     );
   });
 

@@ -12,19 +12,16 @@
 // internal-docs/backup-restore.md.
 
 import { basename, dirname, join } from "path";
-import { homedir, tmpdir } from "os";
+import { homedir } from "os";
 import {
   closeSync,
   chmodSync,
   existsSync,
-  lstatSync,
-  mkdtempSync,
   mkdirSync,
   openSync,
   readFileSync,
   readdirSync,
   renameSync,
-  rmSync,
   statfsSync,
   statSync,
   unlinkSync,
@@ -50,7 +47,6 @@ const FIRST_BACKUP_MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024; // 2 GiB
 const MIN_HEADROOM_BYTES = 256 * 1024 * 1024; // 256 MiB
 const FILENAME_PATTERN = /^isomux-(\d{4}-\d{2}-\d{2})(?:-(\d+))?\.tar\.gz$/;
 const PARTIAL_PATTERN = /^\.isomux-backup-.*\.partial$/;
-const RESTORE_REPORT_FILE = "RESTORE.txt";
 
 let lastAttemptAt: number | null = null;
 let lastAttemptError: string | null = null;
@@ -119,9 +115,7 @@ interface VerificationMarker {
 
 interface BackupExclusion {
   id: string;
-  matches: (relativePath: string) => boolean;
   archivePatterns: (stateRootName: string) => string[];
-  report?: (paths: string[], stateRoot: string) => string[];
 }
 
 function rootedDirectory(root: string, path: string): string[] {
@@ -131,13 +125,11 @@ function rootedDirectory(root: string, path: string): string[] {
 function backendExclusion(entry: BackendCredentialPath): BackupExclusion {
   return {
     id: entry.id,
-    matches: (path) => entry.pattern.test(path),
     archivePatterns: entry.archivePatterns,
-    report: (paths, stateRoot) => backendReport(entry.id, paths, stateRoot),
   };
 }
 
-// One list drives both tar and RESTORE.txt. Locations are rooted because GNU
+// One list drives the tar exclusions. Locations are rooted because GNU
 // tar exclusion wildcards otherwise match the same directory name inside an
 // app's customer-owned data. Backend credential names use the shared matcher
 // from backend-credential-paths.ts and can occur in a configured home at any
@@ -146,46 +138,19 @@ function backendExclusion(entry: BackendCredentialPath): BackupExclusion {
 // without making an archive secret-free.
 const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
   {
-    id: "restore-report",
-    matches: (path) => path === RESTORE_REPORT_FILE,
-    // The state root is added one child at a time so this member never enters
-    // the recursive walk. An exclude pattern would also reject the fresh
-    // synthetic member added from its second -C root.
-    archivePatterns: () => [],
-  },
-  {
     id: "app-runtime-credentials",
-    matches: (path) => path === "apps/units" || path.startsWith("apps/units/"),
     archivePatterns: (root) => rootedDirectory(root, "apps/units"),
-    report: (paths) => {
-      const apps = paths
-        .filter((path) => path.endsWith(".env"))
-        .map((path) => basename(path, ".env"))
-        .sort();
-      return [
-        `- App runtime credentials were omitted${apps.length ? ` for: ${apps.join(", ")}` : ""}. Isomux re-mints them at startup and restarts only apps that were running. Start previously stopped apps from the Apps page when you need them.`,
-      ];
-    },
   },
   {
     id: "personal-environment",
-    matches: (path) => path === "user-env" || path.startsWith("user-env/"),
     archivePatterns: (root) => rootedDirectory(root, "user-env"),
-    report: (paths, stateRoot) => personalEnvironmentReport(paths, stateRoot),
   },
   {
     id: "office-environment",
-    matches: (path) => path === "office-env/office.env",
     archivePatterns: (root) => [`${root}/office-env/office.env`],
-    report: () => [
-      "- Office environment variables were omitted. An office owner must open User Settings > Connections > Environment variables > Variables for every agent in this office and enter them again. Then use /clear on affected agents.",
-    ],
   },
   {
     id: "codex-shell-snapshots",
-    matches: (path) =>
-      /(^|\/)(?:\.codex|codex-home)\/shell_snapshots(?:\/|$)/.test(path) ||
-      /^provider-homes\/[^/]+\/codex\/shell_snapshots(?:\/|$)/.test(path),
     archivePatterns: (root) => [
       ...rootedDirectory(root, "codex-home/shell_snapshots"),
       `${root}/*/.codex/shell_snapshots`,
@@ -195,17 +160,10 @@ const BACKUP_EXCLUSIONS: readonly BackupExclusion[] = [
       `${root}/provider-homes/*/codex/shell_snapshots`,
       `${root}/provider-homes/*/codex/shell_snapshots/*`,
     ],
-    report: () => [
-      "- Codex shell snapshots were omitted because they can contain exported environment variables. Codex regenerates them; no action is required.",
-    ],
   },
   {
     id: "legacy-tls-key",
-    matches: (path) => path === "tls/cert.key",
     archivePatterns: (root) => [`${root}/tls/cert.key`],
-    report: () => [
-      "- The legacy state-root TLS private key was omitted. Isomux does not read this file, so nothing needs to be entered again. A same-box restore keeps the active certificate outside the state root; a replacement-box installation obtains its certificate before the state restore.",
-    ],
   },
   ...BACKEND_CREDENTIAL_PATHS.map(backendExclusion),
 ];
@@ -316,140 +274,12 @@ function partialPath(dir: string, now: number): string {
   );
 }
 
-function stateRoot(config: BackupConfig): string {
-  return join(config.stateRootParent, config.stateRootName);
-}
-
-function stateFiles(root: string): string[] {
-  const files: string[] = [];
-  function visit(directory: string, prefix: string): void {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
-      const absolutePath = join(directory, entry.name);
-      if (entry.isDirectory()) visit(absolutePath, relativePath);
-      else if (entry.isFile() || entry.isSymbolicLink())
-        files.push(relativePath);
-    }
-  }
-  if (existsSync(root) && lstatSync(root).isDirectory()) visit(root, "");
-  return files;
-}
-
-function userNames(root: string): Map<string, string> {
-  const names = new Map<string, string>();
-  try {
-    const parsed = JSON.parse(readFileSync(join(root, "users.json"), "utf8"));
-    if (!Array.isArray(parsed)) return names;
-    for (const user of parsed) {
-      if (
-        user &&
-        typeof user === "object" &&
-        typeof user.id === "string" &&
-        typeof user.name === "string"
-      ) {
-        names.set(user.id, user.name);
-      }
-    }
-  } catch {}
-  return names;
-}
-
-function personalEnvironmentReport(paths: string[], root: string): string[] {
-  const names = userNames(root);
-  const users = paths
-    .filter((path) => /^user-env\/[^/]+\.env$/.test(path))
-    .map((path) => basename(path, ".env"))
-    .map((id) => names.get(id) ?? id)
-    .sort();
-  if (users.length === 0) return [];
-  return [
-    `- Personal environment variables were omitted for: ${users.map((name) => `user "${name}"`).join(", ")}. Each affected user must open User Settings > Connections > Environment variables > Variables for agents I spawn and enter them again. Then use /clear on affected agents.`,
-  ];
-}
-
-function backendReport(
-  id: BackendCredentialPath["id"],
-  paths: string[],
-  root: string,
-): string[] {
-  if (paths.length === 0) return [];
-  const names = userNames(root);
-  const owners = paths
-    .map((path) => /^provider-homes\/([^/]+)\//.exec(path)?.[1])
-    .filter((id): id is string => id !== undefined)
-    .map((id) => names.get(id) ?? id)
-    .filter((name, index, all) => all.indexOf(name) === index)
-    .sort();
-  const forUsers = owners.length
-    ? ` for: ${owners.map((name) => `user "${name}"`).join(", ")}`
-    : "";
-  if (id === "claude-login") {
-    return [
-      `- Claude sign-in credentials were omitted${forUsers}. Each affected user must open User Settings > Connections > Claude and sign in again.`,
-    ];
-  }
-  if (id === "codex-login") {
-    return [
-      `- Codex sign-in credentials were omitted${forUsers}. Each affected user must open User Settings > Connections > Codex and sign in again.`,
-    ];
-  }
-  if (id === "opencode-login") {
-    return [
-      "- OpenCode provider credentials were omitted. Each affected user must open User Settings > Connections > Environment variables > Variables for agents I spawn, enter ANTHROPIC_API_KEY or OPENAI_API_KEY, and then use /clear on affected agents.",
-    ];
-  }
-  return [
-    "- OpenCode MCP OAuth credentials were omitted. Reconnect each affected server with the profile-scoped command: opencode mcp auth <server-name>.",
-  ];
-}
-
-function restoreReport(config: BackupConfig): string {
-  const root = stateRoot(config);
-  const files = stateFiles(root);
-  const details = BACKUP_EXCLUSIONS.flatMap((entry) => {
-    if (!entry.report) return [];
-    const matched = files.filter(entry.matches);
-    return matched.length > 0 ? entry.report(matched, root) : [];
-  });
-  return [
-    "ISOMUX RESTORE REPORT",
-    "",
-    "This backup omitted the credential files and regenerable secret caches listed below.",
-    "This report does not claim that the archive is free of secrets.",
-    "",
-    ...(details.length
-      ? details
-      : [
-          "No listed credential file or regenerable secret cache existed when this backup was made.",
-        ]),
-    "",
-  ].join("\n");
-}
-
-function stageRestoreReport(config: BackupConfig): string {
-  const staging = mkdtempSync(join(tmpdir(), "isomux-backup-report-"));
-  const directory = join(staging, config.stateRootName);
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const path = join(directory, RESTORE_REPORT_FILE);
-  writeFileSync(path, restoreReport(config), { mode: 0o600 });
-  return staging;
-}
-
 function archiveExclusionArgs(stateRootName: string): string[] {
   return BACKUP_EXCLUSIONS.flatMap((entry) =>
     entry
       .archivePatterns(stateRootName)
       .map((pattern) => `--exclude=${pattern}`),
   );
-}
-
-function stateArchiveMembers(config: BackupConfig): string[] {
-  const report = BACKUP_EXCLUSIONS.find(
-    (entry) => entry.id === "restore-report",
-  )!;
-  return readdirSync(stateRoot(config))
-    .filter((name) => !report.matches(name))
-    .map((name) => `${config.stateRootName}/${name}`);
 }
 
 function prepareBackupDirectory(dir: string): void {
@@ -616,13 +446,11 @@ async function runBackup(
   const now = deps.now();
   const partial = partialPath(config.backupDir, now);
   const final = allocateFinalPath(config.backupDir, now);
-  let reportStaging: string | null = null;
   try {
     // Reserve the target at its final privacy mode before tar writes. GNU tar
     // truncates an existing file without changing its mode, so the archive is
     // never group/world-readable during a long write. Rename preserves it.
     closeSync(openSync(partial, "wx", 0o600));
-    reportStaging = stageRestoreReport(config);
     const created = await runTar(
       [
         "tar",
@@ -631,17 +459,9 @@ async function runBackup(
         "--anchored",
         "--wildcards",
         ...archiveExclusionArgs(config.stateRootName),
-        "--no-recursion",
         "-C",
         config.stateRootParent,
         config.stateRootName,
-        "--recursion",
-        "-C",
-        config.stateRootParent,
-        ...stateArchiveMembers(config),
-        "-C",
-        reportStaging,
-        `${config.stateRootName}/${RESTORE_REPORT_FILE}`,
       ],
       deps,
     );
@@ -665,7 +485,6 @@ async function runBackup(
     try {
       unlinkSync(partial);
     } catch {}
-    if (reportStaging) rmSync(reportStaging, { recursive: true, force: true });
   }
 }
 

@@ -1994,7 +1994,8 @@ Usage: isomux-oom-protect [--dry-run] [--restamp] [--update-converge]
                and stay quiet when it is already right. This is what the
                $RESTAMP_UNIT timer runs every $RESTAMP_INTERVAL.
   --update-converge
-               repair the installed memory policy without creating swap
+               repair the installed memory policy without creating swap or
+               adding an office memory cap
   --dry-run    print what would change, change nothing
 EOF
 }
@@ -2127,15 +2128,6 @@ EOF
   else
     warn "office memory cap NOT confirmed in the running cgroup: asked for $expected_max/$expected_high/$expected_swap bytes, kernel reports ${actual_max:-unreadable}/${actual_high:-unreadable}/${actual_swap:-unreadable}"
   fi
-}
-
-# Keep update-time adoption as one removable policy decision. Without a cap,
-# one office can exhaust the box and earlyoom can choose an unrelated victim.
-# With it, MemoryHigh throttles at 85 percent before MemoryMax kills, and the
-# pressure stays inside the office slice. The under-4096 MiB guard remains in
-# configure_office_memory_cap.
-converge_update_memory_cap() {
-  configure_office_memory_cap
 }
 
 # --- kill order -------------------------------------------------------------
@@ -2647,11 +2639,9 @@ main() {
   local have_earlyoom=1
   install_earlyoom || have_earlyoom=""
   [[ -z $have_earlyoom ]] || configure_earlyoom
-  if [[ -n $UPDATE_CONVERGE ]]; then
-    converge_update_memory_cap
-  else
-    configure_office_memory_cap
-  fi
+  # The office memory cap is an install-time decision. An update never adds
+  # a cap to a box installed without one (Nil, 2026-09-03).
+  [[ -n $UPDATE_CONVERGE ]] || configure_office_memory_cap
   configure_kill_order
   configure_swappiness
   [[ -n $UPDATE_CONVERGE ]] || configure_swap
@@ -4154,8 +4144,6 @@ deps_only() {
   # here. It exists on every box the updater runs on (the installer created it).
   id -u "$SERVICE_USER" >/dev/null 2>&1 ||
     die "no $SERVICE_USER account on this box; it does not look like an isomux install"
-  local memory_cap_before=""
-  [[ -e $OOM_MEMORY_DROPIN ]] && memory_cap_before=1
   snapshot_caddy_state
   install_packages
   # A sync that cannot put the proxy back has failed, whatever apt reported:
@@ -4166,9 +4154,6 @@ deps_only() {
   # after apt's Caddy transaction is complete. Update mode never creates swap
   # and never restarts Caddy or the office.
   configure_oom_protection update
-  if [[ -z $memory_cap_before && -e $OOM_MEMORY_DROPIN ]]; then
-    outcome_add "The update added a memory cap to the office service; it will take effect when the service restarts."
-  fi
   # The marker is the best available signal that the installer established
   # this public-VPS firewall policy. Verify without changing it. Failure warns
   # but does not strand later security updates. The stable marker lets the

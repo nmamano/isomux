@@ -130,7 +130,8 @@ Usage: isomux-oom-protect [--dry-run] [--restamp] [--update-converge]
                and stay quiet when it is already right. This is what the
                $RESTAMP_UNIT timer runs every $RESTAMP_INTERVAL.
   --update-converge
-               repair the installed memory policy without creating swap
+               repair the installed memory policy without creating swap or
+               adding an office memory cap
   --dry-run    print what would change, change nothing
 EOF
 }
@@ -263,15 +264,6 @@ EOF
   else
     warn "office memory cap NOT confirmed in the running cgroup: asked for $expected_max/$expected_high/$expected_swap bytes, kernel reports ${actual_max:-unreadable}/${actual_high:-unreadable}/${actual_swap:-unreadable}"
   fi
-}
-
-# Keep update-time adoption as one removable policy decision. Without a cap,
-# one office can exhaust the box and earlyoom can choose an unrelated victim.
-# With it, MemoryHigh throttles at 85 percent before MemoryMax kills, and the
-# pressure stays inside the office slice. The under-4096 MiB guard remains in
-# configure_office_memory_cap.
-converge_update_memory_cap() {
-  configure_office_memory_cap
 }
 
 # --- kill order -------------------------------------------------------------
@@ -783,11 +775,9 @@ main() {
   local have_earlyoom=1
   install_earlyoom || have_earlyoom=""
   [[ -z $have_earlyoom ]] || configure_earlyoom
-  if [[ -n $UPDATE_CONVERGE ]]; then
-    converge_update_memory_cap
-  else
-    configure_office_memory_cap
-  fi
+  # The office memory cap is an install-time decision. An update never adds
+  # a cap to a box installed without one (Nil, 2026-09-03).
+  [[ -n $UPDATE_CONVERGE ]] || configure_office_memory_cap
   configure_kill_order
   configure_swappiness
   [[ -n $UPDATE_CONVERGE ]] || configure_swap
