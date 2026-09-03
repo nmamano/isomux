@@ -242,6 +242,7 @@ export const PROMISE_AT_RISK = "lifecycle-promise-at-risk";
 export const PROMISE_BROKEN = "lifecycle-promise-broken";
 export const LIFECYCLE_STRAY = "lifecycle-stray-rows";
 export const LIFECYCLE_REPOWERED = "lifecycle-repowered";
+export const LIFECYCLE_ASSET_GONE = "lifecycle-asset-gone";
 
 /**
  * What to do about a condition.
@@ -491,7 +492,7 @@ export function cancellationStateFrom(
 }
 
 /** Provider states that mean the asset is really gone, not merely scheduled. */
-const GONE_STATES = new Set(["cancelled", "absent"]);
+export const GONE_STATES = new Set(["cancelled", "absent"]);
 
 export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
   const { instance, asset, operations, subscription, now } = inputs;
@@ -507,6 +508,23 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
 
   const terminal = isCustomerCancellation(subscription);
   if (!terminal) {
+    const assetGone =
+      instance.service_state !== "deprovisioned" &&
+      asset !== null &&
+      GONE_STATES.has(asset.asset_state);
+    const assetGoneAttention: AttentionAction[] = assetGone
+      ? [
+          {
+            kind: "raise",
+            key: LIFECYCLE_ASSET_GONE,
+            reason:
+              `the provider asset for this office is gone while its ` +
+              `subscription cancellation is not complete; billing and provider ` +
+              `state need operator review`,
+            severity: "critical",
+          },
+        ]
+      : [{ kind: "clear", key: LIFECYCLE_ASSET_GONE }];
     // DEFENSIVE, not decorative. "Stripe does not un-delete a subscription" is
     // true and is still not a mechanism: if a lifecycle row exists while the
     // subscription is not terminal, something we do not model has happened, and
@@ -517,6 +535,7 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
         open: [],
         finish: false,
         attention: [
+          ...assetGoneAttention,
           {
             kind: "raise" as const,
             key: LIFECYCLE_STRAY,
@@ -533,7 +552,10 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
         note: "lifecycle rows exist without a terminal cancellation",
       };
     }
-    return none("not a customer cancellation");
+    return {
+      ...none("not a customer cancellation"),
+      attention: assetGoneAttention,
+    };
   }
 
   const endedAt = subscription.endedAt!;
@@ -581,6 +603,7 @@ export function decideLifecycle(inputs: LifecycleInputs): LifecycleDecision {
       finish: instance.service_state !== "deprovisioned",
       attention: [
         { kind: "clear" as const, key: LIFECYCLE_REPOWERED },
+        { kind: "clear" as const, key: LIFECYCLE_ASSET_GONE },
         ...(early
           ? [
               // PROMOTION, and both halves commit together. The at-risk row said

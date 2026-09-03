@@ -8,7 +8,9 @@ import * as path from "node:path";
 import {
   addUtcMonth,
   CUSTOMER_CANCELLATION_REASON,
+  GONE_STATES,
   GRACE_MS,
+  LIFECYCLE_ASSET_GONE,
   LIFECYCLE_REASON,
   lifecycleOperationId,
   phaseAt,
@@ -144,6 +146,32 @@ async function succeed(
   );
 }
 
+async function setAssetState(
+  store: Store,
+  assetState: "active" | "cancelled" | "absent",
+): Promise<void> {
+  const asset = (await store.getAsset("asset-1"))!;
+  await store.casAsset(asset.id, asset.version, { asset_state: assetState });
+}
+
+async function seedAssetGoneAttention(store: Store): Promise<void> {
+  await store.tx(() =>
+    raiseAttentionIn(store, {
+      instanceId: "inst-1",
+      reasonClass: "operation_condition",
+      sourceOpId: LIFECYCLE_ASSET_GONE,
+      reason: "pre-existing provider asset disappearance",
+      severity: "critical",
+    }),
+  );
+}
+
+async function openAttentionKeys(store: Store): Promise<string[]> {
+  return (await store.openReasons("inst-1"))
+    .map((row) => row.source_op_id)
+    .sort();
+}
+
 test("the wake probe sees lifecycle work before it creates an operation", async () => {
   const c = clock(GRACE_END);
   const store = await tempStore(c.now);
@@ -174,6 +202,136 @@ test("the wake probe recognizes the lifecycle operation's real derived id", asyn
 });
 
 describe("the walk, on seeded dates", () => {
+  test("the cancellation scan raises for each gone provider state", async () => {
+    expect([...GONE_STATES].sort()).toEqual(["absent", "cancelled"]);
+    for (const assetState of GONE_STATES) {
+      const c = clock(ENDED - 1);
+      const store = await tempStore(c.now);
+      await seed(store, {
+        endedAt: null,
+        reason: CUSTOMER_CANCELLATION_REASON,
+      });
+      await setAssetState(store, assetState as "cancelled" | "absent");
+
+      expect(await lifecycleTick(store, c.now())).toMatchObject({
+        examined: 1,
+        raised: 1,
+        finished: 0,
+      });
+      expect(await openAttentionKeys(store)).toEqual([LIFECYCLE_ASSET_GONE]);
+      expect((await store.getInstance("inst-1"))!.service_state).toBe("live");
+      await store.close();
+    }
+  });
+
+  test("a settled office clears a pre-existing asset disappearance", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null });
+    await setAssetState(store, "absent");
+    await seedAssetGoneAttention(store);
+    const instance = (await store.getInstance("inst-1"))!;
+    await store.casInstance(instance.id, instance.version, {
+      service_state: "deprovisioned",
+    });
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 0,
+      cleared: 1,
+    });
+    expect(await openAttentionKeys(store)).not.toContain(LIFECYCLE_ASSET_GONE);
+    await store.close();
+  });
+
+  test("a present active asset clears a pre-existing disappearance", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null });
+    await seedAssetGoneAttention(store);
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 0,
+      cleared: 1,
+    });
+    expect(await openAttentionKeys(store)).not.toContain(LIFECYCLE_ASSET_GONE);
+    await store.close();
+  });
+
+  test("a missing asset row does not raise a disappearance", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null });
+    await store.sqlRun("delete from provider_assets where id = 'asset-1'");
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 0 });
+    expect(await openAttentionKeys(store)).not.toContain(LIFECYCLE_ASSET_GONE);
+    await store.close();
+  });
+
+  test("stray lifecycle work and a gone asset raise both conditions", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null });
+    await setAssetState(store, "absent");
+    await store.enqueue({
+      id: "op-stray-lifecycle",
+      instance_id: "inst-1",
+      kind: "power_off",
+      inactivity_deadline_at: c.now() + 60_000,
+      absolute_deadline_at: c.now() + 60_000,
+      evidence: { reason: LIFECYCLE_REASON },
+    });
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 1 });
+    expect(await openAttentionKeys(store)).toEqual([
+      LIFECYCLE_ASSET_GONE,
+      "lifecycle-stray-rows",
+    ]);
+    await store.close();
+  });
+
+  test("the stray exit also clears a resolved asset disappearance", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null });
+    await seedAssetGoneAttention(store);
+    await store.enqueue({
+      id: "op-stray-lifecycle",
+      instance_id: "inst-1",
+      kind: "power_off",
+      inactivity_deadline_at: c.now() + 60_000,
+      absolute_deadline_at: c.now() + 60_000,
+      evidence: { reason: LIFECYCLE_REASON },
+    });
+
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      raised: 1,
+      cleared: 1,
+    });
+    expect(await openAttentionKeys(store)).toEqual(["lifecycle-stray-rows"]);
+    await store.close();
+  });
+
+  test("terminal completion clears the non-terminal disappearance", async () => {
+    const c = clock(ENDED - 1);
+    const store = await tempStore(c.now);
+    await seed(store, { endedAt: null });
+    await setAssetState(store, "absent");
+    expect(await lifecycleTick(store, c.now())).toMatchObject({ raised: 1 });
+
+    await store.sqlRun(
+      "update subscriptions set ended_at = $1, status = 'canceled' where id = 'sub_1'",
+      [ENDED],
+    );
+    c.set(ENDED);
+    expect(await lifecycleTick(store, c.now())).toMatchObject({
+      finished: 1,
+      cleared: 1,
+    });
+    expect(await openAttentionKeys(store)).not.toContain(LIFECYCLE_ASSET_GONE);
+    await store.close();
+  });
+
   test("an unknown policy fails closed to the longer legacy timeline", () => {
     expect(
       phaseAt(
