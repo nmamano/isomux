@@ -198,7 +198,9 @@ describe("provider auth affordances", () => {
     await waitFor(() => fake.oneShotCount === 1);
     const logs = mgr.getAgentLogs(agentId);
     expect(fake.oneShotCount).toBe(1);
-    expect(successfulTopicResult).toBe("Not logged in · Please run /login");
+    expect<string | null>(successfulTopicResult).toBe(
+      "Not logged in · Please run /login",
+    );
     expect(logs.some((entry) => entry.kind === "user_message")).toBe(true);
     expect(
       logs.filter((entry) => entry.metadata?.providerLogin === "claude"),
