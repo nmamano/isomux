@@ -47,9 +47,9 @@
 #   DRY_RUN       set to 1 to print state-changing commands instead of
 #                 running them.
 #   ISOMUX_DEPS_ONLY  set to 1 to install only the system dependencies (apt
-#                 packages, Node.js, the headless browser, the codex
-#                 sandbox's bubblewrap) and exit, leaving
-#                 the office, the service and the box's configuration alone.
+#                 packages, Node.js, the headless browser, the codex sandbox,
+#                 and installer-owned host policy) and exit without restarting
+#                 the office or changing SSH, UFW defaults, or swap.
 #                 DOMAIN is not needed. scripts/update.sh runs the TARGET
 #                 release's installer this way, so an update can deliver
 #                 system dependencies the release newly requires (see
@@ -93,6 +93,11 @@ VERIFY_HARDENING_TOOL=/usr/local/sbin/isomux-verify-hardening
 OOM_TOOL=/usr/local/sbin/isomux-oom-protect
 UPDATE_CONF=/etc/isomux/update.conf
 UPDATE_STATE_DIR=/var/lib/isomux-update
+FIREWALL_PORTS_FILE=$STATE_DIR/firewall-ports
+UPDATE_OUTCOME_FILE=/var/lib/isomux-update-public/outcome.json
+OOM_MEMORY_DROPIN=/etc/systemd/system/isomux.service.d/20-memory.conf
+WEB_HTTP_RULE=80/tcp
+WEB_HTTPS_RULE=443/tcp
 INSTALL_KIND_FILE=/etc/isomux/install-kind
 COOKIE_JAR=$STATE_DIR/session.cookies
 INVITE_FILE=$STATE_DIR/invite-url
@@ -120,8 +125,13 @@ CADDYFILE=$CADDY_DIR/Caddyfile
 # it to report the operator's files it kept, and the tests point that scan at a
 # temp tree instead.
 CONFFILE_ROOT=/etc
+# apt(8) waits 120 seconds for dpkg locks by default, but apt-get does not
+# inherit apt's binary-scoped default. Match that upstream bound explicitly.
+APT_LOCK_TIMEOUT_SECONDS=120
+APT_LOCK_POLL_SECONDS=2
 
 CURRENT_STEP=preflight
+UPDATE_OUTCOME_MESSAGES=()
 INVITE_URL=""
 # Set while caddy is temporarily masked around the package operation, so the
 # failure path can guarantee the unmask and a re-run starts clean.
@@ -276,6 +286,72 @@ run() {
   fi
 }
 
+package_manager_locked() {
+  local path
+  while IFS= read -r path; do
+    case $path in
+      /var/lib/dpkg/lock | /var/lib/dpkg/lock-frontend | /var/lib/apt/lists/lock | /var/cache/apt/archives/lock)
+        return 0
+        ;;
+    esac
+  done < <(lslocks --noheadings --output PATH 2>/dev/null)
+  return 1
+}
+
+wait_for_package_manager() {
+  local remaining=$APT_LOCK_TIMEOUT_SECONDS announced=""
+  while package_manager_locked; do
+    if [[ -z $announced ]]; then
+      log "Ubuntu's package manager is busy; waiting up to ${APT_LOCK_TIMEOUT_SECONDS} seconds for it to finish"
+      announced=1
+    fi
+    ((remaining > 0)) || return 100
+    sleep "$APT_LOCK_POLL_SECONDS"
+    remaining=$((remaining - APT_LOCK_POLL_SECONDS))
+  done
+}
+
+apt_get() {
+  wait_for_package_manager || return $?
+  run apt-get -o "DPkg::Lock::Timeout=$APT_LOCK_TIMEOUT_SECONDS" "$@"
+}
+
+outcome_add() {
+  UPDATE_OUTCOME_MESSAGES+=("$*")
+}
+
+# deps_only runs from the target installer during the first update that carries
+# it. The installed updater has already put the exact target tag in its
+# root-only status, so this producer can publish the identity without trusting
+# caller environment. The separate file is intentionally outside the root-only
+# update directory: the office service can traverse /var/lib and read mode 644.
+write_update_outcome() {
+  local status=$UPDATE_STATE_DIR/status.json target tmp
+  target=$(jq -r '.target // empty' "$status" 2>/dev/null || true)
+  [[ $target =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$ ]] || {
+    log "warning: update outcome was not recorded because the target release could not be identified"
+    return 0
+  }
+  if ! install -d -m 755 "$(dirname "$UPDATE_OUTCOME_FILE")"; then
+    log "warning: update outcome directory could not be prepared"
+    return 0
+  fi
+  tmp=$(mktemp "$(dirname "$UPDATE_OUTCOME_FILE")/.isomux-update-outcome.XXXXXXXXXX") || {
+    log "warning: update outcome could not be staged"
+    return 0
+  }
+  if jq -n --arg target "$target" --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --args '{target: $target, at: $at, messages: $ARGS.positional}' \
+    "${UPDATE_OUTCOME_MESSAGES[@]}" >"$tmp" &&
+    chmod 644 "$tmp" &&
+    mv -f "$tmp" "$UPDATE_OUTCOME_FILE"; then
+    return 0
+  else
+    rm -f "$tmp"
+    log "warning: update outcome could not be recorded"
+  fi
+}
+
 # apt-get install, with any package config file the operator has edited by hand
 # left exactly as they left it.
 #
@@ -299,7 +375,7 @@ apt_install() {
   local before rc=0
   before=$(mktemp /tmp/isomux-conffile.XXXXXXXXXX) || before=""
   [[ -z $before ]] || conffile_markers >"$before"
-  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+  DEBIAN_FRONTEND=noninteractive apt_get install -y \
     -o Dpkg::Options::=--force-confold "$@" || rc=$?
   if [[ -n $before ]]; then
     report_kept_conffiles "$before"
@@ -511,7 +587,7 @@ install_github_cli() {
     ! mv -f "$source_tmp" "$source" ||
     # A one-source update otherwise deletes every other repository's cached
     # package list, which breaks the package installs that follow this step.
-    ! apt-get update -y \
+    ! apt_get update -y \
       -o "Dir::Etc::sourcelist=$source" \
       -o Dir::Etc::sourceparts=/dev/null \
       -o APT::Get::List-Cleanup=0; then
@@ -547,7 +623,7 @@ install_packages() {
     run systemctl mask caddy
     CADDY_MASKED=1
   fi
-  run apt-get update -y
+  apt_get update -y
   # polkitd: authorizes the in-UI update trigger (see install_updater); present
   # on most Ubuntu images but not guaranteed on minimal ones.
   # build-essential + python3: node-gyp compiles native modules (node-pty)
@@ -574,7 +650,7 @@ install_packages() {
       gpg --batch --yes --dearmor -o /usr/share/keyrings/nodesource.gpg
     echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
       >/etc/apt/sources.list.d/nodesource.list
-    apt-get update -y
+    apt_get update -y
     apt_install caddy nodejs
   fi
   if [[ -z $caddy_safe ]]; then
@@ -708,8 +784,8 @@ configure_firewall() {
   install_hardening_verifier
   run ufw default deny incoming
   run ufw default allow outgoing
-  run ufw allow 80/tcp
-  run ufw allow 443/tcp
+  run ufw allow "$WEB_HTTP_RULE"
+  run ufw allow "$WEB_HTTPS_RULE"
   if [[ $SSH_PORT != none ]]; then
     run ufw allow "$SSH_PORT/tcp"
   else
@@ -722,7 +798,67 @@ configure_firewall() {
   if [[ -z $DRY_RUN ]]; then
     "$VERIFY_HARDENING_TOOL" --check-firewall ||
       die "the firewall check failed after configuration (see above)"
+    {
+      printf 'kind=install\n%s\n%s\n' "$WEB_HTTP_RULE" "$WEB_HTTPS_RULE"
+      [[ $SSH_PORT == none ]] || printf '%s/tcp\n' "$SSH_PORT"
+    } | write_file "$FIREWALL_PORTS_FILE" 600
   fi
+}
+
+# Repair only allow rules that this installer recorded opening. A disabled
+# firewall stays disabled: enabling deny-by-default policy during an unattended
+# update could cut off an operator who intentionally relies on another port.
+restore_recorded_firewall_rules() {
+  [[ -s $FIREWALL_PORTS_FILE ]] || return 0
+  local status kind rule repaired=""
+  status=$(LC_ALL=C ufw status verbose 2>/dev/null) || status=""
+  if ! grep -q '^Status: active$' <<<"$status"; then
+    log "warning: installer-managed firewall rules were not restored because ufw is inactive"
+    log "ISOMUX_UPDATE_WARNING=ufw is inactive; installer-managed firewall rules were not restored"
+    outcome_add "UFW is inactive; installer-managed firewall rules were not restored."
+    return 0
+  fi
+  IFS= read -r kind <"$FIREWALL_PORTS_FILE"
+  [[ $kind == kind=install || $kind == kind=backfill ]] ||
+    die "invalid installer firewall record: $FIREWALL_PORTS_FILE"
+  while IFS= read -r rule; do
+    [[ $rule =~ ^([1-9][0-9]{0,4})/tcp$ ]] && ((10#${BASH_REMATCH[1]} <= 65535)) ||
+      die "invalid installer firewall record: $FIREWALL_PORTS_FILE"
+    if ! awk -v target="$rule" '
+      $1 == target {
+        for (i = 2; i <= NF; i++) if ($i == "ALLOW" || $i == "ALLOW-IN") found = 1
+      }
+      END { exit found ? 0 : 1 }
+    ' <<<"$status"; then
+      run ufw allow "$rule"
+      log "restored installer-managed firewall rule: $rule"
+      outcome_add "Restored installer-managed firewall rule: $rule."
+      repaired=1
+    fi
+  done < <(tail -n +2 "$FIREWALL_PORTS_FILE")
+  [[ -z $repaired ]] ||
+    log "ISOMUX_UPDATE_WARNING=restored missing installer-managed firewall rules"
+}
+
+# Existing installs predate the record. Web ports are safe to adopt only when
+# both installer constants are already present; never infer the SSH port.
+backfill_firewall_record() {
+  [[ -r $UPDATE_CONF ]] || return 0
+  [[ -e $FIREWALL_PORTS_FILE ]] && return 0
+  local status
+  status=$(LC_ALL=C ufw status verbose 2>/dev/null) || return 0
+  grep -q '^Status: active$' <<<"$status" || return 0
+  for rule in "$WEB_HTTP_RULE" "$WEB_HTTPS_RULE"; do
+    awk -v target="$rule" '
+      $1 == target {
+        for (i = 2; i <= NF; i++) if ($i == "ALLOW" || $i == "ALLOW-IN") found = 1
+      }
+      END { exit found ? 0 : 1 }
+    ' <<<"$status" || return 0
+  done
+  printf 'kind=backfill\n%s\n%s\n' "$WEB_HTTP_RULE" "$WEB_HTTPS_RULE" |
+    write_file "$FIREWALL_PORTS_FILE" 600
+  log "recorded existing installer web firewall rules for future updates"
 }
 
 # The SSH hardening and the check that says whether it holds both live in
@@ -1724,7 +1860,8 @@ assert_hardening() {
 # otherwise good install.
 configure_oom_protection() {
   step configure-oom-protection
-  write_file "$OOM_TOOL" 755 <<'ISOMUX_OOM_PROTECT_SH'
+  local mode=${1:-full} staged="$OOM_TOOL.new.$$"
+  if ! write_file "$staged" 755 <<'ISOMUX_OOM_PROTECT_SH'
 #!/usr/bin/env bash
 # isomux-oom-protect - keep a memory spike from taking the whole box down.
 #
@@ -1770,6 +1907,9 @@ set -Eeuo pipefail
 TAG=isomux-oom-protect
 DRY_RUN=""
 RESTAMP=""
+UPDATE_CONVERGE=""
+APT_LOCK_TIMEOUT_SECONDS=120
+APT_LOCK_POLL_SECONDS=2
 SWAPFILE=/swapfile
 SWAP_SIZE_MIB=8192
 SYSCTL_CONF=/etc/sysctl.d/60-isomux-memory.conf
@@ -1799,6 +1939,31 @@ PROC_ROOT=/proc
 log() { printf '[%s] %s\n' "$TAG" "$*"; }
 warn() { log "warning: $*"; }
 
+package_manager_locked() {
+  local path
+  while IFS= read -r path; do
+    case $path in
+      /var/lib/dpkg/lock | /var/lib/dpkg/lock-frontend | /var/lib/apt/lists/lock | /var/cache/apt/archives/lock)
+        return 0
+        ;;
+    esac
+  done < <(lslocks --noheadings --output PATH 2>/dev/null)
+  return 1
+}
+
+wait_for_package_manager() {
+  local remaining=$APT_LOCK_TIMEOUT_SECONDS announced=""
+  while package_manager_locked; do
+    if [[ -z $announced ]]; then
+      log "Ubuntu's package manager is busy; waiting up to ${APT_LOCK_TIMEOUT_SECONDS} seconds for it to finish"
+      announced=1
+    fi
+    ((remaining > 0)) || return 100
+    sleep "$APT_LOCK_POLL_SECONDS"
+    remaining=$((remaining - APT_LOCK_POLL_SECONDS))
+  done
+}
+
 run() {
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: $*"
@@ -1821,13 +1986,15 @@ write_file() {
 
 usage() {
   cat <<EOF
-Usage: isomux-oom-protect [--dry-run] [--restamp]
+Usage: isomux-oom-protect [--dry-run] [--restamp] [--update-converge]
 
   (no option)  install and configure earlyoom, tier the OOM kill order, set
                swap and swappiness
   --restamp    only re-apply the kill order to a running user-level office,
                and stay quiet when it is already right. This is what the
                $RESTAMP_UNIT timer runs every $RESTAMP_INTERVAL.
+  --update-converge
+               repair the installed memory policy without creating swap
   --dry-run    print what would change, change nothing
 EOF
 }
@@ -1840,7 +2007,7 @@ install_earlyoom() {
     return 0
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would apt-get install -y -o Dpkg::Options::=--force-confold earlyoom"
+    log "DRY-RUN: would wait up to 120s and apt-get -o DPkg::Lock::Timeout=120 install -y -o Dpkg::Options::=--force-confold earlyoom"
     return 0
   fi
   # --force-confold for the same reason as the installer's apt_install: a
@@ -1848,7 +2015,11 @@ install_earlyoom() {
   # with nothing on stdin dies at it. Keep whatever the operator has; this
   # script drives earlyoom through a drop-in and never reads
   # /etc/default/earlyoom anyway.
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
+  wait_for_package_manager || {
+    warn "Ubuntu's package manager stayed busy for ${APT_LOCK_TIMEOUT_SECONDS} seconds; earlyoom was not installed"
+    return 1
+  }
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
     warn "could not install earlyoom (it lives in Ubuntu's universe component). The kill order and swap settings below still apply, but nothing will step in early under memory pressure. Install it later with: apt-get install earlyoom"
     return 1
   }
@@ -1956,6 +2127,15 @@ EOF
   else
     warn "office memory cap NOT confirmed in the running cgroup: asked for $expected_max/$expected_high/$expected_swap bytes, kernel reports ${actual_max:-unreadable}/${actual_high:-unreadable}/${actual_swap:-unreadable}"
   fi
+}
+
+# Keep update-time adoption as one removable policy decision. Without a cap,
+# one office can exhaust the box and earlyoom can choose an unrelated victim.
+# With it, MemoryHigh throttles at 85 percent before MemoryMax kills, and the
+# pressure stays inside the office slice. The under-4096 MiB guard remains in
+# configure_office_memory_cap.
+converge_update_memory_cap() {
+  configure_office_memory_cap
 }
 
 # --- kill order -------------------------------------------------------------
@@ -2441,6 +2621,7 @@ main() {
     case $1 in
       --dry-run) DRY_RUN=1 ;;
       --restamp) RESTAMP=1 ;;
+      --update-converge) UPDATE_CONVERGE=1 ;;
       -h | --help)
         usage
         exit 0
@@ -2466,12 +2647,18 @@ main() {
   local have_earlyoom=1
   install_earlyoom || have_earlyoom=""
   [[ -z $have_earlyoom ]] || configure_earlyoom
-  configure_office_memory_cap
+  if [[ -n $UPDATE_CONVERGE ]]; then
+    converge_update_memory_cap
+  else
+    configure_office_memory_cap
+  fi
   configure_kill_order
   configure_swappiness
-  configure_swap
+  [[ -n $UPDATE_CONVERGE ]] || configure_swap
   log ""
-  if [[ -n $have_earlyoom ]]; then
+  if [[ -n $UPDATE_CONVERGE ]]; then
+    log "Memory-pressure policy converged without changing swap."
+  elif [[ -n $have_earlyoom ]]; then
     log "Out-of-memory protection is on: when free memory drops under 10%, one"
     log "agent process is killed instead of the whole box becoming unresponsive."
     log "SSH, DNS, networking and the office server are killed last (and Tailscale,"
@@ -2484,11 +2671,30 @@ main() {
 
 main "$@"
 ISOMUX_OOM_PROTECT_SH
-  if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would run $OOM_TOOL (earlyoom, kill order, swap)"
+  then
+    rm -f "$staged"
+    log "warning: the out-of-memory protection helper could not be staged; the install or update will continue"
+    outcome_add "The updated memory-pressure protection helper could not be staged."
     return 0
   fi
-  "$OOM_TOOL" || log "warning: out-of-memory protection could not be set up completely (see above); nothing else is affected"
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would replace $OOM_TOOL and run memory-policy convergence (mode: $mode)"
+    return 0
+  fi
+  if ! mv -f "$staged" "$OOM_TOOL"; then
+    rm -f "$staged"
+    log "warning: the out-of-memory protection helper could not be installed; the install or update will continue"
+    outcome_add "The updated memory-pressure protection helper could not be installed."
+    return 0
+  fi
+  if [[ $mode == update ]]; then
+    if ! "$OOM_TOOL" --update-converge; then
+      log "warning: out-of-memory protection could not be converged completely (see above); the update will continue"
+      outcome_add "Memory-pressure protection did not converge completely."
+    fi
+  else
+    "$OOM_TOOL" || log "warning: out-of-memory protection could not be set up completely (see above); nothing else is affected"
+  fi
 }
 
 enable_auto_updates() {
@@ -3923,15 +4129,10 @@ report() {
 # the Node.js step, for example, keeps a dead terminal panel through every
 # update until someone re-runs the whole installer).
 #
-# Deliberately narrow, because it runs on a live, configured box:
-#   - install_packages, install_browser and configure_codex_sandbox are the
-#     steps that install system dependencies, and all three are additive and
-#     idempotent. The sandbox step only touches AppArmor on a box where
-#     bubblewrap is already broken, so a sync cannot change a working box's
-#     policy.
-#   - NOT firewall or SSH MUTATION, nor unattended upgrades: that is box policy
-#     the operator may have adjusted since install. A read-only verifier is the
-#     narrow exception; it warns when installer-managed policy no longer holds.
+# Deliberately narrow, because it runs on a live, configured box. It converges
+# additive dependencies and installer-owned policy without restarting the
+# office, enabling a disabled firewall, changing UFW defaults, guessing an SSH
+# port, or creating swap.
 #   - NOT install_bun: a release never switches the runtime under a running
 #     box (release-design.md, "Bun invariant" - the updater warns about a pin
 #     change instead, and its rollback has to run on the installed bun).
@@ -3953,17 +4154,28 @@ deps_only() {
   # here. It exists on every box the updater runs on (the installer created it).
   id -u "$SERVICE_USER" >/dev/null 2>&1 ||
     die "no $SERVICE_USER account on this box; it does not look like an isomux install"
+  local memory_cap_before=""
+  [[ -e $OOM_MEMORY_DROPIN ]] && memory_cap_before=1
   snapshot_caddy_state
   install_packages
   # A sync that cannot put the proxy back has failed, whatever apt reported:
   # the office would be unreachable and the update would carry on regardless.
   restore_caddy_state ||
     die "installed the system dependencies but could not restore caddy to active=${CADDY_PRIOR_ACTIVE:-no} enabled=${CADDY_PRIOR_ENABLED:-no}; the office's public URL may be down. Check: systemctl status caddy"
+  # The target release owns this helper. Refresh and apply its policy only
+  # after apt's Caddy transaction is complete. Update mode never creates swap
+  # and never restarts Caddy or the office.
+  configure_oom_protection update
+  if [[ -z $memory_cap_before && -e $OOM_MEMORY_DROPIN ]]; then
+    outcome_add "The update added a memory cap to the office service; it will take effect when the service restarts."
+  fi
   # The marker is the best available signal that the installer established
   # this public-VPS firewall policy. Verify without changing it. Failure warns
   # but does not strand later security updates. The stable marker lets the
   # updater retain the warning in status.json.
   if grep -qs "$CADDY_MARKER" "$CADDYFILE"; then
+    backfill_firewall_record
+    restore_recorded_firewall_rules
     local verifier_install_rc=0
     set +e
     (set -Ee; install_hardening_verifier)
@@ -3972,6 +4184,7 @@ deps_only() {
     if ((verifier_install_rc != 0)); then
       log "warning: could not install $VERIFY_HARDENING_TOOL; hardening was not verified"
       log "ISOMUX_UPDATE_WARNING=hardening verification could not run because $VERIFY_HARDENING_TOOL was not installed"
+      outcome_add "Hardening verification could not run because the verifier was not installed."
     else
       local verify_rc=0
       "$VERIFY_HARDENING_TOOL" --check || verify_rc=$?
@@ -3980,6 +4193,7 @@ deps_only() {
         *)
           log "warning: installer-managed hardening no longer verifies; run sudo $VERIFY_HARDENING_TOOL --check"
           log "ISOMUX_UPDATE_WARNING=hardening verification failed; run sudo $VERIFY_HARDENING_TOOL --check"
+          outcome_add "Installer-managed hardening verification failed."
           ;;
       esac
     fi
@@ -4004,6 +4218,7 @@ deps_only() {
   # target-release writer therefore converges on the first update that carries
   # it, and the active-unit gate cannot observe apt's transient stop.
   write_loopback_bind_if_proxied
+  write_update_outcome
   step report
   [[ -z $FAILURE_SENTINEL ]] || rm -f "$FAILURE_SENTINEL"
   log "system dependencies are up to date"

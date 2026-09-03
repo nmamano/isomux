@@ -873,10 +873,54 @@ describe("the command line", () => {
     expect(exit).toBe(3);
   });
 
+  it("converges update policy without creating swap or restarting Caddy", () => {
+    expect(SRC).toContain("converge_update_memory_cap() {");
+    expect(SRC).toContain("    converge_update_memory_cap");
+    const decision = SRC.split("\n").find(
+      (line) =>
+        line.includes("UPDATE_CONVERGE") && line.includes("configure_swap"),
+    );
+    expect(decision).toBeDefined();
+    const result = Bun.spawnSync([
+      "bash",
+      "-c",
+      `UPDATE_CONVERGE=1; configure_swap() { echo CREATED_SWAP; }; ${decision}`,
+    ]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.toString()).toBe("");
+    expect(SRC).toContain("oom_tier caddy.service -500 on-failure");
+    expect(
+      SRC.split("\n")
+        .filter((line) => !line.trimStart().startsWith("#"))
+        .join("\n"),
+    ).not.toContain("systemctl restart caddy");
+  });
+
   it("still refuses an unknown flag", async () => {
     const { out, exit } = await runScript("--nope");
     expect(out).toContain("Usage:");
     expect(exit).toBe(3);
+  });
+
+  it("old helper bytes reject the new update flag", async () => {
+    const oldHelper = join(dir, "old-helper.sh");
+    const oldSource = readFileSync(mainable, "utf8").replace(
+      "      --update-converge) UPDATE_CONVERGE=1 ;;\n",
+      "",
+    );
+    expect(oldSource).not.toContain("--update-converge) UPDATE_CONVERGE");
+    writeFileSync(oldHelper, oldSource);
+    const proc = Bun.spawn(["bash", oldHelper, "--update-converge"], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [out, err, exit] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    expect(exit).toBe(3);
+    expect(out + err).toContain("Usage:");
   });
 
   it("documents --restamp in its own help", async () => {

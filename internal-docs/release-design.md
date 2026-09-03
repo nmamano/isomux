@@ -115,14 +115,25 @@ updater copy the same way.
 2b. Then, still before the checkout, install the system dependencies the
    target needs by
    running THAT release's `deploy/install.sh` with `ISOMUX_DEPS_ONLY=1`
-   (packages, the browser, the codex sandbox, and the user-manager setup
-   agents' apps run on - not firewall or SSH mutation, unattended upgrades,
+   (packages, the browser, the codex sandbox, the user-manager setup
+   agents' apps run on, and the installed memory-pressure policy - not SSH
+   mutation, unattended upgrades,
    bun, or anything that decides the box's identity). It refreshes and runs a
-   read-only hardening verifier on installer-managed VPSes; a failure prints a
+   hardening verifier on installer-managed VPSes. The installer records the
+   firewall rules it opens. During updates it restores only missing recorded
+   rules while ufw is active; it never enables ufw or changes its defaults.
+   For an existing install with no record, the updater creates a back-fill
+   record for the two fixed web rules only when it can see both rules open at
+   that moment. The record marks that provenance as a back-fill, and the
+   updater never guesses an SSH port. A failure prints a
    warning but does not stop the update. The target installer emits that warning
    on the first carrying release. The newly installed updater retains it in the
    final status file from the following update onward; nothing in the office UI
-   reads that root-owned file. A checkout-only updater
+   reads that root-owned file. The target installer also writes
+   `/var/lib/isomux-update-public/outcome.json` atomically with mode 0644. It
+   contains only the target tag, a UTC timestamp, and fixed outcome messages,
+   and survives the service restart. No office reader consumes it yet (task
+   25868b9f). A checkout-only updater
    cannot deliver a dependency a release
    starts requiring: boxes installed before the Node.js step kept a dead
    terminal panel through every update. The release's own installer is the
@@ -180,6 +191,17 @@ updater copy the same way.
 
    Installed packages are additive and are NOT undone by a later rollback; a
    failed dependency step can leave host packages partly changed.
+
+   Memory-policy convergence runs after Caddy state restoration. It refreshes
+   the target release's installed helper, applies its unit drop-ins and runtime
+   settings, and stays non-fatal. It does not create or resize swap, and it
+   does not restart Caddy or the office. The script calls `daemon-reload` after
+   writing the drop-ins. [`systemctl(1)`](https://www.freedesktop.org/software/systemd/man/latest/systemctl.html#daemon-reload)
+   says that this reloads all unit files, and
+   [`systemd.service(5)`](https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html#Restart=)
+   defines `Restart=` at process exit. The update therefore relies on the new
+   Caddy restart policy at its next exit, but this effect is unverified on a
+   real box because release verification must not touch one.
 3. Check out the trust-resolved commit, then `bun install --frozen-lockfile`
    and `bun run build:ui`. On failure, the
    running server process is untouched, but `node_modules` and the

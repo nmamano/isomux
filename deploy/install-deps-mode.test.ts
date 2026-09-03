@@ -84,7 +84,9 @@ function runDepsMode(opts: {
   noCaddyUnit?: boolean;
   migrationFails?: boolean;
   frontDoorHealthy?: boolean;
+  addsMemoryCap?: boolean;
 }): Run {
+  rmSync(join(base, "memory-dropin"), { force: true });
   const stubLog = join(base, "stub.log");
   const activeFile = join(base, "caddy-active");
   const enabledFile = join(base, "caddy-enabled");
@@ -126,12 +128,16 @@ step() { CURRENT_STEP=$1; }
 # calls must still stop it - so mark and exit on the ones that matter.
 die() { echo "DIE: $*"; case "$*" in *[Cc]addy*) exit 1 ;; esac; }
 install_packages() { echo "install_packages"; ${apt}; ${opts.packagesFail ? "report_failure; exit 1" : "true"}; }
+configure_oom_protection() { echo "configure_oom_protection $*"; echo "configure_oom_protection $*" >> "$STUB_LOG"; ${opts.addsMemoryCap ? 'touch "$OOM_MEMORY_DROPIN"' : ":"}; }
+outcome_add() { echo "OUTCOME: $*"; }
 install_browser() { echo "install_browser"; }
 configure_codex_sandbox() { echo "configure_codex_sandbox"; }
 configure_user_manager() { echo "configure_user_manager"; }
 migrate_caddy_access_log() { echo "migrate_caddy_access_log"; ${opts.migrationFails ? "return 1" : ":"}; }
 verify_caddy_front_door() { ${opts.frontDoorHealthy === false ? "return 1" : "return 0"}; }
 write_loopback_bind_if_proxied() { echo "write_loopback_bind_if_proxied"; }
+write_update_outcome() { echo "write_update_outcome"; }
+OOM_MEMORY_DROPIN="${join(base, "memory-dropin")}"
 deps_only
 `;
   const res = spawnSync("bash", ["-c", script], {
@@ -171,6 +177,12 @@ afterAll(() => {
 });
 
 describe("install.sh deps-only mode: Caddy is left as it was found", () => {
+  it("records the first update-time memory cap", () => {
+    const r = runDepsMode({ active: true, enabled: true, addsMemoryCap: true });
+    expect(r.out).toContain(
+      "OUTCOME: The update added a memory cap to the office service; it will take effect when the service restarts.",
+    );
+  });
   it("brings back a running proxy that the package step took down", () => {
     // The unclaimed-office path: install_packages stops and disables Caddy so
     // apt cannot start it, and no configure_caddy follows in this mode.
@@ -178,6 +190,12 @@ describe("install.sh deps-only mode: Caddy is left as it was found", () => {
     expect(r.active).toBe(true);
     expect(r.enabled).toBe(true);
     expect(r.out).toContain("install_browser");
+    expect(r.out.indexOf("configure_oom_protection update")).toBeGreaterThan(
+      r.out.indexOf("install_packages"),
+    );
+    expect(r.calls.indexOf("configure_oom_protection update")).toBeGreaterThan(
+      r.calls.indexOf("systemctl start caddy"),
+    );
   });
 
   it("turns back off a proxy the package step started", () => {
@@ -307,6 +325,7 @@ DRY_RUN=""
 log() { echo "LOG: $*"; }
 warn() { echo "WARN: $*"; }
 apt_install() { echo "APT_INSTALL: $*"; [[ ${JSON.stringify(fail)} != install ]]; }
+apt_get() { apt-get "$@"; }
 curl() { [[ ${JSON.stringify(fail)} != curl ]] || return 1; printf key; }
 dpkg() { printf amd64; }
 apt-get() { [[ ${JSON.stringify(fail)} != update ]]; }

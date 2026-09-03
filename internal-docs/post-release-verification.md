@@ -190,7 +190,10 @@ executed.
 **Stage A has a part that needs no box.** Confirm the GitHub Release is
 published and not a draft, that `releases/latest` resolves to the new tag,
 that the tag points at the intended commit, and that the installer the docs
-tell a customer to fetch is byte-identical to the one in the tree. Those
+tell a customer to fetch is byte-identical to the one in the published tag.
+While the docs still fetch from `main`, a mismatch means the installer and
+application release channels have diverged; stop before using that install as
+release evidence. Those
 four take a minute and gate whether the rest of stage A means anything.
 They are not a substitute for an install on a clean box.
 

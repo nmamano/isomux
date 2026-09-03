@@ -43,6 +43,9 @@ set -Eeuo pipefail
 TAG=isomux-oom-protect
 DRY_RUN=""
 RESTAMP=""
+UPDATE_CONVERGE=""
+APT_LOCK_TIMEOUT_SECONDS=120
+APT_LOCK_POLL_SECONDS=2
 SWAPFILE=/swapfile
 SWAP_SIZE_MIB=8192
 SYSCTL_CONF=/etc/sysctl.d/60-isomux-memory.conf
@@ -72,6 +75,31 @@ PROC_ROOT=/proc
 log() { printf '[%s] %s\n' "$TAG" "$*"; }
 warn() { log "warning: $*"; }
 
+package_manager_locked() {
+  local path
+  while IFS= read -r path; do
+    case $path in
+      /var/lib/dpkg/lock | /var/lib/dpkg/lock-frontend | /var/lib/apt/lists/lock | /var/cache/apt/archives/lock)
+        return 0
+        ;;
+    esac
+  done < <(lslocks --noheadings --output PATH 2>/dev/null)
+  return 1
+}
+
+wait_for_package_manager() {
+  local remaining=$APT_LOCK_TIMEOUT_SECONDS announced=""
+  while package_manager_locked; do
+    if [[ -z $announced ]]; then
+      log "Ubuntu's package manager is busy; waiting up to ${APT_LOCK_TIMEOUT_SECONDS} seconds for it to finish"
+      announced=1
+    fi
+    ((remaining > 0)) || return 100
+    sleep "$APT_LOCK_POLL_SECONDS"
+    remaining=$((remaining - APT_LOCK_POLL_SECONDS))
+  done
+}
+
 run() {
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: $*"
@@ -94,13 +122,15 @@ write_file() {
 
 usage() {
   cat <<EOF
-Usage: isomux-oom-protect [--dry-run] [--restamp]
+Usage: isomux-oom-protect [--dry-run] [--restamp] [--update-converge]
 
   (no option)  install and configure earlyoom, tier the OOM kill order, set
                swap and swappiness
   --restamp    only re-apply the kill order to a running user-level office,
                and stay quiet when it is already right. This is what the
                $RESTAMP_UNIT timer runs every $RESTAMP_INTERVAL.
+  --update-converge
+               repair the installed memory policy without creating swap
   --dry-run    print what would change, change nothing
 EOF
 }
@@ -113,7 +143,7 @@ install_earlyoom() {
     return 0
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would apt-get install -y -o Dpkg::Options::=--force-confold earlyoom"
+    log "DRY-RUN: would wait up to 120s and apt-get -o DPkg::Lock::Timeout=120 install -y -o Dpkg::Options::=--force-confold earlyoom"
     return 0
   fi
   # --force-confold for the same reason as the installer's apt_install: a
@@ -121,7 +151,11 @@ install_earlyoom() {
   # with nothing on stdin dies at it. Keep whatever the operator has; this
   # script drives earlyoom through a drop-in and never reads
   # /etc/default/earlyoom anyway.
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
+  wait_for_package_manager || {
+    warn "Ubuntu's package manager stayed busy for ${APT_LOCK_TIMEOUT_SECONDS} seconds; earlyoom was not installed"
+    return 1
+  }
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 install -y -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
     warn "could not install earlyoom (it lives in Ubuntu's universe component). The kill order and swap settings below still apply, but nothing will step in early under memory pressure. Install it later with: apt-get install earlyoom"
     return 1
   }
@@ -229,6 +263,15 @@ EOF
   else
     warn "office memory cap NOT confirmed in the running cgroup: asked for $expected_max/$expected_high/$expected_swap bytes, kernel reports ${actual_max:-unreadable}/${actual_high:-unreadable}/${actual_swap:-unreadable}"
   fi
+}
+
+# Keep update-time adoption as one removable policy decision. Without a cap,
+# one office can exhaust the box and earlyoom can choose an unrelated victim.
+# With it, MemoryHigh throttles at 85 percent before MemoryMax kills, and the
+# pressure stays inside the office slice. The under-4096 MiB guard remains in
+# configure_office_memory_cap.
+converge_update_memory_cap() {
+  configure_office_memory_cap
 }
 
 # --- kill order -------------------------------------------------------------
@@ -714,6 +757,7 @@ main() {
     case $1 in
       --dry-run) DRY_RUN=1 ;;
       --restamp) RESTAMP=1 ;;
+      --update-converge) UPDATE_CONVERGE=1 ;;
       -h | --help)
         usage
         exit 0
@@ -739,12 +783,18 @@ main() {
   local have_earlyoom=1
   install_earlyoom || have_earlyoom=""
   [[ -z $have_earlyoom ]] || configure_earlyoom
-  configure_office_memory_cap
+  if [[ -n $UPDATE_CONVERGE ]]; then
+    converge_update_memory_cap
+  else
+    configure_office_memory_cap
+  fi
   configure_kill_order
   configure_swappiness
-  configure_swap
+  [[ -n $UPDATE_CONVERGE ]] || configure_swap
   log ""
-  if [[ -n $have_earlyoom ]]; then
+  if [[ -n $UPDATE_CONVERGE ]]; then
+    log "Memory-pressure policy converged without changing swap."
+  elif [[ -n $have_earlyoom ]]; then
     log "Out-of-memory protection is on: when free memory drops under 10%, one"
     log "agent process is killed instead of the whole box becoming unresponsive."
     log "SSH, DNS, networking and the office server are killed last (and Tailscale,"

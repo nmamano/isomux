@@ -7,7 +7,13 @@
 // any reviewer has to notice it. Zero execution, zero LLM.
 
 import { describe, it, expect } from "bun:test";
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "fs";
+import {
+  existsSync,
+  readFileSync,
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+} from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createHash } from "crypto";
@@ -699,13 +705,70 @@ describe("install.sh: the managed Caddyfile", () => {
 describe("install.sh: out-of-memory protection", () => {
   it("installs and runs the protection script, without failing the install", () => {
     expect(SRC).toContain("OOM_TOOL=/usr/local/sbin/isomux-oom-protect");
-    expect(SRC).toContain('write_file "$OOM_TOOL" 755');
+    expect(SRC).toContain('write_file "$staged" 755');
     // Slice from the end of the embedded script: the heredoc body is full of
     // function bodies that would end the slice early.
     const afterHeredoc = SRC.lastIndexOf("\nISOMUX_OOM_PROTECT_SH\n");
     const fn = SRC.slice(afterHeredoc, SRC.indexOf("\n}\n", afterHeredoc));
     expect(fn).not.toContain("die ");
     expect(fn).toContain("warning: out-of-memory protection");
+    expect(fn).toContain('mv -f "$staged" "$OOM_TOOL"');
+    expect(fn).toContain('if ! "$OOM_TOOL" --update-converge; then');
+  });
+
+  it("does not run old helper bytes when staging the target helper fails", () => {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-oom-skew-"));
+    const oldTool = join(dir, "old-helper");
+    const ran = join(dir, "ran");
+    writeFileSync(oldTool, `#!/bin/sh\ntouch ${ran}\nexit 3\n`);
+    const fn = SRC.slice(
+      SRC.indexOf("configure_oom_protection() {"),
+      SRC.indexOf("\nenable_auto_updates() {"),
+    );
+    const script = `${fn}
+OOM_TOOL=${oldTool}
+DRY_RUN=""
+step() { :; }
+log() { echo "LOG: $*"; }
+outcome_add() { echo "OUTCOME: $*"; }
+write_file() { return 1; }
+configure_oom_protection update
+`;
+    try {
+      const result = Bun.spawnSync(["bash", "-Eeuo", "pipefail", "-c", script]);
+      expect(result.exitCode).toBe(0);
+      expect(existsSync(ran)).toBe(false);
+      expect(result.stdout.toString()).toContain("could not be staged");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an update successful when the refreshed helper fails", () => {
+    const dir = mkdtempSync(join(tmpdir(), "isomux-oom-nonfatal-"));
+    const tool = join(dir, "helper");
+    const fn = SRC.slice(
+      SRC.indexOf("configure_oom_protection() {"),
+      SRC.indexOf("\nenable_auto_updates() {"),
+    );
+    const script = `${fn}
+OOM_TOOL=${tool}
+DRY_RUN=""
+step() { :; }
+log() { echo "LOG: $*"; }
+outcome_add() { echo "OUTCOME: $*"; }
+write_file() { local path=$1 mode=$2; cat > "$path"; chmod "$mode" "$path"; }
+configure_oom_protection update
+`;
+    try {
+      const result = Bun.spawnSync(["bash", "-Eeuo", "pipefail", "-c", script]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout.toString()).toContain(
+        "OUTCOME: Memory-pressure protection did not converge completely.",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("runs before the build, which is the memory-hungry part", () => {
@@ -760,6 +823,20 @@ describe("install.sh: out-of-memory protection", () => {
     expect(serviceUnit()).toContain("StartLimitIntervalSec=0");
     // Unbounded retries need a backoff, or a unit that cannot start spins.
     expect(serviceUnit()).toMatch(/^RestartSec=[1-9]/m);
+  });
+});
+
+describe("install.sh: recorded firewall repair", () => {
+  it("records full-install rules and restores them only in deps mode", () => {
+    expect(SRC).toContain('write_file "$FIREWALL_PORTS_FILE" 600');
+    expect(SRC).toContain("printf 'kind=install\\n%s\\n%s\\n'");
+    const deps = SRC.slice(
+      SRC.indexOf("deps_only() {"),
+      SRC.lastIndexOf("\nmain() {"),
+    );
+    expect(deps).toContain("backfill_firewall_record");
+    expect(deps).toContain("restore_recorded_firewall_rules");
+    expect(deps).toContain("write_update_outcome");
   });
 });
 

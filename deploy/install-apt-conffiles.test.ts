@@ -110,10 +110,16 @@ function runAptInstall(
   rmSync(stubLog, { force: true });
   const script = `
 set -Eeuo pipefail
+eval "$(grep -m1 '^APT_LOCK_TIMEOUT_SECONDS=' "$INSTALL_SH")"
+eval "$(grep -m1 '^APT_LOCK_POLL_SECONDS=' "$INSTALL_SH")"
+eval "$(sed -n '/^package_manager_locked()/,/^}/p' "$INSTALL_SH")"
+eval "$(sed -n '/^wait_for_package_manager()/,/^}/p' "$INSTALL_SH")"
+eval "$(sed -n '/^apt_get()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^apt_install()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^conffile_markers()/,/^}/p' "$INSTALL_SH")"
 eval "$(sed -n '/^report_kept_conffiles()/,/^}/p' "$INSTALL_SH")"
 log() { printf 'LOG: %s\\n' "$*"; }
+run() { "$@"; }
 DRY_RUN="${opts.dryRun ? "1" : ""}"
 CONFFILE_ROOT="${etc}"
 rc=0
