@@ -15,6 +15,7 @@
 
 import { homedir } from "os";
 import { basename, isAbsolute, normalize, resolve } from "path";
+import { isBackendCredentialPath } from "./backend-credential-paths.ts";
 import { STATE_ROOT } from "./config.ts";
 
 // The write-protection root follows the active state root, so a test that
@@ -896,20 +897,6 @@ function checkOutboundTunnel(command: string): TunnelMatch | null {
 /** Suffixes that indicate a template/example file, not real secrets */
 const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
 
-// The two backends' own logins. Isomux causes these files to exist, so they
-// are the one class of secret we can name by location rather than by a guessed
-// filename. `auth.json` is far too generic to sit in SENSITIVE_EXACT - plenty
-// of projects have one and none of them are this - so it counts only inside a
-// codex home. `.credentials.json` is specific enough to match anywhere, and
-// note it is NOT covered by the `credentials.json` entry above: the match is
-// exact and the leading dot defeats it.
-const BACKEND_CREDENTIAL_PATHS: RegExp[] = [
-  /(^|\/)\.credentials\.json$/, // Claude Code
-  /(^|\/)(\.codex|codex-home)\/auth\.json$/, // Codex, default and per-user homes
-  /(^|\/)\.local\/share\/opencode\/auth\.json$/, // OpenCode native home
-  /(^|\/)opencode\/profiles\/[^/]+\/data\/opencode\/auth\.json$/, // OpenCode profiles
-];
-
 function isSensitiveFile(filePath: string): boolean {
   // A glob arrives here too (Grep's `glob: "*.pem"` selects the same files a
   // path would). A trailing wildcard is not part of any real name, so drop it
@@ -920,7 +907,7 @@ function isSensitiveFile(filePath: string): boolean {
   const path = filePath.replace(/\*+$/, "");
   // Checked before SAFE_SUFFIXES: a backend login is never a template, and the
   // suffix check returns early, so anything it matched could never be reached.
-  if (BACKEND_CREDENTIAL_PATHS.some((p) => p.test(path))) return true;
+  if (isBackendCredentialPath(path)) return true;
   // Allow .env.example, .env.template, etc.
   if (SAFE_SUFFIXES.some((s) => name.endsWith(s))) return false;
   if (SENSITIVE_EXACT.has(name)) return true;

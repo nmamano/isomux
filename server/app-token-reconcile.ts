@@ -27,12 +27,13 @@
 // behind a unit that injects nothing. Skipping on a healthy pair alone would
 // make that state permanent, since nothing else ever looks again.
 //
-// WHAT IT DELIBERATELY DOES NOT DO: start, stop or restart anything. A running
-// app's environment is fixed at exec, so an app whose token was just minted
-// keeps serving without it until its next restart. Bouncing apps at boot to
-// re-inject is precisely the behaviour the design doc rejects - it is the
-// reason apps are systemd units and not isomux children - and in this slice the
-// token authorizes nothing, so there is nothing to rush.
+// WHEN IT RESTARTS. A running app whose token is re-minted must restart because
+// its process still holds the rejected token and app:message is its only
+// capability. Healthy and merely rewired apps are not bounced; stopped apps
+// take the new token on their next start. Runtime state is captured before the
+// pass changes anything. A false negative in the pair check would otherwise
+// cause a silent re-mint and restart on every boot, so the healthy-pair test is
+// also the guard against repeated user-visible disruption.
 //
 // BEST EFFORT, NOT ATOMIC. Two files and a store cannot be written as one
 // transaction, so the cleanup after a half-finished provisioning is best effort
@@ -41,10 +42,12 @@
 // but "never SILENTLY half-provisioned": every state left behind is one this
 // pass recognises and retries.
 //
-// The pass is ADVISORY: every failure is per-app, logged, and retried on the
-// next boot. Nothing here may throw into the boot path.
+// The pass is ADVISORY: every failure is per-app and logged. An incomplete
+// token pair is retried on the next boot; a restart failure leaves a valid new
+// pair for the app's next start. Nothing here may throw into the boot path.
 
 import type { AppRecord } from "../shared/types.ts";
+import type { AppRuntime } from "./app-supervisor.ts";
 import type { AppTokenStore } from "./app-tokens.ts";
 
 export interface AppTokenReconcileDeps {
@@ -59,6 +62,8 @@ export interface AppTokenReconcileDeps {
   unitInjectsToken(appName: string): boolean;
   provisionToken(appName: string, raw: string): void;
   regenerate(app: AppRecord): void;
+  states(appNames: readonly string[]): Map<string, AppRuntime>;
+  restart(appName: string): void;
 }
 
 export interface AppTokenReconcileReport {
@@ -72,6 +77,11 @@ export interface AppTokenReconcileReport {
   // Apps whose token was fine but whose unit did not reference it: files
   // regenerated, token left alone.
   rewired: string[];
+  // Running apps restarted after this pass gave them a new token.
+  restarted: string[];
+  // Restart failures do not mean token provisioning failed. The app keeps its
+  // fresh token files and can recover on a later manual or systemd restart.
+  restartFailed: string[];
   // Hashes dropped because no app answers to that name any more.
   pruned: string[];
   // Apps this pass could not fix. They are left with no token rather than half
@@ -87,11 +97,24 @@ export function reconcileAppTokens(
     reloaded: false,
     provisioned: [],
     rewired: [],
+    restarted: [],
+    restartFailed: [],
     pruned: [],
     failed: [],
   };
   const apps = deps.list();
   report.checked = apps.length;
+
+  let before: Map<string, AppRuntime>;
+  try {
+    before = deps.states(apps.map((app) => app.name));
+  } catch (err) {
+    before = new Map();
+    console.error(
+      "[app-tokens] boot: systemd could not be asked which apps are running; tokens will be repaired without restarting anything:",
+      err,
+    );
+  }
 
   // Before anything is inspected: whatever is on disk is what systemd should be
   // holding. A failure here is not fatal to the pass - the per-app work below
@@ -140,6 +163,19 @@ export function reconcileAppTokens(
       }
       provision(deps, app);
       report.provisioned.push(app.name);
+      const state = before.get(app.name)?.state ?? "unknown";
+      if (state === "running" || state === "starting") {
+        try {
+          deps.restart(app.name);
+          report.restarted.push(app.name);
+        } catch (err) {
+          report.restartFailed.push(app.name);
+          console.error(
+            `[app-tokens] "${app.name}" received a new token but could not be restarted to use it:`,
+            err,
+          );
+        }
+      }
     } catch (err) {
       report.failed.push(app.name);
       console.error(

@@ -90,10 +90,16 @@ async function mutantHook(
     "utf8",
   );
   const configUrl = new URL("../../config.ts", import.meta.url).href;
-  const importablePolicy = policySource.replace(
-    'from "./config.ts"',
-    `from ${JSON.stringify(configUrl)}`,
-  );
+  const credentialPathsUrl = new URL(
+    "../../backend-credential-paths.ts",
+    import.meta.url,
+  ).href;
+  const importablePolicy = policySource
+    .replace('from "./config.ts"', `from ${JSON.stringify(configUrl)}`)
+    .replace(
+      'from "./backend-credential-paths.ts"',
+      `from ${JSON.stringify(credentialPathsUrl)}`,
+    );
   const policyPath = join(root, `${name}-policy.ts`);
   const hookPath = join(root, `${name}-hook.ts`);
   const importableHook = hookSource.replace(
@@ -159,6 +165,7 @@ describe("standalone Codex safety hook", () => {
 
   it("stamps the complete local source closure into the executable", async () => {
     expect(built.sourceFiles).toEqual([
+      "server/backend-credential-paths.ts",
       "server/backends/codex/safety-hook.ts",
       "server/config.ts",
       "server/safety-policy.ts",

@@ -12,7 +12,10 @@ own agents die with the service they would be restoring.
 
 ## What the daily backup is
 
-`server/backup.ts` archives the entire state root once a day.
+`server/backup.ts` archives the office state once a day. It omits persisted
+credential files and regenerable caches that mechanically capture environment
+variables. Each archive carries `RESTORE.txt`, which records what that run
+omitted and the concrete recovery action.
 
 - **Source:** the state root - `~/.isomux` in production, or whatever
   `ISOMUX_HOME` points at. The archive is written with
@@ -63,11 +66,14 @@ not `~/isomux-backups`.
 
 ### What is in the archive
 
-Everything under the state root: `agents.json`, `users.json`,
-`office-config.json`, live sessions and outstanding invites, the task
-board, scheduled messages, cron job definitions and their run history,
-every agent's conversation logs and attachments, office/room/agent memory,
-the codex home, and the runtime `bin`/`tls` dirs.
+The archive keeps office state and history, including provider sessions,
+memories, app registrations and app data. It omits known backend login files,
+managed environment files, app runtime credential files, private legacy TLS
+material, and Codex shell snapshots. `RESTORE.txt` is generated from the same
+exclusion list used by tar; it names only classes present when that backup ran.
+The report does not claim that an archive is free of secrets. Conversation logs
+and provider transcripts remain because they are history, even though user text
+can incidentally contain sensitive values.
 
 Two things are silently absent:
 
@@ -80,9 +86,9 @@ Two things are silently absent:
   | Provider home                                       | In the archive? |
   | --------------------------------------------------- | --------------- |
   | Claude, default `~/.claude` (transcripts in `projects/`) | No - outside the state root |
-  | Codex, default `<state-root>/codex-home` (rollouts in `sessions/`) | **Yes** |
-  | Personal Claude/Codex homes below `<state-root>/provider-homes` | **Yes**, including provider login state |
-  | OpenCode, managed profiles below `<state-root>/opencode/profiles` | **Yes**, including provider login state |
+  | Codex, default `<state-root>/codex-home` (rollouts in `sessions/`) | **Yes**, except login and shell snapshots |
+  | Personal Claude/Codex homes below `<state-root>/provider-homes` | **Yes**, except login and shell snapshots |
+  | OpenCode, managed profiles below `<state-root>/opencode/profiles` | **Yes**, except provider and MCP login files |
   | Any home redirected out of the state root by a per-user env file (`CLAUDE_CONFIG_DIR=...`, `CODEX_HOME=~/.isomux-users/<name>/.codex`) | No |
   | A `CLAUDE_CONFIG_DIR` pointed *inside* the state root | Yes |
 
@@ -94,8 +100,10 @@ scratch rather than rolled back: the repo checkout the service runs from,
 and on updater-managed boxes `/etc/isomux/update.conf` plus
 `/var/lib/isomux-update/`.
 
-Hosted TLS keys are also outside this ordinary backup and are never carried
-through a provider rebuild. A rebuild always takes fresh issuance. If lego
+Active hosted TLS keys are outside this ordinary backup and are never carried
+through a provider rebuild. The installer obtains a certificate before the
+state restore (`deploy/install.sh`, `install_hosted_tls_renewal`). A rebuild
+always takes fresh issuance. If lego
 returns the wiped box's stale chain, the adapter forces one renewal, spends one
 duplicate-certificate slot, and accepts only a chain matching the new key.
 
@@ -195,6 +203,16 @@ back. Delete it later, once the office is confirmed healthy.
 ```
 tar -xzf ~/isomux-backups/isomux-2026-07-30.tar.gz -C ~
 ```
+
+Read the restore report before starting the service:
+
+```
+cat ~/.isomux/RESTORE.txt
+```
+
+Follow each recovery line. It names affected users whose managed variables or
+provider credentials must be entered again. Archives from older releases do
+not contain this file and may still contain those credentials.
 
 The invariant, which matters if `ISOMUX_HOME` is set and `~` is not the
 right answer: **`-C` takes `dirname(<current state root>)`**, because the
@@ -324,6 +342,12 @@ signed in until that session would have expired anyway.
   conversations resume), Claude keeps them in `~/.claude` (its agents
   show their history but need a fresh session to continue). See the
   table above if any agent uses a per-user env file.
+- **Apps keep their registrations and data.** At boot, Isomux re-mints missing
+  app tokens, regenerates their unit files, and restarts only apps that were
+  running. Apps that were stopped remain stopped and use the new token when
+  started from the Apps page.
+- **Restore the omitted user credentials.** Follow `RESTORE.txt`. Managed
+  environment variables and provider logins cannot be re-minted by Isomux.
 - **Anything newer than the backup is gone**: messages, tasks, cron
   runs, invites minted since. The tarball's mtime tells you the cutoff.
 - **Version skew.** Restoring into the same release the backup came from
@@ -333,6 +357,10 @@ signed in until that session would have expired anyway.
   code reading newer state is not supported - if you are also rolling the
   code back, roll it back to the release that was running when the backup
   was taken.
+  A current release restoring an old archive keeps credentials that archive
+  contains. An older release can extract a current archive and a human can read
+  its plain `RESTORE.txt`, but the omitted credentials remain absent and older
+  app reconciliation may not restart an app onto a re-minted token.
 - **The next daily backup is unaffected.** The backup directory lives
   outside the state root, so the restore does not touch it and the
   schedule picks up where it was. On a new box it is the exception: see
@@ -348,7 +376,7 @@ Three different things write archives; only the first is the daily backup.
 | Location                                            | Written by                    | What it is                                                                  |
 | --------------------------------------------------- | ----------------------------- | --------------------------------------------------------------------------- |
 | `~/isomux-backups/isomux-YYYY-MM-DD.tar.gz`         | `server/backup.ts`            | The daily backup. This runbook.                                              |
-| `/var/lib/isomux-update/snapshots/pre-update-*.tar.gz` | `scripts/update.sh`         | Taken with the service stopped, immediately before a release is applied. The updater restores it itself if the new version fails its readiness poll. Same shape, so it restores by hand the same way. |
+| `/var/lib/isomux-update/snapshots/pre-update-*.tar.gz` | `scripts/update.sh`         | Full state snapshot taken with the service stopped immediately before a release is applied. It is not filtered like the daily backup and has no `RESTORE.txt`. The updater restores it itself if the new version fails its readiness poll. |
 | `~/.isomux/backups/`                                 | `server/migrations.ts` etc.  | One-off safety copies taken before a schema migration (e.g. `pre-userid-migration-*`). Individual files and directories, not full-office archives. |
 
 `/var/lib/isomux-update/snapshots/broken-*` is the third kind: a state root

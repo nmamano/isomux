@@ -769,6 +769,7 @@ describe("NotebookEdit coverage", () => {
     for (const file_path of [
       "/home/someone/.isomux/codex-home/auth.json",
       "/home/someone/.codex/auth.json",
+      "/home/someone/.isomux/provider-homes/user-1/codex/auth.json",
     ]) {
       const { denied } = await decide("Read", { file_path });
       expect({ file_path, denied }).toEqual({ file_path, denied: true });
@@ -778,6 +779,7 @@ describe("NotebookEdit coverage", () => {
   it("denies reading the default and per-user OpenCode logins", async () => {
     for (const file_path of [
       "/home/someone/.isomux/opencode/profiles/0123456789abcdef/data/opencode/auth.json",
+      "/home/someone/.isomux/opencode/profiles/0123456789abcdef/data/opencode/mcp-auth.json",
       "/srv/isomux-user/opencode/profiles/fedcba9876543210/data/opencode/auth.json",
     ]) {
       const { denied } = await decide("Read", { file_path });
@@ -785,12 +787,15 @@ describe("NotebookEdit coverage", () => {
     }
   });
 
-  it("denies reading the native OpenCode login", async () => {
-    const { denied, reason } = await decide("Read", {
-      file_path: "/home/someone/.local/share/opencode/auth.json",
-    });
-    expect(denied).toBe(true);
-    expect(reason).toContain("may contain secrets");
+  it("denies reading the native OpenCode provider and MCP logins", async () => {
+    for (const file_path of [
+      "/home/someone/.local/share/opencode/auth.json",
+      "/home/someone/.local/share/opencode/mcp-auth.json",
+    ]) {
+      const { denied, reason } = await decide("Read", { file_path });
+      expect({ file_path, denied }).toEqual({ file_path, denied: true });
+      expect(reason).toContain("may contain secrets");
+    }
   });
 
   it("still allows an unrelated auth.json, which is too generic to block", async () => {

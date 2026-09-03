@@ -309,7 +309,7 @@ values.
 
 ## Backups
 
-Isomux stores seven daily backups of `~/.isomux/` in the server's backup directory on the same disk as the office, so copy them elsewhere if you need protection from server loss. Current backup health and the exact directory are at `GET /api/backup/status`.
+Isomux stores seven daily office backups in the server's backup directory on the same disk as the office, so copy them elsewhere if you need protection from server loss. Known credential files and regenerable secret caches are omitted. Each archive includes `RESTORE.txt`, which names what was omitted and where to put them back. Current backup health and the exact directory are at `GET /api/backup/status`.
 
 ## Running out of memory
 

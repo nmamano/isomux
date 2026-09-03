@@ -10,7 +10,7 @@
 //     other app's token;
 //   - a hash and an environment file are a pair: reconciliation checks them
 //     against each other by HASHING the plaintext, not by checking that both
-//     exist, and it never starts or restarts anything.
+//     exist, and it restarts only a running app whose token changed.
 //
 // Pure T0: a temp directory, no server, no systemd, no LLM.
 
@@ -292,8 +292,14 @@ interface FakeSupervisorFiles {
   wired: Set<string>;
   regenerated: string[];
   removed: string[];
+  states: Map<
+    string,
+    "running" | "starting" | "stopped" | "failed" | "unknown"
+  >;
+  restarted: string[];
   failProvision: boolean;
   failRegenerate: boolean;
+  failRestart: boolean;
 }
 
 function reconcileDeps(
@@ -322,6 +328,17 @@ function reconcileDeps(
       files.regenerated.push(app.name);
       files.wired.add(app.name);
     },
+    states: (names: readonly string[]) =>
+      new Map(
+        names.map((name) => [
+          name,
+          { state: files.states.get(name) ?? "stopped", restartCount: 0 },
+        ]),
+      ),
+    restart: (name: string) => {
+      if (files.failRestart) throw new Error("restart refused");
+      files.restarted.push(name);
+    },
   };
 }
 
@@ -336,8 +353,11 @@ const files = (
   wired: new Set(["hello"]),
   regenerated: [],
   removed: [],
+  states: new Map(),
+  restarted: [],
   failProvision: false,
   failRegenerate: false,
+  failRestart: false,
   ...over,
 });
 
@@ -364,6 +384,7 @@ describe("app-tokens: boot reconciliation", () => {
     const report = reconcileAppTokens(reconcileDeps([record()], s, f));
     expect(report.provisioned).toEqual([]);
     expect(f.regenerated).toEqual([]); // nothing rewritten, nothing bounced
+    expect(f.restarted).toEqual([]);
     expect(f.tokens.get("hello")).toBe(raw); // same token, not rotated
   });
 
@@ -442,7 +463,11 @@ describe("app-tokens: boot reconciliation", () => {
     // enough to skip on.
     const s = store();
     const raw = s.mint("hello", "u-alice");
-    const f = files({ wired: new Set(), tokens: new Map([["hello", raw]]) });
+    const f = files({
+      wired: new Set(),
+      tokens: new Map([["hello", raw]]),
+      states: new Map([["hello", "running"]]),
+    });
 
     const report = reconcileAppTokens(reconcileDeps([record()], s, f));
 
@@ -453,6 +478,7 @@ describe("app-tokens: boot reconciliation", () => {
     // supervisor test pins that it issues daemon-reload and nothing else), and
     // nothing else was called here at all.
     expect(f.removed).toEqual([]);
+    expect(f.restarted).toEqual([]);
     // The token was fine, so it is left exactly as it was - rotating it would
     // break a running app for no reason.
     expect(f.tokens.get("hello")).toBe(raw);
@@ -471,6 +497,8 @@ describe("app-tokens: boot reconciliation", () => {
       reloaded: true,
       provisioned: [],
       rewired: [],
+      restarted: [],
+      restartFailed: [],
       pruned: [],
       failed: [],
     });
@@ -520,6 +548,47 @@ describe("app-tokens: boot reconciliation", () => {
     });
     expect(report.failed).toEqual(["alpha"]);
     expect(report.provisioned).toEqual(["beta"]);
+  });
+
+  it("restarts a running app after giving it a new token", () => {
+    const s = store();
+    const old = s.mint("hello", "u-alice");
+    const f = files({
+      tokens: new Map(),
+      states: new Map([["hello", "running"]]),
+    });
+
+    const report = reconcileAppTokens(reconcileDeps([record()], s, f));
+
+    expect(report.provisioned).toEqual(["hello"]);
+    expect(report.restarted).toEqual(["hello"]);
+    expect(report.restartFailed).toEqual([]);
+    expect(f.restarted).toEqual(["hello"]);
+    expect(s.lookup(old)).toBeNull();
+    expect(s.lookup(f.tokens.get("hello")!)).toEqual({
+      appName: "hello",
+      userId: "u-alice",
+    });
+  });
+
+  it("does not restart a stopped app after giving it a new token", () => {
+    const f = files({ states: new Map([["hello", "stopped"]]) });
+    const report = reconcileAppTokens(reconcileDeps([record()], store(), f));
+    expect(report.provisioned).toEqual(["hello"]);
+    expect(report.restarted).toEqual([]);
+    expect(f.restarted).toEqual([]);
+  });
+
+  it("reports a restart failure separately from token provisioning", () => {
+    const f = files({
+      states: new Map([["hello", "running"]]),
+      failRestart: true,
+    });
+    const report = reconcileAppTokens(reconcileDeps([record()], store(), f));
+    expect(report.provisioned).toEqual(["hello"]);
+    expect(report.failed).toEqual([]);
+    expect(report.restarted).toEqual([]);
+    expect(report.restartFailed).toEqual(["hello"]);
   });
 });
 

@@ -167,7 +167,14 @@ A personal API bearer cannot open a WebSocket. The upgrade accepts a browser ses
 
 Personal API tokens use a distinct `api` identity scope with a curated operational capability set. They inherit the issuing user's accessible-room projection and can drive agents, rooms, tasks, apps, logs, cron jobs, editor and file routes, memory, and office reads. The legacy wall admits the live and killed agent manifests but continues to deny legacy upload/file/image handlers and the static UI; supported file work uses capability-routed `/api` endpoints. Every request resolves the issuing user and current role from live state. Token management, durable identity access, browser-session control, user access, office settings, and the privileged-agent flag remain excluded. Those exclusions are defense in depth, not a shell boundary: agent management can spawn an agent that runs commands. The durable token store contains hashes rather than raw credentials and also holds each token's bounded reply inbox.
 
-Backups archive the complete state root, so `api-tokens.json` and its token hashes travel in local and off-box backup archives. The raw bearer secrets do not. Anyone who can alter a backup already sits inside the documented state-integrity trust boundary, but backup readers can perform offline guesses against any low-entropy bearer format. Personal tokens use 256 random bits to make that attack infeasible.
+Daily backups omit known plaintext credential stores and regenerable caches that
+mechanically capture managed environment variables. They keep `api-tokens.json`:
+it contains token hashes, prefixes, metadata and inboxes, not raw bearer tokens,
+so remote access survives a restore. Personal tokens use 256 random bits to make
+offline guesses against those hashes infeasible. Logs and provider transcripts
+also stay in the archive; user text can incidentally contain sensitive values,
+so the restore report names exclusions and does not claim the archive is free
+of secrets.
 
 ### 5.9 State-changing HTTP Origin gate
 

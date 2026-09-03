@@ -1400,12 +1400,14 @@ function reconcileAppTokensAtBoot(): void {
       unitInjectsToken: (name) => appSupervisor.unitInjectsToken(name),
       provisionToken: (name, raw) => appSupervisor.provisionToken(name, raw),
       regenerate: (record) => appSupervisor.regenerate(record),
+      states: (names) => appSupervisor.states(names),
+      restart: (name) => appSupervisor.restart(name),
     });
     const touched =
       report.provisioned.length + report.rewired.length + report.pruned.length;
     if (touched > 0) {
       console.log(
-        `[app-tokens] boot: provisioned ${report.provisioned.length}, rewired ${report.rewired.length}, pruned ${report.pruned.length}`,
+        `[app-tokens] boot: provisioned ${report.provisioned.length}, rewired ${report.rewired.length}, restarted ${report.restarted.length}, restart failed ${report.restartFailed.length}, pruned ${report.pruned.length}`,
       );
     }
   } catch (err) {

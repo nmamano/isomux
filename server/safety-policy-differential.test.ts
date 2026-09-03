@@ -109,6 +109,7 @@ async function mutantFactory(
   name: string,
   mutatePolicy: (source: string) => string = (source) => source,
   mutateAdapter: (source: string) => string = (source) => source,
+  mutateCredentialPaths: (source: string) => string = (source) => source,
 ): Promise<HookFactory> {
   const policySource = readFileSync(
     join(import.meta.dir, "safety-policy.ts"),
@@ -118,25 +119,39 @@ async function mutantFactory(
     join(import.meta.dir, "safety-hooks.ts"),
     "utf8",
   );
+  const credentialPathsSource = readFileSync(
+    join(import.meta.dir, "backend-credential-paths.ts"),
+    "utf8",
+  );
   const configUrl = new URL("./config.ts", import.meta.url).href;
   const policyPath = join(scratch, `${name}-policy.ts`);
   const adapterPath = join(scratch, `${name}-hooks.ts`);
-  const importablePolicy = policySource.replace(
-    'from "./config.ts"',
-    `from ${JSON.stringify(configUrl)}`,
+  const credentialPathsPath = join(
+    scratch,
+    `${name}-backend-credential-paths.ts`,
   );
+  const importablePolicy = policySource
+    .replace('from "./config.ts"', `from ${JSON.stringify(configUrl)}`)
+    .replace(
+      'from "./backend-credential-paths.ts"',
+      `from "./${name}-backend-credential-paths.ts"`,
+    );
   const importableAdapter = adapterSource.replace(
     'from "./safety-policy.ts"',
     `from "./${name}-policy.ts"`,
   );
   const policy = mutatePolicy(importablePolicy);
   const adapter = mutateAdapter(importableAdapter);
+  const credentialPaths = mutateCredentialPaths(credentialPathsSource);
   expect(
-    policy !== importablePolicy || adapter !== importableAdapter,
+    policy !== importablePolicy ||
+      adapter !== importableAdapter ||
+      credentialPaths !== credentialPathsSource,
     `${name} mutation changed no bytes`,
   ).toBe(true);
   writeFileSync(policyPath, policy);
   writeFileSync(adapterPath, adapter);
+  writeFileSync(credentialPathsPath, credentialPaths);
   const module = (await import(adapterPath)) as {
     createSafetyHooks: HookFactory;
   };
@@ -358,9 +373,24 @@ const corpus: Case[] = [
   tool("OpenCode native credential deny", "Read", {
     file_path: "/home/probe/.local/share/opencode/auth.json",
   }),
+  divergence(
+    tool("OpenCode native MCP credential deny", "Read", {
+      file_path: "/home/probe/.local/share/opencode/mcp-auth.json",
+    }),
+    false,
+    true,
+  ),
   tool("OpenCode profile credential deny", "Read", {
     file_path: "/tmp/state/opencode/profiles/default/data/opencode/auth.json",
   }),
+  divergence(
+    tool("OpenCode profile MCP credential deny", "Read", {
+      file_path:
+        "/tmp/state/opencode/profiles/default/data/opencode/mcp-auth.json",
+    }),
+    false,
+    true,
+  ),
   tool("OpenCode nested profile path allow", "Read", {
     file_path: "/tmp/state/opencode/profiles/a/b/data/opencode/auth.json",
   }),
@@ -369,6 +399,15 @@ const corpus: Case[] = [
   }),
   tool("generic project auth location allow", "Read", {
     file_path: "/tmp/some-project/auth.json",
+  }),
+  tool("OpenCode nested MCP profile path allow", "Read", {
+    file_path: "/tmp/state/opencode/profiles/a/b/data/opencode/mcp-auth.json",
+  }),
+  tool("OpenCode project MCP auth location allow", "Read", {
+    file_path: "/tmp/some-project/opencode/mcp-auth.json",
+  }),
+  tool("generic project MCP auth location allow", "Read", {
+    file_path: "/tmp/some-project/mcp-auth.json",
   }),
 ];
 
@@ -547,27 +586,27 @@ describe("provider-neutral safety-policy extraction", () => {
       ],
       [
         "OpenCode native credential arm dropped",
-        await mutantFactory("native", (source) =>
+        await mutantFactory("native", undefined, undefined, (source) =>
           source.replace(
-            "  /(^|\\/)\\.local\\/share\\/opencode\\/auth\\.json$/, // OpenCode native home\n",
-            "",
+            "(?:\\.local\\/share\\/opencode|opencode",
+            "(?:never|opencode",
           ),
         ),
         tripwires.native,
       ],
       [
         "OpenCode profile credential arm dropped",
-        await mutantFactory("profile", (source) =>
+        await mutantFactory("profile", undefined, undefined, (source) =>
           source.replace(
-            "  /(^|\\/)opencode\\/profiles\\/[^/]+\\/data\\/opencode\\/auth\\.json$/, // OpenCode profiles\n",
-            "",
+            "opencode\\/profiles\\/[^/]+\\/data\\/opencode",
+            "opencode\\/profiles\\/never\\/data\\/opencode",
           ),
         ),
         tripwires.profile,
       ],
       [
         "OpenCode profile segment loosened",
-        await mutantFactory("profile-segment", (source) =>
+        await mutantFactory("profile-segment", undefined, undefined, (source) =>
           source.replace(
             "opencode\\/profiles\\/[^/]+\\/data",
             "opencode\\/profiles\\/.+\\/data",

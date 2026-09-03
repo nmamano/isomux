@@ -167,11 +167,14 @@ choose its own recipient.
 
 Three things this needs that agent tokens do not:
 
-- **Persistence.** Today tokens are in-memory only, justified by the fact that a
+- **Persistence.** Agent tokens are in-memory only, justified by the fact that a
   server restart kills every subprocess that holds one. Apps are the first
   consumer that outlives isomux, so app tokens are the first that must survive a
-  restart, hashed at rest per the existing secrecy rule. The alternative is
-  isomux restarting every app unit after boot purely to re-inject, which throws
+  restart, hashed at rest per the existing secrecy rule. Isomux does not restart
+  healthy apps after boot. If reconciliation must re-mint a running app's token,
+  it restarts that app because the old process token no longer authorizes its
+  app-message route. Stopped apps remain stopped. Restarting every app merely
+  to re-inject unchanged tokens would throw
   away the reason to use systemd.
 - **Rate limiting, because messages cost money.** A message wakes an agent and
   burns model tokens. An app in a loop is a bill. Per-app rate limit, and a
