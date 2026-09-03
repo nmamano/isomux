@@ -282,6 +282,7 @@ export interface ManagedAgent {
   pendingPermission: {
     approvalId: string;
     toolName: string;
+    inputSummary: Record<string, string>;
     allowPersistent: boolean;
     // Human-readable form of the broader session rule the backend offered.
     // Display + gate only: the rule itself stays inside the backend, which

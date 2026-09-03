@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "fs";
 import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { STATE_ROOT } from "../../config.ts";
@@ -157,6 +165,42 @@ const corpus: Array<{ name: string; input: Envelope }> = [
 ];
 
 describe("standalone Codex safety hook", () => {
+  it("isolates concurrent compiler scratch files from the shared checkout", async () => {
+    const repositoryRoot = join(import.meta.dir, "../../..");
+    const scratchInCheckout = () =>
+      readdirSync(repositoryRoot).filter((name) => name.endsWith(".bun-build"));
+    expect(scratchInCheckout()).toEqual([]);
+    const outputs = [join(root, "concurrent-a"), join(root, "concurrent-b")];
+    let settled = false;
+    let observations = 0;
+    const builds = Promise.all(outputs.map(buildCodexSafetyHook));
+    const observedBuilds = builds.then(
+      (value) => ({ ok: true as const, value }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    void observedBuilds.finally(() => {
+      settled = true;
+    });
+    let outcome: Awaited<typeof observedBuilds>;
+    try {
+      // No other compiler path should write Bun scratch files in this checkout.
+      while (!settled) {
+        observations++;
+        expect(scratchInCheckout()).toEqual([]);
+        await Bun.sleep(1);
+      }
+    } finally {
+      outcome = await observedBuilds;
+    }
+    if (!outcome.ok) throw outcome.error;
+    expect(observations).toBeGreaterThan(10);
+    for (const output of outputs) {
+      expect(existsSync(output)).toBe(true);
+      expect(statSync(output).size).toBeGreaterThan(1_000_000);
+    }
+    expect(scratchInCheckout()).toEqual([]);
+  });
+
   it("pins Nil's signed safety-warning copy exactly", () => {
     expect(SAFETY_WARNING).toBe(
       "Isomux safety check skipped: Isomux could not run its safety check on this tool call, so the call ran unchecked. Tell the office owner and check the isomux service logs.",

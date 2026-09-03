@@ -62,6 +62,7 @@ export interface SdkSessionOptions {
   env?: { [key: string]: string | undefined };
   cwd: string;
   permissionMode: PermissionMode;
+  allowDangerouslySkipPermissions?: boolean;
   hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
   disallowedTools?: string[];
   canUseTool?: CanUseTool;
@@ -70,6 +71,7 @@ import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/mes
 
 import type { Attachment } from "../../shared/types.ts";
 import { errMessage } from "../../shared/errors.ts";
+import { permissionInputSummary } from "../permission-audit.ts";
 import {
   FAMILY_TO_MODEL,
   MODEL_FAMILIES,
@@ -655,6 +657,7 @@ export class ClaudeSession implements BackendSession {
       suggestions?: PermissionUpdate[];
     }
   >();
+  private readonly bypassPermissions: boolean;
 
   constructor(
     private readonly agentId: string,
@@ -662,6 +665,7 @@ export class ClaudeSession implements BackendSession {
     sdkOpts: SdkSessionOptions,
     resumeSessionId?: string,
   ) {
+    this.bypassPermissions = sdkOpts.permissionMode === "bypassPermissions";
     this.imageSink = ({ data, mediaType, suggestedName }) =>
       saveFile(this.agentId, data, mediaType, suggestedName);
     const optsWithApproval: SdkSessionOptions = {
@@ -728,6 +732,17 @@ export class ClaudeSession implements BackendSession {
     input: Record<string, unknown>,
     callOpts: Parameters<CanUseTool>[2],
   ): Promise<PermissionResult> {
+    if (this.bypassPermissions) {
+      this.enqueue({
+        kind: "system_text",
+        text:
+          "Isomux allowed an unexpected SDK permission request because this " +
+          `agent uses bypassPermissions. Tool: ${toolName}. Input: ` +
+          `${JSON.stringify(permissionInputSummary(toolName, input))}.`,
+        isomuxAuthored: true,
+      });
+      return Promise.resolve({ behavior: "allow", updatedInput: input });
+    }
     return new Promise<PermissionResult>((resolve) => {
       const approvalId = callOpts.toolUseID;
       // If a prior pending request with the same approvalId exists (shouldn't
@@ -1334,6 +1349,8 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     model,
     // permissionMode is `string` at the Backend boundary; narrow at the call site.
     permissionMode: opts.permissionMode as PermissionMode,
+    allowDangerouslySkipPermissions:
+      opts.permissionMode === "bypassPermissions" ? true : undefined,
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
     // "Default with additions": keep the claude_code base prompt and append
     // isomux's assembled prompt. The typed option travels over stdin (the

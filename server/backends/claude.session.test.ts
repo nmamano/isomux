@@ -460,6 +460,30 @@ describe("ClaudeSession send", () => {
 // ---------------------------------------------------------------------------
 
 describe("ClaudeSession approval flow", () => {
+  it("allows and records an unexpected canUseTool call in bypass mode", async () => {
+    const fake = new FakeSdkClient();
+    const session = new ClaudeSession("test-agent", fake, {
+      ...minimalSdkOpts(),
+      permissionMode: "bypassPermissions",
+    });
+    const canUseTool = fake.createCalls[0].opts.canUseTool!;
+    const stream = session.stream()[Symbol.asyncIterator]();
+    const result = canUseTool(
+      "Bash",
+      { command: "API_TOKEN=very-secret-value printf ok" },
+      fakeCallOpts("bypass-1"),
+    );
+    expect(await nextEvent(stream)).toEqual({
+      kind: "system_text",
+      text: 'Isomux allowed an unexpected SDK permission request because this agent uses bypassPermissions. Tool: Bash. Input: {"command":"API_TOKEN=[REDACTED] printf ok"}.',
+      isomuxAuthored: true,
+    });
+    expect(await result).toEqual({
+      behavior: "allow",
+      updatedInput: { command: "API_TOKEN=very-secret-value printf ok" },
+    });
+  });
+
   it("canUseTool emits approval_request and parks until approve()", async () => {
     const fake = new FakeSdkClient();
     const { session, canUseTool } = makeSession(fake);
@@ -850,6 +874,7 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
       append: "THE ASSEMBLED PROMPT",
     });
     expect(opts.effort).toBe("high");
+    expect(opts.allowDangerouslySkipPermissions).toBeUndefined();
     expect(opts).not.toHaveProperty("executableArgs");
     expect(opts).not.toHaveProperty("extraArgs");
     // The prompt may appear nowhere else in the option bag (e.g. a future
@@ -877,6 +902,35 @@ describe("createClaudeBackend.createSession/resumeSession - SDK option shape", (
     expect(fake.resumeCalls).toHaveLength(1);
     expect(fake.resumeCalls[0].sessionId).toBe("s-42");
     assertTypedShape(fake.resumeCalls[0].opts);
+  });
+
+  it("opts bypass mode into the SDK and keeps dangerous commands denied by hooks", async () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    backend.createSession({
+      ...createOpts,
+      permissionMode: "bypassPermissions",
+    });
+    const sdkOpts = fake.createCalls[0].opts;
+    expect(sdkOpts.allowDangerouslySkipPermissions).toBe(true);
+    const bashMatcher = sdkOpts.hooks?.PreToolUse?.find(
+      (matcher) => matcher.matcher === "Bash",
+    );
+    expect(bashMatcher?.hooks).toHaveLength(1);
+    const hook = bashMatcher!.hooks[0];
+    const output = await hook(
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "rm -rf /" },
+        cwd: "/tmp",
+      } as Parameters<typeof hook>[0],
+      undefined,
+      { signal: new AbortController().signal },
+    );
+    expect(output).toMatchObject({
+      hookSpecificOutput: { permissionDecision: "deny" },
+    });
   });
 });
 

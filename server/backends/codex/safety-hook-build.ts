@@ -1,6 +1,7 @@
 /** Build and verify the self-contained Codex safety-hook executable. */
 
-import { chmodSync, readFileSync, statSync } from "fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from "fs";
+import { tmpdir } from "os";
 import { join, relative, resolve } from "path";
 
 export interface BuiltCodexSafetyHook {
@@ -62,28 +63,38 @@ export async function buildCodexSafetyHook(
   const source = await hashCodexSafetyHookSources();
   const executablePath = resolve(outputPath);
   const define = `ISOMUX_SAFETY_HOOK_SOURCE_SHA256=${JSON.stringify(source.sha256)}`;
-  const build = Bun.spawn(
-    [
-      process.execPath,
-      "build",
-      "--compile",
-      entrypoint,
-      "--outfile",
-      executablePath,
-      "--define",
-      define,
-    ],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  const [exitCode, stdout, stderr] = await Promise.all([
-    build.exited,
-    outputText(build.stdout),
-    outputText(build.stderr),
-  ]);
-  if (exitCode !== 0) {
-    throw new Error(
-      `Codex safety-hook build failed with exit ${exitCode}: ${stderr || stdout}`,
+  // Tests isolate the golden artifact through ISOMUX_HOME, but a test and the
+  // live office in one checkout otherwise share Bun's compile scratch cwd:
+  // golden isolated, scratch shared. A child cwd removes that precondition.
+  // tmpdir and the installed artifact should be on one filesystem so Bun can
+  // move its ~99 MB compiled output without a cross-device copy.
+  const scratch = mkdtempSync(join(tmpdir(), "isomux-codex-hook-build-"));
+  try {
+    const build = Bun.spawn(
+      [
+        process.execPath,
+        "build",
+        "--compile",
+        entrypoint,
+        "--outfile",
+        executablePath,
+        "--define",
+        define,
+      ],
+      { cwd: scratch, stdout: "pipe", stderr: "pipe" },
     );
+    const [exitCode, stdout, stderr] = await Promise.all([
+      build.exited,
+      outputText(build.stdout),
+      outputText(build.stderr),
+    ]);
+    if (exitCode !== 0) {
+      throw new Error(
+        `Codex safety-hook build failed with exit ${exitCode}: ${stderr || stdout}`,
+      );
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
   chmodSync(executablePath, 0o700);
 

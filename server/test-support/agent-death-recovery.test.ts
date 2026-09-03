@@ -906,6 +906,16 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
         decision: { kind: "deny", reason: "no, use grep instead" },
       },
     ]);
+    expect(
+      server.agentManager
+        .getAgentLogs(reasonAgent.id)
+        .filter((entry) => entry.kind === "user_message")
+        .at(-1),
+    ).toMatchObject({
+      content: "no, use grep instead",
+      metadata: { username: "Owner" },
+      ephemeral: true,
+    });
     expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
   });
 
@@ -956,6 +966,34 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     expect(server.fakeBackend.sessionForAgent(agent.id)!.approvals).toEqual([
       { approvalId: "ap-click", decision: { kind: "allow_once" } },
     ]);
+    const choiceEntries = server.agentManager
+      .getAgentLogs(agent.id)
+      .filter(
+        (entry) =>
+          entry.content === "Permission choice: Allow - just this time.",
+      );
+    expect(choiceEntries).toHaveLength(1);
+    expect(choiceEntries[0]).toMatchObject({
+      kind: "system",
+      metadata: {
+        permissionAudit: {
+          event: "outcome",
+          toolName: "Bash",
+          outcome: "allow_once",
+          actor: { username: "Owner" },
+        },
+      },
+    });
+    expect(choiceEntries[0].ephemeral).toBeUndefined();
+    expect(
+      server.agentManager
+        .getAgentLogs(agent.id)
+        .some(
+          (entry) =>
+            entry.kind === "user_message" &&
+            entry.content === "2. Allow - just this time",
+        ),
+    ).toBe(false);
     expect(server.agentManager.getPendingInteractions()).toHaveLength(0);
   });
 
@@ -1053,7 +1091,7 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     sock2.close();
   });
 
-  it("reports the parked state on the logs API, where the prompt itself never lands", async () => {
+  it("persists a redacted permission audit in the full logs tier", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner();
     const a = await spawnAgent(server, "Parked", firstRoomId(server));
@@ -1066,15 +1104,33 @@ describe("prompt-parked agents are visible and stoppable (29daebe2)", () => {
     );
     const body = (await res.json()) as {
       pendingPrompt: string | null;
-      entries: { content: string }[];
+      entries: {
+        kind: string;
+        content: string;
+        metadata?: Record<string, unknown>;
+      }[];
     };
 
-    // The prompt is written as an EPHEMERAL log entry, so it is genuinely not
-    // in the transcript - which is exactly why the live field has to be here.
-    expect(body.entries.map((e) => e.content).join("\n")).not.toContain(
-      "Wants to use",
+    const audit = body.entries.find(
+      (entry) =>
+        entry.content ===
+        'Permission requested for Bash. Input: {"command":"rm -rf /tmp/x"}.',
     );
+    expect(audit?.kind).toBe("system");
     expect(body.pendingPrompt).toBe("permission");
+
+    const conversation = await server.http(
+      `/api/agents/${a.id}/logs?session=${sessionId}&tier=conversation`,
+      { rawSessionId: owner.rawSessionId },
+    );
+    const conversationBody = (await conversation.json()) as {
+      entries: { content: string }[];
+    };
+    expect(
+      conversationBody.entries.some((entry) =>
+        entry.content.startsWith("Permission requested for Bash."),
+      ),
+    ).toBe(false);
   });
 
   it("does not disclose the parked state to a caller who cannot read the agent", async () => {
