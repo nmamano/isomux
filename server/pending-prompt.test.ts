@@ -37,6 +37,7 @@ describe("pendingPromptOf", () => {
           pendingPermission: {
             approvalId: "a1",
             toolName: "Bash",
+            inputSummary: {},
             allowPersistent: false,
           },
         }),
@@ -61,6 +62,7 @@ describe("pendingPromptOf", () => {
           pendingPermission: {
             approvalId: "a1",
             toolName: "Bash",
+            inputSummary: {},
             allowPersistent: false,
           },
           pendingResume: true,
@@ -81,6 +83,7 @@ describe("pendingPromptOf", () => {
         pendingPermission: {
           approvalId: "a1",
           toolName: "Bash",
+          inputSummary: {},
           allowPersistent: false,
         },
       },
