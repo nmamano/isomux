@@ -34,7 +34,6 @@ function mkUser(over: Partial<UserRecord> & { id: string }): UserRecord {
     avatarColor: "#abcabc",
     avatarVariant: "classic",
     language: null,
-    slideMode: false,
     ...over,
   };
 }

@@ -83,7 +83,6 @@ describe("OpenCode deterministic tracer", () => {
       fork: true,
       hooks: false,
       skills: false,
-      oneShot: false,
       canUseTool: true,
       topicGen: true,
       edit: true,
@@ -96,7 +95,6 @@ describe("OpenCode deterministic tracer", () => {
       fork: false,
       edit: false,
       topicGen: false,
-      oneShot: false,
     });
   });
 

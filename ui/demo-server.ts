@@ -906,7 +906,6 @@ function seedUsers() {
       // between desks in the demo.
       avatarVariant: name === "Stephen" ? "stubby-arms" : "classic",
       language: null,
-      slideMode: false,
     });
   }
   const ricky = users.get("ricky");
@@ -1603,8 +1602,7 @@ export async function demoApi(
     // prefs.update - personal preferences DO round-trip in the demo (unlike the
     // view prefs above): the Preferences pane reads them straight back off the
     // user record, so a no-op would leave the visitor's pick snapping back and
-    // looking broken. Slide Mode is a real demo feature, and the language pick
-    // reaches the demo's speech surfaces for free.
+    // looking broken. The language pick reaches the demo's speech surfaces.
     case "PATCH /api/me/preferences": {
       const b = (body ?? {}) as PreferencesReq;
       const selfId = sessionContext?.userId ?? null;
@@ -1615,7 +1613,6 @@ export async function demoApi(
       const updated: UserRecord = {
         ...existing,
         language: b.language !== undefined ? b.language : existing.language,
-        slideMode: b.slideMode !== undefined ? b.slideMode : existing.slideMode,
       };
       users.set(updated.name.toLowerCase(), updated);
       shimEmit({ type: "user_updated", user: updated });

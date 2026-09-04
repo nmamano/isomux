@@ -202,7 +202,6 @@ describe("AgentManager DI (temp-state isolated)", () => {
         ...new FakeBackend().capabilities,
         edit: true,
         fork: true,
-        oneShot: false,
       },
     });
     const mgr = createAgentManager({
@@ -239,7 +238,6 @@ describe("AgentManager DI (temp-state isolated)", () => {
         capabilities: expect.objectContaining({
           edit: true,
           fork: true,
-          oneShot: false,
         }),
       },
     });

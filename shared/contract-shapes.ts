@@ -21,7 +21,6 @@ import type {
   MemoryItem,
   OfficeSettings,
   PendingPromptKind,
-  SlideRecord,
 } from "./types.ts";
 import type { SupportedLanguageCode } from "./languages.ts";
 
@@ -400,31 +399,6 @@ export interface LogRetrieveResp {
 
 export type LogsResp = LogSessionIndexResp | LogSearchResp | LogRetrieveResp;
 
-/**
- * GET /api/agents/:id/slides - the current conversation's slide map for the
- * initial deck render. `sessionId` is the conversation's root session id (null
- * when the agent has no live session); `slides` is keyed by turn entry id.
- */
-export interface SlideDeckRes {
-  sessionId: string | null;
-  slides: Record<string, SlideRecord>;
-}
-
-/**
- * POST /api/agents/:id/slides/:entryId - "ensure slide". Returns a cached slide
- * immediately, else starts generation and returns pending. `force` regenerates
- * even when cached; `feedback` is a one-shot instruction for that regeneration.
- */
-export interface EnsureSlideReq {
-  force?: boolean;
-  feedback?: string;
-}
-
-export type EnsureSlideRes =
-  | { status: "ready"; slide: SlideRecord }
-  | { status: "pending" }
-  | { status: "unavailable" };
-
 export interface EditorSaveReq {
   path: string;
   content: string;
@@ -495,17 +469,15 @@ export interface NotifRoomsReq {
 // prefs.update (PATCH /api/me/preferences) - task 49d4e2f6. SELF-only personal
 // preferences, deliberately NOT on the selfOrOwner users.update route: the
 // Option A split keeps an owner out of a member's personal settings. A Partial
-// so a caller can set one field without restating the other; `language: null`
-// is a meaningful value (clears the pick), so absent and null differ here.
+// so a caller can clear or set the value; `language: null` is meaningful.
 export type PreferencesReq = Partial<{
   language: SupportedLanguageCode | null;
-  slideMode: boolean;
 }>;
 
 // The writable preference keys, as VALUES, so the handler can reject an unknown
 // key (a typo like `langauge` would otherwise be a successful no-op) without a
 // second hand-maintained list drifting from the type above.
-export const PREFERENCE_KEYS = ["language", "slideMode"] as const;
+export const PREFERENCE_KEYS = ["language"] as const;
 
 export interface ApiTokenWire {
   id: string;

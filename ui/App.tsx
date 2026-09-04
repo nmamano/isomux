@@ -23,12 +23,7 @@ import { AppsView } from "./components/AppsView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { CSS } from "./styles.ts";
-import {
-  getUsername,
-  getDevice,
-  readLegacySlideMode,
-  clearLegacySlideMode,
-} from "./device-settings.ts";
+import { getUsername, getDevice } from "./device-settings.ts";
 import { languageSeed } from "./preference-form.ts";
 import { useSelfUser } from "./hooks/useSelfUser.ts";
 import { apiFetch } from "./api.ts";
@@ -231,45 +226,12 @@ export function App() {
     }
   }, [persistEnabled, restored, persistUser, drafts]);
 
-  // One-shot Slide Mode migration (task 49d4e2f6): the gate used to be a
-  // per-device localStorage flag and is now a per-user preference. A device
-  // that had the experiment ON hands that ON to the user record once, so
-  // nobody who enabled it loses it; a device where it was OFF only clears its
-  // stale key, because turning the preference off for the whole account on
-  // behalf of a browser the user may barely use would be the wrong guess.
-  // Runs once the self record is known (we need to compare against the stored
-  // preference). A FAILED write keeps the key and re-arms, so a flaky network
-  // costs a retry rather than the setting; every other path clears it and the
-  // migration never runs again on this device.
   const selfUser = useSelfUser();
-  const slideMigratedRef = useRef(false);
-  useEffect(() => {
-    if (slideMigratedRef.current || !selfUser) return;
-    const legacy = readLegacySlideMode();
-    if (legacy === null) {
-      slideMigratedRef.current = true;
-      return;
-    }
-    slideMigratedRef.current = true;
-    if (legacy && !selfUser.slideMode) {
-      const body: PreferencesReq = { slideMode: true };
-      apiFetch<void>("PATCH", "/api/me/preferences", body)
-        .then(() => clearLegacySlideMode())
-        .catch(() => {
-          // Leave the key in place so the next load retries: dropping it after
-          // a failed write would silently lose the setting.
-          slideMigratedRef.current = false;
-        });
-    } else {
-      clearLegacySlideMode();
-    }
-  }, [selfUser]);
-
   // One-shot language seed (Nil, 2026-08-01): the browser's language takes
   // effect without a first Save. A record that never chose a language gets the
   // detected browser language committed once (English is never seeded - a null
   // record already behaves as English). A failed write re-arms and retries on
-  // the next record update, like the slide migration above.
+  // the next record update.
   const langSeededRef = useRef(false);
   useEffect(() => {
     if (langSeededRef.current || !selfUser) return;

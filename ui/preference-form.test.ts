@@ -15,12 +15,8 @@ import {
   languageSeed,
 } from "./preference-form.ts";
 
-const record = (over: {
-  language?: "en" | "es" | null;
-  slideMode?: boolean;
-}) => ({
+const record = (over: { language?: "en" | "es" | null }) => ({
   language: over.language ?? null,
-  slideMode: over.slideMode ?? false,
 });
 
 describe("displayLanguage", () => {
@@ -64,18 +60,14 @@ describe("resolvePreferenceForm - untouched form", () => {
         .canSave,
     ).toBe(false);
     expect(
-      resolvePreferenceForm(
-        record({ language: "en", slideMode: true }),
-        "es-ES",
-        NO_EDITS,
-      ).canSave,
+      resolvePreferenceForm(record({ language: "en" }), "es-ES", NO_EDITS)
+        .canSave,
     ).toBe(false);
   });
 
   it("shows nothing enabled before the record arrives", () => {
     const form = resolvePreferenceForm(null, "es-ES", NO_EDITS);
     expect(form.canSave).toBe(false);
-    expect(form.slideMode).toBe(false);
   });
 });
 
@@ -83,36 +75,22 @@ describe("resolvePreferenceForm - edited form", () => {
   it("an edit wins over the record and enables Save", () => {
     const form = resolvePreferenceForm(record({ language: "en" }), "en-US", {
       language: "es",
-      slideMode: null,
     });
     expect(form.language).toBe("es");
-    expect(form.slideMode).toBe(false);
     expect(form.canSave).toBe(true);
-    expect(form.request).toEqual({ language: "es", slideMode: false });
+    expect(form.request).toEqual({ language: "es" });
   });
 
   it("editing back to the stored value disables Save again", () => {
     expect(
       resolvePreferenceForm(
-        record({ language: "es", slideMode: true }),
+        record({ language: "es" }),
         "en-US",
         {
           language: "es",
-          slideMode: true,
         },
       ).canSave,
     ).toBe(false);
-  });
-
-  it("a slideMode edit alone is enough to save", () => {
-    const form = resolvePreferenceForm(record({ language: "en" }), "en-US", {
-      language: null,
-      slideMode: true,
-    });
-    expect(form.canSave).toBe(true);
-    // Both fields ride along: the form is a complete picture of what the user
-    // is looking at, so a stale record can't be re-sent as an edit.
-    expect(form.request).toEqual({ language: "en", slideMode: true });
   });
 
   it("a record landing late repaints an untouched form", () => {
@@ -120,13 +98,12 @@ describe("resolvePreferenceForm - edited form", () => {
     // is what makes a change saved on another device show up here.
     const before = resolvePreferenceForm(null, "en-US", NO_EDITS);
     const after = resolvePreferenceForm(
-      record({ language: "es", slideMode: true }),
+      record({ language: "es" }),
       "en-US",
       NO_EDITS,
     );
     expect(before.language).toBe("en");
     expect(after.language).toBe("es");
-    expect(after.slideMode).toBe(true);
   });
 });
 

@@ -27,7 +27,6 @@ function full(name: string, over: Partial<UserRecord> = {}): UserRecord {
     order: [],
     memberPrompt: null,
     language: null,
-    slideMode: false,
     ...over,
   };
 }

@@ -96,7 +96,6 @@ export interface AgentCapabilities {
   fork: boolean;
   hooks: boolean;
   skills: boolean;
-  oneShot: boolean;
   canUseTool: boolean;
   topicGen: boolean;
   edit: boolean;
@@ -111,7 +110,6 @@ export const DEFAULT_AGENT_CAPABILITIES: AgentCapabilities = {
   fork: true,
   hooks: true,
   skills: true,
-  oneShot: true,
   canUseTool: true,
   topicGen: true,
   edit: true,
@@ -653,48 +651,6 @@ export interface LogEntry {
   ephemeral?: true;
 }
 
-// Slide Mode (design: internal-docs/slide-mode-design.md). One rendered slide
-// for one assistant turn, keyed server-side by the turn's user_message entry id.
-// Why a turn has no slide to show. A CLOSED set of codes, deliberately: the
-// underlying errors are backend/provider exception text and raw model output,
-// which are neither a stable contract nor something to broadcast to every
-// session that can see the room. Full detail stays in the server journal.
-//   generation_failed - the formatter call itself failed.
-//   invalid_output    - it answered, but broke the slide contract.
-//   unavailable       - client-local: there is no live turn to render.
-export type SlideFailureReason =
-  | "generation_failed"
-  | "invalid_output"
-  | "unavailable";
-
-// Shared by the sidecar store, the ensure-slide API, and the slide_ready WS push
-// so all three agree on the shape.
-export interface SlideRecord {
-  // The self-contained inline-styled HTML fragment, or null for a
-  // placeholder-only record (an empty / interrupted / tool-only turn that has
-  // no text to format). Rendered ONLY inside a sandboxed iframe, never injected
-  // into the app DOM.
-  html: string | null;
-  // True when the turn produced no assistant text - the deck still shows a
-  // placeholder so it mirrors the conversation 1:1.
-  placeholder: boolean;
-  // The turn's error text (when it failed), shown on the placeholder. Null
-  // otherwise.
-  errorText: string | null;
-  // The frozen prompt that started the turn (shown beneath the slide).
-  promptText: string;
-  // The backend model family the formatter ran on (e.g. "sonnet").
-  model: string;
-  createdAt: number;
-  // Digest of the turn CONTENT this slide was generated from (prompt + answer +
-  // error, via slideContentDigest). The cache-validity signal: a stored slide is
-  // served only while this equals the live turn's digest - a turn that gained
-  // text after a placeholder was recorded no longer matches and is regenerated.
-  // Optional so slide files written before this field (self-hosters) still load;
-  // a record with no digest is unverifiable and is regenerated once on next view.
-  contentDigest?: string;
-}
-
 // Task item (replaces todos)
 export type TaskStatus = "open" | "in_progress" | "done" | "backlog";
 export type TaskPriority = "P0" | "P1" | "P2" | "P3";
@@ -1193,11 +1149,6 @@ export interface UserRecord {
   // agent system prompt plus the voice input/output locale. null means "no
   // clause" - agents behave exactly as they did before the setting existed.
   language: SupportedLanguageCode | null;
-  // `slideMode`: the global Slide Mode gate (experimental deck view). Was a
-  // per-device localStorage flag until task 49d4e2f6 moved it here, so it
-  // follows the user across devices; the per-agent deck-vs-chat toggle stays
-  // per-device.
-  slideMode: boolean;
 }
 
 // Office-wide user display metadata: the ONLY user shape allowed on an `all`
@@ -1479,30 +1430,6 @@ export type ServerMessage =
   // at the end. A client that never receives it (old server, dropped frame)
   // must still converge on its own.
   | { type: "log_replay_complete" }
-  // Slide Mode: a slide finished generating (or regenerating) for one turn.
-  // Room-ACL scoped like log_entry - anyone who can see the chat gets it. The
-  // client matches it into the open deck by agentId + entryId; sessionId is the
-  // conversation the slide belongs to (informational for a future multi-
-  // conversation browser).
-  | {
-      type: "slide_ready";
-      agentId: string;
-      sessionId: string;
-      entryId: string;
-      slide: SlideRecord;
-    }
-  // Slide Mode: a slide generation FAILED terminally for one turn. The client's
-  // only authoritative "stop waiting" signal: without it a failure is
-  // indistinguishable from a slow generation, and the deck can only guess with a
-  // timeout. Same room-ACL scope and matching (agentId + entryId) as
-  // slide_ready.
-  | {
-      type: "slide_failed";
-      agentId: string;
-      sessionId: string;
-      entryId: string;
-      reason: SlideFailureReason;
-    }
   | {
       type: "slash_commands";
       agentId: string;

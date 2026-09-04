@@ -46,7 +46,6 @@ function user(path: string | null): UserRecord {
     avatarColor: "#000000",
     avatarVariant: "classic",
     language: null,
-    slideMode: false,
   };
 }
 

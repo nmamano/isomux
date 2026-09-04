@@ -197,7 +197,6 @@ import { logsHandlers } from "./routes/handlers/logs.ts";
 import { buildSessionIndex, retrieveSession } from "./log-search.ts";
 import { fileLogSource } from "./log-source.ts";
 import { runSearchInChild } from "./log-search-runner.ts";
-import { slidesHandlers } from "./routes/handlers/slides.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
 import { skillUsageHandlers } from "./routes/handlers/skill-usage.ts";
 import { getSkillUseCounts } from "./skill-usage.ts";
@@ -2154,18 +2153,6 @@ function buildExecutorDeps(
     }),
   );
 
-  // Slide Mode (design: internal-docs/slide-mode-design.md). Boss-session read
-  // surface: fetch a conversation's slide map + drive on-demand generation.
-  // Generation is fire-and-forget in the manager; the finished slide rides the
-  // room-ACL `slide_ready` WS push (wired in wireEventSinks).
-  register(
-    slidesHandlers({
-      getSlideDeck: (agentId) => agentManager.getSlideDeck(agentId),
-      ensureSlide: (agentId, entryId, opts) =>
-        agentManager.ensureSlide(agentId, entryId, opts),
-    }),
-  );
-
   // Skill usage (task f1769b1a): the caller's own per-skill use counters,
   // driving the Sk-menu sort. Read-only; increments live at the slash-command
   // dispatch site in command-handlers.ts.
@@ -3513,9 +3500,8 @@ function buildExecutorDeps(
       },
     }),
   );
-  // Personal preferences (task 49d4e2f6) - reply language + the Slide Mode
-  // gate. Self-only, same audience posture as view.*: the handler is a pure
-  // REST mapper and this seam owns mutate -> emit.
+  // Personal preferences. Self-only, same audience posture as view.*: the
+  // handler is a pure REST mapper and this seam owns mutate -> emit.
   register(
     preferencesHandlers({
       applyPreferences: (userId, change) =>
@@ -4212,12 +4198,8 @@ function applyPreferencesChange(
     );
     return false;
   }
-  // Only fan out on a real change: a Save that left both fields untouched
-  // must not wake every connected client.
-  if (
-    r.user.language !== user.language ||
-    r.user.slideMode !== user.slideMode
-  ) {
+  // Only fan out on a real change.
+  if (r.user.language !== user.language) {
     emitPrivateUserRecord(r.user);
   }
   return true;
@@ -4524,27 +4506,6 @@ function wireEventSinks(): void {
         type: "office_settings_updated",
         prompt: event.prompt,
         name: event.name,
-      });
-      return;
-    }
-    // Slide Mode: route the room-ACL slide_ready / slide_failed pushes through
-    // the emit registry (audience audited there), same posture as log_entry.
-    // Only sessions that can see the agent's room receive them.
-    if (event.type === "slide_ready") {
-      liveEmit("slide_ready", {
-        agentId: event.agentId,
-        sessionId: event.sessionId,
-        entryId: event.entryId,
-        slide: event.slide,
-      });
-      return;
-    }
-    if (event.type === "slide_failed") {
-      liveEmit("slide_failed", {
-        agentId: event.agentId,
-        sessionId: event.sessionId,
-        entryId: event.entryId,
-        reason: event.reason,
       });
       return;
     }

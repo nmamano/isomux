@@ -46,8 +46,6 @@ import type {
   InviteWire,
   SessionWire,
   SkillInfo,
-  SlideFailureReason,
-  SlideRecord,
   UpdateStatusWire,
   ProviderAccountWire,
 } from "../../shared/types.ts";
@@ -119,22 +117,6 @@ export interface EventPayloads {
   // rather than room-ACL despite following room-ACL'd log_entry frames: it
   // terminates ONE socket's replay and carries nothing to project.
   log_replay_complete: Record<string, never>;
-  // Slide Mode: a turn's slide finished generating. Room-ACL on the agent, like
-  // log_entry - anyone who can read the chat can receive its slides.
-  slide_ready: {
-    agentId: string;
-    sessionId: string;
-    entryId: string;
-    slide: SlideRecord;
-  };
-  // Slide Mode: that turn's generation failed terminally. Same audience as
-  // slide_ready - it resolves the same pending state, in the other direction.
-  slide_failed: {
-    agentId: string;
-    sessionId: string;
-    entryId: string;
-    reason: SlideFailureReason;
-  };
   // rollback marks a restore-of-prior-timeline clear (failed edit-fork
   // rollback), not a conversation boundary; clients keep the unread dot.
   clear_logs: { agentId: string; rollback?: boolean };
@@ -258,14 +240,6 @@ export const EVENT_REGISTRY = {
   log_replay_complete: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
-  },
-  slide_ready: {
-    audience: "room-ACL",
-    projectionKey: { kind: "agentLookup", path: ["agentId"] },
-  },
-  slide_failed: {
-    audience: "room-ACL",
-    projectionKey: { kind: "agentLookup", path: ["agentId"] },
   },
   clear_logs: {
     audience: "room-ACL",

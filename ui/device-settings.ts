@@ -2,7 +2,7 @@
 //
 // `username` is the name of the boss using this browser; `device` is an
 // optional label for this connection point ("Phone", "Laptop", ...). Per-user
-// preferences (notif rooms, managed variables, language, the Slide Mode gate) live
+// preferences (notif rooms, managed variables, language) live
 // server-side on the user record - see server/users.ts - and are edited from
 // User Settings, so they follow a boss across devices. What stays here is what
 // is genuinely about THIS browser.
@@ -141,94 +141,6 @@ export function clearLegacyUserPrefs(): void {
   if (typeof localStorage === "undefined") return;
   localStorage.removeItem(LEGACY_KEY_DEFAULT_ROOM);
   localStorage.removeItem(LEGACY_KEY_NOTIF_ROOMS);
-}
-
-// Legacy per-device Slide Mode gate. The gate itself is a per-USER preference
-// now (task 49d4e2f6) - it lives on the user record and follows a boss across
-// devices - so all that survives here is the one-shot migration read: a device
-// that had the experiment switched on hands that "on" to the user record once,
-// then forgets the key forever. Turning it OFF on a device is deliberately NOT
-// migrated: the write is a seed, not a sync, so a second device can't silently
-// undo a preference the user set elsewhere.
-const LEGACY_KEY_SLIDE_MODE = "isomux-slide-mode";
-
-// null when this device never had the setting (nothing to migrate).
-export function readLegacySlideMode(): boolean | null {
-  if (typeof localStorage === "undefined") return null;
-  const raw = localStorage.getItem(LEGACY_KEY_SLIDE_MODE);
-  if (raw === null) return null;
-  return raw === "1";
-}
-
-export function clearLegacySlideMode(): void {
-  if (typeof localStorage === "undefined") return;
-  localStorage.removeItem(LEGACY_KEY_SLIDE_MODE);
-}
-
-// Slide Mode view toggle (design: internal-docs/slide-mode-design.md). Per
-// device, per agent - the server holds no slideMode setting; whether this
-// browser shows an agent as a deck vs chat is purely local. Stored as one
-// JSON object { [agentId]: true }; absent/false means chat view.
-const KEY_SLIDE_VIEW = "isomux-slide-view";
-
-function readSlideViewMap(): Record<string, boolean> {
-  if (typeof localStorage === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(KEY_SLIDE_VIEW);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-export function getSlideView(agentId: string): boolean {
-  return readSlideViewMap()[agentId] === true;
-}
-
-export function setSlideView(agentId: string, on: boolean): void {
-  if (typeof localStorage === "undefined") return;
-  const map = readSlideViewMap();
-  if (on) map[agentId] = true;
-  else delete map[agentId];
-  localStorage.setItem(KEY_SLIDE_VIEW, JSON.stringify(map));
-}
-
-// Last-viewed deck position, per device per agent (design:
-// internal-docs/slide-mode-design.md). Persisted so the deck↔chat toggle
-// restores where the viewer was instead of always jumping to the newest slide.
-// `atEnd` records whether they were on the last slide at save time: if so, a
-// re-entry follows the newest (picking up turns that arrived meanwhile); if
-// not, the exact index is restored (clamped to range). Stored as one JSON
-// object { [agentId]: { index, atEnd } }.
-const KEY_SLIDE_POS = "isomux-slide-pos";
-
-export type SlidePos = { index: number; atEnd: boolean };
-
-function readSlidePosMap(): Record<string, SlidePos> {
-  if (typeof localStorage === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(KEY_SLIDE_POS);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-export function getSlidePos(agentId: string): SlidePos | null {
-  const v = readSlidePosMap()[agentId];
-  if (!v || typeof v.index !== "number") return null;
-  return { index: v.index, atEnd: v.atEnd === true };
-}
-
-export function setSlidePos(agentId: string, pos: SlidePos): void {
-  if (typeof localStorage === "undefined") return;
-  try {
-    const map = readSlidePosMap();
-    map[agentId] = { index: pos.index, atEnd: pos.atEnd };
-    localStorage.setItem(KEY_SLIDE_POS, JSON.stringify(map));
-  } catch {}
 }
 
 // Which plan-allowance limit the usage pill's number tracks, per device per

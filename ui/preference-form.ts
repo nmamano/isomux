@@ -21,16 +21,13 @@ import type { UserRecord } from "../shared/types.ts";
 /** What the user has TOUCHED in the form. null = "follow the record". */
 export interface PreferenceEdits {
   language: SupportedLanguageCode | null;
-  slideMode: boolean | null;
 }
 
-export const NO_EDITS: PreferenceEdits = { language: null, slideMode: null };
+export const NO_EDITS: PreferenceEdits = { language: null };
 
 export interface PreferenceForm {
   /** What the picker shows. */
   language: SupportedLanguageCode;
-  /** What the checkbox shows. */
-  slideMode: boolean;
   /** Whether Save does anything useful. */
   canSave: boolean;
   /** The body Save would send. */
@@ -64,21 +61,18 @@ export function languageSeed(
 }
 
 export function resolvePreferenceForm(
-  record: Pick<UserRecord, "language" | "slideMode"> | null,
+  record: Pick<UserRecord, "language"> | null,
   navigatorLanguage: string | null | undefined,
   edits: PreferenceEdits,
 ): PreferenceForm {
   const shownLanguage = displayLanguage(record, navigatorLanguage);
-  const storedSlideMode = record?.slideMode === true;
   const language = edits.language ?? shownLanguage;
-  const slideMode = edits.slideMode ?? storedSlideMode;
   // Save stays available while the language has never been chosen, even though
   // the picker already SHOWS the browser's language: that value is not on the
   // server yet, and the server-side value is what agents read. Without this,
   // someone on a Spanish browser would see "Español" selected with Save greyed
   // out and no way to commit it.
   const neverChosen = record !== null && record.language === null;
-  const canSave =
-    neverChosen || language !== shownLanguage || slideMode !== storedSlideMode;
-  return { language, slideMode, canSave, request: { language, slideMode } };
+  const canSave = neverChosen || language !== shownLanguage;
+  return { language, canSave, request: { language } };
 }

@@ -55,7 +55,6 @@ describe("FakeBackend - Backend contract", () => {
         fork: false,
         hooks: false,
         skills: false,
-        oneShot: false,
         canUseTool: false,
         topicGen: false,
         edit: false,

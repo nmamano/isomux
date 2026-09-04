@@ -157,7 +157,6 @@ describe("usageAudienceForUser", () => {
     order: [],
     memberPrompt: null,
     language: null,
-    slideMode: false,
   };
 
   it("gives an owner the office-wide audience even with no room grants", () => {

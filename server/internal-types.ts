@@ -6,8 +6,6 @@ import type {
   PendingPromptKind,
   QueuedMessage,
   SkillInfo,
-  SlideFailureReason,
-  SlideRecord,
   SubscriptionUsageWire,
 } from "../shared/types.ts";
 import type { BackendSession } from "./backends/types.ts";
@@ -59,27 +57,7 @@ export interface ManagedAgent {
     promise: Promise<void>;
     resolve: () => void;
     reject: (err: unknown) => void;
-    // The user_message entry id anchoring this in-flight turn (the newest deck
-    // turn), or null when the turn has no anchor at all. Slide Mode reads it to
-    // gate slide generation: a turn is "terminal" once it is no longer this
-    // anchor (pendingTurn cleared, or superseded by a newer turn). Filled from
-    // two directions, because the anchor is logged on either side of the deferred
-    // depending on the path: createTurnDeferred CLAIMS nextTurnAnchorEntryId
-    // (every path that logs the user_message before the send), and addLogEntry
-    // stamps it directly when the message is logged while the turn already runs
-    // (the queued flush, which logs from onSendAccepted). Goes away when
-    // pendingTurn is nulled at turn_completed. See server/slide-mode.ts +
-    // slide-mode-design.md.
-    anchorEntryId: string | null;
   } | null;
-  // The user_message entry id logged for a turn whose deferred is not installed
-  // yet - sendMessage / executeSkill / editMessage all log the anchor and only
-  // then reach runAgentTurn. createTurnDeferred claims it (and clears it, so it
-  // is claimed at most once) as the turn's anchorEntryId. Without this the
-  // direct-send paths ran with a null anchor, every turn read TERMINAL while it
-  // was still streaming, and Slide Mode wrote an empty-turn placeholder for the
-  // live turn (task e9429ef3).
-  nextTurnAnchorEntryId: string | null;
   // Monotonic counter bumped by every control-plane action that cancels an
   // in-flight turn (abort, kill, replaceSession). runAgentTurn snapshots it
   // at entry - AFTER beginTurn flips state to thinking - and re-checks
@@ -354,25 +332,6 @@ export type AgentEvent =
   | { type: "interaction_added"; interaction: AgentChoiceInteraction }
   | { type: "interaction_removed"; interactionId: string; agentId: string }
   | { type: "log_entry"; entry: LogEntry }
-  // Slide Mode: a turn's slide finished generating. Routed to the WS as the
-  // `slide_ready` wire event (room-ACL, like log_entry). sessionId is the
-  // conversation (root session) the slide belongs to.
-  | {
-      type: "slide_ready";
-      agentId: string;
-      sessionId: string;
-      entryId: string;
-      slide: SlideRecord;
-    }
-  // Slide Mode: that turn's generation failed terminally - routed to the WS as
-  // `slide_failed` (same room-ACL scope as slide_ready).
-  | {
-      type: "slide_failed";
-      agentId: string;
-      sessionId: string;
-      entryId: string;
-      reason: SlideFailureReason;
-    }
   // `rollback: true` marks a clear that RESTORES a prior visible timeline
   // (failed edit-fork rollback) rather than establishing a new conversation
   // boundary - clients keep transient per-conversation cues (the unread dot)

@@ -54,65 +54,38 @@ async function putPrefs(
 }
 
 describe("prefs.update - persistence", () => {
-  it("round-trips both fields through a cold restart", async () => {
+  it("round-trips language through a cold restart", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
 
     expect(await putPrefs(server, owner.rawSessionId, { language: "es" })).toBe(
       204,
     );
-    expect(
-      await putPrefs(server, owner.rawSessionId, { slideMode: true }),
-    ).toBe(204);
 
-    // Cold reload: stops this instance and re-runs the real boot path against
-    // the persisted users.json, module caches reset. If either field only
-    // lived in memory, it reads back as its default here.
+    // Cold reload re-runs the real boot path against persisted users.json.
     server = await server.restart();
     const reloaded = getUserByName("Boss")!;
     expect(reloaded.language).toBe("es");
-    expect(reloaded.slideMode).toBe(true);
   });
 
-  it("a partial write leaves the other field alone", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    await putPrefs(server, owner.rawSessionId, {
-      language: "es",
-      slideMode: true,
-    });
-
-    await putPrefs(server, owner.rawSessionId, { slideMode: false });
-    const after = getUserByName("Boss")!;
-    expect(after.language).toBe("es");
-    expect(after.slideMode).toBe(false);
-  });
-
-  it("language: null clears an earlier pick (absent and null differ)", async () => {
+  it("language: null clears an earlier pick", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     await putPrefs(server, owner.rawSessionId, { language: "es" });
 
-    // ABSENT preserves: a write that only carries slideMode leaves it be...
-    expect(
-      await putPrefs(server, owner.rawSessionId, { slideMode: true }),
-    ).toBe(204);
-    expect(getUserByName("Boss")!.language).toBe("es");
-    // ...while an explicit null clears it. This is the distinction that makes
-    // the endpoint PATCH rather than PUT.
+    // An explicit null clears it.
     expect(await putPrefs(server, owner.rawSessionId, { language: null })).toBe(
       204,
     );
     expect(getUserByName("Boss")!.language).toBe(null);
   });
 
-  it("new users start with no language and Slide Mode off", async () => {
+  it("new users start with no language", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
     const rec = getUserByName(member.username)!;
     expect(rec.language).toBe(null);
-    expect(rec.slideMode).toBe(false);
   });
 });
 
@@ -146,7 +119,7 @@ describe("prefs.update - self scoping", () => {
 });
 
 describe("prefs.update - value validation", () => {
-  it("rejects an unsupported language code and a non-boolean slideMode", async () => {
+  it("rejects an unsupported language code", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
 
@@ -156,13 +129,9 @@ describe("prefs.update - value validation", () => {
     expect(await putPrefs(server, owner.rawSessionId, { language: 7 })).toBe(
       422,
     );
-    expect(
-      await putPrefs(server, owner.rawSessionId, { slideMode: "yes" }),
-    ).toBe(422);
     // Nothing was written by any of the rejected calls.
     const rec = getUserByName("Boss")!;
     expect(rec.language).toBe(null);
-    expect(rec.slideMode).toBe(false);
   });
 
   // A primitive body is legal JSON, and `"language" in body` THROWS on one -
@@ -191,9 +160,9 @@ describe("prefs.update - value validation", () => {
   });
 });
 
-// The UI is EVENT-authoritative: PreferencesPane and useSlideMode read the
-// record out of the store, so a write that persists but never fans out looks
-// to the user like a Save that did nothing. These pin the audiences.
+// The UI is event-authoritative: PreferencesPane reads the record out of the
+// store, so a write that persists but never fans out looks like a Save that
+// did nothing. These pin the audiences.
 describe("prefs.update - live event contract", () => {
   const bag = (sock: TestSocket, type: string): Record<string, unknown>[] =>
     (sock.messages as Record<string, unknown>[]).filter((m) => m.type === type);
@@ -211,20 +180,16 @@ describe("prefs.update - live event contract", () => {
     const beforeAdmin = bag(ownerSock, "user_admin_updated").length;
 
     expect(
-      await putPrefs(server, member.rawSessionId, {
-        language: "es",
-        slideMode: true,
-      }),
+      await putPrefs(server, member.rawSessionId, { language: "es" }),
     ).toBe(204);
     await sleep(50);
 
     // The subject's own sockets get their full record - this is what makes the
-    // pane authoritative and flips Slide Mode on their other devices.
+    // pane authoritative on their other devices.
     const selfEvents = bag(memberSock, "user_self_updated").slice(beforeSelf);
     expect(selfEvents.length).toBe(1);
     const selfUser = selfEvents[0].user as Record<string, unknown>;
     expect(selfUser.language).toBe("es");
-    expect(selfUser.slideMode).toBe(true);
 
     // Owners get it on the owners-only admin channel.
     const adminEvents = bag(ownerSock, "user_admin_updated").slice(beforeAdmin);
@@ -247,20 +212,14 @@ describe("prefs.update - live event contract", () => {
   it("a no-op write emits nothing", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
-    await putPrefs(server, owner.rawSessionId, {
-      language: "es",
-      slideMode: true,
-    });
+    await putPrefs(server, owner.rawSessionId, { language: "es" });
     const sock = await server.connectWs(owner.rawSessionId);
     await sock.waitFor("presence_list");
     const before = bag(sock, "user_self_updated").length;
 
     // Same values again.
     expect(
-      await putPrefs(server, owner.rawSessionId, {
-        language: "es",
-        slideMode: true,
-      }),
+      await putPrefs(server, owner.rawSessionId, { language: "es" }),
     ).toBe(204);
     await sleep(50);
     expect(bag(sock, "user_self_updated").length).toBe(before);

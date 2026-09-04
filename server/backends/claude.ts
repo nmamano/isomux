@@ -163,7 +163,6 @@ const CAPABILITIES: BackendCapabilities = {
   fork: true,
   hooks: true,
   skills: true,
-  oneShot: true,
   canUseTool: true,
   topicGen: true,
   edit: true,

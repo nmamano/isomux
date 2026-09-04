@@ -93,9 +93,6 @@ import type {
   AffordancePreviewUrlReq,
   AgentContextUsageResp,
   LogsResp,
-  SlideDeckRes,
-  EnsureSlideReq,
-  EnsureSlideRes,
   EditorSaveReq,
   RoomCreateReq,
   RoomRenameReq,
@@ -591,28 +588,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     emits: [],
   }),
 
-  // --- Agents - Slide Mode (browser; design: internal-docs/slide-mode-design.md)
-  // Boss-session read surface: anyone who can see the chat (office:read + room
-  // access) can fetch its slides and drive on-demand generation. The ensure
-  // route's generation is fire-and-forget server-side; the slide arrives on the
-  // room-ACL `slide_ready` WS push.
-  defineRoute<void, SlideDeckRes>({
-    opId: "agents.getSlides",
-    method: "GET",
-    path: "/api/agents/:id/slides",
-    auth: cap("office:read", agentParam("id")),
-    emits: [],
-  }),
-  defineRoute<EnsureSlideReq, EnsureSlideRes>({
-    opId: "agents.ensureSlide",
-    method: "POST",
-    path: "/api/agents/:id/slides/:entryId",
-    auth: cap("office:read", agentParam("id")),
-    // async: fired when generation resolves, not inline - ready on success,
-    // failed when the formatter errors or breaks the slide contract.
-    emits: ["slide_ready", "slide_failed"],
-  }),
-
   // --- Agents - editor (browser) --------------------------------------------
   defineRoute<
     void,
@@ -747,8 +722,8 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- Personal preferences (per-user; self-only) ---------------------------
-  // Task 49d4e2f6. Settings that follow a boss across devices (reply language,
-  // Slide Mode gate). Sibling of the view.* surface rather than a field on
+  // Settings that follow a boss across devices (reply language). Sibling of
+  // the view.* surface rather than a field on
   // users.update, because users.update is selfOrOwner and personal preferences
   // are deliberately NOT something an owner sets for a member (the Option A
   // split - see routes/handlers/users.ts). user:self keeps agents out: it is

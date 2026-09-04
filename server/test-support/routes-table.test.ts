@@ -550,13 +550,6 @@ const SPEC_ROUTE_CONTRACT: Record<
   // office:read (which plain agent tokens do not carry) and not self:affordance
   // (the scope reaches past the caller's own chat). Read-only, so no emits.
   "agents.logs": { caps: ["log:read"], emits: [] },
-  // Agents - Slide Mode (boss-session read surface; generation fires
-  // slide_ready / slide_failed asynchronously on completion, not inline).
-  "agents.getSlides": { caps: ["office:read"], emits: [] },
-  "agents.ensureSlide": {
-    caps: ["office:read"],
-    emits: ["slide_ready", "slide_failed"],
-  },
   // Agents - editor
   "agents.openFile": {
     caps: ["editor:use"],
@@ -966,8 +959,6 @@ const API_REACHABLE_OPIDS = [
   "agents.resume",
   "agents.listSessions",
   "agents.logs",
-  "agents.getSlides",
-  "agents.ensureSlide",
   "agents.openFile",
   "agents.saveFile",
   "agents.closeFile",

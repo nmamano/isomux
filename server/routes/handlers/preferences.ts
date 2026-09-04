@@ -1,6 +1,6 @@
 // Personal-preference handler (opId prefs.update) - task 49d4e2f6. The
 // self-scoped write path for the settings that follow a boss across devices:
-// reply language and the Slide Mode gate.
+// reply language.
 //
 // SELF-only by construction: the route table gates it with user:self +
 // authenticated and the handler acts on the CALLER's own userId, never on a
@@ -81,12 +81,6 @@ export function preferencesHandlers(
           );
         }
         change.language = value;
-      }
-      if ("slideMode" in body) {
-        if (typeof body.slideMode !== "boolean") {
-          return fail(422, "invalid_slide_mode", "slideMode must be a boolean");
-        }
-        change.slideMode = body.slideMode;
       }
       if (!deps.applyPreferences(userId, change)) {
         return fail(404, "user_not_found");

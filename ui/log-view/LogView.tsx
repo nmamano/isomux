@@ -2,7 +2,6 @@ import {
   useState,
   useRef,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useCallback,
   type RefCallback,
@@ -66,15 +65,8 @@ import { TerminalPanel } from "./TerminalPanel.tsx";
 import { EditorPanel } from "./EditorPanel.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
-import { useSlideModeEnabled } from "../hooks/useSlideMode.ts";
 import { useSpeechLocale } from "../hooks/useSpeechLocale.ts";
-import {
-  getDevice,
-  getSlideView as readSlideViewPref,
-  setSlideView as writeSlideViewPref,
-} from "../device-settings.ts";
-import { DeckView } from "./DeckView.tsx";
-import type { SlideDeckRes } from "../../shared/contract-shapes.ts";
+import { getDevice } from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 import { SkillsPopover } from "./SkillsPopover.tsx";
@@ -105,70 +97,6 @@ function PendingPromptLabel({ kind }: { kind: PendingPromptKind }) {
     >
       {PENDING_PROMPT_LABEL[kind]}
     </span>
-  );
-}
-
-// Slide Mode header toggle (design: internal-docs/slide-mode-design.md). Sits
-// next to the context battery; per-device-per-agent state (device-settings). SVG
-// icon, not a Unicode glyph, to dodge iOS auto-emoji recoloring.
-function SlideToggleButton({
-  active,
-  onClick,
-}: {
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      title={active ? "Switch to chat view" : "Switch to slide view"}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: active ? "var(--bg-hover)" : "none",
-        border: active
-          ? "1px solid var(--border-medium)"
-          : "1px solid transparent",
-        borderRadius: 6,
-        padding: "3px 5px",
-        cursor: "pointer",
-        color: active ? "var(--accent)" : "var(--text-muted)",
-        flexShrink: 0,
-        lineHeight: 1,
-      }}
-    >
-      <svg width={17} height={13} viewBox="0 0 17 13" aria-hidden="true">
-        <rect
-          x={0.75}
-          y={0.75}
-          width={15.5}
-          height={11.5}
-          rx={2}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.2}
-        />
-        <rect
-          x={3.2}
-          y={3.4}
-          width={10.6}
-          height={2}
-          rx={0.5}
-          fill="currentColor"
-        />
-        <rect
-          x={3.2}
-          y={6.6}
-          width={7}
-          height={1.6}
-          rx={0.5}
-          fill="currentColor"
-          opacity={0.55}
-        />
-      </svg>
-    </button>
   );
 }
 
@@ -772,56 +700,7 @@ export function LogView({
     dispatch({ type: "set_draft", agentId: agent.id, text });
   }
   const [autoScroll, setAutoScroll] = useState(true);
-  // Slide Mode view toggle - per device, per agent. LogView can stay mounted
-  // across an agent switch, so re-read the pref when agent.id changes using the
-  // render-time "reset state on prop change" pattern (no effect / cascading
-  // render). The per-agent pref only takes effect while the Slide Mode gate is
-  // on (a per-user preference in User Settings since task 49d4e2f6); with the
-  // gate off the deck entry point is hidden and an agent left on the deck
-  // falls back to chat, without the pref being cleared.
-  const slideModeEnabled = useSlideModeEnabled();
   const speechLocale = useSpeechLocale();
-  const [slideViewPref, setSlideViewPref] = useState(() =>
-    readSlideViewPref(agent.id),
-  );
-  const [slideViewAgentId, setSlideViewAgentId] = useState(agent.id);
-  if (slideViewAgentId !== agent.id) {
-    setSlideViewAgentId(agent.id);
-    setSlideViewPref(readSlideViewPref(agent.id));
-  }
-  const slideView = slideModeEnabled && slideViewPref;
-  // Chat scroll position, restored when the deck hands the view back so the
-  // deck→chat edge doesn't dump the viewer at scrollTop 0 (the messages
-  // container remounts). Only consulted when the viewer was NOT following the
-  // bottom; when they were, the autoScroll path re-pins to the newest below.
-  // Recorded on every scroll rather than on deck ENTRY, because entry isn't
-  // always a click: enabling the Slide Mode gate opens the deck for an agent
-  // whose pref was already on, and by the time an effect sees that transition
-  // the chat element is gone. Tagged with the agent it belongs to - LogView can
-  // outlive an agent switch, and one agent's position must not be applied to
-  // another's chat.
-  const savedChatScrollRef = useRef<{ agentId: string; top: number } | null>(
-    null,
-  );
-  const applySlideView = (on: boolean) => {
-    setSlideViewPref(on);
-    writeSlideViewPref(agent.id, on);
-  };
-  // Seed the deck from cached slides whenever the view is (re)opened for an
-  // agent. Live slide_ready pushes fill the rest; the reducer merges without
-  // clobbering anything that raced ahead.
-  useEffect(() => {
-    if (!slideView) return;
-    apiFetch<SlideDeckRes>("GET", `/api/agents/${agent.id}/slides`)
-      .then((res) =>
-        dispatch({
-          type: "slides_loaded",
-          agentId: agent.id,
-          slides: res.slides ?? {},
-        }),
-      )
-      .catch(() => {});
-  }, [slideView, agent.id, dispatch]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [editingTopic, setEditingTopic] = useState(false);
@@ -1135,26 +1014,7 @@ export function LogView({
         el.scrollTop = el.scrollHeight;
       });
     });
-    // `slideView` is a dep so returning from the deck re-pins to the bottom via
-    // this same path when the viewer was following it (scrollRef is null while
-    // the deck is shown, so the guard makes entering the deck a no-op).
-  }, [logs, autoScroll, agent.state, slideView]);
-
-  // Returning from the deck to chat: restore the exact scroll position the
-  // viewer left from, whichever way the deck was entered or left (the header
-  // toggle, or the Slide Mode gate flipping in Device Settings). Only when NOT
-  // following the bottom - the autoScroll effect above owns the bottom-follow
-  // case. useLayoutEffect so the restored position paints without a scrollTop-0
-  // flash. The restore itself fires a scroll event, which just re-records the
-  // same position.
-  useLayoutEffect(() => {
-    if (slideView) return;
-    const el = scrollRef.current;
-    const saved = savedChatScrollRef.current;
-    if (!el || !saved || saved.agentId !== agent.id || autoScroll) return;
-    el.scrollTop = saved.top;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slideView]);
+  }, [logs, autoScroll, agent.state]);
 
   // Auto-resize textarea and place cursor at end when draft is restored
   useEffect(() => {
@@ -1220,7 +1080,6 @@ export function LogView({
   function handleScroll() {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    savedChatScrollRef.current = { agentId: agent.id, top: scrollTop };
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
     recomputePinned();
     // Hide cite pill when the chat scrolls - its cached viewport rect goes
@@ -2062,8 +1921,7 @@ export function LogView({
             {agent.pendingPrompt && !interaction && (
               <PendingPromptLabel kind={agent.pendingPrompt} />
             )}
-            {/* Topic (conversation summary) stacked over cwd (task efdabed3):
-            frees horizontal header space for the upcoming Slide Mode toggle. */}
+            {/* Topic (conversation summary) stacked over cwd (task efdabed3). */}
             <div
               style={{
                 display: "flex",
@@ -2222,16 +2080,6 @@ export function LogView({
               />
             )}
             <ContextBattery usage={agent.contextUsage} />
-            {/* Reads and flips the PREF, not the gated `slideView`: inside this
-                branch the gate is on so the two agree, but a toggle driven by
-                the derived value would write a gate-forced false back over the
-                saved pref if it ever rendered ungated. */}
-            {slideModeEnabled && (
-              <SlideToggleButton
-                active={slideViewPref}
-                onClick={() => applySlideView(!slideViewPref)}
-              />
-            )}
             <NavActions actions={desktopAgentActions} viewport="desktop" />
           </div>
         </div>
@@ -2339,12 +2187,6 @@ export function LogView({
                     />
                   )}
                   <ContextBattery usage={agent.contextUsage} isMobile />
-                  {slideModeEnabled && (
-                    <SlideToggleButton
-                      active={slideViewPref}
-                      onClick={() => applySlideView(!slideViewPref)}
-                    />
-                  )}
                   <NavActions actions={mobileAgentActions} viewport="mobile" />
                 </div>
                 <div
@@ -2373,18 +2215,6 @@ export function LogView({
             </div>
           )}
 
-          {slideView ? (
-            <DeckView
-              agent={agent}
-              logs={logs}
-              isMobile={isMobile}
-              draft={input}
-              onDraftChange={setInput}
-              onSend={() => handleSend()}
-              onExitDeck={() => applySlideView(false)}
-            />
-          ) : (
-            <>
               {/* Pinned user message - sits between the header and the messages
           when no user_message is currently visible in the scroll viewport.
           Click scrolls the conversation back to that message. */}
@@ -3366,8 +3196,6 @@ export function LogView({
                     ))}
                 </div>
               </div>
-            </>
-          )}
         </div>
         {features.terminal && !isMobile && terminalOpen && (
           <div

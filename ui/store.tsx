@@ -18,8 +18,6 @@ import type {
   SessionInfo,
   ServerMessage,
   SkillInfo,
-  SlideFailureReason,
-  SlideRecord,
   TaskItem,
   AppListWire,
   OfficeSettings,
@@ -74,15 +72,6 @@ export interface AppState {
     logEntryIds: Map<string, Set<string>>;
     seq: number; // identifies the window (bumped when one opens)
   } | null;
-  // Slide Mode: agentId → (turn entryId → generated slide). Seeded by the
-  // slides GET on deck open, updated live by `slide_ready` pushes, cleared for
-  // an agent on a conversation-boundary clear_logs. See DeckView.
-  slides: Map<string, Map<string, SlideRecord>>;
-  // Slide Mode: agentId → turn entryIds whose generation FAILED terminally. The
-  // deck renders its raw-answer fallback for exactly these, so what the viewer
-  // sees is a reported server outcome rather than a guess from elapsed time. An
-  // entry leaves the set when a slide lands for it or the viewer retries.
-  slideFailed: Map<string, Set<string>>;
   focusedAgentId: string | null;
   connected: boolean;
   // Bumped on every full_state, i.e. every time the store is rehydrated from
@@ -228,46 +217,6 @@ type Action =
   // the per-stream id dedupe (logEntryIds), so it is equivalent to replaying
   // each entry as a `log_entry` - just one reducer pass instead of N.
   | { type: "log_entries_batch"; entries: LogEntry[] }
-  // Slide Mode: a single slide finished generating (WS push).
-  | {
-      type: "slide_ready";
-      agentId: string;
-      sessionId: string;
-      entryId: string;
-      slide: SlideRecord;
-    }
-  // Slide Mode: a slide generation failed terminally (WS push). The deck stops
-  // waiting on it - this is the signal that a pending slide is never coming.
-  | {
-      type: "slide_failed";
-      agentId: string;
-      sessionId: string;
-      entryId: string;
-      reason: SlideFailureReason;
-    }
-  // CLIENT-LOCAL: DeckView dispatches this when it (re)requests a slide, to drop
-  // an earlier failure mark so the retry shows the spinner instead of the stale
-  // fallback. Also covers the ↻ control.
-  | { type: "slide_retry"; agentId: string; entryId: string }
-  // CLIENT-LOCAL: DeckView dispatches this after the slides GET to seed the
-  // per-agent slide map from cached slides.
-  | {
-      type: "slides_loaded";
-      agentId: string;
-      slides: Record<string, SlideRecord>;
-    }
-  // CLIENT-LOCAL: DeckView drops a cached slide the server reported it is
-  // regenerating (a stale placeholder whose turn gained text), so the deck shows
-  // the Generating spinner until the fresh slide_ready arrives. Compare-and-
-  // delete: `prevSlide` is the record seen at request time; the reducer removes
-  // it ONLY if it is still the current record, so a slide_ready that raced in
-  // first (WS/HTTP ordering isn't guaranteed) is never clobbered.
-  | {
-      type: "slide_invalidate";
-      agentId: string;
-      entryId: string;
-      prevSlide: SlideRecord;
-    }
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
   | { type: "disconnected" }
@@ -367,23 +316,6 @@ type Action =
 
 // States that warrant attention
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
-
-// Slide Mode: drop one turn's failure mark, returning the map unchanged when
-// there was nothing to clear (so an unrelated slide_ready doesn't rerender every
-// deck consumer).
-function withoutFailure(
-  slideFailed: Map<string, Set<string>>,
-  agentId: string,
-  entryId: string,
-): Map<string, Set<string>> {
-  const forAgent = slideFailed.get(agentId);
-  if (!forAgent?.has(entryId)) return slideFailed;
-  const next = new Map(slideFailed);
-  const updated = new Set(forAgent);
-  updated.delete(entryId);
-  next.set(agentId, updated);
-  return next;
-}
 
 // Silent fallback for a `log_replay_complete` that never arrives. The one case
 // that actually happens: a UI build goes live on main as soon as it is built,
@@ -679,74 +611,6 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       return { ...state, logs, logEntryIds };
     }
-    case "slide_ready": {
-      const slides = new Map(state.slides);
-      const forAgent = new Map(slides.get(action.agentId) ?? []);
-      forAgent.set(action.entryId, action.slide);
-      slides.set(action.agentId, forAgent);
-      // A slide landing supersedes any earlier failure for that turn (a retry
-      // succeeded), so the deck stops showing the fallback.
-      return {
-        ...state,
-        slides,
-        slideFailed: withoutFailure(
-          state.slideFailed,
-          action.agentId,
-          action.entryId,
-        ),
-      };
-    }
-    case "slide_failed": {
-      // A turn that already has a RENDERED slide keeps it: this is a regenerate
-      // that failed, and the standing slide is a better answer than the raw text.
-      //
-      // A PLACEHOLDER record is not that. It is a stale record being reconciled,
-      // and the pending ensure response deletes it (slide_invalidate) - so
-      // dropping the failure here would lose it: WS can beat HTTP, and then the
-      // invalidate leaves the turn with neither a slide nor a mark, spinning and
-      // re-failing every watchdog window. Record it; the placeholder still wins
-      // on screen while it is there, and the mark takes over when it goes.
-      const existing = state.slides.get(action.agentId)?.get(action.entryId);
-      if (existing && !existing.placeholder) return state;
-      const slideFailed = new Map(state.slideFailed);
-      const forAgent = new Set(slideFailed.get(action.agentId) ?? []);
-      forAgent.add(action.entryId);
-      slideFailed.set(action.agentId, forAgent);
-      return { ...state, slideFailed };
-    }
-    case "slide_retry": {
-      return {
-        ...state,
-        slideFailed: withoutFailure(
-          state.slideFailed,
-          action.agentId,
-          action.entryId,
-        ),
-      };
-    }
-    case "slides_loaded": {
-      const slides = new Map(state.slides);
-      // Merge (not replace): a live slide_ready that raced ahead of the GET must
-      // not be clobbered by the older cached snapshot.
-      const forAgent = new Map(slides.get(action.agentId) ?? []);
-      for (const [entryId, rec] of Object.entries(action.slides)) {
-        if (!forAgent.has(entryId)) forAgent.set(entryId, rec);
-      }
-      slides.set(action.agentId, forAgent);
-      return { ...state, slides };
-    }
-    case "slide_invalidate": {
-      const forAgent = state.slides.get(action.agentId);
-      // Compare-and-delete by reference: only drop the exact record the client
-      // saw at request time. If a fresher slide_ready already replaced it, keep
-      // the new one - never delete a record we didn't request the drop of.
-      if (forAgent?.get(action.entryId) !== action.prevSlide) return state;
-      const slides = new Map(state.slides);
-      const next = new Map(forAgent);
-      next.delete(action.entryId);
-      slides.set(action.agentId, next);
-      return { ...state, slides };
-    }
     case "focus": {
       const needsAttention = new Set(state.needsAttention);
       if (action.agentId) {
@@ -810,21 +674,12 @@ export function reducer(state: AppState, action: Action): AppState {
       if (action.rollback) return { ...state, logs, logEntryIds, logsReplay };
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
-      // A new conversation replaces the deck: drop this agent's cached slides
-      // (and any failure marks) so stale state can't bleed into the fresh turns'
-      // positions.
-      const slides = new Map(state.slides);
-      slides.delete(action.agentId);
-      const slideFailed = new Map(state.slideFailed);
-      slideFailed.delete(action.agentId);
       return {
         ...state,
         logs,
         logEntryIds,
         logsReplay,
         needsAttention,
-        slides,
-        slideFailed,
       };
     }
     case "log_replay_complete": {
@@ -1117,8 +972,6 @@ export const initialState: AppState = {
   logs: new Map(),
   logEntryIds: new Map(),
   logsReplay: null,
-  slides: new Map(),
-  slideFailed: new Map(),
   focusedAgentId: null,
   connected: false,
   hydrationEpoch: 0,

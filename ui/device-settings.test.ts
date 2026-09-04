@@ -1,10 +1,6 @@
 // Unit tests for the device-scoped settings (ui/device-settings.ts).
 // localStorage is stubbed on globalThis - the module reads the global
 // directly.
-//
-// The Slide Mode GATE is no longer here: task 49d4e2f6 moved it to the user
-// record so it follows a boss across devices. All that is left of it is the
-// one-shot migration read, covered below.
 
 import { describe, it, expect, beforeEach, afterAll } from "bun:test";
 
@@ -32,10 +28,6 @@ afterAll(() => {
 });
 
 const {
-  readLegacySlideMode,
-  clearLegacySlideMode,
-  getSlideView,
-  setSlideView,
   getAppPreviews,
   setAppPreviews,
   APP_PREVIEW_OPEN_TTL_MS,
@@ -90,42 +82,6 @@ describe("app previews", () => {
     store.set("isomux-app-preview-opens", raw);
     pruneAppPreviewOpens(["https://keep.office.example"]);
     expect(store.get("isomux-app-preview-opens")).toBe(raw);
-  });
-});
-
-describe("legacy slide mode migration read", () => {
-  beforeEach(() => store.clear());
-
-  // null vs false is the whole point: null means this device never had the
-  // setting (nothing to migrate), false means it was explicitly off (clear the
-  // key, but do not turn the account-level preference off on its behalf).
-  it("reports null when the key was never set", () => {
-    expect(readLegacySlideMode()).toBe(null);
-  });
-
-  it("reports true only for the stored on-value", () => {
-    store.set("isomux-slide-mode", "1");
-    expect(readLegacySlideMode()).toBe(true);
-  });
-
-  it("treats any other stored value as off, not as absent", () => {
-    store.set("isomux-slide-mode", "yes");
-    expect(readLegacySlideMode()).toBe(false);
-    store.set("isomux-slide-mode", "0");
-    expect(readLegacySlideMode()).toBe(false);
-  });
-
-  it("clearing makes the device look like it never had the setting", () => {
-    store.set("isomux-slide-mode", "1");
-    clearLegacySlideMode();
-    expect(readLegacySlideMode()).toBe(null);
-  });
-
-  it("leaves the per-agent deck prefs alone (still per device)", () => {
-    setSlideView("agent-1", true);
-    store.set("isomux-slide-mode", "1");
-    clearLegacySlideMode();
-    expect(getSlideView("agent-1")).toBe(true);
   });
 });
 

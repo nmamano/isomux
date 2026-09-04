@@ -55,10 +55,8 @@ const CAPABILITIES: BackendCapabilities = {
   fork: true,
   hooks: false,
   skills: false,
-  oneShot: false,
   canUseTool: true,
-  // oneShotPrompt supports topic generation. `oneShot` stays false because it
-  // gates Slide Mode, which has no OpenCode-specific model selection rule.
+  // oneShotPrompt supports topic generation.
   topicGen: true,
   edit: true,
   mcp: false,

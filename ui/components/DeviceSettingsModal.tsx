@@ -11,9 +11,8 @@ import {
 
 // Device-scoped settings (one record per browser, stored in localStorage).
 // Just the device label now: user-level preferences (notifications, env,
-// language, the Slide Mode gate) live on the server and are edited from User
-// Settings, so they follow the user rather than the browser. Slide Mode moved
-// out of here in task 49d4e2f6.
+// language) live on the server and are edited from User Settings, so they
+// follow the user rather than the browser.
 export function DeviceSettingsModal({ onClose }: { onClose: () => void }) {
   const { isMobile } = useAppState();
   const [label, setLabel] = useState<string>(() => getDevice() ?? "");

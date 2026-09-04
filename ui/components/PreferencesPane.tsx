@@ -37,7 +37,7 @@ export function PreferencesPane() {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const { language, slideMode, canSave, request } = resolvePreferenceForm(
+  const { language, canSave, request } = resolvePreferenceForm(
     self,
     typeof navigator === "undefined" ? null : navigator.language,
     edits,
@@ -100,35 +100,6 @@ export function PreferencesPane() {
           The language your agents write in, and the language your voice input
           and playback use. Agents pick it up on their next conversation. The
           rest of the interface stays in English for now.
-        </p>
-      </div>
-
-      <div style={cardStyle}>
-        <label
-          style={{
-            ...dialogLabel,
-            marginTop: 0,
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={slideMode}
-            onChange={(e) => {
-              setEdits((prev) => ({ ...prev, slideMode: e.target.checked }));
-              setSaved(false);
-            }}
-            style={{ accentColor: "var(--accent)", cursor: "pointer" }}
-          />
-          <span>
-            Slide Mode <span style={dialogHint}>(experimental)</span>
-          </span>
-        </label>
-        <p style={{ ...dialogHint, margin: "6px 0 0" }}>
-          Adds a header toggle that shows an agent&apos;s turns as generated
-          slides instead of chat.
         </p>
       </div>
 

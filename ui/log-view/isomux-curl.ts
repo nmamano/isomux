@@ -788,8 +788,6 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   // One route, three modes (search / retrieve / list). This static label is the
   // fallback; humanizeIsomuxRequest below reads the query and says which.
   ["GET", "/api/agents/*/logs", "Search conversation logs"],
-  ["GET", "/api/agents/*/slides", "Read slides"],
-  ["POST", "/api/agents/*/slides/*", "Generate slide"],
   ["GET", "/api/agents/*/instructions", "Read agent instructions"],
   ["GET", "/api/memory", "Read memory"],
   ["POST", "/api/memory", "Append memory"],
@@ -996,7 +994,6 @@ export function humanizeIsomuxRequest(
           if (query.get("session")) return `Read a session from ${who}'s logs`;
           return `List ${who}'s log sessions`;
         }
-        if (sub === "slides" && m === "GET") return `Read ${who}'s slides`;
         if (sub === "move" && m === "POST") return `Move ${who}`;
         if (sub === "revive" && m === "POST") return `Revive ${who}`;
       }
@@ -1007,8 +1004,6 @@ export function humanizeIsomuxRequest(
           return `Cancel a queued message to ${who}`;
         if (sub === "messages" && m === "PATCH")
           return `Edit a message in ${who}'s chat`;
-        if (sub === "slides" && m === "POST")
-          return `Generate a slide for ${who}`;
       }
     }
   }

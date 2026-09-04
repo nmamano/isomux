@@ -5,8 +5,7 @@
 // you. Rendered in App.tsx's document.title effect, nowhere else.
 //
 // Glyph rules (tested in agent-face.test.ts): nothing with an emoji
-// presentation or variation selector - iOS Safari force-emoji-renders those
-// (same gotcha that made the Slide Mode toggle an SVG instead of a glyph) -
+// presentation or variation selector - iOS Safari force-emoji-renders those -
 // and no combining marks, which clip unpredictably in tab strips where we
 // can't control the font. Kaomoji ingredients like ｡ ﹏ ﾉ are plain text
 // everywhere and pass both rules.

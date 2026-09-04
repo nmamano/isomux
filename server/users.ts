@@ -101,18 +101,14 @@ function normalizeMemberPrompt(value: unknown): string | null {
   return trimmed ? trimmed : null;
 }
 
-// Personal preferences (task 49d4e2f6). Both are read-time normalized, like
-// the avatar fields: a legacy record without them reads as "never chosen"
-// (null) and "off" (false), and the real field lands on the next save.
+// Personal preferences are read-time normalized, like the avatar fields: a
+// legacy record without a language reads as "never chosen" (null), and the
+// real field lands on the next save.
 // An unrecognized language code (hand-edited file, or a code we dropped from
 // SUPPORTED_LANGUAGES) degrades to null rather than being preserved, so the
 // system-prompt clause can never be built from a language we don't know.
 function normalizeLanguage(value: unknown): SupportedLanguageCode | null {
   return isSupportedLanguage(value) ? value : null;
-}
-
-function normalizeSlideMode(value: unknown): boolean {
-  return value === true;
 }
 
 // Avatar color (live-avatars feature). Stored as a normalized lowercase
@@ -207,7 +203,6 @@ function load(): Record<string, UserRecord> {
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
         language: normalizeLanguage(value.language),
-        slideMode: normalizeSlideMode(value.slideMode),
       };
     }
     users = result;
@@ -367,10 +362,9 @@ export function claimUser(
     // baseline ghost shape. Both are user-editable post-creation.
     avatarColor: defaultGhostColorForUserId(id),
     avatarVariant: "classic",
-    // Personal preferences start unset: no language picked (so no agent
-    // clause and no behavior change) and Slide Mode off.
+    // Personal preferences start unset: no language picked, so there is no
+    // agent clause and no behavior change.
     language: null,
-    slideMode: false,
   };
   users[id] = record;
   try {
@@ -474,7 +468,6 @@ export function updateUserById(
       | "avatarColor"
       | "avatarVariant"
       | "language"
-      | "slideMode"
     >
   > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
@@ -553,10 +546,6 @@ export function updateUserById(
       changes.language !== undefined
         ? normalizeLanguage(changes.language)
         : existing.language,
-    slideMode:
-      changes.slideMode !== undefined
-        ? normalizeSlideMode(changes.slideMode)
-        : existing.slideMode,
   };
 
   users[id] = next;

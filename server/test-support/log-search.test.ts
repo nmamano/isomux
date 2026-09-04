@@ -68,10 +68,10 @@ const LONG = "x".repeat(400) + "NEEDLE" + "y".repeat(400);
 const HUGE = "z".repeat(ENTRY_CONTENT_CAP + 250);
 
 const S1_ENTRIES: LogEntry[] = [
-  entry("e1", "user_message", "first prompt about slide mode", 1_000),
+  entry("e1", "user_message", "first prompt about permission prompt", 1_000),
   entry("e2", "text", QUOTED, 2_000),
   entry("e3", "user_message", "the message that got edited", 3_000),
-  entry("e4", "thinking", "private reasoning about slide mode", 4_000),
+  entry("e4", "thinking", "private reasoning about permission prompt", 4_000),
   entry("e5", "tool_call", "Bash", 5_000),
 ];
 
@@ -100,7 +100,7 @@ beforeAll(() => {
   writeFileSync(
     join(LOGS_DIR, AGENT, "sessions.json"),
     JSON.stringify({
-      [S1]: { topic: "Slide mode design", lastModified: 5_000 },
+      [S1]: { topic: "permission prompt design", lastModified: 5_000 },
       [S2]: {
         topic: "Follow-up branch",
         lastModified: 10_000,
@@ -172,7 +172,7 @@ describe("log search: decoding happens before matching", () => {
   it("refuses the raw-line prefilter exactly for the queries it would break on", () => {
     // Plain ASCII survives JSON encoding unchanged, so the prefilter is a sound
     // superset test and gets used.
-    expect(canPrefilter("slide mode")).toBe(true);
+    expect(canPrefilter("permission prompt")).toBe(true);
     expect(canPrefilter("a-b_c.d/e 1")).toBe(true);
     // These do NOT survive encoding (or survive it but break case folding), so
     // the scan must fall back to parsing every line. If this ever returns true,
@@ -185,7 +185,7 @@ describe("log search: decoding happens before matching", () => {
   });
 
   it("matches case-insensitively", async () => {
-    const res = await searchLogs(source, AGENT, q("q=SLIDE+MODE"), scan);
+    const res = await searchLogs(source, AGENT, q("q=PERMISSION+PROMPT"), scan);
     expect(res.totalMatches).toBeGreaterThan(0);
   });
 
@@ -251,7 +251,7 @@ describe("log search: fork semantics", () => {
   });
 
   it("an all-session scan reports a shared ancestor entry ONCE, not once per branch", async () => {
-    // "slide mode" appears in e1 (user_message, physically in s1). s2 inherits
+    // "permission prompt" appears in e1 (user_message, physically in s1). s2 inherits
     // it through reconstruction, so a scan that reconstructed every session
     // would report it twice.
     const res = await searchLogs(source, AGENT, q("q=first+prompt"), scan);
@@ -275,7 +275,7 @@ describe("log search: fork semantics", () => {
 
 describe("log search: kinds, tiers and filters", () => {
   it("defaults to user_message + text, so thinking traces stay out", async () => {
-    const res = await searchLogs(source, AGENT, q("q=slide+mode"), scan);
+    const res = await searchLogs(source, AGENT, q("q=permission+prompt"), scan);
     // e1 (user_message) matches; e4 (thinking) also contains the phrase but is
     // not in the default tier.
     expect(res.results.map((r) => r.entryId)).toEqual(["e1"]);
@@ -285,7 +285,7 @@ describe("log search: kinds, tiers and filters", () => {
     const res = await searchLogs(
       source,
       AGENT,
-      q("q=slide+mode&kind=thinking"),
+      q("q=permission+prompt&kind=thinking"),
       scan,
     );
     expect(res.results.map((r) => r.entryId)).toEqual(["e4"]);
@@ -295,7 +295,7 @@ describe("log search: kinds, tiers and filters", () => {
     const res = await searchLogs(
       source,
       AGENT,
-      q("q=slide+mode&tier=full"),
+      q("q=permission+prompt&tier=full"),
       scan,
     );
     expect(res.results.map((r) => r.entryId).sort()).toEqual(["e1", "e4"]);
@@ -305,7 +305,7 @@ describe("log search: kinds, tiers and filters", () => {
     const res = await searchLogs(
       source,
       AGENT,
-      q("q=slide+mode&tier=prompts"),
+      q("q=permission+prompt&tier=prompts"),
       scan,
     );
     expect(res.results.map((r) => r.entryId)).toEqual(["e1"]);
@@ -358,7 +358,7 @@ describe("log search: results, ordering and bounds", () => {
 
   it("joins each hit to its session topic", async () => {
     const res = await searchLogs(source, AGENT, q("q=first+prompt"), scan);
-    expect(res.results[0].topic).toBe("Slide mode design");
+    expect(res.results[0].topic).toBe("permission prompt design");
   });
 
   it("bounds the snippet and centres it on the match", async () => {
@@ -649,7 +649,7 @@ describe("log search: regex mode", () => {
     const res = await searchLogs(
       source,
       AGENT,
-      q(`q=${encodeURIComponent("sl.de\\s+mode")}&regex=1`),
+      q(`q=${encodeURIComponent("perm.ssion\\s+prompt")}&regex=1`),
       scan,
     );
     expect(res.results.map((r) => r.entryId)).toEqual(["e1"]);
@@ -789,7 +789,7 @@ describe("log index", () => {
       forked: true,
     });
     expect(res.sessions[1]).toMatchObject({
-      topic: "Slide mode design",
+      topic: "permission prompt design",
       branched: true,
     });
   });
@@ -884,7 +884,7 @@ describe("log query parsing: mode resolution and bounds", () => {
 
 describe("log search: the response describes the selection it actually applied", () => {
   it("names the tier when a preset was used", async () => {
-    const res = await searchLogs(source, AGENT, q("q=slide+mode"), scan);
+    const res = await searchLogs(source, AGENT, q("q=permission+prompt"), scan);
     expect(res.tier).toBe("conversation");
     expect(res.kinds).toEqual(["user_message", "text", "api_token_outbound"]);
   });
@@ -895,7 +895,7 @@ describe("log search: the response describes the selection it actually applied",
     const res = await searchLogs(
       source,
       AGENT,
-      q("q=slide+mode&tier=full&kind=user_message"),
+      q("q=permission+prompt&tier=full&kind=user_message"),
       scan,
     );
     expect(res.tier).toBeNull();
@@ -906,7 +906,7 @@ describe("log search: the response describes the selection it actually applied",
     const res = await searchLogs(
       source,
       AGENT,
-      q("q=slide+mode&tier=full"),
+      q("q=permission+prompt&tier=full"),
       scan,
     );
     expect(res.tier).toBe("full");
