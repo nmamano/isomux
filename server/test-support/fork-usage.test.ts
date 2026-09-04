@@ -482,9 +482,9 @@ function makeManager(fake: FakeBackend, sink: EventHandler) {
     eventSink: sink,
   });
   // Production wires this at boot (isomux-office.ts); the DI seam must too, or the first
-  // turn throws "plugin-hooks not configured". The deps are a process-global, so
+  // turn throws "agent turn runner not configured". The deps are process-global, so
   // each manager (serial tests) rebinds it on construction.
-  mgr.configurePluginHooksDeps();
+  mgr.configureAgentTurnDeps();
   activeFakes.push(fake);
   return mgr;
 }

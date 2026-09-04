@@ -4,7 +4,7 @@
 
 ## Motivation
 
-Isomux today has roughly six de-facto runtime categories. Each one was added for a defensible reason; together they have grown into category sprawl.
+Isomux today has roughly five de-facto runtime categories. Each one was added for a defensible reason; together they have grown into category sprawl.
 
 | # | Category | Lives as | "Trigger" | "Function" |
 |---|---|---|---|---|
@@ -12,15 +12,13 @@ Isomux today has roughly six de-facto runtime categories. Each one was added for
 | 2 | HTTP routes | manual `pathname` switch in `index.ts` (~7 path families) | HTTP request | hand-written response handler |
 | 3 | Task board | HTTP routes + JSON file | POST /tasks | `addTask` / `updateTask` |
 | 4 | Cronjob | `cronjob-manager.ts` (separate scheduler) | cron expression | fresh SDK session spawn |
-| 5 | Plugin hook | in-process TS module loaded at boot | `beforeTurn` / `afterTurn` | `promptPrefix`, side effects |
-| 6 | Inter-agent + card emit | route handlers + 5x `emitAgent*` helpers | HTTP POST | enqueue message / dispatch card event |
+| 5 | Inter-agent + card emit | route handlers + 5x `emitAgent*` helpers | HTTP POST | enqueue message / dispatch card event |
 
-Six lifecycles, six observability stories. The `runAgentTurn` central helper is the only thing that knows about more than one of them, and every new capability ends up bolted onto it or onto another lane.
+Five lifecycles, five observability stories. The `runAgentTurn` central helper is the only thing that knows about more than one of them, and every new capability ends up bolted onto it or onto another lane.
 
 Concrete evidence the sprawl already costs us:
 
 - The "emit a card to chat" pattern is duplicated five times (`emitAgentDiff`, `emitAgentReadFile`, `emitAgentEditRequest`, `emitAgentTerminalCommand`, plus the cronjob path has its own parallel `emitCronjobRunReadFile`). Each emit-card route handler in `index.ts` re-implements its own CORS, body parsing, error shape.
-- Recent design conversations (artifact panel, design-experience features) keep running into the question "is this a plugin?" because the v0 plugin contract is narrow (`beforeTurn` / `afterTurn` only) and adding new shapes means either extending the plugin contract or carving out yet another subsystem.
 - There is no shared trace across a boss action that crosses lanes (e.g. boss types `/task add foo` → command-handler routes to task-board → notifies an agent → agent sends inter-agent message → receiver acts on it). Correlation today is via timestamps + ad-hoc logging.
 
 ### Before / after, at a glance
@@ -33,7 +31,6 @@ flowchart TB
     subgraph Server["Isomux Server"]
       WS[WS Hub]
       AM[Agent Manager<br/>runAgentTurn]
-      PB[Plugin Bus<br/>in-process TS]
       CR[Cron Runner]
       TB[Task Board<br/>HTTP + JSON]
       FR[File / Diff / Edit /<br/>Terminal Cards]
@@ -56,7 +53,6 @@ flowchart TB
     AM -->|spawn| A1
     AM -->|spawn| A2
     AM -->|spawn| A3
-    PB -.beforeTurn / afterTurn.-> AM
     CR -.spawn SDK session.-> AM
     IA -.enqueue message.-> AM
     A1 -->|spawns| M1
@@ -116,14 +112,14 @@ What we adopt:
 
 What we do not adopt:
 
-- Out-of-process wire protocol as a hard requirement. v0 plugins ship in-process; out-of-process workers are a later extension, behind a real second consumer.
+- Out-of-process wire protocol as a hard requirement. Out-of-process workers are a later extension, behind a real second consumer.
 - "Browser is a worker" as a core claim. Possibly later for specific surfaces; not in the v1 design.
 - The implication that *everything* including auth and persistence collapses into workers. See non-goals.
 
 ## Goals
 
-1. Collapse the six runtime categories above into one register-and-trigger primitive.
-2. One OpenTelemetry trace per boss-originated turn, propagated through HTTP → registry → agent worker → plugin hook → card emit → WS broadcast.
+1. Collapse the five runtime categories above into one register-and-trigger primitive.
+2. One OpenTelemetry trace per boss-originated turn, propagated through HTTP → registry → agent worker → card emit → WS broadcast.
 3. New capability types can be added by registering a function with a trigger, without carving out a new subsystem.
 4. Compatibility constraint: zero change to the existing REST surface and existing agent helper endpoints (read-file, diff, edit-file, terminal-command, message) until a later explicit API version. New functionality may ship at new URLs; existing routes become thin adapters that fire the same trigger underneath.
 
@@ -212,7 +208,7 @@ export interface IsomuxFunction {
 export type TriggerBinding =
   | { kind: "http"; method: "GET" | "POST" | "PUT" | "DELETE"; path: string }
   | { kind: "cron"; schedule: string } // 5-field cron expression
-  /** Subscribe to plugin hook firings around every `agent::turn`. The
+  /** Subscribe to hook firings around every `agent::turn`. The
    *  function this binds to is invoked before or after each agent turn,
    *  not as part of the turn's invocation chain. */
   | { kind: "agent-turn-hook"; phase: "before" | "after" }
@@ -242,23 +238,22 @@ Without explicit failure semantics, "trigger" is too hand-wavy to build on. Defa
 | Concern | v1 behavior |
 |---|---|
 | Handler timeout | Per-function `timeoutMs` (default 30s). Router aborts `ctx.signal`. Timeout fires a failure-stream entry; the trigger source decides what to do with the result (HTTP returns 504, cron records a failed run, agent-call surfaces the timeout to the caller). |
-| Handler throw | Caught at router boundary. Failure-stream entry. Trigger source maps it: HTTP → 500 with sanitized error, cron → failed run, agent-call → typed error to caller, agent-turn hook → no prefix from that plugin (matches v0 plugin behavior). |
+| Handler throw | Caught at router boundary. Failure-stream entry. Trigger source maps it: HTTP → 500 with sanitized error, cron → failed run, agent-call → typed error to caller, agent-turn hook → the turn proceeds without that hook's result. |
 | Retry | None by default. Opt-in via `retry`. Router enforces; handler sees `ctx.attempt` / `ctx.maxAttempts` on every invocation, so retries can be debugged and idempotency cross-checked without consulting the registry. |
 | Idempotency | Opt-in via `idempotencyKey`. Router maintains a TTL keyed cache of in-flight + recently-completed keys. Within window, repeat invocations short-circuit with the cached result. Inter-agent messages should derive their key from `(senderAgentId, clientMessageId)` - see open questions. |
 | Cancellation | `ctx.signal: AbortSignal` is required on every invocation; long-running handlers must observe it. The router does not preempt. Aborts originate from the trigger source (HTTP request abort, cron driver shutdown, agent-call cancellation) or the router itself (timeout, shutdown). |
 | Backpressure / concurrency | Functions are concurrent by default. A global router-level cap (default ~256 in-flight invocations across all functions) prevents a trigger storm from starving agent turns; on cap-hit, new invocations queue with a deadline and the failure stream records cap-induced timeouts separately. Single-flight per-function or per-key is a possible later add behind a config field; not v1. |
-| Authorization | Trigger router invokes a policy check before dispatch. HTTP adapter alone is not enough once `agent-call` and `direct` triggers exist: an agent worker calling `tasks::delete` needs the same authorization treatment as an HTTP DELETE would. v1 ships a coarse "who can call which function id" allowlist tied to attribution; finer-grained policy is a later add. Plugin-registered functions go through the same check. |
-| Dead-letter | Failed invocations after retry exhaustion land in `~/.isomux/logs/triggers.jsonl` (mirrors `plugins.jsonl`). Structured fields: `functionId`, `traceId`, `spanId`, `invokedBy`, `durationMs`, `attemptCount`, `error`. **Payloads are not logged by default**; opt-in per-function for debugging only. Retention: rotate at 100MB / 30 days (matches the existing `plugins.jsonl` policy). |
+| Authorization | Trigger router invokes a policy check before dispatch. HTTP adapter alone is not enough once `agent-call` and `direct` triggers exist: an agent worker calling `tasks::delete` needs the same authorization treatment as an HTTP DELETE would. v1 ships a coarse "who can call which function id" allowlist tied to attribution; finer-grained policy is a later add. |
+| Dead-letter | Failed invocations after retry exhaustion land in `~/.isomux/logs/triggers.jsonl`. Structured fields: `functionId`, `traceId`, `spanId`, `invokedBy`, `durationMs`, `attemptCount`, `error`. **Payloads are not logged by default**; opt-in per-function for debugging only. |
 | Ordering | Function invocations are **unordered by default**. Inter-agent messages and card emits that have user-visible ordering expectations must be modeled by their function (e.g. a per-receiver in-order queue inside `agent::message`, which already exists today). The trigger router does not provide an ordered-by-key delivery guarantee in v1. |
 
 ## Ownership and registration
 
-- Bundled functions register at server boot, **after** persistence init's "ready" milestone, because their config (enable list, allowlist, per-function overrides) lives in persisted state. They live in `server/functions/*.ts` (mirrors the existing `server/plugins/` directory convention but for first-party functions).
-- In-process plugins (today's `office-config.json` `enabledPlugins` list) gain a second registration path beyond `beforeTurn`/`afterTurn`: they may also export `functions: IsomuxFunction[]` and `bindings: TriggerBinding[]`. The v0 hook contract becomes a special case ("a plugin that registers two agent-turn-triggered functions"). Existing plugins that only export hooks continue to work unchanged.
+- Bundled functions register at server boot, **after** persistence init's "ready" milestone, because their config (enable list, allowlist, per-function overrides) lives in persisted state. They live in `server/functions/*.ts`.
 - Out-of-process workers (future, P5+) connect via WebSocket with a registration handshake. Out of scope for v1 design; mentioned only to ensure the in-process registration shape is compatible.
 - Registry location: in-memory `Map<FunctionId, IsomuxFunction>` + `Map<TriggerKey, FunctionId[]>`, populated at boot. The authoritative list of *which workers are enabled* lives in `office-config.json`; the registry contents are derived from loading those workers.
-- Startup ordering: registry init (empty maps, no persisted state needed) → persistence init → bundled function load → plugin worker load → trigger router boot → agent spawn restore. The registry primitive can come up early; what cannot come up early is *populating* it, because that requires persisted enable lists and policy config. The agent restore path can fire triggers (e.g. `agent-turn` hooks), so the router must be live before agents come back.
-- Duplicate function ids are a boot-time error (mirrors v0 plugin duplicate-id handling).
+- Startup ordering: registry init (empty maps, no persisted state needed) → persistence init → bundled function load → trigger router boot → agent spawn restore. The registry primitive can come up early; what cannot come up early is *populating* it, because that requires persisted enable lists and policy config. The agent restore path can fire triggers (e.g. `agent-turn` hooks), so the router must be live before agents come back.
+- Duplicate function ids are a boot-time error.
 
 ## Observability acceptance criteria
 
@@ -270,8 +265,8 @@ A single OpenTelemetry trace must span the following chain for a boss-originated
 2. HTTP adapter creates trace, fires `http` trigger.
 3. Trigger router invokes target function (e.g. `artifact::regenerate`).
 4. Function calls into agent worker (e.g. `agent::message` agent-call trigger).
-5. Agent worker invokes `runAgentTurn`, which threads the trace into the `TriggerContext` passed to every plugin `beforeTurn` and `afterTurn` invocation.
-6. Plugin tool calls and the eventual `ui::card::artifact` emit (or whichever per-kind card function fired) are spans under the same trace.
+5. Agent worker invokes `runAgentTurn`, which threads the trace into the `TriggerContext`.
+6. The eventual `ui::card::artifact` emit (or whichever per-kind card function fired) is a span under the same trace.
 7. WS broadcast to subscribed UI clients includes the trace id in event metadata so the UI can correlate render with backend work.
 
 Provider CLI subprocess (Claude Code, Codex) is a span boundary. We observe `session.send` and the resulting event stream; we do not instrument inside the CLI's loop because we do not own it. This is a known fidelity cap and the design accepts it.
@@ -284,11 +279,10 @@ The runtime categories from the motivation table map into the new model as follo
 
 | Old category | New shape |
 |---|---|
-| Agent turn | An `agent::turn` function on each agent worker, invoked by boss message, queued work, skill expansion, edit-fork resend, or an external `agent-call` trigger. Plugin hooks become separate `plugin::beforeTurn` and `plugin::afterTurn` functions that the router fires via `agent-turn-hook` triggers around `agent::turn` (not phases of `agent::turn` itself). |
+| Agent turn | An `agent::turn` function on each agent worker, invoked by boss message, queued work, skill expansion, edit-fork resend, or an external `agent-call` trigger. |
 | HTTP routes | HTTP adapter consumes route registrations and fires `http` triggers. The `index.ts` `pathname` switch shrinks as route families migrate; complete dissolution is an end-state, not a near-phase deliverable. |
 | Task board | `tasks::create`, `tasks::update`, `tasks::list`, etc. functions with `http` triggers. Persistence remains the JSON file (platform service). |
 | Cronjob | A `cron` trigger driver fires cron-bound functions. The current cronjob scheduler shrinks to the trigger driver; the per-job state lives on the function side. |
-| Plugin hook | Plugins register as workers exporting one or more functions. The v0 hook contract becomes a special case: a plugin that registers two `agent-turn-hook`-triggered functions. |
 | Inter-agent message | `agent::message` function on each agent worker, invoked via `agent-call` trigger. Replaces the bespoke `POST /agents/:id/message` route handler. |
 | Card emit | **One function per card kind** - `ui::card::diff`, `ui::card::read-file`, `ui::card::edit-file`, `ui::card::terminal-command`, `ui::card::artifact`. Each with an `http` trigger that mirrors today's URLs (compatibility). Internally they share a `cardBroadcast(...)` helper for persistence and WS dispatch, but the helper is not the boundary exposed to workers. Per-card functions make permissioning, audit, and per-card-kind evolution clean; a single discriminated `ui::card::set` would collapse them prematurely. |
 | MCP tools | MCP bridge worker that exposes MCP tool calls as functions. Deprioritized - see phasing. |
@@ -359,28 +353,13 @@ Goal: meet the observability acceptance criteria above.
 Scope:
 
 - Adopt OpenTelemetry SDK in the server. v1 emits spans using the SDK's env-based configuration (`OTEL_EXPORTER_OTLP_ENDPOINT` and friends). No bundled collector or backend; the operator wires their own (Jaeger, Honeycomb, Datadog, etc.) at deploy time.
-- Thread `TraceContext` through `runAgentTurn` (currently threads `PluginTurnContext`; add trace fields).
-- Plugin hooks receive trace id in their context. v0 plugin contract widens; backwards-compatible (new fields, no removals).
+- Thread `TraceContext` through `runAgentTurn`.
 - Card emit functions and inter-agent message functions propagate trace.
 - WS broadcast includes trace id for UI correlation.
 
-Acceptance: one trace spans boss UI action → HTTP trigger → agent turn → plugin hook → card emit → WS event. Visible end-to-end in a Jaeger-class viewer.
+Acceptance: one trace spans boss UI action → HTTP trigger → agent turn → card emit → WS event. Visible end-to-end in a Jaeger-class viewer.
 
 Risk: medium-high. OTEL adoption touches every async boundary. Failure mode is half-instrumented traces that look correct but drop spans at the seams.
-
-### P4: plugin registration through unified primitive
-
-Goal: collapse the v0 plugin contract into the worker model without breaking existing plugins.
-
-Scope:
-
-- Plugins may export `functions` and `bindings` in addition to (or instead of) `beforeTurn` / `afterTurn`.
-- v0 plugins are loaded as workers that register two `agent-turn`-triggered functions internally. Their existing exports continue to work via an adapter in the loader.
-- mem0 plugin needs no code changes for this phase.
-
-Acceptance: v0 plugin tests pass unchanged; a new plugin can register an arbitrary function (e.g. a redaction-as-tool function via `agent-call` trigger) without v0 hook semantics.
-
-Risk: low-medium. Plugins are small and bounded; the contract widening is the bulk of the work.
 
 ### P5+ later collapses
 
@@ -430,14 +409,11 @@ LOC estimates are deliberately omitted in favor of risk classification, because 
 | P1b | Low-medium | Hardening additive to a working feature; failure mode is bug latency. |
 | P2 | Low | Adapter pattern, narrow surface. |
 | P3 | Medium-high | OTEL adoption is wide; half-instrumented traces are the failure mode. |
-| P4 | Low-medium | Plugin contract widening; backwards-compatible. |
 | P5+ | Varies | Cron and inter-agent each have their own quirks; sizing per slice. |
 
 ## Relation to other docs
 
-- **`isomux-plugin-system.md`** - the v0 plugin contract. Preserved as the in-process worker case. P4 widens it; v0 hooks continue to work.
 - **`per-agent-mcp-access.md`** - MCP bridge worker is a P5+ topic; this doc does not mandate any change to per-agent MCP access in earlier phases.
-- **`plugin-management-design.md`** - orthogonal. That doc covers UI for managing upstream Claude Code's plugin ecosystem; this doc covers isomux's internal worker model.
 - **`per-user-isolation-design.md`** - orthogonal. Isolation lives in the platform service layer (auth, persistence) which is explicitly out of scope here.
 
 ## Acknowledgments

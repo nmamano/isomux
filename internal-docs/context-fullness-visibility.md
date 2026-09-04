@@ -98,7 +98,7 @@ Payload:
 
 **Automatic notices (the motivating example).** "Start wrapping up past 200k" in a system prompt can't work if the agent never looks, and agents won't reliably poll. So the server tells them, via a built-in step in `runAgentTurn` (`server/plugin-hooks.ts`) - core coordination behavior, deliberately NOT a plugin (no enable/disable coupling, not in plugin discovery or failure accounting):
 
-- Runs after the previous turn's `afterTurn` gate, before backend send, with `checkCancelled()` after any await.
+- Runs before backend send, with `checkCancelled()` after any await.
 - First awaits `contextSampleInFlight` with a short bounded timeout (~500ms, tunable) so the notice reflects the just-finished turn instead of racing the fire-and-forget refresh. On timeout, proceeds with whatever snapshot is committed - a notice delayed by one turn beats delaying every send.
 - If the raw percentage has reached a threshold not yet fired this generation, prepends one line to the outgoing envelope (§2a). If the first available sample already clears multiple thresholds (e.g. lands at 87%), only the HIGHEST newly-reached notice is emitted, and all thresholds ≤ it are marked fired.
 - Thresholds: 50% (heads-up) and 75% (wrap up), matching the UI colors. Once per threshold per generation - after a compaction drop and re-cross there is no repeat (fired-set only resets with the generation).

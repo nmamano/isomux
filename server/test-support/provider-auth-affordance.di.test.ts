@@ -53,7 +53,7 @@ async function harness(opts: {
       ? () => opts.target!()
       : undefined,
   });
-  mgr.configurePluginHooksDeps();
+  mgr.configureAgentTurnDeps();
   const info = await mgr.spawn(
     `Auth ${roomId}`,
     STATE_ROOT,

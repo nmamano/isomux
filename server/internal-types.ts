@@ -80,18 +80,11 @@ export interface ManagedAgent {
   // was still streaming, and Slide Mode wrote an empty-turn placeholder for the
   // live turn (task e9429ef3).
   nextTurnAnchorEntryId: string | null;
-  // The aggregate `afterTurn` promise for the most recent turn - all plugins'
-  // afterTurn hooks raced against their per-plugin timeout, joined here.
-  // runAgentTurn awaits this before starting the next turn so memory writes
-  // / audit writes / etc. land before the next retrieval. Self-clears on
-  // settle (set to null inside runAfterTurn's .finally) so a timed-out
-  // afterTurn doesn't poison every subsequent turn with a 10s wait.
-  afterTurnPromise: Promise<void> | null;
   // Monotonic counter bumped by every control-plane action that cancels an
   // in-flight turn (abort, kill, replaceSession). runAgentTurn snapshots it
   // at entry - AFTER beginTurn flips state to thinking - and re-checks
-  // after each await during plugin retrieval. Any change means a Stop or
-  // session swap fired while plugin work was running, so the pre-send turn
+  // after each await during notice assembly. Any change means a Stop or
+  // session swap fired before send, so the pre-send turn
   // bails with SessionSwappedError instead of sending the stale prompt
   // into the (possibly swapped) session. The pre-send window between
   // beginTurn and createTurnDeferred is the only place plain `pendingTurn`

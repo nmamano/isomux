@@ -207,10 +207,11 @@ import {
   resolveAgentEngineSettings,
 } from "./agent-validators.ts";
 import {
-  configurePluginHooks,
+  configureAgentTurn,
   runAgentTurn,
   stripOutboundEnvelope,
   CONTEXT_NOTICE_BANDS,
+  CONTEXT_NOTICE_SAMPLE_WAIT_MS,
   formatMemoryNotice,
 } from "./plugin-hooks.ts";
 import { permissionInputSummary } from "./permission-audit.ts";
@@ -355,20 +356,15 @@ export function createAgentManager(deps: ManagerDeps) {
   const officeState = deps.officeState;
   const initialLoadedAgents = deps.initialRooms;
 
-  // Wire the plugin-hooks module to agent-manager's module-private pieces
-  // (beginTurn / createTurnDeferred / logCache / room lookup). Called once at
-  // boot from server/isomux-office.ts. Lives here rather than in plugin-hooks.ts so
-  // that file stays decoupled from this one - runAgentTurn is the only
-  // reverse import.
-  function configurePluginHooksDeps(): void {
-    configurePluginHooks({
+  // Wire the turn runner to agent-manager's module-private pieces. Called once
+  // at boot from server/isomux-office.ts.
+  function configureAgentTurnDeps(
+    contextNoticeSampleWaitMs = CONTEXT_NOTICE_SAMPLE_WAIT_MS,
+  ): void {
+    configureAgentTurn({
       beginTurn,
       createTurnDeferred,
-      getLogCache: (agentId) => logCache.get(agentId),
-      getRoom: (roomId) => {
-        const r = roomById(roomId);
-        return r ? { id: r.id, name: r.name } : null;
-      },
+      contextNoticeSampleWaitMs,
     });
   }
 
@@ -1804,7 +1800,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       consumerPromise: null,
       pendingTurn: null,
       nextTurnAnchorEntryId: null,
-      afterTurnPromise: null,
       turnCancelToken: 0,
       abortCancelToken: -1,
       aborting: false,
@@ -2067,7 +2062,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
     // Boot replay kick: resume delivery exactly where the restart cut it off.
     // Fire-and-forget - each flush wakes its (dormant) agent via the !session
-    // resume branch. Plugin hooks are configured before restoreAgents runs
+    // resume branch. The turn runner is configured before restoreAgents runs
     // (see isomux-office.ts boot ordering), so runAgentTurn is safe to enter. The
     // queue watchdog is the backstop if any kick is lost.
     for (const [agentId, m] of agents) {
@@ -2390,7 +2385,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // unchanged value; this early-return keeps the second call free of side
     // effects.
     if (managed.info.state === "thinking") return;
-    // Queue delivery enters through the same plugin-hook path, so it also
+    // Queue delivery enters through the same turn-runner path, so it also
     // claims this live-turn clock before the backend send starts.
     managed.turnStartedAt = Date.now();
     managed.lastNormalizedEventAt = 0;
@@ -3004,8 +2999,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // producing nothing. Two sources, because a turn is claimed by the agent well
   // before its deferred exists: sendMessage / executeSkill / editMessage log the
   // user_message and flip the agent busy in one synchronous block, but only reach
-  // createTurnDeferred after the plugin phase (an afterTurn gate, beforeTurn
-  // hooks, the context sample) - hundreds of ms in which the deck client, which
+  // createTurnDeferred after context-sample notice assembly - hundreds of ms in
+  // which the deck client, which
   // saw the message the instant it was logged, asks for its slide. Reading the
   // parked anchor while the agent is BUSY covers that window; without it the live
   // turn read terminal and got an empty-turn placeholder written over it (task
@@ -4233,7 +4228,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.session = null;
         managed.consumerPromise = null;
         managed.dormantReason = "stream-ended";
-        // Any turn still in its PRE-SEND window (plugin retrieval; no
+        // Any turn still in its PRE-SEND window (notice assembly; no
         // pendingTurn installed) must bail at its next checkpoint rather than
         // send into whatever session exists by then - same mechanism
         // closeAndDrainSession uses. Harmless when a post-send turn existed
@@ -5233,7 +5228,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       consumerPromise: null,
       pendingTurn: null,
       nextTurnAnchorEntryId: null,
-      afterTurnPromise: null,
       turnCancelToken: 0,
       abortCancelToken: -1,
       aborting: false,
@@ -6000,11 +5994,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const items = [...managed.messageQueue];
 
       const promptParts: string[] = [];
-      // unprefixedParts mirrors promptParts but without the sender prefix per
-      // item. Plugins receive the joined unprefixed version as `originalText`
-      // so memory/audit see user intent without `[Nil (Phone)]` noise that
-      // belongs to isomux's routing layer rather than the user's message.
-      const unprefixedParts: string[] = [];
       const allAttachments: Attachment[] = [];
       // If any items were queued while the agent was busy, prepend a single
       // coalesced note so the agent doesn't read them as reactions to its most
@@ -6019,7 +6008,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             ? `[Note: this message was queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent it.]`
             : `[Note: these messages were queued while you were processing your previous turn - the sender had not seen your most recent reply when they sent them.]`;
         promptParts.push(note);
-        unprefixedParts.push(note);
       }
       for (const m of items) {
         // sdkText is set for pre-expanded slash commands (e.g. an /subagent-review
@@ -6027,23 +6015,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // but the SDK needs the full skill prompt.
         const body = m.sdkText ?? m.text;
         promptParts.push(`${queuedItemPrefix(m, agentId)}${body}`);
-        unprefixedParts.push(body);
         if (m.attachments) allAttachments.push(...m.attachments);
       }
       const prompt = promptParts.join("\n\n");
-      const originalText = unprefixedParts.join("\n\n");
 
       try {
         await runAgentTurn({
           managed,
-          // No single "user-typed" string for a coalesced flush; the prompt
-          // composition is the closest approximation, and plugins generally
-          // use originalText (sender prefixes stripped) anyway.
-          visibleText: prompt,
-          originalText,
           sdkText: prompt,
           attachments: allAttachments.length > 0 ? allAttachments : undefined,
-          origin: "queued",
           // Cron jobs are machine traffic, like agents and apps, so their
           // completed turns stay silent. Only a human boss starts a chimeable
           // turn here.
@@ -6053,10 +6033,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             // entries (provenance) and remove the items from the live queue.
             // Items cancelled mid-send are still in `items` (they did reach
             // the SDK) - log them so chat history matches what the receiver
-            // actually saw. Runs synchronously inside runAgentTurn between
-            // session.send resolving and the newLogEntries snapshot, so
-            // these user_messages stay OUT of the afterTurn slice (they
-            // belong to "the prompt", not "the agent's response").
+            // actually saw. Runs synchronously inside runAgentTurn after
+            // session.send resolves.
             for (const m of items) {
               // Carry sdkText into the log metadata so editMessage can match
               // this entry against the SDK session (the SDK saw the expanded
@@ -6126,7 +6104,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // retry is automatic, so "will retry" is redundant noise there.
           // Two signals, covering the two windows a flush turn can be
           // cancelled in:
-          //   - pre-send (parked in plugin retrieval, pendingTurn not yet
+          //   - pre-send (parked in notice assembly, pendingTurn not yet
           //     installed): abort() early-returns without setting `aborting`,
           //     but its token stamp makes abortCancelToken === turnCancelToken.
           //   - post-send (abort's slow path replaces the session):
@@ -7008,13 +6986,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     try {
       await runAgentTurn({
         managed,
-        visibleText: text,
-        // sendMessage's raw user text is `text`; the sender prefix is
-        // applied above as `prefixedText` which becomes sdkText.
-        originalText: text,
         sdkText: prefixedText,
         attachments,
-        origin: "user",
         humanInput: true,
       });
     } catch (err) {
@@ -7207,7 +7180,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       };
     // Bump the cancel token unconditionally. Stop is always a cancellation
     // event from the runAgentTurn pre-send window's perspective - whether
-    // the agent is mid-plugin-retrieval (no pendingTurn yet) or mid-real-
+    // the agent is awaiting built-in notice assembly (no pendingTurn yet) or mid-real-
     // turn (pendingTurn installed), the token bump is the signal that
     // tells runAgentTurn to bail before session.send if it hasn't run yet.
     // For the post-send path the existing pendingTurn rejection (below) is
@@ -7220,7 +7193,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // never covers exactly the case where the stamp matters most.
     managed.abortCancelToken = managed.turnCancelToken;
     // If no turn is in flight, the SDK stream may have died (e.g. subprocess
-    // exited) OR runAgentTurn may be mid-plugin-retrieval. Either way reset
+      // exited) OR runAgentTurn may be assembling built-in notices. Either way reset
     // state so Stop is never a no-op.
     if (!managed.pendingTurn) {
       // A parked permission prompt is the case this branch used to answer with
@@ -7516,7 +7489,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
     }
     // Bump the cancel token so any concurrent runAgentTurn that hasn't yet
-    // installed pendingTurn (pre-send plugin retrieval) bails on its next
+    // installed pendingTurn (pre-send notice assembly) bails on its next
     // await checkpoint instead of calling session.send on a dying session.
     managed.turnCancelToken++;
     // The backend's close() (below, via managed.session?.close()) resolves any
@@ -8313,8 +8286,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // predecessor-resolution and first-message semantics internally.
       //
       // stripOutboundEnvelope recovers `sdkText` from any turn where a built-in
-      // block (context-fullness notice) or a beforeTurn plugin (e.g. mem0)
-      // contributed a prefix block - the SDK records the wrapped
+      // notice contributed a prefix block - the SDK records the wrapped
       // `${blocks}\n\nUser message:\n${sdkText}` form, but log entries only carry
       // `sdkText`. Without the strip, every edit on a turn that carried an
       // envelope block would fall through to the "could not locate" branch below.
@@ -8525,9 +8497,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         emit(event);
 
       // 9. Send the edited message. The user_message log entry lands before
-      // runAgentTurn so it's part of the visible timeline; runAgentTurn's
-      // newLogEntries snapshot is taken AFTER, so the user_message is
-      // excluded from the slice plugins observe.
+      // runAgentTurn so it is part of the visible timeline.
       //
       // The edit UI rewrites text only, so the original message's attachments
       // ride along to the replacement turn (task 1a3a0820) - dropping them
@@ -8546,13 +8516,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       const prefixedNew = editPrefix ? `${editPrefix}${newText}` : newText;
       await runAgentTurn({
         managed,
-        visibleText: newText,
-        // Raw replacement text is what the user actually wants the model to
-        // see; sender prefix is isomux routing applied below.
-        originalText: newText,
         sdkText: prefixedNew,
         attachments: targetEntry.attachments,
-        origin: "edit-fork",
         humanInput: true,
       });
       // Topic mutation above + system/init persistAll on first-message edits
@@ -8825,7 +8790,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Explicitly assembled public surface (see AgentManager type above). Mirrors
   // exactly the symbols server/isomux-office.ts consumed off the old namespace import.
   return {
-    configurePluginHooksDeps,
+    configureAgentTurnDeps,
     getRooms,
     globalRoomIndexOf,
     roomById,

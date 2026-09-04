@@ -1,12 +1,12 @@
 // Tests for the strip-side of the outbound envelope wrap. The wrap itself is
-// applied in `runAgentTurn` step 5 (see plugin-hooks.ts); these tests anchor
+// applied in `runAgentTurn` (see plugin-hooks.ts); these tests anchor
 // the inverse operation so edit-message matching stays in sync with the
 // wrap format if it ever changes.
 //
-// Regression for: a turn that carried an envelope block - a `beforeTurn` plugin
-// (e.g. mem0) OR a built-in context-fullness notice (task 50392514) - got
+// Regression for: a turn that carried a built-in context-fullness notice
+// (task 50392514) got
 // recorded into the SDK transcript as
-// `--- begin (isomux|plugin): <id> ---\n...\n--- end (isomux|plugin): <id> ---\n\nUser message:\n<sdkText>`,
+// `--- begin isomux: <id> ---\n...\n--- end isomux: <id> ---\n\nUser message:\n<sdkText>`,
 // but the isomux log entry only carried `<sdkText>`; agent-manager's editMessage
 // matcher used strict equality and therefore failed every edit on such a turn
 // with "Cannot edit: could not locate message in backend session."
@@ -32,30 +32,8 @@ describe("stripOutboundEnvelope", () => {
     expect(stripOutboundEnvelope("")).toBe("");
   });
 
-  it("strips a single-plugin wrap and returns the original sdkText", () => {
-    const sdkText = "[Nil] what does mem0 do?";
-    const wrapped =
-      "--- begin plugin: mem0 ---\n" +
-      "Relevant facts retrieved from memory:\n- fact one\n" +
-      "--- end plugin: mem0 ---\n\n" +
-      "User message:\n" +
-      sdkText;
-    expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
-  });
-
-  it("strips a multi-plugin wrap (blocks joined by blank lines)", () => {
-    const sdkText = "[Nil] go";
-    const wrapped =
-      "--- begin plugin: alpha ---\nA-prefix\n--- end plugin: alpha ---\n\n" +
-      "--- begin plugin: beta ---\nB-prefix\n--- end plugin: beta ---\n\n" +
-      "User message:\n" +
-      sdkText;
-    expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
-  });
-
   it("strips a built-in-only (isomux context-check) wrap", () => {
-    // A turn where only the context-fullness notice fired - no plugins enabled.
-    // This is the zero-plugin case where nothing used to get stripped at all.
+    // A turn where the context-fullness notice fired.
     const sdkText = "[Nil] keep going";
     const wrapped =
       "--- begin isomux: context-check ---\n" +
@@ -66,16 +44,15 @@ describe("stripOutboundEnvelope", () => {
     expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
   });
 
-  it("strips a built-in notice + plugin wrap (built-in first, then plugin)", () => {
-    // The full composite: context-check block precedes the mem0 plugin block,
-    // and the structural boundary is the LAST end-line before the separator
-    // (the plugin's), not the built-in's.
+  it("strips multiple built-in blocks joined by a blank line", () => {
     const sdkText = "[Nil] proceed";
     const wrapped =
+      "--- begin isomux: wake-notice ---\n" +
+      "The previous session ended unexpectedly.\n" +
+      "--- end isomux: wake-notice ---\n\n" +
       "--- begin isomux: context-check ---\n" +
       "[context check: 68% full - 136,000 / 200,000 tokens. Budget accordingly.]\n" +
       "--- end isomux: context-check ---\n\n" +
-      "--- begin plugin: mem0 ---\nfact one\n--- end plugin: mem0 ---\n\n" +
       "User message:\n" +
       sdkText;
     expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
@@ -83,28 +60,28 @@ describe("stripOutboundEnvelope", () => {
 
   it("does not split on a literal '\\n\\nUser message:\\n' that appears inside the user's own text", () => {
     // User text itself contains the separator AFTER a non-`---` line.
-    // The strip must anchor on the structural `--- end plugin: <id> ---`
+    // The strip must anchor on the structural `--- end isomux: <id> ---`
     // boundary, not just any occurrence of the separator.
     const sdkText =
       "[Nil] I want to talk about\n\nUser message:\nthis literal block";
     const wrapped =
-      "--- begin plugin: mem0 ---\nfact\n--- end plugin: mem0 ---\n\n" +
+      "--- begin isomux: context-check ---\nfact\n--- end isomux: context-check ---\n\n" +
       "User message:\n" +
       sdkText;
     expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
   });
 
   it("does not split when a block body ends with '---' but isn't a real closing line", () => {
-    // Reviewer5's edge case: a stored fact (or block body) that ends with
+    // A block body that ends with
     // `---` and is followed by `\n\nUser message:\n` shouldn't fool the
-    // matcher - only the real `--- end plugin: <id> ---` line counts.
+    // matcher - only the real `--- end isomux: <id> ---` line counts.
     const sdkText = "[Nil] real payload";
     const wrapped =
-      "--- begin plugin: mem0 ---\n" +
+      "--- begin isomux: context-check ---\n" +
       // Prefix body whose last line is exactly `---` (three dashes).
       "ascii art divider:\n---\n" +
       // The real closing line.
-      "--- end plugin: mem0 ---\n\n" +
+      "--- end isomux: context-check ---\n\n" +
       "User message:\n" +
       sdkText;
     expect(stripOutboundEnvelope(wrapped)).toBe(sdkText);
@@ -112,8 +89,6 @@ describe("stripOutboundEnvelope", () => {
 
   it("returns text unchanged when it starts with the wrap marker but lacks the separator", () => {
     // Defensive: a corrupt or partial wrap should not silently truncate.
-    const malformed = "--- begin plugin: x ---\nbody\n--- end plugin: x ---";
-    expect(stripOutboundEnvelope(malformed)).toBe(malformed);
     const malformedBuiltin =
       "--- begin isomux: context-check ---\nbody\n--- end isomux: context-check ---";
     expect(stripOutboundEnvelope(malformedBuiltin)).toBe(malformedBuiltin);
@@ -123,11 +98,8 @@ describe("stripOutboundEnvelope", () => {
     // A regular user message that happens to contain the separator pattern
     // is not a wrap. The startsWith guard prevents false-positive stripping.
     const sneaky =
-      "[Nil] my code prints `--- end plugin: foo ---\n\nUser message:\nbar`";
-    expect(stripOutboundEnvelope(sneaky)).toBe(sneaky);
-    const sneakyBuiltin =
       "[Nil] my code prints `--- end isomux: context-check ---\n\nUser message:\nbar`";
-    expect(stripOutboundEnvelope(sneakyBuiltin)).toBe(sneakyBuiltin);
+    expect(stripOutboundEnvelope(sneaky)).toBe(sneaky);
   });
 });
 

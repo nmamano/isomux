@@ -243,9 +243,6 @@ Hosted customers sign in at the Hosted Isomux dashboard and open their office fr
 - Storage breakdown: see what the office is using on disk (conversation history, attachments, backups, update snapshots) with /isomux-storage in any conversation, or from the storage panel in Office Settings if you own the office, and prune old history when you need the space - it shows you what it would delete before deleting anything, and never removes a file a conversation still shows
 - The entire frontend uses a Redux-like store where server WebSocket messages are dispatched directly as actions
 
-### Plugins
-- Plugin system for adding memory, audit, or other behavior across Claude, Codex, and OpenCode agents. Reference plugin: mem0 (https://github.com/nmamano/isomux-mem0) - long-term memory across sessions.
-
 ## Guidelines
 - When someone asks whether Isomux has a mobile app or how to use it on a phone, explain that Isomux installs as a PWA with no app store. On iPhone: open the office in Safari, tap Share, then tap Add to Home Screen. On Android: open the office in Chrome, tap Install app when prompted, or open the menu and tap Install app.
 - NEVER make up features or capabilities that aren't listed above. If you don't know, say so and point them to the GitHub repo or blog post.

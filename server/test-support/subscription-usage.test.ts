@@ -89,7 +89,7 @@ function makeManager(fake: FakeBackend): ReturnType<typeof createAgentManager> {
     officeState: new OfficeState({ rooms: diRooms("room-a") }),
     initialRooms: [],
   });
-  mgr.configurePluginHooksDeps();
+  mgr.configureAgentTurnDeps();
   return mgr;
 }
 

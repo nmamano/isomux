@@ -106,7 +106,7 @@ function makeManager(fake: FakeBackend, sink: EventHandler) {
     initialRooms: [],
     eventSink: sink,
   });
-  mgr.configurePluginHooksDeps();
+  mgr.configureAgentTurnDeps();
   activeFakes.push(fake);
   return mgr;
 }

@@ -200,7 +200,7 @@ persistence.ts ~1265).
 `queueDedupe` from the store (expired dedupe entries dropped; array order = 
 delivery order preserved). Keys for agents no longer on disk are pruned in one
 pass at load. At the end of `restoreAgents`, fire-and-forget `flushQueue` for
-every agent with a replayed non-empty queue - plugin hooks are configured
+every agent with a replayed non-empty queue - the turn runner is configured
 before restoreAgents runs (index.ts ~4268 vs ~4299), and the flush wakes the
 dormant agent through the existing `!session` resume branch, so delivery
 resumes exactly where the restart cut it off. The watchdog (task 1, layer 3)

@@ -209,7 +209,7 @@ export function measureStorage(roots: StorageRoots): StorageUsage {
   const mem = measureTree(memory);
 
   // Everything in the state root the named categories did not claim:
-  // agents.json, tasks.json, users.json, state/, slide/, plugins/, tls/, ...
+  // agents.json, tasks.json, users.json, state/, slide/, tls/, ...
   // Derived by subtraction so the categories always sum to stateRootBytes.
   const claimedBytes =
     logs.transcripts.bytes +

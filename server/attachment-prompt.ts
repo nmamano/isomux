@@ -97,7 +97,7 @@ const TRAILING_NOTICE_BLOCK = new RegExp(
  *  saved at "/…/image_7.png". …]` while the isomux log entry only carries
  *  `here's the screenshot`. Edit-message matching compares the two by
  *  equality, so the notice block has to come back off first - the same role
- *  stripOutboundEnvelope plays for `beforeTurn` prefix blocks.
+ *  stripOutboundEnvelope plays for built-in notice blocks.
  *
  *  Returns the input unchanged when the text doesn't end in a notice block.
  *  The match is deliberately end-anchored and consumes no separator before the

@@ -104,7 +104,7 @@ async function setup(
     initialRooms: [],
     eventSink: (e) => events.push(e),
   });
-  mgr.configurePluginHooksDeps();
+  mgr.configureAgentTurnDeps();
   const info = await mgr.spawn(
     "SlideAgent",
     STATE_ROOT,
@@ -388,7 +388,7 @@ describe("Slide Mode lifecycle (DI integration)", () => {
   it("PRE-DEFERRED WINDOW: a turn claimed by the agent but not yet holding its deferred is still in flight", async () => {
     // The window the deck actually lands in (task e9429ef3). A direct send logs
     // the user_message and flips the agent busy in one synchronous block, but
-    // reaches createTurnDeferred only after runAgentTurn's plugin phase - here
+    // reaches createTurnDeferred only after runAgentTurn's context-sample await - here
     // held open by the context sample it waits on. The client sees the message
     // the moment it is logged, so its request arrives INSIDE that gap: with the
     // anchor read from the deferred alone, the live turn read terminal and got a
@@ -412,7 +412,7 @@ describe("Slide Mode lifecycle (DI integration)", () => {
     h.fake.sessionForAgent(h.agentId)!.completeTurn({ status: "completed" });
     await waitUntil(() => h.mgr.getAgent(h.agentId)?.state !== "thinking");
 
-    // Turn two: parked in the plugin phase, deferred not installed yet.
+    // Turn two: parked on the context sample, deferred not installed yet.
     void h.mgr.sendMessage(h.agentId, "second", "tester");
     await waitUntil(() => h.userMsgIds().length >= 2);
     const anchor = h.userMsgIds()[1];

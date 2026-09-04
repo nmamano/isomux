@@ -1234,14 +1234,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     try {
       await runAgentTurn({
         managed,
-        visibleText: rawText,
-        // For skills, the expanded skill prompt (with user args spliced in)
-        // is the semantic user request - what the user effectively asked
-        // the model to do. The raw `/grill` invocation is captured in
-        // visibleText for display. Sender prefix is applied as sdkText.
-        originalText: fullPrompt,
         sdkText: prefixedSkillPrompt,
-        origin: "skill",
         humanInput: true,
       });
     } catch (err) {

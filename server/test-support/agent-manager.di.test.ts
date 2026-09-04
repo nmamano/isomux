@@ -124,7 +124,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
   });
 
   it("spawns with an activated personal home when no env files exist", async () => {
-    // onSend completes the wake turn so it doesn't park; configurePluginHooksDeps
+    // onSend completes the wake turn so it doesn't park; configureAgentTurnDeps
     // lets runAgentTurn run at all (it throws unconfigured) - together they make
     // the first-message wake clean instead of logging a turn error.
     const fake = new FakeBackend({
@@ -135,7 +135,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       officeState: new OfficeState({ rooms: rooms("room-personal-home") }),
       initialRooms: [],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     try {
       setPersonalProviderActiveProvider(
         (userId, provider) => userId === "01a19e7b" && provider === "claude",
@@ -334,7 +334,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       initialRooms: [],
       eventSink: sink,
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     const info = await mgr.spawn(
       "OpenCode tracer",
       STATE_ROOT,
@@ -527,7 +527,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       officeState: new OfficeState({ rooms: rooms("room-opencode-auth") }),
       initialRooms: [],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     const info = await mgr.spawn(
       "OpenCode auth tracer",
       STATE_ROOT,
@@ -601,7 +601,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         },
       ],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     const info = await mgr.spawn(
       "Codex auth card",
       STATE_ROOT,
@@ -682,7 +682,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         },
       ],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     const info = await mgr.spawn(
       "Codex auth reset",
       STATE_ROOT,
@@ -773,7 +773,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         initialRooms: [],
         listProviderAccounts,
       });
-      mgr.configurePluginHooksDeps();
+      mgr.configureAgentTurnDeps();
       const info = await mgr.spawn(
         `Codex ${name}`,
         STATE_ROOT,
@@ -842,7 +842,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         },
       ],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     const info = await mgr.spawn(
       "Codex clear",
       STATE_ROOT,
@@ -1019,7 +1019,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
         }),
         initialRooms: [],
       });
-      mgr.configurePluginHooksDeps();
+      mgr.configureAgentTurnDeps();
       const info = await mgr.spawn(
         "OpenCode recovery tracer",
         STATE_ROOT,
@@ -1117,7 +1117,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
   });
 
   it("consults the injected resolver and drives the FakeBackend on first message (lazy spawn: no session at spawn)", async () => {
-    // onSend completes the wake turn so it doesn't park; configurePluginHooksDeps
+    // onSend completes the wake turn so it doesn't park; configureAgentTurnDeps
     // lets runAgentTurn run at all (it throws unconfigured) - together they make
     // the first-message wake clean instead of logging a turn error.
     const fake = new FakeBackend({
@@ -1129,7 +1129,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       officeState: new OfficeState({ rooms: rooms("room-a") }),
       initialRooms: [],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     const info = await mgr.spawn(
       "TestAgent",
       STATE_ROOT,

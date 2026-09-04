@@ -1,35 +1,15 @@
 /**
- * Plugin hook bus + the central `runAgentTurn` helper.
+ * Central `runAgentTurn` helper and outbound server notices.
  *
  * `runAgentTurn` is the single entry point for every send-and-await-turn
  * path: sendMessage, flushQueue, executeSkill, editMessage. It owns:
  *
- *   1. Awaiting the previous turn's afterTurnPromise (so memory writes
- *      from the prior turn land before this turn's beforeTurn retrieval).
- *      A stale promise can't poison future turns - see runAfterTurn for
- *      the self-clearing wrapper.
- *   2. Running every enabled plugin's `beforeTurn` in parallel against the
- *      same context. Per-plugin 5s race; on throw or timeout the plugin
- *      contributes no prefix and the failure goes to plugins.jsonl.
- *   3. Assembling the outbound envelope: built-in blocks first (the wake,
+ *   1. Assembling the outbound envelope from built-in blocks (the wake,
  *      context-fullness and memory-size notices - server coordination, NOT
- *      plugins), then
- *      per-plugin prefix blocks in alphabetical id order, each delimiter-
- *      wrapped, prepended to the outgoing text with a `User message:` separator.
+ *      plugins), prepended to the outgoing text with a `User message:` separator.
  *      stripOutboundEnvelope is the exact inverse (used by edit-to-fork
  *      matching).
- *   4. beginTurn + createTurnDeferred + session.send + await turn.
- *   5. Snapshotting logCache after the caller's onSendAccepted callback
- *      runs but before the agent's turn output lands, so user_message
- *      entries logged by the caller are excluded from newLogEntries.
- *   6. Firing afterTurn for every plugin in parallel AFTER session.send
- *      was attempted, with status reflecting the post-send outcome
- *      (completed / failed / interrupted). Per-plugin 10s race. The
- *      aggregate promise is stored on `managed.afterTurnPromise` and
- *      self-clears on settle. A turn cancelled DURING plugin retrieval
- *      (Stop / session swap before session.send) skips afterTurn - the
- *      cancel-token check throws SessionSwappedError above the send
- *      lifecycle, so no afterTurn fires for a turn the backend never saw.
+ *   2. beginTurn + createTurnDeferred + session.send + await turn.
  *
  * Each call site keeps its own catch block because the error semantics
  * differ (SessionSwappedError on session swap, BackendNotConfiguredError
@@ -40,93 +20,58 @@
  * each call site.
  */
 
-import type { Attachment, LogEntry } from "../shared/types.ts";
-import type {
-  IsomuxPlugin,
-  PluginAfterTurnInput,
-  PluginTurnContext,
-} from "../shared/plugin-types.ts";
+import type { Attachment } from "../shared/types.ts";
 import { SessionSwappedError, type ManagedAgent } from "./internal-types.ts";
-import { getEnabledPlugins, logPluginFailure } from "./plugins.ts";
-
-const BEFORE_TURN_TIMEOUT_MS = 5000;
-const AFTER_TURN_TIMEOUT_MS = 10000;
-
-export type TurnOrigin = "user" | "queued" | "skill" | "edit-fork";
 
 export interface RunAgentTurnOpts {
   managed: ManagedAgent;
-  /** What the user typed verbatim (e.g. "/grill"). For plugin context only;
-   *  not sent. */
-  visibleText: string;
-  /** Semantic user input WITHOUT sender prefix or plugin prefix blocks. For
-   *  normal sends it's the raw user text; for skills it's the expanded
-   *  skill prompt; for queued flushes it's the per-item bodies joined.
-   *  This is what plugins should query against / store as "the user's
-   *  message" - sender prefixes like `[Nil (Phone)]` are isomux routing
-   *  noise, not intent. */
-  originalText: string;
-  /** Pre-prefix outgoing text, with sender prefix already applied. Plugin
-   *  prefix blocks (if any) get prepended; the result is what session.send
-   *  actually receives. */
+  /** Outgoing text with sender prefix already applied. */
   sdkText: string;
   attachments?: Attachment[];
-  origin: TurnOrigin;
   humanInput: boolean;
-  /** Called synchronously after session.send resolves and BEFORE the
-   *  newLogEntries snapshot is taken. Use this for "log only on send-
-   *  accepted" patterns - flushQueue uses it to write user_message entries
-   *  and drain its queue once the backend has accepted the prompt. Any
-   *  entries logged here land BEFORE the snapshot and are therefore
-   *  excluded from `PluginAfterTurnInput.newLogEntries`. */
+  /** Called synchronously after session.send resolves. Use this for "log only
+   *  on send-accepted" patterns - flushQueue uses it to write user_message
+   *  entries and drain its queue once the backend accepts the prompt. */
   onSendAccepted?: () => void;
 }
 
-// Dependency injection: agent-manager owns beginTurn / createTurnDeferred /
-// logCache / officeState as module-private state. Rather than re-export and
-// pull plugin-hooks into a cycle, we wire them in once at boot.
-type PluginHooksDeps = {
+// Dependency injection: agent-manager owns beginTurn and createTurnDeferred as
+// module-private state. Rather than re-export and pull this module into a cycle,
+// we wire them in once at boot.
+type AgentTurnDeps = {
   beginTurn: (agentId: string, opts: { humanInput: boolean }) => void;
   createTurnDeferred: (managed: ManagedAgent) => Promise<void>;
-  getLogCache: (agentId: string) => LogEntry[] | undefined;
-  // Phase 3c: looked up by the agent's authoritative roomId, not a dense index.
-  getRoom: (roomId: string) => { id: string; name: string } | null;
+  contextNoticeSampleWaitMs: number;
 };
 
-let deps: PluginHooksDeps | null = null;
+let deps: AgentTurnDeps | null = null;
 
-export function configurePluginHooks(d: PluginHooksDeps): void {
+export function configureAgentTurn(d: AgentTurnDeps): void {
   deps = d;
 }
 
-/** Owns the entire send-and-await-turn lifecycle, including plugin hooks.
+/** Owns the entire send-and-await-turn lifecycle.
  *  Throws through whatever the underlying turn threw so callers' catch
  *  blocks continue to handle SessionSwappedError / BackendNotConfiguredError
  *  / etc. with their existing semantics. */
 export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   if (!deps) {
     throw new Error(
-      "plugin-hooks not configured; call configurePluginHooks at boot",
+      "agent turn runner not configured; call configureAgentTurn at boot",
     );
   }
 
   const {
     managed,
     sdkText,
-    originalText,
-    visibleText,
     attachments,
-    origin,
     humanInput,
     onSendAccepted,
   } = opts;
   const agentId = managed.info.id;
 
-  // 1. Claim the turn lifecycle immediately, BEFORE any await. The
-  // afterTurnPromise gate (up to 10s) plus per-plugin beforeTurn (up to 5s
-  // each) would otherwise leave the agent in idle / waiting_for_response
-  // state for the duration - concurrent ingress (sendMessage, executeSkill,
-  // enqueueMessage's "isQueueIdleState" branch) would see the agent as
+  // 1. Claim the turn lifecycle immediately. Concurrent ingress (sendMessage,
+  // executeSkill, enqueueMessage's "isQueueIdleState" branch) would see the agent as
   // not-busy and skip the queue, leading to either a deferred supersession
   // or two send() calls racing into the same backend session.
   //
@@ -136,75 +81,17 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   // same call.
   deps.beginTurn(agentId, { humanInput });
 
-  // Snapshot the cancel token immediately after beginTurn. Any control-plane
-  // action that would normally cancel an in-flight turn (abort, kill,
-  // replaceSession via /clear / /resume / /model / /effort / edit-fork)
-  // bumps this counter. We re-check after each await during the pre-send
-  // window and bail with SessionSwappedError if it changed - pendingTurn
-  // isn't installed yet, so the usual rejection path can't reach us.
+  // Snapshot the cancel token immediately after beginTurn. Built-in notice
+  // assembly can await a context sample before pendingTurn is installed.
   const cancelTokenAtEntry = managed.turnCancelToken;
   const checkCancelled = () => {
     if (managed.turnCancelToken !== cancelTokenAtEntry) {
-      throw new SessionSwappedError("Turn cancelled during plugin retrieval.");
+      throw new SessionSwappedError("Turn cancelled before send.");
     }
   };
 
-  // 2. Gate on the previous turn's afterTurn. The promise stored on
-  // `managed.afterTurnPromise` self-clears via runAfterTurn's .finally
-  // hook, so even a previously timed-out afterTurn doesn't block this turn.
-  if (managed.afterTurnPromise) {
-    try {
-      await managed.afterTurnPromise;
-    } catch {
-      // runAfterTurn catches plugin throws internally; defensive in case a
-      // future hook here is added that can throw.
-    }
-    checkCancelled();
-  }
-
-  // 3. Build the plugin context. getRoom may return null if the agent's
-  // roomId somehow names no live room (shouldn't happen, but defensive).
-  const room = deps.getRoom(managed.info.roomId);
-  const ctx: PluginTurnContext = {
-    agentId,
-    agentName: managed.info.name,
-    roomId: room?.id ?? "",
-    roomName: room?.name ?? "",
-    sessionId: managed.sessionId,
-    cwd: managed.info.cwd,
-    username: managed.info.username,
-    userId: managed.info.userId,
-    visibleText,
-    originalText,
-    sdkText,
-  };
-
-  // 4. Run beforeTurn for every enabled plugin in parallel. getEnabledPlugins
-  // already returns entries sorted by id; we preserve that order in the
-  // assembled prefix.
-  const loaded = getEnabledPlugins();
-  const prefixes: Array<{ id: string; prefix: string }> = [];
-  if (loaded.length > 0) {
-    const results = await Promise.all(
-      loaded.map(async ({ plugin }) => {
-        const prefix = await runOneBeforeTurn(plugin, ctx, origin);
-        return prefix ? { id: plugin.id, prefix } : null;
-      }),
-    );
-    for (const r of results) {
-      if (r) prefixes.push(r);
-    }
-    // beforeTurn could have taken up to BEFORE_TURN_TIMEOUT_MS per plugin;
-    // re-check the cancel token before committing to send.
-    checkCancelled();
-  }
-
-  // 4b. Built-in outbound blocks (server coordination, NOT plugins - no
-  // enable/disable coupling, absent from plugin discovery + failure
-  // accounting): the context-fullness notice, the session-start memory-size
-  // notice, and the wake notice. Computed after the plugin loop so the
-  // just-finished turn's
-  // fire-and-forget sample has the most time to land; the bounded await inside
+  // 2. Build the context-fullness, session-start memory-size, and wake notices.
+  // The bounded await inside
   // caps the added latency (~500ms worst case, and only on turns where a sample
   // is still in flight).
   const contextNotice = await buildContextNoticeBlock(managed);
@@ -225,10 +112,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     ? { block: managed.wakeNotice, gen: managed.contextGen }
     : null;
 
-  // 5. Assemble the outbound envelope: built-in blocks first, then plugin
-  // blocks in sorted order, then the user payload. Built-ins get their own
-  // reserved `isomux:` delimiter (NOT a fake plugin id) so stripOutboundEnvelope
-  // round-trips them for edit-to-fork matching.
+  // 3. Assemble the outbound envelope, then the user payload. The reserved
+  // `isomux:` delimiter lets stripOutboundEnvelope round-trip the notices for
+  // edit-to-fork matching.
   const envelopeBlocks: string[] = [];
   // First block: it describes the transcript the agent is about to read back,
   // so it belongs ahead of the housekeeping notices.
@@ -247,34 +133,23 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
       `--- begin isomux: memory-check ---\n${memoryNotice.block}\n--- end isomux: memory-check ---`,
     );
   }
-  for (const { id, prefix } of prefixes) {
-    envelopeBlocks.push(
-      `--- begin plugin: ${id} ---\n${prefix}\n--- end plugin: ${id} ---`,
-    );
-  }
   let finalText = sdkText;
   if (envelopeBlocks.length > 0) {
     finalText = `${envelopeBlocks.join("\n\n")}${USER_MESSAGE_SEPARATOR}${sdkText}`;
   }
 
   // Final pre-send cancel check. Catches a Stop/swap that fires after the
-  // beforeTurn loop returned but before createTurnDeferred runs - small
+  // notice assembly returned but before createTurnDeferred runs - small
   // window but legitimately reachable since assembling the prefix yields
   // the microtask queue.
   checkCancelled();
 
-  // 6. Install the per-turn deferred. Held close to session.send so we don't
-  // park a pendingTurn through the plugin retrieval phase - the state gate
-  // above is what serializes turns; pendingTurn is what makes session.send /
+  // 4. Install the per-turn deferred. pendingTurn makes session.send /
   // await turn cancellable on session swap.
   const turn = deps.createTurnDeferred(managed);
   const ownPending = managed.pendingTurn;
 
-  // 7. Send. Snapshot the logCache AFTER onSendAccepted runs but BEFORE the
-  // agent's turn output starts arriving via processNormalizedEvent - that's
-  // the window in which "new entries produced by this turn" is well-defined.
-  let snapshotIdx = 0;
-  let status: PluginAfterTurnInput["status"] = "completed";
+  // 5. Send.
   let thrown: unknown = undefined;
 
   try {
@@ -331,7 +206,6 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
         console.error(`[runAgentTurn] onSendAccepted threw:`, err);
       }
     }
-    snapshotIdx = deps.getLogCache(agentId)?.length ?? 0;
     await turn;
   } catch (err) {
     thrown = err;
@@ -351,30 +225,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     }
     // SessionSwappedError = user-initiated swap (abort, /resume, /model,
     // /effort, /clear, editMessage fork install) OR a pre-send cancel
-    // detected by checkCancelled above. Map to "interrupted" so plugins
-    // can distinguish from real failures.
-    status = err instanceof SessionSwappedError ? "interrupted" : "failed";
-  }
-
-  // 8. Fire afterTurn for every plugin. Even on failure / interruption -
-  // memory plugins may want to observe the boundary, audit plugins always
-  // want the record, etc. The aggregate promise self-clears on settle.
-  if (loaded.length > 0) {
-    const allEntries = deps.getLogCache(agentId) ?? [];
-    const newLogEntries = allEntries.slice(snapshotIdx);
-    const input: PluginAfterTurnInput = {
-      status,
-      userTextSent: finalText,
-      assistantText: assistantTextFromEntries(newLogEntries),
-      newLogEntries,
-    };
-    managed.afterTurnPromise = runAfterTurn(
-      loaded.map((lp) => lp.plugin),
-      ctx,
-      input,
-      origin,
-      managed,
-    );
+    // detected by checkCancelled above.
   }
 
   if (thrown !== undefined) {
@@ -393,43 +244,31 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
 const USER_MESSAGE_SEPARATOR = "\n\nUser message:\n";
 
 // Boundary between the final envelope block and the user payload, anchored on
-// the full closing line of EITHER a built-in (`isomux`) or plugin block so we
-// don't false-strip on a `---` substring that happens to precede the separator
-// inside a block body (e.g. a stored memory that ends with `---`). Plugin ids
-// are constrained to `[a-z0-9_-]+` in persistence.ts:726; the built-in ids
-// (`context-check`, `memory-check`) match the same grammar. Requiring the
+// the full closing line so we don't false-strip on a `---` substring that
+// happens to precede the separator inside a block body. Requiring the
 // separator right after the closing line is also what makes this find the LAST
 // block when several fire on the same turn.
 const END_ENVELOPE_AND_SEPARATOR =
-  /(?:^|\n)--- end (?:isomux|plugin): [a-z0-9_-]+ ---\n\nUser message:\n/;
+  /(?:^|\n)--- end isomux: [a-z0-9_-]+ ---\n\nUser message:\n/;
 
 /** Recover the unwrapped `sdkText` from a backend-recorded user message.
  *
- *  When at least one built-in block (the context-fullness notice) or a
- *  `beforeTurn` plugin returned a non-empty prefix, `runAgentTurn` rewrites the
+ *  When at least one built-in block fires, `runAgentTurn` rewrites the
  *  outgoing text as `${blocks}${USER_MESSAGE_SEPARATOR}${sdkText}` (see step 5
  *  above). The backend persists the wrapped form into its session transcript,
  *  but the isomux log entry only carries the unwrapped `sdkText`. Edit-message
  *  matching needs the two to line up, so this helper strips the wrap back off.
  *
- *  Returns the input unchanged when no wrap is present (no built-in block fired,
- *  no plugin contributed a prefix this turn, or the text isn't a user message at
- *  all). Two guards keep regular user text safe from accidental stripping:
- *    1. The text must start with `--- begin isomux: ` or `--- begin plugin: ` -
- *       a user whose message happens to contain the separator pattern but didn't
- *       open with a begin marker is left alone.
- *    2. The boundary regex matches the FULL `--- end (isomux|plugin): <id> ---`
+ *  Returns the input unchanged when no wrap is present. Two guards keep regular
+ *  user text safe from accidental stripping:
+ *    1. The text must start with `--- begin isomux: `.
+ *    2. The boundary regex matches the FULL `--- end isomux: <id> ---`
  *       closing line shape (not just three dashes), so a block body containing
  *       `---` immediately before a stray separator can't short-circuit the split.
  *  The FIRST match wins, which is the structural boundary - anything that looks
- *  like the pattern in the user payload comes later in the string. Old
- *  transcripts (plugin-only wraps) strip identically: the plugin grammar is
- *  unchanged, strictly extended with the `isomux` alternative. */
+ *  like the pattern in the user payload comes later in the string. */
 export function stripOutboundEnvelope(text: string): string {
-  if (
-    !text.startsWith("--- begin isomux: ") &&
-    !text.startsWith("--- begin plugin: ")
-  ) {
+  if (!text.startsWith("--- begin isomux: ")) {
     return text;
   }
   const m = END_ENVELOPE_AND_SEPARATOR.exec(text);
@@ -453,7 +292,7 @@ export function stripOutboundEnvelope(text: string): string {
 // How long the pre-send step waits for the just-finished turn's fire-and-forget
 // sample to land before proceeding with whatever snapshot is already committed.
 // A notice delayed by one turn beats delaying every send.
-const CONTEXT_NOTICE_SAMPLE_WAIT_MS = 500;
+export const CONTEXT_NOTICE_SAMPLE_WAIT_MS = 500;
 
 // Fullness bands (raw percentage), ascending. Once each per conversation
 // generation, per audience: the agent-facing injected notice here, and the
@@ -584,7 +423,7 @@ async function buildContextNoticeBlock(
     await Promise.race([
       inFlight,
       new Promise<void>((res) =>
-        setTimeout(res, CONTEXT_NOTICE_SAMPLE_WAIT_MS),
+        setTimeout(res, deps!.contextNoticeSampleWaitMs),
       ),
     ]);
   }
@@ -609,227 +448,4 @@ export function markContextThresholdFired(
   for (const band of CONTEXT_NOTICE_BANDS) {
     if (band.pct <= threshold) managed.firedAgentThresholds.add(band.pct);
   }
-}
-
-// ---------------------------------------------------------------------------
-// beforeTurn - per-plugin race with timeout
-// ---------------------------------------------------------------------------
-
-async function runOneBeforeTurn(
-  p: IsomuxPlugin,
-  ctx: PluginTurnContext,
-  origin: TurnOrigin,
-): Promise<string | null> {
-  if (!p.beforeTurn) return null;
-
-  const start = Date.now();
-  // `timedOut` lets the underlying work's catch suppress its log if the race
-  // already resolved with timeout. Avoids a double-log when both the timeout
-  // AND a late throw fire.
-  let timedOut = false;
-
-  // Wrap the underlying work so a late rejection after the race resolves
-  // doesn't become an unhandledRejection.
-  const work = (async () => {
-    try {
-      const r = await p.beforeTurn!(ctx);
-      return r ?? null;
-    } catch (err) {
-      if (!timedOut) {
-        logPluginFailure({
-          pluginId: p.id,
-          hook: "beforeTurn",
-          agentId: ctx.agentId,
-          roomId: ctx.roomId,
-          origin,
-          durationMs: Date.now() - start,
-          error: err,
-        });
-      }
-      return null;
-    }
-  })();
-
-  const winner = await Promise.race([
-    work.then((r) => ({ kind: "ok" as const, r })),
-    new Promise<{ kind: "timeout" }>((res) =>
-      setTimeout(() => res({ kind: "timeout" }), BEFORE_TURN_TIMEOUT_MS),
-    ),
-  ]);
-
-  if (winner.kind === "timeout") {
-    timedOut = true;
-    logPluginFailure({
-      pluginId: p.id,
-      hook: "beforeTurn",
-      agentId: ctx.agentId,
-      roomId: ctx.roomId,
-      origin,
-      durationMs: BEFORE_TURN_TIMEOUT_MS,
-      error: new Error(
-        `beforeTurn timed out after ${BEFORE_TURN_TIMEOUT_MS}ms`,
-      ),
-    });
-    return null;
-  }
-
-  return normalizeBeforeTurnResult(p, winner.r, ctx, origin, start);
-}
-
-/** Validate a plugin's beforeTurn return value and extract the prefix string.
- *  A malformed shape - non-object return, or `promptPrefix` that isn't a
- *  string - must NOT crash the turn (the spec is explicit: plugin errors
- *  never fail the turn). Instead we log the malformation to plugins.jsonl
- *  and return null, dropping the plugin's contribution for this turn. The
- *  isolation boundary lives here so callers can't accidentally route an
- *  unsafe value into the prompt-assembly path.
- *
- *  Accepts: null/undefined (no contribution), `{}` (no contribution),
- *  `{ promptPrefix: string }` (the canonical shape), `{ promptPrefix: null }`
- *  (treated as no contribution).
- *  Rejects-with-log: primitives, arrays, `{ promptPrefix: <non-string> }`. */
-function normalizeBeforeTurnResult(
-  p: IsomuxPlugin,
-  value: unknown,
-  ctx: PluginTurnContext,
-  origin: TurnOrigin,
-  startMs: number,
-): string | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value !== "object" || Array.isArray(value)) {
-    logPluginFailure({
-      pluginId: p.id,
-      hook: "beforeTurn",
-      agentId: ctx.agentId,
-      roomId: ctx.roomId,
-      origin,
-      durationMs: Date.now() - startMs,
-      error: new Error(
-        `beforeTurn must return an object or void; got ${Array.isArray(value) ? "array" : typeof value}`,
-      ),
-    });
-    return null;
-  }
-  const obj = value as Record<string, unknown>;
-  if (!("promptPrefix" in obj)) return null;
-  const prefix = obj.promptPrefix;
-  if (prefix === undefined || prefix === null) return null;
-  if (typeof prefix !== "string") {
-    logPluginFailure({
-      pluginId: p.id,
-      hook: "beforeTurn",
-      agentId: ctx.agentId,
-      roomId: ctx.roomId,
-      origin,
-      durationMs: Date.now() - startMs,
-      error: new Error(
-        `beforeTurn promptPrefix must be a string; got ${typeof prefix}`,
-      ),
-    });
-    return null;
-  }
-  const trimmed = prefix.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-// ---------------------------------------------------------------------------
-// afterTurn - per-plugin race, self-clearing aggregate promise
-// ---------------------------------------------------------------------------
-
-function runAfterTurn(
-  plugins: IsomuxPlugin[],
-  ctx: PluginTurnContext,
-  input: PluginAfterTurnInput,
-  origin: TurnOrigin,
-  managed: ManagedAgent,
-): Promise<void> {
-  // The settled aggregate of all per-plugin races. runOneAfterTurn catches
-  // throws and timeouts internally, so this never rejects.
-  const settled: Promise<void> = Promise.all(
-    plugins.map((p) => runOneAfterTurn(p, ctx, input, origin)),
-  ).then(() => undefined);
-
-  // Wrap with a self-clearing finally - a timed-out plugin must not leave a
-  // stale promise blocking every future turn. Identity-compare via the
-  // wrapping `self` so we only null the slot if it still points at this
-  // turn's promise (a later turn may have overwritten it).
-  const self: Promise<void> = settled.finally(() => {
-    if (managed.afterTurnPromise === self) {
-      managed.afterTurnPromise = null;
-    }
-  });
-
-  return self;
-}
-
-async function runOneAfterTurn(
-  p: IsomuxPlugin,
-  ctx: PluginTurnContext,
-  input: PluginAfterTurnInput,
-  origin: TurnOrigin,
-): Promise<void> {
-  if (!p.afterTurn) return;
-
-  const start = Date.now();
-  let timedOut = false;
-
-  const work = (async () => {
-    try {
-      await p.afterTurn!(ctx, input);
-    } catch (err) {
-      if (!timedOut) {
-        logPluginFailure({
-          pluginId: p.id,
-          hook: "afterTurn",
-          agentId: ctx.agentId,
-          roomId: ctx.roomId,
-          origin,
-          durationMs: Date.now() - start,
-          error: err,
-        });
-      }
-    }
-  })();
-
-  const winner = await Promise.race([
-    work.then(() => "ok" as const),
-    new Promise<"timeout">((res) =>
-      setTimeout(() => res("timeout"), AFTER_TURN_TIMEOUT_MS),
-    ),
-  ]);
-
-  if (winner === "timeout") {
-    timedOut = true;
-    logPluginFailure({
-      pluginId: p.id,
-      hook: "afterTurn",
-      agentId: ctx.agentId,
-      roomId: ctx.roomId,
-      origin,
-      durationMs: AFTER_TURN_TIMEOUT_MS,
-      error: new Error(`afterTurn timed out after ${AFTER_TURN_TIMEOUT_MS}ms`),
-    });
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/** Concatenate all `text` log entries from the turn's slice, in chronological
- *  order, joined with blank-line separators. Tool-using turns emit text →
- *  tool_call → text patterns, and a memory/audit plugin needs the agent's
- *  full natural-language output, not just the last span. Empty/whitespace-
- *  only entries are dropped so the join doesn't produce stray blank lines.
- *  Returns empty string when no text entry landed (failed/interrupted
- *  turns before any assistant text streamed). */
-function assistantTextFromEntries(entries: LogEntry[]): string {
-  const parts: string[] = [];
-  for (const e of entries) {
-    if (e.kind !== "text") continue;
-    if (typeof e.content !== "string") continue;
-    const trimmed = e.content.trim();
-    if (trimmed.length > 0) parts.push(trimmed);
-  }
-  return parts.join("\n\n");
 }

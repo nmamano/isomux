@@ -122,12 +122,12 @@ function makeManager(fake: FakeBackend) {
     officeState: new OfficeState({ rooms: rooms("room-a") }),
     initialRooms: [],
   });
-  // Waking an agent runs runAgentTurn, which throws unless plugin-hooks are
+  // Waking an agent runs runAgentTurn, which throws unless turn-runner deps are
   // configured. Production wires this at boot (isomux-office.ts); the bare DI manager
   // must do it itself. The module-global is re-pointed per test (makeManager
   // runs per test) and harness tests reconfigure it to their own manager, so
   // this stays deterministic within the file.
-  mgr.configurePluginHooksDeps();
+  mgr.configureAgentTurnDeps();
   return mgr;
 }
 
@@ -274,7 +274,7 @@ describe("idle eviction - demote / dormant / wake", () => {
     // sendMessage is the WS textarea path - the one that showed "ended
     // unexpectedly" before the fix. Fire-and-forget: the wake (installSession +
     // the system message) lands early in sendMessage's flow; we don't await the
-    // turn itself, which would hang on the no-op FakeBackend when plugin hooks
+    // turn itself, which would hang on the no-op FakeBackend when the turn runner
     // happen to be globally configured by another test in the shared process.
     void mgr.sendMessage(id, "hi", "tester").catch(() => {});
     await waitUntil(
@@ -372,9 +372,9 @@ describe("idle eviction - demote / dormant / wake", () => {
         { id: "room-a", name: "room-a", prompt: null, agents: [persisted] },
       ],
     });
-    // This test builds its own manager (custom initialRooms), so wire plugin-
-    // hooks here too - the wake below runs a turn.
-    mgr.configurePluginHooksDeps();
+    // This test builds its own manager (custom initialRooms), so wire turn-runner
+    // deps here too - the wake below runs a turn.
+    mgr.configureAgentTurnDeps();
 
     await mgr.restoreAgents();
 
@@ -489,7 +489,7 @@ describe("lazy spawn / release-on-clear - blank agents hold no subprocess", () =
         },
       ],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
 
     await mgr.restoreAgents();
     expect(mgr.getAgent(id)?.dormant).toBe(true);
@@ -526,7 +526,7 @@ describe("lazy spawn / release-on-clear - blank agents hold no subprocess", () =
         },
       ],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
 
     await mgr.restoreAgents();
     expect(mgr.getAgent(id)?.dormant).toBe(true);
@@ -766,7 +766,7 @@ describe("skill dispatch on a dormant agent", () => {
       // because session === null; now executeSkill wakes the dormant agent
       // first (lazy-restore). Fire-and-forget: the wake lands synchronously
       // early in the flow; awaiting the turn can hang on the no-op FakeBackend
-      // when plugin hooks are globally configured by another test.
+      // when the turn runner is globally configured by another test.
       void mgr.sendMessage(id, `/${skillName}`, "tester").catch(() => {});
       await waitUntil(
         () => (mgr.getAgent(id)?.dormant ?? false) === false,
@@ -856,7 +856,7 @@ describe("idle eviction - truthful wake-up after a shutdown", () => {
         },
       ],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     return mgr;
   }
 

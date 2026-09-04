@@ -68,7 +68,7 @@ async function emitSystemText(
       dir: "/accounts/office-codex",
     }),
   });
-  mgr.configurePluginHooksDeps();
+  mgr.configureAgentTurnDeps();
   const info = await mgr.spawn(
     "Worker",
     STATE_ROOT,

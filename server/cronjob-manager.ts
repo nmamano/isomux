@@ -1888,7 +1888,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // post-prompt user message - i.e. the first follow-up turn.
     const cronjobPromptIsFirstUser = sessionMessages[0]?.role === "user";
     // stripOutboundEnvelope recovers `sdkText` from any turn where a built-in
-    // block (context-fullness notice) or a beforeTurn plugin (e.g. mem0)
+    // block (such as a context-fullness notice)
     // contributed a prefix block - the SDK records the wrapped form built in
     // plugin-hooks.ts, but log entries only carry `sdkText`. Without the strip,
     // every edit on a turn that carried an envelope block would fall through to

@@ -41,6 +41,7 @@ import {
   saveRecentCwd,
   loadOfficeConfig,
   saveOfficeConfig,
+  warnIfLegacyPluginsConfigured,
   loadServerConfig,
   saveServerConfig,
   ensureSessionCwd,
@@ -417,6 +418,40 @@ describe("recent-cwds persistence round-trip (Phase 1.3)", () => {
 // ---------------------------------------------------------------------------
 
 describe("office-config / server-config persistence (Phase 1.3)", () => {
+  it("boots with a legacy non-empty enabledPlugins key, warns once, and preserves it on save", () => {
+    seed("office-config.json", { enabledPlugins: ["mem0"] });
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    try {
+      warnIfLegacyPluginsConfigured();
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(warnings).toEqual([
+      "[server-config] enabledPlugins is no longer supported; ignoring",
+    ]);
+
+    saveOfficeConfig({ prompt: "P", envFile: null, name: null });
+    expect(
+      JSON.parse(readFileSync(stateFile("office-config.json"), "utf-8"))
+        .enabledPlugins,
+    ).toEqual(["mem0"]);
+  });
+
+  it("boots without a legacy enabledPlugins key and does not warn", () => {
+    seed("office-config.json", { prompt: "P" });
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+    try {
+      warnIfLegacyPluginsConfigured();
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(warnings).toEqual([]);
+  });
+
   it("round-trips OfficeSettings through saveOfficeConfig -> loadOfficeConfig", () => {
     saveOfficeConfig({
       prompt: "Office prompt",

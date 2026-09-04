@@ -134,7 +134,7 @@ it.skipIf(!LIVE)(
         officeState: new OfficeState({ rooms: rooms("room-opencode-real") }),
         initialRooms: [],
       });
-      mgr.configurePluginHooksDeps();
+      mgr.configureAgentTurnDeps();
       const info = await mgr.spawn(
         "OpenCode real tracer",
         STATE_ROOT,
@@ -251,7 +251,7 @@ it.skipIf(!LIVE)(
         officeState: new OfficeState({ rooms: rooms("room-opencode-error") }),
         initialRooms: [],
       });
-      mgr.configurePluginHooksDeps();
+      mgr.configureAgentTurnDeps();
       const info = await mgr.spawn(
         "OpenCode error tracer",
         STATE_ROOT,

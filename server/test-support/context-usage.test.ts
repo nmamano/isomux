@@ -127,7 +127,7 @@ function makeManager(fake: FakeBackend): ReturnType<typeof createAgentManager> {
     officeState: new OfficeState({ rooms: diRooms("room-a") }),
     initialRooms: [],
   });
-  mgr.configurePluginHooksDeps();
+  mgr.configureAgentTurnDeps();
   return mgr;
 }
 
@@ -459,7 +459,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       officeState: new OfficeState({ rooms: diRooms("room-a") }),
       initialRooms: [],
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     try {
       const info = await mgr.spawn(
         "Worker",
@@ -905,7 +905,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
       initialRooms: [],
       eventSink: sink,
     });
-    mgr.configurePluginHooksDeps();
+    mgr.configureAgentTurnDeps();
     return mgr;
   }
 

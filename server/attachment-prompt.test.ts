@@ -298,7 +298,7 @@ describe("stripAttachmentNotices", () => {
   });
 
   // The two strips compose in the order editMessage applies them: a turn can
-  // carry BOTH a beforeTurn/context-notice envelope (prefix) and attachments
+  // carry BOTH a context-notice envelope (prefix) and attachments
   // (suffix), and the log entry holds neither.
   it("composes with stripOutboundEnvelope to recover the bare sdkText", () => {
     const sdkText = "[Nil] both at once";

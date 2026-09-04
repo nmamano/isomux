@@ -44,12 +44,11 @@ import {
   saveScheduledMessages,
   loadServerConfig,
   saveServerConfig,
-  loadEnabledPlugins,
+  warnIfLegacyPluginsConfigured,
   loadSessionsMap,
   peekMessageQueuesRaw,
   buildKilledManifest,
 } from "./persistence.ts";
-import { loadPlugins } from "./plugins.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
 import type { Attachment, InviteWire, SessionWire } from "../shared/types.ts";
@@ -5761,10 +5760,10 @@ function logBootBanners(): void {
   }
 } // end logBootBanners
 
-// runBackgroundBoot: post-listen boot work (update checker, plugin-hooks deps,
-// plugin load + agent restore, schedulers, backup, admin socket). Each
+// runBackgroundBoot: post-listen boot work (turn-runner deps, agent restore,
+// schedulers, backup, admin socket). Each
 // background job is individually skippable so the in-process test harness boots
-// with no timers / no network / no LLM. Returns the plugin-load+restore promise
+// with no timers / no network / no LLM. Returns the restore promise
 // so the harness can await a fully-restored office; production fires and forgets
 // (listener already up). Body left at prior indentation; prettier normalizes.
 function runBackgroundBoot(
@@ -5779,41 +5778,10 @@ function runBackgroundBoot(
     startUpdateChecker();
   }
 
-  // Wire plugin-hooks to agent-manager internals (beginTurn / createTurnDeferred /
-  // logCache / room lookup) BEFORE loading plugins, so the loader has a usable
-  // runtime when discovery completes. Plugins themselves are discovered + imported
-  // in loadPlugins below. See server/plugin-hooks.ts for the contract.
-  agentManager.configurePluginHooksDeps();
+  agentManager.configureAgentTurnDeps();
+  warnIfLegacyPluginsConfigured();
 
-  // Plugin load + agent restore are sequenced inside the same async boot so
-  // RESTORED agents come up with the full plugin set already in place. A
-  // fire-and-forget plugin load would race with restoreAgents - a slow
-  // plugin import could let restored-agent turns dispatch with
-  // getEnabledPlugins() empty.
-  //
-  // Caveat: `Bun.serve` above already bound the HTTP listener BEFORE this
-  // IIFE started. A user who spawns a brand-new agent during the small
-  // plugin-load window (typically <100ms; longer if a plugin's transitive
-  // deps need fetching) and immediately sends them a message will see that
-  // agent's first turn run without plugin hooks. We accept this for v0:
-  // gating HTTP on plugin load would let a single broken local plugin
-  // stall the whole UI, which is a worse failure mode than one
-  // plugin-less first turn. If it bites, the right fix is a `pluginsReady`
-  // flag checked at turn-dispatch time, not at HTTP-accept time.
-  //
-  // Plugin load failures land in ~/.isomux/logs/plugins.jsonl + stderr and
-  // don't block startup; we still proceed to restoreAgents on the catch path
-  // so a broken plugin doesn't kill the server.
   const restorePromise = (async () => {
-    try {
-      // import.meta.dir points at server/, so go up one to get the repo root.
-      const isomuxRoot = join(import.meta.dir, "..");
-      const enabledPlugins = loadEnabledPlugins();
-      await loadPlugins({ isomuxRoot, enabledPlugins });
-    } catch (err) {
-      console.error("[plugins] unexpected error during plugin load:", err);
-    }
-
     const restored = await agentManager.restoreAgents();
     if (restored.length > 0) {
       console.log(
@@ -5905,7 +5873,7 @@ export interface StartServerOpts {
   // value so a skipped backup scheduler cannot expose host backup state. The
   // route's production projection still runs over this internal shape.
   getBackupStatus?: () => BackupStatus;
-  // Await plugin-load + agent restore before resolving (tests that assert on a
+  // Await agent restore before resolving (tests that assert on a
   // fully-restored office). Production leaves this false: fire-and-forget so the
   // listener is up immediately, matching today's behavior.
   awaitRestore?: boolean;

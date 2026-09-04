@@ -96,7 +96,6 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Browser preview cards** - agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser on the server, which the [VPS install](self-hosted.md#vps-install) sets up for you (runs headless, so no display is needed); everything else works without one.
 - `/isomux-usage` - per-agent / per-room / per-cron-job token spend, scoped to the rooms you can access. The same report is available under Office Settings.
 - `/isomux-storage` - disk usage by category; owners also see the biggest agents.
-- **Plugin system**: add memory, audit, or other turn-aware behavior. Reference [mem0 plugin](https://github.com/nmamano/isomux-mem0) gives agents long-term memory across sessions.
 
 ### Navigation and shortcuts
 

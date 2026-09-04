@@ -999,103 +999,16 @@ export function saveOfficeConfig(config: OfficeSettings) {
   }
 }
 
-// A single entry in office-config.json's `enabledPlugins` array.
-//
-//   - Bare string ("safety-hooks") = a bundled first-party plugin, resolved
-//     under `<isomuxRoot>/plugins/<id>/`.
-//   - Object ({ id, path }) = an external plugin at the explicit `path`. The
-//     plugin's exported `id` must match the entry's `id` (the path's basename
-//     does NOT have to match - e.g., the mem0 plugin lives at a directory
-//     called `isomux-mem0` but exports id "mem0").
-//
-// The hybrid shape keeps bundled-plugin config clean (just a string id, no
-// machine-specific paths) while making external-plugin trust explicit:
-// the config file enumerates every directory whose code will be imported
-// into the isomux process.
-export type EnabledPluginEntry = string | { id: string; path: string };
-
-// Read `enabledPlugins` from office-config.json. Returns validated entries
-// (deduped by id, first occurrence wins). Goes through readOfficeConfigRaw
-// rather than loadOfficeConfig because `OfficeSettings` filters unknown keys
-// - `enabledPlugins` lives alongside `prompt` / `envFile` / `name` /
-// `publicOrigin` in the JSON but is not surfaced to the UI in v0 (operator
-// edits the file directly).
-//
-// Validation:
-// - Top-level must be an array; otherwise the field is dropped wholesale.
-// - String entries must match `[a-z0-9_-]+`.
-// - Object entries must have `id: string` matching the same regex AND
-//   `path: string` that's absolute (starts with `/`) or tilde-prefixed
-//   (starts with `~/`). Relative paths are rejected because they'd resolve
-//   against the server cwd which is brittle.
-// - Bad entries are logged to stderr and dropped - a malformed enable list
-//   should not silently broaden the trust boundary.
-export function loadEnabledPlugins(): EnabledPluginEntry[] {
+// Older office-config.json files can still carry the removed plugin setting.
+// readOfficeConfigRaw keeps unknown keys, so this compatibility check does not
+// make the legacy key part of current OfficeSettings.
+export function warnIfLegacyPluginsConfigured(): void {
   const raw = readOfficeConfigRaw();
-  if (!("enabledPlugins" in raw)) return [];
-  const candidate = raw.enabledPlugins;
-  if (!Array.isArray(candidate)) {
-    console.error(
-      "[server-config] enabledPlugins in office-config.json is not an array; ignoring",
+  if (Array.isArray(raw.enabledPlugins) && raw.enabledPlugins.length > 0) {
+    console.warn(
+      "[server-config] enabledPlugins is no longer supported; ignoring",
     );
-    return [];
   }
-  const idRe = /^[a-z0-9_-]+$/;
-  const result: EnabledPluginEntry[] = [];
-  const seenIds = new Set<string>();
-  for (const v of candidate) {
-    let entry: EnabledPluginEntry | null = null;
-    if (typeof v === "string") {
-      const id = v.trim();
-      if (!idRe.test(id)) {
-        console.error(
-          `[server-config] enabledPlugins entry "${v}" is not a valid plugin id (need ${idRe}); ignoring`,
-        );
-        continue;
-      }
-      entry = id;
-    } else if (v && typeof v === "object" && !Array.isArray(v)) {
-      const obj = v as { id?: unknown; path?: unknown };
-      const rawId = typeof obj.id === "string" ? obj.id.trim() : "";
-      if (!rawId || !idRe.test(rawId)) {
-        console.error(
-          `[server-config] enabledPlugins object entry has invalid id (need ${idRe}); ignoring:`,
-          v,
-        );
-        continue;
-      }
-      const rawPath = typeof obj.path === "string" ? obj.path.trim() : "";
-      if (!rawPath) {
-        console.error(
-          `[server-config] enabledPlugins object entry "${rawId}" is missing path; ignoring`,
-        );
-        continue;
-      }
-      if (!rawPath.startsWith("/") && !rawPath.startsWith("~/")) {
-        console.error(
-          `[server-config] enabledPlugins entry "${rawId}" path "${rawPath}" is not absolute (must start with / or ~/); ignoring`,
-        );
-        continue;
-      }
-      entry = { id: rawId, path: rawPath };
-    } else {
-      console.error(
-        "[server-config] enabledPlugins entry is neither a string nor an {id, path} object; ignoring:",
-        v,
-      );
-      continue;
-    }
-    const id = typeof entry === "string" ? entry : entry.id;
-    if (seenIds.has(id)) {
-      console.error(
-        `[server-config] enabledPlugins has duplicate id "${id}"; keeping the first occurrence`,
-      );
-      continue;
-    }
-    seenIds.add(id);
-    result.push(entry);
-  }
-  return result;
 }
 
 // Server/deployment config that shares office-config.json but isn't part of
