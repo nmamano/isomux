@@ -1,4 +1,4 @@
-// The sign-in handshake for registered-app hostnames (slice 4).
+// The sign-in handshake for registered-app hostnames.
 //
 // An app lives at `hello.office.example` and the office at `office.example`.
 // The office session cookie is host-only, deliberately - that is what keeps a
@@ -19,7 +19,7 @@
 // every request - so signing out of the office closes every app with it.
 //
 // Specified in internal-docs/port-proxy-design.md ("Auth handshake"). Nothing
-// here relays app bytes; slice 5 does that, below this module.
+// here relays app bytes; the relay does that below this module.
 //
 // WHAT IS IN A URL, AND WHY THAT IS THE WHOLE THREAT MODEL. A code has to
 // cross an origin boundary, and the only way across is a URL - so for one
@@ -47,8 +47,8 @@ import {
   neutralNotFound,
 } from "./app-host-responses.ts";
 
-// The app-host route the handshake lands on, inside the `/__isomux` prefix
-// slice 3 reserved for it. An app can never serve or shadow this path.
+// The app-host route the handshake lands on, inside the reserved `/__isomux`
+// prefix. An app can never serve or shadow this path.
 export const APP_AUTH_PATH = "/__isomux/auth";
 
 // The office route that mints a code. Behind the office's ordinary auth wall,
@@ -84,10 +84,10 @@ export const APP_MINT_WINDOW_MS = 60_000;
 // Redeem budget, per app label. Nuisance control, not the boundary: guessing a
 // 256-bit code is not a thing that happens. Keyed by label because there is no
 // usable per-caller key - the office sits behind a terminator on the same box,
-// so every external request arrives from loopback, and slice 2 established
-// that `X-Forwarded-*` is not trustworthy here. The cost of that choice,
-// stated rather than hidden: someone hammering one app's hostname can spend
-// that app's redeem budget for a minute, and its legitimate users wait.
+// so every external request arrives from loopback, and `X-Forwarded-*` is not
+// trustworthy here. The cost of that choice, stated rather than hidden:
+// someone hammering one app's hostname can spend that app's redeem budget for a
+// minute, and its legitimate users wait.
 export const APP_REDEEM_MAX_PER_WINDOW = 60;
 export const APP_REDEEM_WINDOW_MS = 60_000;
 
@@ -705,13 +705,13 @@ export function handleAppAuthRedeem(
 }
 
 // The gate in front of everything an app host serves. Returns null when the
-// caller holds a live app session and the request may proceed (to the
-// placeholder today, to the app itself in slice 5).
+// caller holds a live app session and the request may proceed (to the app
+// itself).
 //
 // Otherwise: a request that may start the handshake is bounced into it, and
 // anything else is refused. When a cookie was presented and rejected, the refusal
 // clears it - a dead credential must not sit in a browser waiting to confuse
-// its owner, which is the lesson slice 2's logout blocker taught.
+// its owner or block logout.
 // The same question for a WebSocket upgrade, which needs its own answer rather
 // than the gate below.
 //
@@ -723,7 +723,7 @@ export function handleAppAuthRedeem(
 // end in failure, one of them confusingly. So an upgrade gets one answer, the
 // honest one: hold a live app session or be refused.
 //
-// In practice a browser reaches an app's page over HTTP first (slice 5), which
+// In practice a browser reaches an app's page over HTTP first, which
 // is where the session is established, so a real app's socket opens with the
 // cookie already in hand.
 export function appHostWsAuthGate(

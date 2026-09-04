@@ -2,12 +2,12 @@
 // hostname, the grammar that decides whether it can carry app hostnames at
 // all, and the URL an app is reachable at.
 //
-// Split out of app-hosts.ts in slice 8 for one concrete reason: the supervisor
-// has to know an app's URL to write it into the app's unit, and app-hosts.ts
-// imports the supervisor (its arm proves an app is active before relaying to
-// it). Importing back would make a cycle. Everything here is a leaf - pure
-// functions plus one boot-frozen value - so both the request side and the
-// supervisor side can depend on it and neither depends on the other.
+// Split out of app-hosts.ts because the supervisor has to know an app's URL to
+// write it into the app's unit, and app-hosts.ts imports the supervisor (its arm
+// proves an app is active before relaying to it). Importing back would make a
+// cycle. Everything here is a leaf - pure functions plus one boot-frozen value -
+// so both the request side and the supervisor side can depend on it and neither
+// depends on the other.
 
 import { buildPublicOrigin } from "./auth.ts";
 

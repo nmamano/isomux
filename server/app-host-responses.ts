@@ -20,10 +20,10 @@
 // business, so all of it is one answer.
 export const NOT_FOUND_BODY = "not found\n";
 
-// (Slice 3's "this app is not reachable yet" body is GONE as of slice 6b. It
-// was the last placeholder on this surface: slice 5 replaced it for HTTP and the
-// WebSocket refusal was the only caller left. A live label now always reaches
-// either the app or a refusal that says something specific.)
+// The "this app is not reachable yet" body is GONE. It was the last placeholder
+// on this surface: the HTTP relay replaced it, and the WebSocket refusal was the
+// only caller left. A live label now always reaches either the app or a refusal
+// that says something specific.
 
 // A live app and no valid app session, on a request that could not complete the
 // sign-in handshake anyway: an unsafe method, a HEAD, or Fetch Metadata saying
@@ -51,7 +51,7 @@ export const MINT_LIMITED_BODY =
 // caller is a signed-in office user who can act on it.
 export const BAD_REQUEST_BODY = "bad request\n";
 
-// The three relay refusals (slice 5). Unlike everything above, these are only
+// The three relay refusals. Unlike everything above, these are only
 // reachable by a caller who already holds a live app session, so they may say
 // what is actually wrong: the person reading them is a signed-in office user
 // looking at their own app, not an anonymous caller probing which labels exist.
@@ -70,7 +70,7 @@ export const APP_UNREACHABLE_BODY = "this app did not respond\n";
 // 6b): the pools are separate, the sentence is the same one.
 export const APP_BUSY_BODY = "this app is busy; try again\n";
 
-// The two WebSocket refusals (slice 6b). Everything else the upgrade path can
+// The two WebSocket refusals. Everything else the upgrade path can
 // refuse with is a body above, reused: no session -> AUTH_REQUIRED_BODY, app not
 // running -> APP_STOPPED_BODY, cap reached -> APP_BUSY_BODY, an upstream that
 // could not be dialed or would not upgrade -> APP_UNREACHABLE_BODY, a reserved
@@ -101,9 +101,9 @@ export const APP_WS_PROTOCOL_MISMATCH_BODY =
 // surface has no unnamed bodies.
 export const APP_WS_UPGRADE_FAILED_BODY = "websocket upgrade failed\n";
 
-// The plain refusal, exactly as slice 3 shipped it. Byte-for-byte frozen:
-// app-host-dispatch.test.ts compares whole responses, and the indistinguisha-
-// bility promise above is what those comparisons protect.
+// The plain refusal is byte-for-byte frozen: app-host-dispatch.test.ts compares
+// whole responses, and the indistinguishability promise above is what those
+// comparisons protect.
 export function neutral(status: number, body: string): Response {
   return new Response(body, {
     status,

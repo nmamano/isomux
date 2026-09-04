@@ -1,10 +1,9 @@
-// The WebSocket relay behind app hostnames (slice 6b).
+// The WebSocket relay behind app hostnames.
 //
-// Slice 6a built the upstream half - a frame codec and an in-house client over a
-// raw TCP socket, with a queue that has a number on it - and wired it into
-// nothing. This module is the wiring: it decides who may open a socket to an
-// app, dials the app, and then carries frames between two legs that are entirely
-// different animals.
+// The upstream half is a frame codec and an in-house client over a raw TCP
+// socket, with a queue that has a number on it. This module is the wiring: it
+// decides who may open a socket to an app, dials the app, and then carries frames
+// between two legs that are entirely different animals.
 //
 // THE TWO LEGS ARE NOT SYMMETRIC, and most of what looks like duplication below
 // is that asymmetry:
@@ -71,17 +70,17 @@ export const APP_WS_MAX_SOCKETS_TOTAL = 64;
 export const APP_WS_MAX_SOCKETS_PER_APP = 32;
 
 // What the browser leg may have outstanding before this relay stops feeding it.
-// Matched to slice 6a's upstream queue ceiling so the two directions cost the
+// Matched to the upstream queue ceiling so the two directions cost the
 // same, and far below Bun's own ~16MB limit so the number that governs is OURS.
 //
 // THE BOUND THIS BUYS IS HONEST BUT NOT TOTAL, and the difference matters:
 // `getBufferedAmount()` reads 0 while the kernel is still absorbing writes
 // (measured), so what this ceiling actually caps is Bun's queue, not the socket
-// buffer underneath it. Per connection: slice 6a's ~3.5MB, plus this 512KB, plus
-// whatever Bun and the kernel hold for a socket that has already accepted bytes
-// - bounded by Bun's own backpressure limit and SO_SNDBUF, which are not ours to
-// set. Overclaiming a tidier number would be the kind of memory statement that
-// reads well and is wrong.
+// buffer underneath it. Per connection: the upstream's ~3.5MB, plus this 512KB,
+// plus whatever Bun and the kernel hold for a socket that has already accepted
+// bytes - bounded by Bun's own backpressure limit and SO_SNDBUF, which are not
+// ours to set. Overclaiming a tidier number would be the kind of memory statement
+// that reads well and is wrong.
 export const APP_WS_BROWSER_BUFFER_MAX_BYTES = 512 * 1024;
 
 // How often a live socket re-proves it is still allowed to exist.
@@ -96,7 +95,7 @@ export const APP_WS_SESSION_RECHECK_MS = 30_000;
 // The largest `Sec-WebSocket-Protocol` offer this relay will parse.
 //
 // A bound is needed because the offer is FORWARDED: it becomes a header line in
-// the upgrade request slice 6a writes, which has its own 16KB ceiling. Without a
+// the upgrade request, which has its own 16KB ceiling. Without a
 // bound here, an absurd offer of syntactically valid tokens would pass every
 // check, take a permit, prove the app is running, dial it, and only then be
 // refused by that ceiling as a generic "did not respond" - work done and a
@@ -373,7 +372,7 @@ export class AppWsRelay {
   // Which transports are still live. The permit is held until BOTH are gone,
   // because the cap counts SOCKETS, not relay objects that have been asked to
   // close. Releasing when shutdown starts would let a new relay take the slot
-  // while the old sockets are still up - slice 6a gives the app leg up to
+  // while the old sockets are still up - the app leg has up to
   // APP_WS_CLOSE_HANDSHAKE_MS to answer, and a browser can dawdle too - so a
   // repeated fault could hold more than 64 real sockets under a cap of 64.
   //
@@ -428,7 +427,7 @@ export class AppWsRelay {
   onUpstreamClose(event: UpstreamCloseEvent): void {
     // The app leg is gone, whatever else is true. Recorded FIRST so every path
     // below - including the ones that return early - leaves the accounting
-    // right. Slice 6a promises this fires exactly once.
+    // right. The upstream contract promises this fires exactly once.
     this.upstreamLive = false;
     if (this.shuttingDown) {
       this.releaseIfBothLegsEnded();
@@ -507,8 +506,8 @@ export class AppWsRelay {
       case "sent":
         return;
       case "queue_full":
-        // The app has stopped reading. Slice 6a's contract is that the caller
-        // ends the connection rather than letting the queue grow.
+        // The app has stopped reading. The upstream contract requires the caller
+        // to end the connection rather than letting the queue grow.
         this.finish(
           fault(CLOSE_BACKPRESSURE, "app stopped reading"),
           "upstream write queue is full",
@@ -536,9 +535,9 @@ export class AppWsRelay {
     }
     if (code === 1006) {
       // The tab vanished, the network dropped, the process died. No close frame
-      // was exchanged, so none is invented: slice 6a's terminate() ends the TCP
-      // connection without one and the app sees 1006 - the same event, told the
-      // same way it reached us.
+      // was exchanged, so none is invented: the upstream's terminate() ends the
+      // TCP connection without one and the app sees 1006 - the same event, told
+      // the same way it reached us.
       this.upstream.terminate("browser socket dropped");
     } else if (code === 1005) {
       // Closed cleanly with no status. Relayed as no status.
@@ -703,15 +702,15 @@ export class AppWsRelay {
       );
     }
     // Both closes are now IN FLIGHT. Neither leg is necessarily gone: the app
-    // has up to slice 6a's close-handshake budget to answer, and the browser's
+    // has up to the upstream close-handshake budget to answer, and the browser's
     // own close callback arrives on the runtime's schedule. The permit goes back
     // in those callbacks, not here - see releaseIfBothLegsEnded.
     //
-    // Deliberately NOT consulting upstream.isOpen() as a shortcut: slice 6a
+    // Deliberately NOT consulting upstream.isOpen() as a shortcut: the upstream
     // reports `closing` as not-open the moment a close frame is QUEUED, so that
     // test would mark the leg dead while its socket is still up and hand the
-    // slot away - the exact bug this method exists to fix. Only onClose, which
-    // slice 6a promises exactly once, ends the app leg.
+    // slot away - the exact bug this method exists to fix. Only onClose ends the
+    // app leg, and the upstream contract promises it fires exactly once.
     this.releaseIfBothLegsEnded();
   }
 }
@@ -746,7 +745,7 @@ function endingFor(event: UpstreamCloseEvent): BrowserEnding {
     kind: "close",
     code: event.code,
     // Bun truncates a too-long reason silently at 123 bytes and can cut a
-    // character in half; slice 6a's helper cuts on a code-point boundary.
+    // character in half; the helper cuts on a code-point boundary.
     reason: truncateCloseReason(event.reason),
   };
 }
@@ -831,9 +830,9 @@ export async function relayWsToApp(
   // ones a `Connection` line nominates are dropped, the relay-owned
   // `X-Forwarded-*` are rewritten rather than passed through, `Host` is the
   // verified app host, and the Cookie header loses all three isomux credentials
-  // (the app must never see what admits to it). Slice 6a then owns every header
-  // that belongs to the handshake itself - key, version, Connection, Upgrade,
-  // and the protocol offer - and drops any inbound duplicate of them.
+  // (the app must never see what admits to it). The upstream then owns every
+  // header that belongs to the handshake itself - key, version, Connection,
+  // Upgrade, and the protocol offer - and drops any inbound duplicate of them.
   for (const [name, value] of buildUpstreamHeaders(
     req,
     ctx.host,
@@ -843,7 +842,7 @@ export async function relayWsToApp(
   }
 
   // THE EARLIEST WINDOW, and it is narrower and sharper than the pre-open one
-  // below. Slice 6a publishes the connection, settles the dial, and only THEN
+  // below. The upstream publishes the connection, settles the dial, and only THEN
   // parses the bytes that shared the handshake's last TCP read - so an app that
   // greets on connect can deliver its greeting, or its close, while this
   // function is still suspended on the `await` and no relay object exists yet.

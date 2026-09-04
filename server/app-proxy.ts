@@ -1,10 +1,10 @@
-// The HTTP relay behind app hostnames (slice 5).
+// The HTTP relay behind app hostnames.
 //
-// Slices 3 and 4 built the road: a request whose Host is a strict child of the
-// office host is diverted before any office handler sees it, and a caller who
-// cannot prove an office session never gets past the gate. This module is what
-// finally sits at the end of it - an authenticated request is carried to the
-// app's own loopback port and its bytes are carried back, streamed both ways.
+// A request whose Host is a strict child of the office host is diverted before
+// any office handler sees it, and a caller who cannot prove an office session
+// never gets past the gate. This module is what finally sits at the end of it -
+// an authenticated request is carried to the app's own loopback port and its
+// bytes are carried back, streamed both ways.
 //
 // A relay is a place where two parties' assumptions meet, so nearly all of the
 // code here is about NOT passing something along:
@@ -22,7 +22,7 @@
 //     port is just a free port, and any local process can be sitting on it.
 //
 // WebSocket upgrades never reach here - the arm refuses them above this module
-// (slice 6 relays them).
+// (the WebSocket relay handles them).
 
 import type { AppRecord } from "../shared/types.ts";
 import { appRegistrationKey, watchAppRetirement } from "./app-lifecycle.ts";
@@ -109,7 +109,7 @@ const DECODED_CODINGS = new Set(["gzip", "deflate", "br", "zstd"]);
 
 // Cookies that never leave the office, whoever sent them.
 //
-// `__Host-isomux_app` is the load-bearing one and slice 4's explicit handoff:
+// `__Host-isomux_app` is the load-bearing one and the explicit handoff:
 // it is the credential that opens THIS app, and an app holding it could open
 // itself as its own visitor. The two office session names are stripped for the
 // same reason one level up - an app handed a live office session could act as
@@ -239,8 +239,8 @@ export function forwardedForValue(peer: string | null): string | null {
 // The headers the app sees. `peerAddress` is the TCP peer of the office's own
 // listener - which, on every deployment that has app hostnames, is the local
 // terminator rather than the browser. That is deliberate and it is the honest
-// answer: slice 2 established that the office socket is directly reachable, so
-// an inbound `X-Forwarded-For` is client-settable and cannot be promoted to
+// answer: the office socket is directly reachable, so an inbound
+// `X-Forwarded-For` is client-settable and cannot be promoted to
 // truth by relaying it. An app therefore learns who connected to the office,
 // not who the user is. Absent peer -> no header at all, rather than a literal
 // "unknown" sitting where an address belongs.

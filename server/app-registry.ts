@@ -484,12 +484,11 @@ function isIssuedLabel(value: unknown): value is IssuedLabel {
     isFiniteNumber(issuedAt) &&
     (registrationGen === undefined ||
       (isGeneration(registrationGen) && registrationGen >= gen)) &&
-    // Absent is the normal case - every row written before slice 7, and every
-    // label nobody has visited yet. Present must be Date.now()-shaped: a
-    // non-integer or negative value is damage, and the row is refused rather
-    // than reinterpreted. This is validation, not a trust boundary - anyone who
-    // can edit apps.json can write a plausible admission, and that is not a
-    // threat this defends against.
+    // Absent is the normal case for old rows and every label nobody has visited
+    // yet. Present must be Date.now()-shaped: a non-integer or negative value is
+    // damage, and the row is refused rather than reinterpreted. This is
+    // validation, not a trust boundary - anyone who can edit apps.json can write
+    // a plausible admission, and that is not a threat this defends against.
     (certAdmittedAt === undefined ||
       (Number.isSafeInteger(certAdmittedAt) && (certAdmittedAt as number) >= 0))
   );

@@ -217,7 +217,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
 
     // Map the manager's internal `jobId` to the public `cronjobId` so the wire
     // matches the documented contract and the rest of the cron surface (every
-    // other cron field identifies a cronjob by `cronjobId`). [3d slice 2]
+    // other cron field identifies a cronjob by `cronjobId`).
     "cron.listAllRuns": () =>
       ok({
         jobs: deps

@@ -1,4 +1,4 @@
-// Host-based dispatch for registered apps (slice 3).
+// Host-based dispatch for registered apps.
 //
 // An office serves one hostname today. Once registered apps get stable
 // origins, a second class of hostname arrives: the URL shape is FLAT, so an
@@ -18,11 +18,11 @@
 //                         server, and none of those names may reach the
 //                         office's own surface.
 //
-// Since slice 4 the arm also runs the sign-in handshake (server/app-auth.ts):
+// The arm also runs the sign-in handshake (server/app-auth.ts):
 // a caller with a live app session reaches the app, everyone else is either
-// sent through the office to get one or refused. Since slice 5 the
-// authenticated branch ends in the relay (server/app-proxy.ts), so this is the
-// point at which an app's own bytes finally reach a browser.
+// sent through the office to get one or refused. The authenticated branch ends
+// in the relay (server/app-proxy.ts), so this is the point at which an app's own
+// bytes finally reach a browser.
 //
 // WHERE THE DOMAIN COMES FROM: publicOrigin, and nothing else. No config key,
 // no override, no installer-written state - if the office has an HTTPS public
@@ -124,10 +124,10 @@ export function matchAppHost(
   return { kind: "label", label };
 }
 
-// Reserved on every app host from day one: the auth handshake mounts here
-// (slice 4), and the relay must never be able to serve or shadow it.
-// Structural, so the check cannot be forgotten later - the relay, when it
-// exists, plugs in BELOW this branch.
+// Reserved on every app host from day one: the auth handshake mounts here and
+// the relay must never be able to serve or shadow it. Structural, so the check
+// cannot be forgotten later - the relay, when it exists, plugs in BELOW this
+// branch.
 export const APP_RESERVED_PATH = "/__isomux";
 
 // Every body this arm can produce lives in app-host-responses.ts, shared with
@@ -185,7 +185,7 @@ export interface AppHostDeps {
 //      on this path, is the 404: an app never sees a reserved path, and both
 //      relays plug in below this branch.
 //   5. a WebSocket upgrade            -> its own auth answer (an upgrade cannot
-//      follow a redirect) and then the WebSocket relay (slice 6b). It is
+//      follow a redirect) and then the WebSocket relay. It is
 //      handled HERE rather than by falling through, because falling through
 //      would hand a diverted host to the office's own /ws handler, which is the
 //      one thing that must be impossible.
@@ -194,7 +194,7 @@ export interface AppHostDeps {
 //      refused (mayInitiateHandshake). Runs AFTER the label
 //      and reserved checks so an anonymous caller cannot learn anything about
 //      a label from the shape of the auth response.
-//   7. authenticated                  -> the relay (slice 5): the app's own
+//   7. authenticated                  -> the relay: the app's own
 //      bytes, or one of its three refusals.
 //
 // DELIBERATELY NOT `async`. Only the diverted path returns a promise; the

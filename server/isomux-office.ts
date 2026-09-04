@@ -1991,7 +1991,7 @@ function buildExecutorDeps(
     }),
   );
 
-  // Memory (isomux-memory; slice 3a agent-scope tracer). Author + date are
+  // Memory (isomux-memory agent-scope tracer). Author + date are
   // server-stamped from the token (authorFor); scopeId is a target selector, not
   // authority. A write whose caller record can't be resolved fails 404 rather
   // than being stamped "unknown".
@@ -2503,10 +2503,10 @@ function buildExecutorDeps(
             error: `User ${username} not found`,
           };
         }
-        // ATOMIC clamp (deferred from slice 6): compute the new accessible set
-        // from the INCOMING allowedRooms and prune the target's existing
-        // notifRooms to fit, in ONE updateUserById write. An empty `change`
-        // re-clamps the current view fields (clampViewFields reads `current`).
+        // ATOMIC clamp: compute the new accessible set from the INCOMING
+        // allowedRooms and prune the target's existing notifRooms to fit, in ONE
+        // updateUserById write. An empty `change` re-clamps the current view
+        // fields (clampViewFields reads `current`).
         const accessible = accessibleRoomIdsFor(target, allowedRooms);
         const appAudienceBefore = snapshotAppVisibility(() => true);
         const clamped = clampViewFields(accessible, target, {});
@@ -4795,7 +4795,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // the classification cannot sit behind any pathname check. Returns null
       // on every other Host, including the office's own - and on every request
       // of every install with no app-host domain resolved.
-      // The relay (slice 5) makes the diverted path asynchronous; the office's
+      // The relay makes the diverted path asynchronous; the office's
       // own path is not, so only the promise this can hand back is awaited.
       const appHostResponse = handleAppHostRequest(req, {
         supervisor: appSupervisor,
@@ -4900,7 +4900,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
 
         // GET /__isomux/tls-ask - the certificate admission gate for app
-        // hostnames (slice 7). The terminator calls it over loopback before
+        // hostnames. The terminator calls it over loopback before
         // obtaining a certificate AND before loading one it already has in
         // storage, so this answers on every cold load, not once per name. It
         // approves the office's own host and live app labels, and denies
@@ -5074,10 +5074,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
           // The `__Host-` migration rides this response like it rides a page load
           // or a safe /api GET. It matters MORE here than on those: this is the
-          // door into the app origins, and slice 2's whole point was to close
-          // cookie shadowing from a sibling subdomain BEFORE one exists. A user
-          // who reached an app while still holding only the legacy, shadowable
-          // office cookie would be exactly the case the prerequisite was for.
+          // door into the app origins, and the cookie-migration prerequisite
+          // closes shadowing from a sibling subdomain BEFORE one exists. A user
+          // who reached an app while holding only the legacy, shadowable office
+          // cookie would be exactly the case the prerequisite was for.
           // Restricted to GET for the same reason the /api path restricts it to
           // safe methods - and any other method here is a neutral 404 anyway.
           return req.method === "GET"

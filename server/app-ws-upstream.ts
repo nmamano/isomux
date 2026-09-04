@@ -1,4 +1,4 @@
-// The relay's WebSocket client to an app on loopback (slice 6a).
+// The relay's WebSocket client to an app on loopback.
 //
 // One connection to one app, over a raw TCP socket, using the codec in
 // ws-frames.ts. Bun's own WebSocket client would be less code; it is not used
@@ -54,10 +54,8 @@
 // can read them.
 //
 // WHAT IT DELIBERATELY DOES NOT OWN: any policy. It does not know what an app
-// is, cannot look one up, and holds no credential. The relay (slice 6b) decides
+// is, cannot look one up, and holds no credential. The relay decides
 // who may connect and what to do when this connection ends.
-//
-// Nothing here is wired into a request path yet - slice 6b does that.
 
 import { connect, type Socket } from "bun";
 import { randomBytes, createHash } from "crypto";
@@ -254,7 +252,7 @@ export type HandshakeCheck =
   // `rejected` is an app that answered something other than an upgrade - a
   // page, a 404, a redirect. `invalid` is an app that tried to upgrade and got
   // it wrong. `protocol` is the narrow subprotocol-negotiation case, split out
-  // in slice 6b because the relay owes that one a different, debuggable answer:
+  // because the relay owes that one a different, debuggable answer:
   // the browser asked for an application protocol and the app did not agree to
   // it, which is the caller's problem to fix rather than a broken app. The
   // distinction is the caller's, not cosmetic, and it is carried as a field
@@ -419,7 +417,7 @@ export type DialFailure =
   | "handshake_rejected"
   | "handshake_invalid"
   // The app's 101 named a subprotocol the client never offered. Its own kind so
-  // the relay can say what actually went wrong (slice 6b).
+  // the relay can say what actually went wrong.
   | "handshake_protocol"
   | "bad_request";
 

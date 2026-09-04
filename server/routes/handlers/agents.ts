@@ -2,9 +2,9 @@
 // spawn/kill/revive/abort/edit + move/swap-desks/topic mutation surface on the
 // unified REST surface (every op caps `agent:manage`).
 //
-// Strangler EXPAND+CUT in one slice (like rooms slice 6): 3a/3b declared these
-// rows in table.ts but NEVER built a handler - the agent lifecycle stayed
-// WS-only. This slice builds the handlers AND deletes the WS cases.
+// Strangler EXPAND+CUT: 3a/3b declared these rows in table.ts but NEVER built a
+// handler - the agent lifecycle stayed WS-only. These handlers replace the
+// deleted WS cases.
 //   - 7a: the FIRE-AND-FORGET mutations
 //     (kill/abort/move/swapDesks/setTopic/clearTopic).
 //   - 7b: the RESPONSE-DRIVEN trio (spawn/revive/update) + the
