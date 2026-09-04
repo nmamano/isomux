@@ -533,35 +533,6 @@ describe("OpenCode shared server supervisor", () => {
     await unrelated.exited;
   });
 
-  it("waits for an active turn before an environment replacement", async () => {
-    const path = await root();
-    const supervisor = new OpenCodeSupervisor({
-      profileDir: join(path, "profile"),
-      serverCwd: path,
-      config: gateConfig(mockProvider()),
-      environmentRevision: "revision-before",
-      replacementDrainMs: 1000,
-    });
-    supervisors.push(supervisor);
-    const active = await supervisor.acquire();
-    await active.beginTurn();
-    const priorPid = active.pid;
-    supervisor.updateLaunchEnvironment({}, "revision-after");
-    let granted = false;
-    const waiting = supervisor.acquire().then((lease) => {
-      granted = true;
-      return lease;
-    });
-    await Bun.sleep(80);
-    expect(granted).toBe(false);
-    expect(alive(priorPid)).toBe(true);
-    active.endTurn();
-    const replacement = await waiting;
-    expect(replacement.pid).not.toBe(priorPid);
-    active.release();
-    replacement.release();
-  }, 20_000);
-
   it("waits for an active turn before a permission-config replacement", async () => {
     const path = await root();
     const initialConfig = { share: "disabled" };

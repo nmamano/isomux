@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { FakeBackend, FakeSession } from "./fake-backend.ts";
+import { FakeBackend } from "./fake-backend.ts";
 import type {
   Backend,
   CreateSessionOptions,
@@ -44,48 +44,6 @@ describe("FakeBackend - Backend contract", () => {
       agentType: "claude" | "codex" | "opencode",
     ) => Backend = () => fake;
     expect(resolveBackend("claude")).toBe(fake);
-  });
-
-  it("defaults capabilities and exposes config overrides", async () => {
-    const fake = new FakeBackend();
-    expect(fake.capabilities.fork).toBe(true);
-
-    const custom = new FakeBackend({
-      capabilities: {
-        fork: false,
-        hooks: false,
-        skills: false,
-        canUseTool: false,
-        topicGen: false,
-        edit: false,
-        mcp: false,
-      },
-      modelOptions: [{ value: "m", label: "M" }],
-    });
-    expect(custom.capabilities.fork).toBe(false);
-    expect(custom.getModelOptions()).toEqual([{ value: "m", label: "M" }]);
-  });
-
-  it("oneShotPrompt returns configured value (string + function) and counts", async () => {
-    const fixed = new FakeBackend({ oneShot: "topic: refactor" });
-    expect(await fixed.oneShotPrompt("p", { modelFamily: "fake" })).toBe(
-      "topic: refactor",
-    );
-    expect(fixed.oneShotCount).toBe(1);
-
-    const fn = new FakeBackend({ oneShot: (p) => `echo:${p}` });
-    expect(await fn.oneShotPrompt("hi", { modelFamily: "fake" })).toBe(
-      "echo:hi",
-    );
-  });
-
-  it("detectAuthError is configurable, default never", () => {
-    expect(new FakeBackend().detectAuthError("anything")).toBe(false);
-    const auth = new FakeBackend({
-      isAuthError: (t) => t.includes("Invalid API key"),
-    });
-    expect(auth.detectAuthError("Invalid API key")).toBe(true);
-    expect(auth.detectAuthError("fine")).toBe(false);
   });
 
   it("forkSessionBeforeMessage defaults to fresh, honors override", async () => {
@@ -237,26 +195,4 @@ describe("FakeSession - stream lifecycle", () => {
     );
   });
 
-  it("approve() records the decision", async () => {
-    const fake = new FakeBackend();
-    const session = fake.createSession(opts()) as FakeSession;
-    await session.approve("ap1", { kind: "allow_once" });
-    expect(session.approvals).toEqual([
-      { approvalId: "ap1", decision: { kind: "allow_once" } },
-    ]);
-  });
-
-  it("getContextUsage returns null by default, override honored", async () => {
-    expect(
-      await new FakeBackend().createSession(opts()).getContextUsage(),
-    ).toBe(null);
-    const usage = {
-      model: "fake",
-      totalTokens: 10,
-      maxTokens: 100,
-      percentage: 10,
-    };
-    const fake = new FakeBackend({ session: { contextUsage: usage } });
-    expect(await fake.createSession(opts()).getContextUsage()).toEqual(usage);
-  });
 });

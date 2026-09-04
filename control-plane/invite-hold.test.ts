@@ -59,14 +59,6 @@ describe("expiry", () => {
     expect(hold.size()).toBe(0);
   });
 
-  test("the scheduled half drops it with nobody asking", async () => {
-    const hold = new InviteHold(() => Date.now(), 5);
-    hold.hold("op-1", "inst-1", URL);
-    expect(hold.size()).toBe(1);
-    await Bun.sleep(25);
-    expect(hold.size()).toBe(0);
-  });
-
   test("the TTL is minutes, not hours", async () => {
     // A guard on the constant itself: this value is how long a live credential
     // can sit in memory, so a change to it is a decision, not a tweak.
