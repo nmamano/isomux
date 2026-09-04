@@ -548,7 +548,7 @@ describe("provider-neutral safety-policy extraction", () => {
         "M3 destructive rules moved before safe rules",
         await mutantFactory("m3", (source) =>
           source.replace(
-            "for (const pattern of SAFE_PATTERNS) {\n    if (pattern.test(normalized)) return allow();\n  }\n\n  // Check destructive patterns (blocklist)\n  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(normalized)) {\n      return denyMessage(reason, command);\n    }\n  }",
+            "for (const pattern of SAFE_PATTERNS) {\n    if (pattern.test(normalized)) return allow();\n  }\n\n  for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(normalized)) {\n      return denyMessage(reason, command);\n    }\n  }",
             "for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {\n    if (pattern.test(normalized)) return denyMessage(reason, command);\n  }\n  for (const pattern of SAFE_PATTERNS) {\n    if (pattern.test(normalized)) return allow();\n  }",
           ),
         ),
