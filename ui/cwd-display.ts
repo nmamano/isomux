@@ -6,7 +6,7 @@
 // path on screen is one of them: DiffCard renders a tool payload's cwd raw.
 //
 // Never use it on a value being sent back to the server: `~` is expanded
-// server-side (plugins.ts), but the round trip is only safe for the caller's
+// server-side, but the round trip is only safe for the caller's
 // OWN home, and nothing here knows whose path it is rendering.
 export function shortenCwd(cwd: string): string {
   return cwd.replace(/^\/home\/[^/]+/, "~");

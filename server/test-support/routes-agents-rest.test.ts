@@ -500,7 +500,7 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
   });
 
   // The core holds the same line for callers that don't come through REST
-  // (boot/restore, the welcome seed, plugins).
+  // (boot/restore, the welcome seed).
   it("core: agentManager.spawn with an out-of-range desk returns null", async () => {
     const srv = await startTestServer();
     server = srv;
