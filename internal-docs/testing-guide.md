@@ -4,7 +4,9 @@ The maintained reference for Isomux's test suite: the tiers, how to run them, th
 
 ## How to run
 
-- On a fresh checkout or worktree, run `bun run build:ui` first. Tests that serve the app shell or PWA assets need the built files.
+- On a fresh checkout or worktree, run `bun run build:ui` before `bun test`. Tests that serve the app shell or PWA assets need the built files.
+- Create a ready worktree from the main checkout with `scripts/worktree-setup.sh <name> [--web]`; use `--web` for control-plane/web work.
+- A PTY test that fails with empty output in a fresh worktree has a missing native build, not a code regression.
 - `bun test` - the default. Zero LLM calls, so it is safe for CI, PRs, and pre-commit. This is the whole suite except the live smoke tier.
 - `bun run test:live` - `ISOMUX_TEST_LIVE=1 bun test`. Adds the gated live smoke tier (T3 below): a few real-subscription, end-to-end checks against real backends. Run it manually or nightly, never in CI or pre-commit.
 - `bun run test:opencode` - `ISOMUX_TEST_OPENCODE=1 bun test server/test-support/agent-manager.opencode.live.test.ts`. The only test that drives a first reply end to end through the real pinned OpenCode server. It uses a local provider mock and spends no model credits, but it starts a server process, so it stays outside the default suite.

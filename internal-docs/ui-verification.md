@@ -29,8 +29,7 @@ straight from the main checkout with `--outdir /tmp` (non-mutating).
 
 ## From a worktree
 
-A fresh worktree has no node_modules - run `bun install --frozen-lockfile` in
-it first or every build fails on react/jsx-runtime. isomux itself does not
+Create a ready worktree from the main checkout with `scripts/worktree-setup.sh <name> [--web]`; use `--web` for control-plane/web work. isomux itself does not
 depend on playwright-core; import it from another project's node_modules
 (e.g. `~/nil/wallgame/node_modules/playwright-core/index.mjs`) with
 `chromium.launch({channel:"chrome"})` - /usr/bin/google-chrome is installed,

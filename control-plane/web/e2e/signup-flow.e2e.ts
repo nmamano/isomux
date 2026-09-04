@@ -237,8 +237,6 @@ async function main(): Promise<void> {
   say(`stripe legs: ${stripeLegs ? "on" : "SKIPPED (no key or price in env)"}`);
 
   const statusBefore = git(["status", "--porcelain"]);
-  const nextEnvPath = path.join(WEB_DIR, "next-env.d.ts");
-  const nextEnvBefore = fs.readFileSync(nextEnvPath);
   say(
     `git status --porcelain before: ${statusBefore.split("\n").length - 1} lines`,
   );
@@ -289,11 +287,6 @@ async function main(): Promise<void> {
     await server.exited;
     serverStopped = true;
   };
-  const restoreNextEnv = (): void => {
-    if (!fs.readFileSync(nextEnvPath).equals(nextEnvBefore))
-      fs.writeFileSync(nextEnvPath, nextEnvBefore);
-  };
-
   let browser: Browser | null = null;
   let renderedOfficeName: string | null = null;
   let renderedOfficeHostname: string | null = null;
@@ -960,7 +953,6 @@ async function main(): Promise<void> {
     await browser.close();
     browser = null;
     await stopServer();
-    restoreNextEnv();
     const statusAfter = git(["status", "--porcelain"]);
     check(
       "git status is byte-identical before and after the dev run",
@@ -972,7 +964,6 @@ async function main(): Promise<void> {
   } finally {
     if (browser) await browser.close();
     await stopServer();
-    restoreNextEnv();
     fs.writeFileSync(path.join(dir, "transcript.txt"), transcript.join("\n"));
     say(`transcript: ${path.join(dir, "transcript.txt")}`);
   }

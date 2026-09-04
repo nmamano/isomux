@@ -19,10 +19,11 @@ internal-docs/private/
 .mcp.json
 .cache/
 
-# Hosted control-plane web app: build output only. Its lockfile and
-# next-env.d.ts are committed; node_modules is covered above.
+# Hosted control-plane web app: generated output only. Its lockfile is
+# committed; node_modules is covered above.
 control-plane/web/.next/
 control-plane/web/*.tsbuildinfo
+control-plane/web/next-env.d.ts
 
 # Raw probe evidence: regenerable, and thousands of lines of JSON that nobody
 # reads in a diff. The report beside it carries the counts that matter.
