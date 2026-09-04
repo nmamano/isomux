@@ -5340,8 +5340,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           if (filename) {
             try {
               filename = decodeURIComponent(filename);
-            } catch {
-            }
+            } catch {}
           }
           if (!agentId || !filename) {
             return new Response("Not found", { status: 404 });

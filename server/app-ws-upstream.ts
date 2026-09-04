@@ -814,8 +814,7 @@ export class AppUpstream {
     this.queuedBytesValue = 0;
     try {
       this.socket.end();
-    } catch {
-    }
+    } catch {}
     this.handlers.onClose(event);
   }
 }
@@ -895,8 +894,7 @@ export async function dialAppUpstream(
       if (!settled || connection !== null) return false;
       try {
         socket?.end();
-      } catch {
-      }
+      } catch {}
       return true;
     };
 
@@ -913,8 +911,7 @@ export async function dialAppUpstream(
       settle({ ok: false, failure, detail });
       try {
         socket?.end();
-      } catch {
-      }
+      } catch {}
     };
 
     opts.signal?.addEventListener("abort", onAbort, { once: true });

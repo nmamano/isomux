@@ -8006,7 +8006,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const oldTopicStale = managed.info.topicStale;
 
     try {
-
       // 1. Get backend session messages and match by content + occurrence index.
       //    For skill-expanded slash commands the log entry's `content` is the
       //    raw command (e.g. "/grill") but the SDK received the expanded prompt;

@@ -465,8 +465,7 @@ export class AppWsRelay {
       // a socket that did not exist, so it is sent here.
       try {
         ws.close(CLOSE_GOING_AWAY, "app closed");
-      } catch {
-      }
+      } catch {}
       return;
     }
     this.ws = ws;
@@ -694,8 +693,7 @@ export class AppWsRelay {
       try {
         if (ending.browser.kind === "terminate") ws.terminate();
         else ws.close(ending.browser.code, ending.browser.reason);
-      } catch {
-      }
+      } catch {}
     }
     if (ending.upstream !== null && this.upstream.isOpen()) {
       this.upstream.sendClose(
