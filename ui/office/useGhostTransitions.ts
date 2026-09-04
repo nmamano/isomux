@@ -4,9 +4,9 @@ import { DESK_SLOTS } from "../../shared/desks.ts";
 import { deskPixelPos } from "./grid.ts";
 
 // "Outside SE wall" lobby coordinates. Until the desk repositioning lands,
-// idle ghosts cannot fit on the floor;
-// they line up here, past the SE wall. Adjacent ghosts step right by
-// `GHOST_LOBBY_GAP` so the name tags don't collide.
+// idle ghosts cannot fit on the floor; they line up here, past the SE wall.
+// Adjacent ghosts step right by `GHOST_LOBBY_GAP` so the name tags don't
+// collide.
 const GHOST_LOBBY_BASE_X = 600;
 const GHOST_LOBBY_BASE_Y = 590;
 const GHOST_LOBBY_GAP = 52;

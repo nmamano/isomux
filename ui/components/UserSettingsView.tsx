@@ -365,8 +365,7 @@ export function UserSettingsView({
             }}
           >
             {/* Account section sits ABOVE the user list: the entries must stay
-                reachable however long the
-                roster below grows. */}
+                reachable however long the roster below grows. */}
             {accountAvailable && (
               <>
                 <div style={sidebarSectionLabel}>Account</div>

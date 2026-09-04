@@ -1972,8 +1972,8 @@ export async function demoApi(
     return { user: updated };
   }
   // users.update (PATCH) / users.delete (DELETE) on /api/users/:username.
-  // PATCH = record fields only; view prefs ride the no-op view.*
-  // routes; this mirrors the retired update_user record path (rename-collision 409,
+  // PATCH = record fields only; view prefs ride the no-op view.* routes; this
+  // mirrors the retired update_user record path (rename-collision 409,
   // missing 404). DELETE removes the record + broadcasts users_list.
   const userIdMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
   if (userIdMatch && (method === "PATCH" || method === "DELETE")) {
