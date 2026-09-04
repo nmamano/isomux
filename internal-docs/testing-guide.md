@@ -30,10 +30,24 @@ T3 is gated behind the `ISOMUX_TEST_LIVE` env flag plus the separate `test:live`
 
 ## Principles
 
-1. Test behavior through public interfaces, not implementation. Tests assert observable behavior at public boundaries (WS messages, REST responses, persisted files), never private internals, so they survive refactors.
-2. Two modes, two jobs. Characterization tests freeze existing externally visible behavior (the refactor safety net); TDD red-green-refactor drives the new code (projection service, REST contract, token auth, stable room IDs).
-3. The feature inventory as a coverage map, not a mandate. Every feature in the canonical inventory (`docs/features.md`) has at least one behavioral test of its critical mechanism at the lowest deterministic tier. Tracked via the traceability matrix below.
-4. Avoid horizontal slicing. Do not write all tests up front against speculation: characterization tests are grounded by observation, new-code tests follow red-green-refactor.
+Keep a test only when all applicable rules below pass. A failed rule makes the test a cut candidate, not an automatic deletion: a test may stay when it protects a high-severity invariant that has no stable, cheaper oracle.
+
+1. Protect a contract worth preserving. A failure must identify a product, compatibility, security, or operational regression that someone would fix. Cut alarms for facts that can change freely.
+2. Test behavior through observable interfaces. Assert outcomes that a customer, agent, operator, or supported peer component can observe, such as WS messages, REST responses, and persisted files. Do not pin statement order, private helper shape, source text, or a chosen mechanism unless the mechanism is the safety property. Source-grepping tests are limited to build-output checks and security inventories. Until a browser-level harness exists, a UI source pin may also protect a security or customer-visible contract; cut cosmetic pins.
+3. Give each test independent protection. Cut a test when a cheaper retained test already fails for the same defect, and keep the one at the lowest useful deterministic boundary. The canonical feature inventory (`docs/features.md`) is a coverage map, not a mandate: cover each feature's critical mechanism and track it in the traceability matrix below.
+4. Use an independent oracle. An assertion must add information beyond its fixture. A mock call is useful when the call is the boundary contract; a scripted mock response checked only against itself is not.
+5. Keep cost proportional to risk and unique protection. Count wall time, process churn, network use, global state, and maintenance. High-cost tests must protect a severe or otherwise uncovered failure.
+6. Use a deterministic trigger and oracle. Prefer a controlled clock, event, or process state. A test must not pass because an arbitrary delay elapsed. Bounded polling with a deadline may observe a real process until it reaches the asserted state.
+7. Demand plausible regression sensitivity. Name a credible code change that makes the test fail. Do not keep a test that survives the likely bug or fails only after a harmless refactor.
+8. Match compatibility coverage to the supported lifetime. Keep a migration or protocol test while production code reads that old state or protocol, and remove the test in the same commit as the reader.
+9. Keep failures narrow and diagnostic. A broad end-to-end test may prove boundary integration, but it does not justify overlapping unit cases. One slow end-to-end test per high-stakes boundary may duplicate unit coverage as a thin wiring proof; never keep several.
+10. Weight negative space by risk. Security, authorization, destructive-operation, corruption, and recovery boundaries deserve more cases than formatting or getters, but every case must represent a distinct equivalence class.
+11. Make the test instrument fail closed. A test that searches for an anchor must first prove that the anchor exists, so its removal cannot turn the assertion into a false pass.
+12. Repair a weak instrument when the protected stakes require it. Replace a brittle test before removing it when it is the only guard on a secret boundary or production-damage path.
+13. Use two modes for two jobs. Characterization tests freeze observed external behavior for refactor safety; new-code tests follow red-green-refactor.
+14. Avoid horizontal slicing. Do not write tests up front against speculation: ground characterization tests in observation, and let new-code tests follow implementation one behavior at a time.
+
+Future test sweeps use three verdicts: **KEEP** retains a useful test, **CUT** deletes a cut candidate without a justified exception, and **REPAIR** replaces a useful guard's weak instrument before deleting the old case.
 
 ## Measured test recipes
 
