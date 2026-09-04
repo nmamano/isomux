@@ -14,7 +14,7 @@
 // Zero LLM, zero server - exercises server/file-editor.ts directly against
 // a temp directory.
 
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, jest } from "bun:test";
 import {
   mkdtempSync,
   writeFileSync,
@@ -102,11 +102,23 @@ describe("watchFile", () => {
     expect(events.length).toBeGreaterThan(afterRename);
   });
 
-  it("ignores sibling files in the same directory", async () => {
-    writeFileSync(join(dir, "other.txt"), "noise");
-    // Cover at least one full poll cycle before asserting silence.
-    await sleep(1300);
-    expect(events.length).toBe(0);
+  it("only fires for the target when a sibling also changes", () => {
+    stopWatch(watcher);
+    jest.useFakeTimers();
+    watcher = openAndWatch(file, (ev) => events.push(ev), 50);
+    try {
+      writeFileSync(join(dir, "other.txt"), "noise");
+      jest.advanceTimersByTime(50);
+      expect(events).toHaveLength(0);
+
+      writeFileSync(file, "target changed");
+      jest.advanceTimersByTime(50);
+      expect(events).toHaveLength(1);
+      expect(events[0]?.kind).toBe("change");
+    } finally {
+      stopWatch(watcher);
+      jest.useRealTimers();
+    }
   });
 
   it("emits for a save landing between read and watch install", async () => {
@@ -165,7 +177,7 @@ describe("watchFile deletion", () => {
     }
   });
 
-  it("does not emit deleted for a single-poll transient absence", async () => {
+  it("does not emit deleted for a single-poll transient absence", () => {
     // A rare save style (unlink + recreate) can leave the path absent for one
     // poll. One miss must NOT be classified as a deletion - that's the
     // two-consecutive-miss confirmation. Recreate between the first and
@@ -173,17 +185,28 @@ describe("watchFile deletion", () => {
     const file = join(dir, "flicker.txt");
     writeFileSync(file, "v0");
     const events: WatchFileEvent[] = [];
-    const w = openAndWatch(file, (ev) => events.push(ev), 250);
+    const pollMs = 50;
+    jest.useFakeTimers();
+    const w = openAndWatch(file, (ev) => events.push(ev), pollMs);
     try {
+      // Phase A proves that one clock advance runs exactly one watch poll.
+      writeFileSync(file, "v1 longer");
+      jest.advanceTimersByTime(pollMs);
+      expect(events.filter((e) => e.kind === "change")).toHaveLength(1);
+
+      // Phase B exposes the path as missing for exactly one poll.
       unlinkSync(file);
-      // ~1 poll observes the absence, then the file is back (the second,
-      // would-be-confirming poll at ~500ms sees it restored).
-      await sleep(300);
-      writeFileSync(file, "v1");
-      await waitFor(() => events.some((e) => e.kind === "change"));
-      expect(events.filter((e) => e.kind === "deleted").length).toBe(0);
+      jest.advanceTimersByTime(pollMs);
+      expect(events.filter((e) => e.kind === "deleted")).toHaveLength(0);
+
+      // Phase C restores a different signature before the confirming poll.
+      writeFileSync(file, "v2 even longer than v1");
+      jest.advanceTimersByTime(pollMs);
+      expect(events.filter((e) => e.kind === "change")).toHaveLength(2);
+      expect(events.filter((e) => e.kind === "deleted")).toHaveLength(0);
     } finally {
       stopWatch(w);
+      jest.useRealTimers();
     }
   });
 
