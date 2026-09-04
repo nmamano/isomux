@@ -1,7 +1,7 @@
 // Identity & capabilities - the secret token store (implementation).
 //
-// In-memory ONLY (Phase 2.1, reviewed): raw tokens are never persisted, and a
-// server restart kills the subprocess consumers (agents + cron runs) and
+// In-memory ONLY: raw tokens are never persisted, and a server restart kills
+// the subprocess consumers (agents + cron runs) and
 // regenerates their env on the next session anyway, so a persisted hash would
 // be dead state until/unless externally long-lived tokens exist. The doc's
 // "only a hash or token id is persisted" is the SECRECY rule (if persisted
@@ -79,8 +79,6 @@ function remove(key: string): void {
   byKey.delete(key);
 }
 
-// --- Agent tokens -----------------------------------------------------------
-
 // Mint (or rotate) the agent's token. Re-minting for the same agentId revokes
 // the prior token in the same call, so spawn/restore/revive all funnel here and
 // "rotated on revive" falls out for free. `privileged` stamps the capability
@@ -116,8 +114,6 @@ export function revokeAgentToken(agentId: string): void {
   remove(agentKey(agentId));
 }
 
-// --- Cron-run tokens --------------------------------------------------------
-
 // Mint a run token bound to {cronjobId, runId}. `userId` is the cronjob's
 // creator (attribution; may be null for an unowned job).
 export function mintRunToken(
@@ -150,8 +146,6 @@ export function revokeRunToken(cronjobId: string, runId: string): void {
   remove(runKey(cronjobId, runId));
 }
 
-// --- Resolution -------------------------------------------------------------
-
 // Resolve a raw bearer token to its Identity, or null if it doesn't match a
 // live token. Capabilities are derived from the stored scope, so a token can
 // never carry more than its scope allows.
@@ -179,8 +173,6 @@ export function resolveToken(raw: string): Identity | null {
         : RUN_CAPABILITIES,
   };
 }
-
-// --- Redaction --------------------------------------------------------------
 
 // Scrub any LIVE raw token embedded in arbitrary text. The primary secrecy
 // guarantee is structural (the token only ever enters subprocess env, never a

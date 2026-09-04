@@ -1,4 +1,4 @@
-// Guard catalog - Phase 2.2. Named, individually contract-tested authorization
+// Guard catalog. Named, individually contract-tested authorization
 // policies. The dispatcher (./dispatch.ts) composes a route's coarse
 // `requiredCapability` (stage 1) with one of these `resourceGuard`s (stage 2);
 // no authorization logic lives in handler bodies. See
@@ -6,21 +6,15 @@
 // "Identities and capabilities", and Conventions → two-stage authz + error
 // envelope.
 //
-// ADDITIVE (Phase 2.2): this catalog is built and contract-tested in ISOLATION.
-// It is NOT wired into the live dispatchCommand switch or any HTTP handler, and
-// it deletes no inline check. The strangler (Phase 3) is what routes live
-// traffic through it.
-//
 // LEAF MODULE: imports only ./index.ts (Identity/Capability). It must NOT import
 // server/isomux-office.ts, the managers, or users.ts - mutable office state reaches
 // guards ONLY through the injected `GuardDeps` seam. That keeps the catalog pure
-// and unit-testable, and let Phase 3b swap the access model (materialized
-// `allowedRooms` → rule-based) by replacing the GuardDeps implementation, never
-// a guard signature.
+// and unit-testable, and lets the access model change from materialized
+// `allowedRooms` to rule-based access by replacing the GuardDeps implementation,
+// never a guard signature.
 
 import { identityHasCapability, type Identity } from "./index.ts";
 
-// --- Outcome envelope -------------------------------------------------------
 // Every guard (and the dispatcher) returns this. Shared, frozen singletons keep
 // the envelope strings identical across the whole authz surface - tests pin the
 // `code`, not just the status - and make the non-leak contract STRUCTURAL: a
@@ -51,16 +45,14 @@ export const FORBIDDEN: AuthzOutcome = Object.freeze({
   code: "forbidden",
 });
 
-// --- Injected office-state seam ---------------------------------------------
 // The ONLY channel through which guards read mutable office state. Narrow and
-// synchronous by contract. Production wiring (built at the server/isomux-office.ts seam
-// in Phase 2.3/3) supplies the live lookups; tests supply fakes.
+// synchronous by contract. Production wiring at the server/isomux-office.ts seam
+// supplies the live lookups; tests supply fakes.
 export interface GuardDeps {
   // Does this identity have access to `roomId`? Wraps the live RULE-BASED
   // predicate (owners reach every room by rule; members by their grants in
   // `allowedRooms`). NON-LEAK: callers must not branch on the reason; false is
-  // false. Phase 3b swapped the body to rule-based access without touching this
-  // signature.
+  // false. The body can change without touching this signature.
   hasRoomAccess(identity: Identity, roomId: string): boolean;
   // The agent's current roomId, or null if the agent does not exist. A null
   // collapses with "inaccessible" into one indistinguishable deny.
@@ -89,9 +81,9 @@ export interface GuardDeps {
   killedAgentManagerUserId(agentId: string): string | null;
 }
 
-// What a guard sees. `params`/`body` are extracted by the route layer (Phase
-// 2.3); in 2.2 the contract tests pass them directly. `body` is `unknown` -
-// guards that read it (senderMustEqualTokenAgent) narrow defensively.
+// What a guard sees. `params`/`body` are extracted by the route layer; contract
+// tests pass them directly. `body` is `unknown` - guards that read it
+// (senderMustEqualTokenAgent) narrow defensively.
 export interface GuardContext {
   identity: Identity;
   params: Readonly<Record<string, string | undefined>>;
@@ -101,7 +93,6 @@ export interface GuardContext {
 
 export type Guard = (ctx: GuardContext) => AuthzOutcome;
 
-// --- requiresRoomAccess reference -------------------------------------------
 // Where a room-scoped guard reads its room reference. An explicit union (rather
 // than a stringly-typed lookup) so a route declares intent, and so ref
 // resolution is centralized and testable - every unresolved path collapses to
@@ -138,12 +129,10 @@ function resolveRoomId(
   }
 }
 
-// --- The catalog ------------------------------------------------------------
-
 // `public` in the spec. Always allows: it is the declared marker for the
 // pre-authn login/static surface, which is served BEFORE the dispatcher (so the
 // dispatcher's null-identity → 401 rule never applies to it). Named with a
-// `Guard` suffix because `public` is a reserved word. NOTE for 2.3: route public
+// `Guard` suffix because `public` is a reserved word. Route public
 // surfaces AROUND authorize(), never through it with a null identity - the
 // dispatcher intentionally maps a null identity to 401 before any guard runs.
 export const publicGuard: Guard = () => ALLOW;
@@ -214,8 +203,7 @@ export const hasOwningUser: Guard = ({ identity }) =>
 // USER-only owner gate. `scope === "user"` is REQUIRED so a non-user identity
 // can never be authorized via role - role is an inert "member" filler for AGENT
 // and CRON-RUN scope (see Identity.role). Stage-1 capabilities already block
-// non-users from owner routes; this is defense-in-depth, gate-ready for the
-// Reviewer4 security pass.
+// non-users from owner routes; this is defense-in-depth.
 export const officeOwner: Guard = ({ identity }) =>
   identity.scope === "user" && identity.role === "owner" ? ALLOW : FORBIDDEN;
 
@@ -380,7 +368,7 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
 // gets an answer.
 //
 // An agent or API token whose user is an office owner deliberately gets the
-// same office-wide app control (task 3cd85856 and Nil's 2026-08-31 ruling).
+// same office-wide app control.
 // This is a separate AGENT/API branch: officeOwner stays USER-only, and
 // cron/app identities do not inherit the grant through a matching userId.
 // Enumeration through apps.list uses a separate visibility seam.
@@ -417,11 +405,11 @@ export function appOwnerOrOfficeOwner(nameParamName = "name"): Guard {
 // inheriting that user's cronjob ownership would be a confused-deputy
 // escalation - which is why a normal agent never holds `cron:manage` and is
 // blocked at stage 1 before this guard runs. A PRIVILEGED agent is granted
-// cron:manage deliberately (task 98d63ef7, Nil-approved), so here we let it
-// own-match exactly like its user would. The privilege signal is the capability
-// itself (keying authz on scope + capabilities, never a separate role/flag
-// axis), so a cron-run or normal-agent identity - neither of which carries
-// cron:manage - still can't reach the owner-match.
+// cron:manage deliberately, so here we let it own-match exactly like its user
+// would. The privilege signal is the capability itself (keying authz on scope +
+// capabilities, never a separate role/flag axis), so a cron-run or normal-agent
+// identity - neither of which carries cron:manage - still can't reach the
+// owner-match.
 //
 // The officeOwner branch is unchanged and still requires scope==="user" + owner,
 // so a privileged agent can NEVER get office-wide cron powers - only its own
@@ -617,7 +605,7 @@ const logReadRoomGuard = requiresRoomAccess({
   name: "id",
 });
 
-// Killed-agent log reach (task ffb90761). A DIFFERENT rule from the live one,
+// Killed-agent log reach. A DIFFERENT rule from the live one,
 // not a room check against a stale room: the killed agent's own boss - the user
 // that spawned it - plus office owners, nobody else. Room grants move after a
 // kill and a dead agent's last room is a fact about the past; who spawned it is
@@ -659,7 +647,6 @@ export const logSearchAccess: Guard = (ctx) => {
   }
 };
 
-// --- Combinators ------------------------------------------------------------
 // Typed composition for the route table's compound guards (e.g. agents.move /
 // agents.revive need access to BOTH the source and target room). Encoding these
 // as combinators rather than free-form strings keeps the route table's authz

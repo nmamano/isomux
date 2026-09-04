@@ -4,8 +4,7 @@
 // interleave with concurrent acceptances of the same token.
 //
 // Threat model and the security stance for each primitive are documented at
-// the relevant operation; if you change any of these comments, double-check
-// the security checklist in the auth-core task before declaring done.
+// the relevant operation.
 
 import { join } from "path";
 import { STATE_ROOT } from "./config.ts";
@@ -44,16 +43,11 @@ function snapshotRoomIds(): string[] {
   return roomsSnapshotProvider ? roomsSnapshotProvider() : [];
 }
 
-// ---------------------------------------------------------------------------
-// File layout
-
 const ISOMUX_DIR = STATE_ROOT;
 const INVITES_FILE = join(ISOMUX_DIR, "invites.json");
 const SESSIONS_FILE = join(ISOMUX_DIR, "sessions.json");
 
-// ---------------------------------------------------------------------------
-// On-disk record shapes (hashed). Raw tokens never persist.
-
+// Raw tokens never persist.
 interface StoredInvite {
   tokenHash: string; // sha256(rawToken) hex; the map key duplicates this for convenience
   tokenPrefix: string; // first 8 chars of the raw base64url token, kept clear for UI
@@ -93,9 +87,7 @@ interface StoredSession {
   device?: string | null;
 }
 
-// ---------------------------------------------------------------------------
-// In-process state. Loaded once on first call; mutated under `mutate()`.
-
+// Module state is mutated only under `mutate()`.
 let invites: Map<string, StoredInvite> | null = null;
 let sessions: Map<string, StoredSession> | null = null;
 
@@ -110,9 +102,6 @@ function mutate<T>(fn: () => Promise<T> | T): Promise<T> {
   mutexTail = run.catch(() => undefined);
   return run;
 }
-
-// ---------------------------------------------------------------------------
-// Load / persist
 
 function loadInvitesFromDisk(): Map<string, StoredInvite> {
   const map = new Map<string, StoredInvite>();
@@ -240,7 +229,6 @@ function ensureLoaded() {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Hooks for the dispatcher to be notified of acceptance events. Used so
 // isomux-office.ts can broadcast updated invite/session lists to owner WSes when
 // an invite is consumed via HTTP (which never touches the WS dispatch
@@ -276,9 +264,6 @@ function fireSessionsChangedHook(): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Token / hashing primitives
-
 const TOKEN_BYTES = 32; // 256 bits of entropy
 const PREFIX_LEN = 8;
 
@@ -301,7 +286,6 @@ function safeHashEq(a: string, b: string): boolean {
   return timingSafeEqual(Buffer.from(a), Buffer.from(b));
 }
 
-// ---------------------------------------------------------------------------
 // WS registry: sessionIdHash → sockets currently authenticated with that
 // session. Populated at upgrade; cleared at close. Used to force-close on
 // revoke so the WS doesn't keep pumping messages until the next client send.
@@ -350,9 +334,6 @@ function forceExpireSocketsForSession(sessionIdHash: string) {
   wsBySession.delete(sessionIdHash);
 }
 
-// ---------------------------------------------------------------------------
-// Bootstrap: mint an owner-tagged invite on server start when no owner exists.
-
 // Invite acceptance window. 24h, fixed for the standard invite paths
 // (bootstrap, owner-issued via mint_invite). Invite URLs are bearer
 // tokens; the shorter the acceptance window, the smaller the exposure
@@ -369,9 +350,6 @@ export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
 // is more than enough for the legitimate flow and shrinks the
 // bearer-URL exposure window by 24x compared to the standard TTL.
 const SELF_INVITE_TTL_MS = 60 * 60 * 1000;
-
-// ---------------------------------------------------------------------------
-// Mint / accept / revoke invites
 
 export interface MintOptions {
   username: string | null; // null only allowed for bootstrap path internally
@@ -464,12 +442,12 @@ export async function mintInvite(
       // pruned so a stale owner UI can't mint an invite that quietly grants
       // less than the owner picked.
       //
-      // PRECEDENCE (locked with Reviewer2): identity/role conflicts
-      // (USER_EXISTS / ROLE_MISMATCH, both 409) are checked ABOVE and win
-      // over grant-applicability errors. A request that is broken both ways
-      // (e.g. existing user + mismatched role + grants) reports the more
-      // fundamental invite conflict, not INVALID_ROOMS. So the "existing"
-      // branch below is only reachable with allowExisting + a MATCHING role.
+      // Identity/role conflicts (USER_EXISTS / ROLE_MISMATCH, both 409) are
+      // checked ABOVE and win over grant-applicability errors. A request that is
+      // broken both ways (e.g. existing user + mismatched role + grants) reports
+      // the more fundamental invite conflict, not INVALID_ROOMS. So the
+      // "existing" branch below is reachable only with allowExisting and a
+      // MATCHING role.
       if (grantRooms.length > 0) {
         if (opts.role !== "member")
           return {
@@ -670,7 +648,7 @@ function commitBootstrapOwnerUser(chosenName: string): {
   if (!existing) {
     const created = claimUser(chosenName, {
       role: "owner",
-      // Phase 3b: owners reach every room by RULE, so allowedRooms (member
+      // Owners reach every room by RULE, so allowedRooms (member
       // GRANTS) stays EMPTY for an owner - no room snapshot. Materializing
       // owner grants is the demotion bomb a later owner→member demotion would
       // inherit. notifRooms still seeds from current rooms so a new owner is
@@ -730,7 +708,7 @@ function commitBootstrapOwnerUser(chosenName: string): {
     }
   };
 
-  // Phase 3b: CLEAR owner grants (rule covers owner access; an owner carrying
+  // CLEAR owner grants (rule covers owner access; an owner carrying
   // materialized grants is the demotion bomb). allowedRooms write first
   // (idempotent - already [] for a previously-migrated owner), role second; if
   // the write returns not-ok or throws, the user is unchanged on disk so we
@@ -835,7 +813,7 @@ export async function acceptInvite(
       userRecord = committed.user;
       bootstrapRollback = committed.rollback;
     } else if (!userRecord) {
-      // Phase 3b: an owner invite seeds EMPTY grants (rule covers owner access)
+      // An owner invite seeds EMPTY grants (rule covers owner access)
       // but notifRooms from current rooms (so the new owner is notified for
       // their office by default). A member invite seeds allowedRooms from the
       // grants the owner attached at mint time (pruned to rooms that still
@@ -1173,7 +1151,6 @@ export async function evictSessionsForUserId(userId: string): Promise<number> {
   });
 }
 
-// ---------------------------------------------------------------------------
 // Validation (per-request hot path: must be O(1), no IO).
 
 export interface SessionLookup {
@@ -1281,11 +1258,8 @@ function validateByHash(hash: string): SessionLookup | null {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Wire shapes for owner UI.
-
 // Pure shape helper: StoredInvite → the InviteWire the owner/member UIs render.
-// Exported (3a.4a) so the isomux-office.ts invites seam builds the mint-response wire
+// Exported so the isomux-office.ts invites seam builds the mint-response wire
 // from ONE source of truth (the same helper listInvites/listInvitesForUsername
 // use) instead of duplicating the field list. Read-only - never widens mutation.
 export function toInviteWire(v: StoredInvite): InviteWire {
@@ -1320,7 +1294,6 @@ function toSessionWire(v: StoredSession): SessionWire {
   };
 }
 
-// Stamp the last-known device label onto a live session (task 557dc8ce).
 // Called from the presence_update path with an already-sanitized non-empty
 // label. Returns true only when the stored value actually changed, so the
 // caller can fan out sessions_active_list conditionally. Persist failures are
@@ -1520,7 +1493,6 @@ export function sessionContextFor(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Lockout-prevention helpers
 //
 // The invariant: the office must always retain at least one owner-role
@@ -1586,9 +1558,6 @@ export function resolveSessionHashByPrefix(prefix: string): string | null {
 // Note: countOwners() and wouldDeleteLeaveNoOwner() live in users.ts.
 // isomux-office.ts imports them directly from there; we don't re-export through
 // auth.ts to keep the user-record predicates close to the data.
-
-// ---------------------------------------------------------------------------
-// Cookie + origin helpers used by the middleware.
 
 export const COOKIE_NAME = "isomux_session";
 
@@ -1911,8 +1880,8 @@ export function browserSessionDiagnostic(
       gate,
       selected,
       legacyAlsoPresent: cookies.legacyRaw !== null,
-      // Approved by Nil 2026-08-16: non-reversible, distinguishes a recurring
-      // stale cookie from changing ones; never the cookie value itself.
+      // Non-reversible: distinguishes a recurring stale cookie from changing
+      // ones; never the cookie value itself.
       marker: cookies.selected
         ? hashOf(cookies.selected).slice(0, 6)
         : undefined,
@@ -2075,11 +2044,9 @@ export function safePrefix(rawToken: string): string {
   return rawToken.slice(0, PREFIX_LEN);
 }
 
-// ---------------------------------------------------------------------------
 // Test helpers (NOT exposed via routes; only callable from in-process tests).
-// Exists because the auth-core task explicitly forbids a runtime no-auth
-// bypass - tests exercise the real path through this helper.
-
+// A runtime no-auth bypass is forbidden, so tests exercise the real path
+// through this helper.
 export interface TestSeedResult {
   rawToken: string;
   rawSessionId: string;

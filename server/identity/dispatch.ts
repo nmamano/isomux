@@ -1,13 +1,9 @@
-// Two-stage authorization dispatcher - Phase 2.2. The central authz semantics
-// the route table (Phase 2.3) and the strangler (Phase 3) call: stage 1 checks
-// a route's coarse `requiredCapability` against the identity's capability set;
+// Two-stage authorization dispatcher. The central authz semantics that the
+// route table and the strangler call: stage 1 checks a route's coarse
+// `requiredCapability` against the identity's capability set;
 // stage 2 runs the route's `resourceGuard`. No authorization logic lives in
 // handler bodies. See internal-docs/generic-runtime-refactor.md → Conventions
 // "Two-stage authorization, both declared" + "Error envelope".
-//
-// ADDITIVE (Phase 2.2): this mechanism is built and contract-tested in
-// isolation. It is NOT wired into the live dispatchCommand switch or any HTTP
-// handler yet.
 //
 // Status ladder:
 //   no identity at all       → 401 unauthenticated   (the ONLY 401 path)
@@ -30,7 +26,7 @@ import {
 } from "./guards.ts";
 
 // The authz slice of a route declaration the dispatcher needs. The full route
-// table (Phase 2.3) carries more (method/path/schemas/emits); this is the subset
+// table carries more (method/path/schemas/emits); this is the subset
 // that drives authorization.
 export interface RouteAuthz {
   // The capability/capabilities required to clear stage 1. A single capability

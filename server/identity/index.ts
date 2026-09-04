@@ -1,16 +1,12 @@
 // Identity & capabilities - the stable type / capability / auth-helper surface
-// for the Phase 2 contract-enforcement foundation. See
-// internal-docs/generic-runtime-refactor.md → "Identities and capabilities".
+// for contract enforcement. See internal-docs/generic-runtime-refactor.md →
+// "Identities and capabilities".
 //
 // This module is a LEAF: it imports only shared types and the standard library.
 // It does NOT import auth-middleware, the managers, or the token store
 // (server/identity/tokens.ts imports FROM here, never the reverse), so the
 // capability/type surface stays free of cycles and side effects.
 //
-// Phase 2.1 is ADDITIVE: this defines the identity model and stateless helpers
-// so the dispatcher (2.2/2.3) can authorize against it later. Nothing here
-// enforces anything yet.
-
 import type { UserRole } from "../../shared/types.ts";
 
 // A token (or cookie) resolves to one of four identity scopes. Scope is
@@ -183,13 +179,13 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
 // / editor / uploads), fully manage cron over its OWN jobs (cron:read +
 // cron:manage; the cronjobOwnerOrOfficeOwner guard additionally owner-matches a
 // privileged agent - see guards.ts), and manage rooms it can access (room:manage:
-// create / rename / settings / close, Nil-approved expansion; create is
-// office-wide, the rest are room-access-scoped on its spawning user's id).
+// create / rename / settings / close; create is office-wide, the rest are
+// room-access-scoped on its spawning user's id).
 //
-// This is a CURATED allowlist, NOT union(AGENT, USER): the audit (task 98d63ef7)
-// found the literal union exposes capability-only owner routes - invites.mintSelf
-// (mints a durable owner LOGIN), sessions.revoke (kills the human's browser
-// session). So invite:manage, session:manage, user:* (user records / access),
+// This is a CURATED allowlist, NOT union(AGENT, USER): the literal union exposes
+// capability-only owner routes - invites.mintSelf (mints a durable owner LOGIN),
+// sessions.revoke (kills the human's browser session). So invite:manage,
+// session:manage, user:* (user records / access),
 // office:admin (office settings + access), view:manage, terminal:use, and
 // agent:privilege (the toggle itself) are DELIBERATELY excluded. Scope stays
 // "agent" regardless, so every scope==="user" guard (officeOwner/selfUser/the

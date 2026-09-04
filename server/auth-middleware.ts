@@ -58,7 +58,6 @@ export async function _testRunOwnerCreatedHook(
   await onOwnerCreated?.({ username });
 }
 
-// ---------------------------------------------------------------------------
 // Loopback detection. This is NOT an authentication bypass, and there is no
 // longer one: every caller needs a bearer token or a session cookie, and the
 // last loopback-trusted prefixes were retired (see the gating function below,
@@ -87,15 +86,14 @@ export function requestIsLoopback<T>(req: Request, server: Server<T>): boolean {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Origin check. Reverse proxies are configured by the operator setting
 // ISOMUX_PUBLIC_ORIGIN; we do not infer the origin from Host/X-Forwarded-Host
 // because that's how WebSocket-hijacking bugs happen.
 //
-// Exact match, no loopback exemption (task 517fe4da): the check exists to
-// stop a hostile page driving a browser that holds a live session cookie,
-// and on a Caddy-fronted box every public request arrives from 127.0.0.1,
-// so a "loopback peer" exemption would disable it for all external traffic.
+// Exact match, with no loopback exemption, stops a hostile page from driving a
+// browser that holds a live session cookie. On a Caddy-fronted box, every public
+// request arrives from 127.0.0.1, so a "loopback peer" exemption would disable
+// it for all external traffic.
 // On-box tooling must send the configured public origin verbatim.
 
 export function checkOrigin(req: Request): boolean {
@@ -105,7 +103,6 @@ export function checkOrigin(req: Request): boolean {
   return origin === expected;
 }
 
-// ---------------------------------------------------------------------------
 // Standard response headers for every HTML surface (SPA shell, login,
 // invite-accept, error pages). Two headers:
 //
@@ -179,9 +176,6 @@ export function withSecurityHeaders(response: Response): Response {
   return response;
 }
 
-// ---------------------------------------------------------------------------
-// Auth-result type that the isomux-office.ts dispatcher consumes.
-
 export interface AuthOk {
   kind: "ok";
   // Present for the cookie path; absent for a bearer-only caller (agent/run
@@ -189,10 +183,9 @@ export interface AuthOk {
   // `kind` check today; it stays for the cookie callers that already relied
   // on it.
   session?: SessionLookup;
-  // The resolved caller identity (Phase 2.1). Always set on an "ok" result:
+  // The resolved caller identity. Always set on an "ok" result:
   // a bearer token resolves to an agent/run identity, a cookie to a user
-  // identity. Nothing enforces against it yet - the guard catalog (2.2) and
-  // dispatcher (2.3) will.
+  // identity.
   identity: Identity;
 }
 export interface AuthRejected {
@@ -235,7 +228,6 @@ function authPageTitle(officeName: string | null, suffix: string): string {
     : `Isomux - ${suffix}`;
 }
 
-// ---------------------------------------------------------------------------
 // Gating function. Called at the top of every fetch handler.
 //
 // Every caller needs an identity: a bearer token (agent / cron-run) or a
@@ -340,7 +332,6 @@ function resolveBearerIdentity(req: Request): Identity | null {
   };
 }
 
-// ---------------------------------------------------------------------------
 // /auth/* route handlers. These run BEFORE the gating function - they're how
 // unauthenticated visitors transition to authenticated.
 
@@ -746,7 +737,6 @@ const EMPTY_PNG = Buffer.from(
   "base64",
 );
 
-// ---------------------------------------------------------------------------
 // HTML helpers. Kept inline to avoid a separate templating layer; the auth
 // pages are static enough that string concatenation is clearer than spinning
 // up a renderer.

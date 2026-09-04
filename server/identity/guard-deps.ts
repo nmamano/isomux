@@ -1,6 +1,6 @@
-// Production GuardDeps adapter - Phase 2.3 (deferred from 2.2). Wires the guard
-// catalog's injected office-state seam (GuardDeps, server/identity/guards.ts) to
-// TODAY's live predicates. See internal-docs/generic-runtime-refactor.md →
+// Production GuardDeps adapter. Wires the guard catalog's injected office-state
+// seam (GuardDeps, server/identity/guards.ts) to TODAY's live predicates. See
+// internal-docs/generic-runtime-refactor.md →
 // Guard catalog + "Rule-based access".
 //
 // Does NOT import server/isomux-office.ts (no cycle, no boot side-effects): the live
@@ -10,11 +10,6 @@
 // username/cronjob lookups) is exercised with tiny fakes, and an integration T1
 // proves it agrees with the live rule-based ACL.
 //
-// ADDITIVE: constructed at boot and exposed (dormant) on the ServerHandle. In
-// 2.3 nothing consumes it - Phase 3 feeds it to authorize() when routes migrate.
-// Phase 3b swapped the access model (materialized → rule-based) by changing
-// `hasRoomAccessForUser`'s body, never this adapter's shape.
-
 import type { Identity } from "./index.ts";
 import type { GuardDeps } from "./guards.ts";
 
@@ -27,7 +22,7 @@ export interface GuardDepsLiveReaders {
   // (both now route through canAccess: owners by rule, members by grants), with
   // session reduced to { userId }. The isomux-office.ts seam supplies this closure.
   hasRoomAccessForUser(userId: string, roomId: string): boolean;
-  // The live agent roster. Phase 3c: guards read each agent's authoritative
+  // The live agent roster. Guards read each agent's authoritative
   // roomId - the dense AgentInfo.room index has been removed from the wire.
   // `userId` is the agent's MANAGER (its spawning user) - used by the
   // agents.setPrivileged manager-match gate. The live AgentInfo carries it.
@@ -70,9 +65,9 @@ export function buildProductionGuardDeps(
     roomIdForAgent(agentId: string): string | null {
       const agent = live.getAllAgents().find((a) => a.id === agentId);
       if (!agent) return null; // unknown agent collapses with inaccessible
-      // Phase 3c: the agent's authoritative roomId IS the global room id - no
+      // The agent's authoritative roomId IS the global room id - no
       // index hop. Validate it still names a live room so a dangling roomId
-      // collapses to inaccessible (preserving the pre-3c out-of-range → null
+      // collapses to inaccessible (preserving the out-of-range → null
       // contract). Guards reason over global ids; the per-recipient room
       // projection is a wire concern, never an authz one.
       return live.getRooms().some((r) => r.id === agent.roomId)

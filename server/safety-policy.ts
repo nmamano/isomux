@@ -25,10 +25,6 @@ import { STATE_ROOT } from "./config.ts";
 // typed, not resolved app state. Do not replace those literals with STATE_ROOT.
 const ISOMUX_DIR = STATE_ROOT;
 
-// ---------------------------------------------------------------------------
-// Deny / Allow helpers
-// ---------------------------------------------------------------------------
-
 export type PolicyDecision =
   | { decision: "allow" }
   | { decision: "deny"; reason: string };
@@ -63,13 +59,7 @@ function denyMessage(reason: string, command: string): PolicyDecision {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 1. Git safety - destructive command patterns
-//    Ported from wallgame/.claude/hooks/git_safety_guard.py
-// ---------------------------------------------------------------------------
-
 const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
-  // Git commands that discard uncommitted changes
   [
     /git\s+checkout\s+--\s+/,
     "git checkout -- discards uncommitted changes permanently. Use 'git stash' first.",
@@ -86,13 +76,11 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
     /git\s+restore\s+.*(?:--worktree|-W\b)/,
     "git restore --worktree/-W discards uncommitted changes permanently.",
   ],
-  // Git reset variants
   [
     /git\s+reset\s+--hard/,
     "git reset --hard destroys uncommitted changes. Use 'git stash' first.",
   ],
   [/git\s+reset\s+--merge/, "git reset --merge can lose uncommitted changes."],
-  // Git clean
   [
     /git\s+clean\s+-[a-z]*f/,
     "git clean -f removes untracked files permanently. Review with 'git clean -n' first.",
@@ -132,7 +120,6 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
     /rm\s+.*--recursive.*--force|rm\s+.*--force.*--recursive/,
     "rm --recursive --force is destructive and requires human approval.",
   ],
-  // Git stash drop/clear
   [
     /git\s+stash\s+drop/,
     "git stash drop permanently deletes stashed changes. List stashes first.",
@@ -143,7 +130,6 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
   ],
 ];
 
-// Patterns that are safe even if they match above (allowlist)
 const SAFE_PATTERNS: RegExp[] = [
   /git\s+checkout\s+-b\s+/, // Creating new branch
   /git\s+checkout\s+--orphan\s+/, // Creating orphan branch
@@ -170,23 +156,13 @@ const SAFE_PATTERNS: RegExp[] = [
   /rm\s+.*--force.*--recursive\s+\/var\/tmp\//,
 ];
 
-// ---------------------------------------------------------------------------
-// Path normalization - handles /bin/rm, /usr/bin/git, etc.
-// Ported from wallgame's _normalize_absolute_paths()
-// ---------------------------------------------------------------------------
-
 function normalizeAbsolutePaths(cmd: string): string {
   if (!cmd) return cmd;
-  // Normalize /bin/rm, /usr/bin/rm, /usr/local/bin/rm etc. to bare "rm"
   let result = cmd.replace(/^\/(?:\S*\/)*s?bin\/rm(?=\s|$)/, "rm");
-  // Same for git
   result = result.replace(/^\/(?:\S*\/)*s?bin\/git(?=\s|$)/, "git");
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// Heredoc bodies
-//
 // A heredoc body is data on a command's stdin, not command text, so nothing in
 // it should ever be matched as a command. Getting that wrong is not theoretical:
 // an agent sending a report with `jq -Rs '{text: .}' <<'EOF' … EOF | curl …`
@@ -198,7 +174,6 @@ function normalizeAbsolutePaths(cmd: string): string {
 // of the pipeline. A regex that expects a newline right after the delimiter
 // misses exactly that. Bodies are therefore found the way bash finds them -
 // per line, with the delimiter matched on a line of its own.
-// ---------------------------------------------------------------------------
 
 /**
  * A heredoc opened on a line: `<<EOF`, `<<-EOF`, `<<'EOF'`, `<<"EOF"`, `<<\EOF`.
@@ -303,7 +278,7 @@ function heredocsOpenedOn(line: string): Heredoc[] {
  * below; the two share the same idea of where a `$( … )` ends.
  *
  * A backslash escapes `$`, a backtick, and itself in an unquoted body, so
- * `\$(pkill …)` is text an agent is quoting, not a command (Reviewer1). `\\`
+ * `\$(pkill …)` is text an agent is quoting, not a command. `\\`
  * consumes itself and leaves the substitution after it live.
  */
 function extractSubstitutions(text: string): string {
@@ -339,7 +314,7 @@ function extractSubstitutions(text: string): string {
  * does: it warns, closes the heredoc there, and runs the command anyway. The
  * lines below an unterminated `<<` are body, never commands, so keeping them
  * would only invent denials. Not opening a phantom heredoc in the first place
- * is `heredocsOpenedOn`'s job (Reviewer1).
+ * is `heredocsOpenedOn`'s job.
  */
 function stripHeredocBodies(cmd: string): string {
   if (!cmd.includes("<<")) return cmd;
@@ -377,18 +352,11 @@ function stripHeredocBodies(cmd: string): string {
  */
 function stripQuotedStrings(cmd: string): string {
   let result = stripHeredocBodies(cmd);
-  // Remove double-quoted strings (handling escaped quotes)
   result = result.replace(/"(?:[^"\\]|\\.)*"/g, '""');
-  // Remove single-quoted strings (no escaping in single quotes)
   result = result.replace(/'[^']*'/g, "''");
-  // Remove $'...' ANSI-C quoting
   result = result.replace(/\$'(?:[^'\\]|\\.)*'/g, "''");
   return result;
 }
-
-// ---------------------------------------------------------------------------
-// 3. Isomux config protection - block writes to ~/.isomux/
-// ---------------------------------------------------------------------------
 
 // Copy-like commands where only the last argument (destination) is a write target.
 // Reading from ~/.isomux/ via these is fine; only writing to it should be blocked.
@@ -413,10 +381,6 @@ const WRITE_COMMANDS = [
   "scp",
   "ln",
 ];
-
-// ---------------------------------------------------------------------------
-// 4. Secrets protection - block reads of sensitive files
-// ---------------------------------------------------------------------------
 
 /** Exact basenames that are always sensitive */
 const SENSITIVE_EXACT: Set<string> = new Set([
@@ -462,9 +426,7 @@ const FILE_READ_COMMANDS = [
   "cut",
 ];
 
-// ---------------------------------------------------------------------------
-// 4b. Per-command grammar for the Bash-side readers (task 137c6684)
-//
+// Per-command grammar for the Bash-side readers.
 // `cat .env` is easy: every bare operand is a path. `grep`, `rg`, `sed` and
 // `awk` are not - their FIRST bare operand is the pattern or the script, so the
 // naive "check every non-flag word" rule denies `grep id_rsa ~/.ssh/config` for
@@ -480,8 +442,6 @@ const FILE_READ_COMMANDS = [
 // is deliberate: guessing "consumes a value" would step over a real path and
 // miss a secret read, while guessing "stands alone" at worst checks a flag's
 // value as if it were a path, which can only over-block.
-// ---------------------------------------------------------------------------
-
 type ReaderGrammar = {
   /** Flags that consume the next token as their value. */
   value: Set<string>;
@@ -763,16 +723,11 @@ function bashSensitiveReadTarget(command: string): string | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// 5. Outbound tunnel safety
-//
 // This is deliberately a text tripwire, not complete enforcement. It inspects
 // parsed command words so quoted prose, heredoc data, and ordinary arguments do
 // not trigger it. A renamed binary, a non-shell interpreter, a package runner
 // other than the direct npx/bunx forms below, or an indirect service start can
 // still bypass it.
-// ---------------------------------------------------------------------------
-
 type TunnelMatch = { form: string };
 
 function cloudflaredTunnel(cmd: EffectiveCommand): TunnelMatch | null {
@@ -902,13 +857,12 @@ function isSensitiveFile(filePath: string): boolean {
   // path would). A trailing wildcard is not part of any real name, so drop it
   // and match what is left: `.env*` is a request for `.env`. This is still
   // name matching and not glob analysis - a brace or character-class pattern
-  // can name a sensitive file without looking like one (Reviewer1).
+  // can name a sensitive file without looking like one.
   const name = basename(filePath).replace(/\*+$/, "");
   const path = filePath.replace(/\*+$/, "");
   // Checked before SAFE_SUFFIXES: a backend login is never a template, and the
   // suffix check returns early, so anything it matched could never be reached.
   if (isBackendCredentialPath(path)) return true;
-  // Allow .env.example, .env.template, etc.
   if (SAFE_SUFFIXES.some((s) => name.endsWith(s))) return false;
   if (SENSITIVE_EXACT.has(name)) return true;
   return SENSITIVE_PATTERNS.some((p) => p.test(name));
@@ -924,9 +878,6 @@ function denySecretRead(target: string, tool: string): PolicyDecision {
   );
 }
 
-// ---------------------------------------------------------------------------
-// 6. Process safety - block killing processes by name pattern
-//
 // Every agent backend on the box runs under a generic command line (`bun`,
 // `node`, `claude`). A pattern aimed at one project's dev server therefore
 // matches the office and every other agent too - that is not hypothetical, it
@@ -938,8 +889,6 @@ function denySecretRead(target: string, tool: string): PolicyDecision {
 // `server/index.ts` command line and the current `server/isomux-office.ts` one
 // alike, with no list to keep in sync. Kills that name a PID or a port are left
 // alone; only the name-matching forms are blocked.
-// ---------------------------------------------------------------------------
-
 /** Commands that select their victims by name/pattern rather than by PID */
 const PATTERN_KILL_COMMANDS = ["pkill", "killall", "killall5"];
 
@@ -1621,9 +1570,6 @@ function checkProcessKill(command: string): string | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Tool input path extraction
-//
 // Tool inputs name their file under different keys: Read/Write/Edit use
 // `file_path`, NotebookEdit uses `notebook_path`, Grep uses `path` and `glob`.
 // The published SDK types offer
@@ -1632,8 +1578,6 @@ function checkProcessKill(command: string): string | null {
 // because a hand-maintained table goes stale, extraction falls back to a
 // key-name heuristic and finally fails CLOSED. A guarded tool whose path we
 // cannot find is denied, not waved through.
-// ---------------------------------------------------------------------------
-
 type ToolPathSpec = {
   /** Input keys naming what the call would touch, in check order. */
   keys: readonly string[];
@@ -1809,10 +1753,6 @@ export function extractApplyPatchPaths(patch: unknown): string[] | null {
   return paths.length > 0 ? paths : null;
 }
 
-// ---------------------------------------------------------------------------
-// Hook callbacks
-// ---------------------------------------------------------------------------
-
 function writeTargets(command: EffectiveCommand): ShellWord[] {
   const redirects = command.args.filter((word) => word.redirect === "output");
   const args = command.args.filter((word) => !word.redirect);
@@ -1977,11 +1917,9 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
   const command = commandValue;
   if (typeof command !== "string" || !command) return allow();
 
-  // Strip quoted strings so patterns don't match commit messages, echo args, etc.
   const stripped = stripQuotedStrings(command);
   const normalized = normalizeAbsolutePaths(stripped);
 
-  // Check ~/.isomux/ write protection first
   const protectedWrite = shellWriteDecision(command, cwd);
   if (protectedWrite) return protectedWrite;
 
@@ -2017,12 +1955,10 @@ function checkBashSafety(commandValue: unknown, cwd: unknown): PolicyDecision {
     );
   }
 
-  // Check safe patterns first (allowlist)
   for (const pattern of SAFE_PATTERNS) {
     if (pattern.test(normalized)) return allow();
   }
 
-  // Check destructive patterns (blocklist)
   for (const [pattern, reason] of DESTRUCTIVE_PATTERNS) {
     if (pattern.test(normalized)) {
       return denyMessage(reason, command);
@@ -2099,11 +2035,8 @@ function checkSensitiveFileRead(
   return allow();
 }
 
-// ---------------------------------------------------------------------------
 // Provider-neutral routing. Adapters translate engine tool names to these
 // action kinds; the core owns which policy checks each kind runs.
-// ---------------------------------------------------------------------------
-
 export function evaluateProposedAction(
   action: ProposedAction,
   context: PolicyContext = {},
