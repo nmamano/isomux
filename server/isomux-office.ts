@@ -44,7 +44,6 @@ import {
   saveScheduledMessages,
   loadServerConfig,
   saveServerConfig,
-  warnIfLegacyPluginsConfigured,
   loadSessionsMap,
   peekMessageQueuesRaw,
   buildKilledManifest,
@@ -5740,7 +5739,6 @@ function runBackgroundBoot(
   }
 
   agentManager.configureAgentTurnDeps();
-  warnIfLegacyPluginsConfigured();
 
   const restorePromise = (async () => {
     const restored = await agentManager.restoreAgents();

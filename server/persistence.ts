@@ -999,18 +999,6 @@ export function saveOfficeConfig(config: OfficeSettings) {
   }
 }
 
-// Older office-config.json files can still carry the removed plugin setting.
-// readOfficeConfigRaw keeps unknown keys, so this compatibility check does not
-// make the legacy key part of current OfficeSettings.
-export function warnIfLegacyPluginsConfigured(): void {
-  const raw = readOfficeConfigRaw();
-  if (Array.isArray(raw.enabledPlugins) && raw.enabledPlugins.length > 0) {
-    console.warn(
-      "[server-config] enabledPlugins is no longer supported; ignoring",
-    );
-  }
-}
-
 // Server/deployment config that shares office-config.json but isn't part of
 // the UI-mutated OfficeSettings. Currently just `publicOrigin`, used as a
 // fallback when `ISOMUX_PUBLIC_ORIGIN` is unset in the environment. Server
