@@ -5,6 +5,7 @@ import {
   useLayoutEffect,
   useCallback,
 } from "react";
+import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
 export interface ViewportState {
   x: number;
   y: number;
@@ -25,9 +26,43 @@ const VIEWPORT = {
   ZOOM_STEP: 1.25,
   /** Fraction of the container that must remain occupied by the scene at the edge. */
   PAN_MARGIN: 0.25,
+  /** Container-pixel gap left around the scene when the rest view has to move it into view. */
+  FIT_MARGIN: 12,
   RESET_TRANSITION: "transform 0.25s ease-out",
   RESET_CLEAR_MS: 300,
 } as const;
+
+/**
+ * Painted extents of the static scene in SVG user units, read off Floor.tsx:
+ * the wall end caps and the floor slab's outer corners span x -364..604, the
+ * wall ridge apex sits at y -209, and the front floor slab ends at y 529
+ * (515 + SLAB_H). Both SVGs render with `overflow="visible"`, so the artwork
+ * bleeds outside the SCENE_W x SCENE_H box it is laid out in - 109px above it
+ * in particular, which is what a short container clips first. Measured in
+ * Chrome 2026-09-04; grid.ts documents the same x span.
+ */
+const ART_SVG = { x0: -364, y0: -209, x1: 604, y1: 529 } as const;
+
+/**
+ * The same box as fractions of the scene's layout box, so it survives the
+ * static centering transform's scale (mobileScale, embed) without the hook
+ * having to know about it.
+ */
+const ART_BOX = {
+  left: (ART_SVG.x0 - VB_X) / SCENE_W,
+  top: (ART_SVG.y0 - VB_Y) / SCENE_H,
+  right: (ART_SVG.x1 - VB_X) / SCENE_W,
+  bottom: (ART_SVG.y1 - VB_Y) / SCENE_H,
+} as const;
+
+/**
+ * Which axes may drive the rest scale down. "height" keeps the authored
+ * sideways bleed on every screen; "both" also guarantees the left and right
+ * wall ends are on screen in a narrow window, at the cost of a smaller scene
+ * there. Width is never a constraint on mobile either way - the mobile static
+ * scale crops 200px of width on purpose.
+ */
+const FIT_AXES: "height" | "both" = "height";
 
 const DEFAULT_STATE: ViewportState = { x: 0, y: 0, scale: 1 };
 
@@ -36,6 +71,12 @@ const DEFAULT_STATE: ViewportState = { x: 0, y: 0, scale: 1 };
 // global across rooms - module scope extends that to "global across views"
 // without round-tripping through React state. Mutated in place via state.current.
 const persistedState: ViewportState = { ...DEFAULT_STATE };
+
+// The rest view the scene was last fitted to, module-scoped for the same reason
+// persistedState is: a remount must be able to tell "the user has not touched
+// the view" from "the user panned or zoomed". Starts equal to DEFAULT_STATE, so
+// the very first mount counts as untouched and fits.
+const restView: ViewportState = { ...DEFAULT_STATE };
 
 // Pan should start from any non-interactive surface in the scene. Every clickable
 // target in the scene - including native HTML5 drag sources like DeskUnit - opts
@@ -53,6 +94,91 @@ const TOUCH_PAN_BLOCKER_SELECTOR = "button, a, input, textarea, select";
 
 function clampScale(scale: number) {
   return Math.max(VIEWPORT.MIN_SCALE, Math.min(VIEWPORT.MAX_SCALE, scale));
+}
+
+/** An axis-aligned box in viewport-layer-local coords (pre-zoom). */
+export interface Bounds {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+/**
+ * One axis of the rest view: where to translate so the painted scene reads well
+ * in a container of `size` at `scale`.
+ *
+ * `start` is the translation that scales the authored framing about the
+ * container centre - at scale 1 it is 0, i.e. exactly what the scene did before
+ * this function existed. We keep it whenever nothing is clipped, so a container
+ * that already shows the whole scene is left alone to the pixel. Only when an
+ * edge falls outside do we move, and then by the least amount that brings the
+ * scene back inside with FIT_MARGIN to spare. The last branch runs in two
+ * cases. At the exact fit scale min and max are analytically equal, so float
+ * rounding decides the side - harmless, because both branches return the same
+ * number there. It is load-bearing once the fit scale bottoms out at MIN_SCALE
+ * and the scene genuinely cannot fit: then it centres the overflow, so the
+ * scene is cropped evenly rather than all on one side.
+ */
+function fitAxis(size: number, scale: number, lo: number, hi: number) {
+  const start = ((1 - scale) * size) / 2;
+  if (scale * lo + start >= 0 && scale * hi + start <= size) {
+    return start;
+  }
+  const min = VIEWPORT.FIT_MARGIN - scale * lo;
+  const max = size - VIEWPORT.FIT_MARGIN - scale * hi;
+  if (min > max) {
+    return (size - scale * (hi - lo)) / 2 - scale * lo;
+  }
+  return Math.max(min, Math.min(max, start));
+}
+
+/**
+ * The view "reset view" goes to: the authored framing when the whole painted
+ * scene fits, and otherwise the largest scale (never above 1) that does fit,
+ * positioned by fitAxis.
+ *
+ * `art` is the painted scene box, not the layout box - the scene bleeds 109px
+ * above its layout box, which is why centring the layout box clipped the wall
+ * clock on a wide-and-short monitor.
+ *
+ * `fitWidth` decides whether width may drive the scale. The scene is authored
+ * to bleed sideways (mobileScale deliberately crops 200px of width so desks
+ * stay tappable), so height alone is the default constraint; see FIT_AXES.
+ */
+export function computeRestView(
+  cw: number,
+  ch: number,
+  art: Bounds,
+  fitWidth: boolean,
+): ViewportState {
+  const aw = art.right - art.left;
+  const ah = art.bottom - art.top;
+  if (!(cw > 0 && ch > 0 && aw > 0 && ah > 0)) {
+    return { ...DEFAULT_STATE };
+  }
+  const byHeight = (ch - 2 * VIEWPORT.FIT_MARGIN) / ah;
+  const byWidth = fitWidth
+    ? (cw - 2 * VIEWPORT.FIT_MARGIN) / aw
+    : Number.POSITIVE_INFINITY;
+  const scale = clampScale(Math.min(1, byHeight, byWidth));
+  return {
+    scale,
+    x: fitAxis(cw, scale, art.left, art.right),
+    y: fitAxis(ch, scale, art.top, art.bottom),
+  };
+}
+
+/** The painted scene box, derived from the measured layout box. */
+export function artBounds(b: Bounds): Bounds {
+  const w = b.right - b.left;
+  const h = b.bottom - b.top;
+  return {
+    left: b.left + ART_BOX.left * w,
+    right: b.left + ART_BOX.right * w,
+    top: b.top + ART_BOX.top * h,
+    bottom: b.top + ART_BOX.bottom * h,
+  };
 }
 
 /**
@@ -141,12 +267,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   const state = useRef<ViewportState>(persistedState);
   const gesture = useRef<Gesture>({ kind: "idle" });
   /** Scene content bounds in viewport-layer-local coords (pre-zoom). Null until measured. */
-  const sceneBounds = useRef<{
-    left: number;
-    right: number;
-    top: number;
-    bottom: number;
-  } | null>(null);
+  const sceneBounds = useRef<Bounds | null>(null);
   /** True if the most recent pointer gesture became a pan - used to suppress click-to-focus */
   const didPan = useRef(false);
   const resetClearTimer = useRef<number | null>(null);
@@ -259,6 +380,50 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     state.current.y = Math.max(minY, Math.min(maxY, state.current.y));
   }
 
+  /**
+   * True while the view is still the one the last fit produced - i.e. the user
+   * has neither panned nor zoomed since. Only then may a resize or a layout
+   * change re-fit under them.
+   */
+  function isAtRest() {
+    const s = state.current;
+    return (
+      Math.abs(s.scale - restView.scale) < 1e-3 &&
+      Math.abs(s.x - restView.x) < 0.5 &&
+      Math.abs(s.y - restView.y) < 0.5
+    );
+  }
+
+  /**
+   * Move the view to the fitted rest position and record it as the new rest.
+   * A no-op while the bounds are unmeasured (hidden container): there is no
+   * fit to compute, and snapping to the unfitted default would undo a good
+   * one. The next visible measure re-fits.
+   */
+  function applyRest(animate: boolean) {
+    const container = containerRef.current;
+    const b = sceneBounds.current;
+    if (!container || !b) {
+      return;
+    }
+    const target = computeRestView(
+      container.clientWidth,
+      container.clientHeight,
+      artBounds(b),
+      FIT_AXES === "both",
+    );
+    restView.x = target.x;
+    restView.y = target.y;
+    restView.scale = target.scale;
+    // Mutate in place so the module-scoped persistedState stays the single
+    // source of truth across mounts. Reassigning state.current to a fresh
+    // object would orphan persistedState at its last value.
+    state.current.x = target.x;
+    state.current.y = target.y;
+    state.current.scale = target.scale;
+    applyTransform(animate);
+  }
+
   function zoomAt(cx: number, cy: number, newScale: number) {
     const s = state.current;
     const clamped = clampScale(newScale);
@@ -278,15 +443,10 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   // add the dep; otherwise the callback will silently use stale values.
   // sceneBounds are layer-local (measureSceneBounds inverts the live transform),
   // so they're invariant under state changes - no need to re-measure after
-  // resetting. At DEFAULT_STATE, clampPan is a no-op by construction.
+  // resetting. The rest view is inside the pan clamp by construction, so
+  // applyRest does not need a clampPan after it.
   const resetView = useCallback((animate = true) => {
-    // Mutate in place so the module-scoped persistedState stays the single
-    // source of truth across mounts. Reassigning state.current to a fresh
-    // object would orphan persistedState at its last value.
-    state.current.x = DEFAULT_STATE.x;
-    state.current.y = DEFAULT_STATE.y;
-    state.current.scale = DEFAULT_STATE.scale;
-    applyTransform(animate);
+    applyRest(animate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -319,9 +479,12 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   }, []);
 
   /** True when the user has zoomed in past the rest scale - used to route one-finger drags
-   *  to pan instead of swipe on touch (iOS-gallery pattern). */
+   *  to pan instead of swipe on touch (iOS-gallery pattern). The rest scale is
+   *  the fitted one, which is below 1 on a container too short for the scene,
+   *  so the comparison has to be relative or a short screen would never hand
+   *  one-finger drags to pan. */
   const isZoomedIn = useCallback(
-    () => state.current.scale > VIEWPORT.ZOOM_EPSILON,
+    () => state.current.scale > restView.scale * VIEWPORT.ZOOM_EPSILON,
     [],
   );
 
@@ -345,10 +508,17 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   // flash when going back to office view from chat/tasks/list.
   useLayoutEffect(() => {
     measureSceneBounds();
+    if (enabled && isAtRest()) {
+      // Untouched view: re-fit, so the first paint and any later layout change
+      // frame the whole scene. Embed keeps its authored framing (enabled is
+      // false there) and a view the user has moved is left where they put it.
+      applyRest(false);
+      return;
+    }
     clampPan();
     applyTransform();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layoutKey]);
+  }, [layoutKey, enabled]);
 
   // This effect's deps are `[container, enabled]`. The DOM handlers registered
   // below close over in-body helpers (applyTransform, zoomAt, clampPan, save,
@@ -669,6 +839,12 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     const ro = new ResizeObserver(() => {
       // The centered scene's layer-local position depends on container size.
       measureSceneBounds();
+      if (isAtRest()) {
+        // The fitted view is defined by the container, so it has to follow the
+        // container. A view the user panned or zoomed only gets re-clamped.
+        applyRest(false);
+        return;
+      }
       clampPan();
       applyTransform();
     });
