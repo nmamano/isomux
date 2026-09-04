@@ -81,10 +81,6 @@ import { getUserByName as defaultResolveUser } from "./users.ts";
 // can pass it verbatim and the dep type can be derived from it without drift.
 import * as cronPersistence from "./cronjob-persistence.ts";
 
-// ---------------------------------------------------------------------------
-// In-memory state
-// ---------------------------------------------------------------------------
-
 interface ActiveRun {
   jobId: string;
   runId: string;
@@ -92,12 +88,12 @@ interface ActiveRun {
   agentType: AgentBackendType;
   modelFamily: string;
   session: BackendSession;
-  sessionId: string | null; // assigned on first system_init event
-  rootSessionId: string; // the run row's rootSessionId (placeholder until init)
+  sessionId: string | null;
+  rootSessionId: string;
   consumerPromise: Promise<void>;
   hardTimeoutTimer: ReturnType<typeof setTimeout> | null;
   lastWrittenEntryId: string | null;
-  lastAssistantText: string; // for previewText computation
+  lastAssistantText: string;
   trigger: CronjobRun["trigger"];
   killed: boolean;
   // Buffer entries created before system_init assigns a sessionId. Without
@@ -115,10 +111,6 @@ interface ActiveRun {
   isResume: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Event bus (server/isomux-office.ts wires this to the WebSocket broadcast)
-// ---------------------------------------------------------------------------
-
 export type CronjobEvent =
   | { type: "cronjob_added"; cronjob: Cronjob }
   | { type: "cronjob_updated"; cronjob: Cronjob }
@@ -128,8 +120,6 @@ export type CronjobEvent =
   | { type: "log_entry"; entry: LogEntry }
   | { type: "clear_logs"; agentId: string };
 
-// --- Dependency injection (Phase 0.2) ---
-//
 // CronjobManager was a singleton function-module (module-level cronjobs /
 // cronjobsPrompt / eventHandler + exported functions). It is now an
 // instantiable unit: createCronjobManager(deps) owns its collaborators;
@@ -221,7 +211,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     listAllCronjobIdsOnDisk,
   } = deps.persistence;
 
-  const activeRuns = new Map<string, ActiveRun>(); // runId -> ActiveRun
+  const activeRuns = new Map<string, ActiveRun>();
 
   // Synchronously-claimed slot for runs whose resume/fork is mid-startup but
   // hasn't reached `activeRuns.set` yet. Without this gate, a second concurrent
@@ -244,10 +234,6 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
   function onCronjobEvent(handler: (e: CronjobEvent) => void) {
     eventHandler = handler;
   }
-
-  // ---------------------------------------------------------------------------
-  // Schedule math
-  // ---------------------------------------------------------------------------
 
   function computeNextFire(
     schedule: Schedule,
@@ -272,7 +258,6 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       if (next.getTime() <= now) next.setDate(next.getDate() + 1);
       return next.getTime();
     }
-    // weekly
     const next = new Date(now);
     next.setSeconds(0, 0);
     next.setHours(schedule.hour, schedule.minute, 0, 0);
@@ -311,10 +296,6 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
       minute: Math.min(59, Math.max(0, Math.floor(schedule.minute))),
     };
   }
-
-  // ---------------------------------------------------------------------------
-  // CRUD
-  // ---------------------------------------------------------------------------
 
   function listCronjobs(): Cronjob[] {
     return cronjobs;
@@ -480,7 +461,6 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const removed = cronjobs[idx];
     cronjobs.splice(idx, 1);
     saveCronjobs(cronjobs);
-    // Preserve last name for usage report.
     const history = loadCronjobHistory();
     history[removed.id] = { lastName: removed.name };
     saveCronjobHistory(history);
@@ -515,10 +495,6 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
     const entries = loadRunLogWithAncestors(jobId, runId, leaf);
     return { run, entries };
   }
-
-  // ---------------------------------------------------------------------------
-  // System prompt for cronjobs
-  // ---------------------------------------------------------------------------
 
   // Same rationale as system-prompt.ts: hoist PORT once so a non-default isomux
   // (e.g. betatest2 on 4001) tells its cronjobs to POST to the right port.
@@ -600,10 +576,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     );
     return prompt;
   }
-
-  // ---------------------------------------------------------------------------
-  // Run lifecycle
-  // ---------------------------------------------------------------------------
 
   // Translate a NormalizedEvent into cron's LogEntry / sessions.json side
   // effects. Mirror of agent-manager.processNormalizedEvent, but with the cron
@@ -1241,10 +1213,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     return run;
   }
 
-  // ---------------------------------------------------------------------------
-  // Scheduler tick
-  // ---------------------------------------------------------------------------
-
   function hasInFlightScheduledRun(jobId: string): boolean {
     for (const a of activeRuns.values()) {
       if (a.jobId === jobId && a.trigger === "scheduled") return true;
@@ -1276,19 +1244,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Manual trigger
-  // ---------------------------------------------------------------------------
-
   function runCronjobNow(id: string, username: string): CronjobRun | null {
     const job = cronjobs.find((c) => c.id === id);
     if (!job) return null;
     return fire(job, "manual", username);
   }
-
-  // ---------------------------------------------------------------------------
-  // File display - cronjob equivalent of POST /agents/:id/read-file
-  // ---------------------------------------------------------------------------
 
   // Display cap mirrors agent-manager's MAX_READ_FILE_BYTES. Files larger than
   // this surface a system note instead of being copied - the inline-display path
@@ -1372,10 +1332,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     return { ok: true };
   }
 
-  // ---------------------------------------------------------------------------
-  // Git diff - cronjob equivalent of POST /agents/:id/diff
-  // ---------------------------------------------------------------------------
-
   // Emit a styled diff card into the run transcript. Same shape as
   // emitAgentDiff but writes through the cronjob log path. Optional `dir`
   // targets a different directory (defaults to the run's cwd snapshot);
@@ -1441,10 +1397,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
     return { ok: true };
   }
-
-  // ---------------------------------------------------------------------------
-  // Resume / edit-to-fork - follow-up turns into a finalized run
-  // ---------------------------------------------------------------------------
 
   // Append a one-off log entry without an active session. Used to surface
   // pre-flight errors (cwd invalid, leaf is a placeholder, etc.) so the user
@@ -1678,7 +1630,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
         emitRunErrorEntry(jobId, runId, `Failed to resume: ${errMessage(err)}`);
         return;
       }
-      // Persist the user message so it shows up in the transcript.
       const meta: Record<string, unknown> | undefined =
         username || device
           ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
@@ -2078,10 +2029,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     })();
   }
 
-  // ---------------------------------------------------------------------------
-  // Startup reconciliation + scheduler boot
-  // ---------------------------------------------------------------------------
-
   function startCronjobScheduler() {
     // Load configs and cronjobsPrompt (with one-shot migration from the legacy
     // location in office-config.json - see migrateCronjobsPromptFromOfficeConfig).
@@ -2113,7 +2060,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     migrateCronjobsPromptFromOfficeConfig();
     cronjobsPrompt = loadCronjobsPrompt();
 
-    // Recompute nextFireAt for every cronjob from current time forward.
     const now = clock.now();
     let dirty = false;
     for (const job of cronjobs) {
@@ -2127,7 +2073,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     }
     if (dirty) saveCronjobs(cronjobs);
 
-    // Mark any "running" rows on disk as failed - server crashed mid-run.
     for (const jobId of listAllCronjobIdsOnDisk()) {
       const runs = loadRuns(jobId);
       let mutated = false;
@@ -2145,10 +2090,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
     scheduler.setTimeout(() => tick(), 5_000); // initial tick after small delay
     scheduler.setInterval(() => tick(), TICK_INTERVAL_MS);
   }
-
-  // ---------------------------------------------------------------------------
-  // Per-cronjob lifetime usage helpers (used by /isomux-usage)
-  // ---------------------------------------------------------------------------
 
   function readCronjobLifetimeUsage(jobId: string): {
     totalIn: number;
@@ -2223,10 +2164,6 @@ How to answer questions about Isomux itself: the source lives at https://github.
   };
 }
 
-// ---------------------------------------------------------------------------
-// Production wiring
-// ---------------------------------------------------------------------------
-
 // Production factory: wires today's defaults (real backend resolver, env/user
 // resolution, the cronjob-persistence module, the system clock, and global
 // timers). No global side effects. isomux-office.ts calls this at boot; tests build
@@ -2255,10 +2192,6 @@ export function createProductionCronjobManager(overrides?: {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Module-read compatibility bridge (Phase 0.2, Option B)
-// ---------------------------------------------------------------------------
-//
 // listCronjobs / readCronjobLifetimeUsage / buildCronjobSystemPrompt are read
 // by command-handlers.ts and usage-report.ts, which don't hold the manager
 // instance. Rather than thread the instance through their signatures (deferred

@@ -28,7 +28,6 @@ export interface ContextUsageSnapshot {
   source: "turn_completed" | "usage_update" | "on_demand";
 }
 
-// Internal agent state
 export interface ManagedAgent {
   // Readonly to enforce that AgentInfo mutation goes through OfficeState
   // (officeState.updateAgent / setTopic / etc.). The shared-reference
@@ -49,7 +48,7 @@ export interface ManagedAgent {
   // wait for the in-flight turn to end ATTACHES to it
   // (`pendingTurn.promise.catch(...)`) - it must NEVER replace this record
   // with a delegating wrapper. The old wrap-and-wake pattern had a lost-wakeup
-  // hole (task da065287): runAgentTurn's send-throw cleanup only fires when it
+  // hole: runAgentTurn's send-throw cleanup only fires when it
   // still owns the installed record, so a wrapper parked around the original
   // was orphaned forever, stranding flushInProgress and wedging all delivery
   // for the agent. Attached waiters wake on any settle, from any settle site.
@@ -83,8 +82,7 @@ export interface ManagedAgent {
   abortCancelToken: number;
   aborting: boolean;
   // The explained backend-failure sentence the STREAM CONSUMER just wrote to
-  // chat, held so the turn-owning caller's catch can recognize its own echo
-  // (tasks 86678675 / e8168c2a).
+  // chat, held so the turn-owning caller's catch can recognize its own echo.
   //
   // One death produces two writes inside this one turn pipeline: the consumer
   // logs the failure and then rejects pendingTurn, and that rejection is
@@ -101,7 +99,7 @@ export interface ManagedAgent {
   // Also serves as a partial swap-lock: serializes the most user-visible variant
   // (sendMessage-during-abort) of the broader concurrency hole where multiple swap
   // callers (newConversation/resume/editAgent/editMessage/`/clear`) can race and
-  // orphan the loser's session. See task 154e2c14. Don't remove without replacing.
+  // orphan the loser's session. Don't remove without replacing.
   abortPromise: Promise<void> | null;
   slashCommands: {
     name: string;
@@ -110,8 +108,7 @@ export interface ManagedAgent {
     autoRun?: boolean;
   }[];
   skills: SkillInfo[];
-  sdkReportedCommands: string[]; // commands reported by SDK in system:init
-  // Timing: track when phases start for duration_ms computation
+  sdkReportedCommands: string[];
   thinkingStartedAt: number;
   // Live turn timing. These are in-memory only and reset on every terminal
   // boundary/session install. `lastNormalizedEventAt` is the watchdog's
@@ -124,15 +121,14 @@ export interface ManagedAgent {
   // Per-turn active tools. The value includes the display name so the logs API
   // can describe the oldest active call without re-reading the transcript.
   toolCallTimestamps: Map<string, { name: string; startedAt: number }>;
-  // Topic generation
   topicGenerating: boolean;
-  topicMessageCount: number; // text entry count when topic was last generated
+  topicMessageCount: number;
   // Bumped by any path that resets the conversation (/clear, /resume, fork,
   // newConversation). generateTopic captures this at start and discards the
   // result if it changed during the await - otherwise an in-flight LLM call
   // would stomp on the cleared state when it finally returns.
   topicGenToken: number;
-  // --- Context-window fullness (internal-docs/context-fullness-visibility.md).
+  // See internal-docs/context-fullness-visibility.md.
   // Latest committed fullness measurement for the CURRENT conversation, or null
   // when none exists (fresh/blank conversation, resumed-but-not-yet-sampled,
   // backend can't report - e.g. Codex before its first turn's tokenUsage
@@ -175,7 +171,6 @@ export interface ManagedAgent {
   // (resetContextUsage); restored on edit-fork rollback; preserved on model
   // change.
   firedUiThresholds: Set<number>;
-  // --- Session-start memory-size notice (task f1a08f05).
   // The formatted notice waiting to ride out on the next message, or null when
   // there is nothing to say (every scope under the ratio) or it has already gone
   // out. Armed by createBackendSession, which already renders the memory layer;
@@ -192,7 +187,6 @@ export interface ManagedAgent {
   // notice flag here - a server restart forgets it, and the next session start
   // may re-notice.
   memoryNoticeFired: boolean;
-  // --- Truthful wake-up notice (task e06b7e23).
   // The wake-up line waiting to ride out on the next message, or null when the
   // wake had nothing to warn about (idle eviction, fresh session). Armed by the
   // two dormant-wake paths in agent-manager for a server restart or an
@@ -207,7 +201,6 @@ export interface ManagedAgent {
   // only because its provider needs sign-in. That auth path has one notice.
   pendingFreshRecoveryNotice: boolean;
   authNoticeEmittedThisWake: boolean;
-  // --- Subscription-allowance usage (the pill next to the context battery).
   // Latest committed reading for the ACCOUNT this agent's backend is signed in
   // to, or null when there is none (Claude API-key/Bedrock/Vertex sessions,
   // Codex before any rate-limit payload, backend call failed). Deliberately
@@ -231,7 +224,6 @@ export interface ManagedAgent {
   // generation token (there's no conversation to belong to).
   subscriptionSampleSeq: number;
   subscriptionCommittedSeq: number;
-  // /resume two-step state
   pendingResume: boolean;
   pendingResumeSessions: {
     sessionId: string;
@@ -239,9 +231,7 @@ export interface ManagedAgent {
     topic: string | null;
     topicMessageCount: number;
   }[];
-  // /model two-step state
   pendingModelPick: boolean;
-  // /effort two-step state
   pendingEffortPick: boolean;
   pendingInteraction?: AgentChoiceInteraction | null;
   pendingInteractionAdded?: AgentChoiceInteraction | null;
@@ -261,9 +251,8 @@ export interface ManagedAgent {
     // option was shown, so an unmatched number denies with that as the reason.
     allowPrefixLabel?: string;
   } | null;
-  // Terminal PTY sidecar (spawned on demand via Node.js)
   ptySidecar: import("bun").Subprocess | null;
-  ptyBuffer: string; // buffered output for reconnecting browsers
+  ptyBuffer: string;
   // /isomux-usage tracking. The SDK's `result` reports session-cumulative totals,
   // which are written to sessions.json on every turn (`usage` field) along
   // with a per-turn snapshot (`usageSnapshots`). /isomux-usage reads those entries
@@ -273,7 +262,7 @@ export interface ManagedAgent {
   // Message queue: human + agent senders accumulate here while the agent is
   // busy (state thinking/tool_executing). On transition to idle/waiting_for_response,
   // all entries flush together as one coalesced SDK prompt with sender labels.
-  // DURABLE (task 9870b472): mirrored to ~/.isomux/message-queues.json and
+  // Mirrored to ~/.isomux/message-queues.json and
   // replayed on boot. Every mutation site MUST persist - acceptance goes
   // through enqueueMessage's transactional write; every post-accept mutation
   // must call persistQueueState (best-effort) alongside its emitQueueUpdate.
@@ -298,7 +287,7 @@ export interface ManagedAgent {
   // replacing sessions every sweep.
   lastForcedRecoveryAt: number;
   // Date.now() of each agent-initiated steer that actually interrupted a turn
-  // of THIS receiver (task 80b2bb08), newest last, pruned to the rate-limit
+  // of THIS receiver, newest last, pruned to the rate-limit
   // window on each check. Per receiver across all senders: what the limit
   // protects is this agent's ability to finish a turn, not any one sender's
   // manners. Only real interruptions are recorded - a steer at an idle receiver
@@ -335,7 +324,7 @@ export type AgentEvent =
   // `rollback: true` marks a clear that RESTORES a prior visible timeline
   // (failed edit-fork rollback) rather than establishing a new conversation
   // boundary - clients keep transient per-conversation cues (the unread dot)
-  // instead of dropping them (task 8d763325).
+  // instead of dropping them.
   | { type: "clear_logs"; agentId: string; rollback?: boolean }
   | {
       type: "slash_commands";
@@ -375,8 +364,8 @@ export type EventHandler = (event: AgentEvent) => void;
 // `reason` rides along so catch sites can tell WHY the swap happened without
 // racing any external flag: "settings" marks a deliberate settings-driven
 // replace (model/effort/permission/sandbox/cwd edit) - flushQueue's handler
-// words its interrupt notice as expected behavior instead of a stall
-// (task 8ba27b27). Undefined for every other swap (abort slow path,
+// words its interrupt notice as expected behavior instead of a stall.
+// Undefined for every other swap (abort slow path,
 // setPrivileged, watchdog forced recovery, /clear, /resume, ...).
 export class SessionSwappedError extends Error {
   readonly reason?: "settings";
@@ -434,8 +423,8 @@ export function inMultiStepFlow(managed: ManagedAgent): boolean {
   );
 }
 
-// Which two-step prompt an agent is parked on, or null when it is not parked
-// (task 29daebe2). The same four flags inMultiStepFlow reduces to a boolean,
+// Which two-step prompt an agent is parked on, or null when it is not parked.
+// The same four flags inMultiStepFlow reduces to a boolean,
 // kept as a named value so the state can be SHOWN rather than only acted on: a
 // prompt-parked agent used to be indistinguishable from one whose backend had
 // died, because the prompt itself is written as an ephemeral log entry that
@@ -459,7 +448,7 @@ export function pendingPromptOf(
 
 // Result of sendNow / abort. Both used to be void with an unconditional 204,
 // which made "I did the thing" and "I could not and said nothing" identical on
-// the wire (tasks 5dcb0a02, 29daebe2). Same shape as CancelResult so the route
+// the wire. Same shape as CancelResult so the route
 // layer maps them with the existing `fail(status, code, message)` helper.
 export type SendNowResult =
   | { ok: true }
@@ -469,7 +458,7 @@ export type AbortResult =
   | { ok: true }
   | { ok: false; status: 404 | 409 | 500; code: string; message: string };
 
-// Why a requested steer did not interrupt the receiver (task 80b2bb08). Both
+// Why a requested steer did not interrupt the receiver. Both
 // reasons degrade to a plain queue rather than failing the send: the message is
 // always accepted, only the interruption is refused.
 //   multi_step_flow - the receiver is part-way through a permission / resume /
