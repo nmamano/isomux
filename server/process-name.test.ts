@@ -9,15 +9,21 @@
 // kernel back.
 
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { OFFICE_PROCESS_NAME } from "./process-name.ts";
 
 const MODULE = `${import.meta.dir}/process-name.ts`;
-const SRC = readFileSync(`${import.meta.dir}/isomux-office.ts`, "utf8");
+const ENTRY_POINT = `${import.meta.dir}/isomux-office.ts`;
 
 /** Run `code` in a fresh bun process and return its trimmed stdout. */
-async function inSubprocess(code: string): Promise<string> {
+async function inSubprocess(
+  code: string,
+  env?: Record<string, string | undefined>,
+): Promise<string> {
   const proc = Bun.spawn(["bun", "-e", code], {
+    env,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -94,23 +100,108 @@ describe("setProcessName", () => {
 });
 
 describe("wiring", () => {
-  test("runOfficeMain renames the process before booting the server", () => {
-    const main = SRC.slice(SRC.indexOf("export async function runOfficeMain"));
-    const rename = main.indexOf("setProcessName()");
-    const boot = main.indexOf("await startServer()");
-    const cli = main.indexOf('process.argv[2] === "owner-login"');
-    expect(rename).toBeGreaterThan(-1);
-    // After the CLI fast-path: `owner-login` is a different program and exits
-    // before the boot, so it keeps its own name.
-    expect(rename).toBeGreaterThan(cli);
-    expect(rename).toBeLessThan(boot);
+  test("importing the office entry point does not rename the process", async () => {
+    const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
+    try {
+      const out = await inSubprocess(
+        `
+          const { readFileSync } = require("fs");
+          await import("${ENTRY_POINT}");
+          process.stdout.write(readFileSync("/proc/self/comm", "utf8"));
+        `,
+        {
+          ...process.env,
+          HOME: stateDir,
+          ISOMUX_HOME: stateDir,
+          ISOMUX_BACKUP_DIR: stateDir,
+          XDG_CONFIG_HOME: stateDir,
+          PORT: "0",
+        },
+      );
+      expect(out).toBe("bun");
+    } finally {
+      rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
-  test("the rename is not a side effect of importing a server module", () => {
-    const mod = readFileSync(MODULE, "utf8");
-    // A top-level call would rename anything that imports this, including bun
-    // test workers - which would both break the tests above and put a wrong
-    // name in front of earlyoom on a dev box.
-    expect(mod).not.toMatch(/^setProcessName\(/m);
-  });
+  test(
+    "the office entry point renames its own process on a normal boot",
+    async () => {
+      const stateDir = mkdtempSync(join(tmpdir(), "isomux-process-name-"));
+      const startedAt = performance.now();
+      const proc = Bun.spawn(["bun", "run", ENTRY_POINT], {
+        env: {
+          ...process.env,
+          HOME: stateDir,
+          ISOMUX_HOME: stateDir,
+          ISOMUX_BACKUP_DIR: stateDir,
+          XDG_CONFIG_HOME: stateDir,
+          PORT: "0",
+        },
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const stderrPromise = new Response(proc.stderr).text();
+      const deadline = startedAt + 15_000;
+      let firstComm: string | undefined;
+      let lastComm: string | undefined;
+      let observedRenameMs: number | undefined;
+      let failure: Error | undefined;
+
+      try {
+        while (performance.now() < deadline) {
+          try {
+            lastComm = readFileSync(`/proc/${proc.pid}/comm`, "utf8").trim();
+          } catch (error) {
+            const exitCode = await proc.exited;
+            const stderr = await stderrPromise;
+            const phase =
+              firstComm === undefined
+                ? "spawn error before first read"
+                : "exited before rename";
+            failure = new Error(
+              `office child ${phase}: last comm=${lastComm ?? "unread"}, alive=false, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
+              { cause: error },
+            );
+            break;
+          }
+
+          if (firstComm === undefined) {
+            firstComm = lastComm;
+            if (firstComm !== "bun") {
+              failure = new Error(
+                `office child was not observed before rename: first comm=${firstComm}`,
+              );
+              break;
+            }
+          }
+          if (lastComm === OFFICE_PROCESS_NAME) {
+            observedRenameMs = performance.now() - startedAt;
+            break;
+          }
+          await Bun.sleep(50);
+        }
+
+        if (observedRenameMs === undefined && failure === undefined) {
+          const alive = proc.exitCode === null;
+          if (alive) proc.kill();
+          const exitCode = await proc.exited;
+          const stderr = await stderrPromise;
+          failure = new Error(
+            `office child did not rename before deadline: last comm=${lastComm ?? "unread"}, alive=${alive}, exit=${exitCode}, stderr=${JSON.stringify(stderr)}`,
+          );
+        }
+      } finally {
+        if (proc.exitCode === null) proc.kill();
+        await proc.exited;
+        await stderrPromise;
+        rmSync(stateDir, { recursive: true, force: true });
+      }
+
+      if (failure) throw failure;
+      expect(firstComm).toBe("bun");
+      expect(lastComm).toBe(OFFICE_PROCESS_NAME);
+    },
+    30_000,
+  );
 });

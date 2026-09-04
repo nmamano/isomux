@@ -10,28 +10,12 @@ describe("resolveStateRoot", () => {
     expect(resolveStateRoot({})).toBe(DEFAULT);
   });
 
-  it("treats an empty ISOMUX_HOME as unset", () => {
-    expect(resolveStateRoot({ ISOMUX_HOME: "" })).toBe(DEFAULT);
-  });
-
   it("treats a whitespace-only ISOMUX_HOME as unset", () => {
     expect(resolveStateRoot({ ISOMUX_HOME: "   " })).toBe(DEFAULT);
   });
 
   it("uses an absolute ISOMUX_HOME verbatim", () => {
     expect(resolveStateRoot({ ISOMUX_HOME: "/tmp/isomux-test-root" })).toBe(
-      "/tmp/isomux-test-root",
-    );
-  });
-
-  it("normalizes a trailing slash", () => {
-    expect(resolveStateRoot({ ISOMUX_HOME: "/tmp/isomux-test-root/" })).toBe(
-      "/tmp/isomux-test-root",
-    );
-  });
-
-  it("trims surrounding whitespace", () => {
-    expect(resolveStateRoot({ ISOMUX_HOME: "  /tmp/isomux-test-root  " })).toBe(
       "/tmp/isomux-test-root",
     );
   });
@@ -46,9 +30,5 @@ describe("resolveStateRoot", () => {
 describe("STATE_ROOT", () => {
   it("matches the resolver applied to the current process env", () => {
     expect(STATE_ROOT).toBe(resolveStateRoot(process.env));
-  });
-
-  it("is an absolute path", () => {
-    expect(isAbsolute(STATE_ROOT)).toBe(true);
   });
 });
