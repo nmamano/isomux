@@ -2,8 +2,8 @@
 // hostnames, speaking raw HTTP/1.1 to it with a Host of our choosing, and
 // registering apps through the real REST route.
 //
-// It lives outside a .test.ts file so both the dispatch tests (slice 3) and the
-// handshake tests (slice 4) drive an identical office and compare against
+// It lives outside a .test.ts file so both the dispatch and handshake tests
+// drive an identical office and compare against
 // identical placeholder constants. Duplicating the rig would let the two files'
 // notions of "the neutral 404" drift a word apart, which is precisely the
 // property the app-host arm promises.
@@ -193,7 +193,7 @@ export const NOT_FOUND = {
   cacheControl: "no-store",
 };
 // A caller who is past the gate and asked for a WebSocket on an app whose port
-// has nothing listening. Slice 6b dials the app BEFORE upgrading, so a dial that
+// has nothing listening. The relay dials the app BEFORE upgrading, so a dial that
 // cannot be made is still an ordinary HTTP refusal - which is the whole reason
 // that ordering was chosen.
 export const WS_UNREACHABLE = {
@@ -212,8 +212,8 @@ export const WS_AUTH_REQUIRED = {
 };
 // What a request that is PAST THE GATE looks like in an office where the app is
 // registered and running but nothing is actually listening on its port - which
-// is every test that registers an app without also binding one. Since slice 5
-// the authenticated branch is the relay, so reaching this refusal is itself the
+// is every test that registers an app without also binding one. The authenticated
+// branch is the relay, so reaching this refusal is itself the
 // proof that the caller was authenticated; what the relay does with a real app
 // behind it is pinned in app-host-relay.test.ts.
 export const RELAY_UNREACHABLE = {
@@ -376,8 +376,6 @@ export async function deleteApp(
   if (res.status !== 204) throw new Error(`delete ${name}: ${res.status}`);
 }
 
-// --- signing in to an app (slice 4's handshake, as a fixture) ----------------
-//
 // The hops are asserted one by one in app-auth-handshake.test.ts. Here they are
 // a means to an end: every relay test needs a request that is already past the
 // gate, and there is exactly one way to get one.
@@ -481,8 +479,6 @@ export async function signIn(
 export function withAppCookie(value: string): Record<string, string> {
   return { Cookie: `${APP_COOKIE_NAME}=${value}` };
 }
-
-// --- a WebSocket client, for the slice-6b relay ------------------------------
 
 // Why a hand-rolled client rather than `new WebSocket(...)`: these tests need a
 // Host header of our choosing (the whole arm routes on it), an arbitrary Origin

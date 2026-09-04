@@ -761,7 +761,7 @@ export function allowDiscoveredModels(raw: unknown): DiscoveredOpenCodeModel[] {
         byId.set(id, {
           id,
           // The two house providers prefix every model; "OpenCode Zen - " or
-          // "OpenCode Go - " on each row is noise (Nil) - the picker groups
+          // "OpenCode Go - " on each row is noise - the picker groups
           // them as pay-as-you-go and subscription instead. Other providers
           // keep the prefix - it disambiguates same-named models across them.
           label:

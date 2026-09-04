@@ -59,10 +59,9 @@ export function evaluateOpenCodePermission(
     if (!action) return { kind: "fail_open", warning: SAFETY_WARNING };
     return { kind: "policy", decision: evaluate(action, { cwd }) };
   } catch {
-    // Nil reversed W2 and R2's fail-closed design on 2026-08-31. One malformed
-    // call is local, but an adapter or pin-shape fault can affect every call and
-    // stop every OpenCode agent. Keep that larger blast radius working and
-    // visible; a real policy deny below still rejects the request.
+    // One malformed call is local, but an adapter or pin-shape fault can affect
+    // every call and stop every OpenCode agent. Keep that larger blast radius
+    // working and visible; a real policy deny below still rejects the request.
     return { kind: "fail_open", warning: SAFETY_WARNING };
   }
 }

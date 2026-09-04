@@ -10,9 +10,6 @@
 // any handshake (Codex `initialize` / first `thread/started`) and surface
 // the assigned id via the first `system_init` NormalizedEvent on the stream.
 
-// ---------------------------------------------------------------------------
-// Capabilities
-// ---------------------------------------------------------------------------
 // Static per-backend, embedded in the agent payload sent to the UI. The UI
 // hides affordances when a capability is false (e.g. greys out the "branch"
 // button on a backend without fork support). The wire shape lives in
@@ -22,9 +19,6 @@
 import type { AgentCapabilities } from "../../shared/types.ts";
 export type BackendCapabilities = AgentCapabilities;
 
-// ---------------------------------------------------------------------------
-// Attachments
-// ---------------------------------------------------------------------------
 // `filename` (relative to the agent's attachments dir) is resolved to an
 // on-disk path via persistence.getFilePath; the shared attachment convention
 // (server/attachment-prompt.ts) turns each spec into a path-notice prompt
@@ -36,9 +30,6 @@ export type AttachmentSpec = Attachment;
 // wire/disk shape lives there because it travels as LogEntry.metadata.subagent.
 export type { SubagentOrigin };
 
-// ---------------------------------------------------------------------------
-// createSession / resumeSession options
-// ---------------------------------------------------------------------------
 // The orchestrator pre-builds the system prompt and resolves env vars before
 // handing off - so backends don't need to know about office/room/user state.
 // `modelFamily`, `effort`, and `permissionMode` are deliberately untyped at
@@ -84,9 +75,6 @@ export interface SessionAccessOptions extends SessionEnvironmentOptions {
   interactive?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Token usage
-// ---------------------------------------------------------------------------
 // Same shape Claude's `result` message reports, normalized to camelCase. Codex
 // emits these via `thread/tokenUsage/updated` and on `turn/completed`.
 
@@ -97,11 +85,8 @@ export interface TokenUsage {
   cacheCreationInputTokens: number;
 }
 
-// ---------------------------------------------------------------------------
-// NormalizedEvent - what `BackendSession.stream()` yields
-// ---------------------------------------------------------------------------
-// This is the single contract that `processNormalizedEvent` (introduced in
-// step 2b) consumes. Per-backend translation happens at the backend boundary:
+// This is the single contract that `processNormalizedEvent` consumes.
+// Per-backend translation happens at the backend boundary:
 //
 //   Claude SDK message  →  NormalizedEvent (Claude adapter)
 //   Codex notification  →  NormalizedEvent (Codex adapter)
@@ -263,9 +248,6 @@ export type NormalizedEvent =
       agentId?: string;
     };
 
-// ---------------------------------------------------------------------------
-// Approval decisions
-// ---------------------------------------------------------------------------
 // Four explicit variants matching the /resolve UX. The Claude backend
 // translates `allow_persistent` into session-scoped suggestion updates; the
 // Codex backend maps it to codex's own `acceptForSession` (that session
@@ -289,9 +271,6 @@ export type ApprovalDecision =
   | { kind: "allow_once" }
   | { kind: "deny"; reason?: string };
 
-// ---------------------------------------------------------------------------
-// NormalizedMessage - backend-agnostic view of an on-disk session transcript
-// ---------------------------------------------------------------------------
 // Returned by `Backend.getSessionMessages`. The single consumer at v1 is
 // `editMessage` in agent-manager, which finds the matching user message by
 // content + occurrence index to compute the fork point. Only `uuid`, `role`,
@@ -302,10 +281,6 @@ export interface NormalizedMessage {
   role: "user" | "assistant" | "system" | "result";
   text: string;
 }
-
-// ---------------------------------------------------------------------------
-// BackendSession - per-conversation handle
-// ---------------------------------------------------------------------------
 
 // Subset of SDKControlGetContextUsageResponse used by the /context UI. Codex
 // doesn't expose an equivalent at v1; backends that don't support it return
@@ -407,10 +382,6 @@ export interface BackendSession {
   // parked `stream()` generator.
   close(): void;
 }
-
-// ---------------------------------------------------------------------------
-// Backend - engine-level metadata + session factory
-// ---------------------------------------------------------------------------
 
 export interface ModelOption {
   value: string; // backend-specific (Claude: "opus"; Codex: "gpt-5")

@@ -8,5 +8,5 @@
 //   describe.skipIf(!LIVE)("...live...", () => { ... });
 // or it.skipIf(!LIVE)("...", ...). Gating on this constant (rather than an
 // ad-hoc env read) keeps the skip uniform and greppable. No live tests exist
-// yet in Phase 0.3; this establishes the seam for Phase 1.4 / T3.
+// yet; this establishes the seam for future live tests.
 export const LIVE: boolean = !!process.env.ISOMUX_TEST_LIVE;

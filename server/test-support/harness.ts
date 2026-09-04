@@ -1,5 +1,5 @@
-// In-process server test harness (Phase 0.3). Boots the REAL server
-// (startServer from server/isomux-office.ts) against the temp STATE_ROOT the test
+// In-process server test harness. Boots the REAL server (startServer from
+// server/isomux-office.ts) against the temp STATE_ROOT the test
 // preload set up, with a FakeBackend injected so no LLM/provider call happens.
 // Gives a test multiple authenticated users + sockets and lets it assert on the
 // persisted files under STATE_ROOT.
@@ -266,8 +266,8 @@ async function bootTestServer(
       // Fetch's keep-alive pool can hand this request a socket that belonged
       // to an earlier test's server: every test binds port 0, ports recycle,
       // and a reused dead socket surfaces as ECONNRESET - seen repeatedly on
-      // GitHub's slower runners, never locally (task 837d6411). Close per
-      // request, and retry idempotent methods once in case the pool still
+      // GitHub's slower runners, never locally. Close per request, and retry
+      // idempotent methods once in case the pool still
       // wins the race.
       headers.set("Connection", "close");
       if (rawSessionId) headers.set("Cookie", `${COOKIE_NAME}=${rawSessionId}`);

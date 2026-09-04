@@ -7,7 +7,7 @@
 // a future shared-subprocess deployment can swap in without touching this
 // adapter (subscribers filter by threadId from day one).
 //
-// Critical invariants this code maintains (per the Codex Expert's review):
+// Critical invariants this code maintains:
 //
 //   1. Exactly one turn_completed NormalizedEvent per send(). Codex emits one
 //      turn/completed per turn (Completed or Failed); turn/interrupted maps
@@ -17,7 +17,7 @@
 //   2. Per-thread filtering. Every codex notification with a threadId is
 //      filtered against this session's threadId. Sub-agent / review-mode
 //      child threads have their own ids and must never resolve our turn.
-//      One deliberate carve-out (task 245ce74c): a KNOWN child thread's
+//      One deliberate carve-out: a KNOWN child thread's
 //      item/completed surfaces as subagent tool activity - display only,
 //      never turn bookkeeping.
 //
@@ -102,10 +102,6 @@ import type { GetAccountRateLimitsResponse } from "./_generated/v2/GetAccountRat
 import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 import type { RateLimitWindow } from "./_generated/v2/RateLimitWindow.ts";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 // Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
 // by default), separate from the user's interactive `~/.codex/`. That means
 // the user needs a one-time `codex login` against isomux's CODEX_HOME - the
@@ -141,9 +137,9 @@ const AUTH_ERROR_PATTERNS =
 // Per-thread config overrides, sent with every thread/start and
 // thread/resume (the `config` map takes dotted keys, same as `-c`).
 // Backend-native memory is off in every isomux launch: isomux memory is the
-// only memory an office agent has, so it carries over when the agent's
-// backend changes (Nil's ruling, 2026-09-01). Codex 0.144 ships a memories
-// feature whose keys upstream now documents as defaulting to true; pinning
+// only memory an office agent has, so it carries over when the agent's backend
+// changes. Codex 0.144 ships a memories feature whose keys upstream now
+// documents as defaulting to true; pinning
 // both here keeps a default flip from turning it on, and a per-thread
 // override beats editing the shared config.toml under CODEX_HOME (no file
 // mutation, and it holds for a per-user CODEX_HOME too). Codex type-checks
@@ -177,8 +173,8 @@ const CAPABILITIES: BackendCapabilities = {
 // auth-appropriate subset (ChatGPT-login vs API-key users see different
 // sets) with per-model supportedReasoningEfforts. This list backs
 // getModelOptions() and modelDisplayLabel() when the RPC isn't available.
-// Slugs verified against `codex debug models` on codex-cli 0.144.1
-// (2026-07-11); mirror of CODEX_MODELS in shared/types.ts.
+// Slugs verified against `codex debug models` on codex-cli 0.144.1,
+// 2026-07-11; mirror of CODEX_MODELS in shared/types.ts.
 const MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
   { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
@@ -204,7 +200,7 @@ const PERMISSION_MODES: PermissionModeOption[] = [
 
 // Default sandbox if the caller doesn't pass one. Full access matches the
 // posture everywhere else: agents resolve to danger-full-access and Claude
-// cron runs bypass permissions (Nil's consistency ruling, 2026-08-27).
+// cron runs bypass permissions.
 const DEFAULT_SANDBOX_MODE = "danger-full-access";
 
 const CLIENT_INFO_NAME = "isomux";
@@ -434,10 +430,10 @@ export function mergeRateLimitSnapshots(
   };
 }
 
-// OpenAI's wire slugs vs the ChatGPT plan names users know (task bf1d2573:
+// OpenAI's wire slugs vs the ChatGPT plan names users know:
 // a Pro Max account reports planType "pro", which the pill showed verbatim
-// and read as a different tier). "pro" -> "Pro Max" observed live against a
-// Pro Max account 2026-08-16; "prolite" -> "Pro Codex" (the $100 tier)
+// and read as a different tier. "pro" -> "Pro Max" observed live against a
+// Pro Max account on 2026-08-16; "prolite" -> "Pro Codex" (the $100 tier)
 // follows the same wire naming. An unknown slug passes through verbatim.
 const CODEX_PLAN_DISPLAY_NAMES: Record<string, string> = {
   free: "Free",
@@ -496,10 +492,6 @@ export function normalizeCodexSubscriptionUsage(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Subagent (child-thread) visibility - task 245ce74c
-// ---------------------------------------------------------------------------
-
 // Which child-thread items surface in the parent's transcript. Tool activity
 // only, matching Claude subagents: a child's agentMessage/reasoning stays
 // internal, and parent-scoped markers (contextCompaction -> `compacted`)
@@ -525,9 +517,6 @@ function subagentLabel(text: string): string {
   return text.replace(/\s+/g, " ").trim().slice(0, 200);
 }
 
-// ---------------------------------------------------------------------------
-// CodexSession
-// ---------------------------------------------------------------------------
 //
 // State machine:
 //
@@ -649,8 +638,8 @@ export class CodexSession implements BackendSession {
   // OpenAI websocket 5+ times on 401 with exponential backoff, emitting one
   // `ERROR ... 401 Unauthorized` stderr line per retry. Forwarding each one
   // as system_text triggers the auth-detect path in agent-manager on every
-  // line and pastes the sign-in card repeatedly - what task 5811bae6
-  // described as the "infinite loop" UX. Symmetric with the Claude SDK,
+  // line and pastes the sign-in card repeatedly, producing an "infinite loop"
+  // UX. Symmetric with the Claude SDK,
   // which emits at most one auth signal per send: gate auth-shaped stderr
   // to one signal per user-initiated turn (`authSignalsAllowedThisTurn`
   // opens before turn/start in send(), closes on turn/completed or send
@@ -701,8 +690,8 @@ export class CodexSession implements BackendSession {
   // first notification arrives (typically right after the first turn).
   private modelContextWindow: number | null = null;
   // Child (subagent / review-mode) threads spawned by this thread, keyed by
-  // child thread id (task 245ce74c). Registered from thread/started
-  // (parentThreadId === ours), collabAgentToolCall spawns (richest info,
+  // child thread id. Registered from thread/started (parentThreadId === ours),
+  // collabAgentToolCall spawns (richest info,
   // overwrites), and subAgentActivity items (set-if-absent). Consulted by
   // the notification filter so a known child's item/completed can surface
   // as subagent tool activity; the value is the SubagentOrigin stamped on
@@ -764,10 +753,6 @@ export class CodexSession implements BackendSession {
     this.bootstrapPromise = this.bootstrap();
   }
 
-  // -------------------------------------------------------------------------
-  // Bootstrap: spawn → initialize → thread/start → emit system_init
-  // -------------------------------------------------------------------------
-
   private async bootstrap(): Promise<void> {
     let safety: CodexSafetyPreflightResult | null = null;
     try {
@@ -781,8 +766,8 @@ export class CodexSession implements BackendSession {
         },
         capabilities: {
           experimentalApi: true,
-          // Decline attestation/generate: the adapter doesn't handle that
-          // server request yet (task cdbc2f3e), so opting in would surface
+          // Decline attestation/generate: the adapter doesn't handle that server
+          // request yet, so opting in would surface
           // unhandled requests. 0.144 made this capability required.
           requestAttestation: false,
           optOutNotificationMethods: null,
@@ -810,7 +795,6 @@ export class CodexSession implements BackendSession {
         });
         this.threadId = resumeResp.thread.id;
       } else {
-        // Start a new thread.
         const startParams = this.buildThreadStartParams();
         const startResp = await this.client.request<{ thread: { id: string } }>(
           "thread/start",
@@ -875,10 +859,6 @@ export class CodexSession implements BackendSession {
     }
     return params;
   }
-
-  // -------------------------------------------------------------------------
-  // BackendSession surface
-  // -------------------------------------------------------------------------
 
   async *stream(): AsyncGenerator<NormalizedEvent, void> {
     while (true) {
@@ -1287,10 +1267,6 @@ export class CodexSession implements BackendSession {
     return inFlight;
   }
 
-  // -------------------------------------------------------------------------
-  // Buffer / wake helpers
-  // -------------------------------------------------------------------------
-
   private enqueue(ev: NormalizedEvent): void {
     this.buffer.push(ev);
     this.wake();
@@ -1361,10 +1337,6 @@ export class CodexSession implements BackendSession {
     this.wake();
   }
 
-  // -------------------------------------------------------------------------
-  // Notification routing
-  // -------------------------------------------------------------------------
-
   private handleNotification(n: JsonRpcNotification): void {
     const params = n.params as Record<string, unknown> | null | undefined;
     // Per-thread filter: every notification carrying a threadId must match
@@ -1375,7 +1347,7 @@ export class CodexSession implements BackendSession {
       this.threadId &&
       eventThreadId !== this.threadId
     ) {
-      // Carve-out (task 245ce74c): a KNOWN child thread's completed items
+      // Carve-out: a KNOWN child thread's completed items
       // surface as subagent tool activity. Everything else from foreign
       // threads - turn lifecycle, token usage, deltas - stays dropped, so
       // parent turn bookkeeping is untouched.
@@ -1389,7 +1361,6 @@ export class CodexSession implements BackendSession {
     }
 
     switch (n.method) {
-      // ---- Turn lifecycle ----
       case "turn/started": {
         const turn = params?.turn as { id?: string } | undefined;
         if (turn?.id) this.activeTurnId = turn.id;
@@ -1461,7 +1432,6 @@ export class CodexSession implements BackendSession {
         break;
       }
 
-      // ---- Token usage ----
       // Wire shape: ThreadTokenUsageUpdatedNotification (v2). The payload
       // carries two breakdowns: `total` (cumulative since thread start) and
       // `last` (most recent turn only). We use them for different things:
@@ -1535,7 +1505,6 @@ export class CodexSession implements BackendSession {
         break;
       }
 
-      // ---- Child-thread tracking (task 245ce74c) ----
       // ThreadStartedNotification is { thread } with NO top-level threadId,
       // so it reaches this switch even when it announces a child thread. A
       // thread whose parentThreadId is ours is a subagent (or review-mode)
@@ -1572,7 +1541,6 @@ export class CodexSession implements BackendSession {
         break;
       }
 
-      // ---- Item lifecycle ----
       case "item/started":
         // Carries the full ThreadItem but we wait for completion.
         break;
@@ -1610,7 +1578,6 @@ export class CodexSession implements BackendSession {
       case "item/reasoning/summaryTextDelta":
         break;
 
-      // ---- Subscription rate limits ----
       // Account-scoped, so it carries no threadId and the per-thread filter
       // above lets it through. Codex pushes these as SPARSE rolling updates:
       // a field that arrives null means "unknown right now", not "cleared",
@@ -1624,7 +1591,6 @@ export class CodexSession implements BackendSession {
         break;
       }
 
-      // ---- Mid-conversation compaction ----
       case "thread/compacted": {
         // ContextCompactedNotification is { threadId, turnId } - no `summary`
         // on the wire, so the old params.summary read was always undefined.
@@ -1634,7 +1600,6 @@ export class CodexSession implements BackendSession {
         break;
       }
 
-      // ---- Failure / warnings ----
       case "error": {
         // ErrorNotification carries the text at params.error.message (TurnError),
         // not params.message; the old read was always undefined and silently
@@ -1729,7 +1694,6 @@ export class CodexSession implements BackendSession {
         break;
       }
 
-      // ---- Plan stream ----
       case "item/plan/delta": {
         // Deltas arrive at token granularity; the completed plan item below is
         // the durable card we want in the log.
@@ -1754,7 +1718,7 @@ export class CodexSession implements BackendSession {
     // Cast to a loose Record so per-branch field reads stay typed without
     // committing to the generated schema.
     const item = rawItem as Record<string, unknown>;
-    // `subagent` set = this item came from a child thread (task 245ce74c).
+    // `subagent` set = this item came from a child thread.
     // Only tool activity surfaces from there - see SUBAGENT_VISIBLE_ITEMS.
     if (subagent && !SUBAGENT_VISIBLE_ITEMS.has(item?.type as string)) return;
     switch (item?.type) {
@@ -1925,8 +1889,8 @@ export class CodexSession implements BackendSession {
         this.enqueue({ kind: "compacted" });
         break;
       // The parent's collab tool call (spawnAgent / sendInput / resumeAgent /
-      // wait / closeAgent) - the codex counterpart of Claude's Task card
-      // (task 245ce74c). Rendered as a normal tool card under the codex tool
+      // wait / closeAgent) - the codex counterpart of Claude's Task card.
+      // Rendered as a normal tool card under the codex tool
       // name, and a spawn's receiver threads are registered as children so
       // their own tool items surface.
       case "collabAgentToolCall": {
@@ -2012,10 +1976,6 @@ export class CodexSession implements BackendSession {
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Server-initiated request routing
-  // -------------------------------------------------------------------------
-
   private async handleServerRequest(req: JsonRpcRequest): Promise<unknown> {
     const params = req.params as Record<string, unknown> | null | undefined;
     // Per-thread filter on server requests that target a thread.
@@ -2028,7 +1988,6 @@ export class CodexSession implements BackendSession {
     }
 
     switch (req.method) {
-      // ---- Approvals routed through orchestrator (binary allow/deny UX) ----
       // item/permissions/requestApproval has a richer response shape
       // (GrantedPermissionProfile + scope + strictAutoReview) that doesn't
       // map cleanly to our 3-option /resolve UX - auto-decline at v1.
@@ -2113,7 +2072,6 @@ export class CodexSession implements BackendSession {
         });
       }
 
-      // ---- Permissions request: auto-decline with JSON-RPC error ----
       case "item/permissions/requestApproval":
         this.enqueue({
           kind: "system_text",
@@ -2123,7 +2081,6 @@ export class CodexSession implements BackendSession {
           "Permissions profile changes are not supported in Isomux v1.",
         );
 
-      // ---- Auto-decline (correct response shapes per server schema) ----
       case "item/tool/requestUserInput":
         // ToolRequestUserInputResponse shape is { answers: HashMap<...> }, no
         // canceled/decline field. Sending a JSON-RPC error is the correct
@@ -2158,7 +2115,6 @@ export class CodexSession implements BackendSession {
           "Isomux v1 does not implement item/tool/call (dynamic tools).",
         );
 
-      // ---- Auth token refresh ----
       case "account/chatgptAuthTokens/refresh":
         // We don't have a token store; respond with an error so codex falls
         // back to user-facing login flow.
@@ -2178,10 +2134,6 @@ export class CodexSession implements BackendSession {
         return PASS;
     }
   }
-
-  // -------------------------------------------------------------------------
-  // Stderr + subprocess exit
-  // -------------------------------------------------------------------------
 
   private handleStderr(chunk: string): void {
     // Codex stderr is opaque process output. Route to the agent log as
@@ -2237,10 +2189,6 @@ export class CodexSession implements BackendSession {
     this.markEnded();
   }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function mapTurnStatus(
   status: string | undefined,
@@ -2576,10 +2524,6 @@ function toBackendModel(m: CodexProtocolModel): BackendModel {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Backend implementation
-// ---------------------------------------------------------------------------
-
 export const codexBackend: Backend = {
   capabilities: CAPABILITIES,
 
@@ -2607,8 +2551,8 @@ export const codexBackend: Backend = {
         },
         capabilities: {
           experimentalApi: true,
-          // Decline attestation/generate: the adapter doesn't handle that
-          // server request yet (task cdbc2f3e), so opting in would surface
+          // Decline attestation/generate: the adapter doesn't handle that server
+          // request yet, so opting in would surface
           // unhandled requests. 0.144 made this capability required.
           requestAttestation: false,
           optOutNotificationMethods: null,
@@ -2712,8 +2656,8 @@ export const codexBackend: Backend = {
         },
         capabilities: {
           experimentalApi: true,
-          // Decline attestation/generate: the adapter doesn't handle that
-          // server request yet (task cdbc2f3e), so opting in would surface
+          // Decline attestation/generate: the adapter doesn't handle that server
+          // request yet, so opting in would surface
           // unhandled requests. 0.144 made this capability required.
           requestAttestation: false,
           optOutNotificationMethods: null,
@@ -2785,8 +2729,8 @@ export const codexBackend: Backend = {
         },
         capabilities: {
           experimentalApi: true,
-          // Decline attestation/generate: the adapter doesn't handle that
-          // server request yet (task cdbc2f3e), so opting in would surface
+          // Decline attestation/generate: the adapter doesn't handle that server
+          // request yet, so opting in would surface
           // unhandled requests. 0.144 made this capability required.
           requestAttestation: false,
           optOutNotificationMethods: null,
@@ -2847,8 +2791,8 @@ export const codexBackend: Backend = {
         },
         capabilities: {
           experimentalApi: true,
-          // Decline attestation/generate: the adapter doesn't handle that
-          // server request yet (task cdbc2f3e), so opting in would surface
+          // Decline attestation/generate: the adapter doesn't handle that server
+          // request yet, so opting in would surface
           // unhandled requests. 0.144 made this capability required.
           requestAttestation: false,
           optOutNotificationMethods: null,

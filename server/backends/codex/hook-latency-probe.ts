@@ -1,5 +1,5 @@
-// Process-level latency probe for the two hook runtime shapes considered by
-// Slice 1. This does not claim Codex action coverage; it isolates hook launch
+// Process-level latency probe for the two hook runtime shapes. This does not
+// claim Codex action coverage; it isolates hook launch
 // and representative policy boot cost.
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";

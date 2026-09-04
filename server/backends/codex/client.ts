@@ -51,10 +51,6 @@ const CODEX_KILL_GRACE_MS = 2000;
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 
-// ---------------------------------------------------------------------------
-// Wire types
-// ---------------------------------------------------------------------------
-
 export type JsonRpcId = number | string;
 
 export interface JsonRpcRequest {
@@ -84,10 +80,6 @@ export type JsonRpcResponse = JsonRpcSuccessResponse | JsonRpcErrorResponse;
 // "internal error" ones when responding to unhandled server requests.
 export const JSONRPC_METHOD_NOT_FOUND = -32601;
 export const JSONRPC_INTERNAL_ERROR = -32603;
-
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
 
 export interface JsonRpcLiteClientOptions {
   cwd?: string;
@@ -123,10 +115,6 @@ type Pending = {
   reject: (err: Error) => void;
 };
 
-// ---------------------------------------------------------------------------
-// Client
-// ---------------------------------------------------------------------------
-
 export class JsonRpcLiteClient {
   private child: ChildProcessWithoutNullStreams | null = null;
   private nextRequestId = 1;
@@ -156,11 +144,6 @@ export class JsonRpcLiteClient {
 
   constructor(private readonly opts: JsonRpcLiteClientOptions = {}) {}
 
-  // -------------------------------------------------------------------------
-  // Lifecycle
-  // -------------------------------------------------------------------------
-
-  // Spawn the subprocess. Idempotent - calling start() twice throws.
   async start(): Promise<CodexSafetyPreflightResult> {
     if (this.child || this.starting) {
       throw new Error("JsonRpcLiteClient.start() called twice");
@@ -282,13 +265,10 @@ export class JsonRpcLiteClient {
       params,
     );
     this.initialized = true;
-    // Per the protocol: client sends `initialized` notification after the
-    // handshake response.
     this.notify("initialized", {});
     return response;
   }
 
-  // Close the subprocess and resolve cleanup. Idempotent.
   async close(): Promise<void> {
     // Guard the kill on `killed`, NOT `closed`: the error/exit handlers set
     // `closed = true` while the OS process may still be alive (e.g. a spawn
@@ -336,12 +316,6 @@ export class JsonRpcLiteClient {
     this.failAllPending("client closed");
   }
 
-  // -------------------------------------------------------------------------
-  // Outbound: requests and notifications
-  // -------------------------------------------------------------------------
-
-  // Send a JSON-RPC request, await response. Rejects on transport failure or
-  // server error response.
   async request<T = unknown>(method: string, params?: unknown): Promise<T> {
     if (this.closed || !this.child) {
       throw (
@@ -375,8 +349,8 @@ export class JsonRpcLiteClient {
     return promise;
   }
 
-  // Fire-and-forget notification. Synchronous on the wire; never throws (any
-  // write error is silently dropped, matching JSON-RPC notification semantics).
+  // Never throws: write errors are dropped to match JSON-RPC notification
+  // semantics.
   notify(method: string, params?: unknown): void {
     if (this.closed || !this.child) return;
     const frame: JsonRpcNotification = {
@@ -415,10 +389,6 @@ export class JsonRpcLiteClient {
       this.write(frame);
     } catch {}
   }
-
-  // -------------------------------------------------------------------------
-  // Inbound: subscriptions
-  // -------------------------------------------------------------------------
 
   // Subscribe to incoming notifications. Returns an unsubscribe function.
   // Subscribers receive every notification; filter by params.threadId (or
@@ -465,10 +435,6 @@ export class JsonRpcLiteClient {
     };
   }
 
-  // -------------------------------------------------------------------------
-  // Internals
-  // -------------------------------------------------------------------------
-
   private write(frame: unknown): void {
     if (!this.child) throw new Error("client not started");
     const line = JSON.stringify(frame) + "\n";
@@ -504,7 +470,6 @@ export class JsonRpcLiteClient {
     try {
       frame = JSON.parse(line);
     } catch (err) {
-      // Malformed frame - surface via stderr handlers for visibility.
       for (const h of this.stderrHandlers) {
         try {
           h(
@@ -525,13 +490,12 @@ export class JsonRpcLiteClient {
     const hasId = "id" in f && f.id != null;
     const hasMethod = "method" in f && typeof f.method === "string";
 
+    // Server-initiated request - must respond with same id.
     if (hasMethod && hasId) {
-      // Server-initiated request - must respond with same id.
       void this.handleServerRequest(f as JsonRpcRequest);
       return;
     }
     if (hasMethod) {
-      // Notification.
       const notification = f as JsonRpcNotification;
       for (const h of this.notificationHandlers) {
         try {
@@ -549,7 +513,6 @@ export class JsonRpcLiteClient {
       return;
     }
     if (hasId) {
-      // Response to one of our requests.
       const id = f.id as JsonRpcId;
       const pending = this.pending.get(id);
       if (!pending) {
@@ -576,7 +539,6 @@ export class JsonRpcLiteClient {
       }
       return;
     }
-    // Frame with neither method nor id - surface for visibility.
     for (const h of this.stderrHandlers) {
       try {
         h(`[codex client] unrecognized frame: ${line.slice(0, 200)}\n`);
@@ -600,7 +562,6 @@ export class JsonRpcLiteClient {
         return;
       }
     }
-    // No handler claimed it.
     this.respondWithError(
       request.id,
       JSONRPC_METHOD_NOT_FOUND,
@@ -617,10 +578,6 @@ export class JsonRpcLiteClient {
     }
     this.pending.clear();
   }
-
-  // -------------------------------------------------------------------------
-  // Inspection (mostly for tests / debugging)
-  // -------------------------------------------------------------------------
 
   isClosed(): boolean {
     return this.closed;

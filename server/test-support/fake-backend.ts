@@ -87,7 +87,6 @@ export interface FakeSessionConfig {
 // A scriptable BackendSession. Construct via FakeBackend.createSession /
 // resumeSession; drive it from a test with push()/pushAll()/completeTurn().
 export class FakeSession implements BackendSession {
-  // --- observation surface (test-facing, read-only by convention) ---
   readonly opts: CreateSessionOptions;
   readonly sessionId: string;
   readonly isResume: boolean;
@@ -96,7 +95,6 @@ export class FakeSession implements BackendSession {
   abortCount = 0;
   closed = false;
 
-  // --- internals (mirror ClaudeSession's buffer/wake/ended pattern) ---
   private buffer: NormalizedEvent[] = [];
   private resolveWake: (() => void) | null = null;
   private ended = false;
@@ -135,8 +133,6 @@ export class FakeSession implements BackendSession {
       });
     }
   }
-
-  // --- scripting helpers ---
 
   // Enqueue one event. Ignored once the session is closed/ended (the real
   // stream is terminated at that point too).
@@ -205,8 +201,6 @@ export class FakeSession implements BackendSession {
       r();
     }
   }
-
-  // --- BackendSession contract ---
 
   async *stream(): AsyncGenerator<NormalizedEvent, void> {
     while (true) {
@@ -309,7 +303,6 @@ export interface FakeBackendConfig {
 export class FakeBackend implements Backend {
   readonly capabilities: BackendCapabilities;
 
-  // --- observation surface ---
   readonly sessions: FakeSession[] = [];
   createSessionCount = 0;
   resumeSessionCount = 0;
@@ -335,8 +328,6 @@ export class FakeBackend implements Backend {
     this.capabilities = cfg.capabilities ?? { ...DEFAULT_AGENT_CAPABILITIES };
   }
 
-  // --- test helpers ---
-
   get lastSession(): FakeSession | undefined {
     return this.sessions[this.sessions.length - 1];
   }
@@ -356,8 +347,6 @@ export class FakeBackend implements Backend {
   setSessionResumableError(sessionId: string, error: string | null): void {
     this.sessionResumableErrorOverrides.set(sessionId, error);
   }
-
-  // --- Backend contract ---
 
   getModelOptions(): ModelOption[] {
     return this.cfg.modelOptions ?? [{ value: "fake", label: "Fake" }];

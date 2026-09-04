@@ -1,4 +1,4 @@
-// Claude backend (final shape, step 2c).
+// Claude backend.
 //
 // Owns every `@anthropic-ai/...` import. agent-manager talks to this module
 // through the Backend / BackendSession interface only:
@@ -20,7 +20,7 @@
 // approvalId and feeds it the corresponding PermissionResult.
 //
 // cronjob-manager.ts still imports the SDK directly - cronjobs are Claude-
-// only at v1 (per Round 3 decisions).
+// only at v1.
 
 import {
   query,
@@ -48,8 +48,8 @@ import {
 // `systemPrompt` uses the SDK's typed option (preset + append) rather than a
 // raw `--append-system-prompt` CLI flag: the typed option travels inside the
 // `initialize` control request over the child's stdin, so the multi-KB prompt
-// never appears in the process argv (task e6a0387a - argv is world-readable
-// via /proc/<pid>/cmdline and dumped wholesale by `systemctl status`).
+// never appears in the process argv (argv is world-readable via
+// /proc/<pid>/cmdline and dumped wholesale by `systemctl status`).
 export interface SdkSessionOptions {
   model: string;
   pathToClaudeCodeExecutable: string;
@@ -118,10 +118,6 @@ import type {
   TokenUsage,
 } from "./types.ts";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const LOGIN_INSTRUCTIONS = `To authenticate Claude Code:
 1. Open the built-in terminal
 2. Run \`claude\`
@@ -176,9 +172,6 @@ const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "auto", label: "Auto - Isomux decides via /resolve" },
 ];
 
-// ---------------------------------------------------------------------------
-// SDK boundary (SdkConversation / SdkClient)
-// ---------------------------------------------------------------------------
 // ClaudeSession and the backend module-level functions depend on these
 // abstract interfaces, not on the raw SDK exports. Production wiring uses
 // `realV1SdkClient` (backed by V1 `query()`); tests inject a `FakeSdkClient`
@@ -211,9 +204,9 @@ export interface SdkOneShotOptions {
 }
 
 // Backend-native memory is off in every isomux launch: isomux memory is the
-// only memory an office agent has, so it carries over when the agent's
-// backend changes (Nil's ruling, 2026-09-01). Without this the CLI reads and
-// writes ~/.claude/projects/<sanitized-cwd>/memory/ on its own and injects
+// only memory an office agent has, so it carries over when the agent's backend
+// changes. Without this the CLI reads and writes
+// ~/.claude/projects/<sanitized-cwd>/memory/ on its own and injects
 // that MEMORY.md into every session in the cwd.
 //
 // Why the typed setting and not CLAUDE_CODE_DISABLE_AUTO_MEMORY in env:
@@ -244,9 +237,6 @@ export interface SdkClient {
   getSessionMessages(sessionId: string): Promise<SessionMessage[]>;
 }
 
-// ---------------------------------------------------------------------------
-// V1 SDK adapter - production
-// ---------------------------------------------------------------------------
 // V1's `query()` consumes an AsyncIterable<SDKUserMessage> as its prompt and
 // returns a single `Query` generator that spans all turns. `send()` pushes
 // into the input iterable; `close()` ends the iterable + best-effort
@@ -256,7 +246,7 @@ export interface SdkClient {
 // Internal otherwise. SdkSessionOptions is a strict subset of the SDK's
 // `Options` (see the interface comment above), so this is a plain spread by
 // design. Do not translate `systemPrompt` into `extraArgs`: extraArgs is
-// rendered onto the child's argv (task e6a0387a).
+// rendered onto the child's argv.
 export function sessionOptsToV1(
   opts: SdkSessionOptions,
   resumeSessionId?: string,
@@ -623,9 +613,6 @@ export const realV1SdkClient: SdkClient = {
   },
 };
 
-// ---------------------------------------------------------------------------
-// ClaudeSession - BackendSession implementation
-// ---------------------------------------------------------------------------
 // Concurrency notes:
 //   - feedSDKMessages runs as a background task in the constructor. It pumps
 //     translated NormalizedEvents into `buffer`, then resolves any waiter.
@@ -885,10 +872,6 @@ export class ClaudeSession implements BackendSession {
   }
 }
 
-// ---------------------------------------------------------------------------
-// SDK message → NormalizedEvent translation
-// ---------------------------------------------------------------------------
-
 // Callback for persisting inline image blocks extracted from tool_result
 // content. Bound to a specific agentId at the call site; injected so the
 // translator stays pure-modulo-the-sink (testable without filesystem state).
@@ -1120,9 +1103,6 @@ export function* translateSDKMessage(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Background-task lifecycle breadcrumbs (TaskBreadcrumbTracker)
-// ---------------------------------------------------------------------------
 // The SDK emits system/task_started, task_updated, and task_notification for
 // EVERY task-shaped thing - including ordinary foreground Bash calls and
 // foreground subagents, which already render as their own tool calls.
@@ -1142,8 +1122,8 @@ export function* translateSDKMessage(
 //   task_updated is_backgrounded - a foreground task backgrounded mid-run
 //                                 (Ctrl+B / auto-background on timeout)
 //
-// task_type "local_bash" is NOT a background signal (task 0c7945cd): the SDK
-// stamps it on every local shell task, foreground included. Trusting it made
+// task_type "local_bash" is NOT a background signal: the SDK stamps it on every
+// local shell task, foreground included. Trusting it made
 // ordinary Bash calls emit "Background task started" - measured at 217 of 227
 // breadcrumbs on one agent and 78 of 78 on another, which in turn made the
 // earlyoom incidents in the ad86462c diagnosis look like mid-run backgrounding.
@@ -1154,8 +1134,8 @@ export function* translateSDKMessage(
 // tasks) mutes both ends. State is per-ClaudeSession, so it dies with the
 // session - no cross-session staleness (see feedSDKMessages wiring).
 //
-// Rationale (task b4cafa53 diagnosis): a background-task settle wakes an idle
-// agent with a fresh turn, but the triggering notification was invisible in
+// A background-task settle wakes an idle agent with a fresh turn, but the
+// triggering notification was invisible in
 // the isomux transcript - the agent appeared to start talking spontaneously.
 // These breadcrumbs give the boss the visible trigger.
 
@@ -1296,9 +1276,6 @@ function trimInsertionOrdered(
   }
 }
 
-// ---------------------------------------------------------------------------
-// User-message construction (text + attachments → SDKUserMessage)
-// ---------------------------------------------------------------------------
 // Attachments are NEVER inlined - each becomes one path-notice text line via
 // the shared attachment convention (server/attachment-prompt.ts); the agent
 // opens files on demand (Read renders images and PDFs). This wrapper only
@@ -1335,9 +1312,6 @@ export function buildClaudeUserMessage(
   };
 }
 
-// ---------------------------------------------------------------------------
-// SDK session option builder
-// ---------------------------------------------------------------------------
 // Shared by createSession / resumeSession. Pulls in safety-hooks, builds the
 // typed systemPrompt / effort options, normalizes the model family.
 
@@ -1354,8 +1328,7 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // "Default with additions": keep the claude_code base prompt and append
     // isomux's assembled prompt. The typed option travels over stdin (the
     // SDK's `initialize` control request), NOT argv - do not route the prompt
-    // through extraArgs/CLI flags, that leaks it to `ps`/`systemctl status`
-    // (task e6a0387a).
+    // through extraArgs/CLI flags, which leaks it to `ps`/`systemctl status`.
     systemPrompt: {
       type: "preset",
       preset: "claude_code",
@@ -1366,7 +1339,6 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // which includes Codex-only values). Narrow at the call site, same
     // pattern as permissionMode.
     effort: opts.effort as SdkEffortLevel,
-    // Backend-native auto-memory off; see CLAUDE_MEMORY_OFF_SETTINGS.
     settings: CLAUDE_MEMORY_OFF_SETTINGS,
     cwd: opts.cwd,
     hooks: createSafetyHooks(),
@@ -1380,10 +1352,6 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   if (opts.env) sdkOpts.env = opts.env;
   return sdkOpts;
 }
-
-// ---------------------------------------------------------------------------
-// Backend implementation
-// ---------------------------------------------------------------------------
 
 export function createClaudeBackend(
   sdkClient: SdkClient = realV1SdkClient,
