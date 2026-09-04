@@ -111,7 +111,6 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   const managed = deps.getAgent(agentId);
   if (!managed) return false;
 
-  // Already running - just replay buffered output
   if (managed.ptySidecar) return true;
 
   const shell = process.env.SHELL || "/bin/bash";
@@ -157,7 +156,6 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
       deps.emit({ type: "terminal_exit", agentId, exitCode }),
   });
 
-  // Read stdout as text lines using Bun's native ReadableStream
   void (async () => {
     const reader = sidecar.stdout.getReader();
     const decoder = new TextDecoder();
@@ -219,7 +217,6 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   // clearing the reference. finalize makes the two paths one-shot.
   void sidecar.exited.then((exitCode) => finalize(exitCode));
 
-  // Tell sidecar to spawn the PTY
   sidecarSend(managed, {
     type: "spawn",
     shell,

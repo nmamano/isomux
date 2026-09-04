@@ -67,10 +67,6 @@ export function formatAttachmentLines(notices: AttachmentNotice[]): string[] {
   );
 }
 
-// ---------------------------------------------------------------------------
-// stripAttachmentNotices - inverse of the notice block, for edit matching
-// ---------------------------------------------------------------------------
-
 // One notice line, anchored on its structure rather than its prose: quoted
 // name, parenthesized metadata, quoted path, then whatever advisory tail the
 // current format appends. Keeping the tail loose means a future wording change

@@ -46,7 +46,7 @@ export function buildSystemPrompt(
   roomName: string,
   // The agent's own roomId. The task-board paragraph hands it over directly so
   // filtering the board to this room doesn't require finding yourself by name in
-  // the /agents manifest first (task 43c55a3b). Same staleness as roomName -
+  // the /agents manifest first. Same staleness as roomName -
   // both are interpolated at session build.
   roomId: string,
   officePrompt?: string | null,
@@ -57,8 +57,8 @@ export function buildSystemPrompt(
   privileged: boolean = false,
   autoLoadedMemory?: string | null,
   agentType?: "claude" | "codex" | "opencode" | null,
-  // The manager boss's language preference (task e80c39c4). null/absent, or
-  // English, adds nothing - agents already answer in English, so the clause
+  // The manager boss's language preference. A null, absent, or English value
+  // adds nothing - agents already answer in English, so the clause
   // only exists to ask for something else.
   ownerLanguage?: SupportedLanguageCode | null,
 ): string {

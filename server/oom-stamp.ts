@@ -119,7 +119,7 @@ function readProcInfo(procRoot: string, pid: number): ProcInfo | null {
  *
  * Null is not zero: an unreadable or empty value means we do not know what the
  * kernel holds, and this whole module exists because a value nobody read back
- * was wrong for a week (task c5b4e89e).
+ * was wrong for a week.
  */
 function readAdj(procRoot: string, pid: number): number | null {
   let raw: string;

@@ -1,4 +1,4 @@
-// Pruning of the office's unbounded on-disk history (task 2366ccb0).
+// Pruning of the office's unbounded on-disk history.
 //
 // NOTHING IN HERE RUNS ON A TIMER. There is no scheduler, no startup hook, no
 // default policy that deletes anything. A plan is computed on request and only
@@ -55,8 +55,8 @@
 // symlink escape impossible and narrows the racing one to a sub-millisecond
 // window, on an operation only the office owner can trigger. It does not treat
 // same-user processes as untrusted, and it should not be described as if it
-// did. (Flagged for Nil rather than settled here - if same-user isolation ever
-// becomes a goal, this is one of the places that needs a real answer.)
+// did. If same-user isolation ever becomes a goal, this is one of the places
+// that needs a real answer.
 //
 // Seam discipline: every input is injected (logs dir, clock, active-session
 // set, the sessions-map reader), so the whole safety matrix unit-tests against
@@ -386,7 +386,7 @@ function planAttachments(
     try {
       entries = readdirSync(filesDir, { withFileTypes: true });
     } catch {
-      continue; // No attachments for this agent.
+      continue;
     }
     // Only pay for the transcript scan when this agent actually has files.
     // `unknownReason` non-null means we could not establish reachability and
@@ -495,7 +495,6 @@ function planPruneDetailed(
   return { plan, sparedBy: ledger.byPath };
 }
 
-// Compute what a prune WOULD remove. Read-only.
 export function planPrune(
   target: PruneTarget,
   policy: PrunePolicy,

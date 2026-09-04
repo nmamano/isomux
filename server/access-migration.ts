@@ -1,4 +1,4 @@
-// Phase 3b slice 3 - owner-access migration decision (PURE).
+// Owner-access migration decision (PURE).
 //
 // Moves owners from the OLD materialized-grants model (allowedRooms snapshots
 // every room id; owner access == coverage) to RULE-BASED access (owners reach

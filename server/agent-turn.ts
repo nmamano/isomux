@@ -84,10 +84,8 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     }
   };
 
-  // 2. Build the context-fullness, session-start memory-size, and wake notices.
-  // The bounded await inside
-  // caps the added latency (~500ms worst case, and only on turns where a sample
-  // is still in flight).
+  // The bounded await inside buildContextNoticeBlock caps the added latency
+  // (~500ms worst case, and only when a sample is still in flight).
   const contextNotice = await buildContextNoticeBlock(managed);
   // The await above can straddle a Stop / session swap.
   checkCancelled();
@@ -100,7 +98,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     : null;
   // Read in the same window and for the same reason. Armed by the dormant-wake
   // paths when the previous session died to a restart or an unexpected backend
-  // death (task e06b7e23); this is the only way the warning reaches the agent,
+  // death; this is the only way the warning reaches the agent,
   // since isomux log entries never re-enter a prompt.
   const wakeNotice = managed.wakeNotice
     ? { block: managed.wakeNotice, gen: managed.contextGen }
@@ -143,7 +141,6 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   const turn = deps.createTurnDeferred(managed);
   const ownPending = managed.pendingTurn;
 
-  // 5. Send.
   let thrown: unknown = undefined;
 
   try {
@@ -203,10 +200,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     await turn;
   } catch (err) {
     thrown = err;
-    // Symmetric with the pre-refactor patterns in sendMessage / flushQueue /
-    // executeSkill / editMessage: if session.send (or anything before
-    // `await turn`) threw, the deferred we installed is still parked in
-    // managed.pendingTurn - reject + clear only when we still own it so
+    // If session.send (or anything before `await turn`) threw, the deferred
+    // remains parked in managed.pendingTurn. Reject and clear it only when we
+    // still own it so
     // awaiting callers don't hang and concurrent abort/state logic doesn't
     // observe a phantom in-flight turn.
     if (ownPending && managed.pendingTurn === ownPending) {
@@ -230,10 +226,6 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     throw thrown as Error;
   }
 }
-
-// ---------------------------------------------------------------------------
-// stripOutboundEnvelope - inverse of the wrap built in runAgentTurn step 5
-// ---------------------------------------------------------------------------
 
 const USER_MESSAGE_SEPARATOR = "\n\nUser message:\n";
 
@@ -270,9 +262,6 @@ export function stripOutboundEnvelope(text: string): string {
   return text.slice(m.index + m[0].length);
 }
 
-// ---------------------------------------------------------------------------
-// Built-in context-fullness notices (task 50392514)
-//
 // Design: internal-docs/context-fullness-visibility.md §2. The server injects a
 // one-line fullness notice into the agent's NEXT outbound message the first time
 // the conversation crosses each threshold, so system-prompt rules like "wrap up
@@ -281,7 +270,6 @@ export function stripOutboundEnvelope(text: string): string {
 // firedAgentThresholds) - no dependency injection needed; the fired-set is
 // reset/restored by resetContextUsage in agent-manager at conversation
 // boundaries.
-// ---------------------------------------------------------------------------
 
 // How long the pre-send step waits for the just-finished turn's fire-and-forget
 // sample to land before proceeding with whatever snapshot is already committed.
@@ -297,7 +285,7 @@ export const CONTEXT_NOTICE_SAMPLE_WAIT_MS = 500;
 // minWindowTokens gates a band on the REPORTED window size: the 50 band is an
 // early budget warning that on a small window (e.g. Codex's ~250k) fires
 // within a few turns of normal work and reads as noise, while the 75 wrap-up
-// band stays useful at any size (task 73a23f7c). Keyed on maxTokens, not the
+// band stays useful at any size. Keyed on maxTokens, not the
 // backend, so it self-adjusts if window sizes change.
 export const CONTEXT_NOTICE_BANDS = [
   { pct: 50, minWindowTokens: 500_000 },
@@ -318,21 +306,17 @@ export function formatContextNotice(
   return `[context check: ${pct}% full - ${used} / ${max} tokens. ${advice}]`;
 }
 
-// ---------------------------------------------------------------------------
-// Built-in session-start memory-size notice (task f1a08f05)
-//
 // Auto-loaded memory is capped per scope (memory-store MEMORY_CAPS) and the
 // caps are HARD: a save that would push a scope over is refused at write time
-// (fail loud and early - Nil, 2026-08-01); nothing is ever silently dropped
+// (fail loud and early); nothing is ever silently dropped
 // from the prompt. This notice arrives as a MESSAGE, which asks for a decision,
 // and it fires BEFORE the cap is reached so the trimming can happen while
 // saves still succeed. A message rather than a prompt line is also deliberate:
 // a size figure in the system prompt would change on every write, which is the
-// kind of per-agent variability the prompt keeps out (task 46f86536).
+// kind of per-agent variability the prompt keeps out.
 //
 // Armed by agent-manager at session creation (it already renders memory there)
 // and consumed here on the first accepted send of the conversation.
-// ---------------------------------------------------------------------------
 
 // A scope this full (fraction of its cap) is worth telling the agent about.
 // At 1.0 new saves to the scope are refused; 0.8 gives the boss a chance to
@@ -403,8 +387,8 @@ async function buildContextNoticeBlock(
   managed: ManagedAgent,
 ): Promise<{ threshold: number; block: string; gen: number } | null> {
   // Codex compacts its own thread, so /clear or /handoff advice is wrong.
-  // OpenCode is also opted out by default (Nil, 2026-08-31): its six connected
-  // models measured 200k-1,048,576-token windows, but this lane did not prove
+  // OpenCode is also opted out by default: its six connected models measured
+  // 200k-1,048,576-token windows on 2026-08-31, but this lane did not prove
   // when its harness-owned compaction makes the advice useful. The bands below
   // already handle different and unknown window sizes without this guard.
   if (

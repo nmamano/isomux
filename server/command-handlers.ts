@@ -95,7 +95,6 @@ type AliasItem = { name: string; description?: string; aliasFor?: string };
 type AliasGroup = { names: string[]; description?: string };
 function groupByAlias(items: AliasItem[]): AliasGroup[] {
   const canonicalIndex = new Map<string, AliasGroup>();
-  // First pass: canonical entries (no aliasFor). Preserves source order.
   for (const it of items) {
     if (it.aliasFor) continue;
     canonicalIndex.set(it.name, {
@@ -103,9 +102,8 @@ function groupByAlias(items: AliasItem[]): AliasGroup[] {
       description: it.description,
     });
   }
-  // Second pass: alias entries attach to their canonical group. An alias
-  // pointing at an unknown canonical falls back to standing alone (defensive
-  // - better than dropping the entry silently).
+  // An alias pointing at an unknown canonical falls back to standing alone
+  // rather than disappearing silently.
   for (const it of items) {
     if (!it.aliasFor) continue;
     const target = canonicalIndex.get(it.aliasFor);
@@ -133,10 +131,10 @@ function formatAliasGroup(names: string[], description?: string): string {
 }
 
 interface HandlerDeps {
-  // State accessors (live references - read at call time)
+  // State accessors are live references, read at call time.
   agents: Map<string, ManagedAgent>;
   getRooms: () => RoomWire[];
-  // Phase 3c: roomId is the room authority; the global room index / room object
+  // roomId is the room authority; the global room index / room object
   // are derived from it via these helpers (AgentInfo no longer carries a dense
   // room index).
   globalRoomIndexOf: (roomId: string) => number;
@@ -144,7 +142,6 @@ interface HandlerDeps {
   getOfficeConfig: () => OfficeSettings;
   logCache: Map<string, LogEntry[]>;
 
-  // Logging / events
   emit: (event: AgentEvent) => void;
   addLogEntry: (
     agentId: string,
@@ -187,7 +184,6 @@ interface HandlerDeps {
     managed: ManagedAgent,
   ) => Promise<void>;
 
-  // Session ops
   createSession: (
     managed: ManagedAgent,
     resumeSessionId?: string,
@@ -278,7 +274,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       // the session-identity check regardless of gen. Missing this reset left
       // the pill showing the PREVIOUS conversation's reading after a typed
       // /clear, and carried its fired thresholds into the fresh conversation
-      // (fixed 2026-07-18; the API /clear path resets via newConversation).
+      // (the API /clear path resets via newConversation).
       deps.resetContextUsage(managed);
       managed.topicGenerating = false;
       managed.topicMessageCount = 0;
@@ -299,7 +295,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     async context(agentId, managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-      // Shared header for both the live reading and the snapshot fallback.
       const headerLines = (u: {
         model: string;
         totalTokens: number;
@@ -309,8 +304,8 @@ export function createCommandHandling(deps: HandlerDeps) {
         const pct = Math.round(u.percentage);
         const barLen = 30;
         // Clamped into [0, barLen]: a reading outside 0-100% (a backend
-        // reporting a stale window, task c6085ddf) otherwise hands
-        // String.repeat a negative count and throws, taking /context down
+        // reporting a stale window) otherwise hands String.repeat a negative
+        // count and throws, taking /context down
         // entirely. The percentage itself stays unclamped -- it sits next to
         // the raw token counts, so capping it at 100% would contradict them.
         const filled = Math.max(
@@ -325,7 +320,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       };
       // No live session (released while idle, or never started), or the live
       // read fails: fall back to the last committed snapshot - the same
-      // reading the battery pill shows (task 714d80da). Reading the snapshot
+      // reading the battery pill shows. Reading the snapshot
       // does NOT wake a dormant session.
       const snapshotFallback = (note?: (age: string) => string): boolean => {
         const snap = managed.contextUsage;
@@ -348,7 +343,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       if (!managed.session) {
         // Released-while-idle renders IDENTICALLY to the live case (no
         // lifecycle note - remaining context doesn't change when the session
-        // process is released; Nil's call, task 714d80da).
+        // process is released).
         if (snapshotFallback()) return true;
         deps.addLogEntry(agentId, "system", "No active session.");
         return true;
@@ -436,8 +431,6 @@ export function createCommandHandling(deps: HandlerDeps) {
 
       lines.push("**Docs:** https://isomux.com/docs");
 
-      // Tips - surfaced first so a new user reading top-down hits the
-      // actionable stuff before the command/skill inventory.
       lines.push("\n**Tips:**");
       lines.push(
         "  • Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
@@ -475,11 +468,8 @@ export function createCommandHandling(deps: HandlerDeps) {
         "  • Isomux ships safety pre-tool-call hooks for Claude agents to prevent destructive commands. Codex agents don't have equivalent hooks.",
       );
 
-      // Commands - collapse aliased entries (e.g. `/diff` aliasFor
-      // `/isomux-diff`) into a single line so the user doesn't see two
-      // lines for the same handler. Display order: shortest name first,
-      // others in parens (per boss preference - friendlier-looking
-      // shorthand reads first).
+      // Collapse aliased entries (e.g. `/diff` aliasFor `/isomux-diff`) into a
+      // single line. The friendlier shorthand leads.
       const cmdGroups = groupByAlias(
         managed.slashCommands.map((c) => ({
           name: c.name,
@@ -492,7 +482,6 @@ export function createCommandHandling(deps: HandlerDeps) {
         .join("\n");
       lines.push(`\n**Commands:**\n${cmdList}`);
 
-      // Skills grouped by origin
       const originLabel: Record<SkillOrigin, string> = {
         user: "User skills",
         project: "Project skills",
@@ -704,9 +693,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
-      // Gather all agents grouped by room. Phase 3c: group/sort/label by the
-      // roomId-derived global room index (AgentInfo no longer carries a dense
-      // room field).
+      // Group, sort, and label by the roomId-derived global room index;
+      // AgentInfo no longer carries a dense room field.
       const allAgents = [...deps.agents.values()];
       const roomMap = new Map<number, ManagedAgent[]>();
       for (const a of allAgents) {
@@ -763,7 +751,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     ) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-      // Phase 3c: a live agent's roomId always resolves; roomById logs loud on a
+      // A live agent's roomId always resolves; roomById logs loud on a
       // miss and we fail fast rather than build a prompt against room 0.
       const room = deps.roomById(managed.info.roomId)!;
       const officeConfig = deps.getOfficeConfig();
@@ -1155,7 +1143,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     },
   };
 
-  // Startup assertion: every supported command with a handler key must have a matching handler
   for (const [name, cfg] of Object.entries(commands)) {
     if (cfg.supported && cfg.handler && !commandHandlers[cfg.handler]) {
       throw new Error(
@@ -1164,7 +1151,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     }
   }
 
-  // Execute a resolved skill prompt by sending it to the agent
   async function executeSkill(
     agentId: string,
     managed: ManagedAgent,
@@ -1248,8 +1234,6 @@ export function createCommandHandling(deps: HandlerDeps) {
     return true;
   }
 
-  // Slash command resolution - 5-step priority order (each step commented below;
-  // the command/skill registry itself is server/commands.ts)
   async function handleSlashCommand(
     agentId: string,
     managed: ManagedAgent,
@@ -1263,7 +1247,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     const cfg: CommandConfig | undefined = commands[cmd];
 
     // Count the dispatched use under the invoking user - Sk-menu ranking
-    // rides these counts (task f1769b1a). COMMANDS and skills both count (the
+    // rides these counts. COMMANDS and skills both count (the
     // menu ranks across both), under the name as typed/picked; only actual
     // dispatches count (unknown/unsupported echoes don't), and senders with
     // no user record (agents/system) are skipped. Hidden command spellings
@@ -1275,7 +1259,6 @@ export function createCommandHandling(deps: HandlerDeps) {
       if (user) recordSkillUse(user.id, cmd);
     };
 
-    // Step 1: Config lookup (non-overridable)
     if (cfg && !cfg.overridable) {
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
         if (cfg.autocomplete) countUse();
@@ -1288,13 +1271,11 @@ export function createCommandHandling(deps: HandlerDeps) {
           device,
         );
       }
-      // Unsupported non-overridable command - show message
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
       return true;
     }
 
-    // Step 2: Skill override check (for overridable config entries OR unknown commands)
     const skillPrompt = resolveSkillPrompt(
       cmd,
       managed.info.cwd,
@@ -1313,7 +1294,6 @@ export function createCommandHandling(deps: HandlerDeps) {
       );
     }
 
-    // Step 3: Config lookup (overridable, no skill found)
     if (cfg && cfg.overridable) {
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
         if (cfg.autocomplete) countUse();
@@ -1326,18 +1306,15 @@ export function createCommandHandling(deps: HandlerDeps) {
           device,
         );
       }
-      // Unsupported overridable command with no skill override
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       deps.emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
       return true;
     }
 
-    // Step 4: SDK-reported commands - pass through to the agent via session.send()
     if (managed.sdkReportedCommands.includes(cmd)) {
       return false; // let sendMessage() pass it through
     }
 
-    // Step 5: Unknown command
     deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
     deps.emitEphemeralLog(
       agentId,

@@ -1,7 +1,7 @@
 // Declarative registry of every known Claude Code command and bundled skill.
 // Pure data - no handler logic lives here.
 //
-// Resolution logic (5-step priority order) lives in
+// Resolution logic lives in
 // server/command-handlers.ts (handleSlashCommand).
 // Last updated: 2026-03-31 (Claude Code ~1.0.x)
 
@@ -62,14 +62,7 @@ const UNSUPPORTED_BUNDLED_SKILL: Omit<CommandConfig, "message"> = {
   overridable: true,
 };
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
 export const commands: Record<string, CommandConfig> = {
-  // =========================================================================
-  // Supported (Isomux built-in handlers)
-  // =========================================================================
   clear: {
     type: "hardcoded",
     supported: true,
@@ -191,11 +184,6 @@ export const commands: Record<string, CommandConfig> = {
     autoRun: true,
   },
 
-  // =========================================================================
-  // Unsupported hardcoded commands (non-overridable)
-  // =========================================================================
-
-  // --- Session & context ---
   compact: {
     ...UNSUPPORTED_HARDCODED,
     description: "Compress context",
@@ -233,7 +221,6 @@ export const commands: Record<string, CommandConfig> = {
     description: "Start new conversation",
   },
 
-  // --- Model & performance ---
   model: {
     type: "hardcoded",
     supported: true,
@@ -260,7 +247,6 @@ export const commands: Record<string, CommandConfig> = {
   },
   advisor: { ...UNSUPPORTED_HARDCODED, description: "Toggle advisor mode" },
 
-  // --- Cost & usage ---
   cost: {
     ...UNSUPPORTED_HARDCODED,
     description: "Token usage and cost estimate",
@@ -286,7 +272,6 @@ export const commands: Record<string, CommandConfig> = {
     description: "Rate limit configuration",
   },
 
-  // --- Code & file operations ---
   diff: {
     type: "hardcoded",
     supported: true,
@@ -318,13 +303,11 @@ export const commands: Record<string, CommandConfig> = {
     description: "Add additional working directories",
   },
 
-  // --- Side channel ---
   btw: {
     ...UNSUPPORTED_HARDCODED,
     description: "Ask without polluting main context",
   },
 
-  // --- Configuration & management ---
   config: { ...UNSUPPORTED_HARDCODED, description: "Open settings interface" },
   settings: {
     ...UNSUPPORTED_HARDCODED,
@@ -369,7 +352,6 @@ export const commands: Record<string, CommandConfig> = {
       "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`.",
   },
 
-  // --- Background & system ---
   tasks: {
     ...UNSUPPORTED_HARDCODED,
     description: "List/manage background tasks",
@@ -407,7 +389,6 @@ export const commands: Record<string, CommandConfig> = {
   },
   pr_comments: { ...UNSUPPORTED_HARDCODED, description: "View PR comments" },
 
-  // --- Desktop / mobile / remote ---
   desktop: { ...UNSUPPORTED_HARDCODED, description: "Open desktop app" },
   mobile: { ...UNSUPPORTED_HARDCODED, description: "Open mobile app" },
   chrome: { ...UNSUPPORTED_HARDCODED, description: "Open Chrome extension" },
@@ -421,7 +402,6 @@ export const commands: Record<string, CommandConfig> = {
     description: "Configure remote environment",
   },
 
-  // --- Misc ---
   exit: {
     ...UNSUPPORTED_HARDCODED,
     description: "Exit Claude Code",
@@ -437,9 +417,6 @@ export const commands: Record<string, CommandConfig> = {
       "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` - interactive plugin manager (browse, install, enable/disable)\n- `/plugin add <name>` - install a plugin by name\n- `/plugin marketplace add owner/repo` - add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it.",
   },
 
-  // =========================================================================
-  // Bundled skills (overridable - users can shadow with their own skill files)
-  // =========================================================================
   batch: {
     ...UNSUPPORTED_BUNDLED_SKILL,
     description: "Decompose into parallel worktree agents",
@@ -463,8 +440,8 @@ export const commands: Record<string, CommandConfig> = {
   loop: {
     ...UNSUPPORTED_BUNDLED_SKILL,
     description: "Run a prompt on a recurring schedule",
-    // Exact copy dictated by Nil (task c4717359): /loop stays unsupported
-    // natively; point users at isomux's own recurring-work primitives.
+    // The user-visible string is fixed copy: /loop stays unsupported natively
+    // and points users at isomux's own recurring-work primitives.
     message:
       "not supported natively; see if the Cronjobs tab or scheduled messages satisfy your use case",
   },
@@ -505,10 +482,6 @@ export const commands: Record<string, CommandConfig> = {
     description: "Configure settings.json",
   },
 };
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** All command names that should appear in autocomplete from the config. */
 export function autocompleteCommands(): {

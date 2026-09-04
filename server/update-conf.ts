@@ -1,5 +1,5 @@
-// Reader for the updater root-of-trust config (release-channel slice C1,
-// internal-docs/release-design.md). deploy/install.sh writes it at
+// Reader for the updater root-of-trust config
+// (internal-docs/release-design.md). deploy/install.sh writes it at
 // /etc/isomux/update.conf; scripts/update.sh is its OWNER and strict consumer.
 // The server is a secondary READER with two uses:
 //   - presence of the file is the "this box is updater-managed" signal that

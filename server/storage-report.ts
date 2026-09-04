@@ -1,4 +1,4 @@
-// Markdown rendering for /isomux-storage (task 1387a9c7) - the chat-facing
+// Markdown rendering for /isomux-storage - the chat-facing
 // view of the same measurement GET /api/storage/usage returns.
 //
 // PURE. Takes an already-measured StorageUsage plus a name resolver and returns

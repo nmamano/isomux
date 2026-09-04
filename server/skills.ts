@@ -9,10 +9,9 @@ interface PluginManifest {
   plugins?: Record<string, { installPath?: string }[]>;
 }
 
-// Skills bundled with isomux itself (available to all users regardless of their config)
+// Bundled skills are available to all users, independent of their config.
 export const BUNDLED_SKILLS_DIR = join(import.meta.dir, "..", "skills");
 
-// Extract description from SKILL.md / command .md YAML frontmatter
 function extractSkillDescription(filePath: string): string | undefined {
   try {
     const content = readFileSync(filePath, "utf-8");
@@ -227,7 +226,6 @@ export function deduplicateSkills(skills: SkillInfo[]): SkillInfo[] {
   return result;
 }
 
-// Read a skill file, stripping YAML frontmatter
 function readSkillFile(path: string): string | null {
   if (!existsSync(path)) return null;
   try {
@@ -296,7 +294,6 @@ export function resolveSkillPrompt(
   cwd: string,
   claudeConfigDir = join(homedir(), ".claude"),
 ): string | null {
-  // Handle plugin-namespaced skills: "pluginName:skillName"
   if (name.includes(":")) {
     const [pluginName, skillName] = name.split(":", 2);
     return resolvePluginSkillPrompt(pluginName, skillName, claudeConfigDir);

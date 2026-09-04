@@ -1,6 +1,5 @@
 // Update-available checker feeding the UI banner (update_status events).
-// Two modes, decided once at startup (release-channel slice C1,
-// internal-docs/release-design.md):
+// Two modes, decided once at startup (internal-docs/release-design.md):
 //
 // - "commit" (no /etc/isomux/update.conf - source checkouts like dev boxes):
 //   full context across both dimensions, so pulling is an informed choice -
@@ -64,16 +63,14 @@ let status: UpdateStatusWire = {
 
 let onChange: ((s: UpdateStatusWire) => void) | null = null;
 
-// --- Commit mode ------------------------------------------------------------
-
 // What the compare API said about base...main. "unknown" is a 404: the base
 // ref doesn't exist on GitHub - for a HEAD-sha base that means local-only
 // commits, the definitive ahead-of-main signal.
 type CompareResult = { aheadBy: number; behindBy: number } | "unknown";
 
 // The commit-mode drift reference: count main's lead over the newest release
-// point the box relates to (Nil's "main has 2 commits beyond that"), not over
-// a stale tag; an untagged HEAD counts from itself. Exported for tests.
+// point the box relates to, not over a stale tag; an untagged HEAD counts from
+// itself. Exported for tests.
 export function pickCompareBase(
   tagAtHead: string | null,
   latestTag: string | null,
@@ -180,8 +177,6 @@ async function checkCommit() {
     ),
   );
 }
-
-// --- Release mode -----------------------------------------------------------
 
 export interface LatestRelease {
   tag: string;
@@ -413,8 +408,6 @@ export async function fetchReleaseChannel(
     security: computeSecurityFloor(currentTag, releases),
   };
 }
-
-// --- Shared plumbing --------------------------------------------------------
 
 // Pure change test, exported for tests: notify on any material difference in
 // the wire payload - an availability flip, but also a new latest release

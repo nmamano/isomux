@@ -1,5 +1,5 @@
 // Conversation-log search and retrieval - the read core behind
-// GET /api/agents/:id/logs (tasks da7b2899 + b6d07978).
+// GET /api/agents/:id/logs.
 //
 // Three modes, resolved from the query with no ambiguity (see parseLogQuery):
 //   q present            -> SEARCH    (optionally narrowed to one session)
@@ -48,7 +48,6 @@ export type {
   LogTier,
 };
 
-// --- Bounds -----------------------------------------------------------------
 // Plain named constants, not configuration. Nothing here differs per
 // deployment, so none of it is worth an env var.
 
@@ -76,8 +75,7 @@ export const MAX_SNIPPET = 300;
 // the entry is still returned, marked, and its true length reported.
 export const ENTRY_CONTENT_CAP = 4000;
 
-// --- Kind tiers -------------------------------------------------------------
-// Nil's three retrieval tiers ((i) user messages, (ii) user + assistant without
+// The three retrieval tiers ((i) user messages, (ii) user + assistant without
 // thinking traces, (iii) everything) and the search kind filter are the same
 // knob: both select a set of entry kinds. They are ONE parameter here rather
 // than two overlapping ones. `conversation` is the default in every mode, which
@@ -120,8 +118,6 @@ export const TIERS: Record<LogTier, readonly LogKind[] | null> = {
 
 export const DEFAULT_TIER: LogTier = "conversation";
 
-// --- The log-tree seam ------------------------------------------------------
-
 // Per-session metadata, narrowed to what search needs. Mirrors the fields
 // persistence.ts writes into `<logs>/<agentId>/sessions.json`.
 export interface SessionMeta {
@@ -153,8 +149,6 @@ export interface LogSource {
   // session is never materialized as an array of parsed objects.
   streamLines(agentId: string, sessionId: string): AsyncIterable<string>;
 }
-
-// --- Query parsing / validation ---------------------------------------------
 
 export type LogQueryMode = "index" | "search" | "retrieve";
 
@@ -376,8 +370,6 @@ export function compileRegex(pattern: string): RegExp | null {
   }
 }
 
-// --- Fork reconstruction ----------------------------------------------------
-
 // The chain of sessions ending at `sessionId`, oldest ancestor first, each with
 // the fork point at which its child branched off. Mirrors the walk in
 // persistence.loadLogWithAncestors (which log-search.test.ts pins against, so
@@ -429,8 +421,6 @@ export async function reconstructTimeline(
   }
   return out;
 }
-
-// --- Matching ---------------------------------------------------------------
 
 // Whether the raw JSONL line can be substring-prefiltered for `q`.
 //
@@ -493,8 +483,6 @@ export function findMatch(
   return idx === -1 ? null : { index: idx, length: q.length };
 }
 
-// --- Results ----------------------------------------------------------------
-
 // Local aliases for the wire shapes imported above, so the implementation below
 // reads in its own vocabulary while there is still exactly one definition of
 // each shape (in shared/contract-shapes.ts).
@@ -516,8 +504,6 @@ export type SessionIndexResult = Omit<
   LogSessionIndexResp,
   "pendingPrompt" | "inFlightTurn"
 >;
-
-// --- Index mode -------------------------------------------------------------
 
 export async function buildSessionIndex(
   source: LogSource,
@@ -547,8 +533,6 @@ export async function buildSessionIndex(
     .sort((a, b) => b.lastModified - a.lastModified);
   return { agentId, sessions };
 }
-
-// --- Retrieval modes --------------------------------------------------------
 
 function projectEntry(entry: NormalizedEntry): RetrievedEntry {
   const content = entry.content;
@@ -686,8 +670,6 @@ export async function retrieveSession(
     entries: tail.map(projectEntry),
   };
 }
-
-// --- Search mode ------------------------------------------------------------
 
 // The resolved kind selection, echoed on every response. Shared so search and
 // retrieval cannot describe the same query differently.
@@ -829,7 +811,7 @@ export async function searchLogs(
     }
   }
 
-  // Most recent first (Nil). Array.prototype.sort is stable, so same-timestamp
+  // Most recent first. Array.prototype.sort is stable, so same-timestamp
   // hits keep the order they were discovered in - within a session, file order.
   // Ties spanning a prune can reshuffle relative to each other; that is not a
   // contract, only the timestamp ordering is.

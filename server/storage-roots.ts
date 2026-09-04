@@ -1,4 +1,4 @@
-// The office's PRODUCTION storage roots, in one place (task 1387a9c7).
+// The office's PRODUCTION storage roots, in one place.
 //
 // server/storage-usage.ts is deliberately root-injected - every path is a
 // parameter so tests measure a temp fixture tree. That leaves the question of

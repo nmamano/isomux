@@ -87,7 +87,6 @@ export function appendLog(agentId: string, sessionId: string, entry: LogEntry) {
   }
 }
 
-// Load log entries from a session's JSONL file
 export function loadLog(agentId: string, sessionId: string): LogEntry[] {
   try {
     const logFile = join(LOGS_DIR, agentId, `${sessionId}.jsonl`);
@@ -96,7 +95,6 @@ export function loadLog(agentId: string, sessionId: string): LogEntry[] {
     if (!content) return [];
     return content.split("\n").map((line) => {
       const entry = JSON.parse(line) as LogEntry & { images?: string[] };
-      // Migrate legacy images field to attachments
       if (entry.images && !entry.attachments) {
         entry.attachments = entry.images.map((filename) => {
           const ext = filename.split(".").pop() ?? "";
@@ -654,7 +652,7 @@ export interface PersistedAgent {
   modelFamily?: string;
   effort?: EffortLevel;
   // Engine. Missing field defaults to "claude" on load (legacy agents spawned
-  // before this field was added). Fixed at spawn - see task f352984f Round 3.
+  // before this field was added). Fixed at spawn.
   agentType?: AgentInfo["agentType"];
   // Codex-only sandbox setting.
   codexSandbox?: AgentInfo["codexSandbox"];
@@ -670,10 +668,10 @@ export interface PersistedAgent {
   // Both null on legacy unowned agents.
   userId?: string | null;
   username?: string | null;
-  // Stable room id (matches the container Room.id). Phase 3c: persisted agents
+  // Stable room id (matches the container Room.id). Persisted agents
   // are explicitly room-id keyed. Physical nesting under rooms stays the source
   // of truth, so this is optional and backfilled from the container on load -
-  // there is no structural flatten to {rooms, agents} in 3c (deferred/not
+  // there is no structural flatten to {rooms, agents} (deferred/not
   // required).
   roomId?: string;
   // Privileged-token flag (default false). Stamped into the agent's bearer
@@ -782,7 +780,7 @@ export function loadAgents(): Room[] {
     delete room.envFile;
     for (const agent of room.agents) {
       migratePersistedAgent(agent);
-      // Phase 3c: stamp the stable roomId from the container room so each
+      // Stamp the stable roomId from the container room so each
       // persisted agent is explicitly room-id keyed. Physical nesting stays the
       // source of truth: backfill when missing, and on the (defensive) mismatch
       // case prefer the container and log.
@@ -877,7 +875,7 @@ export function buildManifest(agents: ManifestAgentInput[]) {
   }));
 }
 
-// The killed-roster analogue, served as GET /agents?killed=1 (task 18fded2c).
+// The killed-roster analogue, served as GET /agents?killed=1.
 // Never written to a file - a killed agent is not something a file-based reader
 // polls - but it lives here so `logDir` is derived in exactly one place. The
 // KilledAgentSummary fields pass through untouched; logDir is the addition that
@@ -897,7 +895,6 @@ export function writeManifest(agents: ManifestAgentInput[]) {
   }
 }
 
-// Recent working directories
 const RECENT_CWDS_FILE = join(ISOMUX_DIR, "recent-cwds.json");
 const MAX_RECENT_CWDS = 20;
 
@@ -1130,7 +1127,7 @@ export function parseDotenv(content: string): Record<string, string> {
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
     const raw = line;
-    // Strip BOM from the first line
+    // Strip the BOM from the first line (0xfeff).
     if (i === 0 && line.charCodeAt(0) === 0xfeff) line = line.slice(1);
     const stripped = line.trim();
     if (!stripped || stripped.startsWith("#")) continue;
@@ -1163,7 +1160,7 @@ export function parseDotenv(content: string): Record<string, string> {
         `parse error at line ${i + 1}: unterminated quoted value`,
       );
     } else {
-      // Strip inline comment (only if preceded by whitespace)
+      // Strip an inline comment only when whitespace precedes the hash.
       const hashMatch = value.match(/\s+#/);
       if (hashMatch && hashMatch.index !== undefined)
         value = value.slice(0, hashMatch.index);
@@ -1241,7 +1238,6 @@ export function saveAgentHistory(history: AgentHistory) {
   }
 }
 
-// Tasks
 export function loadTasks(): TaskItem[] {
   try {
     if (!existsSync(TASKS_FILE)) return [];
@@ -1276,10 +1272,6 @@ export function saveTasks(tasks: TaskItem[]) {
     console.error("Failed to save tasks:", err);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Scheduled messages (task 8ff369b5)
-// ---------------------------------------------------------------------------
 
 const SCHEDULED_MESSAGES_FILE = join(ISOMUX_DIR, "scheduled-messages.json");
 
@@ -1329,10 +1321,6 @@ export function saveScheduledMessages(entries: ScheduledMessageEntry[]) {
     JSON.stringify(entries, null, 2),
   );
 }
-
-// ---------------------------------------------------------------------------
-// Durable per-agent message queues (task 9870b472)
-// ---------------------------------------------------------------------------
 
 const MESSAGE_QUEUES_FILE = join(ISOMUX_DIR, "message-queues.json");
 
@@ -1410,10 +1398,6 @@ export function saveMessageQueues(store: Record<string, unknown>) {
   atomicWriteFileSync(MESSAGE_QUEUES_FILE, JSON.stringify(store, null, 2));
 }
 
-// ---------------------------------------------------------------------------
-// File storage (unified files/ directory with SHA256 dedup)
-// ---------------------------------------------------------------------------
-
 const MAX_FILE_BYTES = 200 * 1024 * 1024; // 200MB
 
 const EXTENSION_TO_MIME: Record<string, string> = {
@@ -1436,9 +1420,7 @@ const EXTENSION_TO_MIME: Record<string, string> = {
 
 /** Sanitize a filename: strip path components, replace unsafe chars, fallback to hash. */
 function sanitizeFilename(name: string): string {
-  // Strip directory components
   const base = name.replace(/.*[/\\]/, "");
-  // Replace anything that isn't alphanumeric, dot, dash, underscore, or space
   const clean = base.replace(/[^a-zA-Z0-9.\-_ ]/g, "_");
   return clean || "file";
 }
@@ -1490,10 +1472,9 @@ export function saveFile(
 
 /** Resolve a filename to its disk path, or null if invalid/missing. */
 export function getFilePath(agentId: string, filename: string): string | null {
-  // Block path traversal
+  // Block path traversal.
   if (/[/\\]/.test(filename) || /[/\\]/.test(agentId)) return null;
   if (filename === "." || filename === "..") return null;
-  // Try new files/ directory first, fall back to legacy images/
   const filePath = join(LOGS_DIR, agentId, "files", filename);
   if (existsSync(filePath)) return filePath;
   const legacyPath = join(LOGS_DIR, agentId, "images", filename);

@@ -1,5 +1,4 @@
-// Version identity for this deployment (release-channel slice C1, see
-// internal-docs/release-design.md).
+// Version identity for this deployment (see internal-docs/release-design.md).
 //
 // Every deployment is a git checkout (dev box or installer-managed
 // /opt/isomux), so git is the single source of truth: releases are annotated

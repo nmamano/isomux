@@ -1,4 +1,4 @@
-// Per-user skill/command-use counters (task f1769b1a). Server-side so counts
+// Per-user skill/command-use counters. Server-side so counts
 // follow the user across devices (localStorage would not sync). A "use" is one
 // skill OR built-in command invocation dispatched through the slash-command
 // resolver (typed `/name` or picked from the Sk menu - both arrive as the same

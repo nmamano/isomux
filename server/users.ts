@@ -82,7 +82,7 @@ function normalizeAllowedRooms(value: unknown): string[] {
 }
 
 // Generic "string[] or []" normalizer for the per-user view-preference room-id
-// lists (hidden / order) - Phase 3b. Same shape as normalizeAllowedRooms; named
+// lists (hidden / order). Same shape as normalizeAllowedRooms; named
 // for the view fields so call sites read clearly.
 function normalizeRoomIdList(value: unknown): string[] {
   if (Array.isArray(value) && value.every((x) => typeof x === "string")) {
@@ -196,7 +196,7 @@ function load(): Record<string, UserRecord> {
           typeof value.createdAt === "number" ? value.createdAt : Date.now(),
         role: normalizeRole(value.role),
         allowedRooms: normalizeAllowedRooms(value.allowedRooms),
-        // View prefs (Phase 3b): backfill [] for legacy records lacking them.
+        // Backfill view prefs to [] for legacy records lacking them.
         hidden: normalizeRoomIdList(value.hidden),
         order: normalizeRoomIdList(value.order),
         memberPrompt: normalizeMemberPrompt(value.memberPrompt),
@@ -228,9 +228,6 @@ function load(): Record<string, UserRecord> {
 function persist() {
   atomicWriteFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
-
-// ---------------------------------------------------------------------------
-// Lookups
 
 export function listUsers(): UserRecord[] {
   load();
@@ -313,9 +310,6 @@ export function wouldDeleteLeaveNoOwner(userId: string): boolean {
   return remaining === 0;
 }
 
-// ---------------------------------------------------------------------------
-// Mutations
-
 // Idempotent: if a record with this display name (case-insensitive)
 // already exists, return it unchanged. Otherwise mint a fresh id and
 // create the record. New records default to role "member"; pass
@@ -352,7 +346,7 @@ export function claimUser(
     // in auth.ts) to preserve "owners see everything" semantics; they
     // default to [] here if the caller omits the snapshot.
     allowedRooms: resolvedAllowed,
-    // View prefs (Phase 3b): new users start with nothing hidden and the
+    // New users start with nothing hidden and the
     // default office-order room order.
     hidden: [],
     order: [],
@@ -381,7 +375,7 @@ export function claimUser(
 // refresh the cached `ws.data.session` on the user's connected sockets, so
 // role-keyed audience selection (e.g. the owners-audience fan-out in
 // liveEmitDeps) reflects the change immediately instead of after the next
-// inbound message's revalidateByHash (task edac170a: a just-demoted ex-owner
+// inbound message's revalidateByHash (a just-demoted ex-owner
 // could otherwise receive one more owner-only event). Defaults to no-op so
 // users.ts stays standalone; mirrors auth.ts's setOnSessionsChanged.
 let onUserRoleChangedHook: (userId: string) => void = () => {};
@@ -515,8 +509,8 @@ export function updateUserById(
       changes.allowedRooms !== undefined
         ? normalizeAllowedRooms(changes.allowedRooms)
         : existing.allowedRooms,
-    // View prefs (Phase 3b): writable by SERVER-SIDE callers via updateUserById
-    // (the slice-3 owner-access migration; the slice-4 view.* routes), but NOT
+    // View prefs are writable by SERVER-SIDE callers via updateUserById
+    // (the owner-access migration and view.* routes), but NOT
     // exposed on the client update_user wire (that command omits hidden/order),
     // so a client cannot set them through here. Preserve when absent.
     hidden:

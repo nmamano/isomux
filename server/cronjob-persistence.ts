@@ -71,10 +71,6 @@ export function migrateCronjobsPromptFromOfficeConfig() {
   } catch {}
 }
 
-// ---------------------------------------------------------------------------
-// Cronjob configs
-// ---------------------------------------------------------------------------
-
 export function loadCronjobs(): Cronjob[] {
   try {
     if (!existsSync(CRONJOBS_FILE)) return [];
@@ -144,10 +140,6 @@ export function saveCronjobHistory(history: CronjobHistory) {
     console.error("Failed to save cronjob history:", err);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Runs
-// ---------------------------------------------------------------------------
 
 function jobDir(jobId: string): string {
   return join(CRONJOBS_DIR, jobId);
@@ -250,10 +242,6 @@ export function listAllCronjobIdsOnDisk(): string[] {
     return [];
   }
 }
-
-// ---------------------------------------------------------------------------
-// Per-run sessions.json (same shape as agent sessions map)
-// ---------------------------------------------------------------------------
 
 type UsageSnapshot = { entryId: string; usage: PersistedUsage };
 type RunSessionsMap = Record<
@@ -449,10 +437,6 @@ export function appendRunSessionUsageSnapshot(
   };
   saveRunSessionsMap(jobId, runId, map);
 }
-
-// ---------------------------------------------------------------------------
-// Per-run JSONL append + load
-// ---------------------------------------------------------------------------
 
 export function appendRunLog(
   jobId: string,

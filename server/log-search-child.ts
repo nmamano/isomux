@@ -2,8 +2,8 @@
 // stdin, runs the shared core, writes one JSON envelope on stdout, exits.
 //
 // WHY A SEPARATE PROCESS AND NOT A WORKER THREAD - this is the ReDoS guard, and
-// only a process actually delivers one in this runtime. Nil's spec called for
-// regex support with "a match timeout or an RE2-style engine". Everything below
+// only a process actually delivers one in this runtime. Regex support needs a
+// match timeout or an RE2-style engine. Everything below
 // was measured, not assumed:
 //
 //   - A Worker CANNOT be stopped. `worker.terminate()` does not preempt running

@@ -12,8 +12,8 @@
 //   - {Creator}, {YYYY-MM-DD}: {the self-contained fact}
 //   - {YYYY-MM-DD}: {the self-contained fact}          (agent's note to ITSELF)
 // The second shape exists only for an agent APPENDing to its own agent scope,
-// where the Creator names the reader and burns cap + prompt space for nothing
-// (task f9d2bbac). Both shapes parse; nothing rewrites existing lines.
+// where the Creator names the reader and burns cap + prompt space for nothing.
+// Both shapes parse; nothing rewrites existing lines.
 // There are NO ids and NO supersede/tombstone grammar. There are three verbs:
 //   APPEND  - add one server-stamped line (the safe default).
 //   READ    - return the whole raw file plus an optimistic-concurrency version.
@@ -61,13 +61,11 @@ function nowIsoUtc(): string {
   return new Date().toISOString();
 }
 
-// --- pure format / parse ----------------------------------------------------
-
 // The APPEND line shape: "- {author}, {date}: {text}", or "- {date}: {text}" when
 // `author` is null. REPLACE writes raw bytes and does NOT go through here.
 //
-// The author-less shape exists for the one case where the name is pure waste
-// (task f9d2bbac): an agent writing to its OWN agent scope, where the author is
+// The author-less shape exists only when an agent writes to its OWN agent
+// scope, where the author is
 // the reader. It costs twice otherwise - once against the scope's hard size cap,
 // and again in the agent's own prompt. Every other writer (another agent, a boss,
 // a human rewrite) still gets named, because there the name carries information.
@@ -115,8 +113,6 @@ export function parseMemoryLine(
   };
 }
 
-// --- exact-duplicate guard (append-time) ------------------------------------
-
 // trim -> lowercase -> collapse internal whitespace -> strip ONLY terminal
 // punctuation (so internal hyphens/slashes/dots in `isomux-active`, paths, IPs
 // survive). Normalization is for COMPARISON only; the stored line keeps the
@@ -137,10 +133,7 @@ export function isExactDuplicateText(text: string, existing: string): boolean {
   return normalizeForDedup(text) === normalizeForDedup(existing);
 }
 
-// --- per-scope injected-size caps -------------------------------------------
-
-// Max injected size per scope, in characters (Nil-set; room raised 3500->10000
-// on 2026-08-01 after real room memory proved the working size). The four caps
+// Max injected size per scope, in characters. The four caps
 // sum to ~22.5k chars (~5.6k tokens) fully maxed; typical loads sit far lower.
 // Central + exported; injectable via MemoryStoreDeps.caps so tests use tiny
 // fixtures.
@@ -154,7 +147,7 @@ export const MEMORY_CAPS: Record<MemoryScope, number> = {
 export const MEMORY_LINE_MAX = 400;
 
 // Caps are HARD and enforced at write time: a save that would put a scope over
-// its cap is refused (fail loud and early - Nil, 2026-08-01), so memories are
+// its cap is refused (fail loud and early), so memories are
 // never silently dropped from the prompt. A scope can still sit over its cap
 // from before this rule existed; such a scope renders in FULL, refuses new
 // appends, and accepts a replace only if it shrinks the file.
@@ -178,21 +171,17 @@ export function injectedSize(text: string): number {
   return injectedMemorySize(text);
 }
 
-// --- optimistic-concurrency version -----------------------------------------
-
 // Short sha256 of the exact file bytes. A missing/empty file hashes "" to a fixed
 // value (sha256("")[:12]), which serves as the missing-file sentinel - so a
 // READ -> REPLACE round-trip works on a never-written scope. 12 hex chars keeps
 // collision anxiety out of reviews while staying compact.
 //
-// The implementation moved to shared/blob-version.ts (task 44a2c98d) so the
+// The implementation lives in shared/blob-version.ts so the
 // same token derivation serves the prompt-blob version guards, including
 // AgentInfo.customInstructionsVersion, which is maintained inside the
 // browser-bundled shared/office-state.ts. Re-exported here so existing
 // memory-surface imports keep working.
 export { versionOf } from "../shared/blob-version.ts";
-
-// --- op-log -----------------------------------------------------------------
 
 // One append-only audit/recovery record per successful mutating op. `content` is
 // the EXACT full file bytes after the op, so manual recovery is just re-REPLACEing
@@ -209,8 +198,6 @@ export interface OpLogEntry {
   version: string; // post-op version
   previousVersion?: string; // pre-op version (replace only)
 }
-
-// --- the injectable store ---------------------------------------------------
 
 // One scope to fold into the auto-load block, with the plain label shown above
 // its lines (e.g. "Office-wide", `Room "Isomux Dev"`, "Your agent").

@@ -1,5 +1,5 @@
 // Fixed-window per-IP rate limit for the unauthenticated /readyz probe
-// (release-channel slice C1, internal-docs/release-design.md).
+// (internal-docs/release-design.md).
 //
 // /readyz is the one endpoint that answers non-loopback callers with no
 // identity at all, so it gets an anti-abuse limit. Loopback is exempt AT THE

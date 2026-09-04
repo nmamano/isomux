@@ -1,4 +1,4 @@
-// Disk-usage breakdown of the office's persisted footprint (task 2366ccb0).
+// Disk-usage breakdown of the office's persisted footprint.
 //
 // Office state grows without bound: conversation transcripts and attachments
 // under <stateRoot>/logs are never pruned, and codex-home is written by the

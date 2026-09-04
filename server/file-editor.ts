@@ -65,7 +65,6 @@ function fileSig(st: {
   return `${st.mtimeMs}:${st.ino}:${st.size}`;
 }
 
-// --- Revision registry ------------------------------------------------------
 // Per-path monotonic revision counters, keyed by absolute path. The client-
 // visible mtime cannot detect every disk change (a replace landing within the
 // same millisecond compares equal), but the server-side signature - which
@@ -466,7 +465,7 @@ export function watchFile(
   // Test-only override of the poll interval.
   opts?: { pollMs?: number },
 ): FileWatcher {
-  // mtime polling, NOT fs.watch. Task 30ffe109 found fs.watch unusable under
+  // mtime polling, NOT fs.watch. `fs.watch` is unusable under
   // Bun for this: most agent tooling saves via atomic write-to-tmp + rename
   // (Claude Code's Edit/Write do, observed: `x.tmp.<pid>.<hash>` renamed over
   // `x`), which replaces the file's inode. A single-file fs.watch binds to

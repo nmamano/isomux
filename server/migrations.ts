@@ -176,6 +176,6 @@ function copyDirectoryRecursive(src: string, dst: string): void {
     } else if (entry.isFile()) {
       copyFileSync(sp, dp);
     }
-    // Skip symlinks, sockets, devices.
+    // Skip symlinks, sockets, and devices.
   }
 }

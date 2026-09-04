@@ -1,4 +1,4 @@
-// Scheduled messages (task 8ff369b5): let an agent send a message to itself or
+// Scheduled messages let an agent send a message to itself or
 // another agent at a future time (POST /api/agents/:id/messages + deliverAt).
 //
 // Shape mirrors cronjob-manager: an instantiable factory with injected
@@ -7,8 +7,7 @@
 // boot + a fixed interval) rather than one timer per entry - restart safety
 // falls out of the persisted entry list instead of timer bookkeeping.
 //
-// DELIVERY SEMANTICS (decisions by Nil, 2026-07-11; see
-// internal-docs/scheduled-messages-design.md):
+// DELIVERY SEMANTICS (see internal-docs/scheduled-messages-design.md):
 //   - AT-LEAST-ONCE from acceptance to queue handoff: fire order is
 //     enqueue-then-persist-removal, so a crash between the two re-fires the
 //     entry on restart (rare duplicate). The alternative order would turn the
@@ -18,7 +17,7 @@
 //     sender and the receiver is told the sender is gone (receiver decides
 //     what that means).
 //   - After handoff the message lives in the receiver's queue, which is
-//     itself DURABLE since task 9870b472 (~/.isomux/message-queues.json,
+//     itself DURABLE (~/.isomux/message-queues.json,
 //     replayed on boot) - the old "crash before the flush loses it" window is
 //     closed; end-to-end delivery is at-least-once.
 
@@ -189,8 +188,6 @@ export function createScheduledMessageManager(
   let initialTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
   let tickInProgress = false;
 
-  // --- Create / list / cancel ------------------------------------------------
-
   function schedule(input: ScheduleInput): ScheduleResult {
     const now = clock.now();
     if (input.text.length === 0) {
@@ -345,8 +342,6 @@ export function createScheduledMessageManager(
     return { ok: true };
   }
 
-  // --- Firing ------------------------------------------------------------------
-
   function removeAndPersistBestEffort(entry: ScheduledMessageEntry) {
     const idx = entries.indexOf(entry);
     if (idx !== -1) entries.splice(idx, 1);
@@ -439,8 +434,6 @@ export function createScheduledMessageManager(
       tickInProgress = false;
     }
   }
-
-  // --- Lifecycle -----------------------------------------------------------------
 
   // Boot catch-up happens on the first (delayed) tick: anything past-due -
   // including entries that came due while the server was down - fires there.

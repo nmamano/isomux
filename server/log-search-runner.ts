@@ -58,7 +58,6 @@ export type SearchOutcome =
   | { ok: true; result: SearchResult }
   | { ok: false; status: 429 | 500 | 504; code: string; message: string };
 
-// --- Admission ---------------------------------------------------------------
 // An admission is a RECORD, not a counter bump. The counters alone were unsafe:
 // a release that arrives late (a child exiting after the bookkeeping was reset,
 // which is routine in tests) would decrement whatever generation happened to be
@@ -129,8 +128,6 @@ export function _testResetSearchAdmission(): void {
   perCaller.clear();
   officeWide = 0;
 }
-
-// --- Running a scan ----------------------------------------------------------
 
 // Run one scan in a child process. Resolves with the result, a 504 when the
 // hard deadline fired (and the child was killed), or a 429 when the caller is

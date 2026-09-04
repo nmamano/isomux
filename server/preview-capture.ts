@@ -1,10 +1,9 @@
-// Browser preview capture - the engine behind POST /api/agents/:id/preview-url
-// (task dcfd5a97). Screenshots a URL with a Chrome-family headless CLI (zero
-// bundled browser deps) so an agent can drop a page preview card into its
-// chat. Design doc: reviewed by Reviewer5, approved by Nil 2026-07-12.
+// Browser preview capture - the engine behind POST /api/agents/:id/preview-url.
+// It uses a Chrome-family headless CLI (zero bundled browser deps) so an agent
+// can drop a page preview card into its chat.
 //
-// Shape notes frozen by that review:
-//   - Any http(s) URL is accepted (task fb02f521, Nil 2026-07-12): the
+// Shape notes:
+//   - Any http(s) URL is accepted: the
 //     original local/private-host input policy was dropped because it never
 //     was an enforced network boundary - agents already have unrestricted
 //     shell access, and Chrome resolves DNS independently (redirects and
@@ -209,7 +208,6 @@ export function parsePreviewParams(
   return { ok: true, url, width, height, wait };
 }
 
-// ---------------------------------------------------------------------------
 // Engine probe. ISOMUX_PREVIEW_BROWSER overrides for unusual install paths and
 // for deterministic tests (a fake shell-script "browser").
 
@@ -231,7 +229,6 @@ function defaultFindBrowser(): string | null {
   return null;
 }
 
-// ---------------------------------------------------------------------------
 // Chrome run: detached spawn (own process group), group kill on deadline with
 // SIGKILL escalation, timers cleared on observed exit, ENOENT handled even
 // after a successful probe (probe-to-spawn races), kill idempotent.
@@ -298,7 +295,7 @@ function runBrowser(
         try {
           child.kill(signal); // group already gone or not a leader; best effort
         } catch {
-          // already dead - kill is idempotent by being a no-op here
+          // The child is already dead; killing it is idempotent.
         }
       }
     };
@@ -316,7 +313,7 @@ function runBrowser(
       try {
         return isCompletePng(await readFile(outPath));
       } catch {
-        return false; // not there yet
+        return false;
       }
     };
 
@@ -330,8 +327,8 @@ function runBrowser(
         .then((done) => {
           polling = false;
           if (!done || settled || fileDone || timedOut) return;
-          // Screenshot complete: don't wait out Chrome's teardown hang - kill
-          // the group and let the 'close' handler resolve as captured.
+          // Do not wait out Chrome's teardown hang after the screenshot is
+          // complete. Kill the group and let the close handler resolve it.
           fileDone = true;
           if (pollTimer) clearInterval(pollTimer);
           pollTimer = null;
@@ -344,9 +341,9 @@ function runBrowser(
     }, FILE_POLL_INTERVAL_MS);
 
     killTimer = setTimeout(() => {
-      if (settled || fileDone) return; // capture already won
+      if (settled || fileDone) return;
       timedOut = true;
-      if (pollTimer) clearInterval(pollTimer); // stop polling; timeout won
+      if (pollTimer) clearInterval(pollTimer);
       pollTimer = null;
       killGroup("SIGTERM");
       graceTimer = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
@@ -389,8 +386,6 @@ function runBrowser(
     });
   });
 }
-
-// ---------------------------------------------------------------------------
 
 function previewFilename(url: URL): string {
   const host = url.hostname
@@ -485,7 +480,7 @@ export async function capturePreview(
       // window to the virtual SCREEN (default 800x600), not --window-size -
       // so pin the screen to the requested size too. Result: viewport ==
       // window == screen == canvas (verified empirically on Chrome 145,
-      // 2026-07-12; see task dcfd5a97 follow-up).
+      // 2026-07-12).
       `--screen-info={0,0 ${width}x${height}}`,
       "--start-fullscreen",
       "--hide-scrollbars",
@@ -563,7 +558,6 @@ export async function capturePreview(
       );
     }
 
-    // outcome.kind === "captured": a complete PNG is on disk.
     let png: Buffer<ArrayBuffer>;
     try {
       // fs.readFile allocates a process-owned ArrayBuffer, never a

@@ -1,8 +1,8 @@
-// WebSocket frame codec for the app relay (phase 3, slice 6a).
+// WebSocket frame codec for the app relay.
 //
 // The relay behind app hostnames needs to speak WebSocket to an app on
-// loopback. Bun has a WebSocket client, and slice 6's plan started with it -
-// but it buffers writes with no observable bound: `bufferedAmount` reads 0 no
+// loopback. Bun's WebSocket client buffers writes with no observable bound:
+// `bufferedAmount` reads 0 no
 // matter what, and 120MB of sends to an app that had stopped reading grew the
 // process to 211MB RSS with nothing to notice it by (measured, Bun 1.3.11). The
 // office is a single process holding every agent's state, so an app that stops
@@ -35,8 +35,6 @@
 
 import { randomBytes } from "crypto";
 
-// --- the wire ---------------------------------------------------------------
-
 export const OPCODE_CONTINUATION = 0x0;
 export const OPCODE_TEXT = 0x1;
 export const OPCODE_BINARY = 0x2;
@@ -55,8 +53,6 @@ export const MAX_CLOSE_REASON_BYTES = MAX_CONTROL_PAYLOAD_BYTES - 2;
 // The largest header a frame can have: 2 bytes of framing, 8 for a 64-bit
 // length, 4 for a mask. Used to bound the parser's own scratch buffer.
 export const MAX_FRAME_HEADER_BYTES = 14;
-
-// --- close codes ------------------------------------------------------------
 
 // Close codes that may legitimately appear on the wire. Everything outside this
 // set is either reserved for a local condition that cannot be transmitted
@@ -93,8 +89,6 @@ export function truncateCloseReason(reason: string): string {
   while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--;
   return bytes.subarray(0, end).toString("utf8");
 }
-
-// --- encoding ---------------------------------------------------------------
 
 // A client's frames MUST be masked (RFC 6455 section 5.3), and the mask has to
 // be unpredictable: it exists so a hostile page cannot steer the plaintext of
@@ -166,8 +160,6 @@ export function encodeCloseFrame(code: number | null, reason = ""): Buffer {
   reasonBytes.copy(payload, 2);
   return encodeFrame(OPCODE_CLOSE, payload);
 }
-
-// --- decoding ---------------------------------------------------------------
 
 export type DecodedMessage =
   // Text arrives validated: a decoder that handed back replacement characters

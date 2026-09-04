@@ -1,4 +1,4 @@
-// User-visible wording for a backend that died (tasks 86678675, e8168c2a).
+// User-visible wording for a backend that died.
 //
 // Three orchestrator sites log a backend failure into the agent's chat, and all
 // three used to paste the raw string the backend threw:

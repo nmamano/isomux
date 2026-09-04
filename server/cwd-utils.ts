@@ -99,7 +99,7 @@ const CLAUDE_SESSION_TAIL_BYTES = 256 * 1024;
 // a shutdown? The Claude CLI stamps `interruptedByShutdown` when a SIGTERM cuts
 // a turn short, on the same entry whose tool result claims the USER rejected the
 // running tool. That hardcoded wording is indistinguishable from a real denial
-// to the resumed agent (task ad86462c), so a true answer here lets the wake-up
+// to the resumed agent, so a true answer here lets the wake-up
 // message say categorically that no human rejected anything.
 //
 // Deliberately NON-LOAD-BEARING: any doubt at all - missing file, unreadable
